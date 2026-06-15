@@ -1,0 +1,71 @@
+/* Cast — preamble screen (grid backdrop + preamble VN bg). Split from cast.css (PR 1, verbatim move). */
+
+.cast-vn--preamble {
+  background: radial-gradient(ellipse at 50% 30%, #162b16 0%, #0f1f0f 40%, #091509 100%);
+}
+.cast-preamble__topbar {
+  position: absolute;
+  top: 32px;
+  left: 80px;
+  transform: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 5;
+}
+.cast-preamble__setup-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.45);
+  white-space: nowrap;
+}
+
+/* Preamble grid — cohesive grid anchored to bottom corners */
+.cast-preamble__boxes {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.cast-preamble__grid {
+  position: absolute;
+  bottom: 0;
+}
+.cast-preamble__grid--left {
+  left: 0;
+}
+.cast-preamble__grid--right {
+  right: 0;
+}
+.cast-preamble__lines {
+  position: absolute;
+  inset: 0;
+}
+.cast-preamble__lines--left {
+  mask-image: linear-gradient(to bottom, transparent 0%, black 25%),
+              linear-gradient(to left, transparent 0%, black 20%);
+  mask-composite: intersect;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 25%),
+                      linear-gradient(to left, transparent 0%, black 20%);
+  -webkit-mask-composite: source-in;
+}
+.cast-preamble__lines--right {
+  mask-image: linear-gradient(to bottom, transparent 0%, black 25%),
+              linear-gradient(to right, transparent 0%, black 20%);
+  mask-composite: intersect;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 25%),
+                      linear-gradient(to right, transparent 0%, black 20%);
+  -webkit-mask-composite: source-in;
+}
+.cast-preamble__gridlines {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+.cast-preamble__cell {
+  position: absolute;
+  padding: 16px;
+}
+.cast-preamble__cell svg {
+  display: block;
+}

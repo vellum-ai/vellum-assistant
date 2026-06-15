@@ -1,0 +1,835 @@
+/* Cast — shared shell: stage/panel, avatars, names, focus-mode chat, modal,
+ * bottom controls, inline beat widgets. Split from cast.css (PR 1, verbatim move). */
+
+/* Cast — activation-surface prototype styles.
+ *
+ * Chrome (text, surfaces, borders, radii, on-scale spacing) uses the Vellum
+ * design tokens from @vellumai/design-library/tokens.css. The Cast stage sets a
+ * switchable `data-theme` (light/dark/velvet) so the chrome matches the app in
+ * any theme. The cursor-spotlight "shroud" derives from the theme surface
+ * (`--cast-shroud`) so the cave is deep on dark and a gentle dim on light.
+ *
+ * The gold Super-Saiyan aura/flash/sparks, drop shadows, skeleton shimmer, and
+ * the warm spotlight core are bespoke effects (like the avatar SVG colors) and
+ * stay as literal values. */
+
+.cast-stage {
+  /* `--cast-shroud` is the "unlit" color the spotlight/vignette fades toward —
+     derived from the theme's own surface so it's a deep cave on dark and a
+     gentle dim on light. `--cast-dim` controls how far it sinks toward black. */
+  --cast-dim: 62%;
+  --cast-shroud: color-mix(in srgb, var(--surface-base), #000 var(--cast-dim));
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-base);
+  color: var(--content-default);
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* Full-window stage. */
+.cast-panel {
+  position: relative;
+  width: 100vw;
+  height: 100dvh;
+  overflow: hidden;
+  background: radial-gradient(120% 90% at 50% 0%, var(--surface-lift) 0%, var(--surface-base) 60%, var(--cast-shroud) 100%);
+  color: var(--content-default);
+}
+
+.cast-panel__header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: var(--app-spacing-xl) var(--app-spacing-xl) 40px;
+  text-align: center;
+  z-index: 2;
+  pointer-events: none;
+  /* fade from the theme surface so the title reads over the crowd in any theme */
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--surface-base) 82%, transparent) 0%, transparent 100%);
+  text-shadow: 0 2px 12px color-mix(in srgb, var(--cast-shroud) 70%, transparent);
+}
+
+.cast-panel__title {
+  margin: 0;
+  font-family: "Instrument Serif", var(--font-serif), serif;
+  font-size: clamp(2rem, 1rem + 2.4vw, 3rem);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+.cast-panel__subtitle {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--content-secondary);
+}
+
+/* Instrument Serif — local font for editorial headings */
+@font-face {
+  font-family: "Instrument Serif";
+  src: url("/fonts/InstrumentSerif-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ---- Beat 1: the crowd on a tilted ground plane ---- */
+
+.cast-stage3d {
+  --tilt: 40deg;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  overflow: hidden;
+  perspective: 1500px;
+  /* horizon high in frame so the crowd recedes nearly to the top */
+  perspective-origin: 50% 13%;
+}
+
+.cast-floor {
+  display: grid;
+  column-gap: 2px;
+  /* width set inline (FLOOR_W) so the crowd bleeds past both edges; no gutter.
+     flex-shrink:0 stops the centering flex parent from collapsing it back to
+     viewport width (which would shrink the dudes instead of overflowing). */
+  flex-shrink: 0;
+  transform: rotateX(var(--tilt));
+  transform-origin: bottom center;
+  transform-style: preserve-3d;
+}
+
+/* Registered so the spotlight can smoothly glide + tighten when a pick is made
+   (plain custom props animate instantly otherwise). */
+@property --mx { syntax: "<length-percentage>"; inherits: false; initial-value: 50%; }
+@property --my { syntax: "<length-percentage>"; inherits: false; initial-value: 58%; }
+@property --spot-core { syntax: "<length>"; inherits: false; initial-value: 220px; }
+@property --spot-edge { syntax: "<length>"; inherits: false; initial-value: 320px; }
+
+/* Spotlight — a lit pool that tracks the cursor (--mx/--my); the rest of the
+   crowd sits in shadow. Bespoke art effect, intentionally not tokenized. */
+.cast-spotlight {
+  --mx: 50%;
+  --my: 58%;
+  --spot-core: 220px;
+  --spot-edge: 320px;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+  background:
+    radial-gradient(
+      circle var(--spot-core) at var(--mx) var(--my),
+      rgba(255, 240, 214, 0.14) 0%,
+      rgba(255, 240, 214, 0) 65%
+    ),
+    radial-gradient(
+      circle var(--spot-edge) at var(--mx) var(--my),
+      transparent 0%,
+      transparent 30%,
+      color-mix(in srgb, var(--cast-shroud) 55%, transparent) 64%,
+      color-mix(in srgb, var(--cast-shroud) 92%, transparent) 100%
+    ),
+    linear-gradient(
+      to top,
+      transparent 60%,
+      color-mix(in srgb, var(--cast-shroud) 55%, transparent) 84%,
+      color-mix(in srgb, var(--cast-shroud) 94%, transparent) 100%
+    );
+}
+
+/* covers the crowd on selection without touching the 3D floor's opacity */
+.cast-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  background: radial-gradient(120% 90% at 50% 0%, var(--surface-lift) 0%, var(--surface-base) 60%, var(--cast-shroud) 100%);
+}
+
+.cast-cell {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  margin-bottom: -28%; /* pull rows together so the crowd packs tight */
+  aspect-ratio: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  cursor: pointer;
+  transform-style: preserve-3d;
+  outline: none;
+}
+
+/* counter-rotate about the feet so characters stand upright, planted on the
+ * floor, facing us — perspective alone gives the receding-crowd depth. */
+.cast-cell__stand {
+  display: block;
+  width: 90%;
+  aspect-ratio: 1;
+  transform-origin: bottom center;
+  transform: rotateX(calc(-1 * var(--tilt)));
+  transform-style: preserve-3d;
+  transition: filter 140ms ease, transform 140ms ease;
+}
+
+.cast-cell:hover .cast-cell__stand,
+.cast-cell:focus-visible .cast-cell__stand {
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.5));
+  z-index: 5;
+}
+
+.cast-idle {
+  display: block;
+  width: 100%;
+  height: 100%;
+  animation: cast-bob 3.2s ease-in-out infinite;
+}
+
+.cast-hover {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+}
+
+
+.cast-avatar {
+  width: 100%;
+  height: 100%;
+}
+.cast-avatar svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+
+/* ---- flying clone (Beat 1 → Beat 2 FLIP) ---- */
+
+.cast-fly {
+  position: absolute;
+  z-index: 6;
+  filter: drop-shadow(0 14px 30px rgba(0, 0, 0, 0.5));
+}
+
+/* ---- Beats 2–4: focus / hero ---- */
+
+.cast-focus,
+.cast-beat {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+}
+
+/* constant gentle drift so the focused character is never frozen between
+   autonomous reactions */
+.cast-focus-alive {
+  display: block;
+  width: 100%;
+  height: 100%;
+  animation: cast-drift 4.2s ease-in-out infinite;
+}
+
+.cast-name {
+  position: absolute;
+  left: 0;
+  right: 0;
+  text-align: center;
+}
+
+.cast-name__edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  background: none;
+  border: none;
+  color: var(--content-default);
+  cursor: pointer;
+  padding: 2px var(--app-spacing-sm);
+  outline: none;
+}
+
+.cast-name__text {
+  font-size: 30px;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 5px;
+  transition: text-decoration-color 140ms ease;
+}
+
+/* pencil is the affordance; hover/focus also underlines the name */
+.cast-name__pencil {
+  flex-shrink: 0;
+  opacity: 0.5;
+  transition: opacity 140ms ease;
+}
+.cast-name__edit:hover .cast-name__text,
+.cast-name__edit:focus-visible .cast-name__text {
+  text-decoration-color: var(--content-secondary);
+}
+.cast-name__edit:hover .cast-name__pencil,
+.cast-name__edit:focus-visible .cast-name__pencil {
+  opacity: 0.95;
+}
+
+.cast-name__input {
+  font-size: 30px;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+  text-align: center;
+  color: var(--content-default);
+  background: var(--surface-hover);
+  border: 1px solid var(--border-element);
+  border-radius: var(--radius-md);
+  padding: 2px 10px;
+  width: 70%;
+  outline: none;
+}
+
+.cast-zzz {
+  position: absolute;
+  top: 4%;
+  left: 70%;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--content-secondary);
+  pointer-events: none;
+}
+.cast-zzz--hero {
+  font-size: 18px;
+}
+
+/* ---- Persistent shell for preamble → starter → dialogue ---- */
+
+.cast-setup-shell {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  background: radial-gradient(ellipse at 50% 30%, #162b16 0%, #0f1f0f 40%, #091509 100%);
+}
+.cast-setup-shell__content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+/* ---- bottom controls ---- */
+
+.cast-build-link {
+  position: absolute;
+  left: var(--app-spacing-lg);
+  bottom: var(--app-spacing-lg);
+  appearance: none;
+  border: none;
+  background: var(--surface-hover);
+  color: var(--content-secondary);
+  font-size: 12px;
+  font-weight: 550;
+  padding: 9px 13px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  z-index: 3;
+}
+.cast-build-link:hover {
+  background: var(--surface-active);
+  color: var(--content-default);
+}
+
+.cast-continue {
+  position: absolute;
+  left: var(--app-spacing-xl);
+  right: var(--app-spacing-xl);
+  bottom: 40px;
+  appearance: none;
+  border: none;
+  background: var(--primary-base);
+  color: var(--content-inset);
+  font-size: 16px;
+  font-weight: 650;
+  padding: var(--app-spacing-lg);
+  border-radius: var(--radius-xl);
+  cursor: pointer;
+}
+.cast-continue:hover {
+  background: var(--primary-hover);
+}
+
+.cast-back {
+  position: absolute;
+  left: 32px;
+  top: 36px;
+  appearance: none;
+  border: none;
+  background: var(--surface-hover);
+  color: var(--content-secondary);
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  z-index: 5;
+}
+.cast-back:hover {
+  background: var(--surface-active);
+}
+
+/* ---- placeholder "Build your own" modal ---- */
+
+.cast-modal__scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 7;
+  padding: var(--app-spacing-xl);
+}
+
+.cast-modal {
+  width: 100%;
+  background: var(--surface-overlay);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  padding: 22px;
+  text-align: center;
+}
+.cast-modal h2 {
+  margin: 0 0 var(--app-spacing-sm);
+  font-size: 18px;
+}
+.cast-modal p {
+  margin: 0 0 18px;
+  font-size: 13px;
+  color: var(--content-secondary);
+  line-height: 1.5;
+}
+.cast-modal button {
+  appearance: none;
+  border: none;
+  background: var(--primary-base);
+  color: var(--content-inset);
+  font-weight: 600;
+  font-size: 14px;
+  padding: 11px 18px;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+}
+
+/* ---- Onboarding chat: focus mode ----
+   The REAL conversation UI (TranscriptMessageBody in the product's centered
+   --chat-max-width column) with the app chrome stripped: no side nav, no
+   composer. Just a title, a slim journey-milestone stepper, one focused turn at
+   a time, and a "lil dude" avatar under the most recent response. */
+.cast-focus {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.cast-focus__header {
+  flex: none;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 26px 24px 22px;
+  z-index: 2;
+}
+
+/* Thin, quiet progress indicator under the title: three elongated segments
+   spanning ~2/3 of the title's width. */
+.cast-focus__progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: clamp(200px, 26vw, 320px);
+}
+.cast-focus__pdot {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--surface-active);
+}
+.cast-focus__pdot.is-on {
+  background: #46c178;
+}
+
+/* Inline pill choices inside a chat message (left-aligned with the turn). The
+   compound selector beats `.cast-focus__turn`'s column layout. */
+.cast-focus__turn.cast-pills-row {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  align-self: flex-start;
+}
+.cast-focus__step {
+  appearance: none;
+  background: var(--surface-lift);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  padding: 11px 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--content-secondary);
+  cursor: pointer;
+}
+.cast-focus__step:hover:not(:disabled) {
+  background: var(--surface-active);
+  color: var(--content-default);
+}
+.cast-focus__step:disabled {
+  cursor: default;
+}
+.cast-focus__step.is-done {
+  border-color: color-mix(in srgb, #3ad17a 55%, transparent);
+  color: #46c178;
+}
+/* Consumed inline pills: muted + inert. */
+.cast-focus__step.is-muted {
+  opacity: 0.4;
+}
+.cast-focus__step-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  font-size: 11px;
+  line-height: 1;
+}
+.cast-focus__step.is-done .cast-focus__step-dot {
+  background: #3ad17a;
+  border-color: #3ad17a;
+  color: #0b1f12;
+}
+.cast-focus__title {
+  margin: 0;
+  font-size: clamp(30px, 3.6vw, 44px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--content-default);
+  text-align: center;
+}
+
+/* Conversation: the product's centered column, scaled up a touch so each turn
+   reads big and focused. */
+.cast-focus__scroll {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  overflow-y: auto;
+  scrollbar-width: none;
+  display: flex;
+  justify-content: center;
+}
+.cast-focus__scroll::-webkit-scrollbar {
+  display: none;
+}
+.cast-focus__col {
+  width: 100%;
+  max-width: var(--chat-max-width);
+  padding: 20px 24px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+.cast-focus__turn {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+/* Trailing spacer (height set inline = viewport) so a turn-start message can
+   scroll to the very top even when little content follows. */
+.cast-focus__spacer {
+  flex: none;
+}
+/* Bump the assistant message text — overrides the product's per-segment
+   `text-[15px]`. (Every message on this surface is assistant.) */
+.cast-focus__turn .text-\[15px\] {
+  font-size: 18px;
+  line-height: 1.55;
+}
+/* watch-only: suppress the real component's hover action bar (copy/fork/inspect
+   + timestamp) so it reads as the assistant working, not an editable thread. */
+.cast-focus__turn .h-6.opacity-0 {
+  display: none !important;
+}
+
+/* The real Google-connect surface, anchored as an assistant-side card. */
+.cast-focus__surface {
+  align-self: flex-start;
+  width: 100%;
+  max-width: 560px;
+}
+
+/* The character bobs under the latest reply, left-aligned. */
+.cast-focus__presenter {
+  flex: none;
+  align-self: flex-start;
+  width: 46px;
+  height: 46px;
+  animation: cast-bob 2.6s ease-in-out infinite;
+}
+/* ---- inline beat widgets (tool grid, handoff tiles, sim-connect, close) ---- */
+.cast-block {
+  display: flex;
+  flex-direction: column;
+}
+/* The connections picker — tiles + Continue grouped in one card so the action
+   reads as part of the grid, not a bottom-pinned bar. */
+.cast-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  background: var(--surface-sunken);
+}
+.cast-picker__actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-subtle);
+}
+/* Centered "Show more / less" below the grid. */
+.cast-picker__more {
+  align-self: center;
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--content-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+.cast-picker__more:hover {
+  color: var(--content-default);
+}
+.cast-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.cast-tile {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  text-align: left;
+  padding: 13px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-lift);
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
+}
+.cast-tile:hover:not(:disabled) {
+  background: var(--surface-active);
+}
+.cast-tile.is-selected {
+  border-color: var(--primary-base);
+  box-shadow: inset 0 0 0 1px var(--primary-base);
+}
+.cast-tile:disabled {
+  cursor: default;
+}
+.cast-tile:disabled:not(.is-selected) {
+  opacity: 0.5;
+}
+.cast-tile__icon {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--content-secondary);
+}
+.cast-tile__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cast-tile__name {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--content-default);
+}
+.cast-tile__benefit {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--content-secondary);
+}
+/* Namespaced under the picker — distinct from the legacy absolute-positioned
+   `.cast-continue` used by the original two-panel beats (cast-job, etc.). */
+.cast-picker__continue {
+  appearance: none;
+  border: none;
+  background: var(--primary-base);
+  color: var(--content-inset);
+  font-size: 14px;
+  font-weight: 650;
+  padding: 10px 22px;
+  border-radius: var(--radius-xl);
+  cursor: pointer;
+}
+.cast-picker__continue:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+.cast-picker__continue:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.cast-picker__skip {
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--content-tertiary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.cast-picker__skip:hover {
+  color: var(--content-secondary);
+}
+
+/* Handle / email setup — subdomain input */
+.cast-handle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.cast-handle__field {
+  display: inline-flex;
+  align-items: baseline;
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-pill);
+  background: var(--surface-hover);
+  padding: 12px 18px;
+  gap: 0;
+  transition: border-color 160ms ease;
+  white-space: nowrap;
+}
+.cast-handle__field:focus-within {
+  border-color: var(--border-element);
+}
+/* Shared type style for the address parts */
+.cast-handle__input,
+.cast-handle__suffix {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-family: inherit;
+  line-height: 1;
+}
+.cast-handle__input {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: var(--content-default);
+  outline: none;
+}
+.cast-handle__input::placeholder {
+  color: var(--content-tertiary);
+  font-weight: 500;
+}
+.cast-handle__suffix {
+  color: var(--content-tertiary);
+  user-select: none;
+}
+
+/* Simulated connect card — assistant-side, capped width like a real surface. */
+.cast-sim-card {
+  align-self: flex-start;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 15px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-lift);
+}
+.cast-sim-card__icon {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-base);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cast-sim-card__body {
+  flex: 1;
+  min-width: 0;
+}
+.cast-sim-card__title {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--content-default);
+}
+.cast-sim-card__desc {
+  font-size: 12px;
+  color: var(--content-secondary);
+}
+.cast-sim-card__status {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.cast-sim-card__status.is-connecting {
+  color: var(--content-secondary);
+}
+.cast-sim-card__status.is-connected {
+  color: #46c178;
+}
+
+.cast-close__btn {
+  align-self: flex-start;
+  appearance: none;
+  border: none;
+  background: var(--primary-base);
+  color: var(--content-inset);
+  font-size: 15px;
+  font-weight: 680;
+  padding: 12px 26px;
+  border-radius: var(--radius-xl);
+  cursor: pointer;
+}
+.cast-close__btn:hover {
+  background: var(--primary-hover);
+}

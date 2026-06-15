@@ -1,0 +1,652 @@
+/* Cast — style (this/that), two-panel beats, tiles/cards, memory list. Split from cast.css (PR 1, verbatim move). */
+
+/* ---- Beats 3 & 4: prompt + choice tiles + card ---- */
+
+.cast-beat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.cast-beat__prompt {
+  margin: 0 0 18px;
+  padding: 0 var(--app-spacing-xl);
+  text-align: center;
+  font-size: 21px;
+  font-weight: 640;
+  letter-spacing: -0.01em;
+  color: var(--content-default);
+  text-shadow: 0 2px 12px color-mix(in srgb, var(--cast-shroud) 70%, transparent);
+}
+
+.cast-tiles {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 0 20px 120px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--app-spacing-md);
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.cast-tiles::-webkit-scrollbar {
+  display: none;
+}
+
+.cast-tile2 {
+  appearance: none;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-hover);
+  border-radius: var(--radius-xl);
+  padding: 14px var(--app-spacing-sm) 11px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  transition: transform 140ms ease, background 140ms ease, border-color 140ms ease;
+}
+.cast-tile2:hover {
+  transform: translateY(-4px);
+  background: var(--surface-active);
+  border-color: var(--border-base);
+}
+.cast-tile2.is-active {
+  background: var(--surface-active);
+  border-color: var(--border-element);
+}
+
+.cast-tile2__icon {
+  width: 46px;
+  height: 46px;
+}
+.cast-tile2__art {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+.cast-tile2__label {
+  font-size: 12.5px;
+  font-weight: 560;
+  color: var(--content-secondary);
+  text-align: center;
+  line-height: 1.1;
+}
+
+@media (max-width: 560px) {
+  .cast-tiles {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* closing card (Beat 4) */
+.cast-card {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* centered via margin (not translateX) so framer's y-transform can't clobber it */
+  width: min(520px, calc(100% - 32px));
+  margin: 0 auto var(--app-spacing-xl);
+  background: var(--surface-overlay);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  padding: 22px 22px 20px;
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
+  z-index: 8;
+}
+.cast-card__copy {
+  margin: 0 0 var(--app-spacing-lg);
+  font-size: 18px;
+  font-weight: 620;
+  line-height: 1.35;
+  color: var(--content-default);
+  text-align: center;
+}
+.cast-card__actions {
+  display: flex;
+  gap: 10px;
+}
+.cast-card__primary,
+.cast-card__secondary {
+  flex: 1;
+  appearance: none;
+  border: none;
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  font-size: 15px;
+  font-weight: 640;
+  cursor: pointer;
+}
+.cast-card__primary {
+  background: var(--primary-base);
+  color: var(--content-inset);
+}
+.cast-card__primary:hover {
+  background: var(--primary-hover);
+}
+.cast-card__secondary {
+  background: var(--surface-hover);
+  color: var(--content-secondary);
+}
+.cast-card__secondary:hover {
+  background: var(--surface-active);
+}
+
+/* ---- Beat 5: this or that ---- */
+
+.cast-thisthat {
+  width: 100%;
+  max-width: 620px;
+  margin: 0 auto;
+  padding: 0 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+}
+
+.cast-thisthat__group {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--app-spacing-lg);
+}
+/* the dude's question, in its voice — the cards are the user's reply */
+.cast-thisthat__title {
+  margin: 0;
+  text-align: center;
+  font-family: "Instrument Serif", var(--font-serif), serif;
+  font-size: clamp(2rem, 1rem + 2.4vw, 3rem);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: var(--content-default);
+  text-shadow: 0 2px 12px color-mix(in srgb, var(--cast-shroud) 70%, transparent);
+}
+.cast-thisthat__asker {
+  display: block;
+  margin-bottom: 6px;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 560;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--content-tertiary);
+}
+.cast-thisthat__sub {
+  display: block;
+  margin-top: 10px;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--content-secondary);
+}
+/* Brain expand — prompt + drop card after picking a provider */
+.cast-brain-expand {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.cast-brain-expand__step {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.cast-brain-expand__num {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  background: var(--surface-active);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--content-secondary);
+}
+.cast-brain-expand__step-body {
+  flex: 1;
+  min-width: 0;
+}
+.cast-brain-expand__label {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--content-secondary);
+  line-height: 26px;
+}
+.cast-brain-expand__prompt {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+}
+.cast-brain-expand__text {
+  flex: 1;
+  margin: 0;
+  padding: 14px 16px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--content-secondary);
+  font-family: var(--font-mono, monospace);
+}
+.cast-brain-expand__copy {
+  flex: none;
+  appearance: none;
+  border: none;
+  border-left: 1px solid var(--border-subtle);
+  padding: 0 18px;
+  background: var(--surface-hover);
+  color: var(--content-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.cast-brain-expand__copy:hover {
+  background: var(--surface-active);
+  color: var(--content-default);
+}
+
+.cast-brain-expand__drop {
+  padding: 32px 20px;
+  border: 2px dashed var(--border-subtle);
+  border-radius: var(--radius-xl);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 200ms ease, background 200ms ease;
+}
+.cast-brain-expand__drop:hover:not(.is-dropped) {
+  border-color: var(--border-element);
+}
+.cast-brain-expand__drop.is-dragging {
+  border-color: #46c178;
+  background: color-mix(in srgb, #46c178 8%, transparent);
+}
+.cast-brain-expand__drop.is-dropped {
+  border-style: solid;
+  border-color: #46c178;
+  background: color-mix(in srgb, #46c178 6%, transparent);
+  padding: 20px;
+}
+.cast-brain-expand__drop-hint {
+  font-size: 14px;
+  color: var(--content-tertiary);
+}
+.cast-brain-expand__drop-done {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  font-weight: 700;
+  color: #46c178;
+}
+
+/* Brain connected — collapsed card after file upload */
+.cast-brain-connected {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+.cast-brain-connected__credits {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: var(--radius-xl);
+  padding: 3px 8px;
+  z-index: 1;
+}
+.cast-brain-connected__card {
+  min-height: 132px;
+  width: 100%;
+  border: 1px solid var(--border-base);
+  background: var(--surface-hover);
+  border-radius: var(--radius-xl);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.cast-brain-connected__label {
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  color: var(--content-default);
+}
+.cast-brain-connected__tag {
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: var(--radius-xl);
+  padding: 3px 8px;
+}
+
+/* Celebration — confetti + credits overlay */
+.cast-celebration {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 80px 40px;
+  pointer-events: none;
+  animation: cast-celebration-fade 3s ease forwards;
+}
+.cast-celebration__confetti {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.cast-celebration__piece {
+  position: absolute;
+  top: -10px;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  animation: cast-confetti-fall linear forwards;
+}
+.cast-celebration__text {
+  margin: 0;
+  font-family: "Instrument Serif", var(--font-serif), serif;
+  font-size: clamp(2rem, 1.5rem + 2vw, 3.5rem);
+  font-weight: 400;
+  color: #46c178;
+  text-shadow: 0 4px 30px rgba(70, 193, 120, 0.4);
+  transform: rotate(-12deg);
+}
+.cast-thisthat__row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.cast-thisthat__row--triple {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.cast-vs {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: var(--radius-md);
+  min-height: 132px;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  color: var(--content-default);
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.cast-vs:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.cast-vs--selected {
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Memory list — checklist in the bottom-left during This/That phases */
+.cast-memory-list {
+  position: absolute;
+  bottom: 28px;
+  left: 28px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0;
+  max-width: 300px;
+  background: none;
+  border: none;
+}
+.cast-memory-list__label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--content-tertiary);
+}
+.cast-memory-list__entries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cast-memory-list__entry {
+  position: relative;
+  padding-left: 22px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--content-default);
+  line-height: 1.5;
+  white-space: nowrap;
+  transition: color 300ms ease;
+  text-shadow: 0 1px 8px color-mix(in srgb, var(--cast-shroud) 60%, transparent);
+}
+.cast-memory-list__entry::before {
+  position: absolute;
+  left: 0;
+  font-weight: 700;
+  transition: color 300ms ease;
+}
+.cast-memory-list__entry.is-done::before {
+  content: "✓";
+  color: #46c178;
+}
+.cast-memory-list__entry.is-pending {
+  color: var(--content-tertiary);
+}
+.cast-memory-list__entry.is-pending::before {
+  content: "○";
+  color: var(--content-tertiary);
+}
+/* currently typing — show a filled dot */
+.cast-memory-list__entry:not(.is-done):not(.is-pending)::before {
+  content: "●";
+  color: var(--content-secondary);
+}
+.cast-memory-list__credits {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #46c178;
+}
+.cast-memory-list__cursor {
+  animation: cast-cursor-blink 0.6s steps(1) infinite;
+  color: var(--content-tertiary);
+}
+.cast-thisthat__dots {
+  display: flex;
+  gap: var(--app-spacing-sm);
+}
+.cast-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-pill);
+  background: var(--border-element);
+  transition: background 200ms ease, transform 200ms ease;
+}
+.cast-dot.is-on {
+  background: var(--content-default);
+  transform: scale(1.25);
+}
+
+/* ---- Beats 3–6: two-panel (options | live conversation) ---- */
+
+.cast-twopanel {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+}
+.cast-twopanel__left {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.cast-twopanel__right {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  border-left: 1px solid var(--border-subtle);
+  background: var(--surface-base);
+  display: flex;
+  flex-direction: column;
+}
+
+/* watch-only conversation panel */
+.cast-convo {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cast-convo__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: 28px 22px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.cast-convo__scroll::-webkit-scrollbar {
+  display: none;
+}
+.cast-convo__idle {
+  margin: auto;
+  color: var(--content-tertiary);
+  font-size: 14px;
+}
+.cast-convo__user {
+  align-self: flex-end;
+  max-width: 80%;
+  background: var(--surface-active);
+  color: var(--content-default);
+  font-size: 14px;
+  line-height: 1.45;
+  padding: 10px 14px;
+  border-radius: var(--radius-lg);
+}
+.cast-convo__assistant {
+  align-self: stretch;
+  max-width: 100%;
+}
+/* watch-only: suppress the real component's hover action bar (copy/fork/inspect
+   + timestamp) so the panel reads as the assistant working, not chat */
+.cast-convo__assistant .h-6.opacity-0 {
+  display: none !important;
+}
+
+/* Beat-4 "boring stuff" offer (faithful mock of a platform ui_show card). */
+.cast-convo__offer {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-lift);
+}
+.cast-convo__offer-copy {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--content-default);
+}
+.cast-convo__offer-btn {
+  align-self: flex-start;
+  appearance: none;
+  border: none;
+  padding: 9px 18px;
+  border-radius: var(--radius-xl);
+  background: var(--primary-base);
+  color: var(--content-inset);
+  font-size: 14px;
+  font-weight: 640;
+  cursor: pointer;
+}
+.cast-convo__offer-btn:hover {
+  background: var(--primary-hover);
+}
+
+/* Visible-but-locked chat input for the two-panel beats. It's not an input —
+   no caret, no focus ring; the left tiles are the input, Send is the only
+   live control. */
+.cast-locked-input {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 14px 16px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--surface-base);
+}
+.cast-locked-input__value {
+  flex: 1;
+  min-height: 24px;
+  max-height: 4.5em; /* ~3 lines, then scroll with the tail pinned */
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: 9px 13px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-sunken);
+  color: var(--content-default);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.cast-locked-input__value::-webkit-scrollbar {
+  display: none;
+}
+.cast-locked-input__ph {
+  color: var(--content-tertiary);
+}
+.cast-locked-input__send {
+  flex: none;
+  appearance: none;
+  border: none;
+  padding: 9px 18px;
+  border-radius: var(--radius-xl);
+  background: var(--primary-base);
+  color: var(--content-inset);
+  font-size: 14px;
+  font-weight: 640;
+  cursor: pointer;
+}
+.cast-locked-input__send:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+.cast-locked-input__send:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
