@@ -51,8 +51,7 @@ const ICON_BY_KIND: Record<AttachmentIconKind, ReactNode> = {
  * Square thumbnail used inside message bubbles. Image attachments render their
  * preview edge-to-edge; non-image attachments fall back to a neutral surface
  * with an icon. On hover, a download overlay appears at the bottom-right of
- * the thumbnail. An always-visible small download button also sits inline next
- * to the file size for quick access without hovering.
+ * the thumbnail.
  */
 export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
   filename,
@@ -127,26 +126,12 @@ export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
       >
         {displayName}
       </Typography>
-      <div className="flex w-[64px] items-center justify-between">
-        <Typography
-          variant="label-small-default"
-          className="truncate text-[var(--content-disabled)]"
-        >
-          {displaySize}
-        </Typography>
-        {onDownload && (
-          <Tooltip content="Download">
-            <button
-              type="button"
-              onClick={handleDownloadClick}
-              aria-label={`Download ${filename}`}
-              className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)]"
-            >
-              <Download className="h-3 w-3" />
-            </button>
-          </Tooltip>
-        )}
-      </div>
+      <Typography
+        variant="label-small-default"
+        className="text-[var(--content-disabled)]"
+      >
+        {displaySize}
+      </Typography>
     </div>
   );
 };
