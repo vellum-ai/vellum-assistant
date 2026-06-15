@@ -245,27 +245,18 @@ function useAssistantBannerConfig(): BannerConfig | null {
     string | null
   >(null);
   const [isWakingLocalAssistant, setIsWakingLocalAssistant] = useState(false);
-  const [localWakeSettlingUntil, setLocalWakeSettlingUntil] = useState<
-    number | null
-  >(null);
+  const [isLocalWakeSettling, setIsLocalWakeSettling] = useState(false);
   const [wakeLocalAssistantError, setWakeLocalAssistantError] = useState<
     string | null
   >(null);
-  const isLocalWakeSettling =
-    localWakeSettlingUntil !== null && localWakeSettlingUntil > Date.now();
 
   useEffect(() => {
-    if (localWakeSettlingUntil === null) return;
-    const remainingMs = localWakeSettlingUntil - Date.now();
-    if (remainingMs <= 0) {
-      setLocalWakeSettlingUntil(null);
-      return;
-    }
+    if (!isLocalWakeSettling) return;
     const timeout = setTimeout(() => {
-      setLocalWakeSettlingUntil(null);
-    }, remainingMs);
+      setIsLocalWakeSettling(false);
+    }, LOCAL_WAKE_SETTLING_MS);
     return () => clearTimeout(timeout);
-  }, [localWakeSettlingUntil]);
+  }, [isLocalWakeSettling]);
 
   useEffect(() => {
     if (
@@ -273,12 +264,12 @@ function useAssistantBannerConfig(): BannerConfig | null {
       localHealth === "unhealthy" ||
       localHealth === "sleeping"
     ) {
-      setLocalWakeSettlingUntil(null);
+      setIsLocalWakeSettling(false);
     }
   }, [localHealth]);
 
   useEffect(() => {
-    setLocalWakeSettlingUntil(null);
+    setIsLocalWakeSettling(false);
   }, [activeAssistantId]);
 
   const handleExitMaintenanceMode = useCallback(async () => {
@@ -315,13 +306,13 @@ function useAssistantBannerConfig(): BannerConfig | null {
     if (!activeAssistantId || isWakingLocalAssistant) return;
 
     setIsWakingLocalAssistant(true);
-    setLocalWakeSettlingUntil(Date.now() + LOCAL_WAKE_SETTLING_MS);
+    setIsLocalWakeSettling(true);
     setWakeLocalAssistantError(null);
 
     try {
       const result = await wakeLocalAssistantHost(activeAssistantId);
       if (!result.ok) {
-        setLocalWakeSettlingUntil(null);
+        setIsLocalWakeSettling(false);
         setWakeLocalAssistantError(
           result.error || "Wake failed. Try running vellum wake in your terminal.",
         );
@@ -335,7 +326,7 @@ function useAssistantBannerConfig(): BannerConfig | null {
       ]);
       lifecycleService.triggerReachabilityProbe();
     } catch (err) {
-      setLocalWakeSettlingUntil(null);
+      setIsLocalWakeSettling(false);
       captureError(err, { context: "wake_local_assistant_status_banner" });
       setWakeLocalAssistantError(
         "Wake failed. Try running vellum wake in your terminal.",
