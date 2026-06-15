@@ -78,6 +78,7 @@ import { cardBytes } from "./card.js";
 import { getActiveSlugs, recordInjected } from "./ever-injected-store.js";
 import type { OrchestrateResult } from "./orchestrate.js";
 import { renderV3CardContent } from "./page-content.js";
+import { MemoryV3RetrievalUnavailableError } from "./pool-select.js";
 import { schedulePruneValve } from "./prune.js";
 import {
   renderCardsBlockInner,
@@ -243,13 +244,32 @@ export const memoryV3Injector: Injector = {
     if (!live && !shadow) return null;
     if (!isPersonalMemoryAllowed(ctx.trust)) return null;
 
-    const result = await observeTurnOnce(ctx.conversationId, ctx.turnIndex);
+    let observed: OrchestrateResult | null;
+    try {
+      observed = await observeTurnOnce(ctx.conversationId, ctx.turnIndex);
+    } catch (err) {
+      // A memory-v3 INFRASTRUCTURE failure (the selector lost its provider —
+      // e.g. a transient CES credential blip). Under `memory-v3-live` the
+      // user-prompt-submit hook already skipped v2 retrieval, so swallowing
+      // here would ship the turn with NO memory at all — exactly the silent
+      // degradation we want to eliminate. Hard-fail the turn instead (a clean,
+      // retryable error). In shadow mode v2 still ran this turn, so fall back
+      // to it (return null). Non-infra errors are already swallowed inside
+      // observeTurn; anything else reaching here stays non-fatal.
+      if (live && err instanceof MemoryV3RetrievalUnavailableError) {
+        throw err;
+      }
+      return null;
+    }
     // Empty selection → return null (attach nothing). Returning null (vs an
     // empty block) preserves the shadow-mode v2 fallback: v2 suppression keys
-    // off BOTH the flag AND a produced block, so in shadow a selector failure
-    // or a turn with nothing selected ships v2's memory. Under `memory-v3-live`
-    // the hook skipped v2 retrieval, so the turn simply gets no injected memory.
-    if (!result || result.selections.length === 0) return null;
+    // off BOTH the flag AND a produced block, so in shadow a turn with nothing
+    // selected ships v2's memory. Under `memory-v3-live` the hook skipped v2
+    // retrieval, so the turn simply gets no injected memory.
+    if (!observed || observed.selections.length === 0) return null;
+    // `const` so the non-null narrowing survives capture in the `commit`
+    // closure below (a `let` would re-widen to `OrchestrateResult | null`).
+    const result = observed;
 
     try {
       const active = getActiveSlugs(ctx.conversationId);
@@ -388,6 +408,13 @@ export const memoryV3SpotlightInjector: Injector = {
         placement: "after-memory-prefix",
       };
     } catch (err) {
+      // Live-only injector: an infra failure must hard-fail the turn. The cards
+      // injector (ordered ahead of this one) normally throws first, so this
+      // path is defensive — it keeps the behavior correct if the cards injector
+      // is ever disabled or reordered.
+      if (err instanceof MemoryV3RetrievalUnavailableError) {
+        throw err;
+      }
       log.warn(
         {
           err: err instanceof Error ? err.message : String(err),
