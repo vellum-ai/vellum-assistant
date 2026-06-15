@@ -159,6 +159,18 @@ function useAssistantBannerConfig(): BannerConfig | null {
       setWasRecentlySleeping(false);
     }
   }, [operationalStatus?.state]);
+
+  // Auto-clear the override after 60s so a genuinely failed wake surfaces
+  // the real "unreachable" error with the Doctor action.
+  useEffect(() => {
+    if (!wasRecentlySleeping || operationalStatus?.state !== "unreachable") {
+      return;
+    }
+    const timeout = setTimeout(() => {
+      setWasRecentlySleeping(false);
+    }, 60_000);
+    return () => clearTimeout(timeout);
+  }, [wasRecentlySleeping, operationalStatus?.state]);
   const [isExitingMaintenanceMode, setIsExitingMaintenanceMode] =
     useState(false);
   const [maintenanceModeExitError, setMaintenanceModeExitError] = useState<
