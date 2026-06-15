@@ -66,6 +66,44 @@ export function getPlatformRuntimeUrl(): string {
   return injected?.platformUrl || window.location.origin;
 }
 
+function getInjectedConfig(): {
+  disablePlatform?: boolean;
+  mode?: string;
+  platformUrl?: string;
+} {
+  return (
+    (
+      window as unknown as {
+        __VELLUM_CONFIG__?: {
+          disablePlatform?: boolean;
+          mode?: string;
+          platformUrl?: string;
+        };
+      }
+    ).__VELLUM_CONFIG__ ?? {}
+  );
+}
+
+export function isRemoteGatewayMode(): boolean {
+  return getInjectedConfig().mode === "remote-gateway";
+}
+
+function getRemoteGatewayLockfile(): Lockfile {
+  return {
+    assistants: [
+      {
+        assistantId: "self",
+        name: "Local Assistant",
+        cloud: "local",
+        runtimeUrl: window.location.origin,
+        hatchedAt: "1970-01-01T00:00:00.000Z",
+        resources: { gatewayPort: 0, daemonPort: 0 },
+      },
+    ],
+    activeAssistant: "self",
+  };
+}
+
 // Advance the in-memory cache and mirror the lockfile to persisted storage in
 // one step. The mirror lets the synchronous `getLockfile()` hydrate from
 // storage on a cold read before the host transport has responded.
@@ -91,11 +129,7 @@ export function isLocalMode(): boolean {
 }
 
 export function isPlatformDisabled(): boolean {
-  const config = (
-    window as unknown as {
-      __VELLUM_CONFIG__?: { disablePlatform?: boolean };
-    }
-  ).__VELLUM_CONFIG__;
+  const config = getInjectedConfig();
   if (config?.disablePlatform != null) return !!config.disablePlatform;
 
   const raw = import.meta.env.VITE_VELLUM_DISABLE_PLATFORM;
@@ -108,6 +142,12 @@ export function isPlatformDisabled(): boolean {
 }
 
 export async function loadLockfile(): Promise<Lockfile> {
+  if (isRemoteGatewayMode()) {
+    const lockfile = getRemoteGatewayLockfile();
+    commitLockfile(lockfile);
+    return lockfile;
+  }
+
   try {
     const data = await loadLockfileHost();
     commitLockfile(data);
@@ -121,6 +161,12 @@ export async function loadLockfile(): Promise<Lockfile> {
 }
 
 export function getLockfile(): Lockfile {
+  if (isRemoteGatewayMode()) {
+    const lockfile = getRemoteGatewayLockfile();
+    setCachedLockfile(lockfile);
+    return lockfile;
+  }
+
   const cached = getCachedLockfile();
   if (cached) return cached;
 
@@ -152,9 +198,14 @@ export function getLockfile(): Lockfile {
  * making it the active assistant. Silently no-ops on a write failure: the
  * cache only advances once the on-disk write succeeds.
  */
-export async function saveLockfileAssistant(
-  assistant: { assistantId: string; name?: string; cloud: string; runtimeUrl: string; hatchedAt: string; organizationId?: string },
-): Promise<void> {
+export async function saveLockfileAssistant(assistant: {
+  assistantId: string;
+  name?: string;
+  cloud: string;
+  runtimeUrl: string;
+  hatchedAt: string;
+  organizationId?: string;
+}): Promise<void> {
   const result = await saveLockfileAssistantHost(
     assistant,
     assistant.assistantId,
@@ -174,6 +225,8 @@ export async function saveLockfileAssistant(
 export async function setActiveLockfileAssistant(
   assistantId: string,
 ): Promise<void> {
+  if (isRemoteGatewayMode()) return;
+
   const entry = getLockfile().assistants.find(
     (a) => a.assistantId === assistantId,
   );
@@ -194,7 +247,12 @@ export async function setActiveLockfileAssistant(
  * in `assistants` belongs to that org.
  */
 export async function syncPlatformAssistantsToLockfile(
-  assistants: Array<{ id: string; name?: string; is_local: boolean; created: string }>,
+  assistants: Array<{
+    id: string;
+    name?: string;
+    is_local: boolean;
+    created: string;
+  }>,
   organizationId?: string,
   shouldApply: () => boolean = () => true,
 ): Promise<void> {
@@ -354,6 +412,7 @@ export function getLocalGatewayUrl(
   assistant: LockfileAssistant | undefined = getSelectedAssistant(),
 ): string | undefined {
   if (!isLocalMode()) return undefined;
+  if (isRemoteGatewayMode()) return undefined;
   if (!assistant || !isLocalAssistant(assistant)) return undefined;
   return gatewayProxyUrl(assistant.resources!.gatewayPort);
 }

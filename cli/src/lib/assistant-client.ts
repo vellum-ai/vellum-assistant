@@ -26,6 +26,7 @@ const FALLBACK_RUNTIME_URL = `http://127.0.0.1:${GATEWAY_PORT}`;
 
 export interface AssistantClientOpts {
   assistantId?: string;
+  runtimeUrl?: string;
   /**
    * When provided alongside `orgId`, the client authenticates with a
    * session token instead of a guardian token.  The session token is
@@ -73,6 +74,7 @@ export class AssistantClient {
     }
 
     this.runtimeUrl = (
+      opts?.runtimeUrl ||
       entry.localUrl ||
       entry.runtimeUrl ||
       FALLBACK_RUNTIME_URL
