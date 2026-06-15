@@ -90,6 +90,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { recordUsageEvent } from "../memory/llm-usage-store.js";
 import {
   createSchedule,
+  deferClaimedSchedule,
   getSchedule,
   getScheduleRuns,
 } from "../schedule/schedule-store.js";
@@ -678,5 +679,29 @@ describe("scheduler workflow mode", () => {
     );
     expect(workflowStartCalls).toHaveLength(1);
     expect(workflowStartCalls[0]).toMatchObject({ name: "triage-inbox" });
+  });
+
+  test("deferring a final/disabled occurrence re-enables it so it isn't lost", async () => {
+    // claimDueSchedules disables a row whose claimed occurrence was its last
+    // (one-shot / exhausted finite RRULE). The due-claim query requires
+    // enabled=true, so a deferred final occurrence must be re-enabled or it is
+    // never re-claimed. Simulate that disabled-on-claim state, then defer.
+    const schedule = createSchedule({
+      name: "Final workflow occurrence",
+      cronExpression: "0 9 * * *",
+      message: "",
+      syntax: "cron",
+      mode: "workflow",
+      workflowName: "digest",
+      enabled: false, // as claimDueSchedules leaves a last occurrence
+    });
+    expect(getSchedule(schedule.id)?.enabled).toBe(false);
+
+    deferClaimedSchedule(schedule.id);
+
+    const after = getSchedule(schedule.id);
+    expect(after?.enabled).toBe(true);
+    expect(after?.status).toBe("active");
+    expect(after?.nextRunAt).toBeLessThanOrEqual(Date.now());
   });
 });

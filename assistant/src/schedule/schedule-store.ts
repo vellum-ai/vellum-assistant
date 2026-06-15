@@ -595,6 +595,13 @@ export function failOneShot(id: string): void {
  * not the schedule's fault. Keyed by id only (no status guard) because recurring
  * claims leave the row 'active' while one-shot claims leave it 'firing', and it
  * runs immediately after the claim within the same tick.
+ *
+ * Also restores `enabled: true`. `claimDueSchedules` disables a row whose
+ * claimed occurrence was its LAST (a one-shot, or the final fire of a finite
+ * RRULE), but the due-claim query requires `enabled = true` — so a deferred
+ * final occurrence would never be re-claimed and the run would be silently lost.
+ * The deferred occurrence has not actually run yet, so re-enabling is correct;
+ * when it later fires, the claim path re-applies the right `enabled` state.
  */
 export function deferClaimedSchedule(id: string): void {
   const db = getDb();
@@ -602,6 +609,7 @@ export function deferClaimedSchedule(id: string): void {
   db.update(scheduleJobs)
     .set({
       status: "active",
+      enabled: true,
       nextRunAt: now,
       updatedAt: now,
     })
