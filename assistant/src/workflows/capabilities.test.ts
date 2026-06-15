@@ -18,6 +18,7 @@ import {
   CapabilityManifestSchema,
   CapabilityResolutionError,
   manifestGrantsSideEffects,
+  normalizeCapabilityManifest,
   resolveCapabilities,
   WORKFLOW_FORBIDDEN_TOOLS,
   WORKFLOW_READONLY_BASELINE,
@@ -307,5 +308,58 @@ describe("manifestGrantsSideEffects", () => {
     expect(manifestGrantsSideEffects({ tools: "not-an-array" })).toBe(false);
     expect(manifestGrantsSideEffects(42)).toBe(false);
     expect(manifestGrantsSideEffects("nope")).toBe(false);
+  });
+
+  test("true for the older RESOLVED stored shape (tools as Tool objects)", () => {
+    // Some interrupted runs persisted resolved Tool objects rather than string
+    // names. resume() recovers those names and grants the tools, so the consent
+    // gate must see them as side-effecting too — a strict parse would reject the
+    // object shape and wrongly report a read-only run, letting resume restart
+    // side-effecting leaves without approval.
+    expect(
+      manifestGrantsSideEffects({
+        tools: [{ name: "bash" }],
+        hostFunctions: [],
+        persona: false,
+      }),
+    ).toBe(true);
+    expect(
+      manifestGrantsSideEffects({
+        tools: [{ name: "file_write", category: "fs" }],
+      }),
+    ).toBe(true);
+    // An empty resolved-shape run is still read-only.
+    expect(manifestGrantsSideEffects({ tools: [] })).toBe(false);
+  });
+});
+
+describe("normalizeCapabilityManifest", () => {
+  test("recovers tool names from BOTH string and Tool-object entries", () => {
+    expect(
+      normalizeCapabilityManifest({
+        tools: ["file_read", { name: "bash" }, { nope: 1 }, 42],
+        hostFunctions: ["notify", 7],
+        persona: true,
+      }),
+    ).toEqual({
+      tools: ["file_read", "bash"],
+      hostFunctions: ["notify"],
+      persona: true,
+    });
+  });
+
+  test("total: a malformed/absent blob yields empty arrays, never throws", () => {
+    expect(normalizeCapabilityManifest(undefined)).toEqual({
+      tools: [],
+      hostFunctions: [],
+      persona: false,
+    });
+    expect(normalizeCapabilityManifest({ tools: "x", persona: "yes" })).toEqual(
+      {
+        tools: [],
+        hostFunctions: [],
+        persona: false,
+      },
+    );
   });
 });

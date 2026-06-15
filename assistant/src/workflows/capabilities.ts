@@ -119,30 +119,73 @@ export const CapabilityManifestSchema = z.object({
 export type CapabilityManifest = z.infer<typeof CapabilityManifestSchema>;
 
 /**
- * True if a `run_workflow` capability manifest grants any side-effecting
- * capability beyond the read-only baseline — i.e. it declares one or more
- * `tools` or `hostFunctions`.
+ * Normalize a stored/raw capability blob into a {@link CapabilityManifest},
+ * tolerating BOTH shapes a run row can hold:
+ *
+ * - the canonical declared shape — `tools`/`hostFunctions` as string names; and
+ * - the older RESOLVED shape some interrupted runs persisted — `tools` as
+ *   resolved Tool objects (`[{ name: "bash" }, …]`).
+ *
+ * Tool entries are reduced to their string name (string entries kept as-is,
+ * object entries via `.name`); non-string host functions are dropped; `persona`
+ * is coerced to a boolean. Total and never-throwing: a malformed/absent blob
+ * yields empty arrays.
+ *
+ * This is THE single normalization both the resume path
+ * ({@link WorkflowRunManager.resume}, which re-grants the recovered tools) and
+ * the consent gate ({@link manifestGrantsSideEffects}) must share, so the gate
+ * cannot decide "no side effects" on a blob that `resume()` would in fact grant
+ * side-effecting tools from.
+ */
+export function normalizeCapabilityManifest(
+  stored: unknown,
+): CapabilityManifest {
+  const obj =
+    stored && typeof stored === "object"
+      ? (stored as Record<string, unknown>)
+      : {};
+  const tools = Array.isArray(obj.tools)
+    ? obj.tools
+        .map((t) =>
+          typeof t === "string"
+            ? t
+            : t && typeof t === "object"
+              ? ((t as Record<string, unknown>).name as string | undefined)
+              : undefined,
+        )
+        .filter((n): n is string => typeof n === "string")
+    : [];
+  const hostFunctions = Array.isArray(obj.hostFunctions)
+    ? obj.hostFunctions.filter((n): n is string => typeof n === "string")
+    : [];
+  return { tools, hostFunctions, persona: obj.persona === true };
+}
+
+/**
+ * True if a capability manifest grants any side-effecting capability beyond the
+ * read-only baseline — i.e. it declares one or more `tools` or `hostFunctions`.
  *
  * The tool executor uses this to force an interactive approval at LAUNCH for
- * such runs. The manifest is the single consent point, but it is authored and
- * declared BY THE MODEL, and a workflow's leaves execute granted tools directly
- * (no per-call permission check) — so without a launch-time gate the model
- * could self-grant `bash`/sends/writes and have leaves run them with no user
- * consent, bypassing the gate those tools hit when the main agent calls them.
- * The launch is the one point at which the user can consent to the grant. A
- * read-only run (no declared `tools`/`hostFunctions`) needs no prompt.
+ * such runs (and on RESUME of a stored run). The manifest is the single consent
+ * point, but it is authored and declared BY THE MODEL, and a workflow's leaves
+ * execute granted tools directly (no per-call permission check) — so without a
+ * launch/resume-time gate the model could self-grant `bash`/sends/writes and
+ * have leaves run them with no user consent, bypassing the gate those tools hit
+ * when the main agent calls them. A read-only run (no declared
+ * `tools`/`hostFunctions`) needs no prompt.
  *
- * Total and best-effort: a malformed or absent manifest parses to "no grant"
- * (false). That is safe — `run_workflow` re-parses the manifest at execute time
- * and rejects a malformed one, so the run never starts; and this predicate must
- * never throw from the risk-gating path. `persona` is deliberately NOT treated
- * as side-effecting: it grants identity/memory context, not world-mutating
- * tools.
+ * Runs the SAME {@link normalizeCapabilityManifest} the resume path uses, so it
+ * detects grants in BOTH the declared (string names) and older resolved
+ * (Tool-object) stored shapes — a strict parse would reject the resolved shape
+ * and wrongly report "no grant", letting `resume()` restart side-effecting
+ * leaves without approval. Total and never-throwing (the risk-gating path must
+ * not throw); a malformed/absent manifest yields "no grant" (false). `persona`
+ * is deliberately NOT treated as side-effecting: it grants identity/memory
+ * context, not world-mutating tools.
  */
 export function manifestGrantsSideEffects(rawCapabilities: unknown): boolean {
-  const parsed = CapabilityManifestSchema.safeParse(rawCapabilities ?? {});
-  if (!parsed.success) return false;
-  return parsed.data.tools.length > 0 || parsed.data.hostFunctions.length > 0;
+  const m = normalizeCapabilityManifest(rawCapabilities);
+  return m.tools.length > 0 || m.hostFunctions.length > 0;
 }
 
 /**

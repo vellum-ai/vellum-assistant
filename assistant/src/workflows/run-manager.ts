@@ -39,7 +39,10 @@ import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
 import type { CapabilityManifest } from "./capabilities.js";
-import { resolveCapabilities } from "./capabilities.js";
+import {
+  normalizeCapabilityManifest,
+  resolveCapabilities,
+} from "./capabilities.js";
 import {
   executeWorkflow,
   extractWorkflowMeta,
@@ -312,7 +315,7 @@ export class WorkflowRunManager {
     // The engine re-validates the script's `meta` on re-invoke, so we don't
     // re-extract it here — the persisted `name` is the display label.
     const capabilities = resolveCapabilities(
-      manifestFromStored(run.capabilities),
+      normalizeCapabilityManifest(run.capabilities),
     );
     const label = run.name ?? runId;
     const trustContext = reconstructResumeTrustContext(run.trust);
@@ -517,43 +520,6 @@ function reconstructResumeTrustContext(persisted: unknown): TrustContext {
     }
   }
   return FALLBACK_TURN_TRUST;
-}
-
-/**
- * Normalize a run row's persisted `capabilities` back into a
- * {@link CapabilityManifest} for re-resolution on resume.
- *
- * New rows persist the manifest verbatim (`tools`/`hostFunctions` as
- * string arrays). Older rows persisted the RESOLVED set, whose `tools` are Tool
- * objects (their functions dropped on JSON round-trip) — for those we recover
- * the declared tool names from the objects' `name` fields. Either way the
- * resulting manifest is fed back through `resolveCapabilities`, which re-unions
- * the read-only baseline and re-validates every name.
- */
-function manifestFromStored(stored: unknown): CapabilityManifest {
-  const obj =
-    stored && typeof stored === "object"
-      ? (stored as Record<string, unknown>)
-      : {};
-  const toolNames = Array.isArray(obj.tools)
-    ? obj.tools
-        .map((t) =>
-          typeof t === "string"
-            ? t
-            : t && typeof t === "object"
-              ? ((t as Record<string, unknown>).name as string | undefined)
-              : undefined,
-        )
-        .filter((n): n is string => typeof n === "string")
-    : [];
-  const hostFunctions = Array.isArray(obj.hostFunctions)
-    ? obj.hostFunctions.filter((n): n is string => typeof n === "string")
-    : [];
-  return {
-    tools: toolNames,
-    hostFunctions,
-    persona: obj.persona === true,
-  };
 }
 
 /**

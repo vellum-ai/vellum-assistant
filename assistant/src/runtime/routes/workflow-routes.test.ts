@@ -203,6 +203,30 @@ describe("workflow routes (flag on)", () => {
     expect(resumed).toEqual([]);
   });
 
+  test("resumeWorkflowRun rejects a run stored in the older RESOLVED shape", () => {
+    // Some interrupted runs persisted resolved Tool objects (not string names).
+    // resume() recovers those names and grants the tools, so the gate must catch
+    // the object shape too — a strict parse would treat it as read-only and let
+    // the side-effecting resume through without approval.
+    const { resumed } = setup({
+      flagEnabled: true,
+      runs: [
+        makeRun({
+          id: "run-1",
+          status: "interrupted",
+          capabilities: { tools: [{ name: "bash" }] } as unknown as Record<
+            string,
+            unknown
+          >,
+        }),
+      ],
+    });
+    expect(() =>
+      route("resumeWorkflowRun").handler({ pathParams: { id: "run-1" } }),
+    ).toThrow(ForbiddenError);
+    expect(resumed).toEqual([]);
+  });
+
   test("resumeWorkflowRun allows a read-only run (empty manifest)", () => {
     // An explicit empty manifest grants no side effects, so the route resumes
     // it directly — the gate keys on the stored manifest, not run existence.
