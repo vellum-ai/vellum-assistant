@@ -24,20 +24,13 @@ import { LayoutGroup, motion } from "motion/react";
 import {
   COMPONENTS,
   buildCharacter,
+  hash,
   type CastCharacter,
   type HoverAnim,
 } from "@/domains/onboarding/cast/cast-roster";
 import { BlinkingAvatar } from "@/domains/onboarding/cast/cast-shell";
+import type { StarterResume } from "@/domains/onboarding/cast/screens/screen-slot";
 import { composeSvg } from "@/utils/avatar-svg-compositor";
-
-/** A character already chosen, used to reopen the modal mid-flow (e.g. Back
- * from a later beat) instead of dropping the user back at the bare line-up. */
-export interface StarterResume {
-  bodyShape: string;
-  eyeStyle: string;
-  color: string;
-  name: string;
-}
 
 const indexOfBody = (id: string) => Math.max(0, BODIES.findIndex((b) => b.id === id));
 const indexOfEye = (id: string) => Math.max(0, EYES.findIndex((e) => e.id === id));
@@ -59,15 +52,6 @@ const STARTER_HOVERS: HoverAnim[] = ["jump", "wiggle", "flip", "spin"];
 /** Grid width — must match the CSS `repeat(5, …)` so the neighbour-aware color
  * assignment below knows which cards are adjacent (incl. diagonals). */
 const ROSTER_COLS = 5;
-
-/** Deterministic, well-mixed hash (no Math.random in Cast). */
-function hash(n: number): number {
-  let v = Math.imul(n ^ 0x9e3779b1, 2654435761);
-  v ^= v >>> 15;
-  v = Math.imul(v, 0x85ebca6b);
-  v ^= v >>> 13;
-  return v >>> 0;
-}
 
 /**
  * A scattered color per starter. A color linear in the index repeats on the
@@ -93,7 +77,7 @@ const STARTER_COLOR_INDEX: number[] = (() => {
     const soft = new Set(hard);
     for (let j = i - col; j < i; j++) soft.add(out[j]); // colors already in this row
 
-    const start = hash(i) % COLORS.length;
+    const start = hash(i, 1) % COLORS.length;
     const pick = (avoid: Set<number>): number | null => {
       for (let k = 0; k < COLORS.length; k++) {
         const c = (start + k) % COLORS.length;

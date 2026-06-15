@@ -14,20 +14,13 @@
  * `reach` entry) drive tool-specific tasks, an imported brain adds a
  * continuation task, and the rest are filled from generic fallbacks. The result
  * is always capped at three.
+ *
+ * Tool slugs and task pools come from the shared `cast-tools` registry
+ * (`CAST_TOOL_BY_SLUG`), so the connected-tool slugs recorded in the memory
+ * list resolve to tasks by direct lookup — no label→slug string transform.
  */
 
-/** Tool-specific task suggestions, keyed by the connected tool's slug. */
-export const TOOL_TASKS: Record<string, string[]> = {
-  "google-calendar": ["Check my schedule for today", "Block focus time this week"],
-  "notion": ["Summarize my recent Notion updates", "Create a weekly planner page"],
-  "linear": ["Show my open Linear issues", "Draft a sprint summary"],
-  "github": ["Review my open pull requests", "Summarize recent commits"],
-  "slack": ["Catch me up on unread Slack messages", "Draft a standup update"],
-  "gmail": ["Summarize my unread emails", "Draft a follow-up email"],
-  "figma": ["List recent Figma file changes", "Prepare design review notes"],
-  "outlook": ["Check my Outlook calendar for today", "Summarize flagged emails"],
-  "google-drive": ["Find my most recent shared docs", "Organize my Drive files"],
-};
+import { CAST_TOOL_BY_SLUG } from "@/domains/onboarding/cast/cast-tools";
 
 /** Generic tasks used to fill any remaining slots. */
 export const FALLBACK_TASKS = [
@@ -50,14 +43,9 @@ export function deriveTaskSuggestions(memories: [string, string][]): string[] {
   // Pull tasks from connected tools
   const reachText = memMap.get("reach") ?? "";
   if (reachText.startsWith("Connected:")) {
-    const toolNames = reachText.replace("Connected: ", "").split(", ");
-    for (const toolName of toolNames) {
-      // Find key by label
-      const key =
-        toolName === "Google Calendar"
-          ? "google-calendar"
-          : toolName.toLowerCase().replace(/\s+/g, "-");
-      const pool = TOOL_TASKS[key];
+    const toolSlugs = reachText.replace("Connected: ", "").split(", ");
+    for (const slug of toolSlugs) {
+      const pool = CAST_TOOL_BY_SLUG.get(slug)?.tasks;
       if (pool) tasks.push(pool[Math.floor(Math.random() * pool.length)]);
     }
   }

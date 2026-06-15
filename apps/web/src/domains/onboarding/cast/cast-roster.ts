@@ -82,7 +82,7 @@ const NAMES = [
  * once it aligned with the 6-wide grid, so we hash instead. Not random (no
  * Date/Math.random), just well-mixed and stable across reloads.
  */
-function hash(n: number, salt: number): number {
+export function hash(n: number, salt: number): number {
   let v = Math.imul(n ^ (salt * 0x9e3779b1), 2654435761);
   v ^= v >>> 15;
   v = Math.imul(v, 0x85ebca6b);
