@@ -29,6 +29,7 @@ import type {
   HotkeyEvent,
   Lockfile,
   LockfileWriteResult,
+  LocalAssistantStatusResult,
   NotificationActionEvent,
   PowerEvent,
   ResolvedHotkey,
@@ -162,6 +163,7 @@ export interface VellumBridge {
       assistantId: string,
       options?: LocalWakeOptions,
     ): Promise<{ ok: boolean; error?: string }>;
+    status(assistantId: string): Promise<LocalAssistantStatusResult>;
     guardianToken(
       assistantId: string,
     ): Promise<

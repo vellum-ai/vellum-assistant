@@ -14,6 +14,7 @@ const {
   replacePlatformAssistantsHost,
   retireLocalAssistantHost,
   wakeLocalAssistantHost,
+  getLocalAssistantStatusHost,
   fetchGuardianTokenHost,
 } = await import("./local-mode-host");
 
@@ -305,6 +306,38 @@ describe("wakeLocalAssistantHost", () => {
 
     const result = await wakeLocalAssistantHost("a-1");
     expect(result.ok).toBe(false);
+  });
+});
+
+describe("getLocalAssistantStatusHost", () => {
+  test("web/dev host GETs the local status middleware", async () => {
+    const fetchMock = mock(async () => ({
+      json: async () => ({ ok: true, state: "sleeping" }),
+    }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    expect(await getLocalAssistantStatusHost("a 1")).toEqual({
+      ok: true,
+      state: "sleeping",
+    });
+    const [url] = fetchMock.mock.calls[0] as unknown as [string];
+    expect(url).toBe("/assistant/__local/status/a%201");
+  });
+
+  test("Electron host reads status through the bridge and never touches fetch", async () => {
+    const status = mock(async () => ({ ok: true, state: "crashed" }));
+    const fetchMock = mock(async () => {
+      throw new Error("fetch must not run on the Electron branch");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    setElectronBridge({ status });
+
+    expect(await getLocalAssistantStatusHost("a-1")).toEqual({
+      ok: true,
+      state: "crashed",
+    });
+    expect(status).toHaveBeenCalledWith("a-1");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

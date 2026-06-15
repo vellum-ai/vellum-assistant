@@ -21,6 +21,7 @@ import {
   TRANSPORT_ERROR_MESSAGE,
 } from "@/assistant/lifecycle";
 import { publish } from "@/lib/event-bus";
+import type { LocalAssistantStatusResult } from "@/runtime/local-mode-host";
 
 const TEST_INITIALIZING_TIMEOUT_MS = 30;
 // Shrunk transient-error auto-retry delay. Large enough that a timer
@@ -61,6 +62,17 @@ mock.module("@/lib/local-mode", () => ({
   isPlatformAssistant: () => false,
   getSelectedAssistant: getSelectedAssistantMock,
   getLocalGatewayUrl: getLocalGatewayUrlMock,
+}));
+
+const getLocalAssistantStatusHostMock = mock(
+  async (_assistantId: string): Promise<LocalAssistantStatusResult> => ({
+    ok: false,
+    status: 501,
+    error: "unsupported",
+  }),
+);
+mock.module("@/runtime/local-mode-host", () => ({
+  getLocalAssistantStatusHost: getLocalAssistantStatusHostMock,
 }));
 
 // Sentry is a side-effect-only dep here; silence it.
@@ -126,6 +138,14 @@ beforeEach(() => {
   getLocalGatewayUrlMock.mockImplementation(() => undefined);
   getAssistantMock.mockImplementation(async () => ({ ok: false, status: 404 }));
   getAssistantHealthzMock.mockImplementation(async () => ({ ok: true }));
+  getLocalAssistantStatusHostMock.mockClear();
+  getLocalAssistantStatusHostMock.mockImplementation(
+    async (_assistantId: string): Promise<LocalAssistantStatusResult> => ({
+      ok: false,
+      status: 501,
+      error: "unsupported",
+    }),
+  );
   lifecycleService.__resetForTesting();
   // Deterministic baseline for the selection subscription's diff. Reset
   // AFTER __resetForTesting (state is `loading`, gateway mode is false)
@@ -821,6 +841,124 @@ describe("lifecycleService — local health heartbeat", () => {
         s.reachable === false
       );
     });
+  });
+
+  test("unreachable bus does not re-enter an in-flight heartbeat probe", async () => {
+    isGatewayAuthModeMock.mockImplementation(() => true);
+    const healthzResolver: {
+      current?: (value: { ok: false; status: 503 }) => void;
+    } = {};
+    const healthzPending = new Promise<{ ok: false; status: 503 }>(
+      (resolve) => {
+        healthzResolver.current = resolve;
+      },
+    );
+    getAssistantHealthzMock.mockImplementation(() => {
+      capturedUnreachableListener?.();
+      return healthzPending;
+    });
+    getLocalAssistantStatusHostMock.mockImplementation(
+      async (_assistantId: string): Promise<LocalAssistantStatusResult> => ({
+        ok: true,
+        state: "sleeping",
+      }),
+    );
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+
+    await lifecycleService.respondToInputs();
+
+    await waitFor(() => getAssistantHealthzMock.mock.calls.length === 1);
+    await Promise.resolve();
+    expect(getAssistantHealthzMock).toHaveBeenCalledTimes(1);
+
+    capturedUnreachableListener?.();
+    await Promise.resolve();
+    expect(getAssistantHealthzMock).toHaveBeenCalledTimes(1);
+
+    const resolveHealthz = healthzResolver.current;
+    if (!resolveHealthz) {
+      throw new Error("healthz promise was not started");
+    }
+    resolveHealthz({ ok: false, status: 503 });
+    await waitFor(() => {
+      const s = useAssistantLifecycleStore.getState().assistantState;
+      return (
+        s.kind === "active" &&
+        s.health === "sleeping" &&
+        s.reachable === false
+      );
+    });
+    expect(getAssistantHealthzMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("heartbeat maps host local status to sleeping and crashed states", async () => {
+    for (const runtimeState of ["sleeping", "crashed"] as const) {
+      lifecycleService.__resetForTesting();
+      isGatewayAuthModeMock.mockImplementation(() => true);
+      getAssistantHealthzMock.mockImplementation(async () => ({
+        ok: false,
+        status: 503,
+      }));
+      getLocalAssistantStatusHostMock.mockImplementation(
+        async (_assistantId: string): Promise<LocalAssistantStatusResult> => ({
+          ok: true,
+          state: runtimeState,
+        }),
+      );
+      lifecycleService.setInputs({
+        ...baseInputs,
+        queryClient: makeQueryClient(),
+      });
+
+      await lifecycleService.respondToInputs();
+
+      await waitFor(() => {
+        const s = useAssistantLifecycleStore.getState().assistantState;
+        return (
+          s.kind === "active" &&
+          s.health === runtimeState &&
+          s.reachable === false
+        );
+      });
+    }
+  });
+
+  test("heartbeat asks host status for the selected local assistant when active id is internal", async () => {
+    isGatewayAuthModeMock.mockImplementation(() => true);
+    getSelectedAssistantMock.mockImplementation(() => ({
+      assistantId: "local-selected",
+    }));
+    getAssistantHealthzMock.mockImplementation(async () => ({
+      ok: false,
+      status: 503,
+    }));
+    getLocalAssistantStatusHostMock.mockImplementation(
+      async (_assistantId: string): Promise<LocalAssistantStatusResult> => ({
+        ok: true,
+        state: "sleeping",
+      }),
+    );
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+
+    await lifecycleService.respondToInputs();
+
+    await waitFor(() => {
+      const s = useAssistantLifecycleStore.getState().assistantState;
+      return (
+        s.kind === "active" &&
+        s.health === "sleeping" &&
+        s.reachable === false
+      );
+    });
+    expect(getLocalAssistantStatusHostMock).toHaveBeenCalledWith(
+      "local-selected",
+    );
   });
 });
 

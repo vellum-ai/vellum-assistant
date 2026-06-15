@@ -54,6 +54,7 @@ import {
   getSelectedAssistant,
   getLocalGatewayUrl,
 } from "@/lib/local-mode";
+import { getLocalAssistantStatusHost } from "@/runtime/local-mode-host";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { isAuthenticated, type SessionStatus } from "@/stores/session-status";
 
@@ -118,6 +119,13 @@ class AssistantLifecycleService {
    * alongside the new heartbeat's and leave two loops running.
    */
   private healthHeartbeatToken = 0;
+  /**
+   * Health probes can synchronously emit `assistant_unreachable` through
+   * the API interceptor before their own await path finishes. Track the
+   * assistant ids already being probed so that event can mark the state
+   * degraded without recursively starting another `/healthz` request.
+   */
+  private reachabilityProbeInFlightIds = new Set<string>();
   /**
    * Tracks the assistant being actively probed. Non-null when a probe
    * loop is running (timer pending OR tick in-flight). Prevents
@@ -193,6 +201,7 @@ class AssistantLifecycleService {
     this.setOperationalStatusAssistantId(null);
     this.cancelProbeTimer();
     this.probeLoopAssistantId = null;
+    this.reachabilityProbeInFlightIds.clear();
     if (this.state.kind !== "loading") {
       this.transition({ kind: "loading" });
     }
@@ -598,29 +607,65 @@ class AssistantLifecycleService {
   // ---------------------------------------------------------------------------
 
   private async probeReachability(assistantId: string): Promise<void> {
-    const generation = this.generation;
-    let health: LocalAssistantHealth;
+    if (this.reachabilityProbeInFlightIds.has(assistantId)) return;
+    this.reachabilityProbeInFlightIds.add(assistantId);
     try {
-      health = deriveLocalAssistantHealth(await getAssistantHealthz(assistantId));
-    } catch {
-      health = "unreachable";
-    }
-    if (generation !== this.generation) return;
-    if (useResolvedAssistantsStore.getState().activeAssistantId !== assistantId) return;
-    if (this.state.kind === "self_hosted") {
-      if (this.state.health !== health) {
-        this.transition({ ...this.state, health });
+      const generation = this.generation;
+      let health: LocalAssistantHealth;
+      try {
+        health = deriveLocalAssistantHealth(
+          await getAssistantHealthz(assistantId),
+        );
+      } catch {
+        health = "unreachable";
       }
-      return;
+      if (health === "unreachable") {
+        const localStatusAssistantId =
+          this.state.kind === "self_hosted" ||
+          (this.state.kind === "active" && this.state.isLocal)
+            ? (getSelectedAssistant()?.assistantId ?? assistantId)
+            : assistantId;
+        const localStatus = await getLocalAssistantStatusHost(
+          localStatusAssistantId,
+        ).catch(() => null);
+        if (localStatus?.ok) {
+          switch (localStatus.state) {
+            case "healthy":
+              health = "healthy";
+              break;
+            case "sleeping":
+            case "starting":
+            case "crashed":
+              health = localStatus.state;
+              break;
+            case "unknown":
+              break;
+          }
+        }
+      }
+      if (generation !== this.generation) return;
+      if (
+        useResolvedAssistantsStore.getState().activeAssistantId !== assistantId
+      ) {
+        return;
+      }
+      if (this.state.kind === "self_hosted") {
+        if (this.state.health !== health) {
+          this.transition({ ...this.state, health });
+        }
+        return;
+      }
+      if (this.state.kind !== "active") return;
+      const reachable = health === "healthy" || health === "unhealthy";
+      // Heartbeat ticks re-confirm the same answer most of the time —
+      // don't wake every store subscriber for a no-op.
+      if (this.state.reachable === reachable && this.state.health === health) {
+        return;
+      }
+      this.transition({ ...this.state, reachable, health });
+    } finally {
+      this.reachabilityProbeInFlightIds.delete(assistantId);
     }
-    if (this.state.kind !== "active") return;
-    const reachable = health !== "unreachable";
-    // Heartbeat ticks re-confirm the same answer most of the time —
-    // don't wake every store subscriber for a no-op.
-    if (this.state.reachable === reachable && this.state.health === health) {
-      return;
-    }
-    this.transition({ ...this.state, reachable, health });
   }
 
   private cancelProbeTimer(): void {
@@ -741,6 +786,7 @@ class AssistantLifecycleService {
     this.cancelProbeTimer();
     this.cancelHealthHeartbeat();
     this.probeLoopAssistantId = null;
+    this.reachabilityProbeInFlightIds.clear();
     this.clearErrorRetry(true);
     this.state = { kind: "loading" };
     this.generation = 0;

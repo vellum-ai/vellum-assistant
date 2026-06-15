@@ -6,6 +6,7 @@ import { z } from "zod";
 import {
   getGuardianAccessToken,
   getLockfileData,
+  getLocalAssistantStatus,
   replacePlatformAssistants,
   resolveConfigDir,
   resolveEnvironmentName,
@@ -231,6 +232,13 @@ export const installLocalMode = (): void => {
   handle("vellum:localMode:wake", wakeArgs, ([assistantId, options]) => {
     if (!assistantId) return { ok: false, error: "Missing assistantId" };
     return wake(assistantId, options);
+  });
+
+  handle("vellum:localMode:status", assistantIdArgs, ([assistantId]) => {
+    if (!assistantId) {
+      return { ok: false, status: 400, error: "Missing assistantId" };
+    }
+    return getLocalAssistantStatus(lockfilePaths, assistantId);
   });
 
   handle(

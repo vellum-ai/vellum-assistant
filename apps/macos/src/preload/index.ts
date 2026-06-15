@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 
-import type { Lockfile, LockfileWriteResult } from "@vellumai/local-mode";
+import type {
+  Lockfile,
+  LockfileWriteResult,
+} from "@vellumai/local-mode";
 import type {
   AppVersionInfo,
   AssistantStatus,
@@ -15,6 +18,7 @@ import type {
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
+  LocalAssistantStatusResult,
   LocalWakeOptions,
   NotificationActionEvent,
   PowerEvent,
@@ -43,6 +47,7 @@ export type {
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
+  LocalAssistantStatusResult,
   NotificationActionEvent,
   PowerEvent,
   ResolvedHotkey,
@@ -300,6 +305,11 @@ const bridge: VellumBridge = {
         ok: boolean;
         error?: string;
       }>,
+    status: (assistantId: string) =>
+      ipcRenderer.invoke(
+        "vellum:localMode:status",
+        assistantId,
+      ) as Promise<LocalAssistantStatusResult>,
     retire: (assistantId: string) =>
       ipcRenderer.invoke("vellum:localMode:retire", assistantId) as Promise<{
         ok: boolean;

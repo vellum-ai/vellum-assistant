@@ -31,6 +31,7 @@
  */
 
 export interface LocalAssistantResources {
+  instanceDir?: string;
   gatewayPort: number;
   daemonPort: number;
 }
@@ -69,7 +70,13 @@ function parseResources(value: unknown): LocalAssistantResources | undefined {
   if (!isRecord(value)) return undefined;
   if (typeof value.gatewayPort !== "number") return undefined;
   if (typeof value.daemonPort !== "number") return undefined;
-  return { gatewayPort: value.gatewayPort, daemonPort: value.daemonPort };
+  return {
+    ...(typeof value.instanceDir === "string"
+      ? { instanceDir: value.instanceDir }
+      : {}),
+    gatewayPort: value.gatewayPort,
+    daemonPort: value.daemonPort,
+  };
 }
 
 /**

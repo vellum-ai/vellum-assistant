@@ -24,6 +24,7 @@ import { useConnectivityState } from "@/hooks/use-connectivity-state";
 import { useNetworkStatus } from "@/hooks/use-network-status";
 import { captureError } from "@/lib/sentry/capture-error";
 import { isElectron } from "@/runtime/is-electron";
+import { wakeLocalAssistantHost } from "@/runtime/local-mode-host";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { cn } from "@/utils/misc";
@@ -36,6 +37,8 @@ interface BannerConfig {
   icon?: ReactNode;
   actions?: ReactNode;
 }
+
+const LOCAL_WAKE_SETTLING_MS = 60_000;
 
 const OPERATIONAL_STATUS_TITLES: Record<AssistantOperationalState, string> = {
   initializing: "Assistant is initializing",
@@ -99,12 +102,40 @@ function operationalStatusBannerConfig(
 
 function localHealthBannerConfig(
   health: LocalAssistantHealth | null,
+  wakeAction?: ReactNode,
+  wakeError?: ReactNode,
 ): BannerConfig | null {
   switch (health) {
-    case "unreachable":
+    case "sleeping":
+      return {
+        tone: wakeError ? "error" : "neutral",
+        title: "Your assistant is asleep",
+        children: wakeError,
+        icon: <Moon className="h-4 w-4" aria-hidden="true" />,
+        actions: wakeAction,
+      };
+    case "starting":
+      return {
+        tone: "neutral",
+        title: "Your assistant is waking up",
+        icon: (
+          <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+        ),
+      };
+    case "crashed":
       return {
         tone: "error",
-        title: "Assistant is unreachable",
+        title: "Your assistant crashed",
+        children: wakeError,
+        actions: wakeAction,
+      };
+    case "unreachable":
+      return {
+        tone: wakeError ? "error" : "neutral",
+        title: "Your assistant is asleep",
+        icon: <Moon className="h-4 w-4" aria-hidden="true" />,
+        children: wakeError,
+        actions: wakeAction,
       };
     case "unhealthy":
       return {
@@ -124,6 +155,12 @@ function doctorAction(): ReactNode {
   );
 }
 
+function canWakeLocalHealth(health: LocalAssistantHealth | null): boolean {
+  return (
+    health === "sleeping" || health === "crashed" || health === "unreachable"
+  );
+}
+
 function BannerNotice({
   banner,
   className,
@@ -138,6 +175,10 @@ function BannerNotice({
         title={banner.title}
         icon={banner.icon}
         actions={banner.actions}
+        className={cn(
+          !banner.children &&
+            "items-center [&>span:first-child]:mt-0",
+        )}
       >
         {banner.children}
       </Notice>
@@ -203,6 +244,42 @@ function useAssistantBannerConfig(): BannerConfig | null {
   const [maintenanceModeExitError, setMaintenanceModeExitError] = useState<
     string | null
   >(null);
+  const [isWakingLocalAssistant, setIsWakingLocalAssistant] = useState(false);
+  const [localWakeSettlingUntil, setLocalWakeSettlingUntil] = useState<
+    number | null
+  >(null);
+  const [wakeLocalAssistantError, setWakeLocalAssistantError] = useState<
+    string | null
+  >(null);
+  const isLocalWakeSettling =
+    localWakeSettlingUntil !== null && localWakeSettlingUntil > Date.now();
+
+  useEffect(() => {
+    if (localWakeSettlingUntil === null) return;
+    const remainingMs = localWakeSettlingUntil - Date.now();
+    if (remainingMs <= 0) {
+      setLocalWakeSettlingUntil(null);
+      return;
+    }
+    const timeout = setTimeout(() => {
+      setLocalWakeSettlingUntil(null);
+    }, remainingMs);
+    return () => clearTimeout(timeout);
+  }, [localWakeSettlingUntil]);
+
+  useEffect(() => {
+    if (
+      localHealth === "healthy" ||
+      localHealth === "unhealthy" ||
+      localHealth === "sleeping"
+    ) {
+      setLocalWakeSettlingUntil(null);
+    }
+  }, [localHealth]);
+
+  useEffect(() => {
+    setLocalWakeSettlingUntil(null);
+  }, [activeAssistantId]);
 
   const handleExitMaintenanceMode = useCallback(async () => {
     if (!assistantId || isExitingMaintenanceMode) return;
@@ -234,6 +311,51 @@ function useAssistantBannerConfig(): BannerConfig | null {
     }
   }, [assistantId, isExitingMaintenanceMode, refetchOperationalStatus]);
 
+  const handleWakeLocalAssistant = useCallback(async () => {
+    if (!activeAssistantId || isWakingLocalAssistant) return;
+
+    setIsWakingLocalAssistant(true);
+    setLocalWakeSettlingUntil(Date.now() + LOCAL_WAKE_SETTLING_MS);
+    setWakeLocalAssistantError(null);
+
+    try {
+      const result = await wakeLocalAssistantHost(activeAssistantId);
+      if (!result.ok) {
+        setLocalWakeSettlingUntil(null);
+        setWakeLocalAssistantError(
+          result.error || "Wake failed. Try running vellum wake in your terminal.",
+        );
+        return;
+      }
+
+      await Promise.allSettled([
+        refetchOperationalStatus(),
+        retryConnectivity(),
+        lifecycleService.checkAssistant(),
+      ]);
+      lifecycleService.triggerReachabilityProbe();
+    } catch (err) {
+      setLocalWakeSettlingUntil(null);
+      captureError(err, { context: "wake_local_assistant_status_banner" });
+      setWakeLocalAssistantError(
+        "Wake failed. Try running vellum wake in your terminal.",
+      );
+    } finally {
+      setIsWakingLocalAssistant(false);
+    }
+  }, [
+    activeAssistantId,
+    isWakingLocalAssistant,
+    refetchOperationalStatus,
+    retryConnectivity,
+  ]);
+
+  useEffect(() => {
+    if (!canWakeLocalHealth(localHealth)) {
+      setWakeLocalAssistantError(null);
+    }
+  }, [localHealth]);
+
   if (electron && connectivityState === "device-offline") {
     return {
       tone: "warning",
@@ -250,6 +372,38 @@ function useAssistantBannerConfig(): BannerConfig | null {
     };
   }
 
+  const effectiveLocalHealth =
+    (isWakingLocalAssistant || isLocalWakeSettling) &&
+    canWakeLocalHealth(localHealth)
+      ? "starting"
+      : localHealth;
+  const localWakeAction =
+    canWakeLocalHealth(effectiveLocalHealth) ? (
+      <Button
+        variant="outlined"
+        size="compact"
+        leftIcon={
+          isWakingLocalAssistant ? (
+            <LoaderCircle className="animate-spin" aria-hidden="true" />
+          ) : undefined
+        }
+        disabled={!activeAssistantId || isWakingLocalAssistant}
+        onClick={() => {
+          void handleWakeLocalAssistant();
+        }}
+      >
+        Wake up
+      </Button>
+    ) : undefined;
+  const localHealthBanner = localHealthBannerConfig(
+    effectiveLocalHealth,
+    localWakeAction,
+    wakeLocalAssistantError,
+  );
+  if (localHealthBanner) {
+    return localHealthBanner;
+  }
+
   if (electron && connectivityState === "backend-unreachable") {
     return {
       tone: "warning",
@@ -261,11 +415,6 @@ function useAssistantBannerConfig(): BannerConfig | null {
         </Button>
       ),
     };
-  }
-
-  const localHealthBanner = localHealthBannerConfig(localHealth);
-  if (localHealthBanner) {
-    return localHealthBanner;
   }
 
   const lifecycleMaintenanceModeActive =

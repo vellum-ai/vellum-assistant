@@ -13,7 +13,13 @@ export type MaintenanceModeInfo = {
  * the centralized operational-status API is the health surface and
  * this field is only touched by event-driven probes.
  */
-export type LocalAssistantHealth = "healthy" | "unhealthy" | "unreachable";
+export type LocalAssistantHealth =
+  | "healthy"
+  | "unhealthy"
+  | "unreachable"
+  | "sleeping"
+  | "starting"
+  | "crashed";
 
 /**
  * Discriminated union describing every phase the assistant can be in,
