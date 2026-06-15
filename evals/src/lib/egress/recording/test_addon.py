@@ -69,15 +69,22 @@ class _FakeRequest(_FakeMessage):
         decoded: bytes,
         raw: bytes,
         host: str = "api.anthropic.com",
+        timestamp_start: float | None = None,
     ) -> None:
         super().__init__(decoded=decoded, raw=raw)
         self.pretty_host = host
         self.path = path
+        self.timestamp_start = timestamp_start
 
 
 class _FakeResponse(_FakeMessage):
     def __init__(
-        self, *, decoded: bytes, raw: bytes, content_type: str
+        self,
+        *,
+        decoded: bytes,
+        raw: bytes,
+        content_type: str,
+        timestamp_end: float | None = None,
     ) -> None:
         super().__init__(
             decoded=decoded,
@@ -85,6 +92,7 @@ class _FakeResponse(_FakeMessage):
             headers={"content-type": content_type},
         )
         self.status_code = 200
+        self.timestamp_end = timestamp_end
 
 
 class _FakeFlow:
@@ -255,6 +263,49 @@ class ResponseHookGzipTest(unittest.TestCase):
 
         # THEN no usage record is written
         self.assertEqual(self._records(), [])
+
+    def test_round_trip_latency_is_recorded_in_ms(self) -> None:
+        """The hook records proxy-observed round-trip latency as `duration_ms`."""
+        # GIVEN an Anthropic response whose request/response carry mitmproxy's
+        # epoch-second start/end stamps 2.5s apart
+        body = _anthropic_response_json()
+        flow = _FakeFlow(
+            request=_FakeRequest(
+                path="/v1/messages",
+                decoded=b"{}",
+                raw=b"{}",
+                timestamp_start=1000.0,
+            ),
+            response=_FakeResponse(
+                decoded=body,
+                raw=body,
+                content_type="application/json",
+                timestamp_end=1002.5,
+            ),
+        )
+
+        # WHEN the response hook records it
+        addon.response(flow)
+
+        # THEN the record carries the round-trip latency in whole ms
+        self.assertEqual(self._records()[0]["duration_ms"], 2500)
+
+    def test_duration_is_none_when_timestamps_missing(self) -> None:
+        """`duration_ms` is null when mitmproxy left no usable timestamps."""
+        # GIVEN a flow whose request/response carry no start/end stamps
+        body = _anthropic_response_json()
+        flow = _FakeFlow(
+            request=_FakeRequest(path="/v1/messages", decoded=b"{}", raw=b"{}"),
+            response=_FakeResponse(
+                decoded=body, raw=body, content_type="application/json"
+            ),
+        )
+
+        # WHEN the response hook records it
+        addon.response(flow)
+
+        # THEN duration is recorded as null rather than a bogus number
+        self.assertIsNone(self._records()[0]["duration_ms"])
 
     def test_falls_back_to_raw_when_decode_raises(self) -> None:
         body = _anthropic_response_json()
