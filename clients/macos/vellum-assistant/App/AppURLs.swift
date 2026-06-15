@@ -126,6 +126,10 @@ public enum AppURLs {
     /// YouTube channel — linked from the Settings "Community" tab.
     public static let youtubeURL = URL(string: "https://www.youtube.com/@Vellum_AI")!
 
+    /// Downloads page for the new Vellum desktop app — linked from the in-chat
+    /// deprecation banner that points users off this legacy build.
+    public static let downloadsURL = URL(string: "https://vellum.ai/downloads")!
+
     // MARK: - Helpers
 
     /// Build a docs URL by appending a path to the (possibly env-overridden) base.
