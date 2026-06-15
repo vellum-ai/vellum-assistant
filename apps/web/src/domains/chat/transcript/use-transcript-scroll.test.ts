@@ -110,6 +110,7 @@ function makeHandle(): TranscriptHandle & {
   }));
   return {
     scrollToLatest,
+    scrollToMessage: mock((): boolean => false),
     getScrollElement,
     getContentElement,
     getViewportHeight,

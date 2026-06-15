@@ -485,6 +485,8 @@ export async function postChatMessage(
       };
     if (normalizedOnboarding.userName !== undefined)
       onboardingDict.userName = normalizedOnboarding.userName;
+    if (normalizedOnboarding.occupation !== undefined)
+      onboardingDict.occupation = normalizedOnboarding.occupation;
     if (normalizedOnboarding.assistantName !== undefined)
       onboardingDict.assistantName = normalizedOnboarding.assistantName;
     if (normalizedOnboarding.googleConnected !== undefined)

@@ -418,6 +418,11 @@ interface SelectionRow {
   slug: Slug;
   source: SelectionSource;
   pinned: number;
+  /** Ordinal of the matched section a finder lane surfaced; null for
+   *  core/hot/fresh/edge selections with no matched section. */
+  sectionOrdinal: number | null;
+  /** Heading of the matched section; null when there is no matched section. */
+  sectionTitle: string | null;
 }
 
 /**
@@ -438,17 +443,24 @@ export function attributeSelections(result: OrchestrateResult): SelectionRow[] {
   const finderLane = new Map(
     result.lanes.finder.map((c) => [c.slug, c.lane] as const),
   );
-  return result.selections.map((sel) => ({
-    slug: sel.slug,
-    source: core.has(sel.slug)
-      ? ("core" as const)
-      : hot.has(sel.slug)
-        ? ("hot" as const)
-        : fresh.has(sel.slug)
-          ? ("fresh" as const)
-          : (finderLane.get(sel.slug) ?? "needle"),
-    pinned: sel.pinned ? 1 : 0,
-  }));
+  return result.selections.map((sel) => {
+    // The matched section is populated only for finder-lane hits (including
+    // hits on core/hot pages); core/hot/fresh/edge-only selections have none.
+    const section = result.matchedSections.get(sel.slug);
+    return {
+      slug: sel.slug,
+      source: core.has(sel.slug)
+        ? ("core" as const)
+        : hot.has(sel.slug)
+          ? ("hot" as const)
+          : fresh.has(sel.slug)
+            ? ("fresh" as const)
+            : (finderLane.get(sel.slug) ?? "needle"),
+      pinned: sel.pinned ? 1 : 0,
+      sectionOrdinal: section?.ordinal ?? null,
+      sectionTitle: section?.title ?? null,
+    };
+  });
 }
 
 /** Write the attributed selection rows to `memory_v3_selections`. */
@@ -461,15 +473,49 @@ export function writeSelections(
   const raw = getSqliteFrom(getDb());
   // PK is (conversation_id, turn, slug); OR REPLACE keeps the write
   // idempotent if the same turn is observed twice (e.g. a retried turn).
+  // `message_id` is written NULL here (the assistant message does not exist at
+  // injection time) and stamped at turn end by
+  // `backfillMemoryV3SelectionMessageId`.
   const stmt = raw.query(/*sql*/ `
     INSERT OR REPLACE INTO memory_v3_selections (
-      conversation_id, turn, slug, source, pinned, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?)
+      conversation_id, turn, slug, source, pinned, created_at,
+      message_id, section_ordinal, section_title
+    ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
   `);
   const now = Date.now();
   for (const row of rows) {
-    stmt.run(conversationId, turn, row.slug, row.source, row.pinned, now);
+    stmt.run(
+      conversationId,
+      turn,
+      row.slug,
+      row.source,
+      row.pinned,
+      now,
+      row.sectionOrdinal,
+      row.sectionTitle,
+    );
   }
+}
+
+/**
+ * Stamp the turn's assistant message id onto the selection rows just written
+ * for it. Mirrors the v2 activation-log backfill: `writeSelections` writes
+ * `message_id = NULL` at injection time, and this runs at turn end once the
+ * assistant message exists. Relies on the single-threaded-per-conversation turn
+ * invariant — every NULL-`message_id` row for the conversation belongs to the
+ * turn that just finished. Lets the inspector look v3 selections up by the
+ * turn's message ids (robust against v2/v3 turn-counter drift).
+ */
+export function backfillMemoryV3SelectionMessageId(
+  conversationId: string,
+  assistantMessageId: string,
+): void {
+  getSqliteFrom(getDb())
+    .query(
+      /*sql*/ `UPDATE memory_v3_selections SET message_id = ?
+               WHERE conversation_id = ? AND message_id IS NULL`,
+    )
+    .run(assistantMessageId, conversationId);
 }
 
 /**

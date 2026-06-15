@@ -15,14 +15,13 @@
  * `injectedText` reflects the live selection; when only `shadow` is true it is
  * the block that WOULD have been injected.
  *
- * `injectedText` is APPROXIMATE, not a verbatim record. It is re-rendered from
- * the persisted selection rows, which store slug/source/pinned but NOT the
- * matched-section identity. A page that live injection sent as a single matched
- * section is re-rendered here as its FULL page (the section ordinal isn't
- * persisted), so the text can differ from what was actually sent to the model.
- * The selected slug set is exact — only the rendered text is full-page
- * approximate. Persisting the per-turn injected section is a documented
- * follow-up.
+ * `injectedText` is inspector-only, not a verbatim record of the live cards +
+ * spotlight. It re-renders each selection's matched section — resolved from the
+ * persisted `(slug, sectionOrdinal)` against the CURRENT page — falling back to
+ * the full page when no section was recorded. Because the section text is
+ * re-derived from the current page, it reflects bounded page-drift if the page
+ * changed since the turn (the same approximation the v2 inspector accepts). The
+ * selected slug set and each row's matched-section heading are exact as logged.
  */
 
 import { z } from "zod";
@@ -33,20 +32,28 @@ import { z } from "zod";
  * rows may carry retired labels) — but the schema stays a permissive string
  * so a new lane label (or a historical pre-lane row) doesn't break parsing on
  * the FE. `pinned` marks a page the turn was centrally about.
+ * `sectionOrdinal`/`sectionHeading` identify the matched section a finder lane
+ * surfaced (null for core/hot/fresh/edge selections and pre-migration rows).
  */
 export const MemoryV3SelectionRowSchema = z.object({
   slug: z.string(),
   source: z.string(),
   pinned: z.boolean(),
+  // The matched section a finder lane surfaced for this selection. Null for
+  // core/hot/fresh/edge selections with no matched section, and for rows
+  // written before the section columns existed. Optional + nullable so older
+  // clients and pre-migration rows round-trip.
+  sectionOrdinal: z.number().nullable().optional(),
+  sectionHeading: z.string().nullable().optional(),
 });
 
 export type MemoryV3SelectionRow = z.infer<typeof MemoryV3SelectionRowSchema>;
 
 /**
  * Memory v3 selection log shape. `injectedText` is the rendered
- * `<memory>…</memory>` block for the selection — APPROXIMATE: re-rendered from
- * the persisted rows, with full pages where live injection used a matched
- * section (the section identity isn't persisted). See the file header.
+ * `<memory>…</memory>` block for the selection — re-rendered from the persisted
+ * rows, with each selection's matched section resolved from its
+ * `(slug, sectionOrdinal)` (full-page fallback when none). See the file header.
  */
 export const MemoryV3SelectionLogSchema = z.object({
   turn: z.number(),

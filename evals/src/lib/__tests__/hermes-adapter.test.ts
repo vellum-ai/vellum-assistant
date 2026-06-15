@@ -128,7 +128,7 @@ describe("HermesAgent", () => {
     expect(agent.id).toBe("eval-hermes-1");
     expect(agent.conversationKey).toBe("evals:timeline-recall:eval-hermes-1");
 
-    // Pre-flight rm -f + docker run (image + daemon args) + jail apply + setup exec.
+    // Pre-flight rm -f + docker run + workspace-dir + jail apply + setup exec.
     const calls = runner.runs.map((r) => [r.command, ...r.args]);
     expect(calls[0]).toEqual(["docker", "rm", "-f", "eval-hermes-1-hermes"]);
     expect(calls[1]).toEqual([
@@ -149,22 +149,34 @@ describe("HermesAgent", () => {
       "gateway",
       "run",
     ]);
+    // The workspace dir is created (as root, chowned to the gateway user)
+    // right after the container starts so turns have a writable cwd.
+    expect(calls[2]).toEqual([
+      "docker",
+      "exec",
+      "--user",
+      "root",
+      "eval-hermes-1-hermes",
+      "sh",
+      "-c",
+      'mkdir -p "/workspace" && chown hermes "/workspace"',
+    ]);
     // The jail attaches to the already-running Hermes container's netns
     // (Hermes owns the namespace; it warmed up provider SDKs from PyPI
     // before the jail closed). Pre-clean then build then run.
-    expect(calls[2]).toEqual([
+    expect(calls[3]).toEqual([
       "docker",
       "rm",
       "-f",
       "eval-hermes-1-egress-jail",
     ]);
     // Build command
-    expect(calls[3][0]).toBe("docker");
-    expect(calls[3][1]).toBe("build");
-    expect(calls[3][2]).toBe("-t");
-    expect(calls[3][3]).toBe("vellum-evals-recording-jail:local");
+    expect(calls[4][0]).toBe("docker");
+    expect(calls[4][1]).toBe("build");
+    expect(calls[4][2]).toBe("-t");
+    expect(calls[4][3]).toBe("vellum-evals-recording-jail:local");
     // Run command (detached with recording mount)
-    expect(calls[4].slice(0, 6)).toEqual([
+    expect(calls[5].slice(0, 6)).toEqual([
       "docker",
       "run",
       "-d",
@@ -172,13 +184,13 @@ describe("HermesAgent", () => {
       "eval-hermes-1-egress-jail",
       "--network",
     ]);
-    expect(calls[4]).toContain("container:eval-hermes-1-hermes");
-    expect(calls[4]).toContain("--cap-add");
-    expect(calls[4]).toContain("NET_ADMIN");
-    expect(calls[4]).toContain("evals.vellum.ai/egress-recording=1");
-    // Setup command (calls[5..6] are now CA install: docker cp + docker exec
-    // update-ca-certificates; setup shifts to calls[7])
-    expect(calls[7]).toEqual([
+    expect(calls[5]).toContain("container:eval-hermes-1-hermes");
+    expect(calls[5]).toContain("--cap-add");
+    expect(calls[5]).toContain("NET_ADMIN");
+    expect(calls[5]).toContain("evals.vellum.ai/egress-recording=1");
+    // Setup command (calls[6..7] are the CA install: docker cp + docker exec
+    // update-ca-certificates; setup shifts to calls[8])
+    expect(calls[8]).toEqual([
       "docker",
       "exec",
       "--env",
@@ -204,7 +216,8 @@ describe("HermesAgent", () => {
     ]);
 
     // The send invoked `hermes -z "<prompt>"` as the unprivileged gateway
-    // user so memory writes stay gateway-owned.
+    // user so memory writes stay gateway-owned, and ran in `/workspace` so
+    // the agent's file tools resolve staged files by bare name.
     expect(runner.runs.at(-1)).toMatchObject({
       command: "docker",
       args: [
@@ -213,6 +226,8 @@ describe("HermesAgent", () => {
         "hermes",
         "--env",
         `PATH=${EXEC_PATH}`,
+        "--workdir",
+        "/workspace",
         "eval-hermes-1-hermes",
         "hermes",
         "-z",
@@ -253,6 +268,8 @@ describe("HermesAgent", () => {
       "hermes",
       "--env",
       `PATH=${EXEC_PATH}`,
+      "--workdir",
+      "/workspace",
       "eval-hermes-custom-hermes",
       "hermesctl",
       "-z",
@@ -374,6 +391,82 @@ describe("HermesAgent", () => {
     expect(runner.runs).toEqual([]);
   });
 
+  test("hatch creates the workspace dir owned by the gateway user", async () => {
+    // GIVEN a freshly-hatched Hermes agent
+    const runner = new FakeRunner();
+    const agent = new HermesAgent({
+      runner,
+      profile,
+      testId: "restaurant-pnl-spend",
+      runId: "eval-hermes-ws",
+      processEnv: {},
+    });
+
+    // WHEN it hatches
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+
+    // THEN it mkdir's /workspace as root and chowns it to the hermes user
+    // so `send`'s --workdir resolves and staged files can be written there.
+    const mkdirWs = runner.runs.find(
+      (r) =>
+        r.args[0] === "exec" &&
+        r.args.includes("root") &&
+        r.args.some(
+          (a) => typeof a === "string" && a.includes('mkdir -p "/workspace"'),
+        ),
+    );
+    expect(mkdirWs).toBeDefined();
+    expect(mkdirWs?.args.at(-1)).toContain('chown hermes "/workspace"');
+  });
+
+  test("stage-workspace-file pipes the payload into /workspace as the hermes user", async () => {
+    // GIVEN a hatched Hermes agent
+    const runner = new FakeRunner();
+    const agent = new HermesAgent({
+      runner,
+      profile,
+      testId: "restaurant-pnl-spend",
+      runId: "eval-hermes-stage",
+      processEnv: {},
+    });
+
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+    const baseline = runner.runs.length;
+
+    // WHEN a file is staged into the workspace
+    await agent.runSetupCommand({
+      type: "stage-workspace-file",
+      path: "restaurant-pnl.csv",
+      content: "Category,Amount (USD)\nLabor,48200\n",
+    });
+    const newRuns = runner.runs.slice(baseline);
+
+    // THEN it mkdir's the parent as the hermes user, then `cp /dev/stdin`'s
+    // the payload (piped on stdin, never on the command line) to the target.
+    expect(newRuns[0].args).toEqual([
+      "exec",
+      "--user",
+      "hermes",
+      "eval-hermes-stage-hermes",
+      "mkdir",
+      "-p",
+      "/workspace",
+    ]);
+    expect(newRuns[1].args).toEqual([
+      "exec",
+      "-i",
+      "--user",
+      "hermes",
+      "eval-hermes-stage-hermes",
+      "cp",
+      "/dev/stdin",
+      "/workspace/restaurant-pnl.csv",
+    ]);
+    expect(newRuns[1].stdin).toBe("Category,Amount (USD)\nLabor,48200\n");
+  });
+
   test("seed-conversation surfaces the in-container error when state.db write fails", async () => {
     class BrokenSeedRunner extends FakeRunner {
       override async run(
@@ -447,6 +540,8 @@ describe("HermesAgent", () => {
         "hermes",
         "--env",
         `PATH=${EXEC_PATH}`,
+        "--workdir",
+        "/workspace",
         "eval-hermes-2-hermes",
         "hermes",
         "-z",

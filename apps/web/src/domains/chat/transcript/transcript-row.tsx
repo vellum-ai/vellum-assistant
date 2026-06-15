@@ -21,6 +21,8 @@ import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
  */
 export interface TranscriptRowProps {
   item: TranscriptItem;
+  /** Conversation id, forwarded to message bodies for the bookmark toggle. */
+  conversationId?: string | null;
   assistantDisplayName?: string | null;
   onSurfaceAction: (
     surfaceId: string,
@@ -69,6 +71,7 @@ export interface TranscriptRowProps {
 
 export const TranscriptRow = memo(function TranscriptRow({
   item,
+  conversationId,
   assistantDisplayName,
   onSurfaceAction,
   onForkConversation,
@@ -91,6 +94,7 @@ export const TranscriptRow = memo(function TranscriptRow({
       return (
         <TranscriptMessageBody
           message={item.message}
+          conversationId={conversationId}
           assistantDisplayName={assistantDisplayName}
           onSurfaceAction={onSurfaceAction}
           onForkConversation={onForkConversation}

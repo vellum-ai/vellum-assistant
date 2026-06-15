@@ -1,3 +1,5 @@
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
+import { getConfig } from "../../config/loader.js";
 import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
 import { formatIntegrationSummary } from "../../schedule/integration-status.js";
 import { validateRruleSetLines } from "../../schedule/recurrence-engine.js";
@@ -15,7 +17,7 @@ import {
 } from "../../schedule/schedule-store.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
-const VALID_MODES: ScheduleMode[] = ["notify", "execute", "script"];
+const VALID_MODES: ScheduleMode[] = ["notify", "execute", "script", "workflow"];
 const VALID_ROUTING_INTENTS: RoutingIntent[] = [
   "single_channel",
   "multi_channel",
@@ -50,6 +52,9 @@ export async function executeScheduleCreate(
   const maxRetries = input.max_retries as number | undefined;
   const retryBackoffMs = input.retry_backoff_ms as number | undefined;
   const timeoutMs = input.timeout_ms as number | undefined;
+  const workflowName =
+    typeof input.workflow_name === "string" ? input.workflow_name.trim() : null;
+  const workflowArgs = input.workflow_args;
   const inferenceProfile = input.inference_profile as string | undefined;
 
   if (timeoutMs !== undefined) {
@@ -104,6 +109,21 @@ export async function executeScheduleCreate(
       return {
         content:
           "Error: script is required for script mode and must be a non-empty string",
+        isError: true,
+      };
+    }
+  } else if (mode === "workflow") {
+    // Workflow mode is gated by the `workflows` flag (a scheduled run would
+    // otherwise hard-fail at trigger time) and requires a saved workflow name —
+    // mirrors the HTTP route's create-side validation so the assistant-facing
+    // path and the settings route enforce the same shape.
+    if (!isAssistantFeatureFlagEnabled("workflows", getConfig())) {
+      return { content: "Error: workflows are not enabled.", isError: true };
+    }
+    if (!workflowName) {
+      return {
+        content:
+          "Error: workflow_name is required for workflow mode and must be a non-empty string",
         isError: true,
       };
     }
@@ -172,6 +192,8 @@ export async function executeScheduleCreate(
         maxRetries,
         retryBackoffMs,
         timeoutMs,
+        workflowName,
+        workflowArgs,
         inferenceProfile,
         createdFromConversationId: context.conversationId,
       });
@@ -260,6 +282,8 @@ export async function executeScheduleCreate(
       maxRetries,
       retryBackoffMs,
       timeoutMs,
+      workflowName,
+      workflowArgs,
       inferenceProfile,
       createdFromConversationId: context.conversationId,
     });

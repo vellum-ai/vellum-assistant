@@ -21,6 +21,7 @@ import { useVellumCommands } from "@/runtime/vellum-commands";
 import { routes } from "@/utils/routes";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
+import { useBookmarksSync } from "@/hooks/use-bookmarks-sync";
 import { useNotificationIntentSync } from "@/hooks/use-notification-intent-sync";
 import { useOnboardingWindowSize } from "@/hooks/use-onboarding-window-size";
 import { useConversationSync } from "@/hooks/use-conversation-sync";
@@ -109,6 +110,7 @@ export function RootLayout() {
   useFeatureFlagBusSync(assistantId, isAssistantActive);
   useNotificationIntentSync(assistantId);
   useDocumentEditorSync();
+  useBookmarksSync();
 
   // Keep the browser favicon in sync with the assistant's avatar across
   // every authenticated route (chat, settings, logs, etc.). Mounted here

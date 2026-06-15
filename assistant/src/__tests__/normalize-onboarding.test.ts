@@ -139,6 +139,32 @@ describe("normalizeOnboardingContext", () => {
     expect(result.preferredName).toBeUndefined();
   });
 
+  test("maps occupation through, trimmed", () => {
+    const ctx: OnboardingContext = {
+      tools: [],
+      tasks: [],
+      tone: "friendly",
+      occupation: "  Software Engineer  ",
+    };
+    const result = normalizeOnboardingContext(ctx);
+    expect(result.occupation).toBe("Software Engineer");
+  });
+
+  test("absent or blank occupation yields undefined", () => {
+    expect(
+      normalizeOnboardingContext({ tools: [], tasks: [], tone: "friendly" })
+        .occupation,
+    ).toBeUndefined();
+    expect(
+      normalizeOnboardingContext({
+        tools: [],
+        tasks: [],
+        tone: "friendly",
+        occupation: "   ",
+      }).occupation,
+    ).toBeUndefined();
+  });
+
   test("tone passes through", () => {
     const ctx: OnboardingContext = {
       tools: [],

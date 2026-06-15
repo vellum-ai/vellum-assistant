@@ -1,19 +1,19 @@
 /**
- * Tests for the structured tools card on the Prompt tab. Renders to
- * static markup (no DOM), mirroring `call-rail.test.tsx`, and asserts
- * tool names, schema properties, and server-tool settings appear
- * without raw JSON dumps.
+ * Tests for the structured tools breakdown on the Prompt tab. Renders to
+ * static markup (no DOM), mirroring `call-rail.test.tsx`, and asserts tool
+ * names, schema properties, and server-tool settings appear without raw
+ * JSON dumps.
  */
 
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { ToolDefinitionsCard } from "./tool-definitions-card";
+import { ToolDefinitionsContent } from "./tool-definitions-content";
 
-describe("ToolDefinitionsCard", () => {
+describe("ToolDefinitionsContent", () => {
   test("lists tools by name with schema property breakdown", () => {
     const html = renderToStaticMarkup(
-      <ToolDefinitionsCard
+      <ToolDefinitionsContent
         tools={[
           {
             name: "file_read",
@@ -46,7 +46,7 @@ describe("ToolDefinitionsCard", () => {
 
   test("renders server tools with type tag and settings", () => {
     const html = renderToStaticMarkup(
-      <ToolDefinitionsCard
+      <ToolDefinitionsContent
         tools={[
           {
             name: "web_search",

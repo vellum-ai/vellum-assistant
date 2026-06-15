@@ -57,6 +57,7 @@ import {
 } from "../../../../memory/memory-marker.js";
 import { migrateAddMemoryV3Selections } from "../../../../memory/migrations/268-add-memory-v3-selections.js";
 import { migrateAddMemoryV3EverInjected } from "../../../../memory/migrations/277-add-memory-v3-ever-injected.js";
+import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../memory/migrations/283-memory-v3-selections-message-id-and-sections.js";
 import * as schema from "../../../../memory/schema.js";
 import type { PageIndexEntry } from "../../../../memory/v2/page-index.js";
 import type {
@@ -131,6 +132,7 @@ function makeDb() {
   const db = drizzle(testSqlite, { schema });
   migrateAddMemoryV3EverInjected(db);
   migrateAddMemoryV3Selections(db);
+  migrateMemoryV3SelectionsMessageIdAndSections(db);
   // Minimal `messages` shape — metadata persistence, the prune valve's
   // v3-ownership scan, and the restart rehydration read only these columns.
   testSqlite.run(/*sql*/ `
@@ -631,7 +633,10 @@ async function runTurn(
   }
 
   // Spotlight: scoped strip of the stale block (real assembly helper), then
-  // append the fresh one at the current-message tail.
+  // re-attach the fresh one. Real assembly splices it after the memory cards
+  // (after-memory-prefix); this sim appends to the tail because only the
+  // block's presence, content, placement value, and strip-and-replace are
+  // asserted here — not its exact position within the message.
   const spotlight = await memoryV3SpotlightInjector.produce(ctx);
   const stripped = stripSpotlightInjections(history);
   history.splice(0, history.length, ...stripped);
@@ -976,13 +981,13 @@ describe("memory-v3 carry integration — cache contract", () => {
 });
 
 describe("memory-v3 carry integration — spotlight contract", () => {
-  test("spotlight is present every turn, at the user tail, bounded by n × (window + 1)", () => {
+  test("spotlight is present every turn, after the memory cards, bounded by n × (window + 1)", () => {
     for (const record of records) {
       expect(record.spotlightText.startsWith("<memory_spotlight>\n")).toBe(
         true,
       );
       expect(record.spotlightText.endsWith("\n</memory_spotlight>")).toBe(true);
-      expect(record.spotlightPlacement).toBe("append-user-tail");
+      expect(record.spotlightPlacement).toBe("after-memory-prefix");
       expect(record.spotlightEntries).toBeGreaterThanOrEqual(1);
       expect(record.spotlightEntries).toBeLessThanOrEqual(
         SPOTLIGHT_N * (SPOTLIGHT_WINDOW_TURNS + 1),

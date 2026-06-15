@@ -142,6 +142,7 @@ import {
   migrateMemoryV2InjectionEvents,
   migrateMemoryV3AutoEdges,
   migrateMemoryV3Coactivation,
+  migrateMemoryV3SelectionsMessageIdAndSections,
   migrateMessageBookmarks,
   migrateMessagesClientMessageId,
   migrateMessagesConversationCreatedAtIndex,
@@ -200,6 +201,7 @@ import {
   migrateScheduleScriptTimeout,
   migrateScheduleSourceConversation,
   migrateScheduleWakeConversationId,
+  migrateScheduleWorkflowMode,
   migrateSchemaIndexesAndColumns,
   migrateScrubCorruptedImageAttachments,
   migrateSlackCompactionWatermark,
@@ -216,6 +218,8 @@ import {
   migrateUsageLlmCallCount,
   migrateVoiceInviteColumns,
   migrateVoiceInviteDisplayMetadata,
+  migrateWorkflowRuns,
+  migrateWorkflowRunTrust,
   recoverCrashedMigrations,
   runComplexMigrations,
   runLateMigrations,
@@ -502,6 +506,10 @@ export function initializeDb(): void {
     migrateConversationsSurfacedAt,
     migrateMemoryRetrospectiveRememberedLog,
     migrateScheduleInferenceProfile,
+    migrateMemoryV3SelectionsMessageIdAndSections,
+    migrateWorkflowRuns,
+    migrateScheduleWorkflowMode,
+    migrateWorkflowRunTrust,
   ];
 
   // Run each migration step, catching and logging individual failures so one

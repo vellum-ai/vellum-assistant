@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { ContentBlock, ToolResultContent } from "../providers/types.js";
 import {
   buildTruncatedContent,
+  FILE_READ_TOOL_NAMES,
   getToolResultFilePath,
   isTruncationEligible,
   TOOL_RESULT_DIR,
@@ -18,27 +19,21 @@ import {
 const AX_TREE_TAG = "<ax-tree>";
 
 /**
- * Tools whose results keep their full content at result time even when
- * oversized. `file_read` is the model's only way to page spooled content back
- * into context: stubbing a read of a `.tool-results/` file would spool a
- * fresh copy and hand back another stub, so oversized content could never be
- * read at all. Explicit reads are therefore honored in full; the post-turn
- * pass still truncates them at turn end, after the model has consumed the
- * content.
- */
-const RESULT_TIME_STUB_EXEMPT_TOOLS = new Set<string>(["file_read"]);
-
-/**
- * Whether a tool result is eligible for the result-time spool/stub pass:
- * the post-turn pass's shared rules plus the AX-tree and `file_read`
- * exemptions above.
+ * Whether a tool result is eligible for the result-time spool/stub pass: the
+ * post-turn pass's shared rules plus the AX-tree exemption, minus the file-read
+ * tools ({@link FILE_READ_TOOL_NAMES}). The file-read tools are the model's only
+ * way to page spooled content back into context: stubbing a read of a
+ * `.tool-results/` file would spool a fresh copy and hand back another stub, so
+ * oversized content could never be read at all. Explicit reads are therefore
+ * honored in full; the post-turn pass still truncates them at turn end, after
+ * the model has consumed the content.
  */
 function isSpoolEligible(
   tr: ToolResultContent,
   toolName: string | undefined,
 ): boolean {
   if (!isTruncationEligible(tr, toolName)) return false;
-  if (toolName !== undefined && RESULT_TIME_STUB_EXEMPT_TOOLS.has(toolName)) {
+  if (toolName !== undefined && FILE_READ_TOOL_NAMES.has(toolName)) {
     return false;
   }
   if (tr.content.includes(AX_TREE_TAG)) return false;
@@ -56,8 +51,8 @@ function isSpoolEligible(
  * rewriting an earlier message between calls would invalidate the cache from
  * that point on every iteration. The model still gets the head/tail preview
  * plus the on-disk path, so it can page the full content back in with
- * `file_read` (whose results are exempt from this pass) when it actually
- * needs it.
+ * `file_read` or `host_file_read` (whose results are exempt from this pass)
+ * when it actually needs it.
  *
  * Uses the same file paths, stub bytes, and eligibility rules as
  * `postTurnTruncateToolResults`, whose `TRUNCATION_MARKER` guard then skips

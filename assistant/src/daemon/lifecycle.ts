@@ -84,6 +84,7 @@ import {
   setUsageTelemetryReporter,
   UsageTelemetryReporter,
 } from "../telemetry/usage-telemetry-reporter.js";
+import { syncFlagGatedTools } from "../tools/registry.js";
 import { registerBuiltinTtsProviders } from "../tts/providers/register-builtins.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger, initLogger } from "../util/logger.js";
@@ -97,6 +98,7 @@ import {
   listWorkItems,
   updateWorkItem,
 } from "../work-items/work-item-store.js";
+import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-thinking-repair.js";
 import { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
@@ -358,9 +360,14 @@ export async function runDaemon(): Promise<void> {
     // so a slow or unreachable gateway doesn't delay daemon startup (the
     // IPC call has a 3s connect + 5s call timeout that would otherwise
     // stall the critical path).
-    void initFeatureFlagOverrides().catch((err) =>
-      log.warn({ err }, "Background feature flag init failed"),
-    );
+    // After the async fetch resolves, (re)register any flag-gated tools
+    // (`workflows`, `ces-tools`): `initializeTools()` runs during startup before
+    // this fetch completes, so without this follow-up sync a flag-enabled
+    // assistant would not expose the gated tools until a restart (which can lose
+    // the same race). Enable-direction only; chained so it sees the fresh cache.
+    void initFeatureFlagOverrides()
+      .then(() => syncFlagGatedTools())
+      .catch((err) => log.warn({ err }, "Background feature flag init failed"));
 
     startGatewayFlagListener();
 
@@ -949,6 +956,26 @@ export async function runDaemon(): Promise<void> {
       recoverStaleSchedules();
     } catch (err) {
       log.error({ err }, "Schedule recovery failed — continuing startup");
+    }
+
+    // Reconcile workflow runs orphaned by a crash: any row still `running` was
+    // in flight when the process died (the engine always finishes its row on
+    // exit), so flip it to `interrupted` to make it eligible for an explicit
+    // resume. Status only — accounting counters are preserved. Never blocks
+    // startup on failure.
+    try {
+      const reconciled = getWorkflowRunManager().reconcileOrphanedRuns();
+      if (reconciled > 0) {
+        log.info(
+          { reconciled },
+          "Reconciled orphaned workflow runs to interrupted",
+        );
+      }
+    } catch (err) {
+      log.error(
+        { err },
+        "Workflow run reconciliation failed — continuing startup",
+      );
     }
 
     const scheduler = startScheduler(
