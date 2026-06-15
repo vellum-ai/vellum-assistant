@@ -60,7 +60,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T20:42:53.000Z"
+      "updatedAt": "2026-06-15T21:08:24.000Z"
     },
     {
       "id": "chatgpt-import",
@@ -161,7 +161,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T19:02:12.000Z"
+      "updatedAt": "2026-06-15T21:08:24.000Z"
     },
     {
       "id": "email-setup",
@@ -189,7 +189,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T19:02:12.000Z"
+      "updatedAt": "2026-06-15T21:08:24.000Z"
     },
     {
       "id": "frontend-design",
@@ -411,7 +411,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T19:02:12.000Z"
+      "updatedAt": "2026-06-15T21:08:24.000Z"
     },
     {
       "id": "llm-cost-optimizer",
@@ -424,7 +424,7 @@
           "display-name": "LLM Cost Optimizer"
         }
       },
-      "updatedAt": "2026-06-15T19:02:12.000Z"
+      "updatedAt": "2026-06-15T21:08:24.000Z"
     },
     {
       "id": "macos-automation",
@@ -541,11 +541,20 @@
         "emoji": "📝",
         "vellum": {
           "category": "productivity",
-          "display-name": "Notion"
+          "display-name": "Notion",
+          "activation-hints": [
+            "User asks to read, find, search, or open a page, doc, database, or directory in their Notion (e.g. 'find it in notion', 'look in my Notion', 'this is a notion directory')",
+            "User references Notion content by name or path and wants its contents pulled",
+            "User wants to create, update, append to, or query Notion pages or databases",
+            "User asks anything that requires reading or writing Notion data, including checking a task list or workspace held in Notion"
+          ],
+          "avoid-when": [
+            "User wants to set up, connect, or reconnect the Notion OAuth integration for the first time; load vellum-oauth-integrations instead"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T19:02:12.000Z"
+      "updatedAt": "2026-06-15T22:24:10.000Z"
     },
     {
       "id": "oura",
@@ -562,7 +571,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T19:02:12.000Z"
+      "updatedAt": "2026-06-15T21:08:24.000Z"
     },
     {
       "id": "oura-setup",
@@ -576,7 +585,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T19:02:12.000Z"
+      "updatedAt": "2026-06-15T21:08:24.000Z"
     },
     {
       "id": "outlook",
@@ -629,7 +638,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T19:02:12.000Z"
+      "updatedAt": "2026-06-15T21:08:24.000Z"
     },
     {
       "id": "resend-setup",
@@ -746,7 +755,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T20:42:53.000Z"
+      "updatedAt": "2026-06-15T21:08:24.000Z"
     },
     {
       "id": "start-the-day",
@@ -836,7 +845,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T19:02:12.000Z"
+      "updatedAt": "2026-06-15T21:08:24.000Z"
     },
     {
       "id": "time-based-actions",
@@ -868,7 +877,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T19:02:12.000Z"
+      "updatedAt": "2026-06-15T21:08:24.000Z"
     },
     {
       "id": "typescript-eval",
@@ -1001,7 +1010,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T19:02:12.000Z"
+      "updatedAt": "2026-06-15T21:08:24.000Z"
     },
     {
       "id": "vellum-self-knowledge",
@@ -1108,7 +1117,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T19:02:12.000Z"
+      "updatedAt": "2026-06-15T21:08:24.000Z"
     },
     {
       "id": "voice-setup",
@@ -1133,7 +1142,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T19:02:12.000Z"
+      "updatedAt": "2026-06-15T21:08:24.000Z"
     },
     {
       "id": "watch-together",
