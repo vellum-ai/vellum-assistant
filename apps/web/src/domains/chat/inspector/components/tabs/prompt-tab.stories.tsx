@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
@@ -12,6 +13,10 @@ import { PromptTab } from "./prompt-tab";
  * `/v1/conversations/llm-context` route returns — to verify the integrated
  * layout, the collapse-all affordance, and the tool-definitions breakdown.
  */
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+});
+
 const meta: Meta<typeof PromptTab> = {
   title: "Chat/Inspector/PromptTab",
   component: PromptTab,
@@ -20,9 +25,11 @@ const meta: Meta<typeof PromptTab> = {
   },
   decorators: [
     (Story) => (
-      <div className="mx-auto w-[640px]">
-        <Story />
-      </div>
+      <QueryClientProvider client={queryClient}>
+        <div className="mx-auto w-[640px]">
+          <Story />
+        </div>
+      </QueryClientProvider>
     ),
   ],
 };
@@ -38,6 +45,11 @@ they help you answer accurately. Keep responses concise.`;
 const MEMORY_SECTION = `## Working memory
 - The user prefers TypeScript over JavaScript.
 - Current project: inspector cache analysis.
+- Timezone: UTC.`;
+
+const PREVIOUS_MEMORY_SECTION = `## Working memory
+- The user prefers TypeScript over JavaScript.
+- Current project: cache breakpoint map.
 - Timezone: UTC.`;
 
 const USER_TURN = `Why is my prompt cache busting on every new turn? The
@@ -107,11 +119,67 @@ const healthyEntry: LLMRequestLogEntry = {
 };
 
 /**
+ * The turn immediately before {@link fullMissEntry}: an identical prompt
+ * except for one volatile line inside the Memory section, so the cache-diff
+ * card names the system prompt as the block that re-created the cache.
+ */
+const previousMissTurn: LLMRequestLogEntry = {
+  id: "call-cache-miss-prev",
+  createdAt: Date.now(),
+  requestPayload: null,
+  responsePayload: null,
+  provider: "anthropic",
+  summary: {
+    provider: "anthropic",
+    model: "claude-sonnet-4",
+    cacheCreationInputTokens: 200,
+    cacheReadInputTokens: 36400,
+    inputTokens: 16,
+    outputTokens: 210,
+  },
+  requestSections: [
+    { kind: "system", label: "System prompt", text: SYSTEM_PROMPT },
+    { kind: "system", label: "Memory", text: PREVIOUS_MEMORY_SECTION },
+    { kind: "tool_definitions", label: "Available tools", data: toolDefinitions },
+    { kind: "user", label: "User", role: "user", text: USER_TURN },
+  ],
+};
+
+/**
+ * The turn immediately before {@link healthyEntry}: the same cached prefix,
+ * so the cache-diff card reports the prefix as unchanged.
+ */
+const previousHealthyTurn: LLMRequestLogEntry = {
+  id: "call-cache-healthy-prev",
+  createdAt: Date.now(),
+  requestPayload: null,
+  responsePayload: null,
+  provider: "anthropic",
+  summary: {
+    provider: "anthropic",
+    model: "claude-sonnet-4",
+    cacheCreationInputTokens: 80,
+    cacheReadInputTokens: 36500,
+    inputTokens: 22,
+    outputTokens: 160,
+  },
+  requestSections: [
+    { kind: "system", label: "System prompt", text: SYSTEM_PROMPT },
+    { kind: "tool_definitions", label: "Available tools", data: toolDefinitions },
+    { kind: "user", label: "User", role: "user", text: USER_TURN },
+  ],
+};
+
+/**
  * Anthropic full bust matching the reported symptom: the cache-health banner
  * warns of a full miss and every section starts expanded.
  */
 export const FullCacheMiss: Story = {
-  args: { entry: fullMissEntry },
+  args: {
+    entry: fullMissEntry,
+    previous: previousMissTurn,
+    assistantId: "assistant-1",
+  },
 };
 
 /**
@@ -119,5 +187,9 @@ export const FullCacheMiss: Story = {
  * collapsible prompt sections.
  */
 export const HealthyReuse: Story = {
-  args: { entry: healthyEntry },
+  args: {
+    entry: healthyEntry,
+    previous: previousHealthyTurn,
+    assistantId: "assistant-1",
+  },
 };

@@ -79,12 +79,12 @@ class FakeRunner implements CommandRunner {
 }
 
 const profile: Profile = {
-  id: "vellum-bare",
+  id: "vellum-default",
   manifest: {
     species: "vellum",
     setup: ["assistant plugins install simple-memory"],
   },
-  workspaceDir: "/profiles/vellum-bare/workspace",
+  workspaceDir: "/profiles/vellum-default/workspace",
 };
 
 async function preStageRecordingCa(runId: string): Promise<void> {
@@ -315,14 +315,14 @@ describe("VellumAgent", () => {
   test("species default flags still apply to a profile with no setup commands (the bare vellum case)", async () => {
     const runner = new FakeRunner();
     // The "no setup commands" case is structurally distinct from "no
-    // flags" — `vellum-bare` exists precisely to exercise the bare
+    // flags" — `vellum-default` exists precisely to exercise the bare
     // species path. Even with zero setup commands, the species default
     // flag must land so a downstream test that calls `assistant
     // plugins install` from inside the agent doesn't trip the gate.
     const bareProfile: Profile = {
-      id: "vellum-bare",
+      id: "vellum-default",
       manifest: { species: "vellum" },
-      workspaceDir: "/profiles/vellum-bare/workspace",
+      workspaceDir: "/profiles/vellum-default/workspace",
     };
     const agent = new VellumAgent({
       runner,
@@ -568,7 +568,7 @@ describe("VellumAgent", () => {
       runner,
       profile,
       testId: "timeline-recall",
-      runId: "eval-vellum-bare-x-20260524160000123-abcd",
+      runId: "eval-vellum-default-x-20260524160000123-abcd",
     });
 
     // The jail is created before hatch, so its CA poll must resolve;
@@ -592,9 +592,9 @@ describe("VellumAgent", () => {
       (parts) => parts[0] === "docker" && parts[1] === "inspect",
     );
     expect(inspectCalls.map((c) => c[2])).toEqual([
-      "eval-vellum-bare-x-20260524160000123-abcd-assistant",
-      "eval-vellum-bare-x-20260524160000123-abcd-gateway",
-      "eval-vellum-bare-x-20260524160000123-abcd-credential-executor",
+      "eval-vellum-default-x-20260524160000123-abcd-assistant",
+      "eval-vellum-default-x-20260524160000123-abcd-gateway",
+      "eval-vellum-default-x-20260524160000123-abcd-credential-executor",
     ]);
     const logCalls = sequence.filter(
       (parts) =>
@@ -604,9 +604,9 @@ describe("VellumAgent", () => {
         parts[3] === "200",
     );
     expect(logCalls.map((c) => c[4])).toEqual([
-      "eval-vellum-bare-x-20260524160000123-abcd-assistant",
-      "eval-vellum-bare-x-20260524160000123-abcd-gateway",
-      "eval-vellum-bare-x-20260524160000123-abcd-credential-executor",
+      "eval-vellum-default-x-20260524160000123-abcd-assistant",
+      "eval-vellum-default-x-20260524160000123-abcd-gateway",
+      "eval-vellum-default-x-20260524160000123-abcd-credential-executor",
     ]);
 
     // CRITICAL: retire must NOT have been called. The hatch subprocess
@@ -663,7 +663,7 @@ describe("VellumAgent", () => {
       runner,
       profile: profileWithSetup,
       testId: "timeline-recall",
-      runId: "eval-vellum-bare-x-20260524160000123-abcd",
+      runId: "eval-vellum-default-x-20260524160000123-abcd",
     });
 
     await preStageRecordingCa(agent.id);
@@ -674,7 +674,9 @@ describe("VellumAgent", () => {
       (parts) => parts[0] === "vellum" && parts[1] === "retire",
     );
     expect(retireCalls).toHaveLength(1);
-    expect(retireCalls[0][2]).toBe("eval-vellum-bare-x-20260524160000123-abcd");
+    expect(retireCalls[0][2]).toBe(
+      "eval-vellum-default-x-20260524160000123-abcd",
+    );
   });
 
   test("force-reaps every sibling container after retire (defense-in-depth against silent retire failures)", async () => {
@@ -706,7 +708,7 @@ describe("VellumAgent", () => {
       manifest: { ...profile.manifest, setup: ["echo hello"] },
     };
     const runner = new HatchOkSetupFails();
-    const runId = "eval-vellum-bare-reap-20260524160000123-abcd";
+    const runId = "eval-vellum-default-reap-20260524160000123-abcd";
     const agent = new VellumAgent({
       runner,
       profile: profileWithSetup,
@@ -773,7 +775,7 @@ describe("VellumAgent", () => {
       manifest: { ...profile.manifest, setup: ["echo hello"] },
     };
     const runner = new HatchOkSetupFailsRetireFails();
-    const runId = "eval-vellum-bare-retire-warn-20260524160000123-abcd";
+    const runId = "eval-vellum-default-retire-warn-20260524160000123-abcd";
     const agent = new VellumAgent({
       runner,
       profile: profileWithSetup,

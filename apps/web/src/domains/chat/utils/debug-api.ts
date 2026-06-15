@@ -131,7 +131,9 @@ export interface ChatDebugThinkingDoneSignal {
  * of issue that triggered ATL-652).
  *
  * Returned as a plain object so it serializes cleanly in DevTools and
- * doesn't expose the live Zustand reference.
+ * doesn't expose the live Zustand reference. A pending confirmation's
+ * `input` values are redacted (see {@link redactPendingInteractions}) so the
+ * snapshot never carries tool-call argument values.
  */
 export interface PendingInteractionsSnapshot {
   pendingSecret: PendingSecretState | null;
@@ -517,6 +519,41 @@ export interface ChatDebugRefs {
   ) => Promise<MessagesGetResponse | undefined>;
 }
 
+/** Marker substituted for redacted confirmation-input values. */
+const REDACTED_CONFIRMATION_INPUT_VALUE = "[redacted]";
+
+/**
+ * Strip a pending confirmation's raw `input` values out of the snapshot.
+ *
+ * `input` is the arbitrary argument object the assistant proposed for a tool
+ * call, so it can hold secrets under any key (tokens, passwords, API keys).
+ * `listPendingInteractions` feeds both DevTools inspection and the support
+ * feedback archive, neither of which may carry credentials, so every value is
+ * replaced with a marker while the argument key names are kept for triage.
+ * Returns a new object — the live store and the confirmation card keep the
+ * real arguments.
+ */
+function redactPendingInteractions(
+  snapshot: PendingInteractionsSnapshot,
+): PendingInteractionsSnapshot {
+  const { pendingConfirmation } = snapshot;
+  if (!pendingConfirmation?.input) {
+    return snapshot;
+  }
+  return {
+    ...snapshot,
+    pendingConfirmation: {
+      ...pendingConfirmation,
+      input: Object.fromEntries(
+        Object.keys(pendingConfirmation.input).map((key) => [
+          key,
+          REDACTED_CONFIRMATION_INPUT_VALUE,
+        ]),
+      ),
+    },
+  };
+}
+
 /**
  * Build the {@link ChatDebugApi} closure-bound to a set of refs. Pure
  * factory so it can be unit-tested without a `window`.
@@ -709,7 +746,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
   }
 
   function listPendingInteractions(): PendingInteractionsSnapshot {
-    return refs.getPendingInteractionsSnapshot();
+    return redactPendingInteractions(refs.getPendingInteractionsSnapshot());
   }
 
   function getScrollState(): ChatDebugScrollState {

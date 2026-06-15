@@ -39,6 +39,7 @@ import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
 import { LLMConfigFragment, ProfileEntry } from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
+import { ServiceModeSchema } from "../../config/schemas/services.js";
 import { getConfigWatcher } from "../../daemon/config-watcher.js";
 import {
   getEmbeddingConfigInfo,
@@ -470,7 +471,22 @@ function readPlainObject(value: unknown): Record<string, unknown> | undefined {
 
 const WireProfileEntry = ProfileEntry.extend({
   supportsVision: z.boolean().optional(),
-}).passthrough();
+})
+  .passthrough()
+  .meta({ id: "ProfileEntry" });
+
+/**
+ * Wire shape of the `memory` section in config responses. Passthrough
+ * preserves fields beyond `enabled` and `v2` so the client doesn't strip
+ * unrecognised memory config that newer daemons may add.
+ */
+const MemoryWireConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    v2: z.object({ enabled: z.boolean().optional() }).passthrough().optional(),
+  })
+  .passthrough()
+  .meta({ id: "MemoryConfig" });
 
 /**
  * Response schema for `GET /v1/config`.
@@ -510,38 +526,30 @@ const ConfigGetResponseSchema = z
       })
       .passthrough()
       .optional(),
-    memory: z
-      .object({
-        enabled: z.boolean().optional(),
-        v2: z
-          .object({ enabled: z.boolean().optional() })
-          .passthrough()
-          .optional(),
-      })
-      .passthrough()
-      .optional(),
+    memory: MemoryWireConfigSchema.optional(),
     services: z
       .object({
         "web-search": z
           .object({
-            mode: z.string().optional(),
+            mode: ServiceModeSchema.optional(),
             provider: z.string().optional(),
           })
           .passthrough()
           .optional(),
         "image-generation": z
-          .object({ mode: z.string().optional() })
+          .object({ mode: ServiceModeSchema.optional() })
           .passthrough()
           .optional(),
         inference: z
-          .object({ mode: z.string().optional() })
+          .object({ mode: ServiceModeSchema.optional() })
           .passthrough()
           .optional(),
       })
       .passthrough()
       .optional(),
   })
-  .passthrough();
+  .passthrough()
+  .meta({ id: "ConfigGetResponse" });
 
 /**
  * Given a `z.object(...)` schema, returns a new schema where every property
@@ -555,6 +563,25 @@ function nullablePartial(schema: z.ZodObject<z.ZodRawShape>) {
   }
   return z.object(shape);
 }
+
+/**
+ * A single profile entry within a PATCH body. All fields are
+ * `.nullable().optional()`: `null` = delete via deep-merge, omitted =
+ * unchanged. Named so HeyAPI generates `ProfilePatchEntry` as a top-level
+ * export in the SDK.
+ */
+const ProfilePatchEntrySchema = nullablePartial(ProfileEntry)
+  .passthrough()
+  .meta({ id: "ProfilePatchEntry" });
+
+/**
+ * A single call-site override within a PATCH body.
+ */
+const CallSiteOverrideDraftSchema = nullablePartial(
+  LLMConfigFragment.extend({ profile: z.string().optional() }),
+)
+  .passthrough()
+  .meta({ id: "CallSiteOverrideDraft" });
 
 /**
  * Request body schema for `PATCH /v1/config`.
@@ -578,22 +605,12 @@ const ConfigPatchRequestSchema = z
           .nullable()
           .optional(),
         profiles: z
-          .record(
-            z.string(),
-            nullablePartial(ProfileEntry).passthrough().nullable(),
-          )
+          .record(z.string(), ProfilePatchEntrySchema.nullable())
           .optional(),
         profileOrder: z.array(z.string()).optional(),
         activeProfile: z.string().nullable().optional(),
         callSites: z
-          .record(
-            z.string(),
-            nullablePartial(
-              LLMConfigFragment.extend({ profile: z.string().optional() }),
-            )
-              .passthrough()
-              .nullable(),
-          )
+          .record(z.string(), CallSiteOverrideDraftSchema.nullable())
           .optional(),
         profileSession: z
           .object({
@@ -605,34 +622,24 @@ const ConfigPatchRequestSchema = z
       })
       .passthrough()
       .optional(),
-    memory: z
-      .object({
-        enabled: z.boolean().optional(),
-        v2: z
-          .object({ enabled: z.boolean().optional() })
-          .passthrough()
-          .optional(),
-      })
-      .passthrough()
-      .nullable()
-      .optional(),
+    memory: MemoryWireConfigSchema.nullable().optional(),
     services: z
       .object({
         "web-search": z
           .object({
-            mode: z.string().optional(),
+            mode: ServiceModeSchema.optional(),
             provider: z.string().optional(),
           })
           .passthrough()
           .nullable()
           .optional(),
         "image-generation": z
-          .object({ mode: z.string().optional() })
+          .object({ mode: ServiceModeSchema.optional() })
           .passthrough()
           .nullable()
           .optional(),
         inference: z
-          .object({ mode: z.string().optional() })
+          .object({ mode: ServiceModeSchema.optional() })
           .passthrough()
           .nullable()
           .optional(),
@@ -640,7 +647,8 @@ const ConfigPatchRequestSchema = z
       .passthrough()
       .optional(),
   })
-  .passthrough();
+  .passthrough()
+  .meta({ id: "ConfigPatchRequest" });
 
 function handleGetConfig() {
   try {

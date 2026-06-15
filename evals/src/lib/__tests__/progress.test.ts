@@ -111,12 +111,12 @@ describe("formatEvalProgressLine", () => {
         step: "artifacts",
         status: "start",
         message: "Preparing run artifacts",
-        detail: "eval-vellum-bare-timeline-recall-20260515153154",
+        detail: "eval-vellum-default-timeline-recall-20260515153154",
       },
       { timestamp: ts },
     );
     expect(line).toBe(
-      "[2026-05-15 15:31:54] [artifacts] ▶ Preparing run artifacts  eval-vellum-bare-timeline-recall-20260515153154",
+      "[2026-05-15 15:31:54] [artifacts] ▶ Preparing run artifacts  eval-vellum-default-timeline-recall-20260515153154",
     );
   });
 
@@ -326,12 +326,12 @@ describe("createSummaryOnlyReporter", () => {
     reporter({
       step: "result",
       status: "done",
-      message: "vellum-bare/timeline-recall",
+      message: "vellum-default/timeline-recall",
       detail: "date-mentioned=1.00, assistant-cost-usd=-0.0001",
     });
 
     expect(stream.chunks).toEqual([
-      "[2026-05-15 15:31:54] [result]    ✓ vellum-bare/timeline-recall  date-mentioned=1.00, assistant-cost-usd=-0.0001\n",
+      "[2026-05-15 15:31:54] [result]    ✓ vellum-default/timeline-recall  date-mentioned=1.00, assistant-cost-usd=-0.0001\n",
     ]);
   });
 

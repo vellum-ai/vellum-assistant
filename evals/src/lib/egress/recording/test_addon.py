@@ -33,6 +33,15 @@ def _anthropic_response_json() -> bytes:
     ).encode("utf-8")
 
 
+def _fireworks_response_json() -> bytes:
+    return json.dumps(
+        {
+            "model": "accounts/fireworks/models/minimax-m3",
+            "usage": {"prompt_tokens": 4096, "completion_tokens": 128},
+        }
+    ).encode("utf-8")
+
+
 class _FakeMessage:
     """Mimics mitmproxy's Message: `content` is decoded, `raw_content` is raw."""
 
@@ -53,9 +62,16 @@ class _FakeMessage:
 
 
 class _FakeRequest(_FakeMessage):
-    def __init__(self, *, path: str, decoded: bytes, raw: bytes) -> None:
+    def __init__(
+        self,
+        *,
+        path: str,
+        decoded: bytes,
+        raw: bytes,
+        host: str = "api.anthropic.com",
+    ) -> None:
         super().__init__(decoded=decoded, raw=raw)
-        self.pretty_host = "api.anthropic.com"
+        self.pretty_host = host
         self.path = path
 
 
@@ -180,6 +196,65 @@ class ResponseHookGzipTest(unittest.TestCase):
         self.assertEqual(len(record["response_body"]), 16)
         self.assertEqual(record["response_body_bytes"], len(response_body))
         self.assertTrue(record["response_body_truncated"])
+
+    def test_fireworks_response_is_dispatched_to_openai_compatible_parser(
+        self,
+    ) -> None:
+        """A Fireworks chat-completions response records a fireworks usage row."""
+        # GIVEN a non-streaming Fireworks chat-completions response
+        response_body = _fireworks_response_json()
+        flow = _FakeFlow(
+            request=_FakeRequest(
+                host="api.fireworks.ai",
+                path="/inference/v1/chat/completions",
+                decoded=b'{"model":"accounts/fireworks/models/minimax-m3"}',
+                raw=b'{"model":"accounts/fireworks/models/minimax-m3"}',
+            ),
+            response=_FakeResponse(
+                decoded=response_body,
+                raw=response_body,
+                content_type="application/json",
+            ),
+        )
+
+        # WHEN the response hook records it
+        addon.response(flow)
+
+        # THEN the record is labeled fireworks and maps prompt/completion
+        # tokens to input/output tokens
+        record = self._records()[0]
+        self.assertEqual(record["provider"], "fireworks")
+        self.assertEqual(record["input_tokens"], 4096)
+        self.assertEqual(record["output_tokens"], 128)
+        self.assertEqual(
+            record["model"], "accounts/fireworks/models/minimax-m3"
+        )
+
+    def test_unmetered_host_is_skipped(self) -> None:
+        """A response from a non-parsed allowlisted host records nothing."""
+        # GIVEN a Gemini response (an allowlisted host with no parser)
+        response_body = json.dumps(
+            {"usageMetadata": {"promptTokenCount": 10}}
+        ).encode("utf-8")
+        flow = _FakeFlow(
+            request=_FakeRequest(
+                host="generativelanguage.googleapis.com",
+                path="/v1beta/models/gemini-2.5-pro:generateContent",
+                decoded=b"{}",
+                raw=b"{}",
+            ),
+            response=_FakeResponse(
+                decoded=response_body,
+                raw=response_body,
+                content_type="application/json",
+            ),
+        )
+
+        # WHEN the response hook runs
+        addon.response(flow)
+
+        # THEN no usage record is written
+        self.assertEqual(self._records(), [])
 
     def test_falls_back_to_raw_when_decode_raises(self) -> None:
         body = _anthropic_response_json()

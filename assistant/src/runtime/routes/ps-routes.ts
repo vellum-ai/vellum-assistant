@@ -29,14 +29,16 @@ interface ProcessEntry {
   info?: string;
 }
 
-const processEntrySchema: z.ZodType<ProcessEntry> = z.lazy(() =>
-  z.object({
-    name: z.string(),
-    status: z.enum(["running", "not_running", "unreachable"]),
-    children: z.array(processEntrySchema).optional(),
-    info: z.string().optional(),
-  }),
-);
+const processEntrySchema: z.ZodType<ProcessEntry> = z
+  .lazy(() =>
+    z.object({
+      name: z.string(),
+      status: z.enum(["running", "not_running", "unreachable"]),
+      children: z.array(processEntrySchema).optional(),
+      info: z.string().optional(),
+    }),
+  )
+  .meta({ id: "ProcessEntry" });
 
 const psResponseSchema = z.object({
   processes: z.array(processEntrySchema),
