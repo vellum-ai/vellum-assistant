@@ -43,6 +43,10 @@ interface InboundEventBase<C extends InboundChannelId> {
     timezone?: string;
     timezoneLabel?: string;
     timezoneOffsetSeconds?: number;
+    /** Slack-specific: user is from an external workspace (Slack Connect). */
+    isStranger?: boolean;
+    /** Slack-specific: user is a guest / restricted account. */
+    isRestricted?: boolean;
   };
   source: {
     updateId: string;

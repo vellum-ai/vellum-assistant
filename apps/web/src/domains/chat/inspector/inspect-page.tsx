@@ -4,7 +4,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
-import { canUseLlmInspector } from "@/domains/chat/inspector/access";
+import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
 import {
     useConversationCallNumbering,
     useConversationMessageList,
@@ -27,7 +27,9 @@ import {
     supportsLlmContextSummaryView,
     useSupportsLlmContextSummaryView,
 } from "@/lib/backwards-compat/llm-context-summary-view";
-import { useAuthStore, useIsSessionInitializing } from "@/stores/auth-store";
+import { isElectron } from "@/runtime/is-electron";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useIsSessionInitializing } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import type {
   ConversationMessage,
@@ -68,7 +70,12 @@ import { SkillsTab } from "./components/tabs/skills-tab";
  * is absent or no longer points to a known log.
  */
 export function InspectPage(): ReactNode {
-  const user = useAuthStore.use.user();
+  const canInspect = useCanUseLlmInspector();
+  // The developer-nav flag reads as registry-default `false` until the
+  // `/feature-flags` response lands, so flag-gated sessions (e.g. local
+  // gateway) would flash the denial on deep links. Treat the pre-hydration
+  // window as loading instead.
+  const flagsHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
   const authLoading = useIsSessionInitializing();
   // React Router's :conversationId segment is the source of truth; the
   // route definition guarantees it's present, but useParams still types
@@ -77,14 +84,15 @@ export function InspectPage(): ReactNode {
   const [searchParams] = useSearchParams();
   const messageId = searchParams.get("messageId");
 
-  if (authLoading) {
+  if (authLoading || (!canInspect && !flagsHydrated)) {
     return <CenteredMessage tone="muted">Loading…</CenteredMessage>;
   }
 
-  if (!canUseLlmInspector(user)) {
+  if (!canInspect) {
     return (
       <CenteredMessage tone="muted">
-        Inspector is available to Vellum developers only.
+        Inspector is available to Vellum staff, or when the
+        settings-developer-nav developer flag is enabled.
       </CenteredMessage>
     );
   }
@@ -107,6 +115,7 @@ interface InspectorProps {
 
 function Inspector({ conversationId, messageId }: InspectorProps): ReactNode {
   const assistantId = useActiveAssistantId();
+  const electron = isElectron();
   const {
     data,
     isLoading: isLoadingContext,
@@ -161,8 +170,18 @@ function Inspector({ conversationId, messageId }: InspectorProps): ReactNode {
     [conversationId, messageId],
   );
 
+  // On the Electron macOS shell the window runs with a hidden title bar, so a
+  // global `WindowDragRegion` drag strip and the traffic lights occupy the top
+  // of the renderer. This standalone route has no inline title bar to claim that
+  // band (only chat does), so — like `SidebarShell` — reserve top space to clear
+  // the controls. Without it the header's back button sits under the drag strip
+  // and its clicks are swallowed by window dragging. Off Electron the layout is
+  // unchanged.
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div
+      className="flex h-full min-h-0 flex-col"
+      style={electron ? { paddingTop: "2.75rem" } : undefined}
+    >
       <Header
         assistantId={assistantId}
         conversationId={conversationId}
@@ -720,7 +739,7 @@ function TabContent({
     case "skills":
       return <SkillsTab logs={logs} buildCallHref={buildCallHref} />;
     case "memory":
-      return <MemoryTab context={context} />;
+      return <MemoryTab context={context} assistantId={assistantId} />;
   }
 }
 

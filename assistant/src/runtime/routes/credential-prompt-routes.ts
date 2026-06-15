@@ -40,6 +40,7 @@ const CredentialPromptParams = z.object({
   allowedDomains: z.array(z.string()).optional(),
   allowedTools: z.array(z.string()).optional(),
   injectionTemplates: z.array(InjectionTemplateSchema).optional(),
+  conversationId: z.string().optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -70,6 +71,7 @@ async function handleCredentialPrompt({ body = {} }: RouteHandlerArgs) {
     placeholder: validated.placeholder,
     allowedTools: validated.allowedTools,
     allowedDomains: validated.allowedDomains,
+    conversationId: validated.conversationId,
   });
 
   if (!result.value) {

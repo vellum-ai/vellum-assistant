@@ -889,6 +889,7 @@ function makeTranscriptHandle(
 ): TranscriptHandle {
   return {
     scrollToLatest: () => {},
+    scrollToMessage: () => false,
     getScrollElement: () => scrollEl,
     getContentElement: () => null,
     getViewportHeight: () => scrollEl?.clientHeight ?? 0,

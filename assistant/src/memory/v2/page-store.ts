@@ -192,9 +192,10 @@ export function slugFromConceptPath(
 /**
  * Split raw file contents into (frontmatter, body). If no frontmatter block
  * is present the entire input is treated as body and an empty frontmatter
- * block is returned (validated by `ConceptPageFrontmatterSchema` so any
- * unexpected shape — bad types, extra junk — surfaces as a parse error to
- * the caller, not silent dropped data).
+ * block is returned (validated by `ConceptPageFrontmatterSchema` so a bad
+ * type on a declared field surfaces as a parse error to the caller, not
+ * silently dropped data). The schema is `.passthrough()`, so unknown keys are
+ * kept rather than rejected — migrated corpora carry leaked source-page fields.
  *
  * The schema's defaults guarantee `edges` and `ref_files` are always arrays
  * even on freshly created pages with empty frontmatter.

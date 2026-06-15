@@ -10,7 +10,7 @@ import type { Profile } from "../profile";
 import type { TestSetupCommand } from "../setup-command";
 import { runArtifacts } from "../metrics";
 import {
-  applyDockerEgressJail,
+  attachDockerEgressJail,
   type DockerEgressJail,
 } from "../egress/docker-jail";
 import {
@@ -18,7 +18,12 @@ import {
   NodeCommandRunner,
   type CommandRunner,
 } from "../runtime/command-runner";
-import { generateHermesEvalSessionId, seedHermesSession } from "./hermes-seed";
+import {
+  generateHermesEvalSessionId,
+  HERMES_RUNTIME_USER,
+  seedHermesSession,
+} from "./hermes-seed";
+import { assertSafeWorkspacePath } from "./workspace-path";
 
 /**
  * Hermes adapter — runs a NousResearch Hermes Agent in Docker for eval runs.
@@ -36,9 +41,11 @@ import { generateHermesEvalSessionId, seedHermesSession } from "./hermes-seed";
  *   - `-e <PROVIDER_KEY>` flags forwarded from the eval process env. Hermes
  *     normally reads keys from `/opt/data/.env`; we run with an ephemeral
  *     `/opt/data` per run so direct `-e` is the only way to get keys in.
- *   - `applyDockerEgressJail` to constrain outbound traffic to the same
+ *   - `attachDockerEgressJail` to constrain outbound traffic to the same
  *     model-provider allowlist Vellum runs against. Keeps cross-species
- *     cost comparisons honest.
+ *     cost comparisons honest. Hermes owns its own network namespace (it
+ *     warms up provider SDKs from PyPI before the jail closes), so the
+ *     jail attaches to it rather than owning the namespace.
  *   - `docker exec --env PATH=...` for setup, send, and seed-conversation
  *     actions. The Hermes binary lives at `/opt/hermes/.venv/bin/hermes`;
  *     the official docs note it's NOT on PATH for `docker exec` sessions,
@@ -111,6 +118,18 @@ export const DEFAULT_HERMES_DAEMON_ARGS = ["gateway", "run"] as const;
  * authors to hardcode the absolute path. */
 export const EXEC_PATH =
   "/opt/hermes/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+
+/**
+ * Working directory every `hermes -z` turn runs in, and the root that
+ * `stage-workspace-file` payloads land under. Hermes's `terminal`/`file`
+ * tools resolve relative paths against the process cwd (`terminal.cwd`
+ * defaults to `.`, the launch directory — see
+ * https://hermes-agent.nousresearch.com/docs), so pinning the exec
+ * `--workdir` here and staging files into the same directory lets a test
+ * reference an uploaded file by bare name. Mirrors the Vellum adapter's
+ * `/workspace` contract so one SPEC discovery hint works across species.
+ */
+export const HERMES_WORKSPACE_DIR = "/workspace";
 
 /**
  * LLM provider env vars forwarded from the eval process env into the Hermes
@@ -522,9 +541,11 @@ export class HermesAgent implements BaseAgent {
       assertSuccess(create, `start Hermes container for ${this.profile.id}`);
       containerStarted = true;
 
+      await this.ensureWorkspaceDir();
       await this.warmUpProviderDeps();
 
-      this.jail = await applyDockerEgressJail(this.runner, {
+      this.jail = await attachDockerEgressJail(this.runner, {
+        runId: this.id,
         containerName: this.containerName,
         recordingDir: runArtifacts(this.id).runDir,
       });
@@ -629,9 +650,11 @@ export class HermesAgent implements BaseAgent {
       [
         "exec",
         "--user",
-        "hermes",
+        HERMES_RUNTIME_USER,
         "--env",
         `PATH=${EXEC_PATH}`,
+        "--workdir",
+        HERMES_WORKSPACE_DIR,
         this.containerName,
         this.cliCommand,
         "-z",
@@ -668,7 +691,97 @@ export class HermesAgent implements BaseAgent {
         this.conversationKey = sessionId;
         return;
       }
+      case "stage-workspace-file": {
+        await this.stageWorkspaceFile(command);
+        return;
+      }
     }
+  }
+
+  /**
+   * Create the workspace directory turns run in and hand it to the
+   * unprivileged gateway user, so `send`'s `--workdir` always resolves and
+   * staged files (written as `hermes`) can be created under it. Idempotent.
+   */
+  private async ensureWorkspaceDir(): Promise<void> {
+    const ensure = await this.runner.run(
+      "docker",
+      [
+        "exec",
+        "--user",
+        "root",
+        this.containerName,
+        "sh",
+        "-c",
+        `mkdir -p "${HERMES_WORKSPACE_DIR}" && chown ${HERMES_RUNTIME_USER} "${HERMES_WORKSPACE_DIR}"`,
+      ],
+      {
+        logPath: join(
+          runArtifacts(this.id).runDir,
+          "subprocess-workspace-dir.log",
+        ),
+        logStep: "workspace-dir",
+      },
+    );
+    assertSuccess(ensure, `create workspace dir for ${this.id}`);
+  }
+
+  /**
+   * Stage a file into the workspace so a turn can read it by name. Parents
+   * are created first (mirroring the Vellum adapter), then the payload is
+   * piped in over stdin via `cp /dev/stdin <path>` — argv-only, so a path
+   * needs no shell quoting and the content is never echoed to the run log.
+   *
+   * Writes as the gateway's unprivileged `hermes` user (the same user `send`
+   * runs `hermes -z` as) so the agent's `file`/`terminal` tools can read and
+   * rewrite it without a root-owned-file permission wall — the same
+   * ownership discipline the seed step follows.
+   */
+  private async stageWorkspaceFile(input: {
+    path: string;
+    content: string;
+  }): Promise<void> {
+    assertSafeWorkspacePath(input.path);
+    const containerPath = `${HERMES_WORKSPACE_DIR}/${input.path}`;
+    const containerParent = containerPath.slice(
+      0,
+      containerPath.lastIndexOf("/"),
+    );
+    const mkdir = await this.runner.run("docker", [
+      "exec",
+      "--user",
+      HERMES_RUNTIME_USER,
+      this.containerName,
+      "mkdir",
+      "-p",
+      containerParent,
+    ]);
+    assertSuccess(
+      mkdir,
+      `mkdir -p ${containerParent} for ${this.id} workspace file ${input.path}`,
+    );
+    const write = await this.runner.run(
+      "docker",
+      [
+        "exec",
+        "-i",
+        "--user",
+        HERMES_RUNTIME_USER,
+        this.containerName,
+        "cp",
+        "/dev/stdin",
+        containerPath,
+      ],
+      {
+        stdin: input.content,
+        logPath: join(
+          runArtifacts(this.id).runDir,
+          "subprocess-stage-workspace-file.log",
+        ),
+        logStep: "stage-workspace-file",
+      },
+    );
+    assertSuccess(write, `stage workspace file ${input.path} into ${this.id}`);
   }
 
   /**

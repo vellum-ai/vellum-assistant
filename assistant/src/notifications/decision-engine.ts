@@ -26,6 +26,7 @@ import { truncate } from "../util/truncate.js";
 import {
   buildAccessRequestContractText,
   buildAccessRequestInviteDirective,
+  buildAccessRequestSeedContentBlocks,
   hasAccessRequestInstructions,
   hasInviteFlowDirective,
 } from "./access-request-copy.js";
@@ -662,6 +663,20 @@ function enforceAccessRequestInstructions(
         copy,
         inviteDirective,
       );
+    }
+  }
+
+  // Ensure seedContentBlocks is present on all paths (LLM, assistant_tool,
+  // fallback). The LLM path generates text-only copy; injecting the blocks
+  // here guarantees the Surface card renders regardless of decision source.
+  const seedContentBlocks = buildAccessRequestSeedContentBlocks(
+    signal.contextPayload,
+  );
+  for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
+    const copy = nextCopy[channel];
+    if (!copy) continue;
+    if (!copy.seedContentBlocks) {
+      nextCopy[channel] = { ...copy, seedContentBlocks };
     }
   }
 

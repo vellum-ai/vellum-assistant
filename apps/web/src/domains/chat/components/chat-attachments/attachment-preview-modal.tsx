@@ -148,6 +148,9 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        // Mark the key as consumed so the window-level Escape listener
+        // (which closes the right-hand side panel) doesn't also fire.
+        e.preventDefault();
         onClose();
       }
     },

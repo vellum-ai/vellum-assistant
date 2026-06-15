@@ -1030,6 +1030,7 @@ export function persistOnboardingArtifacts(onboarding: {
   tasks: string[];
   tone: string;
   userName?: string;
+  occupation?: string;
   assistantName?: string;
   priorAssistants?: string[];
   cohort?: string;
@@ -2693,6 +2694,7 @@ export const ROUTES: RouteDefinition[] = [
           tasks: z.array(z.string()),
           tone: z.string(),
           userName: z.string().optional(),
+          occupation: z.string().optional(),
           assistantName: z.string().optional(),
           googleConnected: z.boolean().optional(),
           googleScopes: z.array(z.string()).optional(),

@@ -107,6 +107,7 @@ export function completeSubmittedSurface(
   prev: DisplayMessage[],
   surfaceId: string,
   actionId: string,
+  replyText?: string,
 ): DisplayMessage[] {
   for (let i = prev.length - 1; i >= 0; i--) {
     const surface = prev[i]!.surfaces?.find((s) => s.surfaceId === surfaceId);
@@ -127,7 +128,7 @@ export function completeSubmittedSurface(
             completed: true,
             completionSummary: isCancellation
               ? "Cancelled"
-              : matchedAction?.label ?? undefined,
+              : replyText ?? matchedAction?.label ?? undefined,
           }
         : s,
     );

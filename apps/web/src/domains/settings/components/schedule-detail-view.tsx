@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
   BarChart3,
@@ -15,12 +15,14 @@ import {
   deleteSchedule,
   fetchScheduleRuns,
   runScheduleNow,
+  SCHEDULE_RUNS_PAGE_SIZE,
   updateSchedule,
 } from "@/domains/settings/api/schedules";
 import { RecentRunsCard } from "@/domains/settings/components/recent-runs-card";
 import { StatusDot } from "@/domains/settings/components/schedule-shared-ui";
 import {
   DEFAULT_SCRIPT_TIMEOUT_MS,
+  flattenRunPages,
   formatTimestamp,
   getOpenableScheduleSourceConversationId,
   MAX_SCRIPT_TIMEOUT_SECONDS,
@@ -29,6 +31,7 @@ import {
 } from "@/domains/settings/utils/schedule-formatters";
 import { captureError } from "@/lib/sentry/capture-error";
 import { assistantScheduleRunsQueryKey } from "@/lib/sync/query-tags";
+import { fetchUsageProfileMetadata } from "@/utils/profile-metadata";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
@@ -163,14 +166,26 @@ export function ScheduleDetailView({
   const navigate = useNavigate();
 
   const {
-    data: runs,
+    data,
     isLoading,
     refetch,
-  } = useQuery({
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
     queryKey: assistantScheduleRunsQueryKey(assistantId, schedule.id),
-    queryFn: () => fetchScheduleRuns(assistantId, schedule.id),
+    queryFn: ({ pageParam }) =>
+      fetchScheduleRuns(
+        assistantId,
+        schedule.id,
+        SCHEDULE_RUNS_PAGE_SIZE,
+        pageParam,
+      ),
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     staleTime: 10_000,
   });
+  const runs = flattenRunPages(data?.pages);
 
   const [isRunning, setIsRunning] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -204,6 +219,20 @@ export function ScheduleDetailView({
 
   const sourceConversationId =
     getOpenableScheduleSourceConversationId(schedule);
+
+  // Resolve the pinned profile's display name from llm.profiles metadata;
+  // fall back to the raw profile key while loading or if the profile was
+  // deleted from the config after the schedule pinned it.
+  const { data: profileMetadata } = useQuery({
+    queryKey: ["usage-profile-metadata", assistantId],
+    queryFn: () => fetchUsageProfileMetadata(assistantId),
+    enabled: schedule.inferenceProfile != null,
+    staleTime: 60_000,
+  });
+  const profileLabel = schedule.inferenceProfile
+    ? (profileMetadata?.[schedule.inferenceProfile]?.displayName ??
+      schedule.inferenceProfile)
+    : "Default (assistant's main model)";
 
   return (
     <div className="space-y-4">
@@ -292,6 +321,15 @@ export function ScheduleDetailView({
               </span>
             </div>
           ) : null}
+          {(schedule.mode === "execute" ||
+            schedule.inferenceProfile != null) && (
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-[var(--content-secondary)]">
+                Model profile
+              </span>
+              <span className="min-w-0 text-right">{profileLabel}</span>
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <span className="text-[var(--content-secondary)]">Status</span>
             <span>{schedule.enabled ? "Enabled" : "Disabled"}</span>
@@ -312,7 +350,13 @@ export function ScheduleDetailView({
         </div>
       </DetailCard>
 
-      <RecentRunsCard runs={runs} isLoading={isLoading} />
+      <RecentRunsCard
+        runs={runs}
+        isLoading={isLoading}
+        hasMore={hasNextPage}
+        isLoadingMore={isFetchingNextPage}
+        onLoadMore={() => void fetchNextPage()}
+      />
 
       <DetailCard title="Danger zone">
         <div className="flex items-center justify-between gap-4">

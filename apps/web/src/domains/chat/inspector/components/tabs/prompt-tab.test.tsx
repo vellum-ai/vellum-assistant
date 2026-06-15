@@ -1,8 +1,8 @@
 /**
  * Tests for the PromptTab section rendering. Renders to static markup
- * (no DOM), mirroring `compaction-tab.test.tsx`, and asserts that text
- * sections render as Markdown while tool results render as code-style
- * `<pre>` text.
+ * (no DOM), mirroring `compaction-tab.test.tsx`, and asserts that every
+ * section renders as raw code-style `<pre>` text — Markdown syntax in a
+ * prompt is shown literally, never formatted.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -29,20 +29,25 @@ function render(sections: LLMContextSection[]): string {
 }
 
 describe("PromptTab", () => {
-  test("renders text sections as Markdown", () => {
+  test("renders text sections as raw text, not Markdown", () => {
     const html = render([
       {
         kind: "message",
         label: "User message 1",
         role: "user",
         toolName: null,
-        text: "# Heading\n\nplain prose",
+        text: "# Heading\n\n**bold** prose",
         data: null,
       },
     ]);
 
-    expect(html).toContain("<h1");
-    expect(html).toContain("Heading");
+    // No Markdown processing: the raw syntax is shown literally inside a
+    // <pre>, with no <h1>/<strong> elements emitted.
+    expect(html).not.toContain("<h1");
+    expect(html).not.toContain("<strong");
+    expect(html).toContain("<pre");
+    expect(html).toContain("# Heading");
+    expect(html).toContain("**bold** prose");
   });
 
   test("preserves XML-style prompt delimiters as literal text", () => {

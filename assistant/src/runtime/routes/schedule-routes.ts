@@ -7,11 +7,14 @@
 
 import { z } from "zod";
 
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
+import { getConfig } from "../../config/loader.js";
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../daemon/trust-context.js";
 import { bootstrapConversation } from "../../memory/conversation-bootstrap.js";
 import { getConversation } from "../../memory/conversation-crud.js";
 import { getUsageCostForConversationWindow } from "../../memory/llm-usage-store.js";
+import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
 import {
   describeRRuleExpression,
   isSingleFireRRule,
@@ -37,10 +40,24 @@ import {
   updateSchedule,
 } from "../../schedule/schedule-store.js";
 import { getScheduleUsageSummaries } from "../../schedule/schedule-usage-store.js";
+import { areCoreToolsInitialized } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
+import { getWorkflowRunManager } from "../../workflows/run-manager.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { parseEpochMillisRange } from "./epoch-millis-range.js";
-import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import {
+  BadRequestError,
+  InternalError,
+  NotFoundError,
+  ServiceUnavailableError,
+} from "./errors.js";
+import {
+  paginateRuns,
+  parseRunsBeforeCursor,
+  parseRunsLimit,
+  RUNS_NEXT_CURSOR_SCHEMA,
+  RUNS_PAGINATION_QUERY_PARAMS,
+} from "./runs-pagination.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("schedule-routes");
@@ -66,16 +83,18 @@ const scheduleSchema = z.object({
   maxRetries: z.number(),
   retryBackoffMs: z.number(),
   timeoutMs: z.number().nullable(),
+  inferenceProfile: z.string().nullable(),
   createdFromConversationId: z.string().nullable(),
   createdFromConversationExists: z.boolean(),
   createdFromConversationArchivedAt: z.number().nullable(),
   description: z.string(),
   cadenceDescription: z.string(),
-  mode: z.enum(["notify", "execute", "script", "wake"]),
+  mode: z.enum(["notify", "execute", "script", "wake", "workflow"]),
   status: z.enum(["active", "firing", "fired", "cancelled"]),
   routingIntent: z.enum(["single_channel", "multi_channel", "all_channels"]),
   reuseConversation: z.boolean(),
   wakeConversationId: z.string().nullable(),
+  workflowName: z.string().nullable(),
   isOneShot: z.boolean(),
 });
 
@@ -156,6 +175,47 @@ function isOneShotForDisplay(
   return job.syntax === "rrule" && isSingleFireRRule(job.cronExpression);
 }
 
+function serializeSchedule(
+  j: ScheduleJob,
+  sourceConversationCache: Map<string, CreatedFromConversationState>,
+) {
+  const sourceConversation = getCreatedFromConversationState(
+    j.createdFromConversationId,
+    sourceConversationCache,
+  );
+  return {
+    id: j.id,
+    name: j.name,
+    enabled: j.enabled,
+    syntax: j.syntax,
+    expression: j.expression,
+    cronExpression: j.cronExpression,
+    timezone: j.timezone,
+    message: j.message,
+    script: j.script,
+    nextRunAt: j.nextRunAt,
+    lastRunAt: j.lastRunAt,
+    lastStatus: j.lastStatus,
+    retryCount: j.retryCount,
+    maxRetries: j.maxRetries,
+    retryBackoffMs: j.retryBackoffMs,
+    timeoutMs: j.timeoutMs,
+    inferenceProfile: j.inferenceProfile,
+    createdFromConversationId: j.createdFromConversationId,
+    createdFromConversationExists: sourceConversation.exists,
+    createdFromConversationArchivedAt: sourceConversation.archivedAt,
+    description: j.description,
+    cadenceDescription: getCadenceDescription(j),
+    mode: j.mode,
+    status: j.status,
+    routingIntent: j.routingIntent,
+    reuseConversation: j.reuseConversation,
+    wakeConversationId: j.wakeConversationId,
+    workflowName: j.workflowName,
+    isOneShot: isOneShotForDisplay(j),
+  };
+}
+
 function handleListSchedules(queryParams: Record<string, string>) {
   const includeAll = queryParams.include_all === "true";
   const jobs = listSchedules();
@@ -167,42 +227,18 @@ function handleListSchedules(queryParams: Record<string, string>) {
     CreatedFromConversationState
   >();
   return {
-    schedules: filtered.map((j) => {
-      const sourceConversation = getCreatedFromConversationState(
-        j.createdFromConversationId,
-        sourceConversationCache,
-      );
-      return {
-        id: j.id,
-        name: j.name,
-        enabled: j.enabled,
-        syntax: j.syntax,
-        expression: j.expression,
-        cronExpression: j.cronExpression,
-        timezone: j.timezone,
-        message: j.message,
-        script: j.script,
-        nextRunAt: j.nextRunAt,
-        lastRunAt: j.lastRunAt,
-        lastStatus: j.lastStatus,
-        retryCount: j.retryCount,
-        maxRetries: j.maxRetries,
-        retryBackoffMs: j.retryBackoffMs,
-        timeoutMs: j.timeoutMs,
-        createdFromConversationId: j.createdFromConversationId,
-        createdFromConversationExists: sourceConversation.exists,
-        createdFromConversationArchivedAt: sourceConversation.archivedAt,
-        description: j.description,
-        cadenceDescription: getCadenceDescription(j),
-        mode: j.mode,
-        status: j.status,
-        routingIntent: j.routingIntent,
-        reuseConversation: j.reuseConversation,
-        wakeConversationId: j.wakeConversationId,
-        isOneShot: isOneShotForDisplay(j),
-      };
-    }),
+    schedules: filtered.map((j) =>
+      serializeSchedule(j, sourceConversationCache),
+    ),
   };
+}
+
+function handleGetSchedule(id: string) {
+  const job = getSchedule(id);
+  if (!job) {
+    throw new NotFoundError("Schedule not found");
+  }
+  return { schedule: serializeSchedule(job, new Map()) };
 }
 
 function handleCreateSchedule(body: Record<string, unknown>) {
@@ -221,19 +257,36 @@ function handleCreateSchedule(body: Record<string, unknown>) {
   const timezone = timezoneRaw === "" ? null : timezoneRaw;
   const enabled = body.enabled !== false;
   const mode = (body.mode as string | undefined) ?? "execute";
+  const inferenceProfile =
+    body.inferenceProfile == null ? null : body.inferenceProfile;
+
+  if (inferenceProfile !== null) {
+    if (typeof inferenceProfile !== "string") {
+      throw new BadRequestError("inferenceProfile must be a string or null");
+    }
+    const profileError = validateScheduleInferenceProfile(inferenceProfile);
+    if (profileError) throw new BadRequestError(profileError);
+  }
 
   if (!name) throw new BadRequestError("name is required");
   if (!expression) throw new BadRequestError("expression is required");
-  if (!message) throw new BadRequestError("message is required");
+  // Workflow-mode runs trigger a saved workflow by name and ignore `job.message`
+  // entirely (see the workflow branch below), so only require a message for the
+  // execute path. Requiring it for workflow mode would force API/UI callers to
+  // pass an unused dummy string.
+  if (mode !== "workflow" && !message) {
+    throw new BadRequestError("message is required");
+  }
   if (description === "") {
     throw new BadRequestError("description is required");
   }
 
-  // The settings UI only exposes execute mode for now. Other modes
-  // remain reachable via the schedule_create LLM tool.
-  if (mode !== "execute") {
+  // The settings UI only exposes execute mode; `workflow` mode is reachable
+  // here (flag-gated) and via the schedule_create LLM tool. All other modes
+  // remain tool-only.
+  if (mode !== "execute" && mode !== "workflow") {
     throw new BadRequestError(
-      "Only 'execute' mode is supported by this endpoint",
+      "Only 'execute' and 'workflow' modes are supported by this endpoint",
     );
   }
 
@@ -242,6 +295,39 @@ function handleCreateSchedule(body: Record<string, unknown>) {
     throw new BadRequestError(
       "expression could not be parsed as cron or rrule",
     );
+  }
+
+  if (mode === "workflow") {
+    assertWorkflowsEnabled();
+    const workflowName =
+      typeof body.workflowName === "string" ? body.workflowName.trim() : "";
+    if (!workflowName) {
+      throw new BadRequestError(
+        "workflowName is required for workflow-mode schedules",
+      );
+    }
+    try {
+      const job = createSchedule({
+        name,
+        description,
+        message,
+        mode: "workflow",
+        workflowName,
+        workflowArgs: body.workflowArgs,
+        enabled,
+        timezone,
+        expression: normalized.expression,
+        syntax: normalized.syntax,
+      });
+      log.info(
+        { id: job.id, name: job.name, workflowName },
+        "Workflow schedule created",
+      );
+    } catch (err) {
+      if (err instanceof Error) throw new BadRequestError(err.message);
+      throw err;
+    }
+    return handleListSchedules({});
   }
 
   try {
@@ -254,6 +340,7 @@ function handleCreateSchedule(body: Record<string, unknown>) {
       timezone,
       expression: normalized.expression,
       syntax: normalized.syntax,
+      inferenceProfile,
     });
     log.info({ id: job.id, name: job.name }, "Schedule created");
   } catch (err) {
@@ -261,6 +348,17 @@ function handleCreateSchedule(body: Record<string, unknown>) {
     throw err;
   }
   return handleListSchedules({});
+}
+
+/**
+ * Reject workflow-mode schedule operations when the `workflows` feature flag
+ * is off. Scheduled workflow runs would fail at trigger time (the run manager
+ * hard-fails with WorkflowsDisabledError), so we fail fast at the route.
+ */
+function assertWorkflowsEnabled(): void {
+  if (!isAssistantFeatureFlagEnabled("workflows", getConfig())) {
+    throw new BadRequestError("Workflows are not enabled.");
+  }
 }
 
 function handleToggleSchedule(id: string, body: Record<string, unknown>) {
@@ -295,7 +393,13 @@ function handleCancelSchedule(id: string) {
   return handleListSchedules({});
 }
 
-const VALID_MODES = ["notify", "execute", "script", "wake"] as const;
+const VALID_MODES = [
+  "notify",
+  "execute",
+  "script",
+  "wake",
+  "workflow",
+] as const;
 const VALID_ROUTING_INTENTS = [
   "single_channel",
   "multi_channel",
@@ -322,6 +426,39 @@ function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
     );
   }
 
+  // Switching a schedule into workflow mode requires the workflows flag.
+  if (body.mode === "workflow") {
+    assertWorkflowsEnabled();
+  }
+
+  // Mirror the create-side validation: a schedule whose RESULTING mode is
+  // `workflow` must carry a non-empty `workflowName`. Without this, a PATCH can
+  // leave a workflow-mode schedule nameless — the scheduler then hits the
+  // `!job.workflowName` skip branch and a one-shot job claimed as `firing`
+  // never calls completeOneShot/retry, wedging it `firing` forever. We compute
+  // the post-update state (the body's value if present, else the persisted one)
+  // so both "switch to workflow without a name" and "clear the name on an
+  // already-workflow schedule" are rejected. Skip when the schedule does not
+  // exist — the updateSchedule call below surfaces that as NotFound.
+  const existing = getSchedule(id);
+  if (existing) {
+    const resultingMode =
+      "mode" in body ? (body.mode as string) : existing.mode;
+    if (resultingMode === "workflow") {
+      const resultingWorkflowName =
+        "workflowName" in body
+          ? typeof body.workflowName === "string"
+            ? body.workflowName.trim()
+            : ""
+          : (existing.workflowName ?? "");
+      if (!resultingWorkflowName) {
+        throw new BadRequestError(
+          "workflowName is required for workflow-mode schedules",
+        );
+      }
+    }
+  }
+
   const updates: Record<string, unknown> = {};
   for (const key of [
     "name",
@@ -334,6 +471,8 @@ function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
     "quiet",
     "reuseConversation",
     "wakeConversationId",
+    "workflowName",
+    "workflowArgs",
     "maxRetries",
     "retryBackoffMs",
     "timeoutMs",
@@ -341,6 +480,21 @@ function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
     if (key in body) {
       updates[key] = body[key];
     }
+  }
+
+  // Re-derive syntax whenever the expression changes, mirroring the create
+  // handler. Without this, switching an expression between cron and rrule
+  // would validate the new expression against the schedule's old syntax.
+  if (typeof updates.expression === "string") {
+    const normalized = normalizeScheduleSyntax({
+      expression: updates.expression,
+    });
+    if (!normalized) {
+      throw new BadRequestError(
+        "expression could not be parsed as cron or rrule",
+      );
+    }
+    updates.syntax = normalized.syntax;
   }
 
   if ("description" in body) {
@@ -358,6 +512,20 @@ function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
     }
     const timeoutError = validateScriptTimeoutMs(updates.timeoutMs);
     if (timeoutError) throw new BadRequestError(timeoutError);
+  }
+
+  // Inference profile: null clears the override (back to the default
+  // main-agent model selection); a string must name a configured profile.
+  if ("inferenceProfile" in body) {
+    const inferenceProfile = body.inferenceProfile;
+    if (inferenceProfile !== null && typeof inferenceProfile !== "string") {
+      throw new BadRequestError("inferenceProfile must be a string or null");
+    }
+    if (typeof inferenceProfile === "string") {
+      const profileError = validateScheduleInferenceProfile(inferenceProfile);
+      if (profileError) throw new BadRequestError(profileError);
+    }
+    updates.inferenceProfile = inferenceProfile;
   }
 
   try {
@@ -389,14 +557,17 @@ function handleListScheduleRuns(
   if (!schedule) {
     throw new NotFoundError("Schedule not found");
   }
-  const rawLimit = Number(queryParams.limit ?? 10);
-  const limit = Number.isFinite(rawLimit)
-    ? Math.min(Math.max(Math.floor(rawLimit), 1), 100)
-    : 10;
-  const runs = getScheduleRuns(id, limit);
+  const limit = parseRunsLimit(queryParams, 10);
+  const before = parseRunsBeforeCursor(queryParams);
+  const { rows, nextCursor } = paginateRuns(
+    getScheduleRuns(id, limit + 1, before),
+    limit,
+    (r) => r.createdAt,
+  );
   const now = Date.now();
   return {
-    runs: runs.map((r) => {
+    nextCursor,
+    runs: rows.map((r) => {
       const conversation = r.conversationId
         ? getConversation(r.conversationId)
         : null;
@@ -494,6 +665,25 @@ export const ROUTES: RouteDefinition[] = [
     handler: ({ queryParams }: RouteHandlerArgs) =>
       handleScheduleUsageSummary(queryParams ?? {}),
   },
+  // Must stay after literal `schedules/*` GET siblings (e.g. usage-summary):
+  // the router matches in declaration order and `:id` would shadow them.
+  {
+    operationId: "getSchedule",
+    endpoint: "schedules/:id",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Get schedule",
+    description: "Return a single schedule by ID.",
+    tags: ["schedules"],
+    responseBody: z.object({
+      schedule: scheduleSchema.describe("Schedule object"),
+    }),
+    handler: ({ pathParams }: RouteHandlerArgs) =>
+      handleGetSchedule(pathParams!.id),
+  },
   {
     operationId: "createSchedule",
     endpoint: "schedules",
@@ -515,7 +705,12 @@ export const ROUTES: RouteDefinition[] = [
         )
         .optional(),
       expression: z.string().describe("Cron or RRULE expression"),
-      message: z.string().describe("Message body to execute on each fire"),
+      message: z
+        .string()
+        .describe(
+          "Message body to execute on each fire. Required for execute mode; ignored for workflow mode (which triggers workflowName/workflowArgs).",
+        )
+        .optional(),
       timezone: z
         .string()
         .nullable()
@@ -525,7 +720,25 @@ export const ROUTES: RouteDefinition[] = [
         .boolean()
         .describe("Whether the schedule starts active (default true)")
         .optional(),
-      mode: z.string().describe("Currently must be 'execute'").optional(),
+      mode: z
+        .string()
+        .describe("'execute' (default) or 'workflow' (flag-gated)")
+        .optional(),
+      workflowName: z
+        .string()
+        .describe("Saved workflow to trigger (required for workflow mode)")
+        .optional(),
+      workflowArgs: z
+        .unknown()
+        .describe("Args passed to the workflow run (workflow mode)")
+        .optional(),
+      inferenceProfile: z
+        .string()
+        .nullable()
+        .describe(
+          "Inference profile (llm.profiles key) the schedule's runs use. Omitted or null = default, i.e. the mainAgent call-site model selection.",
+        )
+        .optional(),
     }),
     responseBody: z.object({
       schedules: z.array(scheduleSchema).describe("Updated schedule list"),
@@ -543,15 +756,10 @@ export const ROUTES: RouteDefinition[] = [
     summary: "List schedule runs",
     description: "Return recent invocation history for a schedule.",
     tags: ["schedules"],
-    queryParams: [
-      {
-        name: "limit",
-        schema: { type: "integer" },
-        description: "Max runs to return (default 10, max 100)",
-      },
-    ],
+    queryParams: RUNS_PAGINATION_QUERY_PARAMS(10),
     responseBody: z.object({
       runs: z.array(scheduleRunSchema).describe("Schedule run objects"),
+      nextCursor: RUNS_NEXT_CURSOR_SCHEMA,
     }),
     handler: ({ pathParams, queryParams }: RouteHandlerArgs) =>
       handleListScheduleRuns(pathParams!.id, queryParams ?? {}),
@@ -615,7 +823,19 @@ export const ROUTES: RouteDefinition[] = [
         .nullable()
         .describe("Shell command for script mode")
         .optional(),
-      mode: z.string().describe("notify, execute, or script").optional(),
+      mode: z
+        .string()
+        .describe("notify, execute, script, wake, or workflow")
+        .optional(),
+      workflowName: z
+        .string()
+        .nullable()
+        .describe("Saved workflow to trigger (workflow mode)")
+        .optional(),
+      workflowArgs: z
+        .unknown()
+        .describe("Args passed to the workflow run (workflow mode)")
+        .optional(),
       routingIntent: z
         .string()
         .describe("single_channel, multi_channel, or all_channels")
@@ -631,6 +851,13 @@ export const ROUTES: RouteDefinition[] = [
         .number()
         .nullable()
         .describe("Script-mode execution timeout in ms; null = use default")
+        .optional(),
+      inferenceProfile: z
+        .string()
+        .nullable()
+        .describe(
+          "Inference profile (llm.profiles key) the schedule's runs use; null clears it back to the default mainAgent call-site model selection",
+        )
         .optional(),
     }),
     responseBody: z.object({
@@ -711,6 +938,78 @@ async function handleRunScheduleNow(id: string) {
     return handleListSchedules({});
   }
 
+  // ── Workflow mode (trigger a saved workflow by name) ──────────────
+  // Mirrors the scheduler's automatic workflow-firing branch. Without this, a
+  // workflow-mode schedule manually triggered via `POST /schedules/:id/run`
+  // would fall through to the regular message path below and process
+  // `schedule.message` (usually empty — workflow-mode create no longer requires
+  // a message), running a no-op normal turn instead of the workflow.
+  if (schedule.mode === "workflow") {
+    // Fail fast at the route when the flag is off (the run manager would also
+    // hard-fail with WorkflowsDisabledError); matches create/update handling.
+    assertWorkflowsEnabled();
+    if (!schedule.workflowName) {
+      throw new BadRequestError("Workflow schedule has no workflowName");
+    }
+    // Boot race: resolveCapabilities grants the read-only baseline (file_read,
+    // web_search, …) from the tool registry, which initializeProvidersAndTools()
+    // populates during startup. The scheduler's automatic firing path DEFERS a
+    // workflow trigger to a later tick while `!areCoreToolsInitialized()` so a
+    // run never launches with an empty baseline. A manual "run now" has no later
+    // tick to defer to, so fail fast with a retryable 503 rather than launch a
+    // degraded run; the window is just the few seconds of assistant boot.
+    if (!areCoreToolsInitialized()) {
+      throw new ServiceUnavailableError(
+        "The assistant is still starting up and its tools are not ready yet. " +
+          "Try running this workflow again in a moment.",
+      );
+    }
+    const runId = createScheduleRun(schedule.id, `workflow:${schedule.id}`);
+    try {
+      log.info(
+        {
+          jobId: schedule.id,
+          name: schedule.name,
+          workflowName: schedule.workflowName,
+        },
+        "Triggering workflow schedule manually (run now)",
+      );
+      // V1 LIMITATION: scheduled workflows run with the read-only baseline
+      // manifest only (no tools / host functions / persona), exactly as the
+      // scheduler's automatic firing path does — the schedule record carries no
+      // capability manifest.
+      const { runId: workflowRunId } = getWorkflowRunManager().start({
+        name: schedule.workflowName,
+        args: schedule.workflowArgs ?? {},
+        // Deliver the completion summary to the schedule's wake target, falling
+        // back to the conversation that created it (workflow schedules made via
+        // `schedule_create` store `createdFromConversationId` and leave
+        // `wakeConversationId` unset) — mirrors the scheduler's firing path.
+        conversationId:
+          schedule.wakeConversationId ??
+          schedule.createdFromConversationId ??
+          undefined,
+        manifest: { tools: [], hostFunctions: [], persona: false },
+        trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
+      });
+      // `start` launches the run fire-and-forget and returns synchronously;
+      // a successful trigger is recorded as ok. Completion/failure is surfaced
+      // out-of-band via workflow events and the completion wake.
+      completeScheduleRun(runId, {
+        status: "ok",
+        output: `workflow run ${workflowRunId} started`,
+      });
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      log.warn(
+        { err, jobId: schedule.id, name: schedule.name },
+        "Manual workflow schedule execution failed",
+      );
+      completeScheduleRun(runId, { status: "error", error: errorMsg });
+    }
+    return handleListSchedules({});
+  }
+
   // Check if message is a task invocation (run_task:<task_id>)
   const taskMatch = schedule.message.match(/^run_task:(\S+)$/);
   if (taskMatch) {
@@ -735,6 +1034,9 @@ async function handleRunScheduleNow(id: string) {
               attachments: [],
               onEvent: () => {},
               isInteractive: false,
+              ...(schedule.inferenceProfile
+                ? { overrideProfile: schedule.inferenceProfile }
+                : {}),
             });
           } finally {
             conversation.taskRunId = undefined;
@@ -781,6 +1083,9 @@ async function handleRunScheduleNow(id: string) {
         conversationId: schedule.wakeConversationId,
         hint: schedule.message,
         source: "defer",
+        ...(schedule.inferenceProfile
+          ? { forceOverrideProfile: schedule.inferenceProfile }
+          : {}),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -828,6 +1133,9 @@ async function handleRunScheduleNow(id: string) {
       attachments: [],
       onEvent: () => {},
       isInteractive: false,
+      ...(schedule.inferenceProfile
+        ? { overrideProfile: schedule.inferenceProfile }
+        : {}),
     });
     completeScheduleRun(runId, { status: "ok" });
   } catch (err) {

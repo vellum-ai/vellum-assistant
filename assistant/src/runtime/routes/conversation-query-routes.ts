@@ -75,7 +75,7 @@ import { type LogRow } from "../../memory/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
-import { getMemoryV3SelectionForInspector } from "../../plugins/defaults/memory-v3-shadow/selection-log-store.js";
+import { getMemoryV3SelectionForInspectorByMessageIds } from "../../plugins/defaults/memory-v3-shadow/selection-log-store.js";
 import {
   createConnection,
   listConnections,
@@ -542,7 +542,8 @@ const ConfigGetResponseSchema = z
       .passthrough()
       .optional(),
   })
-  .passthrough();
+  .passthrough()
+  .meta({ id: "ConfigGetResponse" });
 
 /**
  * Given a `z.object(...)` schema, returns a new schema where every property
@@ -641,7 +642,8 @@ const ConfigPatchRequestSchema = z
       .passthrough()
       .optional(),
   })
-  .passthrough();
+  .passthrough()
+  .meta({ id: "ConfigPatchRequest" });
 
 function handleGetConfig() {
   try {
@@ -1128,12 +1130,11 @@ async function handleGetLlmContext({
   // turn finishes — see `assistant/src/memory/conversation-crud.ts`.
   const conversationTotalEstimatedCostUsd =
     conversation?.totalEstimatedCost ?? null;
-  const memoryV3Selection = message
-    ? await getMemoryV3SelectionForInspector(
-        message.conversationId,
-        memoryV2Activation?.turn ?? null,
-      )
-    : null;
+  // v3 selections are keyed to the turn's message ids (stamped by the turn-end
+  // backfill), independent of v2's tracker turn — so the panel shows whenever
+  // the turn has v3 data, regardless of v2/v3 turn-counter drift.
+  const memoryV3Selection =
+    await getMemoryV3SelectionForInspectorByMessageIds(turnMessageIds);
   return {
     messageId,
     conversationKind,
