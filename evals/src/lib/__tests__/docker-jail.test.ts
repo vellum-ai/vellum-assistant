@@ -8,7 +8,7 @@ import {
   DEFAULT_INFRA_ALLOW_HOSTS,
   DEFAULT_MODEL_ALLOW_HOSTS,
   applyDockerEgressJail,
-  attachDockerEgressJail,
+  installRecordingCa,
   dockerEgressJailContainerName,
   dockerEgressJailNetworkName,
   findOpenHostPort,
@@ -312,62 +312,31 @@ describe("docker egress jail", () => {
     expect(dockerRun?.args).not.toContain("PLUGIN_FIXTURES_DIR=/fixtures");
   });
 
-  test("attach mode joins an existing container's netns and installs the CA into it", async () => {
-    // Attach mode is how Hermes runs: it warms up provider SDKs from
-    // PyPI with open egress, then the jail attaches to its already-owned
-    // namespace and patches the trust store post-start (safe because no
-    // model TLS happens until the first turn).
+  test("installRecordingCa patches the jail's CA into a tenant's trust store", async () => {
+    // A tenant born into the owner-mode jail (e.g. Hermes via `--network
+    // container:<jail>`) doesn't get the CA from process start, so it must
+    // be copied in and trusted before the tenant's first model TLS.
     //
     // GIVEN a recording dir pre-staged with the sidecar CA
     const runner = new FakeRunner();
-    const dir = `.runs/test-attach-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const dir = `.runs/test-ca-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "mitmproxy-ca-cert.pem"), "fake-ca-pem");
 
-    // WHEN attaching the jail to an existing container
-    const jail = await attachDockerEgressJail(runner, {
-      runId: "eval-run-ca",
-      containerName: "eval-run-ca-hermes",
-      recordingDir: dir,
-    });
+    // WHEN installing the recording CA into a tenant container
+    await installRecordingCa(runner, dir, "eval-run-ca-hermes");
 
-    // THEN it pre-cleans the jail, builds, and starts sharing the
-    // target container's netns (no network of its own).
-    expect(runner.runs[0]).toEqual({
-      command: "docker",
-      args: ["rm", "-f", "eval-run-ca-egress-jail"],
-    });
-    expect(runner.runs[1]?.args[0]).toBe("build");
-    const dockerRun = runner.runs[2];
-    const networkIdx = dockerRun?.args.indexOf("--network") ?? -1;
-    expect(dockerRun?.args[networkIdx + 1]).toBe(
-      "container:eval-run-ca-hermes",
-    );
-    expect(dockerRun?.args).not.toContain("-p");
-
-    // AND it installs the CA into the target container — cp must precede
-    // update-ca-certificates or the exec sees a stale trust store.
-    const cpRun = runner.runs[3];
-    expect(cpRun?.args[0]).toBe("cp");
-    expect(cpRun?.args[1]).toBe(resolve(dir, "mitmproxy-ca-cert.pem"));
-    expect(cpRun?.args[2]).toBe(
+    // THEN it copies the CA in then refreshes the trust store — the cp must
+    // precede update-ca-certificates or the exec sees a stale store.
+    expect(runner.runs[0]?.args).toEqual([
+      "cp",
+      resolve(dir, "mitmproxy-ca-cert.pem"),
       "eval-run-ca-hermes:/usr/local/share/ca-certificates/vellum-evals-mitmproxy.crt",
-    );
-    expect(runner.runs[4]?.args).toEqual([
+    ]);
+    expect(runner.runs[1]?.args).toEqual([
       "exec",
       "eval-run-ca-hermes",
       "update-ca-certificates",
     ]);
-
-    // AND the target container is reported as the netns owner.
-    expect(jail.netnsContainer).toBe("eval-run-ca-hermes");
-    expect(jail.caCertPath).toBe(resolve(dir, "mitmproxy-ca-cert.pem"));
-
-    // AND teardown removes only the jail (the owner outlives it).
-    await jail.stop();
-    expect(runner.runs.at(-1)).toEqual({
-      command: "docker",
-      args: ["rm", "-f", "eval-run-ca-egress-jail"],
-    });
   });
 });
