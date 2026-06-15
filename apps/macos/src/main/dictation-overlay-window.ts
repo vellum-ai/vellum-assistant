@@ -1,4 +1,4 @@
-import { BrowserWindow, screen } from "electron";
+import { BrowserWindow, screen, type WebContents } from "electron";
 import { z } from "zod";
 
 import type {
@@ -24,8 +24,10 @@ import { handle, on } from "./ipc";
  * `apps/web/`, same standalone pattern as Quick Input).
  *
  * `type: "panel"` + `focusable: false` keep the overlay from ever stealing
- * focus from the app being dictated into, and the window is fully
- * click-through — it's a display surface only.
+ * focus from the app being dictated into. The window is click-through by
+ * default; the page flips it interactive while the cursor hovers the pill's
+ * stop button (via `vellum:dictationOverlay:setInteractive`) so the button
+ * is clickable without the transparent canvas swallowing clicks.
  */
 
 const OVERLAY_KIND = "dictation-overlay";
@@ -188,10 +190,25 @@ const showOverlay = (): void => {
   ensureOverlayWindow();
 };
 
+// Whether interactive (clickable, while hovering the stop button) or
+// click-through, the window must keep forwarding mousemove to the page —
+// without `forward: true` the page never sees the mouseenter/mouseleave
+// that drive the toggle.
+const setOverlayInteractive = (
+  win: BrowserWindow,
+  interactive: boolean,
+): void => {
+  win.setIgnoreMouseEvents(!interactive, { forward: true });
+};
+
 const hideOverlay = (): void => {
   latestState = null;
   const win = getFloatingWindow(OVERLAY_KIND);
   if (win) {
+    // A session can end while the cursor is over the stop button, so its
+    // mouseleave (which restores click-through) never fires — re-assert it
+    // here so the next session doesn't start with an interactive canvas.
+    setOverlayInteractive(win, false);
     win.hide();
   }
 };
@@ -209,10 +226,25 @@ export const installDictationOverlay = (
      * recording even when the overlay itself is suppressed.
      */
     onRecordingLifecycle?: (recording: boolean) => void;
+    /**
+     * The user clicked the overlay's stop button. Injected (same reason as
+     * above) so main can relay a `stopDictation` command to the renderer
+     * that owns the recording session. `owner` is the WebContents that
+     * published the session's overlay state — the chat composer can live in
+     * the main window or a conversation pop-out — or null when it's already
+     * gone (fall back to the main window).
+     */
+    onStopRequested?: (owner: WebContents | null) => void;
   } = {},
 ): void => {
   if (installed) return;
   installed = true;
+
+  // The renderer that published the current session's state. Captured on
+  // every lifecycle message rather than just session start: it's the same
+  // sender throughout a session, and re-capturing keeps it correct without
+  // session-boundary bookkeeping.
+  let sessionOwner: WebContents | null = null;
 
   const controller = createDictationOverlayController({
     showOverlay,
@@ -226,11 +258,34 @@ export const installDictationOverlay = (
   on(
     "vellum:dictationOverlay:setState",
     z.tuple([dictationOverlayMessageSchema]),
-    ([message]) => {
+    ([message], event) => {
+      sessionOwner = event.sender;
       options.onRecordingLifecycle?.(message.kind === "recording");
       controller.handleMessage(message);
     },
   );
 
   handle("vellum:dictationOverlay:getState", z.tuple([]), () => latestState);
+
+  // Sent by the overlay's own renderer when the stop button is clicked.
+  on("vellum:dictationOverlay:requestStop", z.tuple([]), () => {
+    options.onStopRequested?.(
+      sessionOwner && !sessionOwner.isDestroyed() ? sessionOwner : null,
+    );
+  });
+
+  // The overlay window is click-through by default; the overlay renderer
+  // flips it interactive while the cursor is over the stop button (the
+  // standard Electron forward-mousemove hover pattern), so clicks on the
+  // transparent canvas around the pill still reach the app underneath.
+  on(
+    "vellum:dictationOverlay:setInteractive",
+    z.tuple([z.boolean()]),
+    ([interactive]) => {
+      const win = getFloatingWindow(OVERLAY_KIND);
+      if (win) {
+        setOverlayInteractive(win, interactive);
+      }
+    },
+  );
 };

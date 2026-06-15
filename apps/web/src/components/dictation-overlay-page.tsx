@@ -1,19 +1,22 @@
-import { Check, Loader2, TriangleAlert } from "lucide-react";
+import { Check, Loader2, Square, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import {
   getDictationOverlayState,
+  requestDictationOverlayStop,
+  setDictationOverlayInteractive,
   subscribeToDictationOverlayState,
 } from "@/runtime/dictation-overlay";
 import type { DictationOverlayState } from "@/runtime/is-electron";
 
 /**
  * Live dictation pill rendered inside the Electron dictation overlay
- * BrowserWindow — a click-through, non-activating panel pinned top-center
- * of the active display while the user dictates via push-to-talk into
- * another app. The Electron port of the native Swift client's
- * `DictationOverlayWindow`: a status row (state icon + label), compact
- * audio meter, and optional two-line live transcription.
+ * BrowserWindow — a non-activating panel pinned top-center of the active
+ * display while the user dictates via push-to-talk into another app. The
+ * Electron port of the native Swift client's `DictationOverlayWindow`: a
+ * status row (stop button + label, with the state icon and compact audio
+ * meter on the right edge) and optional two-line live transcription. The
+ * window is click-through except while the cursor hovers the stop button.
  *
  * Standalone (no auth, no RootLayout) like the Quick Input page; the
  * window canvas is transparent, so the page paints only the pill. The
@@ -50,13 +53,16 @@ export function DictationOverlayPage() {
     <div className="flex h-screen w-screen items-start justify-center bg-transparent p-4">
       <div className="flex w-[min(28rem,calc(100vw-2rem))] flex-col gap-1 rounded-xl border border-[var(--border-default)] bg-[var(--surface-base)] px-4 py-2.5 shadow-lg">
         <div className="flex min-w-0 items-center gap-2">
-          <StateIcon state={state} />
+          {(state.kind === "recording" || state.kind === "processing") && (
+            <StopButton processing={state.kind === "processing"} />
+          )}
           <span className="truncate text-[11px] font-medium text-[var(--content-secondary)]">
             {stateLabel(state)}
           </span>
-          {state.kind === "recording" && (
-            <AudioMeter level={audioLevel} />
-          )}
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            {state.kind === "recording" && <AudioMeter level={audioLevel} />}
+            <StateIcon state={state} />
+          </div>
         </div>
         {transcription && (
           // Bottom-anchored two-line text: the transcript grows as words
@@ -73,14 +79,41 @@ export function DictationOverlayPage() {
   );
 }
 
+/**
+ * Stop control shown while a session can still be ended: during recording
+ * it stops the capture and hands the audio to transcription; during
+ * processing it abandons the in-flight transcription.
+ *
+ * The overlay window is click-through, so the button is only clickable via
+ * the forwarded-mousemove hover pattern: mouseenter flips the window
+ * interactive, mouseleave (or unmount, when the session reaches a terminal
+ * state under the cursor) flips it back.
+ */
+function StopButton({ processing }: { processing: boolean }) {
+  useEffect(() => () => setDictationOverlayInteractive(false), []);
+
+  const label = processing ? "Cancel transcription" : "Stop dictation";
+
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      className="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-full border border-[var(--border-default)] text-[var(--system-negative-strong)] transition-colors hover:bg-[var(--surface-hover)]"
+      onMouseEnter={() => setDictationOverlayInteractive(true)}
+      onMouseLeave={() => setDictationOverlayInteractive(false)}
+      onClick={() => requestDictationOverlayStop()}
+    >
+      <Square className="size-2 fill-current" aria-hidden />
+    </button>
+  );
+}
+
 function AudioMeter({ level }: { level: number }) {
   const clamped = Math.max(0, Math.min(1, level));
 
   return (
-    <div
-      className="ml-auto flex h-4 w-16 shrink-0 items-end gap-0.5"
-      aria-hidden
-    >
+    <div className="flex h-4 w-16 shrink-0 items-end gap-0.5" aria-hidden>
       {[0.16, 0.32, 0.48, 0.64, 0.8, 0.96].map((threshold, index) => (
         <span
           key={threshold}

@@ -54,3 +54,24 @@ export async function getDictationOverlayState(): Promise<DictationOverlayState 
   }
   return window.vellum.dictationOverlay.getState();
 }
+
+/**
+ * Ask main to stop the active dictation session — the overlay's stop
+ * button. Main relays it to the recording session's renderer as a
+ * `stopDictation` command.
+ */
+export function requestDictationOverlayStop(): void {
+  if (!isElectron()) return;
+  window.vellum?.dictationOverlay?.requestStop?.();
+}
+
+/**
+ * Toggle the overlay window between click-through (default) and
+ * interactive. The overlay page flips it interactive only while the
+ * cursor is over the stop button, so the transparent canvas around the
+ * pill never swallows clicks meant for the app underneath.
+ */
+export function setDictationOverlayInteractive(interactive: boolean): void {
+  if (!isElectron()) return;
+  window.vellum?.dictationOverlay?.setInteractive?.(interactive);
+}

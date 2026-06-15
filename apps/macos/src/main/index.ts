@@ -56,6 +56,7 @@ import { installHostProxyBridge } from "./host-proxy-router";
 import "./executors/host-bash-executor"; // side-effect: registers host_bash executor
 import log from "./logger";
 import {
+  dispatchToMain,
   ensureVisible as ensureMainWindowVisible,
   installMainWindow,
   toggleVisibility as toggleMainWindowVisibility,
@@ -367,7 +368,20 @@ app
     installCommandPaletteWindow();
     installApplicationMenu();
     installQuickInput();
-    installDictationOverlay({ onRecordingLifecycle: setDictationRecording });
+    installDictationOverlay({
+      onRecordingLifecycle: setDictationRecording,
+      // Relay the overlay's stop click to the renderer that published the
+      // session's overlay state — the chat composer can live in the main
+      // window or a conversation pop-out. Fall back to the main window when
+      // the owning window is already gone.
+      onStopRequested: (owner) => {
+        if (owner) {
+          owner.send("vellum:command", { kind: "stopDictation" });
+        } else {
+          dispatchToMain({ kind: "stopDictation" });
+        }
+      },
+    });
     installPopoutWindows();
     installGlobalShortcuts();
     // Register the avatar channel before the Dock and Tray install so their

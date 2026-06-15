@@ -46,6 +46,7 @@ export const DEFAULT_ACCELERATORS: Record<VellumCommandKind, string> = {
   retireAssistant: "",
   quickInputSubmit: "",
   cancelDictation: "",
+  stopDictation: "",
   replayOnboarding: "",
   previewPrechat: "",
   replayHatchFailure: "",

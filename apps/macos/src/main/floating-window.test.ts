@@ -271,7 +271,9 @@ describe("createFloatingWindow", () => {
       ignoreMouseEvents: true,
     }) as unknown as StubWindow & { __calls: string[] };
 
-    expect(win.setIgnoreMouseEvents.mock.calls).toEqual([[true]]);
+    expect(win.setIgnoreMouseEvents.mock.calls).toEqual([
+      [true, { forward: true }],
+    ]);
     expect(win.__calls).toEqual(["setIgnoreMouseEvents", "showInactive"]);
   });
 

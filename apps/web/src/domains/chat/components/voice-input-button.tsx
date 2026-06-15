@@ -502,6 +502,21 @@ export const VoiceInputButton = forwardRef<
     };
   }, [recording, cancelRecording]);
 
+  /**
+   * Abandon an in-flight transcription (the dictation overlay's stop
+   * button during "Processing…"). Bumping the session id makes the async
+   * STT completion drop its result, the abort cancels the batch POST, and
+   * `discardedRef` covers the window where the store is already
+   * "processing" but `recorder.onstop` hasn't run yet.
+   */
+  const abortProcessing = useCallback(() => {
+    sessionIdRef.current += 1;
+    discardedRef.current = true;
+    transcribeAbortRef.current?.abort();
+    transcribeAbortRef.current = null;
+    vsReset();
+  }, [vsReset]);
+
   // The DOM listener above only sees Escape while a Vellum window has
   // focus. During system-wide push-to-talk dictation into another app the
   // Electron escape monitor owns Escape and relays it as a command; the
@@ -510,6 +525,26 @@ export const VoiceInputButton = forwardRef<
     cancelDictation: () => {
       if (!mediaRecorderRef.current) return;
       cancelRecording();
+    },
+    // The dictation overlay's stop button. While recording it ends the
+    // session the normal way (capture stops, audio goes to STT); while
+    // processing it abandons the transcription outright. Both branches
+    // need an ownership guard: two instances are mounted per window (chat
+    // composer + the headless push-to-talk bridge) and the non-owner must
+    // not touch the shared store — its vsReset would flip the phase to
+    // idle before the owner's handler runs, leaving the owner's STT
+    // request alive to insert the transcript anyway. The owner is the
+    // instance holding the recorder (recording, or stopped but onstop
+    // hasn't run) or the in-flight transcribe abort controller.
+    stopDictation: () => {
+      const { phase } = useVoiceRecordingStore.getState();
+      if (phase === "recording") {
+        if (!mediaRecorderRef.current) return;
+        stopRecording();
+      } else if (phase === "processing") {
+        if (!mediaRecorderRef.current && !transcribeAbortRef.current) return;
+        abortProcessing();
+      }
     },
   });
 
@@ -862,6 +897,12 @@ export const VoiceInputButton = forwardRef<
         } finally {
           transcribeAbortRef.current = null;
         }
+        // Re-check after the awaited delivery: a cancel (overlay stop
+        // button) landing while `onTranscript` was in flight bumped the
+        // session id after the guard above. Delivery already started and
+        // can't be retracted, but the cancelled session must not overwrite
+        // the user's reset with a "done" flash.
+        if (sessionIdRef.current !== sessionId) return;
         vsFinalize();
       })();
     };

@@ -224,6 +224,8 @@ export interface VellumBridge {
     setState(state: DictationOverlayMessage): void;
     onState(callback: (state: DictationOverlayState) => void): () => void;
     getState(): Promise<DictationOverlayState | null>;
+    requestStop(): void;
+    setInteractive(interactive: boolean): void;
   };
   popout: {
     open(conversationId: string): Promise<void>;
