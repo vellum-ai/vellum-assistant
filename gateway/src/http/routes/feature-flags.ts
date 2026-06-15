@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import {
   loadFeatureFlagDefaults,
   isFlagDeclared,
@@ -9,6 +11,7 @@ import {
   writeFeatureFlag,
 } from "../../feature-flag-store.js";
 import { getLogger } from "../../logger.js";
+import type { GatewayRouteDefinition } from "./types.js";
 
 const log = getLogger("feature-flags");
 
@@ -17,13 +20,61 @@ const log = getLogger("feature-flags");
  */
 const ALLOWED_KEY_RE = /^[a-z0-9][a-z0-9-]*$/;
 
-export type FeatureFlagEntry = {
-  key: string;
-  label: string;
-  enabled: boolean | string;
-  defaultEnabled: boolean | string;
-  description: string;
-};
+// ---------------------------------------------------------------------------
+// Zod schemas (source of truth for OpenAPI spec generation)
+// ---------------------------------------------------------------------------
+
+const FeatureFlagEntrySchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  enabled: z.union([z.boolean(), z.string()]),
+  defaultEnabled: z.union([z.boolean(), z.string()]),
+  description: z.string(),
+});
+
+const FeatureFlagsGetResponseSchema = z.object({
+  flags: z.array(FeatureFlagEntrySchema),
+});
+
+const FeatureFlagPatchRequestSchema = z.object({
+  enabled: z.union([z.boolean(), z.string()]),
+});
+
+const FeatureFlagPatchResponseSchema = z.object({
+  key: z.string(),
+  enabled: z.union([z.boolean(), z.string()]),
+});
+
+export type FeatureFlagEntry = z.infer<typeof FeatureFlagEntrySchema>;
+
+// ---------------------------------------------------------------------------
+// Route definitions (consumed by scripts/generate-openapi.ts)
+// ---------------------------------------------------------------------------
+
+export const ROUTES: GatewayRouteDefinition[] = [
+  {
+    path: "/v1/feature-flags",
+    method: "get",
+    operationId: "featureFlagsGet",
+    summary: "List all feature flags",
+    description: "Returns all feature flags with their current values.",
+    tags: ["feature-flags"],
+    responseBody: FeatureFlagsGetResponseSchema,
+  },
+  {
+    path: "/v1/feature-flags/{flag_key}",
+    method: "patch",
+    operationId: "featureFlagsPatch",
+    summary: "Update a feature flag",
+    description: "Set the enabled state of a single feature flag.",
+    tags: ["feature-flags"],
+    pathParameters: [
+      { name: "flag_key", description: "The kebab-case flag identifier" },
+    ],
+    requestBody: FeatureFlagPatchRequestSchema,
+    responseBody: FeatureFlagPatchResponseSchema,
+  },
+];
 
 export function createFeatureFlagsGetHandler() {
   return async (_req: Request): Promise<Response> => {

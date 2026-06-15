@@ -2,10 +2,8 @@
 /**
  * Generate an OpenAPI 3.1 JSON specification from the gateway's route schemas.
  *
- * Pipeline:
- *   1. Define route schemas with Zod `responseBody` / `requestBody`.
- *   2. Use zod-openapi's `createDocument()` to produce the spec.
- *   3. Write to openapi.json.
+ * Route files export a `ROUTES` array with Zod `responseBody` / `requestBody`
+ * schemas. This script imports them and calls zod-openapi's `createDocument()`.
  *
  * Usage:
  *   cd gateway && bun run scripts/generate-openapi.ts
@@ -17,78 +15,20 @@ import { readFileSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import { z } from "zod";
 import { createDocument } from "zod-openapi";
+
+import type { GatewayRouteDefinition } from "../src/http/routes/types.js";
+
+// Import ROUTES from each route module that declares schemas.
+// Add new route modules here as they adopt zod-openapi schemas.
+import { ROUTES as featureFlagRoutes } from "../src/http/routes/feature-flags.js";
 
 const ROOT = resolve(import.meta.dir, "..");
 const OUTPUT_PATH = resolve(ROOT, "openapi.json");
 const PKG_PATH = resolve(ROOT, "package.json");
 
-// ---------------------------------------------------------------------------
-// Route schemas
-// ---------------------------------------------------------------------------
-
-const FeatureFlagEntrySchema = z.object({
-  key: z.string(),
-  label: z.string(),
-  enabled: z.union([z.boolean(), z.string()]),
-  defaultEnabled: z.union([z.boolean(), z.string()]),
-  description: z.string(),
-});
-
-const FeatureFlagsGetResponseSchema = z.object({
-  flags: z.array(FeatureFlagEntrySchema),
-});
-
-const FeatureFlagPatchRequestSchema = z.object({
-  enabled: z.union([z.boolean(), z.string()]),
-});
-
-const FeatureFlagPatchResponseSchema = z.object({
-  key: z.string(),
-  enabled: z.union([z.boolean(), z.string()]),
-});
-
-// ---------------------------------------------------------------------------
-// Route definitions
-// ---------------------------------------------------------------------------
-
-interface RouteDefinition {
-  path: string;
-  method: "get" | "post" | "put" | "patch" | "delete";
-  operationId: string;
-  summary: string;
-  description?: string;
-  tags: string[];
-  responseBody?: z.ZodTypeAny;
-  requestBody?: z.ZodTypeAny;
-  pathParameters?: Array<{ name: string; description?: string }>;
-}
-
-const ROUTES: RouteDefinition[] = [
-  {
-    path: "/v1/feature-flags",
-    method: "get",
-    operationId: "featureFlagsGet",
-    summary: "List all feature flags",
-    description: "Returns all feature flags with their current values.",
-    tags: ["feature-flags"],
-    responseBody: FeatureFlagsGetResponseSchema,
-  },
-  {
-    path: "/v1/feature-flags/{flag_key}",
-    method: "patch",
-    operationId: "featureFlagsPatch",
-    summary: "Update a feature flag",
-    description: "Set the enabled state of a single feature flag.",
-    tags: ["feature-flags"],
-    pathParameters: [
-      { name: "flag_key", description: "The kebab-case flag identifier" },
-    ],
-    requestBody: FeatureFlagPatchRequestSchema,
-    responseBody: FeatureFlagPatchResponseSchema,
-  },
-];
+// Collect all route definitions
+const ALL_ROUTES: GatewayRouteDefinition[] = [...featureFlagRoutes];
 
 // ---------------------------------------------------------------------------
 // Spec builder
@@ -97,7 +37,7 @@ const ROUTES: RouteDefinition[] = [
 function buildSpec(version: string) {
   const paths: Record<string, Record<string, unknown>> = {};
 
-  for (const route of ROUTES) {
+  for (const route of ALL_ROUTES) {
     if (!paths[route.path]) paths[route.path] = {};
 
     const parameters: Array<Record<string, unknown>> = [];
@@ -157,12 +97,7 @@ function buildSpec(version: string) {
       description:
         "Auto-generated OpenAPI specification for the Vellum Gateway HTTP endpoints.",
     },
-    servers: [
-      {
-        url: "",
-        description: "Same-origin (gateway)",
-      },
-    ],
+    servers: [{ url: "", description: "Same-origin (gateway)" }],
     paths,
   });
 }
@@ -202,7 +137,7 @@ async function main() {
   }
 
   await writeFile(OUTPUT_PATH, output);
-  console.log(`Wrote ${OUTPUT_PATH} (${ROUTES.length} routes)`);
+  console.log(`Wrote ${OUTPUT_PATH} (${ALL_ROUTES.length} routes)`);
 }
 
 main().catch((err) => {

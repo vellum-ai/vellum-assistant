@@ -19,7 +19,7 @@
     "pretypecheck": "bun run openapi-ts",
     "typecheck": "bunx tsc --noEmit",
     "postinstall": "bun run scripts/postinstall.ts",
-    "openapi-ts": "bun run scripts/transform-daemon-spec.ts && openapi-ts",
+    "openapi-ts": "bun run scripts/transform-daemon-spec.ts && bun run scripts/transform-gateway-spec.ts && openapi-ts",
     "ios:setup": "bunx cap sync ios && cd ../ios/App && xcodegen generate --spec project.yml",
     "ios:open": "bun run ios:setup && open ../ios/App/App.xcodeproj",
     "storybook": "storybook dev -p 6007",
