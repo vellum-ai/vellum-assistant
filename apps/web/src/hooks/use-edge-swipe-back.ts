@@ -32,6 +32,9 @@ const OVERDRAG_DAMPING = 0.3;
 /** Duration (ms) for the cancel/snap-back animation. */
 const CANCEL_ANIMATION_MS = 200;
 
+/** Duration (ms) for the commit/slide-off-screen animation. */
+const COMMIT_ANIMATION_MS = 180;
+
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
@@ -204,10 +207,22 @@ export function useEdgeSwipeBack({
       const committed = drag.confirmed && finalDx >= commitThreshold();
 
       if (committed) {
-        // Navigate. Reset styles immediately — the page transition
-        // handles the visual change.
-        reset(false);
-        onBackRef.current();
+        // Slide off-screen then navigate for a smooth exit.
+        dragRef.current = null;
+        el.style.transition = `transform ${COMMIT_ANIMATION_MS}ms ease-in`;
+        applyOffset(window.innerWidth);
+        let didFinish = false;
+        const finish = () => {
+          if (didFinish) return;
+          didFinish = true;
+          el.removeEventListener("transitionend", finish);
+          el.style.transition = "";
+          el.style.transform = "";
+          el.style.willChange = "";
+          onBackRef.current();
+        };
+        el.addEventListener("transitionend", finish, { once: true });
+        setTimeout(finish, COMMIT_ANIMATION_MS + 50);
       } else if (drag.confirmed) {
         // Animate back to resting position.
         reset(true);
