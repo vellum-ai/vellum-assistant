@@ -58,6 +58,7 @@ const ClassifyRiskSchema = z.object({
       hooksDir: z.string(),
       pluginsDir: z.string().optional(),
       toolsDir: z.string().optional(),
+      workspaceDir: z.string().optional(),
       actorTokenSigningKeyPath: z.string(),
       skillSourceDirs: z.array(z.string()),
     })
@@ -424,6 +425,12 @@ export async function handleClassifyRisk(
       // classifier never produces false-positive escalations (an empty string
       // for hooksDir would normalize to "/" and match every path).
       const SENTINEL = "/__vellum_no_context__";
+      // workspaceDir gets a *distinct* sentinel: the classifier remaps
+      // container-scoped `/workspace/...` paths onto workspaceDir, so sharing
+      // SENTINEL with the escalation dirs would nest aliased paths under those
+      // sentinels and falsely escalate. A separate value keeps the remap inert
+      // when no real context was supplied.
+      const WORKSPACE_SENTINEL = "/__vellum_no_workspace__";
       const fileCtx = params.fileContext;
       const context: FileClassificationContext = {
         protectedDir: fileCtx?.protectedDir ?? SENTINEL,
@@ -431,6 +438,7 @@ export async function handleClassifyRisk(
         hooksDir: fileCtx?.hooksDir ?? SENTINEL,
         pluginsDir: fileCtx?.pluginsDir ?? SENTINEL,
         toolsDir: fileCtx?.toolsDir ?? SENTINEL,
+        workspaceDir: fileCtx?.workspaceDir ?? WORKSPACE_SENTINEL,
         skillSourceDirs: fileCtx?.skillSourceDirs ?? [],
       };
 

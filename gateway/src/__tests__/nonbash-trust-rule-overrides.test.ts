@@ -26,6 +26,7 @@ const dummyFileContext: FileClassificationContext = {
   hooksDir: "/tmp/test-hooks",
   pluginsDir: "/tmp/test-plugins",
   toolsDir: "/tmp/test-tools",
+  workspaceDir: "/tmp/test-workspace",
   skillSourceDirs: [],
 };
 

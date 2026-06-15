@@ -66,6 +66,16 @@ export interface FileClassificationContext {
    */
   toolsDir: string;
   /**
+   * Absolute path to the sandbox workspace boundary directory
+   * (`VELLUM_WORKSPACE_DIR`). Sandbox file tools accept container-scoped
+   * `/workspace/...` paths and the executor remaps them onto this boundary
+   * (see {@link ../tools/shared/filesystem/path-policy.ts sandboxPolicy}).
+   * The classifier applies the same remapping before its escalation checks
+   * so a `/workspace/tools/<name>.ts` alias can't slip a write past the
+   * tools/hooks/plugins/skill escalations in local (non-`/workspace`) mode.
+   */
+  workspaceDir: string;
+  /**
    * Absolute paths of all skill source root directories (managed, bundled,
    * and any extra dirs from config). The classifier checks whether a file
    * path falls under any of these roots.
@@ -96,6 +106,44 @@ export interface FileClassifierInput {
  */
 function normalizeDirPath(dirPath: string): string {
   return dirPath.endsWith("/") ? dirPath : dirPath + "/";
+}
+
+// The Docker sandbox mounts the host workspace at /workspace inside the
+// container, and the sandbox file executor accepts these container-scoped
+// paths even in local mode (see path-policy.ts sandboxPolicy). Mirror its
+// remapping so an attacker can't dodge an escalation by addressing a
+// protected directory through the alias instead of the real path.
+const CONTAINER_WORKSPACE_PREFIX = "/workspace/";
+const CONTAINER_WORKSPACE_EXACT = "/workspace";
+
+/**
+ * Remap a container-scoped `/workspace/...` path onto the real workspace
+ * boundary before resolution, mirroring `sandboxPolicy` in path-policy.ts.
+ * Only sandbox file tools (file_read/file_write/file_edit) accept the alias;
+ * host file tools operate on real host paths and must not be remapped.
+ */
+function resolveSandboxPath(
+  filePath: string,
+  workingDir: string,
+  context: FileClassificationContext,
+): string {
+  let effectivePath = filePath;
+  // Skip remapping if the path already starts with the real workspace dir, to
+  // avoid double-nesting (matches sandboxPolicy's guard).
+  if (
+    !filePath.startsWith(context.workspaceDir + "/") &&
+    filePath !== context.workspaceDir
+  ) {
+    if (filePath.startsWith(CONTAINER_WORKSPACE_PREFIX)) {
+      effectivePath = join(
+        context.workspaceDir,
+        filePath.slice(CONTAINER_WORKSPACE_PREFIX.length),
+      );
+    } else if (filePath === CONTAINER_WORKSPACE_EXACT) {
+      effectivePath = context.workspaceDir;
+    }
+  }
+  return resolve(workingDir, effectivePath);
 }
 
 /**
@@ -289,7 +337,11 @@ export class FileRiskClassifier implements RiskClassifier<
     switch (toolName) {
       case "file_read": {
         if (filePath) {
-          const resolvedPath = resolve(workingDir, filePath);
+          const resolvedPath = resolveSandboxPath(
+            filePath,
+            workingDir,
+            context,
+          );
           if (isActorTokenSigningKeyPath(resolvedPath, workingDir, context)) {
             assessment = {
               riskLevel: "high",
@@ -314,7 +366,11 @@ export class FileRiskClassifier implements RiskClassifier<
       case "file_write":
       case "file_edit": {
         if (filePath) {
-          const resolvedPath = resolve(workingDir, filePath);
+          const resolvedPath = resolveSandboxPath(
+            filePath,
+            workingDir,
+            context,
+          );
           if (isSkillSourcePath(resolvedPath, context)) {
             assessment = {
               riskLevel: "high",

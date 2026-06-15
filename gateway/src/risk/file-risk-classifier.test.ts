@@ -18,9 +18,10 @@ const MOCK_DEPRECATED_DIR = join(
   "workspace",
   "deprecated",
 );
-const MOCK_HOOKS_DIR = join(homedir(), ".vellum", "workspace", "hooks");
-const MOCK_PLUGINS_DIR = join(homedir(), ".vellum", "workspace", "plugins");
-const MOCK_TOOLS_DIR = join(homedir(), ".vellum", "workspace", "tools");
+const MOCK_WORKSPACE_DIR = join(homedir(), ".vellum", "workspace");
+const MOCK_HOOKS_DIR = join(MOCK_WORKSPACE_DIR, "hooks");
+const MOCK_PLUGINS_DIR = join(MOCK_WORKSPACE_DIR, "plugins");
+const MOCK_TOOLS_DIR = join(MOCK_WORKSPACE_DIR, "tools");
 
 /** Skill source paths managed per-test via the context's skillSourceDirs. */
 let testSkillSourceDirs: string[] = [];
@@ -32,6 +33,7 @@ function makeContext(): FileClassificationContext {
     hooksDir: MOCK_HOOKS_DIR,
     pluginsDir: MOCK_PLUGINS_DIR,
     toolsDir: MOCK_TOOLS_DIR,
+    workspaceDir: MOCK_WORKSPACE_DIR,
     skillSourceDirs: testSkillSourceDirs,
   };
 }
@@ -311,6 +313,33 @@ describe("FileRiskClassifier", () => {
         workingDir: "/",
       });
       expect(result.riskLevel).toBe("low");
+    });
+
+    // The sandbox executor remaps container-scoped /workspace/... paths onto
+    // the real workspace dir even in local mode, so the classifier must too —
+    // otherwise the alias dodges the tools-dir escalation.
+    test("/workspace/ alias into tools directory is high", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: "/workspace/tools/skill_load.ts",
+        // workingDir intentionally unrelated to the workspace dir: only the
+        // /workspace alias remapping should make this resolve into toolsDir.
+        workingDir: "/some/other/cwd",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to workspace tools directory");
+    });
+
+    test("/workspace/ alias into plugins directory is high", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: "/workspace/plugins/evil/register.ts",
+        workingDir: "/some/other/cwd",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to plugins directory");
     });
 
     test("non-skill, non-hooks path is low", async () => {
