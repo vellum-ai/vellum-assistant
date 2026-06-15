@@ -463,9 +463,19 @@ export function ChatMainPanel({
   const canSendAttachments =
     attachmentsUploadingCount === 0 && attachmentUploadedIds.length > 0;
 
+  // While a conversation's row hasn't loaded (a draft, or one opened by URL
+  // mid-load), its profile lives in the composer stash, not on a server row —
+  // feed it in so attachment/vision gating reflects the profile the first
+  // message will actually use rather than the global default.
+  const pendingDraftProfiles = useConversationStore.use.pendingDraftProfiles();
+  const activeDraftProfile =
+    !activeConversation && activeConversationId
+      ? pendingDraftProfiles.get(activeConversationId) ?? undefined
+      : undefined;
   const activeProfileModel = useActiveProfileModel(
     assistantId,
     activeConversation?.conversationId,
+    activeDraftProfile,
   );
   const activeModelSupportsVision = activeProfileModel?.supportsVision ?? true;
 

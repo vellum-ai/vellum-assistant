@@ -429,6 +429,7 @@ export async function postChatMessage(
   attachmentIds: string[] = [],
   onboarding?: PreChatOnboardingContext,
   clientMessageId?: string,
+  inferenceProfile?: string | null,
 ): Promise<PostMessageResult> {
   // Wire-field selection picks exactly one of `conversationId` (0.8.6+
   // strict internal-id lookup) or `conversationKey` (legacy
@@ -472,6 +473,14 @@ export async function postChatMessage(
   // identity. Omitted when absent so pre-idempotency daemons are unaffected.
   if (clientMessageId) {
     body.clientMessageId = clientMessageId;
+  }
+  // Per-conversation model profile for the conversation this message mints — a
+  // brand-new draft chat where the user picked a model in the composer before
+  // sending. The daemon persists it as the conversation's `inferenceProfile`
+  // override (see `conversation-routes.ts` `requestedInferenceProfile`). Omitted
+  // otherwise so the conversation inherits the global default profile.
+  if (inferenceProfile) {
+    body.inferenceProfile = inferenceProfile;
   }
   const normalizedOnboarding = onboarding
     ? normalizePreChatOnboardingContext(onboarding)
