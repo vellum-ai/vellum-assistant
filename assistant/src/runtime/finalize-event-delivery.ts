@@ -46,9 +46,8 @@ export async function finalizeEventDelivery(params: {
   const resumeOptions =
     slackDmTextDelivery?.getFinalDeliveryResumeOptions(replyMessageId);
   const startFromSegment = resumeOptions?.startFromSegment ?? 0;
-  updateDeliveredSegmentCount(eventId, startFromSegment);
-
   try {
+    updateDeliveredSegmentCount(eventId, startFromSegment);
     await deliverReplyViaCallback(
       conversationId,
       externalChatId,
