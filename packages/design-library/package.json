@@ -4,21 +4,24 @@
   "private": true,
   "license": "MIT",
   "type": "module",
-  "files": ["src/"],
+  "files": ["dist/", "src/", "!src/**/*.stories.*", "!src/**/*.test.*", "!src/introduction.mdx"],
   "exports": {
-    ".": "./src/index.ts",
-    "./tokens.css": "./src/tokens.css",
-    "./components/*": "./src/components/*.tsx",
-    "./components/panel-item": "./src/components/panel-item/panel-item.tsx",
-    "./components/panel-item/marquee-text": "./src/components/panel-item/marquee-text.tsx",
-    "./components/side-menu": "./src/components/side-menu/side-menu.tsx",
-    "./utils/*": "./src/utils/*.ts",
-    "./utils/portal-container": "./src/utils/portal-container.tsx"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./tokens.css": "./dist/tokens.css",
+    "./components/*": "./dist/components/*.js",
+    "./components/panel-item": "./dist/components/panel-item/panel-item.js",
+    "./components/panel-item/marquee-text": "./dist/components/panel-item/marquee-text.js",
+    "./components/side-menu": "./dist/components/side-menu/side-menu.js",
+    "./utils/*": "./dist/utils/*.js"
   },
   "trustedDependencies": ["@playwright/browser-chromium"],
   "scripts": {
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && cp src/tokens.css dist/tokens.css",
     "test": "vitest",
     "typecheck": "bunx tsc --noEmit"
   },
