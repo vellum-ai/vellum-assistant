@@ -18,31 +18,67 @@ export function avatarQueryKey(assistantId: string) {
   return [AVATAR_QUERY_KEY_PREFIX, assistantId] as const;
 }
 
-export const CONVERSATIONS_QUERY_KEY = "conversations" as const;
+// ---------------------------------------------------------------------------
+// Conversation list query keys
+//
+// All conversation list caches share a common prefix:
+//   ["conversation-list", assistantId, ...discriminator]
+//
+// This enables TanStack Query's prefix matching to operate on ALL
+// conversation caches simultaneously (cancel, invalidate, snapshot, patch)
+// without maintaining a static registry. Adding a new cache type (e.g., a
+// new origin channel) automatically participates in cross-cache operations.
+//
+// References:
+// - https://tanstack.com/query/latest/docs/framework/react/guides/query-keys#query-keys-are-hashed-deterministically
+// - https://tanstack.com/query/latest/docs/framework/react/guides/filters#query-filters
+// ---------------------------------------------------------------------------
+
+export const CONVERSATION_LIST_PREFIX = "conversation-list" as const;
+
+/**
+ * Prefix key matching ALL conversation list caches for the given assistant.
+ * Use with queryClient.cancelQueries / invalidateQueries / getQueriesData
+ * to operate on every cache without knowing which buckets exist.
+ */
+export function conversationListPrefix(assistantId: string | null) {
+  return [CONVERSATION_LIST_PREFIX, assistantId ?? ""] as const;
+}
 
 export function conversationsQueryKey(assistantId: string | null) {
-  return [CONVERSATIONS_QUERY_KEY, assistantId ?? ""] as const;
+  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "foreground"] as const;
 }
-
-export const ARCHIVED_CONVERSATIONS_QUERY_KEY =
-  "archived-conversations" as const;
 
 export function archivedConversationsQueryKey(assistantId: string | null) {
-  return [ARCHIVED_CONVERSATIONS_QUERY_KEY, assistantId ?? ""] as const;
+  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "archived"] as const;
 }
-
-export const BACKGROUND_CONVERSATIONS_QUERY_KEY =
-  "background-conversations" as const;
 
 export function backgroundConversationsQueryKey(assistantId: string | null) {
-  return [BACKGROUND_CONVERSATIONS_QUERY_KEY, assistantId ?? ""] as const;
+  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "background"] as const;
 }
 
-export const SCHEDULED_CONVERSATIONS_QUERY_KEY =
-  "scheduled-conversations" as const;
-
 export function scheduledConversationsQueryKey(assistantId: string | null) {
-  return [SCHEDULED_CONVERSATIONS_QUERY_KEY, assistantId ?? ""] as const;
+  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "scheduled"] as const;
+}
+
+/**
+ * Prefix key matching all origin-channel conversation caches for the given
+ * assistant. Matches every `["conversation-list", id, "channel", *]` entry.
+ */
+export function originChannelListPrefix(assistantId: string | null) {
+  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "channel"] as const;
+}
+
+export function originChannelConversationsQueryKey(
+  assistantId: string | null,
+  channel: string,
+) {
+  return [
+    CONVERSATION_LIST_PREFIX,
+    assistantId ?? "",
+    "channel",
+    channel,
+  ] as const;
 }
 
 /**

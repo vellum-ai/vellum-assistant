@@ -36,6 +36,7 @@ import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import {
   archivedConversationsQueryKey,
   conversationGroupsQueryKey,
+  originChannelListPrefix,
 } from "@/lib/sync/query-tags";
 import { getClientId } from "@/lib/telemetry/client-identity";
 import {
@@ -171,11 +172,14 @@ function scheduleConversationListRefetch(
         });
       },
     );
-    // The archive view renders rarely and sorts by archive time, so a
-    // plain invalidation (refetch only while its observer is mounted)
-    // stays cheap and correct. Groups are a single unpaginated GET.
+    // Non-paginated caches (archived, origin-channel) use plain
+    // invalidation — they refetch only while their observer is mounted.
+    // Groups are a single unpaginated GET.
     void queryClient.invalidateQueries({
       queryKey: archivedConversationsQueryKey(assistantId),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: originChannelListPrefix(assistantId),
     });
     void queryClient.invalidateQueries({
       queryKey: conversationGroupsQueryKey(assistantId),
