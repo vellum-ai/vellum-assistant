@@ -10,6 +10,7 @@ import {
 import { type GatewayDb, getGatewayDb } from "./connection.js";
 import { contacts, contactChannels } from "./schema.js";
 import { getLogger } from "../logger.js";
+import { canonicalizeInboundIdentity } from "../verification/identity.js";
 
 const log = getLogger("contact-store");
 
@@ -434,13 +435,15 @@ export class ContactStore {
     // fields are not part of this method's input surface.
     if (!contactId && params.channels?.length) {
       for (const ch of params.channels) {
+        const canonical =
+          canonicalizeInboundIdentity(ch.type, ch.address) ?? ch.address;
         const match = this.db
           .select({ contactId: contactChannels.contactId })
           .from(contactChannels)
           .where(
             and(
               eq(contactChannels.type, ch.type),
-              eq(contactChannels.address, ch.address),
+              eq(contactChannels.address, canonical),
             ),
           )
           .get();
@@ -544,6 +547,9 @@ export class ContactStore {
     now: number,
   ): void {
     for (const ch of channels) {
+      const address =
+        canonicalizeInboundIdentity(ch.type, ch.address) ?? ch.address;
+
       const existing = this.db
         .select()
         .from(contactChannels)
@@ -551,7 +557,7 @@ export class ContactStore {
           and(
             eq(contactChannels.contactId, contactId),
             eq(contactChannels.type, ch.type),
-            eq(contactChannels.address, ch.address),
+            eq(contactChannels.address, address),
           ),
         )
         .get();
@@ -591,7 +597,7 @@ export class ContactStore {
         .where(
           and(
             eq(contactChannels.type, ch.type),
-            eq(contactChannels.address, ch.address),
+            eq(contactChannels.address, address),
           ),
         )
         .get();
@@ -604,7 +610,7 @@ export class ContactStore {
           id: crypto.randomUUID(),
           contactId,
           type: ch.type,
-          address: ch.address,
+          address,
           isPrimary: ch.isPrimary ?? false,
           externalUserId: ch.externalUserId ?? null,
           externalChatId: ch.externalChatId ?? null,

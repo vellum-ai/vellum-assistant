@@ -20,7 +20,6 @@ import { contacts } from "../../db/schema.js";
 import { fetchImpl } from "../../fetch.js";
 import { ipcCallAssistant } from "../../ipc/assistant-client.js";
 import { getLogger } from "../../logger.js";
-import { canonicalizeInboundIdentity } from "../../verification/identity.js";
 
 const log = getLogger("contacts-control-plane-proxy");
 
@@ -349,8 +348,7 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
             : undefined,
         channels: channelInputs?.map((ch) => ({
           type: ch.type,
-          address:
-            canonicalizeInboundIdentity(ch.type, ch.address) ?? ch.address,
+          address: ch.address,
           isPrimary: ch.isPrimary,
           externalUserId: ch.externalUserId ?? null,
           externalChatId: ch.externalChatId ?? null,
