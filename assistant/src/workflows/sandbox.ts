@@ -338,23 +338,31 @@ function installNativeBridge(
       // A host throw/rejection propagates as a VM exception the script can
       // catch, or — if uncaught — as a WorkflowScriptError to the caller.
       const startedAtMs = Date.now();
-      const result = await fn(...parsedArgs);
-      // The VM is about to resume script execution. Reset the CPU budget so the
-      // (possibly multi-second) host-call latency we just awaited does not count
-      // against the interrupt deadline — that guards contiguous script CPU only,
-      // not cumulative host-call wall-clock. But reset ONLY when the call
-      // actually awaited a meaningful amount of time: a cheap synchronous host
-      // fn (`usage`/`phase`/`log`/`leaf`) returns in microseconds, and resetting
-      // for it would let `while (true) usage()` refresh the deadline every
-      // iteration and burn CPU forever. Sub-threshold calls don't reset, so such
-      // a loop trips the guard at the deadline. `signal` remains the hard stop.
-      if (Date.now() - startedAtMs >= HOST_CALL_DEADLINE_RESET_THRESHOLD_MS) {
-        resetDeadline();
+      try {
+        const result = await fn(...parsedArgs);
+        // `undefined` JSON-stringifies to `undefined`; map it to the VM's
+        // undefined so the sync wrapper returns `undefined` rather than NaN.
+        if (result === undefined) return vm.undefined;
+        return vm.newString(deterministicStringify(result));
+      } finally {
+        // The VM is about to resume script execution. Reset the CPU budget so the
+        // (possibly multi-second) host-call latency we just awaited does not count
+        // against the interrupt deadline — that guards contiguous script CPU only,
+        // not cumulative host-call wall-clock. This runs in `finally` so it
+        // resets on a host REJECTION too: when a leaf fails after a multi-second
+        // round-trip and the script catches it, the catch/cleanup block must not
+        // resume against an already-expired deadline and be killed as a
+        // WorkflowResourceError instead of handling the failure. But reset ONLY
+        // when the call actually awaited a meaningful amount of time: a cheap
+        // synchronous host fn (`usage`/`phase`/`log`/`leaf`) returns in
+        // microseconds, and resetting for it would let `while (true) usage()`
+        // refresh the deadline every iteration and burn CPU forever. Sub-threshold
+        // calls don't reset, so such a loop trips the guard at the deadline.
+        // `signal` remains the hard stop.
+        if (Date.now() - startedAtMs >= HOST_CALL_DEADLINE_RESET_THRESHOLD_MS) {
+          resetDeadline();
+        }
       }
-      // `undefined` JSON-stringifies to `undefined`; map it to the VM's
-      // undefined so the sync wrapper returns `undefined` rather than NaN.
-      if (result === undefined) return vm.undefined;
-      return vm.newString(deterministicStringify(result));
     },
   );
   hostCall.consume((handle) => vm.setProp(vm.global, "__hostCall", handle));

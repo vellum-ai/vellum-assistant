@@ -218,4 +218,34 @@ describe("createWorkflowSandbox — CPU guard", () => {
     const result = await sandbox.run(`return slow();`, null);
     expect(result).toBe("ok");
   });
+
+  test("a host call that REJECTS after a long await still resets the deadline (catch survives)", async () => {
+    // A leaf that fails after a multi-second round-trip must not leave the
+    // script's catch block resuming against an already-expired CPU deadline.
+    // The reject-path reset (finally) excuses the awaited latency on failure
+    // too, so the catch — which does enough work to hit an interrupt check —
+    // runs instead of being killed as a WorkflowResourceError. Without the
+    // reset, this run rejects.
+    const sandbox = createWorkflowSandbox({
+      hostFunctions: {
+        slowFail: async () => {
+          await new Promise((r) => setTimeout(r, 1000));
+          throw new Error("leaf failed");
+        },
+      },
+      interruptDeadlineMs: 300,
+    });
+    const result = await sandbox.run(
+      `try {
+         slowFail();
+         return "no-throw";
+       } catch (e) {
+         let s = 0;
+         for (let i = 0; i < 100000; i++) s += i;
+         return "caught:" + s;
+       }`,
+      null,
+    );
+    expect(String(result).startsWith("caught:")).toBe(true);
+  });
 });
