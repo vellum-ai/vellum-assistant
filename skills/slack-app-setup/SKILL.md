@@ -31,8 +31,8 @@ The flow has four user actions: **click**, **install**, **copy tokens**, **verif
 
 ## Value Classification
 
-| Value     | Type       | Storage method            | Secret? |
-| --------- | ---------- | ------------------------- | ------- |
+| Value     | Type       | Storage method                 | Secret? |
+| --------- | ---------- | ------------------------------ | ------- |
 | App Token | Credential | `assistant credentials prompt` | **Yes** |
 | Bot Token | Credential | `assistant credentials prompt` | **Yes** |
 
