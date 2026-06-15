@@ -442,7 +442,7 @@ export const ProfileEntry = LLMConfigFragment.extend({
    * may accompany `mix`.
    */
   mix: MixSchema.optional(),
-}).meta({ id: "ProfileEntry" });
+});
 export type ProfileEntry = z.infer<typeof ProfileEntry>;
 
 /**

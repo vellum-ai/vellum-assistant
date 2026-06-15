@@ -16,10 +16,9 @@ import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import {
-    type CallSiteOverrideDraft,
-    INFERENCE_PROVIDERS,
-} from "@/domains/settings/ai/ai-types";
+import type { CallSiteOverrideDraft } from "@/generated/daemon/types.gen";
+
+import { INFERENCE_PROVIDERS } from "@/domains/settings/ai/constants";
 import { CUSTOM_SENTINEL, draftsEqual, isDraftActive } from "@/domains/settings/ai/call-site-helpers";
 import { CallSiteOverrideRow } from "@/domains/settings/ai/call-site-overrides-row";
 import {
@@ -28,7 +27,7 @@ import {
     selectSeedProfileForOverride,
     visibleProfilesForPicker,
 } from "@/assistant/profile-pickers";
-import { buildOrderedProfiles } from "@/domains/settings/ai/ai-utils";
+import { buildOrderedProfiles } from "@/domains/settings/ai/utils";
 import { configGetOptions, configGetSetQueryData, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 
 // ---------------------------------------------------------------------------

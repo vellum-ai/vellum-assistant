@@ -7,7 +7,7 @@
  * Covers every catalog surface the web UI consumes: per-model fields
  * (ids, order, display names, token limits, thinking flags), per-provider
  * default models, the provider display-name and platform-auth maps, the
- * INFERENCE_PROVIDERS picker list in ai-types.ts, and the
+ * INFERENCE_PROVIDERS picker list in constants.ts, and the
  * CONNECTION_PROVIDERS picker list in provider-editor-constants.ts.
  */
 
@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-import { INFERENCE_PROVIDERS } from "@/domains/settings/ai/ai-types";
+import { INFERENCE_PROVIDERS } from "@/domains/settings/ai/constants";
 import { CONNECTION_PROVIDERS } from "@/domains/settings/ai/provider-editor-constants";
 
 import {
@@ -140,7 +140,7 @@ describe("parity with meta/llm-provider-catalog.json", () => {
 
   test("INFERENCE_PROVIDERS covers every web catalog provider", () => {
     // The call-site overrides picker is driven by INFERENCE_PROVIDERS in
-    // ai-types.ts. It must list exactly the catalog providers (minus the
+    // constants.ts. It must list exactly the catalog providers (minus the
     // free-form openai-compatible escape hatch) or a provider becomes
     // unselectable there. Order is not asserted: the list's order is the
     // picker's display order (a UI choice, with index 0 as the default

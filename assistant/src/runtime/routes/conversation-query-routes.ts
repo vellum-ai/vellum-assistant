@@ -473,7 +473,7 @@ const WireProfileEntry = ProfileEntry.extend({
   supportsVision: z.boolean().optional(),
 })
   .passthrough()
-  .meta({ id: "WireProfileEntry" });
+  .meta({ id: "ProfileEntry" });
 
 /**
  * Wire shape of the `memory` section in config responses. Passthrough
@@ -577,11 +577,11 @@ const ProfilePatchEntrySchema = nullablePartial(ProfileEntry)
 /**
  * A single call-site override within a PATCH body.
  */
-const CallSiteOverridePatchSchema = nullablePartial(
+const CallSiteOverrideDraftSchema = nullablePartial(
   LLMConfigFragment.extend({ profile: z.string().optional() }),
 )
   .passthrough()
-  .meta({ id: "CallSiteOverridePatch" });
+  .meta({ id: "CallSiteOverrideDraft" });
 
 /**
  * Request body schema for `PATCH /v1/config`.
@@ -610,7 +610,7 @@ const ConfigPatchRequestSchema = z
         profileOrder: z.array(z.string()).optional(),
         activeProfile: z.string().nullable().optional(),
         callSites: z
-          .record(z.string(), CallSiteOverridePatchSchema.nullable())
+          .record(z.string(), CallSiteOverrideDraftSchema.nullable())
           .optional(),
         profileSession: z
           .object({

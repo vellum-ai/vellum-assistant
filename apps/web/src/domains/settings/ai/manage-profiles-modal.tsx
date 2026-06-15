@@ -8,10 +8,9 @@ import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-import type { ConfigPatchRequest } from "@/generated/daemon/types.gen";
+import type { CallSiteOverrideDraft, ConfigPatchRequest, ProfileEntry, ProfilePatchEntry, ProfileStatus } from "@/generated/daemon/types.gen";
 
-import type { CallSiteOverrideDraft, ProfileEntry, ProfilePatchEntry, ProfileStatus, ProfileWithName } from "@/domains/settings/ai/ai-types";
-import { buildOrderedProfiles } from "@/domains/settings/ai/ai-utils";
+import { type ProfileWithName, buildOrderedProfiles } from "@/domains/settings/ai/utils";
 import type { BlockedDeleteState } from "@/domains/settings/ai/manage-profiles-blocked-delete-modal";
 import { BlockedDeleteModal } from "@/domains/settings/ai/manage-profiles-blocked-delete-modal";
 import { ProfileListItem } from "@/domains/settings/ai/manage-profiles-list-item";

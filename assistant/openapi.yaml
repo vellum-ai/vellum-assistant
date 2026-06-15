@@ -27903,7 +27903,7 @@ components:
                 type: string
               additionalProperties:
                 anyOf:
-                  - $ref: "#/components/schemas/CallSiteOverridePatch"
+                  - $ref: "#/components/schemas/CallSiteOverrideDraft"
                   - type: "null"
             profileSession:
               anyOf:
@@ -28149,7 +28149,7 @@ components:
       enum:
         - active
         - disabled
-    CallSiteOverridePatch:
+    CallSiteOverrideDraft:
       type: object
       properties:
         provider:
@@ -28498,7 +28498,7 @@ components:
               propertyNames:
                 type: string
               additionalProperties:
-                $ref: "#/components/schemas/WireProfileEntry"
+                $ref: "#/components/schemas/ProfileEntry"
             profileOrder:
               type: array
               items:
@@ -28669,7 +28669,7 @@ components:
               additionalProperties: {}
           additionalProperties: {}
       additionalProperties: {}
-    WireProfileEntry:
+    ProfileEntry:
       type: object
       properties:
         provider:
