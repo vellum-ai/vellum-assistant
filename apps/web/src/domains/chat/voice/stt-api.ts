@@ -54,7 +54,7 @@ const DEFAULT_STT_PROVIDER_ID = "deepgram";
  * Not a daemon provider: when selected, dictation routes through the mac
  * helper's `SFSpeechRecognizer` and never calls `/v1/stt/transcribe`.
  * Mirrors `MACOS_NATIVE_STT_PROVIDER_ID` in
- * `@/domains/settings/ai/constants.ts` — cross-domain constants stay
+ * `@/domains/settings/ai/provider-catalogs.ts` — cross-domain constants stay
  * duplicated here, like the `LS_STT_*` keys above.
  */
 const MACOS_NATIVE_STT_PROVIDER_ID = "macos-native";
