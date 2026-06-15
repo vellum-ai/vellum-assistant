@@ -8,7 +8,8 @@ import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-import { useStoredCredentialPresence } from "@/domains/settings/ai/use-stored-credential-presence";
+import { credentialPresenceQueryKey, useStoredCredentialPresence } from "@/domains/settings/ai/use-stored-credential-presence";
+import { secretsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
     inferenceProviderconnectionsPost,
     secretsPost,
@@ -122,19 +123,16 @@ export function ProviderCreateForm({
   const {
     hasStoredCredential,
     isLoading: isLoadingCredential,
-    queryKey: credentialPresenceKey,
   } = useStoredCredentialPresence({
     assistantId,
     credentialKind: "credential",
     credentialName: parsedCredRef ? `${parsedCredRef.service}:${parsedCredRef.field}` : "",
     enabled: needsCredentialCheck,
-    errorContext: "settings-provider-create-credential-presence",
   });
 
   // --- Available credentials list ---
   const {
     credentials: availableCredentials,
-    queryKey: credentialsListKey,
   } = useProviderCredentialsList({
     assistantId,
     enabled: true,
@@ -183,8 +181,15 @@ export function ProviderCreateForm({
             });
             // Optimistically mark credential as present and invalidate
             // the credentials list so TQ caches stay in sync.
-            queryClient.setQueryData(credentialPresenceKey, true);
-            void queryClient.invalidateQueries({ queryKey: credentialsListKey });
+            const presenceKey = credentialPresenceQueryKey(
+              assistantId,
+              "credential",
+              parsed ? `${parsed.service}:${parsed.field}` : "",
+            );
+            queryClient.setQueryData(presenceKey, true);
+            void queryClient.invalidateQueries({
+              queryKey: secretsGetQueryKey({ path: { assistant_id: assistantId } }),
+            });
           } catch {
             setError("Failed to save API key. Please try again.");
             return;

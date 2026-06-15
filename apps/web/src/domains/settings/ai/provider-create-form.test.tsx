@@ -76,10 +76,11 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 // Stub the credential hooks so render doesn't issue real daemon queries.
 // `hasStoredCredential: false` matches the empty create-mode state.
 mock.module("@/domains/settings/ai/use-stored-credential-presence", () => ({
+  credentialPresenceQueryKey: (assistantId: string, kind: string, name: string) =>
+    ["credentialPresence", assistantId, kind, name] as const,
   useStoredCredentialPresence: () => ({
     hasStoredCredential: false,
     isLoading: false,
-    queryKey: ["stored-credential-presence"],
   }),
 }));
 
@@ -87,7 +88,6 @@ mock.module("@/domains/settings/ai/use-provider-credentials-list", () => ({
   useProviderCredentialsList: () => ({
     credentials: [],
     isLoading: false,
-    queryKey: ["provider-credentials-list"],
   }),
 }));
 

@@ -63,10 +63,11 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 // Stub the credential hooks so the inline ProviderCreateForm renders without
 // issuing real daemon queries.
 mock.module("@/domains/settings/ai/use-stored-credential-presence", () => ({
+  credentialPresenceQueryKey: (assistantId: string, kind: string, name: string) =>
+    ["credentialPresence", assistantId, kind, name] as const,
   useStoredCredentialPresence: () => ({
     hasStoredCredential: false,
     isLoading: false,
-    queryKey: ["stored-credential-presence"],
   }),
 }));
 
@@ -74,7 +75,6 @@ mock.module("@/domains/settings/ai/use-provider-credentials-list", () => ({
   useProviderCredentialsList: () => ({
     credentials: [],
     isLoading: false,
-    queryKey: ["provider-credentials-list"],
   }),
 }));
 

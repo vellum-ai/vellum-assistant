@@ -1,12 +1,8 @@
-import { useEffect, useMemo } from "react";
-
 import { useQuery } from "@tanstack/react-query";
 
-import { secretsGet } from "@/generated/daemon/sdk.gen";
+import { secretsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { SecretsGetResponse } from "@/generated/daemon/types.gen";
-import { ApiError, assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
 import { shouldRetryDaemonError } from "@/utils/daemon-errors";
-import { captureError } from "@/lib/sentry/capture-error";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 
 // ---------------------------------------------------------------------------
@@ -43,8 +39,6 @@ export function parseCredentialEntries(
   return results;
 }
 
-const PROVIDER_CREDENTIALS_LIST_QK = "provider-credentials-list" as const;
-
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
@@ -56,11 +50,11 @@ interface UseProviderCredentialsListOptions {
 }
 
 /**
- * Fetches the list of stored credentials from the daemon.
+ * Fetches the list of stored credentials from the daemon and transforms them
+ * into `CredentialEntry` pairs via `select`.
  *
- * Wraps `secretsGet` in a TanStack Query hook with org-readiness gating,
- * retry logic for transient daemon errors, and Sentry reporting for
- * persistent failures.
+ * Uses the generated `secretsGetOptions` factory for query key and fetch
+ * logic. Errors propagate to the nearest error boundary via `throwOnError`.
  */
 export function useProviderCredentialsList({
   assistantId,
@@ -68,43 +62,16 @@ export function useProviderCredentialsList({
 }: UseProviderCredentialsListOptions) {
   const isOrgReady = useIsOrgReady();
 
-  const queryKey = useMemo(
-    () => [PROVIDER_CREDENTIALS_LIST_QK, assistantId] as const,
-    [assistantId],
-  );
-
   const query = useQuery({
-    queryKey,
-    queryFn: async () => {
-      const { data, error, response } = await secretsGet({
-        path: { assistant_id: assistantId },
-        throwOnError: false,
-      });
-      assertHasResponse(response, error, "Failed to load credentials");
-      if (!response.ok) {
-        throw new ApiError(
-          response.status,
-          extractErrorMessage(error, response, `Failed to load credentials (HTTP ${response.status})`),
-        );
-      }
-      return parseCredentialEntries(data!.secrets ?? data!.accounts ?? []);
-    },
+    ...secretsGetOptions({ path: { assistant_id: assistantId } }),
     enabled: !!assistantId && enabled && isOrgReady,
+    select: (data) => parseCredentialEntries(data.secrets),
     retry: shouldRetryDaemonError,
     staleTime: 30_000,
   });
 
-  useEffect(() => {
-    if (!query.error) return;
-    captureError(query.error, {
-      context: "settings-provider-editor-credentials-list",
-      bestEffort: true,
-    });
-  }, [query.error]);
-
   return {
     credentials: query.data ?? [],
     isLoading: query.isLoading,
-    queryKey,
   };
 }
