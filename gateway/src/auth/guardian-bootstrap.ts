@@ -258,7 +258,7 @@ export async function createGuardianBinding(
       // Remove duplicate channels with the same address (defensive).
       await assistantDbRun(
         `DELETE FROM contact_channels
-         WHERE type = ? AND address = ? AND id != ? AND status != 'blocked'`,
+         WHERE type = ? AND address = ? COLLATE NOCASE AND id != ? AND status != 'blocked'`,
         [params.channel, params.externalUserId, channelId],
       );
 

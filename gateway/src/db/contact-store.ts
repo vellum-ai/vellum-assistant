@@ -737,7 +737,7 @@ export class ContactStore {
     // Sync channels to the assistant DB.
     for (const ch of params.channels ?? []) {
       const existingCh = await assistantDbQuery<{ id: string; status: string }>(
-        "SELECT id, status FROM contact_channels WHERE contact_id = ? AND type = ? AND address = ?",
+        "SELECT id, status FROM contact_channels WHERE contact_id = ? AND type = ? AND address = ? COLLATE NOCASE",
         [contactId, ch.type, ch.address],
       );
 
@@ -771,7 +771,7 @@ export class ContactStore {
       } else {
         // Skip if an address conflict exists on a different contact.
         const conflict = await assistantDbQuery<{ id: string }>(
-          "SELECT id FROM contact_channels WHERE type = ? AND address = ?",
+          "SELECT id FROM contact_channels WHERE type = ? AND address = ? COLLATE NOCASE",
           [ch.type, ch.address],
         );
         if (conflict.length) continue;

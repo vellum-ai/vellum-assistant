@@ -142,7 +142,7 @@ export async function handleContactPromptSubmit(
     } else {
       // Reuse an existing contact if this channel address is already known.
       const existingForChannel = await assistantDbQuery<{ contactId: string }>(
-        `SELECT contact_id AS contactId FROM contact_channels WHERE type = ? AND address = ? LIMIT 1`,
+        `SELECT contact_id AS contactId FROM contact_channels WHERE type = ? AND address = ? COLLATE NOCASE LIMIT 1`,
         [channelType, normalizedAddress],
       );
       if (existingForChannel.length > 0) {
@@ -188,7 +188,7 @@ export async function handleContactPromptSubmit(
       id: string;
       contactId: string;
     }>(
-      `SELECT id, contact_id AS contactId FROM contact_channels WHERE type = ? AND address = ? LIMIT 1`,
+      `SELECT id, contact_id AS contactId FROM contact_channels WHERE type = ? AND address = ? COLLATE NOCASE LIMIT 1`,
       [channelType, normalizedAddress],
     );
 
