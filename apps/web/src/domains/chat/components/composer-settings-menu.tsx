@@ -144,13 +144,15 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
   // Reset optimistic state on conversation change — the old optimistic values
   // belong to a different conversation context. Uses useLayoutEffect so the
   // stale values are cleared before paint (no flash of previous conversation's
-  // optimistic state).
+  // optimistic state). Also keys on `activeConversationId` so switching between
+  // two unsent drafts (both have an undefined `conversationId` prop) still
+  // clears the prior draft's optimistic checkmark.
   useLayoutEffect(() => {
     setOptimisticActiveProfile(null);
     setOptimisticPreset(null);
     setOptimisticIsOverride(null);
     lastConfirmedProfileRef.current = null;
-  }, [conversationId]);
+  }, [conversationId, activeConversationId]);
 
   // Track confirmed server-effective profile for mutation rollback. Only update
   // when no optimistic mutation is in flight — otherwise the confirmed ref must

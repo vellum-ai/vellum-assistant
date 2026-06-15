@@ -353,9 +353,13 @@ export function useSendMessage({
       // The draft's stashed profile (if any) has now been persisted on the
       // minted conversation; drop it so it can't re-apply to a later send.
       // Cleared only on success — a failed draft send keeps the stash so a
-      // retry still carries the chosen profile.
+      // retry still carries the chosen profile — and scoped to this draft so a
+      // send that resolves after the user moved to another draft can't wipe the
+      // newer draft's selection.
       if (inferenceProfileForSend) {
-        useConversationStore.getState().clearPendingDraftProfile();
+        useConversationStore
+          .getState()
+          .clearPendingDraftProfile(requestConversationId);
       }
       if (onboardingDraftConversationIdRef.current === activeConversationId) {
         onboardingDraftConversationIdRef.current = null;

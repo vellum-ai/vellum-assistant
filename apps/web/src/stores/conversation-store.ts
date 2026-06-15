@@ -130,7 +130,12 @@ export interface ConversationListActions {
 
   // --- Pending draft profile ---
   setPendingDraftProfile: (conversationId: string, profile: string) => void;
-  clearPendingDraftProfile: () => void;
+  /**
+   * Clear the stash only if it still belongs to `conversationId`. Scoping the
+   * clear by id means a draft send that resolves after the user moved on to a
+   * different draft can't wipe the newer draft's selection.
+   */
+  clearPendingDraftProfile: (conversationId: string) => void;
 
   // --- Compound ---
   graduateProcessingConversationId: (
@@ -256,9 +261,12 @@ export const useConversationStore = createSelectors(
       set({ pendingDraftProfile: { conversationId, profile } });
     },
 
-    clearPendingDraftProfile: () => {
-      // No-op when already cleared so subscribers don't re-render needlessly.
-      if (get().pendingDraftProfile === null) return;
+    clearPendingDraftProfile: (conversationId) => {
+      const current = get().pendingDraftProfile;
+      // No-op when already cleared, or when the stash now belongs to a
+      // different draft (a racing send must not wipe a newer selection) — also
+      // avoids notifying subscribers needlessly.
+      if (current === null || current.conversationId !== conversationId) return;
       set({ pendingDraftProfile: null });
     },
 

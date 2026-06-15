@@ -146,10 +146,45 @@ describe("useConversationStore", () => {
     getState().setEditingConversationId("edit");
     getState().addProcessingConversationId("k1");
     getState().addAttentionConversationId("a1");
+    getState().setPendingDraftProfile("draft-a", "smart");
     getState().reset();
     expect(getState().activeConversationId).toBeNull();
     expect(getState().editingConversationId).toBeNull();
     expect(getState().processingConversationIds.size).toBe(0);
     expect(getState().attentionConversationIds.size).toBe(0);
+    expect(getState().pendingDraftProfile).toBeNull();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Pending draft profile
+  // ---------------------------------------------------------------------------
+
+  describe("pendingDraftProfile", () => {
+    it("stashes a profile keyed by draft conversation id", () => {
+      getState().setPendingDraftProfile("draft-a", "smart");
+      expect(getState().pendingDraftProfile).toEqual({
+        conversationId: "draft-a",
+        profile: "smart",
+      });
+    });
+
+    it("clears the stash when the id matches", () => {
+      getState().setPendingDraftProfile("draft-a", "smart");
+      getState().clearPendingDraftProfile("draft-a");
+      expect(getState().pendingDraftProfile).toBeNull();
+    });
+
+    it("leaves a newer draft's stash intact when a stale send clears by old id", () => {
+      // Draft A's send was in flight with "smart"; the user then switched to
+      // draft B and picked "fast" before A's POST resolved. A's clear must not
+      // wipe B's selection.
+      getState().setPendingDraftProfile("draft-a", "smart");
+      getState().setPendingDraftProfile("draft-b", "fast");
+      getState().clearPendingDraftProfile("draft-a");
+      expect(getState().pendingDraftProfile).toEqual({
+        conversationId: "draft-b",
+        profile: "fast",
+      });
+    });
   });
 });
