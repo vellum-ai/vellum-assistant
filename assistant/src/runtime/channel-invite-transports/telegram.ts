@@ -9,6 +9,8 @@
  * verification) tokens that use the same `/start` deep-link mechanism.
  */
 
+import type { CommandIntent, SourceMetadata } from "@vellumai/gateway-client";
+
 import type { ChannelId } from "../../channels/types.js";
 import {
   invalidateConfigCache,
@@ -130,17 +132,16 @@ export const telegramInviteAdapter: ChannelInviteAdapter = {
   },
 
   extractInboundToken(params: {
-    commandIntent?: Record<string, unknown>;
+    commandIntent?: CommandIntent;
     content: string;
-    sourceMetadata?: Record<string, unknown>;
+    sourceMetadata?: SourceMetadata;
   }): string | undefined {
     // Primary path: structured command intent from the gateway.
     // The gateway normalizes `/start <payload>` into
     // `{ type: 'start', payload: '<payload>' }`.
     if (
-      params.commandIntent &&
-      params.commandIntent.type === "start" &&
-      typeof params.commandIntent.payload === "string"
+      params.commandIntent?.type === "start" &&
+      params.commandIntent.payload
     ) {
       const payload = params.commandIntent.payload;
       if (payload.startsWith(INVITE_TOKEN_PREFIX)) {
