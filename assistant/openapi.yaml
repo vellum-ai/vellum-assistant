@@ -10567,6 +10567,8 @@ paths:
                   type: string
                 placeholder:
                   type: string
+                usageDescription:
+                  type: string
                 allowedDomains:
                   type: array
                   items:
