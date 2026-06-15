@@ -78,7 +78,7 @@ export function classifyDiskPressureTurnPolicy(
     return { action: "allow-cleanup-mode", reason: "guardian" };
   }
 
-  if (trustClass === "trusted_contact") {
+  if (trustClass === "trusted_contact" || trustClass === "unverified_contact") {
     return { action: "block", reason: "trusted-contact" };
   }
 

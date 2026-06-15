@@ -220,10 +220,11 @@ export async function handleApprovalInterception(
 
   // When the sender is a non-guardian with established identity and a guardian
   // binding, block self-approval. The non-guardian must wait for the guardian
-  // to decide. This covers trusted contacts and identity-known non-member
-  // senders in shared channels.
+  // to decide. This covers trusted contacts, unverified contacts, and
+  // identity-known non-member senders in shared channels.
   const isIdentityKnownNonGuardian =
     trustCtx.trustClass === "trusted_contact" ||
+    trustCtx.trustClass === "unverified_contact" ||
     (trustCtx.trustClass === "unknown" &&
       !!trustCtx.requesterExternalUserId &&
       !!trustCtx.guardianExternalUserId);

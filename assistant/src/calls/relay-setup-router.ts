@@ -184,7 +184,11 @@ export function routeSetup(ctx: SetupContext): {
   // ── Inbound call ACL evaluation ─────────────────────────────────
   const pendingChallenge = getPendingSession("phone");
 
-  if (actorTrust.trustClass === "unknown" && !pendingChallenge) {
+  if (
+    (actorTrust.trustClass === "unknown" ||
+      actorTrust.trustClass === "unverified_contact") &&
+    !pendingChallenge
+  ) {
     // Check for blocked caller
     if (actorTrust.memberRecord?.channel.status === "blocked") {
       log.info(

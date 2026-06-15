@@ -532,15 +532,18 @@ export class ToolApprovalHandler {
 
       // No matching grant or race condition - deny or wait inline.
       //
-      // For verified non-guardian actors (trusted_contact) with sufficient
-      // context, escalate to the guardian by creating a canonical
-      // tool_grant_request. Then wait bounded for the grant to become
-      // available - this lets the tool call succeed inline after guardian
-      // approval without the requester having to retry manually.
+      // For non-guardian actors with established identity (trusted_contact
+      // or unverified_contact) and sufficient context, escalate to the
+      // guardian by creating a canonical tool_grant_request. Then wait
+      // bounded for the grant to become available - this lets the tool call
+      // succeed inline after guardian approval without the requester having
+      // to retry manually.
       //
-      // Unverified actors remain fail-closed with no escalation or wait.
+      // Actors with no identity (unknown) remain fail-closed with no
+      // escalation or wait.
       if (
-        context.trustClass === "trusted_contact" &&
+        (context.trustClass === "trusted_contact" ||
+          context.trustClass === "unverified_contact") &&
         context.assistantId &&
         context.executionChannel &&
         context.requesterExternalUserId
