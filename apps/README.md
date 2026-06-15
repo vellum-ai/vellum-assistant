@@ -8,7 +8,7 @@ follow-up PRs.
 ## What belongs here
 
 - End-user app surfaces (e.g. the Chrome extension, future web app, iOS
-  Capacitor wrapper, macOS/Electron wrapper).
+  Capacitor wrapper, macOS and Windows Electron wrappers).
 
 ## What does not belong here
 
