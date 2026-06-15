@@ -1,18 +1,27 @@
 /**
  * Slack channel adapter — delivers notifications to Slack DMs
- * by calling the Slack Web API directly.
+ * using native Card blocks for approval notifications.
+ *
+ * Approval notifications (access requests, tool approvals) render as a
+ * single Slack Card block with Approve/Reject action buttons, plus
+ * optional companion context blocks for details that exceed the card's
+ * character limits. Non-approval notifications use standard Block Kit
+ * text sections.
+ *
+ * Card block reference:
+ * https://docs.slack.dev/reference/block-kit/blocks/card-block
  */
 
 import { sendSlackReply } from "../../messaging/providers/slack/send.js";
 import type { ApprovalUIMetadata } from "../../runtime/channel-approval-types.js";
 import { getLogger } from "../../util/logger.js";
 import {
-  buildAccessRequestIdentityLine,
   buildAccessRequestInviteDirective,
   buildAccessRequestWarnings,
   buildSlackMessagePermalink,
   isSlackDmConversation,
   parseAccessRequestPayload,
+  type ParsedAccessRequestPayload,
 } from "../access-request-copy.js";
 import { isConversationSeedSane } from "../conversation-seed-composer.js";
 import {
@@ -32,6 +41,10 @@ import type {
 
 const log = getLogger("notif-adapter-slack");
 
+// ---------------------------------------------------------------------------
+// Text resolution
+// ---------------------------------------------------------------------------
+
 function resolveSlackMessageText(payload: ChannelDeliveryPayload): string {
   const deliveryText = nonEmpty(payload.copy.deliveryText);
   if (deliveryText) return deliveryText;
@@ -49,155 +62,143 @@ function resolveSlackMessageText(payload: ChannelDeliveryPayload): string {
   return payload.sourceEventName.replace(/[._]/g, " ");
 }
 
+/** Truncate to `maxLength`, appending "…" when exceeded. */
+function truncate(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text;
+  return text.slice(0, maxLength - 1) + "…";
+}
+
 // ---------------------------------------------------------------------------
-// Block Kit helpers for access request notifications
+// Slack Card block builders for approval notifications
 // ---------------------------------------------------------------------------
 
-/**
- * Build Block Kit blocks for an access request notification.
- *
- * Returns an array of Slack Block Kit block objects with structured layout:
- * - Header: "New access request"
- * - Section: requester identity details
- * - Optional context: message preview
- * - Context: approval code instructions + invite directive
- */
-function buildAccessRequestBlocks(
-  payload: Record<string, unknown>,
-  approvalContext?: ApprovalUIMetadata,
-): unknown[] {
-  const p = parseAccessRequestPayload(payload);
-  const blocks: unknown[] = [];
+/** Shared reaction-instruction context block. */
+const REACTION_INSTRUCTION_BLOCK = {
+  type: "context",
+  elements: [
+    {
+      type: "mrkdwn",
+      text: "You can also react with :thumbsup: to approve or :thumbsdown: to deny",
+    },
+  ],
+};
 
-  // Header
-  blocks.push({
-    type: "header",
-    text: { type: "plain_text", text: "New access request", emoji: true },
-  });
+/** Build action buttons for a Slack Card block from approval metadata. */
+function buildCardActions(approval: ApprovalUIMetadata): unknown[] {
+  return approval.actions.map((action) => ({
+    type: "button",
+    text: { type: "plain_text", text: action.label, emoji: true },
+    action_id: `apr:${approval.requestId}:${action.id}`,
+    value: `apr:${approval.requestId}:${action.id}`,
+    ...(action.id === "reject" ? { style: "danger" } : { style: "primary" }),
+  }));
+}
 
-  // Requester identity section
-  blocks.push({
-    type: "section",
-    text: { type: "mrkdwn", text: buildAccessRequestIdentityLine(payload) },
-  });
+// ---------------------------------------------------------------------------
+// Access request card
+// ---------------------------------------------------------------------------
 
-  // Structured requester details
-  const fields: Array<{ type: "mrkdwn"; text: string }> = [];
+/** Concise requester identity for the card subtitle (≤150 chars). */
+function buildAccessRequestSubtitle(p: ParsedAccessRequestPayload): string {
+  const rawName = nonEmpty(p.actorDisplayName) ?? nonEmpty(p.senderIdentifier);
+  const displayName = rawName ? sanitizeIdentityField(rawName) : "Someone";
+  const parts = [displayName];
 
-  const safeName = nonEmpty(
-    p.senderIdentifier ? sanitizeIdentityField(p.senderIdentifier) : undefined,
-  );
-  if (safeName) {
-    fields.push({ type: "mrkdwn", text: `*Name:*\n${safeName}` });
+  const username = nonEmpty(p.actorUsername);
+  if (username) {
+    const safe = sanitizeIdentityField(username);
+    if (safe !== displayName) parts.push(`(@${safe})`);
   }
 
-  const safeUsername = nonEmpty(
-    p.actorUsername ? sanitizeIdentityField(p.actorUsername) : undefined,
-  );
-  if (safeUsername) {
-    fields.push({ type: "mrkdwn", text: `*Username:*\n@${safeUsername}` });
-  }
+  if (p.sourceChannel) parts.push(`via ${p.sourceChannel}`);
 
-  if (p.sourceChannel) {
-    let channelDisplay = p.sourceChannel;
-    if (p.sourceChannel === "slack" && p.conversationExternalId) {
-      const permalink = p.messageTs
-        ? buildSlackMessagePermalink(p.conversationExternalId, p.messageTs)
-        : undefined;
+  return truncate(parts.join(" "), 150);
+}
 
-      // C = public/private channels, G = group DMs / MPIMs / legacy private channels.
-      // Both support the <#ID> mrkdwn deep-link. D = 1:1 DMs (no linkable channel).
-      if (!isSlackDmConversation(p.conversationExternalId)) {
-        channelDisplay = permalink
-          ? `Slack — <#${p.conversationExternalId}> · <${permalink}|View message>`
-          : `Slack — <#${p.conversationExternalId}>`;
-      } else {
-        channelDisplay = permalink
-          ? `Slack — Direct message · <${permalink}|View message>`
-          : "Slack — Direct message";
-      }
-    }
-    fields.push({ type: "mrkdwn", text: `*Source:*\n${channelDisplay}` });
-  }
-
-  const safeExternalId = nonEmpty(
-    p.actorExternalId ? sanitizeIdentityField(p.actorExternalId) : undefined,
-  );
-  if (safeExternalId && safeExternalId !== safeName) {
-    fields.push({ type: "mrkdwn", text: `*ID:*\n${safeExternalId}` });
-  }
-
-  if (fields.length > 0) {
-    blocks.push({ type: "section", fields });
-  }
-
-  // Message preview — shows the requester's original message when available.
+/** Card body: message preview when available, otherwise a default label. */
+function buildAccessRequestBody(p: ParsedAccessRequestPayload): string {
   if (p.messagePreview) {
     const sanitized = sanitizeMessagePreview(p.messagePreview);
-    if (sanitized) {
-      blocks.push({
-        type: "section",
-        text: { type: "mrkdwn", text: `> _"${sanitized}"_` },
-      });
-    }
+    if (sanitized) return truncate(`> _"${sanitized}"_`, 200);
+  }
+  return "Requesting access to the assistant";
+}
+
+/** Source-channel context block with Slack permalink when available. */
+function buildSourceContextBlock(
+  p: ParsedAccessRequestPayload,
+): unknown | undefined {
+  if (p.sourceChannel !== "slack" || !p.conversationExternalId) {
+    return undefined;
   }
 
-  // Unified warnings: revoked + trust signals
+  const permalink = p.messageTs
+    ? buildSlackMessagePermalink(p.conversationExternalId, p.messageTs)
+    : undefined;
+
+  let sourceText: string;
+  if (isSlackDmConversation(p.conversationExternalId)) {
+    sourceText = permalink
+      ? `Source: Slack — Direct message · <${permalink}|View message>`
+      : "Source: Slack — Direct message";
+  } else {
+    sourceText = permalink
+      ? `Source: Slack — <#${p.conversationExternalId}> · <${permalink}|View message>`
+      : `Source: Slack — <#${p.conversationExternalId}>`;
+  }
+
+  return {
+    type: "context",
+    elements: [{ type: "mrkdwn", text: sourceText }],
+  };
+}
+
+/**
+ * Build Slack blocks for an access request using a native Card block.
+ *
+ * Layout:
+ *   Card — title + subtitle (identity) + body (preview) + actions + subtext (warnings)
+ *   Context — source permalink (when the request is from Slack)
+ *   Context — reaction instruction
+ *   Context — invite directive
+ *   Context — guardian verification note (conditional)
+ */
+function buildAccessRequestCardBlocks(
+  payload: ChannelDeliveryPayload,
+): unknown[] {
+  const approval = payload.approvalContext!;
+  const p = parseAccessRequestPayload(payload.contextPayload!);
+  const blocks: unknown[] = [];
+
+  const subtitle = buildAccessRequestSubtitle(p);
+  const body = buildAccessRequestBody(p);
+
   const warnings = buildAccessRequestWarnings(p);
-  if (warnings.length > 0) {
-    blocks.push({
-      type: "context",
-      elements: warnings.map((w) => ({
-        type: "mrkdwn" as const,
-        text: `:warning: ${w}`,
-      })),
-    });
-  }
+  const subtext =
+    warnings.length > 0
+      ? truncate(warnings.map((w) => `:warning: ${w}`).join(" · "), 200)
+      : undefined;
 
-  // Divider before actions
-  blocks.push({ type: "divider" });
+  const card: Record<string, unknown> = {
+    type: "card",
+    title: { type: "plain_text", text: "Access Request" },
+    subtitle: { type: "mrkdwn", text: subtitle },
+    body: { type: "mrkdwn", text: body },
+    actions: buildCardActions(approval),
+  };
+  if (subtext) card.subtext = { type: "mrkdwn", text: subtext };
+  blocks.push(card);
 
-  // Approval buttons — driven by the centrally-resolved approvalContext.
-  // Falls back to p.requestId for backward compatibility.
-  const requestId = approvalContext?.requestId ?? p.requestId;
-  if (requestId) {
-    blocks.push({
-      type: "actions",
-      elements: [
-        {
-          type: "button",
-          text: { type: "plain_text", text: "Approve", emoji: true },
-          action_id: `apr:${requestId}:approve_once`,
-          value: `apr:${requestId}:approve_once`,
-          style: "primary",
-        },
-        {
-          type: "button",
-          text: { type: "plain_text", text: "Reject", emoji: true },
-          action_id: `apr:${requestId}:reject`,
-          value: `apr:${requestId}:reject`,
-          style: "danger",
-        },
-      ],
-    });
-    blocks.push({
-      type: "context",
-      elements: [
-        {
-          type: "mrkdwn",
-          text: "You can also react with :thumbsup: to approve or :thumbsdown: to deny",
-        },
-      ],
-    });
-  }
+  const sourceContext = buildSourceContextBlock(p);
+  if (sourceContext) blocks.push(sourceContext);
 
-  // Invite directive
+  blocks.push(REACTION_INSTRUCTION_BLOCK);
+
   blocks.push({
     type: "context",
     elements: [{ type: "mrkdwn", text: buildAccessRequestInviteDirective() }],
   });
 
-  // Guardian verification note
   if (
     (p.guardianResolutionSource === "vellum-anchor" ||
       p.guardianResolutionSource === "none") &&
@@ -216,6 +217,74 @@ function buildAccessRequestBlocks(
 
   return blocks;
 }
+
+// ---------------------------------------------------------------------------
+// Tool approval card
+// ---------------------------------------------------------------------------
+
+/**
+ * Build Slack blocks for a tool approval notification using a native Card block.
+ *
+ * Layout:
+ *   Card — title + subtitle (tool + requester) + body (notification text) + actions
+ *   Context — reaction instruction
+ */
+function buildToolApprovalCardBlocks(
+  payload: ChannelDeliveryPayload,
+  messageText: string,
+): unknown[] {
+  const approval = payload.approvalContext!;
+  const blocks: unknown[] = [];
+
+  const details = approval.permissionDetails;
+  const toolName = details?.toolName;
+  const requester = details?.requesterIdentifier;
+  let subtitle: string | undefined;
+  if (toolName && requester) {
+    subtitle = truncate(`${toolName} — requested by ${requester}`, 150);
+  } else if (toolName) {
+    subtitle = truncate(toolName, 150);
+  }
+
+  const card: Record<string, unknown> = {
+    type: "card",
+    title: { type: "plain_text", text: "Tool Approval" },
+    body: { type: "mrkdwn", text: truncate(messageText, 200) },
+    actions: buildCardActions(approval),
+  };
+  if (subtitle) card.subtitle = { type: "mrkdwn", text: subtitle };
+  blocks.push(card);
+
+  blocks.push(REACTION_INSTRUCTION_BLOCK);
+
+  return blocks;
+}
+
+// ---------------------------------------------------------------------------
+// Unified approval block dispatcher
+// ---------------------------------------------------------------------------
+
+/**
+ * Build Slack blocks for any notification carrying approval context.
+ * Dispatches to the appropriate card builder based on source event type.
+ */
+function buildApprovalNotificationBlocks(
+  payload: ChannelDeliveryPayload,
+  messageText: string,
+): unknown[] {
+  if (
+    payload.sourceEventName === "ingress.access_request" &&
+    payload.contextPayload != null
+  ) {
+    return buildAccessRequestCardBlocks(payload);
+  }
+
+  return buildToolApprovalCardBlocks(payload, messageText);
+}
+
+// ---------------------------------------------------------------------------
+// Adapter
+// ---------------------------------------------------------------------------
 
 export class SlackAdapter implements ChannelAdapter {
   readonly channel: NotificationChannel = "slack";
@@ -238,18 +307,10 @@ export class SlackAdapter implements ChannelAdapter {
 
     const messageText = resolveSlackMessageText(payload);
 
-    // Build Block Kit blocks for access request notifications
-    const isAccessRequest =
-      payload.sourceEventName === "ingress.access_request" &&
-      payload.contextPayload != null;
-
     try {
-      const result = isAccessRequest
+      const result = payload.approvalContext
         ? await sendSlackReply(chatId, messageText, {
-            blocks: buildAccessRequestBlocks(
-              payload.contextPayload!,
-              payload.approvalContext,
-            ),
+            blocks: buildApprovalNotificationBlocks(payload, messageText),
           })
         : await sendSlackReply(chatId, messageText, { useBlocks: true });
 

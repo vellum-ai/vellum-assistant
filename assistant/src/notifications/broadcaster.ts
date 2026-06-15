@@ -76,10 +76,31 @@ function resolveApprovalContext(
     if (mode !== "approval") return undefined;
     const requestId = nonEmpty(parsed.requestId);
     if (!requestId) return undefined;
+
+    // Extract tool context so channel adapters can render structured
+    // approval cards without re-parsing contextPayload.
+    let toolName: string | undefined;
+    if (
+      parsed.requestKind === "tool_approval" ||
+      parsed.requestKind === "tool_grant_request"
+    ) {
+      toolName = nonEmpty(parsed.toolName);
+    } else if (parsed.requestKind === "pending_question") {
+      toolName = nonEmpty(parsed.toolName);
+    }
+
     return {
       requestId,
       actions: APPROVAL_ACTIONS,
       plainTextFallback: `Reply "${parsed.requestCode?.toUpperCase() ?? requestId} approve" or "${parsed.requestCode?.toUpperCase() ?? requestId} reject"`,
+      permissionDetails: toolName
+        ? {
+            toolName,
+            riskLevel: "medium",
+            toolInput: {},
+            requesterIdentifier: nonEmpty(parsed.requesterIdentifier),
+          }
+        : undefined,
     };
   }
 
