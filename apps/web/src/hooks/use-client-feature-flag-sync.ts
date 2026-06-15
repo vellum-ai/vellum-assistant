@@ -1,9 +1,7 @@
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { featureFlagsClientFlagValuesRetrieve } from "@/generated/api/sdk.gen";
-import type { ClientFeatureFlagsResponse } from "@/generated/api/types.gen";
-import { assertHasResponse } from "@/utils/api-errors";
+import { featureFlagsClientFlagValuesRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
   CLIENT_FLAG_DEFAULTS,
@@ -11,21 +9,9 @@ import {
   flagKeyToStoreKey,
 } from "@/lib/feature-flags/feature-flag-catalog";
 import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
-import { CLIENT_FLAG_QUERY_KEY } from "@/utils/feature-flag-keys";
 
 const VALID_BOOL_KEYS = new Set(Object.keys(CLIENT_FLAG_DEFAULTS));
 const VALID_STRING_KEYS = new Set(Object.keys(CLIENT_STRING_FLAG_DEFAULTS));
-
-async function fetchClientFlagValues(): Promise<ClientFeatureFlagsResponse> {
-  const { data, error, response } = await featureFlagsClientFlagValuesRetrieve({
-    throwOnError: false,
-  });
-  assertHasResponse(response, error, "Failed to fetch client feature flags");
-  if (!response.ok || !data) {
-    throw new Error(`Failed to fetch client feature flags: ${response.status}`);
-  }
-  return data;
-}
 
 function mapFlags(
   serverFlags: Record<string, boolean | string>,
@@ -46,8 +32,7 @@ function mapFlags(
 export function useClientFeatureFlagSync(enabled: boolean) {
   const freshness = useFlagQueryFreshness();
   const { data, isFetched } = useQuery({
-    queryKey: CLIENT_FLAG_QUERY_KEY,
-    queryFn: fetchClientFlagValues,
+    ...featureFlagsClientFlagValuesRetrieveOptions(),
     enabled,
     ...freshness,
     retry: 1,
@@ -102,8 +87,7 @@ function readActivationFlowOverride(): string | null {
 export function useActivationFlowArm(): { arm: string; settled: boolean } {
   const freshness = useFlagQueryFreshness();
   const { data, isFetched } = useQuery({
-    queryKey: CLIENT_FLAG_QUERY_KEY,
-    queryFn: fetchClientFlagValues,
+    ...featureFlagsClientFlagValuesRetrieveOptions(),
     ...freshness,
     retry: 1,
   });

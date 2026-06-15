@@ -21,6 +21,7 @@ let getSessionGates: Array<() => void> | null = null;
 
 let mockIsGatewayAuth = false;
 let mockIsLocalMode = false;
+let mockIsRemoteGatewayMode = false;
 let mockPlatformAssistants: unknown[] = [];
 let mockPrimeError: Error | null = null;
 const setSelectedAssistantMock = mock(async (_id: string | null) => {});
@@ -31,13 +32,29 @@ const primeLocalGatewayConnectionMock = mock(async () => {
 const primeLocalGatewayConnectionWithRepairMock = mock(async () => {
   if (mockPrimeError) throw mockPrimeError;
 });
-const restoreConsentForUserMock = mock((_userId: string | null) => ({ tos: false, ai: false }));
-const persistConsentForUserMock = mock((_userId: string | null, _tos: boolean, _ai: boolean) => {});
+const ensureGatewayTokenMock = mock(async () => {});
+const restoreConsentForUserMock = mock((_userId: string | null) => ({
+  tos: false,
+  ai: false,
+}));
+const persistConsentForUserMock = mock(
+  (_userId: string | null, _tos: boolean, _ai: boolean) => {},
+);
 const resolveServerConsentMock = mock((_consent: unknown) => ({
-  tos: false, ai: false, shareAnalytics: null, shareDiagnostics: null,
+  tos: false,
+  ai: false,
+  shareAnalytics: null,
+  shareDiagnostics: null,
 }));
 
-let mockFetchMeResult: unknown = { id: "user-1", username: "test", email: "test@example.com", first_name: "", last_name: "", consent: null };
+let mockFetchMeResult: unknown = {
+  id: "user-1",
+  username: "test",
+  email: "test@example.com",
+  first_name: "",
+  last_name: "",
+  consent: null,
+};
 let mockFetchMeError: Error | null = null;
 const fetchMeMock = mock(async () => {
   if (mockFetchMeError) throw mockFetchMeError;
@@ -78,7 +95,11 @@ mock.module("@/lib/auth/allauth-client", () => ({
       return { ok: false, status: 401, error: { detail: "Unauthorized" } };
     }
     if (!sessionUser) {
-      return { ok: false, status: getSessionFailStatus, error: { detail: "Unauthorized" } };
+      return {
+        ok: false,
+        status: getSessionFailStatus,
+        error: { detail: "Unauthorized" },
+      };
     }
     return { ok: true, data: { user: sessionUser } };
   },
@@ -95,15 +116,18 @@ mock.module("@/runtime/session-token", () => ({
 mock.module("@/lib/auth/gateway-session", () => ({
   isGatewayAuthEnabled: () => mockIsGatewayAuth,
   isGatewayAuthMode: () => mockIsGatewayAuth,
-  ensureGatewayToken: async () => {},
+  ensureGatewayToken: ensureGatewayTokenMock,
   clearGatewayToken: () => {},
   getLocalTokenUrl: () => "http://localhost/token",
 }));
 
 mock.module("@/lib/local-mode", () => ({
   isLocalMode: () => mockIsLocalMode,
-  isLocalAssistant: (a: { cloud?: string; resources?: { gatewayPort?: number } }) =>
-    a.cloud !== "vellum" && a.resources?.gatewayPort != null,
+  isRemoteGatewayMode: () => mockIsRemoteGatewayMode,
+  isLocalAssistant: (a: {
+    cloud?: string;
+    resources?: { gatewayPort?: number };
+  }) => a.cloud !== "vellum" && a.resources?.gatewayPort != null,
   isPlatformAssistant: (a: { cloud?: string }) => a.cloud === "vellum",
   getPlatformAssistants: () => mockPlatformAssistants,
   getLocalAssistants: () => [],
@@ -227,6 +251,7 @@ beforeEach(() => {
   localStorage.removeItem("vellum:auth:userSnapshot");
   mockIsGatewayAuth = false;
   mockIsLocalMode = false;
+  mockIsRemoteGatewayMode = false;
   mockPlatformAssistants = [];
   mockIsNativePlatform = false;
   mockIsBiometricEnabled = false;
@@ -236,12 +261,20 @@ beforeEach(() => {
   setFromApiMock.mockClear();
   primeLocalGatewayConnectionMock.mockClear();
   primeLocalGatewayConnectionWithRepairMock.mockClear();
+  ensureGatewayTokenMock.mockClear();
   restoreConsentForUserMock.mockClear();
   persistConsentForUserMock.mockClear();
   resolveServerConsentMock.mockClear();
   fetchMeMock.mockClear();
   patchConsentMock.mockClear();
-  mockFetchMeResult = { id: "user-1", username: "test", email: "test@example.com", first_name: "", last_name: "", consent: null };
+  mockFetchMeResult = {
+    id: "user-1",
+    username: "test",
+    email: "test@example.com",
+    first_name: "",
+    last_name: "",
+    consent: null,
+  };
   mockFetchMeError = null;
   clearOrganizationMock.mockClear();
   clearUserScopedStorageMock.mockClear();
@@ -258,12 +291,47 @@ beforeEach(() => {
 });
 
 describe("auth store onboarding flag reconciliation", () => {
+  test("initSession treats remote-gateway mode as an authenticated local session", async () => {
+    mockIsRemoteGatewayMode = true;
+
+    await useAuthStore.getState().initSession();
+
+    expect(primeLocalGatewayConnectionMock).not.toHaveBeenCalled();
+    expect(getSessionCallCount).toBe(0);
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.id).toBe("gateway-local");
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+  });
+
+  test("refreshSession keeps remote-gateway mode authenticated without minting a local token", async () => {
+    mockIsRemoteGatewayMode = true;
+    mockIsGatewayAuth = true;
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(ensureGatewayTokenMock).not.toHaveBeenCalled();
+    expect(primeLocalGatewayConnectionMock).not.toHaveBeenCalled();
+    expect(getSessionCallCount).toBe(0);
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.id).toBe("gateway-local");
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+  });
+
   test("initSession uses server consent when server has a consent record", async () => {
     sessionUser = { id: "user-1", email: "user@example.com" };
     mockFetchMeResult = {
-      id: "user-1", username: "test", email: "test@example.com",
-      first_name: "", last_name: "",
-      consent: { tos_accepted_version: "2026-06-08", privacy_policy_accepted_version: "2026-06-08", ai_data_sharing_accepted_version: "2026-06-08", share_analytics: true, share_diagnostics: true },
+      id: "user-1",
+      username: "test",
+      email: "test@example.com",
+      first_name: "",
+      last_name: "",
+      consent: {
+        tos_accepted_version: "2026-06-08",
+        privacy_policy_accepted_version: "2026-06-08",
+        ai_data_sharing_accepted_version: "2026-06-08",
+        share_analytics: true,
+        share_diagnostics: true,
+      },
     };
 
     await useAuthStore.getState().initSession();
@@ -310,9 +378,18 @@ describe("auth store onboarding flag reconciliation", () => {
     sessionUser = { id: "user-1", email: "user@example.com" };
     mockPlatformAssistants = [{ assistantId: "p1", cloud: "vellum" }];
     mockFetchMeResult = {
-      id: "user-1", username: "test", email: "test@example.com",
-      first_name: "", last_name: "",
-      consent: { tos_accepted_version: "2026-06-08", privacy_policy_accepted_version: "2026-06-08", ai_data_sharing_accepted_version: "2026-06-08", share_analytics: true, share_diagnostics: true },
+      id: "user-1",
+      username: "test",
+      email: "test@example.com",
+      first_name: "",
+      last_name: "",
+      consent: {
+        tos_accepted_version: "2026-06-08",
+        privacy_policy_accepted_version: "2026-06-08",
+        ai_data_sharing_accepted_version: "2026-06-08",
+        share_analytics: true,
+        share_diagnostics: true,
+      },
     };
 
     await useAuthStore.getState().initSession();
@@ -325,9 +402,18 @@ describe("auth store onboarding flag reconciliation", () => {
   test("refreshSession fetches consent from server for platform users", async () => {
     sessionUser = { id: "user-2", email: "user@example.com" };
     mockFetchMeResult = {
-      id: "user-2", username: "test", email: "user@example.com",
-      first_name: "", last_name: "",
-      consent: { tos_accepted_version: "2026-06-08", privacy_policy_accepted_version: "2026-06-08", ai_data_sharing_accepted_version: "2026-06-08", share_analytics: true, share_diagnostics: true },
+      id: "user-2",
+      username: "test",
+      email: "user@example.com",
+      first_name: "",
+      last_name: "",
+      consent: {
+        tos_accepted_version: "2026-06-08",
+        privacy_policy_accepted_version: "2026-06-08",
+        ai_data_sharing_accepted_version: "2026-06-08",
+        share_analytics: true,
+        share_diagnostics: true,
+      },
     };
 
     await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
@@ -347,14 +433,28 @@ describe("auth store onboarding flag reconciliation", () => {
     mockListAssistantsResult = {
       ok: true,
       status: 200,
-      data: [{ id: "assistant-3", name: "My Assistant", is_local: false, created: "2026-06-05T00:00:00Z" }],
+      data: [
+        {
+          id: "assistant-3",
+          name: "My Assistant",
+          is_local: false,
+          created: "2026-06-05T00:00:00Z",
+        },
+      ],
     };
 
     await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
 
     expect(listAssistantsMock).toHaveBeenCalled();
     expect(syncPlatformAssistantsToLockfileMock).toHaveBeenCalledWith(
-      [{ id: "assistant-3", name: "My Assistant", is_local: false, created: "2026-06-05T00:00:00Z" }],
+      [
+        {
+          id: "assistant-3",
+          name: "My Assistant",
+          is_local: false,
+          created: "2026-06-05T00:00:00Z",
+        },
+      ],
       "org-test",
     );
   });
@@ -366,7 +466,9 @@ describe("auth store onboarding flag reconciliation", () => {
     mockListAssistantsResult = {
       ok: true,
       status: 200,
-      data: [{ id: "assistant-4", is_local: false, created: "2026-06-05T00:00:00Z" }],
+      data: [
+        { id: "assistant-4", is_local: false, created: "2026-06-05T00:00:00Z" },
+      ],
     };
 
     await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
@@ -511,7 +613,6 @@ describe("platform session probe resolution", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(useAuthStore.getState().platformSession).toBe("present");
   });
-
 });
 
 describe("biometric session recovery", () => {
@@ -743,7 +844,10 @@ describe("offline session restore (LUM-2412)", () => {
 
     const raw = localStorage.getItem(SNAPSHOT_KEY);
     expect(raw).not.toBeNull();
-    expect(JSON.parse(raw!)).toMatchObject({ id: "user-9", email: "nine@example.com" });
+    expect(JSON.parse(raw!)).toMatchObject({
+      id: "user-9",
+      email: "nine@example.com",
+    });
   });
 
   test("local-mode platform-assistants boot also restores from cache on transport failure", async () => {

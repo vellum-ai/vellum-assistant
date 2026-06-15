@@ -1,6 +1,7 @@
 import {
   isLocalMode,
   getLocalGatewayUrl,
+  isRemoteGatewayMode,
 } from "@/lib/local-mode";
 import type { LockfileAssistant } from "@/runtime/local-mode-host";
 
@@ -52,10 +53,12 @@ let cachedExpiresAt: number = 0;
 let cachedTokenSource: string | null = null;
 
 export function isGatewayAuthEnabled(): boolean {
+  if (isRemoteGatewayMode()) return true;
   return isLocalMode() && getLocalGatewayUrl() != null;
 }
 
 export function isGatewayAuthMode(): boolean {
+  if (isRemoteGatewayMode()) return true;
   return isGatewayAuthEnabled() && getGatewayToken() !== null;
 }
 
@@ -89,7 +92,10 @@ export function getGatewayToken(): string | null {
   return null;
 }
 
-async function acquireGatewayToken(tokenUrl?: string, guardianToken?: string): Promise<string> {
+async function acquireGatewayToken(
+  tokenUrl?: string,
+  guardianToken?: string,
+): Promise<string> {
   const url = tokenUrl ?? "/auth/token";
   const headers: Record<string, string> = {};
   if (guardianToken) {
@@ -119,7 +125,10 @@ async function acquireGatewayToken(tokenUrl?: string, guardianToken?: string): P
   return token;
 }
 
-export async function ensureGatewayToken(tokenUrl?: string, guardianToken?: string): Promise<string> {
+export async function ensureGatewayToken(
+  tokenUrl?: string,
+  guardianToken?: string,
+): Promise<string> {
   const source = tokenUrl ?? "/auth/token";
   const storedSource =
     cachedTokenSource ??

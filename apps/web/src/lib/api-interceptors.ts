@@ -32,6 +32,7 @@ import {
 import { client as platformClient } from "@/generated/api/client.gen";
 import { client as authClient } from "@/generated/auth/client.gen";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
+import { client as gatewayClient } from "@/generated/gateway/client.gen";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
 import { ApiError, extractErrorMessage } from "@/utils/api-errors";
 import { isLocalMode, isPlatformDisabled } from "@/lib/local-mode";
@@ -297,6 +298,12 @@ daemonClient.interceptors.request.use(daemonRequestInterceptor);
 daemonClient.interceptors.response.use(daemonUnreachableInterceptor);
 daemonClient.interceptors.error.use(daemonErrorInterceptor);
 
+// Gateway client uses the same routing as daemon — all gateway endpoints
+// are proxied through the same self-hosted ingress / platform gateway path.
+gatewayClient.interceptors.request.use(daemonRequestInterceptor);
+gatewayClient.interceptors.response.use(daemonUnreachableInterceptor);
+gatewayClient.interceptors.error.use(daemonErrorInterceptor);
+
 // Force JSON body parsing for all three generated clients. The default
 // `parseAs: 'auto'` infers the parsing strategy from the Content-Type
 // response header. When the header is absent (observed on iOS WKWebView
@@ -308,7 +315,7 @@ daemonClient.interceptors.error.use(daemonErrorInterceptor);
 // sites (blob downloads) explicitly override `parseAs` per-request.
 //
 // Reference: https://heyapi.dev/openapi-ts/clients/fetch#parser
-for (const apiClient of [daemonClient, platformClient, authClient]) {
+for (const apiClient of [daemonClient, gatewayClient, platformClient, authClient]) {
   apiClient.setConfig({ parseAs: "json" });
 }
 

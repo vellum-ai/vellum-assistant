@@ -1,7 +1,8 @@
 import { join } from "path";
 
-import { resolveAssistant } from "../lib/assistant-config";
+import { resolveAssistant, type AssistantEntry } from "../lib/assistant-config";
 import { runCloudflareTunnel } from "../lib/cloudflare-tunnel.js";
+import { GATEWAY_PORT } from "../lib/constants.js";
 import {
   isAssistantFeatureFlagEnabled,
   WEB_REMOTE_INGRESS_FLAG,
@@ -92,11 +93,36 @@ function parseArgs(): TunnelArgs {
   return { assistantName, provider };
 }
 
-async function shouldPreferNginxIngress(assistantId: string): Promise<boolean> {
+function parsePortFromUrl(url: unknown): number | undefined {
+  if (typeof url !== "string" || !url.trim()) return undefined;
+  try {
+    const port = Number(new URL(url).port);
+    return Number.isInteger(port) && port > 0 && port <= 65535
+      ? port
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveEntryGatewayPort(entry: AssistantEntry): number {
+  return (
+    entry.resources?.gatewayPort ??
+    parsePortFromUrl(entry.localUrl) ??
+    parsePortFromUrl(entry.runtimeUrl) ??
+    GATEWAY_PORT
+  );
+}
+
+async function shouldPreferNginxIngress(
+  assistantId: string,
+  gatewayPort: number,
+): Promise<boolean> {
   try {
     return await isAssistantFeatureFlagEnabled(
       assistantId,
       WEB_REMOTE_INGRESS_FLAG,
+      { runtimeUrl: `http://127.0.0.1:${gatewayPort}` },
     );
   } catch (err) {
     throw new Error(
@@ -124,17 +150,21 @@ export async function tunnel(): Promise<void> {
   }
 
   const resources = entry.resources;
-  const baseTunnelOpts = resources
-    ? {
-        port: resources.gatewayPort,
-        workspaceDir: join(resources.instanceDir, ".vellum", "workspace"),
-      }
-    : {};
+  const gatewayPort = resolveEntryGatewayPort(entry);
+  const baseTunnelOpts = {
+    port: gatewayPort,
+    ...(resources
+      ? { workspaceDir: join(resources.instanceDir, ".vellum", "workspace") }
+      : {}),
+  };
 
   if (provider === "ngrok") {
     await runNgrokTunnel({
       ...baseTunnelOpts,
-      preferNginxIngress: await shouldPreferNginxIngress(entry.assistantId),
+      preferNginxIngress: await shouldPreferNginxIngress(
+        entry.assistantId,
+        gatewayPort,
+      ),
     });
     return;
   }
@@ -142,7 +172,10 @@ export async function tunnel(): Promise<void> {
   if (provider === "cloudflare") {
     await runCloudflareTunnel({
       ...baseTunnelOpts,
-      preferNginxIngress: await shouldPreferNginxIngress(entry.assistantId),
+      preferNginxIngress: await shouldPreferNginxIngress(
+        entry.assistantId,
+        gatewayPort,
+      ),
     });
     return;
   }
