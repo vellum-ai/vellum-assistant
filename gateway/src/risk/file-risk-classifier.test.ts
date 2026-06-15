@@ -20,6 +20,7 @@ const MOCK_DEPRECATED_DIR = join(
 );
 const MOCK_HOOKS_DIR = join(homedir(), ".vellum", "workspace", "hooks");
 const MOCK_PLUGINS_DIR = join(homedir(), ".vellum", "workspace", "plugins");
+const MOCK_TOOLS_DIR = join(homedir(), ".vellum", "workspace", "tools");
 
 /** Skill source paths managed per-test via the context's skillSourceDirs. */
 let testSkillSourceDirs: string[] = [];
@@ -30,6 +31,7 @@ function makeContext(): FileClassificationContext {
     deprecatedDir: MOCK_DEPRECATED_DIR,
     hooksDir: MOCK_HOOKS_DIR,
     pluginsDir: MOCK_PLUGINS_DIR,
+    toolsDir: MOCK_TOOLS_DIR,
     skillSourceDirs: testSkillSourceDirs,
   };
 }
@@ -259,6 +261,58 @@ describe("FileRiskClassifier", () => {
       expect(result.riskLevel).toBe("low");
     });
 
+    // Workspace tools dir: <name>.{ts,js} files are dynamic-imported with
+    // daemon privileges on next startup (or hot-loaded by the watcher) and may
+    // override a same-named core tool, so writes here are code-injection risk.
+    test("workspace tools directory itself is high", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: MOCK_TOOLS_DIR,
+        workingDir: "/",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to workspace tools directory");
+    });
+
+    test("tool file inside workspace tools directory is high", async () => {
+      testSkillSourceDirs = [];
+      const toolFile = join(MOCK_TOOLS_DIR, "my_tool.ts");
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: toolFile,
+        workingDir: "/",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to workspace tools directory");
+    });
+
+    test("core-tool override inside workspace tools directory is high", async () => {
+      // A workspace tool named after a core tool (e.g. skill_load) overrides it,
+      // so a write here must not be auto-approved as a low-risk workspace write.
+      testSkillSourceDirs = [];
+      const overrideFile = join(MOCK_TOOLS_DIR, "skill_load.ts");
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: overrideFile,
+        workingDir: "/",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to workspace tools directory");
+    });
+
+    test("path containing 'tools' substring outside tools dir is low", async () => {
+      // Guard against substring matching: only paths under the exact tools dir
+      // escalate, not siblings like /workspace/tools-data/.
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: join(homedir(), ".vellum", "workspace", "tools-data", "x"),
+        workingDir: "/",
+      });
+      expect(result.riskLevel).toBe("low");
+    });
+
     test("non-skill, non-hooks path is low", async () => {
       testSkillSourceDirs = [];
       const result = await classifyInput({
@@ -317,6 +371,18 @@ describe("FileRiskClassifier", () => {
       });
       expect(result.riskLevel).toBe("high");
       expect(result.reason).toBe("Writes to plugins directory");
+    });
+
+    test("workspace tools directory path is high", async () => {
+      testSkillSourceDirs = [];
+      const toolFile = join(MOCK_TOOLS_DIR, "skill_load.ts");
+      const result = await classifyInput({
+        toolName: "file_edit",
+        filePath: toolFile,
+        workingDir: "/",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to workspace tools directory");
     });
   });
 
@@ -436,6 +502,27 @@ describe("FileRiskClassifier", () => {
       expect(result.riskLevel).toBe("high");
       expect(result.reason).toBe("Writes to plugins directory");
     });
+
+    test("workspace tools directory is high", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "host_file_write",
+        filePath: MOCK_TOOLS_DIR,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to workspace tools directory");
+    });
+
+    test("tool file inside workspace tools directory is high", async () => {
+      testSkillSourceDirs = [];
+      const toolFile = join(MOCK_TOOLS_DIR, "skill_load.ts");
+      const result = await classifyInput({
+        toolName: "host_file_write",
+        filePath: toolFile,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to workspace tools directory");
+    });
   });
 
   // -- host_file_edit ---------------------------------------------------------
@@ -484,6 +571,17 @@ describe("FileRiskClassifier", () => {
       });
       expect(result.riskLevel).toBe("high");
       expect(result.reason).toBe("Writes to plugins directory");
+    });
+
+    test("workspace tools directory path is high", async () => {
+      testSkillSourceDirs = [];
+      const toolFile = join(MOCK_TOOLS_DIR, "skill_load.ts");
+      const result = await classifyInput({
+        toolName: "host_file_edit",
+        filePath: toolFile,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to workspace tools directory");
     });
   });
 
@@ -563,6 +661,27 @@ describe("FileRiskClassifier", () => {
       });
       expect(result.riskLevel).toBe("high");
       expect(result.reason).toBe("Transfers to plugins directory");
+    });
+
+    test("workspace tools directory is high", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "host_file_transfer",
+        filePath: MOCK_TOOLS_DIR,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Transfers to workspace tools directory");
+    });
+
+    test("tool file inside workspace tools directory is high", async () => {
+      testSkillSourceDirs = [];
+      const toolFile = join(MOCK_TOOLS_DIR, "skill_load.ts");
+      const result = await classifyInput({
+        toolName: "host_file_transfer",
+        filePath: toolFile,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Transfers to workspace tools directory");
     });
   });
 

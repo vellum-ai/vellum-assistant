@@ -8,14 +8,15 @@
  * Risk escalation paths:
  * - file_read: Low by default, High if targeting the actor token signing key.
  * - file_write / file_edit: Low by default, High if targeting skill source
- *   code, the workspace hooks directory, or the user plugins directory.
+ *   code, the workspace hooks directory, the user plugins directory, or the
+ *   workspace tools directory.
  * - host_file_read: Medium (tool registry default; no special escalation).
  * - host_file_write / host_file_edit: Medium by default, High if targeting
- *   skill source code, the workspace hooks directory, or the user plugins
- *   directory.
+ *   skill source code, the workspace hooks directory, the user plugins
+ *   directory, or the workspace tools directory.
  * - host_file_transfer: Medium by default, High if the host-side path
- *   targets skill source code, the workspace hooks directory, or the user
- *   plugins directory.
+ *   targets skill source code, the workspace hooks directory, the user
+ *   plugins directory, or the workspace tools directory.
  *
  * Gateway adaptation: accepts a FileClassificationContext parameter instead
  * of importing assistant platform utilities directly. The assistant is
@@ -55,6 +56,15 @@ export interface FileClassificationContext {
   hooksDir: string;
   /** Absolute path to the user plugins directory. */
   pluginsDir: string;
+  /**
+   * Absolute path to the workspace tools directory
+   * (`<workspaceDir>/tools`). Workspace tool files (`<name>.{ts,js}`) are
+   * dynamic-imported with daemon privileges at next startup (and hot-loaded
+   * by the workspace-tools watcher), and a workspace tool may override a
+   * same-named core tool — so a write here must be treated as code-injection
+   * risk, exactly like {@link pluginsDir}.
+   */
+  toolsDir: string;
   /**
    * Absolute paths of all skill source root directories (managed, bundled,
    * and any extra dirs from config). The classifier checks whether a file
@@ -146,6 +156,26 @@ function isPluginsPath(
 }
 
 /**
+ * Check whether a resolved absolute path falls inside the workspace tools
+ * directory (or IS the tools directory itself). Mirrors {@link isPluginsPath}
+ * because the workspace tool loader has the same threat model: any file under
+ * `<toolsDir>/<name>.{ts,js}` may be dynamic-imported at next daemon startup
+ * (or hot-loaded by the watcher) and may override a same-named core tool, so a
+ * write here must be treated as code-injection risk.
+ */
+function isToolsPath(
+  resolvedPath: string,
+  context: FileClassificationContext,
+): boolean {
+  const normalizedToolsDir = normalizeDirPath(context.toolsDir);
+  const toolsDirNoTrailingSlash = normalizedToolsDir.slice(0, -1);
+  return (
+    resolvedPath === toolsDirNoTrailingSlash ||
+    resolvedPath.startsWith(normalizedToolsDir)
+  );
+}
+
+/**
  * Check whether a resolved absolute path falls under any skill source
  * directory.
  */
@@ -232,7 +262,8 @@ function buildFileAllowlistOptions(
  * File risk classifier implementation.
  *
  * Classifies all six file tool types by risk level, with escalation paths
- * for skill source code, workspace hooks, and the actor token signing key.
+ * for skill source code, workspace hooks, the user plugins directory, the
+ * workspace tools directory, and the actor token signing key.
  *
  * Unlike the assistant version, this classifier accepts a
  * FileClassificationContext parameter on classify() instead of importing
@@ -314,6 +345,16 @@ export class FileRiskClassifier implements RiskClassifier<
             };
             break;
           }
+          if (isToolsPath(resolvedPath, context)) {
+            assessment = {
+              riskLevel: "high",
+              reason: "Writes to workspace tools directory",
+              scopeOptions: [],
+              matchType: "registry",
+              allowlistOptions,
+            };
+            break;
+          }
         }
         assessment = {
           riskLevel: "low",
@@ -373,6 +414,16 @@ export class FileRiskClassifier implements RiskClassifier<
             assessment = {
               riskLevel: "high",
               reason: `${actionVerb} to plugins directory`,
+              scopeOptions: [],
+              matchType: "registry",
+              allowlistOptions,
+            };
+            break;
+          }
+          if (isToolsPath(resolvedPath, context)) {
+            assessment = {
+              riskLevel: "high",
+              reason: `${actionVerb} to workspace tools directory`,
               scopeOptions: [],
               matchType: "registry",
               allowlistOptions,

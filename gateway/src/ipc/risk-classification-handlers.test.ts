@@ -223,6 +223,24 @@ describe("file classification", () => {
     expect(result.risk).toBe("high");
     expect(result.reason).toContain("skill source");
   });
+
+  test("file context with tools dir escalates workspace tool writes", async () => {
+    const result = await classify({
+      tool: "file_write",
+      path: "/workspace/.vellum/tools/skill_load.ts",
+      workingDir: "/workspace",
+      fileContext: {
+        protectedDir: "/workspace/.vellum/protected",
+        hooksDir: "/workspace/.hooks",
+        toolsDir: "/workspace/.vellum/tools",
+        actorTokenSigningKeyPath:
+          "/workspace/.vellum/protected/actor-token-signing-key",
+        skillSourceDirs: ["/workspace/.vellum/skills"],
+      },
+    });
+    expect(result.risk).toBe("high");
+    expect(result.reason).toContain("workspace tools");
+  });
 });
 
 // ── Web classification ──────────────────────────────────────────────────────
