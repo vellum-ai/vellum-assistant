@@ -49,9 +49,13 @@ export type RouteRequestContentType =
  *   plain JSON Schema fragment (e.g. `{ type: "string", format: "binary" }`).
  *
  * The OpenAPI generator turns this into the operation's `requestBody`, so the
- * generated client SDK describes a real body type instead of `never`. The HTTP
- * adapter parses the body off the request `Content-Type` header, so this field
- * is a codegen signal only and does not change runtime request handling.
+ * generated client SDK describes a real body type instead of `never`.
+ *
+ * **Runtime validation:** When a bare Zod schema is provided, the HTTP adapter
+ * calls `safeParse(body)` before invoking the handler. Validation failures
+ * return a 400 with structured issue details. The handler receives the parsed
+ * (coerced/defaulted) output, not the raw JSON. Non-JSON body forms
+ * (`{ contentType, schema }`) are not validated at the adapter level.
  */
 export type RouteRequestBody =
   | z.ZodType

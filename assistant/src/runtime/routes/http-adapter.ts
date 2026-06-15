@@ -3,13 +3,32 @@
  * for the HTTP server's route table.
  */
 
+import { z } from "zod";
+
 import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import type { HttpErrorCode } from "../http-errors.js";
 import { httpError } from "../http-errors.js";
 import type { HTTPRouteDefinition } from "../http-router.js";
-import { RouteError } from "./errors.js";
-import type { ResponseHeaderArgs, RouteDefinition } from "./types.js";
+import { BadRequestError, RouteError } from "./errors.js";
+import type {
+  ResponseHeaderArgs,
+  RouteDefinition,
+  RouteRequestBody,
+} from "./types.js";
 import { RouteResponse } from "./types.js";
+
+/**
+ * Extract the Zod schema from a route's `requestBody`, if present.
+ * Returns `undefined` for non-JSON bodies (the `{ contentType, schema }` form)
+ * or when no requestBody is declared.
+ */
+function resolveRequestBodySchema(
+  spec: RouteRequestBody | undefined,
+): z.ZodType | undefined {
+  if (!spec) return undefined;
+  if (spec instanceof z.ZodType) return spec;
+  return undefined;
+}
 
 function resolveResponseHeaders(
   spec: RouteDefinition["responseHeaders"],
@@ -89,6 +108,23 @@ export function routeDefinitionsToHTTPRoutes(
             // Binary body (e.g. application/zip, application/octet-stream)
             rawBody = new Uint8Array(await req.arrayBuffer());
           }
+        }
+
+        // Validate JSON body against the route's Zod schema, if declared.
+        const requestSchema = resolveRequestBodySchema(r.requestBody);
+        if (requestSchema && body !== undefined) {
+          const result = requestSchema.safeParse(body);
+          if (!result.success) {
+            const detail = result.error.issues
+              .map((issue) =>
+                issue.path.length
+                  ? `${issue.path.join(".")}: ${issue.message}`
+                  : issue.message,
+              )
+              .join("; ");
+            throw new BadRequestError(`Invalid request body: ${detail}`);
+          }
+          body = result.data as Record<string, unknown>;
         }
 
         const headers: Record<string, string> = {};
