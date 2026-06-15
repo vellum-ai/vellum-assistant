@@ -1,13 +1,16 @@
 /**
  * One-time migration: deduplicate historical case collisions in the
- * gateway's contact_channels table.
+ * gateway's contact_channels table and restore original platform-provided
+ * casing.
  *
  * Historical writes lowercased addresses inconsistently — some paths stored
  * 'U12345' and others stored 'u12345' for the same identity. This migration
  * resolves collisions by keeping the best row per (type, address) group
- * (case-insensitive match for dedup only).
+ * (case-insensitive match for dedup only), then restores original casing
+ * from external_user_id into address.
  *
- * Idempotent: on a DB with no case collisions, the DELETE is a no-op.
+ * Idempotent: on a DB with no case collisions, the DELETE and UPDATE are
+ * no-ops.
  */
 
 import { Database } from "bun:sqlite";
@@ -51,6 +54,16 @@ export function up(): MigrationResult {
   `);
 
   log.info("Deduplicated contact_channels by (type, address) case-insensitive");
+
+  // Restore original platform-provided casing from external_user_id.
+  db.exec(/*sql*/ `
+    UPDATE contact_channels
+    SET address = external_user_id
+    WHERE external_user_id IS NOT NULL
+      AND address != external_user_id
+  `);
+
+  log.info("Restored original casing from external_user_id into address");
   return "done";
 }
 

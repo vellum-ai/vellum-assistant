@@ -408,6 +408,31 @@ describe("migration 287 — dedup case collisions + drop ext_user indexes", () =
     expect(channels).toHaveLength(2);
   });
 
+  test("normalizes lowercased address from external_user_id (single row, no collision)", () => {
+    const db = createTestDb();
+    const raw = getSqliteFrom(db);
+    bootstrap(db);
+
+    insertContact(raw, "c1");
+    // Simulates old write path that lowercased the address
+    insertChannel(raw, {
+      id: "ch1",
+      contactId: "c1",
+      type: "slack",
+      address: "u12345abc",
+      externalUserId: "U12345ABC",
+      status: "active",
+      updatedAt: 1000,
+    });
+
+    migrateContactChannelsUniqueExtUser(db);
+
+    const channels = getAllChannels(raw);
+    expect(channels).toHaveLength(1);
+    // Address restored to original casing from externalUserId
+    expect(channels[0]!.address).toBe("U12345ABC");
+  });
+
   test("idempotent — safe to run twice", () => {
     const db = createTestDb();
     const raw = getSqliteFrom(db);
