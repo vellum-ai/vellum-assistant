@@ -315,8 +315,8 @@ export const credentialStoreTool = {
         }
         try {
           upsertCredentialMetadata(service, field, {
-            allowedTools: policy.allowedTools,
-            allowedDomains: policy.allowedDomains,
+            allowedTools: policyInput.allowed_tools,
+            allowedDomains: policyInput.allowed_domains,
             usageDescription: policy.usageDescription,
             alias,
             injectionTemplates,
