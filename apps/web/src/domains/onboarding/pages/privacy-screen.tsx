@@ -80,7 +80,11 @@ export function PrivacyScreen() {
   // pre-chat flow background-hatches the assistant, so post-consent it skips
   // the standalone hatching screen and goes straight to prechat. Every other
   // arm (control / variant-a) keeps the hatching step.
-  const { arm: activationArm } = useActivationFlowArm();
+  // `arm` is provisionally `control` until `settled` — gating Start on
+  // `settled` ensures a targeted personal-page user can't accept consent and
+  // get routed down the non-cast (hatching) path before their arm resolves.
+  const { arm: activationArm, settled: activationSettled } =
+    useActivationFlowArm();
   const isCastArm = activationArm === "personal-page";
   const preferredFunnelVariant =
     onboardingFunnelVariantFromExperiment(preChatExperimentArm);
@@ -274,7 +278,14 @@ export function PrivacyScreen() {
             variant="primary"
             size="regular"
             fullWidth
-            disabled={!tosAccepted || !aiDataConsent}
+            disabled={
+              !tosAccepted ||
+              !aiDataConsent ||
+              // Don't act on a provisional arm: hold Start until the activation
+              // flag settles so the cast-vs-hatching decision is final. Preview
+              // doesn't branch on the arm, so it isn't gated.
+              (!isPreview && !activationSettled)
+            }
             onClick={onStart}
             className={electron ? undefined : "h-11 text-base"}
           >

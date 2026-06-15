@@ -1,6 +1,7 @@
 import { Suspense, lazy } from "react";
 
 import { PreChatFlow } from "@/domains/onboarding/pages/pre-chat-flow";
+import { usePreChatConsentGate } from "@/domains/onboarding/use-prechat-consent-gate";
 import { useActivationFlowArm } from "@/hooks/use-client-feature-flag-sync";
 
 const CastOnboardingFlow = lazy(() =>
@@ -8,6 +9,24 @@ const CastOnboardingFlow = lazy(() =>
     default: m.CastOnboardingFlow,
   })),
 );
+
+/**
+ * Cast branch wrapper that enforces the same consent gate the legacy
+ * `PreChatFlow` runs internally. Without this, a user who navigates directly
+ * to `/assistant/onboarding/prechat` on the personal-page arm would mount the
+ * cast flow without ever having accepted ToS / AI-data consent. Mirrors
+ * `pre-chat-flow.tsx`: redirect to the privacy screen until consent is ready.
+ */
+function CastPreChatFlow() {
+  const consentReady = usePreChatConsentGate();
+  if (!consentReady) return null;
+
+  return (
+    <Suspense fallback={null}>
+      <CastOnboardingFlow />
+    </Suspense>
+  );
+}
 
 /**
  * Routing seam for `onboarding/prechat`. Picks the onboarding flow by
@@ -27,11 +46,7 @@ export function PreChatRoute() {
   if (!settled) return null;
 
   if (arm === "personal-page") {
-    return (
-      <Suspense fallback={null}>
-        <CastOnboardingFlow />
-      </Suspense>
-    );
+    return <CastPreChatFlow />;
   }
 
   return <PreChatFlow />;
