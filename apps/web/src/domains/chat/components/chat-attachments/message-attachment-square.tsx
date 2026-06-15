@@ -3,7 +3,6 @@ import {
     Archive,
     Code2,
     Download,
-    Eye,
     FileAudio,
     File as FileIcon,
     FileImage,
@@ -31,7 +30,7 @@ interface MessageAttachmentSquareProps {
   previewUrl: string | null;
   /** Called when the user clicks the thumbnail to open a full-screen preview. */
   onPreview?: () => void;
-  /** Called when the user clicks the download overlay button. */
+  /** Called when the user clicks a download button. */
   onDownload?: () => void;
 }
 
@@ -51,8 +50,9 @@ const ICON_BY_KIND: Record<AttachmentIconKind, ReactNode> = {
 /**
  * Square thumbnail used inside message bubbles. Image attachments render their
  * preview edge-to-edge; non-image attachments fall back to a neutral surface
- * with an icon. On hover, an overlay reveals Eye (preview) and Download action
- * buttons so users can act without opening the full-screen preview modal first.
+ * with an icon. On hover, a download overlay appears at the bottom-right of
+ * the thumbnail. An always-visible small download button also sits inline next
+ * to the file size for quick access without hovering.
  */
 export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
   filename,
@@ -67,15 +67,6 @@ export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
   const isClickable = onPreview != null;
   const displayName = middleTruncate(filename, 18);
   const displaySize = formatAttachmentSize(sizeBytes);
-  const hasOverlayActions = onPreview != null || onDownload != null;
-
-  const handlePreviewClick = useCallback(
-    (e: MouseEvent) => {
-      e.stopPropagation();
-      onPreview?.();
-    },
-    [onPreview],
-  );
 
   const handleDownloadClick = useCallback(
     (e: MouseEvent) => {
@@ -115,32 +106,18 @@ export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
         >
           {hasImagePreview ? null : ICON_BY_KIND[kind]}
         </div>
-        {hasOverlayActions && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-1 rounded-lg bg-black/50 opacity-0 transition-opacity group-hover/square:pointer-events-auto group-hover/square:opacity-100 group-focus-within/square:pointer-events-auto group-focus-within/square:opacity-100">
-            {onPreview && (
-              <Tooltip content="Preview">
-                <button
-                  type="button"
-                  onClick={handlePreviewClick}
-                  aria-label={`Preview ${filename}`}
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-white/80 transition-colors hover:bg-white/20 hover:text-white"
-                >
-                  <Eye className="h-4 w-4" />
-                </button>
-              </Tooltip>
-            )}
-            {onDownload && (
-              <Tooltip content="Download">
-                <button
-                  type="button"
-                  onClick={handleDownloadClick}
-                  aria-label={`Download ${filename}`}
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-white/80 transition-colors hover:bg-white/20 hover:text-white"
-                >
-                  <Download className="h-4 w-4" />
-                </button>
-              </Tooltip>
-            )}
+        {onDownload && (
+          <div className="pointer-events-none absolute inset-0 rounded-lg bg-black/50 opacity-0 transition-opacity group-hover/square:pointer-events-auto group-hover/square:opacity-100 group-focus-within/square:pointer-events-auto group-focus-within/square:opacity-100">
+            <Tooltip content="Download">
+              <button
+                type="button"
+                onClick={handleDownloadClick}
+                aria-label={`Download ${filename}`}
+                className="absolute bottom-1 right-1 flex h-6 w-6 items-center justify-center rounded-md text-white/80 transition-colors hover:bg-white/20 hover:text-white"
+              >
+                <Download className="h-3.5 w-3.5" />
+              </button>
+            </Tooltip>
           </div>
         )}
       </div>
@@ -150,12 +127,26 @@ export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
       >
         {displayName}
       </Typography>
-      <Typography
-        variant="label-small-default"
-        className="text-[var(--content-disabled)]"
-      >
-        {displaySize}
-      </Typography>
+      <div className="flex max-w-[64px] items-center gap-0.5">
+        <Typography
+          variant="label-small-default"
+          className="truncate text-[var(--content-disabled)]"
+        >
+          {displaySize}
+        </Typography>
+        {onDownload && (
+          <Tooltip content="Download">
+            <button
+              type="button"
+              onClick={handleDownloadClick}
+              aria-label={`Download ${filename}`}
+              className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-[var(--content-disabled)] transition-colors hover:text-[var(--content-secondary)]"
+            >
+              <Download className="h-3 w-3" />
+            </button>
+          </Tooltip>
+        )}
+      </div>
     </div>
   );
 };
