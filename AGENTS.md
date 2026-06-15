@@ -108,7 +108,7 @@ Proactively remove unused code during every change. Remove code your change make
 
 ## Code Comments
 
-**Comments describe the present; PRs describe the history.** Code comments should describe what the code *is* and *does* right now — never how it got there, what it replaced, or what changed in a PR. History, reasoning, and migration context belong in PR descriptions and commit messages, which are the permanent record of *how we got here*.
+**Comments describe the present; PRs describe the history.** Code comments should describe what the code *is* and *does* right now — never how it got there, what it replaced, or what changed in a PR. History and reasoning belong in PR descriptions and commit messages, which are the permanent record of *how we got here*.
 
 - Do NOT use temporal language: "now uses", "no longer", "was previously", "instead of the old approach", "after the refactor".
 - Do NOT describe the diff: "externalUserId is not consulted", "moved from X to Y", "fix for when Z happens".
