@@ -13,22 +13,22 @@
  * identically.
  */
 
-import { getConfig } from "../../config/loader.js";
+import { getConfig } from "../config/loader.js";
 import {
   setSlackChannelConfig,
   type SlackChannelConfigResult,
-} from "../../daemon/handlers/config-slack-channel.js";
-import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
-import type { SecretDelivery } from "../../permissions/secret-prompter.js";
-import { credentialKey } from "../../security/credential-key.js";
-import { setSecureKeyAsync } from "../../security/secure-keys.js";
-import { getLogger } from "../../util/logger.js";
-import { credentialBroker } from "./broker.js";
+} from "../daemon/handlers/config-slack-channel.js";
+import { syncManualTokenConnection } from "../oauth/manual-token-connection.js";
+import type { SecretDelivery } from "../permissions/secret-prompter.js";
+import { credentialKey } from "../security/credential-key.js";
+import { setSecureKeyAsync } from "../security/secure-keys.js";
+import { credentialBroker } from "../tools/credentials/broker.js";
 import {
   getCredentialMetadata,
   upsertCredentialMetadata,
-} from "./metadata-store.js";
-import type { CredentialInjectionTemplate } from "./policy-types.js";
+} from "../tools/credentials/metadata-store.js";
+import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
+import { getLogger } from "../util/logger.js";
 
 const log = getLogger("prompted-credential");
 
