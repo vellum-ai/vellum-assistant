@@ -14,6 +14,8 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 
+import { Button, Input } from "@vellumai/design-library";
+
 import { AppleLogo } from "@/components/icons/apple-logo";
 import { GoogleLogo } from "@/components/icons/google-logo";
 import { publicAsset } from "@/utils/public-asset";
@@ -154,10 +156,9 @@ export function LoginScreen({ onAdvance, onContinue, onIdentity }: LoginScreenPr
 
                 <div className="cast-login__buttons">
                   {buttons.map((btn, i) => (
-                    <motion.button
+                    <motion.div
                       key={btn.label}
-                      className="cast-login__btn"
-                      onClick={handleLogin}
+                      className="cast-login__btn-row"
                       initial={{ opacity: 0, y: 8 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.3, delay: 0.38 + i * 0.08 }}
@@ -165,9 +166,16 @@ export function LoginScreen({ onAdvance, onContinue, onIdentity }: LoginScreenPr
                       {i === 0 && (
                         <span className="cast-login__tag">Most used</span>
                       )}
-                      {btn.icon}
-                      {btn.label}
-                    </motion.button>
+                      <Button
+                        variant="outlined"
+                        fullWidth
+                        leftIcon={btn.icon}
+                        className="cast-login__btn"
+                        onClick={handleLogin}
+                      >
+                        {btn.label}
+                      </Button>
+                    </motion.div>
                   ))}
                 </div>
 
@@ -183,16 +191,20 @@ export function LoginScreen({ onAdvance, onContinue, onIdentity }: LoginScreenPr
                   </button>
                 </motion.p>
 
-                <motion.a
-                  className="cast-login__download"
-                  href="/downloads"
+                <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ duration: 0.3, delay: 0.75 }}
                 >
-                  <AppleLogo size={16} />
-                  Download for macOS
-                </motion.a>
+                  <Button
+                    asChild
+                    variant="outlined"
+                    leftIcon={<AppleLogo size={16} />}
+                    className="cast-login__download"
+                  >
+                    <a href="/downloads">Download for macOS</a>
+                  </Button>
+                </motion.div>
               </motion.div>
             ) : (
               <motion.div
@@ -214,12 +226,14 @@ export function LoginScreen({ onAdvance, onContinue, onIdentity }: LoginScreenPr
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.35, delay: 0.15 }}
                 >
-                  <span className="cast-about__label">
-                    What should I call you?{" "}
-                    <span className="cast-about__req">*</span>
-                  </span>
-                  <input
-                    className="cast-about__input"
+                  <Input
+                    fullWidth
+                    label={
+                      <>
+                        What should I call you?{" "}
+                        <span className="cast-about__req">*</span>
+                      </>
+                    }
                     type="text"
                     placeholder="First name"
                     value={firstName}
@@ -234,12 +248,14 @@ export function LoginScreen({ onAdvance, onContinue, onIdentity }: LoginScreenPr
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.35 }}
                 >
-                  <span className="cast-about__label">
-                    And your last name?{" "}
-                    <span className="cast-about__req">*</span>
-                  </span>
-                  <input
-                    className="cast-about__input"
+                  <Input
+                    fullWidth
+                    label={
+                      <>
+                        And your last name?{" "}
+                        <span className="cast-about__req">*</span>
+                      </>
+                    }
                     type="text"
                     placeholder="Last name"
                     value={lastName}
@@ -253,11 +269,13 @@ export function LoginScreen({ onAdvance, onContinue, onIdentity }: LoginScreenPr
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.35 }}
                 >
-                  <span className="cast-about__label">
-                    Your role <span className="cast-about__req">*</span>
-                  </span>
-                  <input
-                    className="cast-about__input"
+                  <Input
+                    fullWidth
+                    label={
+                      <>
+                        Your role <span className="cast-about__req">*</span>
+                      </>
+                    }
                     type="text"
                     placeholder="e.g. Software Engineer"
                     value={role}
@@ -271,13 +289,15 @@ export function LoginScreen({ onAdvance, onContinue, onIdentity }: LoginScreenPr
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.35 }}
                 >
-                  <button
+                  <Button
+                    variant="primary"
+                    fullWidth
                     className="cast-about__continue"
                     onClick={handleContinue}
                     disabled={!canContinue}
                   >
                     Continue &rarr;
-                  </button>
+                  </Button>
                 </motion.div>
               </motion.div>
             )}
