@@ -140,7 +140,7 @@ export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
               type="button"
               onClick={handleDownloadClick}
               aria-label={`Download ${filename}`}
-              className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-[var(--content-disabled)] transition-colors hover:text-[var(--content-secondary)]"
+              className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)]"
             >
               <Download className="h-3 w-3" />
             </button>
