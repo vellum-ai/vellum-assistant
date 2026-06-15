@@ -23,13 +23,17 @@
   user-select: none;
   -webkit-user-select: none;
 }
-/* Full-window stage. */
+/* Full-window stage. Owns the ONE consistent backdrop for the whole flow: the
+   dark-green editorial vignette sits here (the common ancestor wrapping every
+   phase — login, the SetupShell phases, the customize overlay, style, done) so
+   the backdrop never flips green↔black as phases enter/leave the shell.
+   (bespoke: the cast green is brighter than --system-positive-*, no token.) */
 .cast-panel {
   position: relative;
   width: 100vw;
   height: 100dvh;
   overflow: hidden;
-  background: radial-gradient(120% 90% at 50% 0%, var(--surface-lift) 0%, var(--surface-base) 60%, var(--cast-shroud) 100%);
+  background: radial-gradient(ellipse at 50% 30%, #162b16 0%, #0f1f0f 40%, #091509 100%);
   color: var(--content-default);
 }
 
@@ -101,9 +105,10 @@
   z-index: 3;
   display: flex;
   flex-direction: column;
-  /* bespoke: dark-green editorial vignette for the setup stage (no token
-     equivalent — the cast green is brighter than --system-positive-*). */
-  background: radial-gradient(ellipse at 50% 30%, #162b16 0%, #0f1f0f 40%, #091509 100%);
+  /* No backdrop here: the green vignette now lives on `.cast-panel` so it stays
+     consistent across every phase. SetupShell keeps only its structural chrome
+     (logo/topbar/grid-art), drawn by its children over the shared panel green. */
+  background: transparent;
 }
 
 /* ---- bottom controls ---- */
