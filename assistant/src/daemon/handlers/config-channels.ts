@@ -332,7 +332,11 @@ export async function verifyTrustedContact(
         channel: verificationChannel,
         expectedChatId: channel.externalChatId,
         expectedExternalUserId:
-          channel.externalUserId ?? channel.address ?? undefined,
+          channel.externalUserId ??
+          (channel.address !== channel.externalChatId
+            ? channel.address
+            : undefined) ??
+          undefined,
         identityBindingStatus: "bound",
         destinationAddress: effectiveDestination,
         verificationPurpose: "trusted_contact",
@@ -411,7 +415,11 @@ export async function verifyTrustedContact(
     const sessionResult = createOutboundSession({
       channel: verificationChannel,
       expectedExternalUserId:
-        channel.externalUserId ?? channel.address ?? undefined,
+        channel.externalUserId ??
+        (channel.address !== channel.externalChatId
+          ? channel.address
+          : undefined) ??
+        undefined,
       expectedChatId: channel.externalChatId ?? undefined,
       identityBindingStatus: "bound",
       destinationAddress: slackUserId,
