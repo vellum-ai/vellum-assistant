@@ -272,17 +272,30 @@ function buildToolApprovalCardBlocks(
     subtitle = truncate(toolName, 150);
   }
 
+  const needsOverflow = messageText.length > 200;
   const card: Record<string, unknown> = {
     type: "card",
     title: {
       type: "plain_text",
       text: details ? "Tool Approval" : "Approval Request",
     },
-    body: { type: "mrkdwn", text: truncate(messageText, 200) },
+    body: {
+      type: "mrkdwn",
+      text: needsOverflow ? truncate(messageText, 197) + " ↓" : messageText,
+    },
     actions: buildCardActions(approval),
   };
   if (subtitle) card.subtitle = { type: "mrkdwn", text: subtitle };
   blocks.push(card);
+
+  // When the message exceeds the card body limit, show the full text in a
+  // companion section so the approver can see the complete command/context.
+  if (needsOverflow) {
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: messageText },
+    });
+  }
 
   return blocks;
 }
