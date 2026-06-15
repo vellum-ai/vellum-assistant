@@ -85,16 +85,21 @@ export function conversationListInfiniteOptions(assistantId: string) {
   return infiniteQueryOptions({
     queryKey: conversationListInfiniteQueryKey(assistantId),
     queryFn: async ({ pageParam, signal }): Promise<ConversationPage> => {
-      const { data } = await conversationsGet({
+      const { data, error, response } = await conversationsGet({
         path: { assistant_id: assistantId },
         query: { limit: CONVERSATION_LIST_PAGE_SIZE, offset: pageParam },
         signal,
-        throwOnError: true,
+        throwOnError: false,
       });
+      assertHasResponse(response, error, "Failed to list conversations.");
+      if (!response.ok) {
+        const msg = extractErrorMessage(error, response, "Failed to list conversations.");
+        throw new ApiError(response.status, msg);
+      }
       return {
-        conversations: (data.conversations ?? []).map(toConversation),
-        hasMore: data.hasMore ?? false,
-        nextOffset: data.nextOffset ?? 0,
+        conversations: (data?.conversations ?? []).map(toConversation),
+        hasMore: data?.hasMore ?? false,
+        nextOffset: data?.nextOffset ?? 0,
       };
     },
     initialPageParam: 0,
