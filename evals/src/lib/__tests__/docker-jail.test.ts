@@ -39,14 +39,14 @@ describe("docker egress jail", () => {
     // WHEN deriving the assistant, jail, and network names
     // THEN each is a deterministic suffix of the run id, so cleanup is
     // idempotent and debuggable across owner/attach modes.
-    expect(vellumDockerAssistantContainer("eval-vellum-bare")).toBe(
-      "eval-vellum-bare-assistant",
+    expect(vellumDockerAssistantContainer("eval-vellum-default")).toBe(
+      "eval-vellum-default-assistant",
     );
-    expect(dockerEgressJailContainerName("eval-vellum-bare")).toBe(
-      "eval-vellum-bare-egress-jail",
+    expect(dockerEgressJailContainerName("eval-vellum-default")).toBe(
+      "eval-vellum-default-egress-jail",
     );
-    expect(dockerEgressJailNetworkName("eval-vellum-bare")).toBe(
-      "eval-vellum-bare-egress-net",
+    expect(dockerEgressJailNetworkName("eval-vellum-default")).toBe(
+      "eval-vellum-default-egress-net",
     );
   });
 
@@ -233,12 +233,16 @@ describe("docker egress jail", () => {
   });
 
   test("DEFAULT_MODEL_ALLOW_HOSTS stays bounded to recognized model providers", () => {
-    // The mitmproxy addon (addon.py) parses usage out of these hosts'
-    // response bodies. Adding a non-model host here would either be
-    // dead code in the addon or, worse, would trip its parser. New
-    // infra hosts belong in DEFAULT_INFRA_ALLOW_HOSTS.
+    // The mitmproxy addon (addon.py) only parses usage for the
+    // providers it recognizes (Anthropic today); other model hosts
+    // flow through unparsed. Adding a non-model host here would be dead
+    // code in the addon at best, so new infra hosts belong in
+    // DEFAULT_INFRA_ALLOW_HOSTS. Fireworks is a genuine model provider
+    // (open-weight models over an OpenAI-compatible API), so it belongs
+    // here even though its usage isn't parsed yet.
     expect(DEFAULT_MODEL_ALLOW_HOSTS.sort()).toEqual([
       "api.anthropic.com",
+      "api.fireworks.ai",
       "api.openai.com",
       "generativelanguage.googleapis.com",
     ]);

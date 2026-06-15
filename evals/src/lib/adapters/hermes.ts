@@ -272,8 +272,8 @@ export interface HermesInferenceSelection {
  * Pinning the provider to the forwarded key's native backend keeps every
  * call on an allowlisted host. Hermes requires a model alongside an explicit
  * provider, so we pin one too; the values are the current flagship for each
- * provider, matching the model the stock Vellum daemon uses, so vellum-bare
- * and hermes-bare compare on the same model.
+ * provider, matching the model the stock Vellum daemon uses, so vellum-default
+ * and hermes-default compare on the same model.
  *
  * Only keys with a native API-key backend in the pinned image are mapped.
  * `nousresearch/hermes-agent`'s `PROVIDER_REGISTRY` registers `anthropic`
@@ -588,7 +588,7 @@ export class HermesAgent implements BaseAgent {
    *
    * Hermes installs provider/tool backends lazily on first use via an
    * in-venv install (`tools.lazy_deps.ensure`). The native Anthropic SDK is
-   * one such lazy dep, so a `hermes-bare` run keyed on `ANTHROPIC_API_KEY`
+   * one such lazy dep, so a `hermes-default` run keyed on `ANTHROPIC_API_KEY`
    * would otherwise reach for PyPI on its first model call — which the
    * fail-closed jail blocks, hanging the turn until it times out. We invoke
    * Hermes's own installer here, while egress is still open, so it resolves
