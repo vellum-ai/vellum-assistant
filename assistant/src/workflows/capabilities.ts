@@ -36,6 +36,7 @@
 
 import { z } from "zod";
 
+import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { resolveExecutionTarget } from "../tools/execution-target.js";
 import {
   getCoreToolOverride,
@@ -186,6 +187,24 @@ export function normalizeCapabilityManifest(
 export function manifestGrantsSideEffects(rawCapabilities: unknown): boolean {
   const m = normalizeCapabilityManifest(rawCapabilities);
   return m.tools.length > 0 || m.hostFunctions.length > 0;
+}
+
+/**
+ * Whether `caller` may see and control a workflow run. A guardian (the trusted
+ * user) owns every run; any other actor owns only runs ORIGINATED by their own
+ * conversation (`run.conversationId` is the launching conversation `run_workflow`
+ * records). THE single authorization scope shared by the `manage_workflows` tool
+ * and the executor's resume-approval gate, so the gate never prompts for — and
+ * thereby leaks the existence of — a run the tool would hide as not-found.
+ */
+export function callerOwnsWorkflowRun(
+  run: { conversationId: string | null },
+  caller: { trustClass: TrustClass; conversationId: string },
+): boolean {
+  return (
+    caller.trustClass === "guardian" ||
+    run.conversationId === caller.conversationId
+  );
 }
 
 /**

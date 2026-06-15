@@ -134,7 +134,10 @@ mock.module("../permissions/gateway-threshold-reader.js", () => ({
 // Stub the workflow run manager so the `manage_workflows` resume gate can read a
 // target run's STORED capabilities without a real journal/DB. Tests set
 // `fakeWorkflowRun` to control the stored manifest (or null for "not found").
-let fakeWorkflowRun: { capabilities: unknown } | null = null;
+let fakeWorkflowRun: {
+  capabilities: unknown;
+  conversationId: string | null;
+} | null = null;
 mock.module("../workflows/run-manager.js", () => ({
   getWorkflowRunManager: () => ({
     status: (_runId: string) => fakeWorkflowRun,
@@ -575,7 +578,10 @@ describe("requireFreshApproval: workflow capability grants", () => {
   test("manage_workflows resume of a side-effecting run requires fresh approval", async () => {
     // The target run's STORED manifest granted tools, so resuming it (which
     // restarts unfinished side-effecting leaves) must re-prompt.
-    fakeWorkflowRun = { capabilities: { tools: ["bash"] } };
+    fakeWorkflowRun = {
+      capabilities: { tools: ["bash"] },
+      conversationId: "conversation-1",
+    };
     checkResultOverride = { decision: "allow", reason: "allowed" };
     const state = { prompted: false };
     const executor = new ToolExecutor(trackingPrompter(state));
@@ -592,7 +598,7 @@ describe("requireFreshApproval: workflow capability grants", () => {
   });
 
   test("manage_workflows resume of a read-only run stays silent", async () => {
-    fakeWorkflowRun = { capabilities: {} };
+    fakeWorkflowRun = { capabilities: {}, conversationId: "conversation-1" };
     checkResultOverride = { decision: "allow", reason: "allowed" };
     const state = { prompted: false };
     const executor = new ToolExecutor(trackingPrompter(state));
@@ -611,7 +617,10 @@ describe("requireFreshApproval: workflow capability grants", () => {
   test("manage_workflows non-resume actions never gate (status of a side-effecting run)", async () => {
     // Even though the run granted tools, status/abort/list_runs are pure
     // control/reads and must stay low-risk and silent.
-    fakeWorkflowRun = { capabilities: { tools: ["bash"] } };
+    fakeWorkflowRun = {
+      capabilities: { tools: ["bash"] },
+      conversationId: "conversation-1",
+    };
     checkResultOverride = { decision: "allow", reason: "allowed" };
     const state = { prompted: false };
     const executor = new ToolExecutor(trackingPrompter(state));
@@ -642,5 +651,54 @@ describe("requireFreshApproval: workflow capability grants", () => {
 
     expect(ctx.requireFreshApproval).toBeUndefined();
     expect(state.prompted).toBe(false);
+  });
+
+  test("a non-owner resuming another conversation's side-effecting run does NOT gate (no prompt, no existence leak)", async () => {
+    // The run is side-effecting but belongs to a different conversation. The
+    // tool will hide it as not-found, so the gate must not prompt — otherwise it
+    // leaks that the run exists and nags the guardian for a no-op resume.
+    fakeWorkflowRun = {
+      capabilities: { tools: ["bash"] },
+      conversationId: "other-conversation",
+    };
+    checkResultOverride = { decision: "allow", reason: "allowed" };
+    const state = { prompted: false };
+    const executor = new ToolExecutor(trackingPrompter(state));
+    const ctx = makeContext({
+      trustClass: "trusted_contact",
+      conversationId: "conversation-1",
+    });
+
+    await executor.execute(
+      "manage_workflows",
+      { action: "resume", run_id: "wf-run-1" },
+      ctx,
+    );
+
+    expect(ctx.requireFreshApproval).toBeUndefined();
+    expect(state.prompted).toBe(false);
+  });
+
+  test("a non-owner resuming its OWN side-effecting run still gates", async () => {
+    fakeWorkflowRun = {
+      capabilities: { tools: ["bash"] },
+      conversationId: "conversation-1",
+    };
+    checkResultOverride = { decision: "allow", reason: "allowed" };
+    const state = { prompted: false };
+    const executor = new ToolExecutor(trackingPrompter(state));
+    const ctx = makeContext({
+      trustClass: "trusted_contact",
+      conversationId: "conversation-1",
+    });
+
+    await executor.execute(
+      "manage_workflows",
+      { action: "resume", run_id: "wf-run-1" },
+      ctx,
+    );
+
+    expect(ctx.requireFreshApproval).toBe(true);
+    expect(state.prompted).toBe(true);
   });
 });

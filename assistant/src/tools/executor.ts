@@ -12,7 +12,10 @@ import { TokenExpiredError } from "../security/token-manager.js";
 import { PermissionDeniedError, ToolError } from "../util/errors.js";
 import { pathExists, safeStatSync } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
-import { manifestGrantsSideEffects } from "../workflows/capabilities.js";
+import {
+  callerOwnsWorkflowRun,
+  manifestGrantsSideEffects,
+} from "../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { resolveExecutionTarget } from "./execution-target.js";
 import { executeWithTimeout, safeTimeoutMs } from "./execution-timeout.js";
@@ -173,7 +176,16 @@ export class ToolExecutor {
         const targetRun = targetRunId
           ? getWorkflowRunManager().status(targetRunId)
           : null;
-        if (targetRun && manifestGrantsSideEffects(targetRun.capabilities)) {
+        // Only promote to fresh approval for a run the caller actually OWNS. The
+        // tool hides others' runs as not-found, so prompting here for a
+        // non-owned run would both leak that the run exists and nag the guardian
+        // for a resume that will return not-found. Uses the same ownership scope
+        // the tool applies (callerOwnsWorkflowRun) so the gate and the tool agree.
+        if (
+          targetRun &&
+          callerOwnsWorkflowRun(targetRun, context) &&
+          manifestGrantsSideEffects(targetRun.capabilities)
+        ) {
           context.requireFreshApproval = true;
         }
       }

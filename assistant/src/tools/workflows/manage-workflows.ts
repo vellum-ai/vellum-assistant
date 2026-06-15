@@ -13,6 +13,7 @@
  * by the type checker.
  */
 
+import { callerOwnsWorkflowRun } from "../../workflows/capabilities.js";
 import type { WorkflowRun } from "../../workflows/journal-store.js";
 import { getWorkflowRunManager } from "../../workflows/run-manager.js";
 import {
@@ -30,18 +31,15 @@ async function executeManageWorkflows(
   const runId = input.run_id as string | undefined;
   const manager = getWorkflowRunManager();
 
-  // Authorization scope. Management is restricted to the caller: a guardian (the
-  // trusted user) may inspect/control every run, but a non-guardian conversation
-  // is limited to runs IT originated. Without this, a contact could enumerate a
-  // guardian's workflows (names/statuses) via list_runs and then abort/resume
-  // them by id — the tool is low-risk and reachable in non-guardian
-  // conversations. `run.conversationId` is the launching conversation
-  // (run_workflow forwards `context.conversationId`); a non-guardian only owns
-  // runs whose conversation matches theirs. A run the caller may not see is
+  // Authorization scope ({@link callerOwnsWorkflowRun}, shared with the
+  // executor's resume-approval gate): a guardian may inspect/control every run,
+  // but a non-guardian conversation is limited to runs IT originated. Without
+  // this, a contact could enumerate a guardian's workflows (names/statuses) via
+  // list_runs and then abort/resume them by id — the tool is low-risk and
+  // reachable in non-guardian conversations. A run the caller may not see is
   // treated as not-found so the tool never reveals another conversation's run.
-  const isGuardian = context.trustClass === "guardian";
   const ownsRun = (run: WorkflowRun): boolean =>
-    isGuardian || run.conversationId === context.conversationId;
+    callerOwnsWorkflowRun(run, context);
 
   switch (action) {
     case "status": {
