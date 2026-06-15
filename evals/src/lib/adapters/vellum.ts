@@ -8,6 +8,7 @@ import type {
   AgentMessage,
   BaseAgent,
   ConfirmationDecision,
+  ResolvedAppPage,
   WorkspaceFileWrite,
 } from "../adapter";
 import type { Profile } from "../profile";
@@ -29,6 +30,7 @@ import {
 } from "../runtime/command-runner";
 import { parseNdjson } from "../runtime/ndjson";
 import { assertSafeWorkspacePath } from "./workspace-path";
+import { inlineAppDist } from "./vellum-app-page";
 
 export interface VellumAgentOptions {
   profile: Profile;
@@ -212,6 +214,16 @@ function parseConversationKey(output: string): string | null {
  * so duplication here is intentional.
  */
 const CONTAINER_WORKSPACE_DIR = "/workspace";
+
+/**
+ * Directory inside the assistant container where the app builder writes
+ * compiled sandbox apps: `<dirName>/dist/index.html` plus sibling
+ * `main.js` / `main.css`. Derived from the daemon's app-store layout
+ * (`getAppsDir()` = `<workspace>/data/apps` in `assistant/src/memory/`),
+ * pinned here because adapters do NOT import from `assistant/` (see
+ * `evals/AGENTS.md`); if the daemon's layout moves, this moves with it.
+ */
+const CONTAINER_APPS_DIR = `${CONTAINER_WORKSPACE_DIR}/data/apps`;
 
 /**
  * Internal port the gateway reverse-proxy listens on inside the container,
@@ -699,6 +711,72 @@ export class VellumAgent implements BaseAgent {
 
   async readUsageRecords(): Promise<Array<Record<string, unknown>>> {
     return this.jail?.readUsageRecords() ?? [];
+  }
+
+  /**
+   * Resolve the most recently built sandbox app into a single
+   * self-contained HTML page the runner can load in a headless browser.
+   *
+   * The app builder compiles apps to `dist/index.html` plus sibling
+   * `main.js` / `main.css` under `${CONTAINER_APPS_DIR}/<dirName>/`. We
+   * read those files straight off the container's stdout (no `docker cp`
+   * round-trip) and inline the assets so the result renders from
+   * `page.setContent(html)` alone — the daemon performs the equivalent
+   * inlining when it delivers an app over SSE.
+   *
+   * Returns `undefined` when the agent built no app this run, so the
+   * runner skips the app-interaction phase.
+   */
+  async resolveAppPage(): Promise<ResolvedAppPage | undefined> {
+    this.assertHatched();
+    const distDir = await this.findNewestAppDistDir();
+    if (distDir === undefined) return undefined;
+    const indexHtml = await this.readContainerTextFile(`${distDir}/index.html`);
+    if (indexHtml === undefined) return undefined;
+    const mainJs = await this.readContainerTextFile(`${distDir}/main.js`);
+    const mainCss = await this.readContainerTextFile(`${distDir}/main.css`);
+    return { html: inlineAppDist({ indexHtml, mainJs, mainCss }) };
+  }
+
+  /**
+   * Find the `dist` directory of the most recently built app, or
+   * `undefined` when none exists. `ls -1t … | head -n1` returns the
+   * newest `dist/index.html` by mtime; the dist dir is the path up to
+   * its last `/`. The glob is quoted so the shell — not this process —
+   * expands it inside the container, and `2>/dev/null` swallows the
+   * "no matches" stderr so the command still exits 0 with empty stdout.
+   */
+  private async findNewestAppDistDir(): Promise<string | undefined> {
+    const result = await this.runner.run("docker", [
+      "exec",
+      this.assistantContainerName,
+      "sh",
+      "-lc",
+      `ls -1t ${CONTAINER_APPS_DIR}/*/dist/index.html 2>/dev/null | head -n1`,
+    ]);
+    const indexPath = result.stdout.trim();
+    if (indexPath === "") return undefined;
+    return indexPath.slice(0, indexPath.lastIndexOf("/"));
+  }
+
+  /**
+   * Read a UTF-8 text file out of the assistant container via
+   * `docker exec cat`, or `undefined` when it doesn't exist. Used for
+   * the optional `main.js` / `main.css` assets, so a non-zero exit
+   * (missing file) is a normal "asset absent" signal rather than an
+   * error — hence the exit-code check instead of `assertSuccess`.
+   */
+  private async readContainerTextFile(
+    containerPath: string,
+  ): Promise<string | undefined> {
+    const result = await this.runner.run("docker", [
+      "exec",
+      this.assistantContainerName,
+      "cat",
+      containerPath,
+    ]);
+    if (result.exitCode !== 0) return undefined;
+    return result.stdout;
   }
 
   async shutdown(): Promise<void> {
