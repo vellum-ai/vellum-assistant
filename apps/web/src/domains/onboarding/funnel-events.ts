@@ -8,6 +8,10 @@ const VARIANT_STORAGE_KEY = "onboarding.funnelVariant";
 export const ONBOARDING_FUNNEL_VARIANTS = {
   control: "control",
   paredDown: "pared_down",
+  // The cast / personal-page activation arm is a distinct arm, not part of the
+  // control/pared-down A/B split. Cast funnel steps report this deterministic
+  // label so they are never conflated with a stale stored control/variant value.
+  cast: "cast",
 } as const;
 
 export type OnboardingFunnelVariant =
@@ -96,7 +100,8 @@ function isOnboardingFunnelVariant(
 ): value is OnboardingFunnelVariant {
   return (
     value === ONBOARDING_FUNNEL_VARIANTS.control ||
-    value === ONBOARDING_FUNNEL_VARIANTS.paredDown
+    value === ONBOARDING_FUNNEL_VARIANTS.paredDown ||
+    value === ONBOARDING_FUNNEL_VARIANTS.cast
   );
 }
 

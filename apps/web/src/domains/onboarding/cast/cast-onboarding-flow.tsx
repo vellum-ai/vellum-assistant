@@ -53,7 +53,6 @@ import { DEFAULT_GROUP_ID } from "@/domains/onboarding/prechat-names";
 import {
   emitOnboardingFunnelStepCompleted,
   ONBOARDING_FUNNEL_STEPS,
-  resolveOnboardingFunnelVariant,
   ONBOARDING_FUNNEL_VARIANTS,
 } from "@/domains/onboarding/funnel-events";
 import { lifecycleService } from "@/assistant/lifecycle-service";
@@ -613,15 +612,16 @@ export function CastOnboardingFlow() {
   // Emit one cast funnel step per surviving phase. Gated exactly like
   // `pre-chat-flow.tsx`'s `emitWebFunnelStep`: skipped entirely in preview, and
   // (inside `emitOnboardingFunnelStepCompleted`) only sent when share-analytics
-  // is enabled. The cast arm always reports the `control` variant — it is a
-  // distinct activation arm, not part of the pared-down/control A/B split.
+  // is enabled. The cast arm always reports the deterministic `cast` variant —
+  // it is a distinct activation arm, not part of the pared-down/control A/B
+  // split. We pass the variant explicitly rather than resolving from stored
+  // state so a value cached under another experiment (e.g. `pared_down` from the
+  // privacy screen) can never leak into cast funnel events.
   function emitFunnelStep(phase: CastFunnelPhase): void {
     if (isPreview) return;
     emitOnboardingFunnelStepCompleted(CAST_FUNNEL_STEP_BY_PHASE[phase], {
       userId,
-      variant: resolveOnboardingFunnelVariant(
-        ONBOARDING_FUNNEL_VARIANTS.control,
-      ),
+      variant: ONBOARDING_FUNNEL_VARIANTS.cast,
     });
   }
 

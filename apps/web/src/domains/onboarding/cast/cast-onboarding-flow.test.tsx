@@ -74,8 +74,11 @@ mock.module("@/stores/resolved-assistants-store", () => ({
   },
 }));
 
+const setSearchParamsMock = mock(() => {});
 mock.module("react-router", () => ({
   useNavigate: () => navigateMock,
+  useSearchParams: () =>
+    [new URLSearchParams(), setSearchParamsMock] as const,
 }));
 
 // --- cast screens (driven via testid buttons) --------------------------------
