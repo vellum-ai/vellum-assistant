@@ -28,6 +28,7 @@ import {
   type SpawnedProcess,
 } from "../runtime/command-runner";
 import { parseNdjson } from "../runtime/ndjson";
+import { assertSafeWorkspacePath } from "./workspace-path";
 
 export interface VellumAgentOptions {
   profile: Profile;
@@ -223,31 +224,6 @@ const CONTAINER_WORKSPACE_DIR = "/workspace";
  * intentional; if the CLI default moves, this moves with it.
  */
 const GATEWAY_CONTAINER_PORT = 7830;
-
-/**
- * Validate a workspace-relative path before staging a file. Rejects
- * absolute paths (would escape the workspace root) and any segment
- * equal to `..` (path-traversal escape). Empty paths are rejected so
- * a typo can't write at the workspace root with an unnamed file.
- */
-function assertSafeWorkspacePath(relPath: string): void {
-  if (relPath.length === 0) {
-    throw new Error("workspace path must be non-empty");
-  }
-  if (relPath.startsWith("/")) {
-    throw new Error(
-      `workspace path must be workspace-relative, got absolute path: ${relPath}`,
-    );
-  }
-  const segments = relPath.split("/");
-  for (const segment of segments) {
-    if (segment === "..") {
-      throw new Error(
-        `workspace path must not escape the workspace root: ${relPath}`,
-      );
-    }
-  }
-}
 
 export class VellumAgent implements BaseAgent {
   readonly id: string;
