@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import { Button } from "@vellumai/design-library/components/button";
+import { Typography } from "@vellumai/design-library/components/typography";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -136,29 +138,48 @@ export function CastProof({
         )
       )}
 
-      <div className="cast-proof" style={{ top: box.top + box.size + 28 }}>
+      <div
+        className="cast-proof absolute inset-x-0 bottom-0 flex flex-col items-center gap-[var(--app-spacing-md)] px-[var(--app-spacing-xl)] pb-[28px]"
+        style={{ top: box.top + box.size + 28 }}
+      >
         {/* artifact card(s): one focused card, or a stack of a few quick wins.
             No receipt — the inference moment lives in the endpoint chat now. */}
-        <div className="cast-artifacts">
+        <div className="flex w-[min(520px,100%)] flex-col gap-2.5">
           {artifacts
             ? artifacts.map((a, i) => (
                 <motion.div
                   key={i}
-                  className="cast-artifact"
+                  className="flex w-full items-center gap-[var(--app-spacing-lg)] rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--surface-overlay)] px-[var(--app-spacing-lg)] py-[14px]"
                   initial={{ opacity: 0, y: 18 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.7 + i * 0.12, duration: 0.45, ease: "easeOut" }}
                 >
-                  <span className="cast-artifact__icon">
+                  <span className="h-11 w-11 flex-shrink-0">
                     <CastProp name={propKeys[i % propKeys.length]} className="cast-prop__art" />
                   </span>
-                  <div className="cast-artifact__body">
-                    <p className="cast-artifact__title">{a.title}</p>
-                    <p className="cast-artifact__desc">{a.description}</p>
+                  <div className="min-w-0 flex-1 text-left">
+                    <Typography
+                      as="p"
+                      variant="body-medium-default"
+                      className="mb-[3px] text-[15px] font-[650] leading-normal text-[var(--content-default)]"
+                    >
+                      {a.title}
+                    </Typography>
+                    <Typography
+                      as="p"
+                      variant="body-small-default"
+                      className="text-[13px] font-normal leading-[1.4] text-[var(--content-tertiary)]"
+                    >
+                      {a.description}
+                    </Typography>
                   </div>
-                  <button className="cast-artifact__open" onClick={() => openArtifact(i)}>
+                  <Button
+                    variant="ghost"
+                    onClick={() => openArtifact(i)}
+                    className="h-auto flex-shrink-0 rounded-[var(--radius-lg)] bg-[var(--surface-active)] px-[var(--app-spacing-lg)] py-[9px] text-[13px] font-[620] text-[var(--content-default)] hover:bg-[var(--border-element)]"
+                  >
                     Open
-                  </button>
+                  </Button>
                 </motion.div>
               ))
             : Array.from({ length: count }).map((_, i) => <ArtifactSkeleton key={i} />)}
@@ -167,17 +188,25 @@ export function CastProof({
         {/* Endpoint: drop into real chat, or boost with a prior assistant. */}
         {artifacts && (
           <motion.div
-            className="cast-endpoints"
+            className="mt-[22px] flex gap-[var(--app-spacing-md)]"
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.7 + count * 0.12 + 0.15, duration: 0.4, ease: "easeOut" }}
           >
-            <button className="cast-endpoints__primary" onClick={() => onEndpoint("chat")}>
+            <Button
+              variant="primary"
+              onClick={() => onEndpoint("chat")}
+              className="h-auto flex-1 rounded-[var(--radius-lg)] py-[14px] text-[15px] font-[640]"
+            >
               Start chatting
-            </button>
-            <button className="cast-endpoints__secondary" onClick={() => onEndpoint("boost")}>
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => onEndpoint("boost")}
+              className="h-auto flex-1 rounded-[var(--radius-lg)] bg-[var(--surface-hover)] py-[14px] text-[15px] font-[640] text-[var(--content-secondary)] hover:bg-[var(--surface-active)]"
+            >
               Give me a boost
-            </button>
+            </Button>
           </motion.div>
         )}
       </div>
@@ -343,14 +372,19 @@ function ArtifactOverlay({
 
   return (
     <motion.div
-      className="cast-overlay"
+      className="cast-overlay absolute inset-0 z-[9] flex justify-center overflow-y-auto"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
     >
-      <button className="cast-overlay__close" onClick={onClose} aria-label="Close">
+      <Button
+        variant="ghost"
+        onClick={onClose}
+        aria-label="Close"
+        className="absolute right-[var(--app-spacing-lg)] top-[var(--app-spacing-lg)] z-[2] h-9 w-9 rounded-[var(--radius-pill)] bg-[var(--surface-hover)] p-0 text-[15px] leading-none text-[var(--content-secondary)] hover:bg-[var(--surface-active)]"
+      >
         ✕
-      </button>
+      </Button>
 
       {/* the dude, small and persistent in the corner; scribbles while writing */}
       <div className="cast-overlay__dude">
@@ -365,23 +399,33 @@ function ArtifactOverlay({
       </div>
 
       <motion.div
-        className="cast-overlay__sheet"
+        className="mx-auto w-[min(620px,100%)] px-[28px] pb-[96px] pt-[64px]"
         initial={{ y: 24, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: 24, opacity: 0 }}
         transition={{ duration: 0.3, ease: "easeOut" }}
       >
-        <h1 className="cast-overlay__title">{title}</h1>
-        <div className="cast-overlay__body">
+        <Typography
+          as="h1"
+          variant="title-large"
+          className="mb-5 text-[28px] font-[680] leading-[1.2] tracking-[-0.02em] text-[var(--content-default)]"
+        >
+          {title}
+        </Typography>
+        <div className="cast-overlay__body min-h-[120px] text-[16px] leading-[1.75] text-[var(--content-secondary)]">
           {content === null ? (
-            <p className="cast-overlay__writing">Writing it out…</p>
+            <p className="italic text-[var(--content-tertiary)]">Writing it out…</p>
           ) : (
             <Markdown remarkPlugins={[remarkGfm]}>{revealed}</Markdown>
           )}
         </div>
-        <button className="cast-overlay__save" onClick={onSave}>
+        <Button
+          variant="ghost"
+          onClick={onSave}
+          className="mt-[26px] h-auto rounded-[var(--radius-lg)] border border-[var(--border-element)] bg-[var(--surface-hover)] px-[26px] py-[13px] text-[15px] font-[620] text-[var(--content-default)] hover:bg-[var(--surface-active)]"
+        >
           Save
-        </button>
+        </Button>
       </motion.div>
     </motion.div>
   );

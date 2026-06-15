@@ -1,4 +1,11 @@
-/* Cast — proof (receipt/artifact/hero), overlay, endpoints. Split from cast.css (PR 1, verbatim move). */
+/* Cast — proof view: bespoke artifact/aura visuals only.
+ *
+ * Chrome/layout/typography for the artifact cards, endpoint CTAs, and overlay
+ * sheet now live as Tailwind utilities + design-library components in
+ * cast-proof-view.tsx. What remains here is the irreducibly-bespoke surface:
+ * the persistent hero/prop positioning + drop-shadows, the prop-throw/juggle
+ * geometry, the skeleton shimmer, the overlay aura backdrop + scribble dude,
+ * and the markdown prose styling for the rendered artifact body. */
 
 
 /* the persistent character across beats — positioned + sized inline; props are
@@ -25,8 +32,7 @@
 }
 
 /* props placed relative to the hero box */
-.cast-prop,
-.cast-buddy {
+.cast-prop {
   position: absolute;
   aspect-ratio: 1;
 }
@@ -37,7 +43,8 @@
   overflow: visible;
   filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.45));
 }
-/* ---- Beat 6: proof (receipt + artifact) ---- */
+
+/* ---- Beat 6: proof (held / thrown props) ---- */
 
 .cast-proof-prop {
   position: absolute;
@@ -60,102 +67,14 @@
   filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.45));
 }
 
-/* artifact card(s): a single card, or a stack of a few quick wins */
-.cast-artifacts {
-  width: min(520px, 100%);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.cast-artifacts .cast-artifact {
-  width: 100%;
-}
-
+/* artifact scroll column — bespoke hidden scrollbar (no Tailwind equivalent);
+   layout/spacing lives on the element via Tailwind. */
 .cast-proof {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
-  padding: 0 20px 28px;
   overflow-y: auto;
   scrollbar-width: none;
 }
 .cast-proof::-webkit-scrollbar {
   display: none;
-}
-
-.cast-receipt {
-  width: min(520px, 100%);
-  text-align: center;
-}
-.cast-receipt__line {
-  margin: 0 0 var(--app-spacing-sm);
-  font-size: 18px;
-  font-weight: 560;
-  line-height: 1.45;
-  color: var(--content-default);
-  text-shadow: 0 2px 12px color-mix(in srgb, var(--cast-shroud) 70%, transparent);
-}
-.cast-receipt__offer {
-  color: var(--content-secondary);
-  font-weight: 600;
-}
-.cast-receipt__cta {
-  position: static;
-  margin-top: 14px;
-  width: 100%;
-}
-
-.cast-artifact {
-  width: min(520px, 100%);
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  background: var(--surface-overlay);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-xl);
-  padding: 14px var(--app-spacing-lg);
-}
-.cast-artifact__icon {
-  width: 44px;
-  height: 44px;
-  flex-shrink: 0;
-}
-.cast-artifact__body {
-  flex: 1;
-  min-width: 0;
-  text-align: left;
-}
-.cast-artifact__title {
-  margin: 0 0 3px;
-  font-size: 15px;
-  font-weight: 650;
-  color: var(--content-default);
-}
-.cast-artifact__desc {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.4;
-  color: var(--content-tertiary);
-}
-.cast-artifact__open {
-  flex-shrink: 0;
-  appearance: none;
-  border: none;
-  background: var(--surface-active);
-  color: var(--content-default);
-  font-size: 13px;
-  font-weight: 620;
-  padding: 9px var(--app-spacing-lg);
-  border-radius: var(--radius-lg);
-  cursor: pointer;
-}
-.cast-artifact__open:hover {
-  background: var(--border-element);
 }
 
 /* skeletons — shimmer is a bespoke loading effect, not tokenized */
@@ -172,7 +91,6 @@
   width: 100%;
 }
 .cast-skel-line,
-.cast-skel-btn,
 .cast-skel-icon {
   display: block;
   border-radius: var(--radius-md);
@@ -189,12 +107,6 @@
   height: 16px;
   margin: 0 auto;
 }
-.cast-skel-btn {
-  height: 50px;
-  width: 100%;
-  border-radius: var(--radius-xl);
-  margin-top: 6px;
-}
 .cast-skel-icon {
   width: 44px;
   height: 44px;
@@ -204,41 +116,16 @@
 
 /* ---- Beat 6: Open overlay (full artifact) ---- */
 
+/* bespoke aura backdrop + hidden scrollbar */
 .cast-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 9;
   background: radial-gradient(120% 90% at 50% 0%, var(--surface-overlay) 0%, var(--surface-base) 60%, var(--cast-shroud) 100%);
-  display: flex;
-  justify-content: center;
-  overflow-y: auto;
   scrollbar-width: none;
 }
 .cast-overlay::-webkit-scrollbar {
   display: none;
 }
 
-.cast-overlay__close {
-  position: absolute;
-  top: var(--app-spacing-lg);
-  right: var(--app-spacing-lg);
-  z-index: 2;
-  appearance: none;
-  border: none;
-  background: var(--surface-hover);
-  color: var(--content-secondary);
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-pill);
-  cursor: pointer;
-  font-size: 15px;
-  line-height: 1;
-}
-.cast-overlay__close:hover {
-  background: var(--surface-active);
-}
-
-/* small persistent dude in the corner */
+/* small persistent dude in the corner — bespoke fixed placement + scribble */
 .cast-overlay__dude {
   position: fixed;
   left: 18px;
@@ -266,25 +153,8 @@
   animation: cast-scribble-body 0.7s ease-in-out infinite;
 }
 
-.cast-overlay__sheet {
-  width: min(620px, 100%);
-  margin: 0 auto;
-  padding: 64px 28px 96px;
-}
-.cast-overlay__title {
-  margin: 0 0 20px;
-  font-size: 28px;
-  font-weight: 680;
-  letter-spacing: -0.02em;
-  line-height: 1.2;
-  color: var(--content-default);
-}
-.cast-overlay__body {
-  font-size: 16px;
-  line-height: 1.75;
-  color: var(--content-secondary);
-  min-height: 120px;
-}
+/* rendered artifact markdown prose — bespoke element styling for the streamed
+   body (base font/colour applied via Tailwind on the wrapper in the .tsx). */
 .cast-overlay__body h1,
 .cast-overlay__body h2,
 .cast-overlay__body h3 {
@@ -308,181 +178,3 @@
   border-radius: var(--radius-sm);
   font-size: 14px;
 }
-.cast-overlay__writing {
-  color: var(--content-tertiary);
-  font-style: italic;
-}
-
-.cast-overlay__save {
-  margin-top: 26px;
-  appearance: none;
-  border: 1px solid var(--border-element);
-  background: var(--surface-hover);
-  color: var(--content-default);
-  font-size: 15px;
-  font-weight: 620;
-  padding: 13px 26px;
-  border-radius: var(--radius-lg);
-  cursor: pointer;
-}
-.cast-overlay__save:hover {
-  background: var(--surface-active);
-}
-
-/* ---- Beat 6: endpoint CTAs ---- */
-.cast-endpoints {
-  display: flex;
-  gap: 12px;
-  margin-top: 22px;
-}
-.cast-endpoints__primary,
-.cast-endpoints__secondary {
-  flex: 1;
-  appearance: none;
-  border: none;
-  padding: 14px;
-  border-radius: var(--radius-lg);
-  font-size: 15px;
-  font-weight: 640;
-  cursor: pointer;
-}
-.cast-endpoints__primary {
-  background: var(--primary-base);
-  color: var(--content-inset);
-}
-.cast-endpoints__primary:hover {
-  background: var(--primary-hover);
-}
-.cast-endpoints__secondary {
-  background: var(--surface-hover);
-  color: var(--content-secondary);
-}
-.cast-endpoints__secondary:hover {
-  background: var(--surface-active);
-}
-
-/* ---- Endpoint: mocked product chat ---- */
-.cast-chat {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-}
-.cast-chat__panel {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  max-width: 760px;
-  width: 100%;
-  margin: 0 auto;
-}
-.cast-chat__chip-row {
-  flex: none;
-  padding: 8px 22px 0;
-}
-.cast-chat__chip {
-  appearance: none;
-  padding: 10px 16px;
-  border-radius: var(--radius-xl);
-  border: 1px solid var(--border-subtle);
-  background: var(--surface-lift);
-  color: var(--content-default);
-  font-size: 14px;
-  cursor: pointer;
-}
-.cast-chat__chip:hover {
-  background: var(--surface-hover);
-}
-.cast-chat__input {
-  flex: none;
-  margin: 12px 22px 24px;
-  padding: 13px 16px;
-  border-radius: var(--radius-xl);
-  border: 1px solid var(--border-base);
-  background: var(--surface-sunken);
-}
-.cast-chat__input-ph {
-  color: var(--content-tertiary);
-  font-size: 14px;
-}
-
-/* ---- Endpoint: boost copy/paste block ---- */
-.cast-chat__boost-wrap {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-.cast-boost {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  width: 100%;
-  max-width: 560px;
-}
-.cast-boost__lead {
-  margin: 0;
-  color: var(--content-secondary);
-  font-size: 14px;
-}
-.cast-boost__prompt {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 16px;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border-subtle);
-  background: var(--surface-lift);
-}
-.cast-boost__prompt-text {
-  flex: 1;
-  margin: 0;
-  color: var(--content-default);
-  font-size: 14px;
-  line-height: 1.5;
-}
-.cast-boost__copy {
-  flex: none;
-  appearance: none;
-  border: none;
-  padding: 7px 14px;
-  border-radius: var(--radius-lg);
-  background: var(--surface-hover);
-  color: var(--content-secondary);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.cast-boost__copy:hover {
-  background: var(--surface-active);
-}
-.cast-boost__paste {
-  width: 100%;
-  resize: none;
-  padding: 13px 14px;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border-base);
-  background: var(--surface-sunken);
-  color: var(--content-default);
-  font-size: 14px;
-  line-height: 1.45;
-  font-family: inherit;
-}
-.cast-boost__submit {
-  align-self: flex-start;
-  appearance: none;
-  border: none;
-  padding: 11px 20px;
-  border-radius: var(--radius-xl);
-  background: var(--primary-base);
-  color: var(--content-inset);
-  font-size: 14px;
-  font-weight: 640;
-  cursor: pointer;
-}
-.cast-boost__submit:hover {
-  background: var(--primary-hover);
-}
-
