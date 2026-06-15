@@ -104,14 +104,18 @@ class AssistantLifecycleService {
   };
   private probeTimer: ReturnType<typeof setTimeout> | null = null;
   /**
-   * Set when a probe loop is actively running (timer pending OR tick
-   * in-flight). Prevents re-entry: the probe's own 502 response
-   * fires the unreachable-bus which calls `triggerReachabilityProbe`
-   * again — without this guard each re-entry creates an orphaned
-   * timer that can never be cancelled, doubling probe traffic on
-   * every cycle and consuming CPU.
+   * Tracks the assistant being actively probed. Non-null when a probe
+   * loop is running (timer pending OR tick in-flight). Prevents
+   * re-entry: the probe's own 502 response fires the unreachable-bus
+   * which calls `triggerReachabilityProbe` again — without this guard
+   * each re-entry creates an orphaned timer that can never be
+   * cancelled, doubling probe traffic on every cycle and consuming CPU.
+   *
+   * Storing the assistantId (rather than a bare boolean) allows a
+   * switch to a different assistant to cancel the stale loop and start
+   * a fresh one.
    */
-  private probeLoopActive = false;
+  private probeLoopAssistantId: string | null = null;
   /**
    * Auto-retry for transient (transport-shaped) error states —
    * armed by `transition` on entering such a state, cleared on
@@ -173,7 +177,7 @@ class AssistantLifecycleService {
     }
     this.setOperationalStatusAssistantId(null);
     this.cancelProbeTimer();
-    this.probeLoopActive = false;
+    this.probeLoopAssistantId = null;
     if (this.state.kind !== "loading") {
       this.transition({ kind: "loading" });
     }
@@ -587,12 +591,12 @@ class AssistantLifecycleService {
   }
 
   private startProbeLoop(assistantId: string): void {
-    if (this.probeLoopActive) return;
-    this.probeLoopActive = true;
+    if (this.probeLoopAssistantId === assistantId) return;
     this.cancelProbeTimer();
+    this.probeLoopAssistantId = assistantId;
     const startedAt = Date.now();
     const exit = () => {
-      this.probeLoopActive = false;
+      this.probeLoopAssistantId = null;
     };
     const tick = async () => {
       if (this.state.kind !== "active" || this.state.reachable === true) {
@@ -649,7 +653,7 @@ class AssistantLifecycleService {
       this.initializingTimeout = null;
     }
     this.cancelProbeTimer();
-    this.probeLoopActive = false;
+    this.probeLoopAssistantId = null;
     this.clearErrorRetry(true);
     this.state = { kind: "loading" };
     this.generation = 0;
