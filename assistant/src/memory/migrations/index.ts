@@ -278,6 +278,7 @@ export { migrateMemoryV3SelectionsMessageIdAndSections } from "./283-memory-v3-s
 export { migrateWorkflowRuns } from "./284-workflow-runs.js";
 export { migrateScheduleWorkflowMode } from "./285-schedule-workflow-mode.js";
 export { migrateWorkflowRunTrust } from "./286-workflow-run-trust.js";
+export { migrateContactChannelsUniqueExtUser } from "./287-contact-channels-unique-ext-user.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
