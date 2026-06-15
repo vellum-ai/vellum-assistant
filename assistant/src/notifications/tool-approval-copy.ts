@@ -9,6 +9,10 @@
  */
 
 import { sanitizeIdentityField } from "./access-request-copy.js";
+import {
+  buildGuardianRequestCodeInstruction,
+  resolveGuardianQuestionInstructionMode,
+} from "./guardian-question-mode.js";
 
 // ── Local string utilities ──────────────────────────────────────────────────
 
@@ -90,7 +94,7 @@ export function buildToolApprovalSeedContentBlocks(
   }
 
   // questionText contains the full formatted string (e.g.
-  // 'Rok wants to use "bash": mkdir -p scratch && ...').
+  // 'Bob wants to use "bash": mkdir -p scratch && ...').
   // Extract the input summary portion after the tool name for the card body.
   const bodyParts: string[] = [];
   if (p.questionText) {
@@ -133,11 +137,25 @@ export function buildToolApprovalSeedContentBlocks(
     ...(actions ? { actions } : {}),
   };
 
+  const fallbackText =
+    p.questionText ?? `${requester} is requesting approval to use ${toolName}`;
+
+  // Include request-code instruction in the text fallback so older clients
+  // that cannot render ui_surface blocks still show the approve/reject
+  // disambiguation.
+  let textContent = fallbackText;
+  if (p.requestCode) {
+    const modeResolution = resolveGuardianQuestionInstructionMode(payload);
+    const instruction = buildGuardianRequestCodeInstruction(
+      p.requestCode.trim().toUpperCase(),
+      modeResolution.mode,
+    );
+    textContent = `${fallbackText}\n\n${instruction}`;
+  }
+
   const textBlock = {
     type: "text" as const,
-    text:
-      p.questionText ??
-      `${requester} is requesting approval to use ${toolName}`,
+    text: textContent,
   };
 
   return [surfaceBlock, textBlock];

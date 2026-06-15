@@ -9,9 +9,9 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     requestKind: "tool_approval",
     toolName: "bash",
     questionText:
-      'Rok wants to use "bash": mkdir -p scratch && assistant credentials reveal --service slack',
+      'Bob wants to use "bash": mkdir -p scratch && assistant credentials reveal --service slack',
     sourceChannel: "slack",
-    requesterIdentifier: "Rok",
+    requesterIdentifier: "Bob",
   };
 
   const toolGrantPayload: Record<string, unknown> = {
@@ -68,7 +68,7 @@ describe("buildToolApprovalSeedContentBlocks", () => {
       string,
       unknown
     >;
-    expect(data.title).toBe("Rok");
+    expect(data.title).toBe("Bob");
   });
 
   test("card data falls back to 'Someone' when no requesterIdentifier", () => {
@@ -110,7 +110,7 @@ describe("buildToolApprovalSeedContentBlocks", () => {
       string,
       unknown
     >;
-    expect(data.body).toContain("Rok wants to use");
+    expect(data.body).toContain("Bob wants to use");
     expect(data.body).toContain("bash");
   });
 
@@ -152,11 +152,21 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     expect(surface.actions).toBeUndefined();
   });
 
-  test("text fallback block contains questionText", () => {
+  test("text fallback block contains questionText and request-code instruction", () => {
     const blocks = buildToolApprovalSeedContentBlocks(toolApprovalPayload)!;
     const textBlock = blocks[1] as Record<string, unknown>;
     expect(textBlock.type).toBe("text");
-    expect(textBlock.text).toContain("Rok wants to use");
+    expect(textBlock.text).toContain("Bob wants to use");
+    expect(textBlock.text).toContain("XYZ789");
+    expect(textBlock.text).toContain("approve");
+  });
+
+  test("text fallback block omits request-code instruction when no requestCode", () => {
+    const payload = { ...toolApprovalPayload, requestCode: undefined };
+    const blocks = buildToolApprovalSeedContentBlocks(payload)!;
+    const textBlock = blocks[1] as Record<string, unknown>;
+    expect(textBlock.text).toContain("Bob wants to use");
+    expect(textBlock.text).not.toContain("XYZ789");
   });
 
   test("text fallback block uses generic text when no questionText", () => {
