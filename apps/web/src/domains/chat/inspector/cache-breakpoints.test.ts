@@ -206,6 +206,64 @@ describe("parseCacheBreakpoints", () => {
     expect(map?.segments).toEqual([]);
   });
 
+  test("keeps the Tools segment when the marker is not on the final tool", () => {
+    const request = {
+      model: "claude-sonnet-4",
+      tools: [
+        {
+          name: "read",
+          description: "Read a file",
+          input_schema: {},
+          cache_control: marker(STABLE_TTL),
+        },
+        { type: "web_search_20250305", name: "web_search", max_uses: 5 },
+      ],
+      system: [text("You are a helpful assistant.", marker(STABLE_TTL))],
+      messages: [{ role: "user", content: [text("hi", marker(TAIL_TTL))] }],
+    };
+
+    const map = parseCacheBreakpoints(
+      request,
+      summary({ cacheReadInputTokens: 0, cacheCreationInputTokens: 10 }),
+    );
+
+    expect(map?.segments.map((segment) => segment.label)).toEqual([
+      "Tools",
+      "System prompt",
+      "User message #1",
+    ]);
+    expect(map?.segments[0].ttl).toBe(STABLE_TTL);
+  });
+
+  test("splits a message carrying more than one cache marker", () => {
+    const request = {
+      model: "claude-sonnet-4",
+      messages: [
+        {
+          role: "user",
+          content: [
+            text("stable prefix block", marker(STABLE_TTL)),
+            text("volatile turn-start block", marker(TAIL_TTL)),
+          ],
+        },
+      ],
+    };
+
+    const map = parseCacheBreakpoints(
+      request,
+      summary({ cacheReadInputTokens: 0, cacheCreationInputTokens: 10 }),
+    );
+
+    expect(map?.segments.map((segment) => segment.label)).toEqual([
+      "User message #1 · block 1",
+      "User message #1 · block 2",
+    ]);
+    expect(map?.segments.map((segment) => segment.ttl)).toEqual([
+      STABLE_TTL,
+      TAIL_TTL,
+    ]);
+  });
+
   test("absorbs a leading string system prompt into the first segment", () => {
     const request = {
       model: "claude-sonnet-4",

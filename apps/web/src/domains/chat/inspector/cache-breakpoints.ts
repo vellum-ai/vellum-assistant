@@ -121,17 +121,29 @@ interface PrefixPart {
 }
 
 function toolsPart(tools: unknown[]): PrefixPart {
-  const last = tools[tools.length - 1];
-  const control = isRecord(last)
-    ? cacheControlTtl(last)
-    : { present: false, ttl: null };
+  // The cache breakpoint is not always on the final tool: with native web
+  // search the provider appends a server tool after the cached client
+  // tools, leaving the `cache_control` marker on an earlier entry. Scan the
+  // whole list so the Tools segment still closes at the real boundary.
+  let hasBreakpoint = false;
+  let ttl: string | null = null;
+  for (const tool of tools) {
+    if (!isRecord(tool)) {
+      continue;
+    }
+    const control = cacheControlTtl(tool);
+    if (control.present) {
+      hasBreakpoint = true;
+      ttl = control.ttl;
+    }
+  }
   return {
     region: "tools",
     title: "Tools",
     summary: `${tools.length} tool ${tools.length === 1 ? "definition" : "definitions"}`,
     estimatedTokens: estimateTokens(jsonCharCount(tools)),
-    hasBreakpoint: control.present,
-    ttl: control.ttl,
+    hasBreakpoint,
+    ttl,
   };
 }
 
@@ -168,38 +180,82 @@ function messageBlockCharCount(block: Record<string, unknown>): number {
   return text != null ? text.length : jsonCharCount(block);
 }
 
-function messagePart(message: Record<string, unknown>, index: number): PrefixPart {
-  const role = asString(message.role) ?? "message";
-  const content = message.content;
+/**
+ * A contiguous run of a message's content blocks ending either at a block
+ * that carries `cache_control` (a breakpoint) or at the end of the message.
+ */
+interface MessageChunk {
+  estimatedTokens: number;
+  hasBreakpoint: boolean;
+  ttl: string | null;
+  /** 1-based index of the last content block in the chunk. */
+  lastBlockNumber: number;
+}
 
-  let charCount = 0;
-  let hasBreakpoint = false;
-  let ttl: string | null = null;
-
+/**
+ * Splits a message into chunks at every `cache_control` marker. A single
+ * message can carry more than one breakpoint — a caller-stamped stable
+ * block plus the client's own turn-start anchor on the last block — so each
+ * marker has to close its own segment instead of collapsing the whole
+ * message into one.
+ */
+function messageChunks(content: unknown): MessageChunk[] {
   if (typeof content === "string") {
-    charCount = content.length;
-  } else {
-    for (const block of asArray(content) ?? []) {
-      if (!isRecord(block)) {
-        continue;
-      }
-      charCount += messageBlockCharCount(block);
-      const control = cacheControlTtl(block);
-      if (control.present) {
-        hasBreakpoint = true;
-        ttl = control.ttl;
-      }
-    }
+    return [
+      {
+        estimatedTokens: estimateTokens(content.length),
+        hasBreakpoint: false,
+        ttl: null,
+        lastBlockNumber: 1,
+      },
+    ];
   }
 
-  return {
+  const blocks = (asArray(content) ?? []).filter(isRecord);
+  const chunks: MessageChunk[] = [];
+  let charCount = 0;
+
+  blocks.forEach((block, blockIndex) => {
+    charCount += messageBlockCharCount(block);
+    const control = cacheControlTtl(block);
+    if (control.present) {
+      chunks.push({
+        estimatedTokens: estimateTokens(charCount),
+        hasBreakpoint: true,
+        ttl: control.ttl,
+        lastBlockNumber: blockIndex + 1,
+      });
+      charCount = 0;
+    }
+  });
+
+  if (charCount > 0 || chunks.length === 0) {
+    chunks.push({
+      estimatedTokens: estimateTokens(charCount),
+      hasBreakpoint: false,
+      ttl: null,
+      lastBlockNumber: blocks.length,
+    });
+  }
+
+  return chunks;
+}
+
+function messageParts(
+  message: Record<string, unknown>,
+  index: number,
+): PrefixPart[] {
+  const role = asString(message.role) ?? "message";
+  const label = `${capitalize(role)} message #${index + 1}`;
+  const chunks = messageChunks(message.content);
+  return chunks.map((chunk) => ({
     region: "messages",
-    title: `${capitalize(role)} message #${index + 1}`,
+    title: chunks.length > 1 ? `${label} · block ${chunk.lastBlockNumber}` : label,
     summary: null,
-    estimatedTokens: estimateTokens(charCount),
-    hasBreakpoint,
-    ttl,
-  };
+    estimatedTokens: chunk.estimatedTokens,
+    hasBreakpoint: chunk.hasBreakpoint,
+    ttl: chunk.ttl,
+  }));
 }
 
 function buildPrefixParts(request: Record<string, unknown>): PrefixPart[] | null {
@@ -221,7 +277,7 @@ function buildPrefixParts(request: Record<string, unknown>): PrefixPart[] | null
 
   messages.forEach((message, index) => {
     if (isRecord(message)) {
-      parts.push(messagePart(message, index));
+      parts.push(...messageParts(message, index));
     }
   });
 
