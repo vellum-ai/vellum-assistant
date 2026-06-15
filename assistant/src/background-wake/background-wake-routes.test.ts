@@ -648,7 +648,10 @@ describe("background wake runtime routes", () => {
       },
     });
     const handler = findHandler("drainDueBackgroundWake");
-    const deadlineAt = Date.now() + 10;
+    // Keep the deadline far enough ahead that the synchronous start-check always
+    // sees it as live; the wait below outlasts it, so completion is verified to
+    // hold until the work settles rather than fire when the deadline elapses.
+    const deadlineAt = Date.now() + 200;
 
     const firstResponse = await handler({
       body: drainBodyFixture({
@@ -658,7 +661,7 @@ describe("background wake runtime routes", () => {
     });
 
     try {
-      await new Promise((resolve) => setTimeout(resolve, 25));
+      await new Promise((resolve) => setTimeout(resolve, 280));
       expect(mockCompleteBackgroundWakeLease).not.toHaveBeenCalled();
 
       const duplicateResponse = await handler({
