@@ -23,7 +23,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
-import type { ProviderConnection } from "@/domains/settings/ai/provider-connections-client";
+import type { ProviderConnection } from "@/generated/daemon/types.gen";
 import * as sdkGen from "@/generated/daemon/sdk.gen";
 
 // ---------------------------------------------------------------------------
@@ -63,10 +63,11 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 // Stub the credential hooks so the inline ProviderCreateForm renders without
 // issuing real daemon queries.
 mock.module("@/domains/settings/ai/use-stored-credential-presence", () => ({
+  credentialPresenceQueryKey: (assistantId: string, kind: string, name: string) =>
+    ["credentialPresence", assistantId, kind, name] as const,
   useStoredCredentialPresence: () => ({
     hasStoredCredential: false,
     isLoading: false,
-    queryKey: ["stored-credential-presence"],
   }),
 }));
 
@@ -74,7 +75,6 @@ mock.module("@/domains/settings/ai/use-provider-credentials-list", () => ({
   useProviderCredentialsList: () => ({
     credentials: [],
     isLoading: false,
-    queryKey: ["provider-credentials-list"],
   }),
 }));
 

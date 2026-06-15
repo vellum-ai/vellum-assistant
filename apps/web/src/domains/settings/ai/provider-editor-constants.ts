@@ -1,4 +1,4 @@
-import type { Auth, ConnectionProvider } from "@/domains/settings/ai/provider-connections-client";
+import type { Auth, ConnectionProvider } from "@/generated/daemon/types.gen";
 
 // ---------------------------------------------------------------------------
 // Types

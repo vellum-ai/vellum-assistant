@@ -38,12 +38,15 @@ function isMigrationFile(filePath: string): boolean {
 
 describe("app directory path construction guard", () => {
   test("no non-allowlisted production files import getAppsDir", () => {
-    // Search for files that import getAppsDir (not just mention it in comments)
+    // Match files that import getAppsDir or call it, but not files that only
+    // mention it in a comment (a doc comment referencing the helper by name is
+    // not a usage). `-n` yields `file:line:content` so comment-only lines can
+    // be filtered out before collapsing to the set of matching files.
     const pattern = "import.*getAppsDir.*from|getAppsDir\\(\\)";
 
     let grepOutput = "";
     try {
-      grepOutput = execSync(`git grep -lE '${pattern}' -- '*.ts'`, {
+      grepOutput = execSync(`git grep -nE '${pattern}' -- '*.ts'`, {
         encoding: "utf-8",
         cwd: process.cwd() + "/..",
       }).trim();
@@ -55,7 +58,27 @@ describe("app directory path construction guard", () => {
       throw err;
     }
 
-    const files = grepOutput.split("\n").filter((f) => f.length > 0);
+    const isCommentLine = (line: string): boolean => {
+      const trimmed = line.trim();
+      return (
+        trimmed.startsWith("//") ||
+        trimmed.startsWith("*") ||
+        trimmed.startsWith("/*")
+      );
+    };
+    const files = Array.from(
+      new Set(
+        grepOutput
+          .split("\n")
+          .filter((line) => line.length > 0)
+          .map((line) => {
+            const [file, , ...rest] = line.split(":");
+            return { file, content: rest.join(":") };
+          })
+          .filter(({ content }) => !isCommentLine(content))
+          .map(({ file }) => file),
+      ),
+    );
     const violations = files.filter((f) => {
       if (isTestFile(f)) return false;
       if (isMigrationFile(f)) return false;
