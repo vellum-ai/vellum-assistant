@@ -30,6 +30,17 @@ export const ONBOARDING_FUNNEL_STEPS = {
   controlGmailConnect: { stepName: "gmail_connect", stepIndex: 5 },
   controlGetApp: { stepName: "get_app", stepIndex: 6 },
   gmailConnect: { stepName: "gmail_connect", stepIndex: 2 },
+  // Cast (personal-page arm) flow. The cast orchestrator
+  // (`cast/cast-onboarding-flow.tsx`) walks `login → preamble → starter →
+  // dialogue → style → done`; each surviving phase emits its step on advance,
+  // gated exactly like the control funnel (skipped in preview, share-analytics
+  // respected). Indices are flow-local to the cast walk.
+  castLogin: { stepName: "cast_login", stepIndex: 0 },
+  castPreamble: { stepName: "cast_preamble", stepIndex: 1 },
+  castStarter: { stepName: "cast_starter", stepIndex: 2 },
+  castDialogue: { stepName: "cast_dialogue", stepIndex: 3 },
+  castStyle: { stepName: "cast_style", stepIndex: 4 },
+  castDone: { stepName: "cast_done", stepIndex: 5 },
 } as const;
 
 export type OnboardingFunnelStep =
