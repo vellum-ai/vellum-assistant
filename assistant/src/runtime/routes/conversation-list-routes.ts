@@ -238,11 +238,14 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
   // On the first page, ensure all pinned conversations are included
   // even if they fall outside the paginated window. Pinned injection is
   // skipped in archived/all views since the Archive page renders archived
-  // rows in archive-time order, not pin order.
+  // rows in archive-time order, not pin order. Also skipped for
+  // channel-scoped queries — those return only items matching the
+  // requested origin channel; pinned items render in their own section.
   if (
     offset === 0 &&
     conversationType === "standard" &&
-    archiveStatus === "active"
+    archiveStatus === "active" &&
+    originChannel === undefined
   ) {
     const pinned = listPinnedConversations(archiveStatus);
     const seen = new Set(rows.map((c) => c.id));
