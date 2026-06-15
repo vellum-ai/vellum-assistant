@@ -207,6 +207,9 @@ function buildAccessRequestFallbackText(data: AccessRequestCardData): string {
     guardianResolutionSource: data.guardianResolutionSource,
     messagePreview: data.messagePreview,
     messageTs: data.messageTs,
+    previousMemberStatus: data.previousMemberStatus,
+    isStranger: data.isStranger,
+    isRestricted: data.isRestricted,
   };
   return buildAccessRequestContractText(payload);
 }

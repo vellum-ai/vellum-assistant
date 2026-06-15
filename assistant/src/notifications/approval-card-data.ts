@@ -68,6 +68,10 @@ export interface AccessRequestCardData {
   isSlackDm: boolean;
   /** Slack permalink (when sourceChannel is slack and conversationExternalId + messageTs exist). */
   messagePermalink: string | undefined;
+  /** Raw fields preserved for fallback text generation via buildAccessRequestContractText. */
+  previousMemberStatus: string | undefined;
+  isStranger: boolean | undefined;
+  isRestricted: boolean | undefined;
 }
 
 export type ApprovalCardData = ToolApprovalCardData | AccessRequestCardData;
@@ -206,5 +210,8 @@ function resolveAccessRequestCardData(
     requestCode: nonEmpty(p.requestCode),
     isSlackDm,
     messagePermalink,
+    previousMemberStatus: nonEmpty(p.previousMemberStatus),
+    isStranger: p.isStranger,
+    isRestricted: p.isRestricted,
   };
 }
