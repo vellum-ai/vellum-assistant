@@ -52,6 +52,18 @@
       "category": "developer",
       "homepage": "https://github.com/vellum-ai/level-up",
       "license": "MIT"
+    },
+    {
+      "name": "telegram-voice-transcribe",
+      "source": {
+        "source": "github",
+        "repo": "marinatrajk/telegram-voice-transcribe",
+        "ref": "5c0fcaf68f48e647fd4a0f73bfa9ace84d55dc8e"
+      },
+      "description": "Transcribes Telegram voice notes to text via a user-prompt-submit hook, rewriting the message before the agent loop sees it.",
+      "category": "channels",
+      "homepage": "https://github.com/marinatrajk/telegram-voice-transcribe",
+      "license": "MIT"
     }
   ]
 }
