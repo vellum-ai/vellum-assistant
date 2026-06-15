@@ -801,6 +801,29 @@ describe("executeWorkflow — agent cap", () => {
     expect(journalStore.getJournal("wf-cap").length).toBe(3);
   });
 
+  test("a script that CATCHES the cap sentinel still ends cap_exceeded, not completed", async () => {
+    // The host CapExceededSignal crosses into the VM as a catchable exception,
+    // so a script can swallow it and return a partial result. The run still hit
+    // its cap, so it must NOT be recorded as completed — the host-side cap flag
+    // (which the sandboxed script cannot reach) is the source of truth.
+    const fake = makeFakeRunner();
+    const res = await execute(
+      "wf-cap-caught",
+      `const out = [agent("first")];
+       try { out.push(agent("second")); } catch (e) { /* swallow the cap */ }
+       return out;`,
+      fake.runner,
+      configWith({ maxAgentsPerRun: 1 }),
+    );
+
+    expect(res.status).toBe("cap_exceeded");
+    // The swallowed partial return is discarded for a non-completed run.
+    expect(res.result).toBeNull();
+    expect(res.agentsSpawned).toBe(1);
+    expect(fake.prompts).toEqual(["first"]);
+    expect(journalStore.getRun("wf-cap-caught")?.status).toBe("cap_exceeded");
+  });
+
   test("the cap counts only NEW leaves; replayed leaves do not consume it", async () => {
     // First run journals 2 leaves with a generous cap.
     const first = makeFakeRunner();

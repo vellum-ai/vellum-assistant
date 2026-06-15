@@ -921,7 +921,21 @@ export async function executeWorkflow(
       args,
       buildHostFunctions("", 0),
     );
-    status = "completed";
+    // A host CapExceededSignal/AbortedSignal crosses into the VM as a catchable
+    // exception, so a script can wrap agent()/parallel() in try/catch, SWALLOW
+    // the sentinel, and return a partial result normally. The run still hit its
+    // safety cap (or was aborted), so trust the host-side flags — which the
+    // sandboxed script cannot reach or reset — over the script's return: mark
+    // cap_exceeded/aborted (cap takes precedence, matching the catch below) so
+    // callers learn the run was stopped, not completed. finishRun discards the
+    // partial result for any non-completed status.
+    if (capExceeded) {
+      status = "cap_exceeded";
+    } else if (signal?.aborted) {
+      status = "aborted";
+    } else {
+      status = "completed";
+    }
   } catch (err) {
     if (capExceeded || err instanceof CapExceededSignal) {
       status = "cap_exceeded";
