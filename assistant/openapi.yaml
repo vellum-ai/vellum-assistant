@@ -13163,16 +13163,7 @@ paths:
                   anyOf:
                     - type: array
                       items:
-                        type: object
-                        properties:
-                          id:
-                            type: string
-                            minLength: 1
-                          displayName:
-                            type: string
-                            minLength: 1
-                        required:
-                          - id
+                        $ref: "#/components/schemas/ConnectionModel"
                     - type: "null"
               required:
                 - name
@@ -13283,16 +13274,7 @@ paths:
                   anyOf:
                     - type: array
                       items:
-                        type: object
-                        properties:
-                          id:
-                            type: string
-                            minLength: 1
-                          displayName:
-                            type: string
-                            minLength: 1
-                        required:
-                          - id
+                        $ref: "#/components/schemas/ConnectionModel"
                     - type: "null"
               required:
                 - auth
@@ -28368,6 +28350,17 @@ components:
             - type
             - credential
       type: object
+    ConnectionModel:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+        displayName:
+          type: string
+          minLength: 1
+      required:
+        - id
     ConfigGetResponse:
       type: object
       properties:
@@ -28847,17 +28840,7 @@ components:
           anyOf:
             - type: array
               items:
-                type: object
-                properties:
-                  id:
-                    type: string
-                    minLength: 1
-                  displayName:
-                    type: string
-                    minLength: 1
-                required:
-                  - id
-                additionalProperties: false
+                $ref: "#/components/schemas/ConnectionModelOutput"
             - type: "null"
         createdAt:
           type: integer
@@ -28956,3 +28939,15 @@ components:
             - credential
           additionalProperties: false
       type: object
+    ConnectionModelOutput:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+        displayName:
+          type: string
+          minLength: 1
+      required:
+        - id
+      additionalProperties: false
