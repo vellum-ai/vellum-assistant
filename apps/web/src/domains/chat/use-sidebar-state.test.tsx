@@ -82,6 +82,32 @@ describe("useSidebarState pagination", () => {
     expect(result.current.recents.showLess).toBe(false);
   });
 
+  test("expanded state shows newly loaded items without re-expanding", () => {
+    const page1 = Array.from({ length: 12 }, (_, i) => makeConversation(i));
+
+    const { result, rerender } = renderHook(
+      ({ conversations }) =>
+        useSidebarState({ assistantId: "asst-1", conversations }),
+      { initialProps: { conversations: page1 } },
+    );
+
+    // Expand
+    act(() => result.current.recents.onShowMore());
+    expect(result.current.recents.items).toHaveLength(12);
+
+    // Simulate fetchNextPage loading more data
+    const page1And2 = [
+      ...page1,
+      ...Array.from({ length: 12 }, (_, i) => makeConversation(i + 12)),
+    ];
+    rerender({ conversations: page1And2 });
+
+    // All 24 items visible without needing to collapse and re-expand
+    expect(result.current.recents.items).toHaveLength(24);
+    expect(result.current.recents.showMore).toBe(false);
+    expect(result.current.recents.showLess).toBe(true);
+  });
+
   test("uses the same toggle behavior for Slack conversations", () => {
     const conversations = Array.from({ length: 12 }, (_, index) =>
       makeConversation(index, {

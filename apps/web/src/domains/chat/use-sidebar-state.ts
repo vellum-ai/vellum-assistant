@@ -227,7 +227,7 @@ export function useSidebarState({
       showMore: !isExpanded && hasMoreItems,
       showLess: isExpanded,
       onShowMore: () => {
-        setVisibleRecentsCount(grouped.recents.length);
+        setVisibleRecentsCount(Number.MAX_SAFE_INTEGER);
         if (hasNextPage) {
           fetchNextPage?.();
         }
@@ -255,7 +255,7 @@ export function useSidebarState({
       totalCount: grouped.slack.length,
       showMore: !isExpanded && effectiveVisibleCount < grouped.slack.length,
       showLess: isExpanded,
-      onShowMore: () => setVisibleSlackCount(grouped.slack.length),
+      onShowMore: () => setVisibleSlackCount(Number.MAX_SAFE_INTEGER),
       onShowLess: () => setVisibleSlackCount(SIDEBAR_CONVERSATION_LIMIT),
     };
   }, [grouped.slack, visibleSlackCount, attentionConversationIds]);
