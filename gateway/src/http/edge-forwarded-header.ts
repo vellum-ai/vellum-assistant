@@ -24,8 +24,7 @@
  * ingress does not, so guards may check it unconditionally across deploy modes.
  *
  * NOTE: The literal value is mirrored as a hardcoded string in the nginx
- * config in cli/src/commands/client.ts (`proxy_set_header X-Vellum-Edge-Forwarded`).
- * Keep the two in sync.
+ * configs (`proxy_set_header X-Vellum-Edge-Forwarded`). Keep them in sync.
  */
 export const EDGE_FORWARDED_HEADER = "x-vellum-edge-forwarded" as const;
 

@@ -40,5 +40,5 @@ interface Window {
   /** Feature flag overrides injected by Electron preload or CLI script. */
   __VELLUM_FLAG_OVERRIDES__?: Record<string, boolean | string>;
   /** Runtime config injected by the shell (Electron preload, CLI, etc.). */
-  __VELLUM_CONFIG__?: { disablePlatform?: boolean };
+  __VELLUM_CONFIG__?: { disablePlatform?: boolean; mode?: string };
 }

@@ -52,6 +52,16 @@ function mockFetch(response: Response): void {
   globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
 }
 
+function mockFetchWithUrls(response: Response): string[] {
+  const urls: string[] = [];
+  const fetchMock = async (input: RequestInfo | URL) => {
+    urls.push(String(input));
+    return response;
+  };
+  globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+  return urls;
+}
+
 describe("isAssistantFeatureFlagEnabled", () => {
   beforeEach(() => {
     process.env.VELLUM_LOCKFILE_DIR = testDir;
@@ -82,6 +92,41 @@ describe("isAssistantFeatureFlagEnabled", () => {
     await expect(
       isAssistantFeatureFlagEnabled("assistant-1", WEB_REMOTE_INGRESS_FLAG),
     ).resolves.toBe(true);
+  });
+
+  test("uses the supplied runtime URL instead of a stale lockfile runtimeUrl", async () => {
+    writeFileSync(
+      join(testDir, ".vellum.lock.json"),
+      JSON.stringify(
+        {
+          activeAssistant: "assistant-1",
+          assistants: [
+            {
+              assistantId: "assistant-1",
+              runtimeUrl: "https://stale-tunnel.ngrok-free.dev",
+              cloud: "local",
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+    );
+    const urls = mockFetchWithUrls(
+      jsonResponse({
+        flags: [{ key: WEB_REMOTE_INGRESS_FLAG, enabled: true }],
+      }),
+    );
+
+    await expect(
+      isAssistantFeatureFlagEnabled("assistant-1", WEB_REMOTE_INGRESS_FLAG, {
+        runtimeUrl: "http://127.0.0.1:9123",
+      }),
+    ).resolves.toBe(true);
+
+    expect(urls).toEqual([
+      "http://127.0.0.1:9123/v1/assistants/assistant-1/feature-flags",
+    ]);
   });
 
   test("returns false when the assistant flag is disabled or missing", async () => {

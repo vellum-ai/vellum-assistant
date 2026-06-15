@@ -14,8 +14,12 @@ type FeatureFlagsResponse = {
 export async function isAssistantFeatureFlagEnabled(
   assistantId: string,
   key: string,
+  opts: { runtimeUrl?: string } = {},
 ): Promise<boolean> {
-  const client = new AssistantClient({ assistantId });
+  const client = new AssistantClient({
+    assistantId,
+    runtimeUrl: opts.runtimeUrl,
+  });
   const res = await client.get("/feature-flags");
   if (!res.ok) {
     const body = await res.text().catch(() => "");
