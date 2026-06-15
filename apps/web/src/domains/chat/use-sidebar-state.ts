@@ -40,7 +40,9 @@ export const SIDEBAR_CONVERSATION_LIMIT = 5;
 // ---------------------------------------------------------------------------
 
 export interface PaginatedSection {
-  all: Conversation[];
+  /** All conversations in this group from loaded pages (not necessarily every
+   * conversation that exists — further pages may contain more). */
+  loaded: Conversation[];
   items: Conversation[];
   totalCount: number;
   showMore: boolean;
@@ -124,20 +126,25 @@ function buildPaginatedSection({
   const visibleCount = isExpanded ? items.length : SIDEBAR_CONVERSATION_LIMIT;
   const effectiveVisibleCount =
     attentionIndex >= visibleCount ? attentionIndex + 1 : visibleCount;
+  // Treat the section as effectively expanded when attention forces us past
+  // the collapsed limit — otherwise the user sees many items with "Show more"
+  // and no "Show less" (a broken state).
+  const effectivelyExpanded =
+    isExpanded || effectiveVisibleCount > SIDEBAR_CONVERSATION_LIMIT;
   const hasMoreItems =
     effectiveVisibleCount < items.length || (hasNextPage ?? false);
   return {
-    all: items,
+    loaded: items,
     items: items.slice(0, effectiveVisibleCount),
     totalCount: items.length,
-    showMore: !isExpanded && hasMoreItems,
-    showLess: isExpanded,
+    showMore: !effectivelyExpanded && hasMoreItems,
+    showLess: effectivelyExpanded,
     onShowMore: () => {
       onExpand();
       if (hasNextPage) fetchNextPage?.();
     },
     onShowLess: onCollapse,
-    onScrollLoadMore: isExpanded && hasNextPage ? fetchNextPage : undefined,
+    onScrollLoadMore: effectivelyExpanded && hasNextPage ? fetchNextPage : undefined,
   };
 }
 
@@ -268,18 +275,21 @@ export function useSidebarState({
     [grouped.recents, recentsExpanded, attentionConversationIds, fetchNextPage, hasNextPage],
   );
 
+  // Slack is a client-side filtered subset of the foreground list — it has
+  // no server-specific pagination. "Show more" just reveals all loaded Slack
+  // items; loading more foreground pages rarely yields additional Slack items.
   const slackSection = useMemo(
     () =>
       buildPaginatedSection({
         items: grouped.slack,
         isExpanded: slackExpanded,
         attentionConversationIds,
-        hasNextPage,
-        fetchNextPage,
+        hasNextPage: undefined,
+        fetchNextPage: undefined,
         onExpand: () => setSlackExpanded(true),
         onCollapse: () => setSlackExpanded(false),
       }),
-    [grouped.slack, slackExpanded, attentionConversationIds, fetchNextPage, hasNextPage],
+    [grouped.slack, slackExpanded, attentionConversationIds],
   );
 
   // --- Attention-forced expansion ---

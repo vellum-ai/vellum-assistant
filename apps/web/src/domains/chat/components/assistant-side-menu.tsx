@@ -496,18 +496,18 @@ export function AssistantSideMenu({
             <CollapsedGroupIcon
               icon={Clock}
               label="Recents"
-              disabled={sidebar.recents.all.length === 0}
-              indicatorState={getGroupIndicatorState(sidebar.recents.all, processingConversationIds, attentionConversationIds)}
+              disabled={sidebar.recents.loaded.length === 0}
+              indicatorState={getGroupIndicatorState(sidebar.recents.loaded, processingConversationIds, attentionConversationIds)}
             >
-              {(close) => renderCollapsedGroupContent("Recents", sidebar.recents.all, close)}
+              {(close) => renderCollapsedGroupContent("Recents", sidebar.recents.loaded, close)}
             </CollapsedGroupIcon>
             <CollapsedGroupIcon
               icon={Hash}
               label="Slack"
               disabled={sidebar.slack.totalCount === 0}
-              indicatorState={getGroupIndicatorState(sidebar.slack.all, processingConversationIds, attentionConversationIds)}
+              indicatorState={getGroupIndicatorState(sidebar.slack.loaded, processingConversationIds, attentionConversationIds)}
             >
-              {(close) => renderCollapsedGroupContent("Slack", sidebar.slack.all, close)}
+              {(close) => renderCollapsedGroupContent("Slack", sidebar.slack.loaded, close)}
             </CollapsedGroupIcon>
           </div>
         ) : (
@@ -536,7 +536,7 @@ export function AssistantSideMenu({
                     value="slack"
                     icon={Hash}
                     label="Slack"
-                    contextMenuContent={buildGroupContextMenu("Slack", sidebar.slack.all)}
+                    contextMenuContent={buildGroupContextMenu("Slack", sidebar.slack.loaded)}
                   >
                     {renderFlatList(sidebar.slack.items, sidebar.slack)}
                   </CollapsibleNavSection.Section>

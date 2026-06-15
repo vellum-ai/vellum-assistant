@@ -10,7 +10,7 @@
  * - https://tanstack.com/query/latest/docs/framework/react/guides/updates-from-mutation-responses
  */
 
-import type { QueryClient } from "@tanstack/react-query";
+import type { InfiniteData, QueryClient } from "@tanstack/react-query";
 
 import type { Conversation } from "@/types/conversation-types";
 import {
@@ -144,11 +144,35 @@ export function surfaceConversationInCaches(
   updateBackgroundConversationsCache(queryClient, assistantId, replaceInPlace);
   updateScheduledConversationsCache(queryClient, assistantId, replaceInPlace);
 
-  // Remove from foreground pages then prepend to the top.
-  updateConversationsCache(queryClient, assistantId, (conversations) =>
-    conversations.filter((c) => c.conversationId !== conversation.conversationId),
-  );
-  prependToConversationsCache(queryClient, assistantId, surfacedConversation);
+  // Atomically remove from current position and prepend to the top in a
+  // single setQueryData pass — avoids a render frame where the conversation
+  // vanishes from the cache between remove and prepend.
+  const queryKey = conversationListInfiniteQueryKey(assistantId);
+  queryClient.setQueryData<InfiniteData<ConversationListPage>>(queryKey, (old) => {
+    if (!old || old.pages.length === 0) {
+      return {
+        pages: [{ conversations: [surfacedConversation], hasMore: false, nextOffset: 1 }],
+        pageParams: [0],
+      };
+    }
+    const [firstPage, ...rest] = old.pages;
+    const filteredFirst = firstPage!.conversations.filter(
+      (c) => c.conversationId !== conversation.conversationId,
+    );
+    const filteredRest = rest.map((page) => {
+      const filtered = page.conversations.filter(
+        (c) => c.conversationId !== conversation.conversationId,
+      );
+      return filtered === page.conversations ? page : { ...page, conversations: filtered };
+    });
+    return {
+      ...old,
+      pages: [
+        { ...firstPage!, conversations: [surfacedConversation, ...filteredFirst] },
+        ...filteredRest,
+      ],
+    };
+  });
 }
 
 /**
