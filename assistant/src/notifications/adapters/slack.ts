@@ -4,6 +4,7 @@
  */
 
 import { sendSlackReply } from "../../messaging/providers/slack/send.js";
+import type { ApprovalUIMetadata } from "../../runtime/channel-approval-types.js";
 import { getLogger } from "../../util/logger.js";
 import {
   buildAccessRequestIdentityLine,
@@ -61,7 +62,10 @@ function resolveSlackMessageText(payload: ChannelDeliveryPayload): string {
  * - Optional context: message preview
  * - Context: approval code instructions + invite directive
  */
-function buildAccessRequestBlocks(payload: Record<string, unknown>): unknown[] {
+function buildAccessRequestBlocks(
+  payload: Record<string, unknown>,
+  approvalContext?: ApprovalUIMetadata,
+): unknown[] {
   const p = parseAccessRequestPayload(payload);
   const blocks: unknown[] = [];
 
@@ -153,24 +157,25 @@ function buildAccessRequestBlocks(payload: Record<string, unknown>): unknown[] {
   // Divider before actions
   blocks.push({ type: "divider" });
 
-  // Approval buttons — same `apr:<requestId>:<action>` callback convention
-  // used by gateway's block-kit-builder and Telegram's inline keyboard.
-  if (p.requestId) {
+  // Approval buttons — driven by the centrally-resolved approvalContext.
+  // Falls back to p.requestId for backward compatibility.
+  const requestId = approvalContext?.requestId ?? p.requestId;
+  if (requestId) {
     blocks.push({
       type: "actions",
       elements: [
         {
           type: "button",
           text: { type: "plain_text", text: "Approve", emoji: true },
-          action_id: `apr:${p.requestId}:approve_once`,
-          value: `apr:${p.requestId}:approve_once`,
+          action_id: `apr:${requestId}:approve_once`,
+          value: `apr:${requestId}:approve_once`,
           style: "primary",
         },
         {
           type: "button",
           text: { type: "plain_text", text: "Reject", emoji: true },
-          action_id: `apr:${p.requestId}:reject`,
-          value: `apr:${p.requestId}:reject`,
+          action_id: `apr:${requestId}:reject`,
+          value: `apr:${requestId}:reject`,
           style: "danger",
         },
       ],
@@ -241,7 +246,10 @@ export class SlackAdapter implements ChannelAdapter {
     try {
       const result = isAccessRequest
         ? await sendSlackReply(chatId, messageText, {
-            blocks: buildAccessRequestBlocks(payload.contextPayload!),
+            blocks: buildAccessRequestBlocks(
+              payload.contextPayload!,
+              payload.approvalContext,
+            ),
           })
         : await sendSlackReply(chatId, messageText, { useBlocks: true });
 

@@ -5,6 +5,8 @@
  * post-generation enforcement to ensure required directives always appear.
  */
 
+import { z } from "zod";
+
 import { buildApprovalCardBlocks } from "./approval-card-builder.js";
 import {
   nonEmpty,
@@ -12,57 +14,42 @@ import {
   sanitizeMessagePreview,
 } from "./notification-utils.js";
 
-// ── Typed payload reader ────────────────────────────────────────────────────
-//
-// The notification signal pipeline delivers contextPayload as
-// Record<string, unknown>. This parser narrows it to typed fields so
-// consumer code (copy builders, adapters) can skip per-field typeof guards.
+// ── Zod schema for access-request payloads ──────────────────────────────────
 
-export interface ParsedAccessRequestPayload {
-  requestId?: string;
-  requestCode?: string;
-  sourceChannel?: string;
-  conversationExternalId?: string;
-  actorExternalId?: string;
-  actorDisplayName?: string;
-  actorUsername?: string;
-  senderIdentifier?: string;
-  guardianBindingChannel?: string;
-  guardianResolutionSource?: string;
-  previousMemberStatus?: string;
-  messagePreview?: string;
-  isStranger?: boolean;
-  isRestricted?: boolean;
-  messageTs?: string;
-}
+/** Accepts string, null, or any other type — coerces non-strings to undefined. */
+const optStr = z
+  .unknown()
+  .transform((v) => (typeof v === "string" ? v : undefined));
+
+/** Accepts boolean or any other type — coerces non-true to undefined. */
+const optBool = z.unknown().transform((v) => (v === true ? true : undefined));
+
+export const AccessRequestPayloadSchema = z.object({
+  requestId: optStr,
+  requestCode: optStr,
+  sourceChannel: optStr,
+  conversationExternalId: optStr,
+  actorExternalId: optStr,
+  actorDisplayName: optStr,
+  actorUsername: optStr,
+  senderIdentifier: optStr,
+  guardianBindingChannel: optStr,
+  guardianResolutionSource: optStr,
+  previousMemberStatus: optStr,
+  messagePreview: optStr,
+  isStranger: optBool,
+  isRestricted: optBool,
+  messageTs: optStr,
+});
+
+export type ParsedAccessRequestPayload = z.infer<
+  typeof AccessRequestPayloadSchema
+>;
 
 export function parseAccessRequestPayload(
   payload: Record<string, unknown>,
 ): ParsedAccessRequestPayload {
-  const s = (key: string): string | undefined => {
-    const v = payload[key];
-    return typeof v === "string" ? v : undefined;
-  };
-  const b = (key: string): true | undefined =>
-    payload[key] === true ? true : undefined;
-
-  return {
-    requestId: s("requestId"),
-    requestCode: s("requestCode"),
-    sourceChannel: s("sourceChannel"),
-    conversationExternalId: s("conversationExternalId"),
-    actorExternalId: s("actorExternalId"),
-    actorDisplayName: s("actorDisplayName"),
-    actorUsername: s("actorUsername"),
-    senderIdentifier: s("senderIdentifier"),
-    guardianBindingChannel: s("guardianBindingChannel"),
-    guardianResolutionSource: s("guardianResolutionSource"),
-    previousMemberStatus: s("previousMemberStatus"),
-    messagePreview: s("messagePreview"),
-    isStranger: b("isStranger"),
-    isRestricted: b("isRestricted"),
-    messageTs: s("messageTs"),
-  };
+  return AccessRequestPayloadSchema.parse(payload);
 }
 
 // ── Warnings ────────────────────────────────────────────────────────────────
