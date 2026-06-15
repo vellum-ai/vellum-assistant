@@ -348,6 +348,9 @@ function buildOnboardingSection(normalized: NormalizedOnboarding): string {
   if (normalized.preferredName) {
     lines.push(`- **Preferred name:** ${normalized.preferredName}`);
   }
+  if (normalized.occupation) {
+    lines.push(`- **Role:** ${normalized.occupation}`);
+  }
   if (normalized.commonWork.length > 0) {
     lines.push(`- **Common work:** ${normalized.commonWork.join("; ")}`);
   }
