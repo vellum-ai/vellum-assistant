@@ -18,15 +18,19 @@ export async function downloadAttachment(
   const { saveFile } = await import("@/runtime/native-file");
 
   if (assistantId && attachment.id && !attachment.id.startsWith("rehydrated:")) {
-    const { data, error } = await attachmentsByIdContentGet({
-      path: { assistant_id: assistantId, id: attachment.id },
-      parseAs: "blob",
-      throwOnError: false,
-    });
+    try {
+      const { data, error } = await attachmentsByIdContentGet({
+        path: { assistant_id: assistantId, id: attachment.id },
+        parseAs: "blob",
+        throwOnError: false,
+      });
 
-    if (!error && data instanceof Blob) {
-      await saveFile(data, attachment.filename);
-      return;
+      if (!error && data instanceof Blob) {
+        await saveFile(data, attachment.filename);
+        return;
+      }
+    } catch {
+      // Network failure, assistant offline, etc. — fall through to previewUrl.
     }
   }
 
