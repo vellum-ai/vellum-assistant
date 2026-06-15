@@ -186,7 +186,7 @@ describe("TelegramAdapter", () => {
       contextPayload: {
         requestId: "req-abc-123",
         requestCode: "XYZW",
-        senderIdentifier: "Marina",
+        senderIdentifier: "TestUser",
         sourceChannel: "telegram",
       },
       approvalContext: {
@@ -196,7 +196,7 @@ describe("TelegramAdapter", () => {
           { id: "reject", label: "Reject" },
         ],
         plainTextFallback:
-          'Marina is requesting access to the assistant.\nReply "XYZW approve" to grant access or "XYZW reject" to deny.\nReply "open invite flow" to start Trusted Contacts invite flow.',
+          'TestUser is requesting access to the assistant.\nReply "XYZW approve" to grant access or "XYZW reject" to deny.\nReply "open invite flow" to start Trusted Contacts invite flow.',
       },
     });
 
@@ -246,7 +246,7 @@ describe("TelegramAdapter", () => {
         body: "Someone is requesting access.",
       },
       contextPayload: {
-        senderIdentifier: "Marina",
+        senderIdentifier: "TestUser",
         sourceChannel: "telegram",
         // no requestId
       },
@@ -273,7 +273,7 @@ describe("TelegramAdapter", () => {
       contextPayload: {
         requestId: "req-abc-123",
         requestCode: "XYZW",
-        senderIdentifier: "Marina",
+        senderIdentifier: "TestUser",
         sourceChannel: "telegram",
       },
       approvalContext: {
@@ -283,7 +283,7 @@ describe("TelegramAdapter", () => {
           { id: "reject", label: "Reject" },
         ],
         plainTextFallback:
-          'Marina is requesting access to the assistant.\nReply "XYZW approve" to grant access or "XYZW reject" to deny.\nReply "open invite flow" to start Trusted Contacts invite flow.',
+          'TestUser is requesting access to the assistant.\nReply "XYZW approve" to grant access or "XYZW reject" to deny.\nReply "open invite flow" to start Trusted Contacts invite flow.',
       },
     });
 
