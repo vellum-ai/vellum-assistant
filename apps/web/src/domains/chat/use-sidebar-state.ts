@@ -91,6 +91,57 @@ export interface SidebarState {
 }
 
 // ---------------------------------------------------------------------------
+// Section factory
+// ---------------------------------------------------------------------------
+
+interface BuildPaginatedSectionParams {
+  items: Conversation[];
+  isExpanded: boolean;
+  attentionConversationIds: Set<string> | undefined;
+  hasNextPage: boolean | undefined;
+  fetchNextPage: (() => void) | undefined;
+  onExpand: () => void;
+  onCollapse: () => void;
+}
+
+/**
+ * Pure function that builds a `PaginatedSection` from grouped items and
+ * expansion state. Extracted to DRY the identical logic that was duplicated
+ * across Recents and Slack sections.
+ */
+function buildPaginatedSection({
+  items,
+  isExpanded,
+  attentionConversationIds,
+  hasNextPage,
+  fetchNextPage,
+  onExpand,
+  onCollapse,
+}: BuildPaginatedSectionParams): PaginatedSection {
+  const attentionIndex = attentionConversationIds
+    ? items.findIndex((c) => attentionConversationIds.has(c.conversationId))
+    : -1;
+  const visibleCount = isExpanded ? items.length : SIDEBAR_CONVERSATION_LIMIT;
+  const effectiveVisibleCount =
+    attentionIndex >= visibleCount ? attentionIndex + 1 : visibleCount;
+  const hasMoreItems =
+    effectiveVisibleCount < items.length || (hasNextPage ?? false);
+  return {
+    all: items,
+    items: items.slice(0, effectiveVisibleCount),
+    totalCount: items.length,
+    showMore: !isExpanded && hasMoreItems,
+    showLess: isExpanded,
+    onShowMore: () => {
+      onExpand();
+      if (hasNextPage) fetchNextPage?.();
+    },
+    onShowLess: onCollapse,
+    onScrollLoadMore: isExpanded && hasNextPage ? fetchNextPage : undefined,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
 
@@ -200,72 +251,36 @@ export function useSidebarState({
 
   // --- Pagination ("show more") ---
 
-  const [visibleRecentsCount, setVisibleRecentsCount] = useState(
-    SIDEBAR_CONVERSATION_LIMIT,
-  );
-  const [visibleSlackCount, setVisibleSlackCount] = useState(
-    SIDEBAR_CONVERSATION_LIMIT,
+  const [recentsExpanded, setRecentsExpanded] = useState(false);
+  const [slackExpanded, setSlackExpanded] = useState(false);
+
+  const recentsSection = useMemo(
+    () =>
+      buildPaginatedSection({
+        items: grouped.recents,
+        isExpanded: recentsExpanded,
+        attentionConversationIds,
+        hasNextPage,
+        fetchNextPage,
+        onExpand: () => setRecentsExpanded(true),
+        onCollapse: () => setRecentsExpanded(false),
+      }),
+    [grouped.recents, recentsExpanded, attentionConversationIds, fetchNextPage, hasNextPage],
   );
 
-  const recentsSection = useMemo((): PaginatedSection => {
-    const attentionIndex = attentionConversationIds
-      ? grouped.recents.findIndex((c) =>
-          attentionConversationIds.has(c.conversationId),
-        )
-      : -1;
-    const effectiveVisibleCount =
-      attentionIndex >= visibleRecentsCount
-        ? attentionIndex + 1
-        : visibleRecentsCount;
-    const isExpanded =
-      visibleRecentsCount > SIDEBAR_CONVERSATION_LIMIT &&
-      grouped.recents.length > SIDEBAR_CONVERSATION_LIMIT;
-    const hasMoreItems =
-      effectiveVisibleCount < grouped.recents.length || (hasNextPage ?? false);
-    return {
-      all: grouped.recents,
-      items: grouped.recents.slice(0, effectiveVisibleCount),
-      totalCount: grouped.recents.length,
-      showMore: !isExpanded && hasMoreItems,
-      showLess: isExpanded,
-      onShowMore: () => {
-        setVisibleRecentsCount(Number.MAX_SAFE_INTEGER);
-        if (hasNextPage) fetchNextPage?.();
-      },
-      onShowLess: () => setVisibleRecentsCount(SIDEBAR_CONVERSATION_LIMIT),
-      onScrollLoadMore: isExpanded && hasNextPage ? fetchNextPage : undefined,
-    };
-  }, [grouped.recents, visibleRecentsCount, attentionConversationIds, fetchNextPage, hasNextPage]);
-
-  const slackSection = useMemo((): PaginatedSection => {
-    const attentionIndex = attentionConversationIds
-      ? grouped.slack.findIndex((c) =>
-          attentionConversationIds.has(c.conversationId),
-        )
-      : -1;
-    const effectiveVisibleCount =
-      attentionIndex >= visibleSlackCount
-        ? attentionIndex + 1
-        : visibleSlackCount;
-    const isExpanded =
-      visibleSlackCount > SIDEBAR_CONVERSATION_LIMIT &&
-      grouped.slack.length > SIDEBAR_CONVERSATION_LIMIT;
-    const hasMoreSlackItems =
-      effectiveVisibleCount < grouped.slack.length || (hasNextPage ?? false);
-    return {
-      all: grouped.slack,
-      items: grouped.slack.slice(0, effectiveVisibleCount),
-      totalCount: grouped.slack.length,
-      showMore: !isExpanded && hasMoreSlackItems,
-      showLess: isExpanded,
-      onShowMore: () => {
-        setVisibleSlackCount(Number.MAX_SAFE_INTEGER);
-        if (hasNextPage) fetchNextPage?.();
-      },
-      onShowLess: () => setVisibleSlackCount(SIDEBAR_CONVERSATION_LIMIT),
-      onScrollLoadMore: isExpanded && hasNextPage ? fetchNextPage : undefined,
-    };
-  }, [grouped.slack, visibleSlackCount, attentionConversationIds, fetchNextPage, hasNextPage]);
+  const slackSection = useMemo(
+    () =>
+      buildPaginatedSection({
+        items: grouped.slack,
+        isExpanded: slackExpanded,
+        attentionConversationIds,
+        hasNextPage,
+        fetchNextPage,
+        onExpand: () => setSlackExpanded(true),
+        onCollapse: () => setSlackExpanded(false),
+      }),
+    [grouped.slack, slackExpanded, attentionConversationIds, fetchNextPage, hasNextPage],
+  );
 
   // --- Attention-forced expansion ---
 

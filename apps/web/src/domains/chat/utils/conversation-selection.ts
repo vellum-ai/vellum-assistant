@@ -33,7 +33,11 @@ function isStoredConversationSelectable(
   const conversation = conversations.find(
     (item) => item.conversationId === key,
   );
-  if (!conversation) return false;
+  // With paginated loading, absence from the loaded pages does not prove
+  // the conversation was deleted — it may simply be on a later page. Trust
+  // the stored ID; if it no longer exists, the history loader handles the
+  // 404 gracefully and lands on a new conversation.
+  if (!conversation) return true;
   // Surfaced conversations (`surfacedAt != null`) render in Recents even
   // when their underlying type is background/scheduled, so restoring them
   // on reload is expected — the user can see and select them in the sidebar.
@@ -54,9 +58,9 @@ function isStoredConversationSelectable(
  * provide a one-shot draft key so the first post-hatch auto-greet never lands
  * in a stale background conversation. For same-assistant refetches, preserve
  * the in-memory selection so manual refresh does not jump to whatever
- * conversation is newest. On a cold load, resume the last persisted key only if
- * the server still lists it as a foreground conversation; background/scheduled
- * conversations require an explicit URL selection.
+ * conversation is newest. On a cold load, resume the last persisted key unless
+ * it is a known background/scheduled conversation — if the key is absent from
+ * the loaded pages, trust it (pagination means absence ≠ deleted).
  */
 export function resolveBootstrappedConversationId({
   queryParamKey,

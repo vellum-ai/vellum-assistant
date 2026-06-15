@@ -136,17 +136,17 @@ describe("resolveBootstrappedConversationId", () => {
     ).toBe("surfaced-sched");
   });
 
-  test("ignores a stored conversation that is no longer in the list", () => {
+  test("trusts a stored conversation absent from loaded pages (may be on later page)", () => {
     expect(
       resolveBootstrappedConversationId({
         queryParamKey: null,
         currentConversationId: null,
         currentAssistantId: null,
         nextAssistantId: "asst-1",
-        storedConversationId: "missing",
+        storedConversationId: "not-in-first-page",
         defaultConversationId: "new-latest",
         conversations,
       }),
-    ).toBe("new-latest");
+    ).toBe("not-in-first-page");
   });
 });
