@@ -100,6 +100,7 @@ import { disableCacheOneShotCallsitesMigration } from "./099-disable-cache-one-s
 import { upgradeQualityProfileToFable5Migration } from "./100-upgrade-quality-profile-to-fable-5.js";
 import { upgradeBalancedEconomyToMinimaxM3Migration } from "./101-upgrade-balanced-economy-to-minimax-m3.js";
 import { preserveHeartbeatEnabledForExistingWorkspacesMigration } from "./102-preserve-heartbeat-enabled-for-existing-workspaces.js";
+import { upgradeQualityProfileToOpus48Migration } from "./103-upgrade-quality-profile-to-opus-4-8.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -211,4 +212,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   upgradeQualityProfileToFable5Migration,
   upgradeBalancedEconomyToMinimaxM3Migration,
   preserveHeartbeatEnabledForExistingWorkspacesMigration,
+  upgradeQualityProfileToOpus48Migration,
 ];
