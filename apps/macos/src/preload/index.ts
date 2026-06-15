@@ -305,6 +305,11 @@ const bridge: VellumBridge = {
         ok: boolean;
         error?: string;
       }>,
+    sleep: (assistantId: string) =>
+      ipcRenderer.invoke("vellum:localMode:sleep", assistantId) as Promise<{
+        ok: boolean;
+        error?: string;
+      }>,
     guardianToken: (assistantId: string) =>
       ipcRenderer.invoke(
         "vellum:localMode:guardianToken",
