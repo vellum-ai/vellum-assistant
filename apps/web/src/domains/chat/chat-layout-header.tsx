@@ -80,7 +80,7 @@ export function ChatLayoutHeader({
   return (
     <header
       data-slot="chat-layout-header"
-      className={`flex w-full shrink-0 items-center gap-4 px-4 pt-4${isMobile ? " pb-4" : ""}${
+      className={`flex w-full shrink-0 items-center gap-4 px-4 pt-4${isMobile && !electron ? " pb-4" : ""}${
         electron
           ? " select-none [-webkit-app-region:drag] [&_a]:[-webkit-app-region:no-drag] [&_button]:[-webkit-app-region:no-drag]"
           : ""
