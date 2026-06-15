@@ -116,7 +116,7 @@ export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
           {hasImagePreview ? null : ICON_BY_KIND[kind]}
         </div>
         {hasOverlayActions && (
-          <div className="absolute inset-0 flex items-center justify-center gap-1 rounded-lg bg-black/50 opacity-0 transition-opacity group-hover/square:opacity-100 group-focus-within/square:opacity-100">
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-1 rounded-lg bg-black/50 opacity-0 transition-opacity group-hover/square:pointer-events-auto group-hover/square:opacity-100 group-focus-within/square:pointer-events-auto group-focus-within/square:opacity-100">
             {onPreview && (
               <Tooltip content="Preview">
                 <button

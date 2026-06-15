@@ -1,10 +1,11 @@
 import { attachmentsByIdContentGet } from "@/generated/daemon/sdk.gen";
 
 /**
- * Download an attachment directly without opening the preview modal. When a
- * `previewUrl` is available it is passed straight to the cross-platform
- * `saveFile` helper; otherwise the content is fetched on-demand from the
- * daemon API and handed to `saveFile` as a Blob.
+ * Download an attachment directly without opening the preview modal. Prefers
+ * the daemon content endpoint because `previewUrl` may be a JPEG thumbnail
+ * rather than the actual file (e.g. video attachments with `thumbnailData`
+ * only). Falls back to `previewUrl` when the daemon endpoint is unavailable
+ * (no assistantId, synthetic rehydrated IDs, or fetch failure).
  */
 export async function downloadAttachment(
   attachment: {
@@ -16,24 +17,20 @@ export async function downloadAttachment(
 ): Promise<void> {
   const { saveFile } = await import("@/runtime/native-file");
 
+  if (assistantId && attachment.id && !attachment.id.startsWith("rehydrated:")) {
+    const { data, error } = await attachmentsByIdContentGet({
+      path: { assistant_id: assistantId, id: attachment.id },
+      parseAs: "blob",
+      throwOnError: false,
+    });
+
+    if (!error && data instanceof Blob) {
+      await saveFile(data, attachment.filename);
+      return;
+    }
+  }
+
   if (attachment.previewUrl) {
     await saveFile(attachment.previewUrl, attachment.filename);
-    return;
   }
-
-  if (!assistantId || !attachment.id || attachment.id.startsWith("rehydrated:")) {
-    return;
-  }
-
-  const { data, error } = await attachmentsByIdContentGet({
-    path: { assistant_id: assistantId, id: attachment.id },
-    parseAs: "blob",
-    throwOnError: false,
-  });
-
-  if (error || !(data instanceof Blob)) {
-    return;
-  }
-
-  await saveFile(data, attachment.filename);
 }
