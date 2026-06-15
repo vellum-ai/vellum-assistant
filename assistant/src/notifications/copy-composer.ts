@@ -12,12 +12,16 @@
 import {
   buildAccessRequestContractText,
   buildAccessRequestSeedContentBlocks,
-  sanitizeIdentityField,
 } from "./access-request-copy.js";
 import {
   buildGuardianRequestCodeInstruction,
   resolveGuardianQuestionInstructionMode,
 } from "./guardian-question-mode.js";
+import {
+  nonEmpty,
+  readPayloadString,
+  sanitizeIdentityField,
+} from "./notification-utils.js";
 import type {
   NotificationSignal,
   NotificationSourceEventName,
@@ -30,26 +34,6 @@ type CopyTemplate = (payload: Record<string, unknown>) => RenderedChannelCopy;
 function str(value: unknown, fallback: string): string {
   if (typeof value === "string" && value.length > 0) return value;
   return fallback;
-}
-
-export function nonEmpty(value: string | undefined): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-/**
- * Safely read a string property from an unknown-typed payload object.
- * Returns `undefined` when the payload is falsy, not an object, or the
- * key does not hold a string value.
- */
-export function readPayloadString(
-  payload: unknown,
-  key: string,
-): string | undefined {
-  if (!payload || typeof payload !== "object") return undefined;
-  const value = (payload as Record<string, unknown>)[key];
-  return typeof value === "string" ? value : undefined;
 }
 
 /**

@@ -22,7 +22,7 @@ import { getConversation } from "../memory/conversation-crud.js";
 import { isBackgroundConversationType } from "../memory/conversation-types.js";
 import { getLogger } from "../util/logger.js";
 import { isConversationSeedSane } from "./conversation-seed-composer.js";
-import { readPayloadString } from "./copy-composer.js";
+import { readPayloadString } from "./notification-utils.js";
 import type { NotificationSignal } from "./signal.js";
 import type { NotificationDecision, RenderedChannelCopy } from "./types.js";
 

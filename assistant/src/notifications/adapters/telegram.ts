@@ -14,7 +14,7 @@ import { ConfigError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { buildAccessRequestContractText } from "../access-request-copy.js";
 import { isConversationSeedSane } from "../conversation-seed-composer.js";
-import { nonEmpty } from "../copy-composer.js";
+import { nonEmpty } from "../notification-utils.js";
 import type {
   ChannelAdapter,
   ChannelDeliveryPayload,
