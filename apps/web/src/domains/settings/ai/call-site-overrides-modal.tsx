@@ -16,10 +16,9 @@ import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import {
-    type CallSiteOverrideDraft,
-    INFERENCE_PROVIDERS,
-} from "@/domains/settings/ai/ai-types";
+import type { CallSiteOverrideDraft } from "@/generated/daemon/types.gen";
+
+import { INFERENCE_PROVIDERS } from "@/domains/settings/ai/constants";
 import { CUSTOM_SENTINEL, draftsEqual, isDraftActive } from "@/domains/settings/ai/call-site-helpers";
 import { CallSiteOverrideRow } from "@/domains/settings/ai/call-site-overrides-row";
 import {
@@ -28,7 +27,7 @@ import {
     selectSeedProfileForOverride,
     visibleProfilesForPicker,
 } from "@/assistant/profile-pickers";
-import { buildOrderedProfiles } from "@/domains/settings/ai/ai-utils";
+import { buildOrderedProfiles } from "@/domains/settings/ai/utils";
 import { configGetOptions, configGetSetQueryData, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 
 // ---------------------------------------------------------------------------
@@ -154,8 +153,8 @@ function CallSiteOverridesModalInner({
   // Derive the full draft map: persisted server values merged with any
   // user edits made this session. When the user hasn't touched a row,
   // it falls through to the persisted override (or empty).
-  const drafts = useMemo(() => {
-    if (!isSeeded) return {} as Record<string, CallSiteOverrideDraft | null>;
+  const drafts = useMemo((): Record<string, CallSiteOverrideDraft | null> => {
+    if (!isSeeded) return {};
     const merged: Record<string, CallSiteOverrideDraft | null> = {};
     for (const id of catalogCallSiteIds) {
       if (id in draftEdits) {

@@ -5,71 +5,51 @@
  * post-generation enforcement to ensure required directives always appear.
  */
 
+import { z } from "zod";
+
 import { buildApprovalCardBlocks } from "./approval-card-builder.js";
+import {
+  nonEmpty,
+  sanitizeIdentityField,
+  sanitizeMessagePreview,
+} from "./notification-utils.js";
 
-// ── Local string utilities ──────────────────────────────────────────────────
-//
-// Tiny helpers duplicated from copy-composer to keep this module
-// dependency-free (avoiding a circular import with copy-composer, which
-// imports access-request helpers for its templates).
+// ── Zod schema for access-request payloads ──────────────────────────────────
 
-function nonEmpty(value: string | undefined): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
+/** Accepts string, null, or any other type — coerces non-strings to undefined. */
+const optStr = z
+  .unknown()
+  .transform((v) => (typeof v === "string" ? v : undefined));
 
-// ── Typed payload reader ────────────────────────────────────────────────────
-//
-// The notification signal pipeline delivers contextPayload as
-// Record<string, unknown>. This parser narrows it to typed fields so
-// consumer code (copy builders, adapters) can skip per-field typeof guards.
+/** Accepts boolean or any other type — coerces non-true to undefined. */
+const optBool = z.unknown().transform((v) => (v === true ? true : undefined));
 
-export interface ParsedAccessRequestPayload {
-  requestId?: string;
-  requestCode?: string;
-  sourceChannel?: string;
-  conversationExternalId?: string;
-  actorExternalId?: string;
-  actorDisplayName?: string;
-  actorUsername?: string;
-  senderIdentifier?: string;
-  guardianBindingChannel?: string;
-  guardianResolutionSource?: string;
-  previousMemberStatus?: string;
-  messagePreview?: string;
-  isStranger?: boolean;
-  isRestricted?: boolean;
-  messageTs?: string;
-}
+export const AccessRequestPayloadSchema = z.object({
+  requestId: optStr,
+  requestCode: optStr,
+  sourceChannel: optStr,
+  conversationExternalId: optStr,
+  actorExternalId: optStr,
+  actorDisplayName: optStr,
+  actorUsername: optStr,
+  senderIdentifier: optStr,
+  guardianBindingChannel: optStr,
+  guardianResolutionSource: optStr,
+  previousMemberStatus: optStr,
+  messagePreview: optStr,
+  isStranger: optBool,
+  isRestricted: optBool,
+  messageTs: optStr,
+});
+
+export type ParsedAccessRequestPayload = z.infer<
+  typeof AccessRequestPayloadSchema
+>;
 
 export function parseAccessRequestPayload(
   payload: Record<string, unknown>,
 ): ParsedAccessRequestPayload {
-  const s = (key: string): string | undefined => {
-    const v = payload[key];
-    return typeof v === "string" ? v : undefined;
-  };
-  const b = (key: string): true | undefined =>
-    payload[key] === true ? true : undefined;
-
-  return {
-    requestId: s("requestId"),
-    requestCode: s("requestCode"),
-    sourceChannel: s("sourceChannel"),
-    conversationExternalId: s("conversationExternalId"),
-    actorExternalId: s("actorExternalId"),
-    actorDisplayName: s("actorDisplayName"),
-    actorUsername: s("actorUsername"),
-    senderIdentifier: s("senderIdentifier"),
-    guardianBindingChannel: s("guardianBindingChannel"),
-    guardianResolutionSource: s("guardianResolutionSource"),
-    previousMemberStatus: s("previousMemberStatus"),
-    messagePreview: s("messagePreview"),
-    isStranger: b("isStranger"),
-    isRestricted: b("isRestricted"),
-    messageTs: s("messageTs"),
-  };
+  return AccessRequestPayloadSchema.parse(payload);
 }
 
 // ── Warnings ────────────────────────────────────────────────────────────────
@@ -111,26 +91,6 @@ export function buildSlackMessagePermalink(
   messageTs: string,
 ): string {
   return `https://slack.com/archives/${conversationExternalId}/p${messageTs.replace(".", "")}`;
-}
-
-// ── Identity sanitization ───────────────────────────────────────────────────
-
-const IDENTITY_FIELD_MAX_LENGTH = 120;
-
-/**
- * Sanitize an untrusted identity field for inclusion in notification copy.
- *
- * - Strips control characters (U+0000–U+001F, U+007F–U+009F) and newlines.
- * - Clamps to IDENTITY_FIELD_MAX_LENGTH characters.
- * - Wraps in quotes to neutralize instruction-like payload text.
- */
-export function sanitizeIdentityField(value: string): string {
-  const stripped = value.replace(/[\x00-\x1f\x7f-\x9f\r\n]+/g, " ").trim();
-  const clamped =
-    stripped.length > IDENTITY_FIELD_MAX_LENGTH
-      ? stripped.slice(0, IDENTITY_FIELD_MAX_LENGTH) + "…"
-      : stripped;
-  return clamped;
 }
 
 /** Internal typed implementation — avoids re-parsing when called from
@@ -187,26 +147,6 @@ export function buildAccessRequestIdentityLine(
   payload: Record<string, unknown>,
 ): string {
   return buildIdentityLineFromParsed(parseAccessRequestPayload(payload));
-}
-
-// ── Message preview ─────────────────────────────────────────────────────────
-
-export const MESSAGE_PREVIEW_MAX_LENGTH = 200;
-
-/**
- * Sanitize an untrusted message preview for inclusion in notification copy.
- *
- * Like {@link sanitizeIdentityField} but uses the higher
- * MESSAGE_PREVIEW_MAX_LENGTH limit (200 chars) instead of the identity
- * field limit (120 chars).
- */
-export function sanitizeMessagePreview(value: string): string {
-  const stripped = value.replace(/[\x00-\x1f\x7f-\x9f\r\n]+/g, " ").trim();
-  const clamped =
-    stripped.length > MESSAGE_PREVIEW_MAX_LENGTH
-      ? stripped.slice(0, MESSAGE_PREVIEW_MAX_LENGTH) + "…"
-      : stripped;
-  return clamped;
 }
 
 /**

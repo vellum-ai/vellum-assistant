@@ -86,7 +86,8 @@ export function up(): MigrationResult {
     "Deduplicated contact_channels by (type, external_user_id) case-insensitive",
   );
 
-  // Remove rows that would block normalization due to cross-column collisions.
+  // Remove rows that would block future normalization due to cross-column
+  // collisions.
   db.exec(/*sql*/ `
     DELETE FROM contact_channels
     WHERE external_user_id IS NULL

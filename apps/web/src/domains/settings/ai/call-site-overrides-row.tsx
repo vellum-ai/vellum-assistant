@@ -5,11 +5,12 @@ import {
     getDefaultModelForProvider,
     getModelsForProvider,
 } from "@/assistant/llm-model-catalog";
-import type { CallSiteOverrideDraft } from "@/domains/settings/ai/ai-types";
+import type { CallSiteOverrideDraft } from "@/generated/daemon/types.gen";
+
 import {
     INFERENCE_PROVIDERS,
     INFERENCE_PROVIDER_DISPLAY_NAMES,
-} from "@/domains/settings/ai/ai-types";
+} from "@/domains/settings/ai/constants";
 import { CUSTOM_SENTINEL, isDraftActive } from "@/domains/settings/ai/call-site-helpers";
 
 // ---------------------------------------------------------------------------

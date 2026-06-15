@@ -19,10 +19,10 @@ import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import { ResetButton, SaveButton, ServiceCard } from "@/domains/settings/ai/ai-shared-ui";
-import type { ServiceMode } from "@/domains/settings/ai/ai-types";
-import { LS_WEB_SEARCH_MODE, LS_WEB_SEARCH_PROVIDER } from "@/domains/settings/ai/ai-types";
-import { getWebSearchProviderKeyStorage } from "@/domains/settings/ai/ai-utils";
+import { ResetButton, SaveButton, ServiceCard } from "@/domains/settings/ai/shared-ui";
+import { LS_WEB_SEARCH_MODE, LS_WEB_SEARCH_PROVIDER } from "@/domains/settings/ai/local-storage-keys";
+import { getWebSearchProviderKeyStorage, parseServiceMode } from "@/domains/settings/ai/utils";
+import type { ServiceMode } from "@/generated/daemon/types.gen";
 import { useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { configGetOptions, configGetSetQueryData, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
@@ -49,17 +49,22 @@ export function WebSearchCard() {
   // Server values derived from daemon config, falling back to localStorage.
   // When the cache refreshes (after save + invalidation), these update
   // automatically.
-  const { serverWebSearchMode, serverWebSearchProvider } = useMemo(() => {
+  const { serverWebSearchMode, serverWebSearchProvider } = useMemo((): {
+    serverWebSearchMode: ServiceMode;
+    serverWebSearchProvider: string;
+  } => {
     if (!daemonConfig) {
       return {
-        serverWebSearchMode: getLocalSetting(LS_WEB_SEARCH_MODE, "your-own") as ServiceMode,
+        serverWebSearchMode: parseServiceMode(getLocalSetting(LS_WEB_SEARCH_MODE, "your-own"), "your-own"),
         serverWebSearchProvider: getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native"),
       };
     }
     const wsService = daemonConfig.services?.["web-search"];
-    const mode = wsService?.mode;
     return {
-      serverWebSearchMode: (mode === "managed" || mode === "your-own" ? mode : getLocalSetting(LS_WEB_SEARCH_MODE, "your-own")) as ServiceMode,
+      serverWebSearchMode: parseServiceMode(
+        wsService?.mode ?? getLocalSetting(LS_WEB_SEARCH_MODE, "your-own"),
+        "your-own",
+      ),
       serverWebSearchProvider: wsService?.provider || getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native"),
     };
   }, [daemonConfig]);

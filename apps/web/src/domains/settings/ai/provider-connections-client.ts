@@ -10,11 +10,15 @@
 
 import { PROVIDER_DISPLAY_NAMES as CATALOG_PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import type {
+  ConnectionProvider,
   InferenceProviderconnectionsGetResponse,
   InferenceProviderconnectionsPostData,
   InferenceProviderconnectionsByNamePatchData,
   SecretsGetResponse,
 } from "@/generated/daemon/types.gen";
+
+// Re-export named SDK types so domain consumers import from one place.
+export type { Auth, ConnectionProvider } from "@/generated/daemon/types.gen";
 
 // ---------------------------------------------------------------------------
 // Type aliases — derived from generated daemon SDK types
@@ -23,12 +27,6 @@ import type {
 /** A single provider connection, as returned by the daemon list endpoint. */
 export type ProviderConnection =
   InferenceProviderconnectionsGetResponse["connections"][number];
-
-/** Provider identifier enum (generated from the daemon's Zod schema). */
-export type ConnectionProvider = ProviderConnection["provider"];
-
-/** Discriminated-union auth shape on a connection. */
-export type Auth = ProviderConnection["auth"];
 
 /** Model entry on a connection (nullable array element). */
 export type ConnectionModel = NonNullable<ProviderConnection["models"]>[number];

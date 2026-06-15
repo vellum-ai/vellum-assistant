@@ -35,12 +35,7 @@ import {
   type ConversationCandidateSet,
   serializeCandidatesForPrompt,
 } from "./conversation-candidates.js";
-import {
-  composeFallbackCopy,
-  deriveTitle,
-  nonEmpty,
-  readPayloadString,
-} from "./copy-composer.js";
+import { composeFallbackCopy, deriveTitle } from "./copy-composer.js";
 import { createDecision } from "./decisions-store.js";
 import {
   buildGuardianRequestCodeInstruction,
@@ -48,6 +43,7 @@ import {
   resolveGuardianQuestionInstructionMode,
   stripConflictingGuardianRequestInstructions,
 } from "./guardian-question-mode.js";
+import { nonEmpty, readPayloadString } from "./notification-utils.js";
 import { getPreferenceSummary } from "./preference-summary.js";
 import type { NotificationSignal, RoutingIntent } from "./signal.js";
 import { buildToolApprovalSeedContentBlocks } from "./tool-approval-copy.js";

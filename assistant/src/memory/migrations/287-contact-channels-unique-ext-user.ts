@@ -4,22 +4,23 @@ import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 const log = getLogger("migration-287");
 
 /**
- * Deduplicates historical case collisions in contact_channels and restores
- * original platform-provided casing.
+ * Deduplicates historical case collisions in contact_channels.
  *
  * Historical writes lowercased addresses inconsistently — some paths stored
  * 'U12345' and others stored 'u12345' for the same identity. This migration
  * resolves those collisions by keeping the best row per (type, address)
- * group (case-insensitive match for dedup only), then restores original
- * casing from external_user_id into address.
+ * group (case-insensitive match for dedup only).
+ *
+ * Casing restoration (setting address = external_user_id) is intentionally
+ * deferred to a later migration that lands alongside the lookup refactor,
+ * so there is no window where data format disagrees with code expectations.
  *
  * Steps:
  *  1. Deduplicate by (type, address) case-insensitively — keeps the best row.
  *  2. Deduplicate by (type, external_user_id) case-insensitively — prevents
- *     collisions when step 4 normalizes addresses from external_user_id.
+ *     future collisions when a later migration normalizes addresses.
  *  3. Remove cross-column collision blockers — rows with NULL external_user_id
  *     whose address equals another row's external_user_id.
- *  4. Normalize addresses — restore original casing from external_user_id.
  */
 export function migrateContactChannelsUniqueExtUser(database: DrizzleDb): void {
   const raw = getSqliteFrom(database);
@@ -93,9 +94,10 @@ export function migrateContactChannelsUniqueExtUser(database: DrizzleDb): void {
     );
   }
 
-  // Step 3: Remove rows that would block normalization due to cross-column
-  // collisions. A row with NULL external_user_id whose address equals another
-  // row's external_user_id prevents that row's normalization (UNIQUE violation).
+  // Step 3: Remove rows that would block future normalization due to
+  // cross-column collisions. A row with NULL external_user_id whose address
+  // equals another row's external_user_id would prevent that row's
+  // normalization in a later migration.
   const crossColResult = raw.run(/*sql*/ `
     DELETE FROM contact_channels
     WHERE external_user_id IS NULL
@@ -115,24 +117,6 @@ export function migrateContactChannelsUniqueExtUser(database: DrizzleDb): void {
     log.info(
       { rowsDeleted: crossColResult.changes },
       "Removed cross-column collision blockers",
-    );
-  }
-
-  // Step 4: Restore original platform-provided casing. external_user_id
-  // stores the exact value from the platform (e.g. "U12345ABC") while
-  // address may have been lowercased by old write paths. UPDATE OR IGNORE
-  // as a safety net for any remaining edge cases.
-  const normalizeResult = raw.run(/*sql*/ `
-    UPDATE OR IGNORE contact_channels
-    SET address = external_user_id
-    WHERE external_user_id IS NOT NULL
-      AND address != external_user_id
-  `);
-
-  if (normalizeResult.changes > 0) {
-    log.info(
-      { rowsUpdated: normalizeResult.changes },
-      "Restored original casing from external_user_id into address",
     );
   }
 }

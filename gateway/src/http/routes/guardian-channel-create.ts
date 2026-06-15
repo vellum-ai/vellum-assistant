@@ -81,13 +81,15 @@ export function createGuardianChannelHandler() {
       );
     }
 
-    const body = parsed.data;
-
-    // Canonicalize identity per channel semantics (email → lowercase,
-    // phone → E.164, Slack → preserve original casing).
-    const canonicalId =
-      canonicalizeInboundIdentity(body.type, body.externalUserId) ??
-      body.externalUserId;
+    const raw = parsed.data;
+    const body = {
+      ...raw,
+      address:
+        canonicalizeInboundIdentity(raw.type, raw.address) ?? raw.address,
+      externalUserId:
+        canonicalizeInboundIdentity(raw.type, raw.externalUserId) ??
+        raw.externalUserId,
+    };
 
     // ── Find existing guardian ─────────────────────────────────────
 
@@ -104,15 +106,18 @@ export function createGuardianChannelHandler() {
     }
 
     // ── Create guardian channel binding ────────────────────────────
-    // deliveryChatId is set to canonicalId — findContactChannel
-    // (contact-store.ts) queries by address and externalChatId, so both
-    // must use the canonicalized form for consistent lookup.
+    // CRITICAL: deliveryChatId MUST be set to body.externalUserId (not
+    // body.address) — the ACL lookup in findContactChannel
+    // (contact-store.ts:780) queries on external_user_id and
+    // external_chat_id, NOT address. For email, all three values are
+    // typically the same email string, but the param mapping must be
+    // explicit.
 
     try {
       await createGuardianBinding({
         channel: body.type,
-        externalUserId: canonicalId,
-        deliveryChatId: canonicalId,
+        externalUserId: body.externalUserId,
+        deliveryChatId: body.externalUserId,
         guardianPrincipalId: guardian.principal_id,
         displayName: body.address,
         verifiedVia: "platform_auto_register",
