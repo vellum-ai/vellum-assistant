@@ -9,13 +9,11 @@
 import { z } from "zod";
 
 import { requestSecretStandalone } from "../../daemon/handlers/shared.js";
-import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
-import { credentialKey } from "../../security/credential-key.js";
-import { setSecureKeyAsync } from "../../security/secure-keys.js";
+import { assertMetadataWritable } from "../../tools/credentials/metadata-store.js";
 import {
-  assertMetadataWritable,
-  upsertCredentialMetadata,
-} from "../../tools/credentials/metadata-store.js";
+  formatSlackChannelStatus,
+  persistPromptedCredential,
+} from "../../tools/credentials/prompted-credential.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -53,6 +51,7 @@ export type CredentialPromptResult = {
   error?: string;
   service?: string;
   field?: string;
+  message?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -84,24 +83,41 @@ async function handleCredentialPrompt({ body = {} }: RouteHandlerArgs) {
     return { ok: false, error: reason };
   }
 
-  const key = credentialKey(validated.service, validated.field);
-  const stored = await setSecureKeyAsync(key, result.value);
-  if (!stored) {
-    return { ok: false, error: "Failed to store credential" };
+  const persisted = await persistPromptedCredential({
+    service: validated.service,
+    field: validated.field,
+    value: result.value,
+    delivery: result.delivery,
+    policy: {
+      allowedTools: validated.allowedTools,
+      allowedDomains: validated.allowedDomains,
+      usageDescription: validated.usageDescription,
+      injectionTemplates: validated.injectionTemplates,
+    },
+  });
+
+  if (persisted.outcome === "error") {
+    return { ok: false, error: persisted.message };
   }
 
-  upsertCredentialMetadata(validated.service, validated.field, {
-    allowedTools: validated.allowedTools,
-    allowedDomains: validated.allowedDomains,
-    usageDescription: validated.usageDescription,
-    injectionTemplates: validated.injectionTemplates,
-  });
-  await syncManualTokenConnection(validated.service);
+  if (persisted.outcome === "transient") {
+    return {
+      ok: true,
+      service: validated.service,
+      field: validated.field,
+      message: `One-time credential provided for ${validated.service}/${validated.field}. The value was not saved and will be consumed by the next operation.`,
+    };
+  }
+
+  const slackStatus = persisted.slackChannel
+    ? formatSlackChannelStatus(persisted.slackChannel).trim()
+    : "";
 
   return {
     ok: true,
     service: validated.service,
     field: validated.field,
+    message: slackStatus.length > 0 ? slackStatus : undefined,
   };
 }
 
@@ -129,6 +145,7 @@ export const ROUTES: RouteDefinition[] = [
       error: z.string().optional(),
       service: z.string().optional(),
       field: z.string().optional(),
+      message: z.string().optional(),
     }),
   },
 ];

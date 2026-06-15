@@ -8946,6 +8946,8 @@ paths:
                     type: string
                   field:
                     type: string
+                  message:
+                    type: string
                 required:
                   - ok
                 additionalProperties: false
