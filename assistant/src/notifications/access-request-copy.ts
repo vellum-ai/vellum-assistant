@@ -7,7 +7,8 @@
 
 import { z } from "zod";
 
-import { buildApprovalCardBlocks } from "./approval-card-builder.js";
+import { renderSurfaceApprovalCard } from "./approval-card-builder.js";
+import { resolveApprovalCardData } from "./approval-card-data.js";
 import {
   nonEmpty,
   sanitizeIdentityField,
@@ -320,66 +321,20 @@ export function buildAccessRequestContractText(
  * render as an interactive card via `SurfaceRouter → CardSurface`, plus a
  * plain-text fallback block for search, CLI display, and backward-compatible
  * clients that don't support surfaces.
+ *
+ * Delegates to `resolveApprovalCardData` for payload parsing and field
+ * extraction, then renders via `renderSurfaceApprovalCard`.
  */
 export function buildAccessRequestSeedContentBlocks(
   payload: Record<string, unknown>,
 ): unknown[] {
-  const p = parseAccessRequestPayload(payload);
-
-  const rawName = nonEmpty(p.actorDisplayName) ?? nonEmpty(p.senderIdentifier);
-  const displayName = rawName ? sanitizeIdentityField(rawName) : "Someone";
-
-  const metadata: Array<{ label: string; value: string }> = [];
-
-  if (p.actorUsername) {
-    metadata.push({
-      label: "Username",
-      value: `@${sanitizeIdentityField(p.actorUsername)}`,
-    });
+  const data = resolveApprovalCardData("ingress.access_request", payload);
+  if (!data || data.kind !== "access_request") {
+    // Defensive: should never happen for ingress.access_request payloads.
+    // Fall back to a minimal text block.
+    return [
+      { type: "text" as const, text: buildAccessRequestContractText(payload) },
+    ];
   }
-
-  if (p.sourceChannel === "slack" && p.conversationExternalId) {
-    const isDm = isSlackDmConversation(p.conversationExternalId);
-    metadata.push({
-      label: "Source",
-      value: isDm
-        ? "Slack — Direct message"
-        : `Slack — #${p.conversationExternalId}`,
-    });
-  } else if (p.sourceChannel) {
-    metadata.push({ label: "Source", value: p.sourceChannel });
-  }
-
-  const warnings = buildAccessRequestWarnings(p);
-  const bodyParts: string[] = [];
-
-  if (p.messagePreview) {
-    bodyParts.push(`> "${sanitizeMessagePreview(p.messagePreview)}"`);
-  }
-  for (const w of warnings) {
-    bodyParts.push(`⚠️ ${w}`);
-  }
-  if (p.sourceChannel === "slack" && p.conversationExternalId && p.messageTs) {
-    const permalink = buildSlackMessagePermalink(
-      p.conversationExternalId,
-      p.messageTs,
-    );
-    bodyParts.push(`[View message](${permalink})`);
-  }
-
-  const body =
-    bodyParts.length > 0
-      ? bodyParts.join("\n\n")
-      : "No additional context available.";
-
-  return buildApprovalCardBlocks({
-    surfaceIdPrefix: "access-request",
-    cardTitle: "Access Request",
-    requesterName: displayName,
-    subtitle: "Requesting access to the assistant",
-    body,
-    metadata,
-    requestId: p.requestId,
-    fallbackText: buildAccessRequestContractText(payload),
-  });
+  return renderSurfaceApprovalCard(data);
 }

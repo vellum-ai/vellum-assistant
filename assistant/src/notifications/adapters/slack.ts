@@ -8,6 +8,10 @@
  * character limits. Non-approval notifications use standard Block Kit
  * text sections.
  *
+ * Card content is pre-resolved by the broadcaster as `approvalCardData`
+ * (from `approval-card-data.ts`), so the adapter only handles Slack-native
+ * rendering — no payload parsing.
+ *
  * Card block reference:
  * https://docs.slack.dev/reference/block-kit/blocks/card-block
  */
@@ -15,20 +19,14 @@
 import { sendSlackReply } from "../../messaging/providers/slack/send.js";
 import type { ApprovalUIMetadata } from "../../runtime/channel-approval-types.js";
 import { getLogger } from "../../util/logger.js";
-import {
-  buildAccessRequestInviteDirective,
-  buildAccessRequestWarnings,
-  buildSlackMessagePermalink,
-  isSlackDmConversation,
-  parseAccessRequestPayload,
-  type ParsedAccessRequestPayload,
-} from "../access-request-copy.js";
+import { buildAccessRequestInviteDirective } from "../access-request-copy.js";
+import type {
+  AccessRequestCardData,
+  ApprovalCardData,
+  ToolApprovalCardData,
+} from "../approval-card-data.js";
 import { isConversationSeedSane } from "../conversation-seed-composer.js";
-import {
-  nonEmpty,
-  sanitizeIdentityField,
-  sanitizeMessagePreview,
-} from "../notification-utils.js";
+import { nonEmpty } from "../notification-utils.js";
 import type {
   ChannelAdapter,
   ChannelDeliveryPayload,
@@ -84,125 +82,36 @@ function buildCardActions(approval: ApprovalUIMetadata): unknown[] {
 }
 
 // ---------------------------------------------------------------------------
-// Access request card
+// Access request card (renders from pre-resolved AccessRequestCardData)
 // ---------------------------------------------------------------------------
 
-/** Concise requester identity for the card subtitle (≤150 chars). */
-function buildAccessRequestSubtitle(p: ParsedAccessRequestPayload): string {
-  const rawName = nonEmpty(p.actorDisplayName) ?? nonEmpty(p.senderIdentifier);
-  const displayName = rawName ? sanitizeIdentityField(rawName) : "Someone";
-  const parts = [displayName];
-
-  const username = nonEmpty(p.actorUsername);
-  if (username) {
-    const safe = sanitizeIdentityField(username);
-    if (safe !== displayName) parts.push(`(@${safe})`);
-  }
-
-  if (p.sourceChannel) parts.push(`via ${p.sourceChannel}`);
-
-  return truncate(parts.join(" "), 150);
-}
-
-/** Card body: message preview when available, otherwise a default label. */
-function buildAccessRequestBody(p: ParsedAccessRequestPayload): string {
-  if (p.messagePreview) {
-    const sanitized = sanitizeMessagePreview(p.messagePreview);
-    if (sanitized) {
-      // Truncate content before wrapping so formatting chars stay balanced.
-      // Wrapper `> _"..."_` is 6 chars; reserve space for them.
-      const trimmed = truncate(sanitized, 200 - 6);
-      return `> _"${trimmed}"_`;
-    }
-  }
-  return "Requesting access to the assistant";
-}
-
-/** Source-channel context block with Slack permalink when available. */
-function buildSourceContextBlock(
-  p: ParsedAccessRequestPayload,
-): unknown | undefined {
-  if (p.sourceChannel !== "slack" || !p.conversationExternalId) {
-    return undefined;
-  }
-
-  const permalink = p.messageTs
-    ? buildSlackMessagePermalink(p.conversationExternalId, p.messageTs)
-    : undefined;
-
-  let sourceText: string;
-  if (isSlackDmConversation(p.conversationExternalId)) {
-    sourceText = permalink
-      ? `Source: Slack — Direct message · <${permalink}|View message>`
-      : "Source: Slack — Direct message";
-  } else {
-    sourceText = permalink
-      ? `Source: Slack — <#${p.conversationExternalId}> · <${permalink}|View message>`
-      : `Source: Slack — <#${p.conversationExternalId}>`;
-  }
-
-  return {
-    type: "context",
-    elements: [{ type: "mrkdwn", text: sourceText }],
-  };
-}
-
-/** Stable requester identifier context block (external ID when it adds info). */
-function buildRequesterIdBlock(
-  p: ParsedAccessRequestPayload,
-): unknown | undefined {
-  const safeExternalId = nonEmpty(
-    p.actorExternalId ? sanitizeIdentityField(p.actorExternalId) : undefined,
-  );
-  if (!safeExternalId) return undefined;
-
-  const displayedName = nonEmpty(
-    p.actorDisplayName
-      ? sanitizeIdentityField(p.actorDisplayName)
-      : p.senderIdentifier
-        ? sanitizeIdentityField(p.senderIdentifier)
-        : undefined,
-  );
-  const displayedUsername = nonEmpty(
-    p.actorUsername ? sanitizeIdentityField(p.actorUsername) : undefined,
-  );
-  if (
-    safeExternalId === displayedName ||
-    safeExternalId === displayedUsername
-  ) {
-    return undefined;
-  }
-
-  return {
-    type: "context",
-    elements: [{ type: "mrkdwn", text: `ID: ${safeExternalId}` }],
-  };
-}
-
-/**
- * Build Slack blocks for an access request using a native Card block.
- *
- * Layout:
- *   Card — title + subtitle (identity) + body (preview) + actions + subtext (warnings)
- *   Context — source permalink (when the request is from Slack)
- *   Context — stable requester ID (when it adds info beyond subtitle)
- *   Context — invite directive
- *   Context — guardian verification note (conditional)
- */
-function buildAccessRequestCardBlocks(
-  payload: ChannelDeliveryPayload,
+function buildAccessRequestSlackBlocks(
+  data: AccessRequestCardData,
+  approval: ApprovalUIMetadata,
 ): unknown[] {
-  const approval = payload.approvalContext!;
-  const p = parseAccessRequestPayload(payload.contextPayload!);
   const blocks: unknown[] = [];
 
-  const subtitle = buildAccessRequestSubtitle(p);
-  const body = buildAccessRequestBody(p);
+  // Subtitle: requester identity
+  const subtitleParts = [data.displayName];
+  if (data.username && data.username !== data.displayName) {
+    subtitleParts.push(`(@${data.username})`);
+  }
+  if (data.sourceChannel) subtitleParts.push(`via ${data.sourceChannel}`);
+  const subtitle = truncate(subtitleParts.join(" "), 150);
 
-  const warnings = buildAccessRequestWarnings(p);
+  // Body: message preview
+  let body: string;
+  if (data.messagePreview) {
+    const trimmed = truncate(data.messagePreview, 200 - 6);
+    body = `> _"${trimmed}"_`;
+  } else {
+    body = "Requesting access to the assistant";
+  }
+
+  // Warnings as subtext
   const subtext =
-    warnings.length > 0
-      ? truncate(warnings.map((w) => `:warning: ${w}`).join(" · "), 200)
+    data.warnings.length > 0
+      ? truncate(data.warnings.map((w) => `:warning: ${w}`).join(" · "), 200)
       : undefined;
 
   const card: Record<string, unknown> = {
@@ -215,28 +124,54 @@ function buildAccessRequestCardBlocks(
   if (subtext) card.subtext = { type: "mrkdwn", text: subtext };
   blocks.push(card);
 
-  const sourceContext = buildSourceContextBlock(p);
-  if (sourceContext) blocks.push(sourceContext);
+  // Context: source permalink (Slack-specific)
+  if (data.sourceChannel === "slack" && data.conversationExternalId) {
+    let sourceText: string;
+    if (data.isSlackDm) {
+      sourceText = data.messagePermalink
+        ? `Source: Slack — Direct message · <${data.messagePermalink}|View message>`
+        : "Source: Slack — Direct message";
+    } else {
+      sourceText = data.messagePermalink
+        ? `Source: Slack — <#${data.conversationExternalId}> · <${data.messagePermalink}|View message>`
+        : `Source: Slack — <#${data.conversationExternalId}>`;
+    }
+    blocks.push({
+      type: "context",
+      elements: [{ type: "mrkdwn", text: sourceText }],
+    });
+  }
 
-  const idBlock = buildRequesterIdBlock(p);
-  if (idBlock) blocks.push(idBlock);
+  // Context: stable requester ID (when it adds info beyond subtitle)
+  if (
+    data.externalId &&
+    data.externalId !== data.displayName &&
+    data.externalId !== data.username
+  ) {
+    blocks.push({
+      type: "context",
+      elements: [{ type: "mrkdwn", text: `ID: ${data.externalId}` }],
+    });
+  }
 
+  // Context: invite directive
   blocks.push({
     type: "context",
     elements: [{ type: "mrkdwn", text: buildAccessRequestInviteDirective() }],
   });
 
+  // Context: guardian verification hint
   if (
-    (p.guardianResolutionSource === "vellum-anchor" ||
-      p.guardianResolutionSource === "none") &&
-    p.sourceChannel
+    (data.guardianResolutionSource === "vellum-anchor" ||
+      data.guardianResolutionSource === "none") &&
+    data.sourceChannel
   ) {
     blocks.push({
       type: "context",
       elements: [
         {
           type: "mrkdwn",
-          text: `_You haven't verified your identity on ${p.sourceChannel} yet. If this was you trying to message your assistant, say "help me verify as guardian on ${p.sourceChannel}" to set up direct access._`,
+          text: `_You haven't verified your identity on ${data.sourceChannel} yet. If this was you trying to message your assistant, say "help me verify as guardian on ${data.sourceChannel}" to set up direct access._`,
         },
       ],
     });
@@ -246,39 +181,37 @@ function buildAccessRequestCardBlocks(
 }
 
 // ---------------------------------------------------------------------------
-// Tool approval card
+// Tool approval card (renders from pre-resolved ToolApprovalCardData)
 // ---------------------------------------------------------------------------
 
-/**
- * Build Slack blocks for a tool approval notification using a native Card block.
- *
- * Layout:
- *   Card — title + subtitle (tool + requester) + body (notification text) + actions
- */
-function buildToolApprovalCardBlocks(
-  payload: ChannelDeliveryPayload,
+function buildToolApprovalSlackBlocks(
+  data: ToolApprovalCardData,
+  approval: ApprovalUIMetadata,
   messageText: string,
 ): unknown[] {
-  const approval = payload.approvalContext!;
   const blocks: unknown[] = [];
 
-  const details = approval.permissionDetails;
-  const toolName = details?.toolName;
-  const requester = details?.requesterIdentifier;
+  const title =
+    data.kind === "tool_grant"
+      ? "Tool Grant Request"
+      : approval.permissionDetails
+        ? "Tool Approval"
+        : "Approval Request";
+
   let subtitle: string | undefined;
-  if (toolName && requester) {
-    subtitle = truncate(`${toolName} — requested by ${requester}`, 150);
-  } else if (toolName) {
-    subtitle = truncate(toolName, 150);
+  if (data.requester !== "Someone") {
+    subtitle = truncate(
+      `${data.toolName} — requested by ${data.requester}`,
+      150,
+    );
+  } else {
+    subtitle = truncate(data.toolName, 150);
   }
 
   const needsOverflow = messageText.length > 200;
   const card: Record<string, unknown> = {
     type: "card",
-    title: {
-      type: "plain_text",
-      text: details ? "Tool Approval" : "Approval Request",
-    },
+    title: { type: "plain_text", text: title },
     body: {
       type: "mrkdwn",
       text: needsOverflow ? truncate(messageText, 197) + " ↓" : messageText,
@@ -288,8 +221,6 @@ function buildToolApprovalCardBlocks(
   if (subtitle) card.subtitle = { type: "mrkdwn", text: subtitle };
   blocks.push(card);
 
-  // When the message exceeds the card body limit, show the full text in a
-  // companion section so the approver can see the complete command/context.
   if (needsOverflow) {
     blocks.push({
       type: "section",
@@ -306,20 +237,17 @@ function buildToolApprovalCardBlocks(
 
 /**
  * Build Slack blocks for any notification carrying approval context.
- * Dispatches to the appropriate card builder based on source event type.
+ * Dispatches to the appropriate card builder based on pre-resolved card data.
  */
 function buildApprovalNotificationBlocks(
-  payload: ChannelDeliveryPayload,
+  cardData: ApprovalCardData,
+  approval: ApprovalUIMetadata,
   messageText: string,
 ): unknown[] {
-  if (
-    payload.sourceEventName === "ingress.access_request" &&
-    payload.contextPayload != null
-  ) {
-    return buildAccessRequestCardBlocks(payload);
+  if (cardData.kind === "access_request") {
+    return buildAccessRequestSlackBlocks(cardData, approval);
   }
-
-  return buildToolApprovalCardBlocks(payload, messageText);
+  return buildToolApprovalSlackBlocks(cardData, approval, messageText);
 }
 
 // ---------------------------------------------------------------------------
@@ -348,11 +276,16 @@ export class SlackAdapter implements ChannelAdapter {
     const messageText = resolveSlackMessageText(payload);
 
     try {
-      const result = payload.approvalContext
-        ? await sendSlackReply(chatId, messageText, {
-            blocks: buildApprovalNotificationBlocks(payload, messageText),
-          })
-        : await sendSlackReply(chatId, messageText, { useBlocks: true });
+      const result =
+        payload.approvalContext && payload.approvalCardData
+          ? await sendSlackReply(chatId, messageText, {
+              blocks: buildApprovalNotificationBlocks(
+                payload.approvalCardData,
+                payload.approvalContext,
+                messageText,
+              ),
+            })
+          : await sendSlackReply(chatId, messageText, { useBlocks: true });
 
       log.info(
         { sourceEventName: payload.sourceEventName, chatId, ts: result.ts },

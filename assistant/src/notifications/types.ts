@@ -8,6 +8,7 @@
 import type { ChannelPolicies } from "../channels/config.js";
 import type { ChannelId } from "../channels/types.js";
 import type { ApprovalUIMetadata } from "../runtime/channel-approval-types.js";
+import type { ApprovalCardData } from "./approval-card-data.js";
 import type { AttentionHints } from "./signal.js";
 
 /**
@@ -103,6 +104,12 @@ export interface ChannelDeliveryPayload {
    * `contextPayload`.
    */
   approvalContext?: ApprovalUIMetadata;
+  /**
+   * Channel-agnostic card content for approval notifications. Resolved
+   * once by the broadcaster from `contextPayload` so adapters can
+   * render channel-native cards without re-parsing the payload.
+   */
+  approvalCardData?: ApprovalCardData;
 }
 
 /**
