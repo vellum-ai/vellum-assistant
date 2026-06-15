@@ -17,6 +17,7 @@
 import { queryOptions } from "@tanstack/react-query";
 import { captureError } from "@/lib/sentry/capture-error";
 import { conversationsGet } from "@/generated/daemon/sdk.gen";
+import type { ConversationsGetData } from "@/generated/daemon/types.gen";
 import {
   ApiError,
   assertHasResponse,
@@ -65,6 +66,18 @@ export function originChannelListPrefix(assistantId: string | null) {
   return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "channel"] as const;
 }
 
+/**
+ * Key for a specific origin channel's conversation cache. A child of
+ * {@link originChannelListPrefix}, so prefix-match invalidation of the
+ * `"channel"` segment reaches every per-channel cache automatically.
+ */
+export function originChannelConversationsQueryKey(
+  assistantId: string | null,
+  channel: string,
+) {
+  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "channel", channel] as const;
+}
+
 // ---------------------------------------------------------------------------
 // Shared sort comparator
 // ---------------------------------------------------------------------------
@@ -83,6 +96,14 @@ function byTimestampDesc(
 const CONVERSATION_LIST_PAGE_SIZE = 50;
 const CONVERSATION_LIST_MAX_PAGES = 200;
 
+/**
+ * Origin channel filter values accepted by the daemon's
+ * `GET /v1/conversations?originChannel=` parameter.
+ */
+export type OriginChannel = NonNullable<
+  ConversationsGetData["query"]
+>["originChannel"];
+
 type FetchConversationListOptions = {
   conversationType?: "background" | "scheduled";
   /**
@@ -91,6 +112,11 @@ type FetchConversationListOptions = {
    * wants to read the list. The Archive page passes `"archived"`.
    */
   archiveStatus?: "active" | "archived" | "all";
+  /**
+   * Filter by origin channel. When provided, only conversations with this
+   * exact `origin_channel` value are returned.
+   */
+  originChannel?: OriginChannel;
 };
 
 /** One page of a conversation list plus whether more pages exist. */
@@ -104,7 +130,7 @@ async function fetchConversationListPage(
   offset: number,
   options: FetchConversationListOptions = {},
 ): Promise<ConversationListPage> {
-  const { conversationType, archiveStatus } = options;
+  const { conversationType, archiveStatus, originChannel } = options;
   const { data, error, response } = await conversationsGet({
     path: { assistant_id: assistantId },
     query: {
@@ -112,6 +138,7 @@ async function fetchConversationListPage(
       offset,
       ...(conversationType ? { conversationType } : {}),
       ...(archiveStatus ? { archiveStatus } : {}),
+      ...(originChannel ? { originChannel } : {}),
     },
     throwOnError: false,
   });
@@ -279,6 +306,25 @@ export async function listScheduledConversations(
 }
 
 /**
+ * Fetch all active (non-archived) conversations for a given origin channel
+ * (e.g. `"slack"`, `"telegram"`), sorted newest-first.
+ *
+ * Each external channel's sidebar section calls this with its own channel ID.
+ * Channel sections are naturally bounded (~5-30 items per user), so a flat
+ * fetch (all pages) is appropriate. Cached separately per channel under
+ * `originChannelConversationsQueryKey`.
+ */
+export async function listOriginChannelConversations(
+  assistantId: string,
+  originChannel: NonNullable<OriginChannel>,
+): Promise<Conversation[]> {
+  const conversations = await fetchConversationList(assistantId, {
+    originChannel,
+  });
+  return [...conversations].sort(byTimestampDesc("lastMessageAt"));
+}
+
+/**
  * Fetch all archived conversations for the archive page.
  * Sorted by `archivedAt` descending (most recently archived first).
  */
@@ -394,6 +440,24 @@ export function archivedConversationListOptions(assistantId: string) {
   return queryOptions({
     queryKey: archivedConversationsQueryKey(assistantId),
     queryFn: () => listArchivedConversations(assistantId),
+    staleTime: QUERY_STALE_TIME_MS,
+  });
+}
+
+/**
+ * Query options for a specific origin channel's conversation list.
+ *
+ * Generic factory parameterized by channel ID — each sidebar channel section
+ * (Slack, Telegram, Email, etc.) uses this with its own channel value. Cached
+ * independently per `(assistantId, channel)` tuple.
+ */
+export function originChannelConversationListOptions(
+  assistantId: string,
+  channel: NonNullable<OriginChannel>,
+) {
+  return queryOptions({
+    queryKey: originChannelConversationsQueryKey(assistantId, channel),
+    queryFn: () => listOriginChannelConversations(assistantId, channel),
     staleTime: QUERY_STALE_TIME_MS,
   });
 }
