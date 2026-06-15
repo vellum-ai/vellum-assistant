@@ -166,13 +166,17 @@ export function listConversations(
   conversationType: ConversationType = "standard",
   offset = 0,
   archiveStatus: ArchiveStatusFilter = "active",
+  originChannel?: string,
 ): ConversationRow[] {
   ensureDisplayOrderMigration();
   ensureGroupMigration();
   const db = getDb();
   const typeCond = conversationTypeClause(conversationType);
   const archiveCond = archiveStatusClause(archiveStatus);
-  const where = archiveCond ? sql`${typeCond} AND ${archiveCond}` : typeCond;
+  const channelCond = originChannel
+    ? eq(conversations.originChannel, originChannel)
+    : undefined;
+  const where = and(typeCond, archiveCond ?? undefined, channelCond);
   const query = db
     .select()
     .from(conversations)
@@ -368,12 +372,16 @@ export function listConversationsByTitlePrefix(
 export function countConversations(
   conversationType: ConversationType = "standard",
   archiveStatus: ArchiveStatusFilter = "active",
+  originChannel?: string,
 ): number {
   ensureGroupMigration();
   const db = getDb();
   const typeCond = conversationTypeClause(conversationType);
   const archiveCond = archiveStatusClause(archiveStatus);
-  const where = archiveCond ? sql`${typeCond} AND ${archiveCond}` : typeCond;
+  const channelCond = originChannel
+    ? eq(conversations.originChannel, originChannel)
+    : undefined;
+  const where = and(typeCond, archiveCond ?? undefined, channelCond);
   const [{ total }] = db
     .select({ total: count() })
     .from(conversations)
