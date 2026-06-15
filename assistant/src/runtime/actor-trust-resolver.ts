@@ -14,7 +14,6 @@
 import type { ChannelId } from "../channels/types.js";
 import {
   findContactByAddress,
-  findContactByChannelExternalId,
   findGuardianForChannel,
 } from "../contacts/contact-store.js";
 import type { ContactChannel, ContactWithChannels } from "../contacts/types.js";
@@ -181,19 +180,13 @@ export function resolveActorTrust(
   if (guardianResult) {
     const { contact: guardianContact, channel: guardianChannel } =
       guardianResult;
-    const canonicalGuardianId = guardianChannel.externalUserId
-      ? canonicalizeInboundIdentity(
-          input.sourceChannel,
-          guardianChannel.externalUserId,
-        )
-      : null;
     guardianBindingMatch = {
-      guardianExternalUserId: guardianChannel.externalUserId ?? "",
+      guardianExternalUserId:
+        guardianChannel.externalUserId ?? guardianChannel.address ?? "",
       guardianDeliveryChatId: guardianChannel.externalChatId,
     };
     guardianPrincipalId = guardianContact.principalId ?? undefined;
-    isGuardian =
-      canonicalGuardianId != null && canonicalGuardianId === canonicalSenderId;
+    isGuardian = guardianChannel.address === canonicalSenderId;
   }
 
   log.debug(
@@ -206,37 +199,16 @@ export function resolveActorTrust(
   );
 
   // --- Member lookup via contacts ---
-  // Primary path: match by externalUserId (populated after channel verification
-  // completes, or for channels registered via the verification upsert path).
-  // Fallback path: match by address (covers channels registered by the inbound
-  // name-capture flow, where address is set but externalUserId remains NULL
-  // until the DTMF challenge succeeds). Mirrors the gateway's OR-based lookup
-  // in ContactStore.getContactByPhoneNumber so the runtime's unverified-caller
-  // guard fires for pre-verification channels the gateway passes through.
   let memberRecord: ActorTrustContext["memberRecord"] = null;
-  const byExternalId = findContactByChannelExternalId(
+  const byAddress = findContactByAddress(
     input.sourceChannel,
     canonicalSenderId,
   );
-  const byExternalIdChannel = byExternalId?.channels.find(
-    (ch) =>
-      ch.type === input.sourceChannel &&
-      ch.externalUserId === canonicalSenderId,
+  const byAddressChannel = byAddress?.channels.find(
+    (ch) => ch.type === input.sourceChannel && ch.address === canonicalSenderId,
   );
-
-  if (byExternalId && byExternalIdChannel) {
-    memberRecord = { contact: byExternalId, channel: byExternalIdChannel };
-  } else {
-    // Address fallback: catches channels where externalUserId is not yet set.
-    const byAddress = findContactByAddress(input.sourceChannel, canonicalSenderId);
-    const byAddressChannel = byAddress?.channels.find(
-      (ch) =>
-        ch.type === input.sourceChannel &&
-        ch.address?.toLowerCase() === canonicalSenderId.toLowerCase(),
-    );
-    if (byAddress && byAddressChannel) {
-      memberRecord = { contact: byAddress, channel: byAddressChannel };
-    }
+  if (byAddress && byAddressChannel) {
+    memberRecord = { contact: byAddress, channel: byAddressChannel };
   }
 
   log.debug(
@@ -244,23 +216,15 @@ export function resolveActorTrust(
       channel: input.sourceChannel,
       canonicalSenderId,
       found: !!memberRecord,
-      via: memberRecord?.channel.externalUserId ? "externalUserId" : memberRecord ? "address" : "none",
+      via: memberRecord ? "address" : "none",
     },
     "trust-resolver member lookup",
   );
 
   // Only use member metadata when the record's channel identity matches the
   // current sender to avoid misidentification in group chats.
-  // Primary check: externalUserId (canonicalized to handle E.164 variance).
-  // Fallback: address match for channels where externalUserId is NULL (e.g.
-  // name-capture registrations that haven't completed DTMF verification yet).
-  const memberMatchesSender = memberRecord?.channel.externalUserId
-    ? canonicalizeInboundIdentity(
-        input.sourceChannel,
-        memberRecord.channel.externalUserId,
-      ) === canonicalSenderId
-    : (memberRecord?.channel.address?.toLowerCase() ===
-      canonicalSenderId.toLowerCase());
+  const memberMatchesSender =
+    memberRecord?.channel.address === canonicalSenderId;
 
   const memberDisplayName =
     memberMatchesSender &&

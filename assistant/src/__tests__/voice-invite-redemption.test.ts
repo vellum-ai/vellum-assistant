@@ -180,7 +180,7 @@ describe("redeemVoiceInviteCode", () => {
 
     const channelResult = findContactChannel({
       channelType: "phone",
-      externalUserId: phone,
+      address: phone,
     });
 
     expect(channelResult).not.toBeNull();
@@ -399,7 +399,7 @@ describe("redeemVoiceInviteCode", () => {
     // Verify the redeemer's phone is now bound to Mom's contact
     const contactResult = findContactChannel({
       channelType: "phone",
-      externalUserId: phone,
+      address: phone,
     });
     expect(contactResult).not.toBeNull();
     expect(contactResult!.contact.id).toBe(momContact.id);

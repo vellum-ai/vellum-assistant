@@ -249,7 +249,7 @@ export function emitAccessRequestCallbackHandoff(
     try {
       const contactResult = findContactChannel({
         channelType: "phone",
-        externalUserId: fromNumber,
+        address: fromNumber,
         externalChatId: fromNumber,
       });
       if (

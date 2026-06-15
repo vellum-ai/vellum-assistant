@@ -204,7 +204,7 @@ export function revokeVerificationForChannel(
   // revocation becomes a no-op (wrong reason or skipped entirely).
   const contactResult = findContactChannel({
     channelType: resolvedChannel,
-    externalUserId: bindingBeforeRevoke.guardianExternalUserId,
+    address: bindingBeforeRevoke.guardianExternalUserId,
     externalChatId: bindingBeforeRevoke.guardianDeliveryChatId,
   });
 
@@ -331,7 +331,8 @@ export async function verifyTrustedContact(
       const sessionResult = createOutboundSession({
         channel: verificationChannel,
         expectedChatId: channel.externalChatId,
-        expectedExternalUserId: channel.externalUserId ?? undefined,
+        expectedExternalUserId:
+          channel.externalUserId ?? channel.address ?? undefined,
         identityBindingStatus: "bound",
         destinationAddress: effectiveDestination,
         verificationPurpose: "trusted_contact",
@@ -404,22 +405,24 @@ export async function verifyTrustedContact(
 
   // --- Slack verification ---
   if (verificationChannel === "slack") {
-    const slackUserId = channel.externalUserId ?? destination;
+    const slackUserId =
+      channel.externalUserId ?? channel.address ?? destination;
 
     const hasIdentityBinding = Boolean(
-      channel.externalUserId || channel.externalChatId,
+      channel.address || channel.externalChatId,
     );
     if (!hasIdentityBinding) {
       return {
         success: false,
         error:
-          "Slack verification requires an externalUserId or externalChatId for identity binding",
+          "Slack verification requires an address or externalChatId for identity binding",
       };
     }
 
     const sessionResult = createOutboundSession({
       channel: verificationChannel,
-      expectedExternalUserId: channel.externalUserId ?? undefined,
+      expectedExternalUserId:
+        channel.externalUserId ?? channel.address ?? undefined,
       expectedChatId: channel.externalChatId ?? undefined,
       identityBindingStatus: "bound",
       destinationAddress: slackUserId,
@@ -560,7 +563,11 @@ export async function handleChannelVerificationSession(
           const { to, text, subject, assistantId: aid } = result._pendingEmail;
           deliverVerificationEmail(to, text, subject, aid);
         }
-        const { _pendingSlackDm: _, _pendingEmail: __, ...publicResult } = result;
+        const {
+          _pendingSlackDm: _,
+          _pendingEmail: __,
+          ...publicResult
+        } = result;
         broadcastMessage({
           type: "channel_verification_session_response",
           ...publicResult,

@@ -28,6 +28,24 @@ function escapeLike(value: string): string {
 }
 
 /**
+ * Find the first contact_channels row whose (type, address) matches.
+ * The UNIQUE(type, address) constraint (migration 105) guarantees at most one.
+ */
+function findConflictingChannel(
+  db: ReturnType<typeof getDb>,
+  type: string,
+  address: string,
+) {
+  return db
+    .select()
+    .from(contactChannels)
+    .where(
+      and(eq(contactChannels.type, type), eq(contactChannels.address, address)),
+    )
+    .get();
+}
+
+/**
  * Pure slug transform applied to a display name. No DB lookup, no collision
  * handling — callers that need a collision-free filename should use
  * `generateUserFileSlug` instead. Exported so the migration classifier can
@@ -240,20 +258,10 @@ export function upsertContact(params: {
     }
   }
 
-  // Try to find by channel address to avoid duplicates
+  // Try to find by channel canonical identity to avoid duplicates
   if (!contactId && params.channels && params.channels.length > 0) {
     for (const ch of params.channels) {
-      // Primary lookup: match by (type, address)
-      const existingChannel = db
-        .select()
-        .from(contactChannels)
-        .where(
-          and(
-            eq(contactChannels.type, ch.type),
-            eq(contactChannels.address, ch.address.toLowerCase()),
-          ),
-        )
-        .get();
+      const existingChannel = findConflictingChannel(db, ch.type, ch.address);
 
       if (existingChannel) {
         contactId = existingChannel.contactId;
@@ -345,9 +353,7 @@ function syncChannels(
   const db = getDb();
 
   for (const ch of channels) {
-    const normalizedAddress = ch.address.toLowerCase();
-
-    // Check if this channel already exists for this contact
+    // Match by (type, address) — the canonical identity for all channel types.
     const existing = db
       .select()
       .from(contactChannels)
@@ -355,7 +361,7 @@ function syncChannels(
         and(
           eq(contactChannels.contactId, contactId),
           eq(contactChannels.type, ch.type),
-          eq(contactChannels.address, normalizedAddress),
+          eq(contactChannels.address, ch.address),
         ),
       )
       .get();
@@ -394,17 +400,8 @@ function syncChannels(
       continue;
     }
 
-    // Check if this channel exists for a different contact (unique constraint)
-    const conflicting = db
-      .select()
-      .from(contactChannels)
-      .where(
-        and(
-          eq(contactChannels.type, ch.type),
-          eq(contactChannels.address, normalizedAddress),
-        ),
-      )
-      .get();
+    // Check if this channel's canonical identity conflicts with another contact.
+    const conflicting = findConflictingChannel(db, ch.type, ch.address);
 
     if (conflicting) {
       if (reassignConflicting) {
@@ -451,7 +448,7 @@ function syncChannels(
         id: uuid(),
         contactId,
         type: ch.type,
-        address: normalizedAddress,
+        address: ch.address,
         isPrimary: ch.isPrimary ?? false,
         externalUserId: ch.externalUserId ?? null,
         externalChatId: ch.externalChatId ?? null,
@@ -480,8 +477,8 @@ export function searchContacts(params: {
 
   // Search by channel address first (exact or partial match)
   if (params.channelAddress) {
-    const normalizedAddress = escapeLike(params.channelAddress.toLowerCase());
-    if (!normalizedAddress) return [];
+    const escapedAddress = escapeLike(params.channelAddress);
+    if (!escapedAddress) return [];
     const channelRows = db
       .select({ contactId: contactChannels.contactId })
       .from(contactChannels)
@@ -490,9 +487,9 @@ export function searchContacts(params: {
         params.channelType
           ? and(
               eq(contactChannels.type, params.channelType),
-              like(contactChannels.address, `%${normalizedAddress}%`),
+              like(contactChannels.address, `%${escapedAddress}%`),
             )
-          : and(like(contactChannels.address, `%${normalizedAddress}%`)),
+          : and(like(contactChannels.address, `%${escapedAddress}%`)),
       )
       .all();
 
@@ -675,17 +672,13 @@ export function mergeContacts(
       .all();
 
     for (const ch of donorChannels) {
-      const exists = tx
-        .select()
-        .from(contactChannels)
-        .where(
-          and(
-            eq(contactChannels.contactId, keepId),
-            eq(contactChannels.type, ch.type),
-            eq(contactChannels.address, ch.address),
-          ),
-        )
-        .get();
+      const typeMatch = eq(contactChannels.type, ch.type);
+      const ownerMatch = eq(contactChannels.contactId, keepId);
+      const addressMatch = eq(contactChannels.address, ch.address);
+
+      const condition = and(ownerMatch, typeMatch, addressMatch);
+
+      const exists = tx.select().from(contactChannels).where(condition).get();
 
       if (!exists) {
         tx.update(contactChannels)
@@ -715,34 +708,7 @@ export function findContactByAddress(
     .select()
     .from(contactChannels)
     .where(
-      and(
-        eq(contactChannels.type, type),
-        eq(contactChannels.address, address.toLowerCase()),
-      ),
-    )
-    .get();
-
-  if (!channel) return null;
-  return getContactInternal(channel.contactId);
-}
-
-/**
- * Find a contact by channel external user ID. This is the key lookup for trust
- * resolution — maps a channel-native sender identity to its parent Contact.
- */
-export function findContactByChannelExternalId(
-  channelType: string,
-  externalUserId: string,
-): ContactWithChannels | null {
-  const db = getDb();
-  const channel = db
-    .select()
-    .from(contactChannels)
-    .where(
-      and(
-        eq(contactChannels.type, channelType),
-        eq(contactChannels.externalUserId, externalUserId),
-      ),
+      and(eq(contactChannels.type, type), eq(contactChannels.address, address)),
     )
     .get();
 
@@ -753,6 +719,7 @@ export function findContactByChannelExternalId(
 /**
  * Find a contact by channel external chat ID. This is the fallback lookup path
  * when externalUserId is not available — matches by (type, externalChatId).
+ * No unique constraint exists on externalChatId, so ORDER BY is needed.
  */
 function findContactByChannelExternalChatId(
   channelType: string,
@@ -768,30 +735,33 @@ function findContactByChannelExternalChatId(
         eq(contactChannels.externalChatId, externalChatId),
       ),
     )
+    .orderBy(
+      sql`CASE ${contactChannels.status}
+        WHEN 'active' THEN 0
+        WHEN 'unverified' THEN 1
+        ELSE 2
+      END`,
+      desc(contactChannels.updatedAt),
+    )
     .get();
   if (!channel) return null;
   return getContactInternal(channel.contactId);
 }
 
 /**
- * Find a contact and matching channel by trying externalUserId first, then
+ * Find a contact and matching channel by trying address first, then
  * falling back to externalChatId. Mirrors the findMember lookup strategy.
  */
 export function findContactChannel(params: {
   channelType: string;
-  externalUserId?: string;
+  address?: string;
   externalChatId?: string;
 }): { contact: ContactWithChannels; channel: ContactChannel } | null {
-  if (params.externalUserId) {
-    const contact = findContactByChannelExternalId(
-      params.channelType,
-      params.externalUserId,
-    );
+  if (params.address) {
+    const contact = findContactByAddress(params.channelType, params.address);
     if (contact) {
       const ch = contact.channels.find(
-        (c) =>
-          c.type === params.channelType &&
-          c.externalUserId === params.externalUserId,
+        (c) => c.type === params.channelType && c.address === params.address,
       );
       if (ch) return { contact, channel: ch };
     }
@@ -952,8 +922,6 @@ export function updateContactPrincipalAndChannel(
 ): boolean {
   const db = getDb();
   const now = Date.now();
-  const normalizedAddress = newPrincipalId.toLowerCase();
-
   // Look up the channel we're about to update so we know its type.
   const channel = db
     .select()
@@ -962,17 +930,8 @@ export function updateContactPrincipalAndChannel(
     .get();
   if (!channel) return false;
 
-  // Guard: check if another channel row already holds this (type, address).
-  const conflicting = db
-    .select()
-    .from(contactChannels)
-    .where(
-      and(
-        eq(contactChannels.type, channel.type),
-        eq(contactChannels.address, normalizedAddress),
-      ),
-    )
-    .get();
+  // Guard: check if another channel row holds this canonical identity.
+  const conflicting = findConflictingChannel(db, channel.type, newPrincipalId);
 
   if (conflicting && conflicting.id !== channelId) {
     return false;
@@ -986,8 +945,8 @@ export function updateContactPrincipalAndChannel(
 
     db.update(contactChannels)
       .set({
+        address: newPrincipalId,
         externalUserId: newPrincipalId,
-        address: normalizedAddress,
         updatedAt: now,
       })
       .where(eq(contactChannels.id, channelId))

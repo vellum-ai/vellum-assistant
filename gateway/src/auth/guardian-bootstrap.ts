@@ -144,7 +144,7 @@ export async function findGuardianForChannelActor(
      INNER JOIN contact_channels cc ON cc.contact_id = c.id
      WHERE c.role = 'guardian'
        AND cc.type = ?
-       AND cc.external_user_id = ?
+       AND cc.address = ?
        AND cc.status = 'active'
      LIMIT 1`,
     [channelType, externalUserId],
@@ -213,11 +213,9 @@ export async function createGuardianBinding(
        FROM contact_channels cc
        WHERE cc.type = ?
          AND cc.status != 'blocked'
-         AND (cc.address = ? OR cc.external_user_id = ?)
+         AND cc.address = ?
        ORDER BY
-         CASE WHEN cc.address = ? THEN 0 ELSE 1 END,
          CASE WHEN cc.contact_id = ? THEN 0 ELSE 1 END,
-         CASE WHEN cc.external_user_id = ? THEN 0 ELSE 1 END,
          CASE cc.status
            WHEN 'active' THEN 0
            WHEN 'unverified' THEN 1
@@ -225,14 +223,7 @@ export async function createGuardianBinding(
          END,
          cc.updated_at DESC
        LIMIT 1`,
-      [
-        params.channel,
-        params.externalUserId,
-        params.externalUserId,
-        params.externalUserId,
-        existingGuardianContactId ?? "",
-        params.externalUserId,
-      ],
+      [params.channel, params.externalUserId, existingGuardianContactId ?? ""],
     );
 
     contactId =
@@ -264,6 +255,13 @@ export async function createGuardianBinding(
     }
 
     if (claimableChannels[0] || existingChannels[0]) {
+      // Remove duplicate channels with the same address (defensive).
+      await assistantDbRun(
+        `DELETE FROM contact_channels
+         WHERE type = ? AND address = ? AND id != ? AND status != 'blocked'`,
+        [params.channel, params.externalUserId, channelId],
+      );
+
       await assistantDbRun(
         `UPDATE contact_channels
          SET contact_id = ?, address = ?, external_user_id = ?, external_chat_id = ?,

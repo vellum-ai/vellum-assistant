@@ -1760,7 +1760,7 @@ function isBackfilledSlackGuardianMessage(
   const canonicalGuardian =
     canonicalizeInboundIdentity("slack", guardianExternalUserId) ??
     guardianExternalUserId.trim();
-  return canonicalSender === canonicalGuardian;
+  return canonicalSender.toLowerCase() === canonicalGuardian.toLowerCase();
 }
 
 const SLACK_ASSISTANT_THREAD_PLACEHOLDER_TEXT = "New Assistant Thread";

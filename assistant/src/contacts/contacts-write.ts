@@ -25,7 +25,6 @@ import type {
   ContactWriteResult,
 } from "./types.js";
 
-
 // ── Guardian operations ──────────────────────────────────────────────
 
 /**
@@ -84,21 +83,14 @@ export function upsertContactChannel(params: {
   let displayName = params.displayName ?? params.externalUserId ?? "Unknown";
 
   // When binding a channel to a specific contact (invite redemption), preserve
-  // the target contact's curated displayName (e.g. "Mom") instead of overwriting
-  // it with the redeemer's externalUserId.
+  // the target contact's curated displayName instead of overwriting it
+  // with the raw platform identity.
   if (params.contactId) {
     const targetContact = getContact(params.contactId);
     if (targetContact?.displayName?.trim().length) {
       displayName = targetContact.displayName;
     }
   }
-
-  const canonicalId = params.externalUserId
-    ? (canonicalizeInboundIdentity(
-        params.sourceChannel as ChannelId,
-        params.externalUserId,
-      ) ?? params.externalUserId)
-    : null;
 
   upsertContact({
     id: params.contactId,
@@ -108,7 +100,7 @@ export function upsertContactChannel(params: {
       {
         type: params.sourceChannel,
         address,
-        externalUserId: canonicalId,
+        externalUserId: params.externalUserId ? address : null,
         externalChatId: params.externalChatId ?? null,
         status: (params.status as ChannelStatus) ?? undefined,
         policy: (params.policy as ChannelPolicy) ?? undefined,
@@ -133,7 +125,7 @@ export function upsertContactChannel(params: {
 
   const contactResult = findContactChannel({
     channelType: params.sourceChannel,
-    externalUserId: canonicalId ?? undefined,
+    address,
     externalChatId: params.externalChatId,
   });
 
@@ -174,4 +166,3 @@ export function revokeMember(
   emitContactChange();
   return { contact, channel: updatedChannel };
 }
-
