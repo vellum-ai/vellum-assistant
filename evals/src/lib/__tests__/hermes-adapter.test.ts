@@ -14,6 +14,7 @@ import {
   selectInferenceSelection,
   inferenceEnvFlags,
   synthesizeHermesTurnEvent,
+  buildHermesTurnPrompt,
 } from "../adapters/hermes";
 import { AgentEventCollector } from "../runner/event-collector";
 import {
@@ -618,6 +619,45 @@ describe("HermesAgent", () => {
     expect(runner.spawns).toEqual([]);
   });
 
+  test("threads prior live turns into each one-shot prompt", async () => {
+    /**
+     * A `hermes -z` shot is stateless, so the adapter must replay the
+     * conversation so far into later prompts for turn N to see turns 1..N-1.
+     */
+    // GIVEN a hatched Hermes agent that has taken one turn
+    const runner = new FakeRunner();
+    const agent = new HermesAgent({
+      runner,
+      profile,
+      testId: "timeline-recall",
+      runId: "eval-hermes-thread",
+      processEnv: {},
+    });
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+    agent.events();
+    await agent.send({ content: "remember the codeword BANANA" });
+
+    // WHEN a second message is sent
+    await agent.send({ content: "what was the codeword?" });
+
+    // THEN the second `-z` prompt replays turn 1 (the FakeRunner echoes
+    // `reply: <prompt>`, so turn 1's answer is `reply: remember ...`) and
+    // carries the new message, while the first shot sent the raw message.
+    const zPrompts = runner.runs
+      .filter((r) => r.command === "docker" && r.args.includes("-z"))
+      .map((r) => r.args[r.args.indexOf("-z") + 1]);
+    expect(zPrompts).toHaveLength(2);
+    expect(zPrompts[0]).toBe("remember the codeword BANANA");
+    expect(zPrompts[1]).toContain("User: remember the codeword BANANA");
+    expect(zPrompts[1]).toContain(
+      "Assistant: reply: remember the codeword BANANA",
+    );
+    expect(zPrompts[1]).toContain("what was the codeword?");
+
+    await agent.shutdown();
+  });
+
   test("tears down the jail but does not re-remove Hermes when its start fails", async () => {
     class FailingRunner extends FakeRunner {
       override async run(
@@ -1003,15 +1043,17 @@ describe("HermesAgent single-shot event synthesis", () => {
     await agent.send({ content: "second" });
     const turn2 = await collector.collectUntilQuiet({ quietMs: 5, maxMs: 50 });
 
-    // THEN each turn surfaces exactly its own one-shot answer — the
-    // subscription stays live across turns and never bleeds turn 1 into
-    // turn 2.
+    // THEN each turn surfaces exactly one event for its own one-shot answer —
+    // the subscription stays live across turns and never bleeds turn 1's
+    // event into turn 2. Turn 1 (no prior turns) echoes the raw message;
+    // turn 2's prompt threads the conversation so far, so its answer reflects
+    // the new message rather than turn 1's standalone event.
     expect(turn1).toEqual([
       { message: { type: "message_chunk", chunk: "reply: first" } },
     ]);
-    expect(turn2).toEqual([
-      { message: { type: "message_chunk", chunk: "reply: second" } },
-    ]);
+    expect(turn2).toHaveLength(1);
+    expect(turn2[0].message.type).toBe("message_chunk");
+    expect(turn2[0].message.chunk).toContain("second");
 
     // AND every turn is a `hermes -z` one-shot — no live event subprocess.
     const sends = runner.runs.filter((r) => r.args.includes("-z"));
@@ -1039,5 +1081,54 @@ describe("HermesAgent single-shot event synthesis", () => {
 
     // THEN the parked consumer resolves as done rather than hanging.
     await expect(pending).resolves.toEqual({ value: undefined, done: true });
+  });
+});
+
+describe("buildHermesTurnPrompt", () => {
+  test("sends the raw message on the first turn", () => {
+    /**
+     * A single-turn test should read as a plain question, not a wrapped
+     * transcript, so the first turn (no prior turns) passes the message
+     * straight through.
+     */
+    // GIVEN no prior turns
+    // WHEN building the prompt for the first message
+    const prompt = buildHermesTurnPrompt(
+      [],
+      "What was my largest spend category?",
+    );
+
+    // THEN the message is sent verbatim
+    expect(prompt).toBe("What was my largest spend category?");
+  });
+
+  test("replays prior turns as labeled context before the new message", () => {
+    /**
+     * Later turns must carry the conversation so far so the stateless shot
+     * can answer with context.
+     */
+    // GIVEN a one-exchange conversation so far
+    const priorTurns = [
+      { role: "user" as const, content: "I uploaded my P&L." },
+      {
+        role: "assistant" as const,
+        content: "Got it, I read restaurant-pnl.csv.",
+      },
+    ];
+
+    // WHEN building the prompt for the next message
+    const prompt = buildHermesTurnPrompt(
+      priorTurns,
+      "Which category was largest?",
+    );
+
+    // THEN the transcript is replayed with role labels and the new message follows
+    expect(prompt).toContain("User: I uploaded my P&L.");
+    expect(prompt).toContain("Assistant: Got it, I read restaurant-pnl.csv.");
+    expect(prompt).toContain("Which category was largest?");
+    // AND the prior turns precede the new message
+    expect(prompt.indexOf("I uploaded my P&L.")).toBeLessThan(
+      prompt.indexOf("Which category was largest?"),
+    );
   });
 });
