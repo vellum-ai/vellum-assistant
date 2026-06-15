@@ -9,6 +9,7 @@ import {
 } from "../../workflows/run-manager.js";
 import {
   ConflictError,
+  ForbiddenError,
   NotFoundError,
   TooManyRequestsError,
 } from "./errors.js";
@@ -178,6 +179,44 @@ describe("workflow routes (flag on)", () => {
       pathParams: { id: "run-1" },
     })) as { ok: boolean; runId: string };
     expect(result).toEqual({ ok: true, runId: "run-1" });
+    expect(resumed).toEqual(["run-1"]);
+  });
+
+  test("resumeWorkflowRun rejects a side-effecting run with a 403 (no prompt channel)", () => {
+    // The run's stored manifest grants side-effecting tools, so resuming would
+    // restart leaves that perform them. This route has no interactive approval
+    // channel (unlike the conversational manage_workflows path), so it must
+    // refuse rather than silently bypass consent — resume() is never called.
+    const { resumed } = setup({
+      flagEnabled: true,
+      runs: [
+        makeRun({
+          id: "run-1",
+          status: "interrupted",
+          capabilities: { tools: ["bash"], hostFunctions: [], persona: false },
+        }),
+      ],
+    });
+    expect(() =>
+      route("resumeWorkflowRun").handler({ pathParams: { id: "run-1" } }),
+    ).toThrow(ForbiddenError);
+    expect(resumed).toEqual([]);
+  });
+
+  test("resumeWorkflowRun allows a read-only run (empty manifest)", () => {
+    // An explicit empty manifest grants no side effects, so the route resumes
+    // it directly — the gate keys on the stored manifest, not run existence.
+    const { resumed } = setup({
+      flagEnabled: true,
+      runs: [
+        makeRun({
+          id: "run-1",
+          status: "interrupted",
+          capabilities: { tools: [], hostFunctions: [], persona: false },
+        }),
+      ],
+    });
+    route("resumeWorkflowRun").handler({ pathParams: { id: "run-1" } });
     expect(resumed).toEqual(["run-1"]);
   });
 

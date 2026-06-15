@@ -16,6 +16,7 @@ import { z } from "zod";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
 import type { AssistantConfig } from "../../config/schema.js";
+import { manifestGrantsSideEffects } from "../../workflows/capabilities.js";
 import type { WorkflowRun } from "../../workflows/journal-store.js";
 import { listWorkflows } from "../../workflows/library.js";
 import {
@@ -27,6 +28,7 @@ import {
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   ConflictError,
+  ForbiddenError,
   NotFoundError,
   TooManyRequestsError,
 } from "./errors.js";
@@ -193,8 +195,24 @@ function handleResumeRun(id: string) {
   // status() is the source of truth for existence, so 404 an unknown id here
   // (matching abort) rather than letting resume's "not_found" reach the client
   // as a 409.
-  if (!manager.status(id)) {
+  const run = manager.status(id);
+  if (!run) {
     throw new NotFoundError(`Workflow run ${id} not found`);
+  }
+  // Consent gate. Resuming restarts the run's unfinished leaves, which execute
+  // the side-effecting tools/host functions the original manifest granted. The
+  // conversational `manage_workflows` resume path promotes such resumes to a
+  // fresh interactive approval (executor.ts → requireFreshApproval); this
+  // HTTP/IPC route (and the `vellum workflows resume` CLI on top of it) has no
+  // prompt channel, so it must not silently bypass that consent point. Refuse a
+  // side-effecting resume and direct the caller to the assistant; a read-only
+  // run (no declared tools/host functions) resumes freely.
+  if (manifestGrantsSideEffects(run.capabilities)) {
+    throw new ForbiddenError(
+      `Workflow run ${id} was granted side-effecting capabilities; resuming it ` +
+        `can restart steps that perform those side effects. Resume it through ` +
+        `the assistant (which will ask for approval) instead of this route.`,
+    );
   }
   try {
     const { runId } = manager.resume(id);
