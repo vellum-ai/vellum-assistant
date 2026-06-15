@@ -426,6 +426,46 @@ describe("migration 287 — dedup case collisions + drop ext_user indexes", () =
     expect(channels[0]!.address).toBe("U12345ABC");
   });
 
+  test("deduplicates rows sharing external_user_id but having different addresses", () => {
+    const db = createTestDb();
+    const raw = getSqliteFrom(db);
+    bootstrap(db);
+
+    insertContact(raw, "c1");
+    insertContact(raw, "c2");
+
+    // Two rows with different addresses but same external_user_id.
+    // Step 1 (address dedup) keeps both since addresses differ.
+    // Step 2 (external_user_id dedup) must reduce to one row to prevent
+    // step 3 from creating an address collision.
+    insertChannel(raw, {
+      id: "ch-old-addr",
+      contactId: "c1",
+      type: "slack",
+      address: "alice-old",
+      externalUserId: "U12345",
+      status: "unverified",
+      updatedAt: 500,
+    });
+    insertChannel(raw, {
+      id: "ch-correct",
+      contactId: "c2",
+      type: "slack",
+      address: "U12345",
+      externalUserId: "U12345",
+      status: "active",
+      updatedAt: 1000,
+    });
+
+    migrateContactChannelsUniqueExtUser(db);
+
+    const channels = getAllChannels(raw);
+    // Only one survives — active wins over unverified
+    expect(channels).toHaveLength(1);
+    expect(channels[0]!.id).toBe("ch-correct");
+    expect(channels[0]!.address).toBe("U12345");
+  });
+
   test("idempotent — safe to run twice", () => {
     const db = createTestDb();
     const raw = getSqliteFrom(db);

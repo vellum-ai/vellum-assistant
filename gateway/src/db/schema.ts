@@ -143,6 +143,10 @@ export const contactChannels = sqliteTable(
     updatedAt: integer("updated_at"),
   },
   (table) => [
+    index("idx_contact_channels_type_ext_user").on(
+      table.type,
+      table.externalUserId,
+    ),
     index("idx_contact_channels_type_ext_chat").on(
       table.type,
       table.externalChatId,
