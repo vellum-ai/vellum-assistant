@@ -3,9 +3,12 @@ import { describe, expect, it } from "bun:test";
 import {
   ALL_STEPS,
   FALLBACK_TASKS,
-  TOOL_TASKS,
   deriveTaskSuggestions,
 } from "@/domains/onboarding/cast/cast-task-derivation";
+import { CAST_TOOL_BY_SLUG } from "@/domains/onboarding/cast/cast-tools";
+
+/** Task pool for a tool, looked up by its slug (shared registry). */
+const tasksFor = (slug: string): string[] => CAST_TOOL_BY_SLUG.get(slug)!.tasks;
 
 describe("deriveTaskSuggestions", () => {
   it("falls back to generic tasks when there are no memories", () => {
@@ -15,30 +18,30 @@ describe("deriveTaskSuggestions", () => {
 
   it("always returns at most three tasks", () => {
     const tasks = deriveTaskSuggestions([
-      ["reach", "Connected: Slack, Gmail, Notion, Linear"],
+      ["reach", "Connected: slack, gmail, notion, linear"],
     ]);
     expect(tasks.length).toBeLessThanOrEqual(3);
   });
 
   it("derives a task from each connected tool, drawn from that tool's pool", () => {
-    const tasks = deriveTaskSuggestions([["reach", "Connected: Slack, Gmail"]]);
+    const tasks = deriveTaskSuggestions([["reach", "Connected: slack, gmail"]]);
     expect(tasks.length).toBe(3); // 2 tool tasks + 1 fallback
-    expect(TOOL_TASKS["slack"]).toContain(tasks[0]);
-    expect(TOOL_TASKS["gmail"]).toContain(tasks[1]);
+    expect(tasksFor("slack")).toContain(tasks[0]);
+    expect(tasksFor("gmail")).toContain(tasks[1]);
   });
 
-  it("maps the 'Google Calendar' label to the google-calendar slug", () => {
-    const tasks = deriveTaskSuggestions([["reach", "Connected: Google Calendar"]]);
-    expect(TOOL_TASKS["google-calendar"]).toContain(tasks[0]);
+  it("resolves the google-calendar slug to its task pool", () => {
+    const tasks = deriveTaskSuggestions([["reach", "Connected: google-calendar"]]);
+    expect(tasksFor("google-calendar")).toContain(tasks[0]);
   });
 
-  it("slugifies multi-word tool labels (Google Drive -> google-drive)", () => {
-    const tasks = deriveTaskSuggestions([["reach", "Connected: Google Drive"]]);
-    expect(TOOL_TASKS["google-drive"]).toContain(tasks[0]);
+  it("resolves multi-word tool slugs (google-drive)", () => {
+    const tasks = deriveTaskSuggestions([["reach", "Connected: google-drive"]]);
+    expect(tasksFor("google-drive")).toContain(tasks[0]);
   });
 
-  it("ignores unknown tool labels and falls back", () => {
-    const tasks = deriveTaskSuggestions([["reach", "Connected: Telepathy"]]);
+  it("ignores unknown tool slugs and falls back", () => {
+    const tasks = deriveTaskSuggestions([["reach", "Connected: telepathy"]]);
     expect(tasks).toEqual(FALLBACK_TASKS.slice(0, 3));
   });
 
@@ -62,12 +65,12 @@ describe("deriveTaskSuggestions", () => {
 
   it("fills tool + brain tasks before fallbacks, capped at three", () => {
     const tasks = deriveTaskSuggestions([
-      ["reach", "Connected: Slack, Gmail"],
+      ["reach", "Connected: slack, gmail"],
       ["brain", "Import from: Claude"],
     ]);
     expect(tasks.length).toBe(3);
-    expect(TOOL_TASKS["slack"]).toContain(tasks[0]);
-    expect(TOOL_TASKS["gmail"]).toContain(tasks[1]);
+    expect(tasksFor("slack")).toContain(tasks[0]);
+    expect(tasksFor("gmail")).toContain(tasks[1]);
     expect(tasks[2]).toBe("Pick up where I left off with my previous conversations");
   });
 

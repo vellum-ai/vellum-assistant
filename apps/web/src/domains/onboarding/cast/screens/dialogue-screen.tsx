@@ -16,80 +16,38 @@ import { AnimatePresence, motion } from "motion/react";
 
 import { BlinkingAvatar } from "@/domains/onboarding/cast/cast-shell";
 import type { CastCharacter } from "@/domains/onboarding/cast/cast-roster";
+import type { CastTool } from "@/domains/onboarding/cast/cast-tools";
+import { CAST_TOOLS, SECOND_REACH_TOOLS } from "@/domains/onboarding/cast/cast-tools";
 import type { DialogueScreenProps } from "@/domains/onboarding/cast/screens/screen-slot";
 import { publicAsset } from "@/utils/public-asset";
 import "@/domains/onboarding/cast/cast.css";
 
 // ---------------------------------------------------------------------------
-// Reach tools — minimal closure for the reach phase. The second tool offered is
-// chosen by analysing the brain-import context (or a deterministic per-character
-// fallback); Google Calendar is always the first.
+// Reach tools — driven by the shared `cast-tools` registry. The second tool
+// offered is chosen by analysing the brain-import context (or a deterministic
+// per-character fallback); Google Calendar (the registry's first entry) is
+// always offered first and is excluded from the second-slot candidates.
 // ---------------------------------------------------------------------------
 
-type ReachTool = { key: string; label: string; icon: React.ReactNode; keywords: string[] };
+const GOOGLE_CALENDAR = CAST_TOOLS[0];
 
-const REACH_TOOLS: ReachTool[] = [
-  {
-    key: "notion",
-    label: "Notion",
-    icon: <img src={publicAsset("/images/integrations/notion.svg")} alt="Notion" width={32} height={32} />,
-    keywords: ["notion", "notes", "wiki", "documentation", "docs", "database", "knowledge base", "writing"],
-  },
-  {
-    key: "linear",
-    label: "Linear",
-    icon: <img src={publicAsset("/images/integrations/linear-light-logo.svg")} alt="Linear" width={32} height={32} />,
-    keywords: ["linear", "sprint", "issue", "ticket", "project management", "backlog", "roadmap", "kanban"],
-  },
-  {
-    key: "github",
-    label: "GitHub",
-    icon: <img src={publicAsset("/images/integrations/github.svg")} alt="GitHub" width={32} height={32} />,
-    keywords: ["github", "code", "programming", "repo", "pull request", "commit", "developer", "engineering", "software"],
-  },
-  {
-    key: "slack",
-    label: "Slack",
-    icon: <img src={publicAsset("/images/integrations/slack.svg")} alt="Slack" width={32} height={32} />,
-    keywords: ["slack", "team", "channel", "messaging", "chat", "standup", "communication"],
-  },
-  {
-    key: "gmail",
-    label: "Gmail",
-    icon: <img src={publicAsset("/images/integrations/gmail.svg")} alt="Gmail" width={32} height={32} />,
-    keywords: ["gmail", "email", "inbox", "newsletter", "outreach", "correspondence"],
-  },
-  {
-    key: "figma",
-    label: "Figma",
-    icon: <img src={publicAsset("/images/integrations/figma.svg")} alt="Figma" width={32} height={32} />,
-    keywords: ["figma", "design", "ui", "ux", "wireframe", "prototype", "mockup", "visual"],
-  },
-  {
-    key: "outlook",
-    label: "Outlook",
-    icon: <img src={publicAsset("/images/integrations/outlook.png")} alt="Outlook" width={32} height={32} />,
-    keywords: ["outlook", "microsoft", "office", "teams", "enterprise"],
-  },
-  {
-    key: "google-drive",
-    label: "Google Drive",
-    icon: <img src={publicAsset("/images/integrations/google-drive.svg")} alt="Google Drive" width={32} height={32} />,
-    keywords: ["drive", "files", "storage", "documents", "spreadsheet", "folder", "share", "upload"],
-  },
-];
+/** Render a tool's registry icon as the 32px reach-card image. */
+function toolIcon(tool: CastTool): React.ReactNode {
+  return <img src={publicAsset(tool.icon)} alt={tool.label} width={32} height={32} />;
+}
 
 /**
  * Analyse uploaded brain-import context to pick the best second OAuth tool.
- * Returns a tool from REACH_TOOLS. Falls back to a deterministic random pick
- * seeded from `characterId` when no context was uploaded or no keywords match.
+ * Returns a tool from `SECOND_REACH_TOOLS`. Falls back to a deterministic
+ * pick seeded from `characterId` when no context was uploaded or no keywords
+ * match.
  */
-function pickSecondReachTool(fileContent: string | null, characterId: string): ReachTool {
+function pickSecondReachTool(fileContent: string | null, characterId: string): CastTool {
   if (fileContent) {
     const lower = fileContent.toLowerCase();
-    let best: ReachTool | null = null;
+    let best: CastTool | null = null;
     let bestScore = 0;
-    for (const tool of REACH_TOOLS) {
+    for (const tool of SECOND_REACH_TOOLS) {
       const score = tool.keywords.reduce((n, kw) => {
         // Count occurrences of each keyword (case-insensitive, whole-word-ish)
         const re = new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi");
@@ -108,7 +66,7 @@ function pickSecondReachTool(fileContent: string | null, characterId: string): R
   for (let i = 0; i < characterId.length; i++) {
     hash = (hash * 31 + characterId.charCodeAt(i)) | 0;
   }
-  return REACH_TOOLS[Math.abs(hash) % REACH_TOOLS.length];
+  return SECOND_REACH_TOOLS[Math.abs(hash) % SECOND_REACH_TOOLS.length];
 }
 
 // ---------------------------------------------------------------------------
@@ -197,15 +155,8 @@ function VNDialogueFlow({
     () => pickSecondReachTool(brainFileContent, character.id),
     [brainFileContent, character.id],
   );
-  const reachTools = useMemo(
-    () => [
-      {
-        key: "google-calendar",
-        label: "Google Calendar",
-        icon: <img src={publicAsset("/images/integrations/google-calendar.svg")} alt="Google Calendar" width={32} height={32} />,
-      },
-      { key: secondTool.key, label: secondTool.label, icon: secondTool.icon },
-    ],
+  const reachTools = useMemo<CastTool[]>(
+    () => [GOOGLE_CALENDAR, secondTool],
     [secondTool],
   );
 
@@ -339,12 +290,12 @@ function VNDialogueFlow({
           <>
             <div className="cast-vn__choices">
               {reachTools.map((tool) => {
-                const isConnected = reachConnected.has(tool.key);
+                const isConnected = reachConnected.has(tool.slug);
                 return (
                   <motion.button
-                    key={tool.key}
+                    key={tool.slug}
                     className="cast-vs"
-                    onClick={(e) => !isConnected && handleReachConnect(tool.key, e)}
+                    onClick={(e) => !isConnected && handleReachConnect(tool.slug, e)}
                     whileHover={isConnected ? undefined : { y: -6 }}
                     whileTap={isConnected ? undefined : { scale: 0.97 }}
                     style={{
@@ -355,7 +306,7 @@ function VNDialogueFlow({
                       cursor: isConnected ? "default" : "pointer",
                     }}
                   >
-                    {tool.icon}
+                    {toolIcon(tool)}
                     {tool.label}
                     {isConnected && (
                       <span

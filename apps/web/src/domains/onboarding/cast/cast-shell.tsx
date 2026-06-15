@@ -13,6 +13,7 @@ import { AnimatePresence, motion } from "motion/react";
 
 import { COMPONENTS } from "@/domains/onboarding/cast/cast-roster";
 import type { CastCharacter } from "@/domains/onboarding/cast/cast-roster";
+import { ALL_STEPS } from "@/domains/onboarding/cast/cast-task-derivation";
 import { computeTransforms, resolveDefinitions } from "@/utils/avatar-svg-compositor";
 import { publicAsset } from "@/utils/public-asset";
 
@@ -108,14 +109,9 @@ export function TypewriterLine({ text, onDone }: { text: string; onDone: () => v
 }
 
 // ---------------------------------------------------------------------------
-// MemoryList — persistent "grocery list" of remembered preferences
+// MemoryList — persistent "grocery list" of remembered preferences.
+// Renders the shared `ALL_STEPS` (single source of truth in cast-task-derivation).
 // ---------------------------------------------------------------------------
-
-const ALL_STEPS: { step: string; pending: string; credits?: number }[] = [
-  { step: "face", pending: "Look & feel" },
-  { step: "tone", pending: "Communication style" },
-  { step: "reach", pending: "Primary channel", credits: 25 },
-];
 
 export function MemoryList({
   entries,
