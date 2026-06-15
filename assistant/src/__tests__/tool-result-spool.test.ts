@@ -110,12 +110,13 @@ describe("spoolAndStubOversizedToolResults", () => {
     expect(messages).toBe(history);
   });
 
-  test("skips below-threshold, error, exempt, file_read, marked, and ax-tree results", () => {
+  test("skips below-threshold, error, exempt, file_read, host_file_read, marked, and ax-tree results", () => {
     const blocks = [
       makeToolResult(SHORT, "tu_short"),
       makeToolResult(LONG, "tu_err", true),
       makeToolResult(LONG, "tu_skill"),
       makeToolResult(LONG, "tu_read"),
+      makeToolResult(LONG, "tu_host_read"),
       makeToolResult(`${LONG}${TRUNCATION_MARKER}`, "tu_marked"),
       makeToolResult(`<ax-tree>${LONG}</ax-tree>`, "tu_ax"),
       { type: "text" as const, text: LONG },
@@ -127,6 +128,7 @@ describe("spoolAndStubOversizedToolResults", () => {
       toolNameById: (id) => {
         if (id === "tu_skill") return "skill_load";
         if (id === "tu_read") return "file_read";
+        if (id === "tu_host_read") return "host_file_read";
         return undefined;
       },
     });
