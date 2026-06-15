@@ -31,8 +31,14 @@ mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => true,
 }));
 
+// The toast mock must also satisfy the design-library barrel's re-exports:
+// the panel pulls `cn` from the barrel index, which re-exports
+// `Toaster`/`ToastContent` from this module. Missing exports here surface as
+// parse-time "export not found" errors during barrel resolution, so stub them.
 mock.module("@vellumai/design-library/components/toast", () => ({
   toast: { error: () => {}, success: () => {} },
+  Toaster: () => null,
+  ToastContent: () => null,
 }));
 
 const { FeatureFlagsPanel } = await import("./feature-flags-panel");
