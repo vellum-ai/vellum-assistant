@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import type { CallSiteOverrideDraft, ProfileEntry } from "@/domains/settings/ai/ai-types";
-import { buildOrderedProfiles } from "@/domains/settings/ai/ai-utils";
+import type { CallSiteOverrideDraft, ProfileEntry } from "@/generated/daemon/types.gen";
+import { buildOrderedProfiles } from "@/domains/settings/ai/utils";
 import {
   isDraftActive,
   draftsEqual,

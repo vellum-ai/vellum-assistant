@@ -12,7 +12,7 @@
 import { useCallback } from "react";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
-import { assertProvisionSuccess } from "@/domains/settings/ai/ai-utils";
+import { assertProvisionSuccess } from "@/domains/settings/ai/utils";
 import { secretsPost } from "@/generated/daemon/sdk.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { toast } from "@vellumai/design-library/components/toast";

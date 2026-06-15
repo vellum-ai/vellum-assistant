@@ -39,7 +39,7 @@ import {
 } from "react";
 
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import type { ProfilePatchEntry } from "@/domains/settings/ai/ai-types";
+import type { ProfilePatchEntry } from "@/generated/daemon/types.gen";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
 import { configGet, configPatch } from "@/generated/daemon/sdk.gen";
 import { configGetSetQueryData, inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";

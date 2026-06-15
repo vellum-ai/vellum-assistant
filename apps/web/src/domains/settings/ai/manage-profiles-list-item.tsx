@@ -5,7 +5,7 @@ import { Tag } from "@vellumai/design-library/components/tag";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-import type { ProfileWithName } from "@/domains/settings/ai/ai-types";
+import type { ProfileWithName } from "@/domains/settings/ai/utils";
 import { AUTO_PROFILE_NAME } from "@/assistant/profile-pickers";
 
 // ---------------------------------------------------------------------------

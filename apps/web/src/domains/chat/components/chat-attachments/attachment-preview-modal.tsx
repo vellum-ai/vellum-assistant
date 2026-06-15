@@ -292,7 +292,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-label={`Preview of ${attachment.filename}`}
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80"
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 [-webkit-app-region:no-drag]"
       style={{
         paddingTop: "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
         paddingBottom:
@@ -309,9 +309,10 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
         ref={closeButtonRef}
         variant="ghost"
         iconOnly={<X />}
+        expandOnMobile={false}
         onClick={onClose}
         aria-label="Close preview"
-        className="absolute right-4 top-4 z-10 rounded-full text-white/70 hover:bg-white/10 hover:text-white max-md:bg-transparent max-md:hover:bg-white/10 max-md:active:bg-white/10"
+        className="absolute right-4 top-4 z-10 h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
         tintColor="currentColor"
       />
 

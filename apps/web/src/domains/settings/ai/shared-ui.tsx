@@ -13,10 +13,8 @@ import { DetailCard } from "@/components/detail-card";
 import { Button } from "@vellumai/design-library/components/button";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 
-import type {
-    ProviderCredentialsGuide,
-    ServiceMode,
-} from "@/domains/settings/ai/ai-types";
+import type { ProviderCredentialsGuide } from "@/domains/settings/ai/provider-catalogs";
+import type { ServiceMode } from "@/generated/daemon/types.gen";
 
 interface ModeToggleProps {
   mode: ServiceMode;

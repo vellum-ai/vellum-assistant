@@ -79,12 +79,12 @@ class FakeRunner implements CommandRunner {
 }
 
 const profile: Profile = {
-  id: "vellum-bare",
+  id: "vellum-default",
   manifest: {
     species: "vellum",
     setup: ["assistant plugins install simple-memory"],
   },
-  workspaceDir: "/profiles/vellum-bare/workspace",
+  workspaceDir: "/profiles/vellum-default/workspace",
 };
 
 async function preStageRecordingCa(runId: string): Promise<void> {
@@ -315,14 +315,14 @@ describe("VellumAgent", () => {
   test("species default flags still apply to a profile with no setup commands (the bare vellum case)", async () => {
     const runner = new FakeRunner();
     // The "no setup commands" case is structurally distinct from "no
-    // flags" — `vellum-bare` exists precisely to exercise the bare
+    // flags" — `vellum-default` exists precisely to exercise the bare
     // species path. Even with zero setup commands, the species default
     // flag must land so a downstream test that calls `assistant
     // plugins install` from inside the agent doesn't trip the gate.
     const bareProfile: Profile = {
-      id: "vellum-bare",
+      id: "vellum-default",
       manifest: { species: "vellum" },
-      workspaceDir: "/profiles/vellum-bare/workspace",
+      workspaceDir: "/profiles/vellum-default/workspace",
     };
     const agent = new VellumAgent({
       runner,
@@ -568,7 +568,7 @@ describe("VellumAgent", () => {
       runner,
       profile,
       testId: "timeline-recall",
-      runId: "eval-vellum-bare-x-20260524160000123-abcd",
+      runId: "eval-vellum-default-x-20260524160000123-abcd",
     });
 
     // The jail is created before hatch, so its CA poll must resolve;
@@ -592,9 +592,9 @@ describe("VellumAgent", () => {
       (parts) => parts[0] === "docker" && parts[1] === "inspect",
     );
     expect(inspectCalls.map((c) => c[2])).toEqual([
-      "eval-vellum-bare-x-20260524160000123-abcd-assistant",
-      "eval-vellum-bare-x-20260524160000123-abcd-gateway",
-      "eval-vellum-bare-x-20260524160000123-abcd-credential-executor",
+      "eval-vellum-default-x-20260524160000123-abcd-assistant",
+      "eval-vellum-default-x-20260524160000123-abcd-gateway",
+      "eval-vellum-default-x-20260524160000123-abcd-credential-executor",
     ]);
     const logCalls = sequence.filter(
       (parts) =>
@@ -604,9 +604,9 @@ describe("VellumAgent", () => {
         parts[3] === "200",
     );
     expect(logCalls.map((c) => c[4])).toEqual([
-      "eval-vellum-bare-x-20260524160000123-abcd-assistant",
-      "eval-vellum-bare-x-20260524160000123-abcd-gateway",
-      "eval-vellum-bare-x-20260524160000123-abcd-credential-executor",
+      "eval-vellum-default-x-20260524160000123-abcd-assistant",
+      "eval-vellum-default-x-20260524160000123-abcd-gateway",
+      "eval-vellum-default-x-20260524160000123-abcd-credential-executor",
     ]);
 
     // CRITICAL: retire must NOT have been called. The hatch subprocess
@@ -663,7 +663,7 @@ describe("VellumAgent", () => {
       runner,
       profile: profileWithSetup,
       testId: "timeline-recall",
-      runId: "eval-vellum-bare-x-20260524160000123-abcd",
+      runId: "eval-vellum-default-x-20260524160000123-abcd",
     });
 
     await preStageRecordingCa(agent.id);
@@ -674,7 +674,9 @@ describe("VellumAgent", () => {
       (parts) => parts[0] === "vellum" && parts[1] === "retire",
     );
     expect(retireCalls).toHaveLength(1);
-    expect(retireCalls[0][2]).toBe("eval-vellum-bare-x-20260524160000123-abcd");
+    expect(retireCalls[0][2]).toBe(
+      "eval-vellum-default-x-20260524160000123-abcd",
+    );
   });
 
   test("force-reaps every sibling container after retire (defense-in-depth against silent retire failures)", async () => {
@@ -706,7 +708,7 @@ describe("VellumAgent", () => {
       manifest: { ...profile.manifest, setup: ["echo hello"] },
     };
     const runner = new HatchOkSetupFails();
-    const runId = "eval-vellum-bare-reap-20260524160000123-abcd";
+    const runId = "eval-vellum-default-reap-20260524160000123-abcd";
     const agent = new VellumAgent({
       runner,
       profile: profileWithSetup,
@@ -773,7 +775,7 @@ describe("VellumAgent", () => {
       manifest: { ...profile.manifest, setup: ["echo hello"] },
     };
     const runner = new HatchOkSetupFailsRetireFails();
-    const runId = "eval-vellum-bare-retire-warn-20260524160000123-abcd";
+    const runId = "eval-vellum-default-retire-warn-20260524160000123-abcd";
     const agent = new VellumAgent({
       runner,
       profile: profileWithSetup,
@@ -909,6 +911,167 @@ describe("VellumAgent", () => {
     await expect(
       agent.writeWorkspaceFile!({ path: "a.txt", content: "x" }),
     ).rejects.toThrow(/has not been hatched/);
+  });
+
+  // `resolveAppPage` reads the newest compiled sandbox app out of the
+  // assistant container (`/workspace/data/apps/<dir>/dist/`) and inlines
+  // it into one self-contained page for the browser-interaction phase.
+  // The runner-facing contract is the `docker exec` shape (an `ls` probe
+  // then a `cat` per dist file) plus the inlined result, so the
+  // FakeRunner trace asserts both without standing up Docker.
+
+  const APP_INDEX_HTML = [
+    "<!doctype html>",
+    '<html><head><link rel="stylesheet" href="main.css"></head>',
+    '<body><script type="module" src="main.js"></script></body></html>',
+  ].join("\n");
+
+  // Records the `docker exec` app-resolution calls and answers the `ls`
+  // probe + per-file `cat`s from configurable state, delegating the
+  // jail/hatch lifecycle to the base FakeRunner. A `cat` for a path
+  // absent from `files` exits non-zero, mimicking a missing dist asset.
+  class AppPageRunner extends FakeRunner {
+    newestIndexPath = "/workspace/data/apps/calc/dist/index.html";
+    files: Record<string, string> = {
+      "/workspace/data/apps/calc/dist/index.html": APP_INDEX_HTML,
+      "/workspace/data/apps/calc/dist/main.js": 'console.log("calc");',
+      "/workspace/data/apps/calc/dist/main.css": "body { color: blue; }",
+    };
+
+    override async run(
+      command: string,
+      args: string[],
+      opts?: RunOptions,
+    ): Promise<CommandResult> {
+      if (command === "docker" && args[0] === "exec") {
+        this.runs.push({ command, args, opts });
+        if (args[2] === "sh") {
+          return {
+            exitCode: 0,
+            stdout: `${this.newestIndexPath}\n`,
+            stderr: "",
+          };
+        }
+        if (args[2] === "cat") {
+          const content = this.files[args[3]];
+          if (content === undefined) {
+            return { exitCode: 1, stdout: "", stderr: "cat: no such file" };
+          }
+          return { exitCode: 0, stdout: content, stderr: "" };
+        }
+      }
+      return super.run(command, args, opts);
+    }
+  }
+
+  test("resolveAppPage probes for the newest app and inlines its dist into one page", async () => {
+    // GIVEN a hatched agent whose container holds a compiled app with
+    // both optional dist assets present
+    const runner = new AppPageRunner();
+    const agent = new VellumAgent({
+      runner,
+      profile,
+      testId: "calculator-app",
+      runId: "eval-apppage-1",
+    });
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+    const baseline = runner.runs.length;
+
+    // WHEN the runner resolves the app page
+    const page = await agent.resolveAppPage!();
+
+    // THEN it first runs an `ls -1t` probe for the newest dist/index.html,
+    // then cats index.html and both optional assets out of the container.
+    const newRuns = runner.runs.slice(baseline);
+    expect(newRuns[0].command).toBe("docker");
+    expect(newRuns[0].args.slice(0, 4)).toEqual([
+      "exec",
+      "eval-apppage-1-assistant",
+      "sh",
+      "-lc",
+    ]);
+    expect(newRuns[0].args[4]).toContain(
+      "ls -1t /workspace/data/apps/*/dist/index.html",
+    );
+    expect(newRuns[1].args).toEqual([
+      "exec",
+      "eval-apppage-1-assistant",
+      "cat",
+      "/workspace/data/apps/calc/dist/index.html",
+    ]);
+    expect(newRuns[2].args[3]).toBe("/workspace/data/apps/calc/dist/main.js");
+    expect(newRuns[3].args[3]).toBe("/workspace/data/apps/calc/dist/main.css");
+
+    // AND the returned page inlines both assets into the index document.
+    expect(page?.html).toContain(
+      '<script type="module">console.log("calc");</script>',
+    );
+    expect(page?.html).toContain("<style>body { color: blue; }</style>");
+  });
+
+  test("resolveAppPage returns undefined when no app was built", async () => {
+    // GIVEN a hatched agent whose container holds no compiled app
+    const runner = new AppPageRunner();
+    runner.newestIndexPath = "";
+    const agent = new VellumAgent({
+      runner,
+      profile,
+      testId: "calculator-app",
+      runId: "eval-apppage-empty",
+    });
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+    const baseline = runner.runs.length;
+
+    // WHEN the runner resolves the app page
+    const page = await agent.resolveAppPage!();
+
+    // THEN the empty `ls` probe short-circuits to undefined with no `cat`.
+    expect(page).toBeUndefined();
+    const newRuns = runner.runs.slice(baseline);
+    expect(newRuns).toHaveLength(1);
+    expect(newRuns[0].args[2]).toBe("sh");
+  });
+
+  test("resolveAppPage omits a dist asset that is absent from the container", async () => {
+    // GIVEN a hatched agent whose app has no main.css on disk
+    const runner = new AppPageRunner();
+    delete runner.files["/workspace/data/apps/calc/dist/main.css"];
+    const agent = new VellumAgent({
+      runner,
+      profile,
+      testId: "calculator-app",
+      runId: "eval-apppage-nocss",
+    });
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+
+    // WHEN the runner resolves the app page
+    const page = await agent.resolveAppPage!();
+
+    // THEN the missing stylesheet's reference is left untouched while the
+    // present script is still inlined.
+    expect(page?.html).toContain(
+      '<script type="module">console.log("calc");</script>',
+    );
+    expect(page?.html).toContain('<link rel="stylesheet" href="main.css">');
+  });
+
+  test("resolveAppPage throws when the agent has not been hatched", async () => {
+    // GIVEN an agent that was never hatched
+    const runner = new AppPageRunner();
+    const agent = new VellumAgent({
+      runner,
+      profile,
+      testId: "calculator-app",
+      runId: "eval-apppage-prehatch",
+    });
+
+    // WHEN/THEN resolving the app page rejects before touching the container
+    await expect(agent.resolveAppPage!()).rejects.toThrow(
+      /has not been hatched/,
+    );
   });
 
   test("newConversation runs `vellum exec assistant conversations new` and updates the conversation key", async () => {
