@@ -116,13 +116,13 @@ export const GuardianQuestionPayloadSchema = z.discriminatedUnion(
  */
 export const LenientToolApprovalPayloadSchema = z.object({
   requestKind: GuardianQuestionRequestKindSchema,
-  requestId: z.string().optional(),
-  requestCode: z.string().optional(),
-  questionText: z.string().optional(),
-  toolName: z.string().optional(),
-  sourceChannel: z.string().optional(),
-  requesterIdentifier: z.string().optional(),
-  requesterExternalUserId: z.string().optional(),
+  requestId: z.string().nullable().optional(),
+  requestCode: z.string().nullable().optional(),
+  questionText: z.string().nullable().optional(),
+  toolName: z.string().nullable().optional(),
+  sourceChannel: z.string().nullable().optional(),
+  requesterIdentifier: z.string().nullable().optional(),
+  requesterExternalUserId: z.string().nullable().optional(),
   requesterChatId: z.string().nullable().optional(),
 });
 
