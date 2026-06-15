@@ -51,6 +51,7 @@ import {
 } from "@/domains/onboarding/prechat";
 import { DEFAULT_GROUP_ID } from "@/domains/onboarding/prechat-names";
 import { lifecycleService } from "@/assistant/lifecycle-service";
+import { setSelectedAssistant } from "@/assistant/selection";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useNavigate } from "react-router";
 import { routes } from "@/utils/routes";
@@ -425,6 +426,10 @@ function buildHandoffFromCompletion(
     ),
     // `priorAssistant` is not collected by the cast flow yet.
     priorAssistant: undefined,
+    // The chosen cast name rides the context (not just the optimistic
+    // pending-name key) so the onboarding payload carries `assistantName` and
+    // the daemon persists it to IDENTITY.md after the first message.
+    assistantName: data.name || undefined,
   };
   return {
     context: buildCastPreChatContext(selections),
@@ -474,9 +479,18 @@ function CastFlowBody({
     // mark the chat surface as expecting the first message, refresh lifecycle,
     // then navigate to chat. The chat surface auto-sends `initialMessage`
     // (the research directive) with the context attached.
+    //
+    // In a multi-assistant session a *different* assistant may already be the
+    // platform selection. Make the hatched assistant the selection (so the
+    // persisted selection + lockfile converge on it) AND pin the lifecycle
+    // refresh to the hatched id, so `checkAssistant` fetches/projects the
+    // hatched assistant rather than re-fetching the prior selection and
+    // overwriting `activeAssistantId` back to it — otherwise the onboarding
+    // payload would be sent to the wrong assistant.
     useResolvedAssistantsStore.getState().setActiveAssistantId(assistantId);
+    await setSelectedAssistant(assistantId);
     lifecycleService.markExpectingFirstMessage();
-    await lifecycleService.checkAssistant();
+    await lifecycleService.checkAssistant(assistantId);
     void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
   }
 

@@ -217,7 +217,19 @@ class AssistantLifecycleService {
   // Imperative actions — called from event handlers / consumers
   // ---------------------------------------------------------------------------
 
-  async checkAssistant(): Promise<void> {
+  /**
+   * Force a fresh assistant-status fetch and project it.
+   *
+   * `assistantIdOverride` pins this one refresh to a specific assistant
+   * instead of the multi-assistant selection carried in
+   * `inputs.selectedPlatformAssistantId`. The onboarding handoff uses it so a
+   * just-hatched assistant is the one fetched and projected — otherwise, in a
+   * multi-assistant session where a *different* assistant is already selected,
+   * the refresh would re-fetch that selection and `projectActive` would
+   * overwrite the active id back to it, sending the onboarding payload to the
+   * wrong assistant.
+   */
+  async checkAssistant(assistantIdOverride?: string): Promise<void> {
     if (!this.ready) return;
     if (isGatewayAuthMode()) {
       this.applyGatewayAuthShortCircuit();
@@ -235,7 +247,8 @@ class AssistantLifecycleService {
       // network so a 10s-old cached 404 or initializing result
       // doesn't silently replay. Poll-driven projections go through
       // `applyServerResult` to avoid the read-back loop.
-      const selectedId = this.inputs.selectedPlatformAssistantId ?? null;
+      const selectedId =
+        assistantIdOverride ?? this.inputs.selectedPlatformAssistantId ?? null;
       let result = await this.inputs.queryClient.fetchQuery({
         queryKey: assistantQueryKey(selectedId),
         queryFn: () => getAssistant(selectedId ?? undefined),

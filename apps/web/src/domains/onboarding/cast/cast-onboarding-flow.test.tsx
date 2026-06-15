@@ -34,8 +34,16 @@ mock.module("@/domains/onboarding/cast/use-background-hatch", () => ({
 }));
 
 // --- prechat handoff ---------------------------------------------------------
-const setPendingPreChatContextMock = mock(() => {});
-const setPendingAssistantNameMock = mock(() => {});
+interface CapturedPreChatContext {
+  occupation?: string;
+  initialMessage?: string;
+  assistantName?: string;
+  tasks: string[];
+}
+const setPendingPreChatContextMock = mock(
+  (_ctx: CapturedPreChatContext) => {},
+);
+const setPendingAssistantNameMock = mock((_name: string) => {});
 
 mock.module("@/domains/onboarding/prechat", () => ({
   setPendingPreChatContext: setPendingPreChatContextMock,
@@ -44,8 +52,9 @@ mock.module("@/domains/onboarding/prechat", () => ({
 
 // --- lifecycle / navigation --------------------------------------------------
 const markExpectingFirstMessageMock = mock(() => {});
-const checkAssistantMock = mock(async () => {});
-const setActiveAssistantIdMock = mock(() => {});
+const checkAssistantMock = mock(async (_assistantId?: string) => {});
+const setActiveAssistantIdMock = mock((_id: string) => {});
+const setSelectedAssistantMock = mock(async (_id: string) => {});
 const navigateMock = mock(() => {});
 
 mock.module("@/assistant/lifecycle-service", () => ({
@@ -53,6 +62,10 @@ mock.module("@/assistant/lifecycle-service", () => ({
     markExpectingFirstMessage: markExpectingFirstMessageMock,
     checkAssistant: checkAssistantMock,
   },
+}));
+
+mock.module("@/assistant/selection", () => ({
+  setSelectedAssistant: setSelectedAssistantMock,
 }));
 
 mock.module("@/stores/resolved-assistants-store", () => ({
@@ -87,8 +100,8 @@ mock.module("@/domains/onboarding/cast/screens/login-screen", () => ({
       type="button"
       data-testid="login-continue"
       onClick={() => {
-        onContinue("Ada");
-        onIdentity?.({ lastName: "Lovelace", role: "Software Engineer" });
+        onContinue("Alice");
+        onIdentity?.({ lastName: "Example", role: "Software Engineer" });
         onAdvance();
       }}
     >
@@ -170,6 +183,7 @@ beforeEach(() => {
   markExpectingFirstMessageMock.mockClear();
   checkAssistantMock.mockClear();
   setActiveAssistantIdMock.mockClear();
+  setSelectedAssistantMock.mockClear();
   navigateMock.mockClear();
 });
 
@@ -195,14 +209,12 @@ describe("CastOnboardingFlow handoff", () => {
 
     await waitFor(() => expect(setPendingPreChatContextMock).toHaveBeenCalledTimes(1));
 
-    const ctx = setPendingPreChatContextMock.mock.calls[0]![0] as {
-      occupation?: string;
-      initialMessage?: string;
-      tasks: string[];
-    };
+    const ctx = setPendingPreChatContextMock.mock.calls[0]![0];
     expect(ctx.occupation).toBe("Software Engineer");
     expect(ctx.initialMessage).toBe(CAST_RESEARCH_DIRECTIVE);
     expect(ctx.tasks.length).toBeGreaterThan(0);
+    // The chosen cast name rides the context, not just the optimistic key.
+    expect(ctx.assistantName).toBe("Pixel");
 
     expect(setPendingAssistantNameMock).toHaveBeenCalledWith("Pixel");
     await waitFor(() =>
