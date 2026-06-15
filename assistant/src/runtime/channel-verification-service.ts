@@ -360,7 +360,7 @@ export function isGuardian(
 ): boolean {
   const result = findGuardianForChannel(channel);
   if (result) {
-    return result.channel.address === address;
+    return result.channel.address.toLowerCase() === address.toLowerCase();
   }
 
   return false;
