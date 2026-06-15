@@ -35,6 +35,12 @@ const CANCEL_ANIMATION_MS = 200;
 /** Duration (ms) for the commit/slide-off-screen animation. */
 const COMMIT_ANIMATION_MS = 180;
 
+/** Duration (ms) for the incoming page entrance animation. */
+const ENTRANCE_ANIMATION_MS = 200;
+
+/** Percentage of viewport width the incoming page slides from. */
+const ENTRANCE_OFFSET_RATIO = 0.25;
+
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
@@ -220,6 +226,28 @@ export function useEdgeSwipeBack({
           el.style.transform = "";
           el.style.willChange = "";
           onBackRef.current();
+          // Animate the incoming page in from the left.
+          requestAnimationFrame(() => {
+            const entranceOffset = -(window.innerWidth * ENTRANCE_OFFSET_RATIO);
+            el.style.transform = `translateX(${entranceOffset}px)`;
+            el.style.opacity = "0";
+            requestAnimationFrame(() => {
+              el.style.transition = `transform ${ENTRANCE_ANIMATION_MS}ms ease-out, opacity ${ENTRANCE_ANIMATION_MS}ms ease-out`;
+              el.style.transform = "";
+              el.style.opacity = "";
+              let didClean = false;
+              const cleanup = () => {
+                if (didClean) return;
+                didClean = true;
+                el.removeEventListener("transitionend", cleanup);
+                el.style.transition = "";
+                el.style.transform = "";
+                el.style.opacity = "";
+              };
+              el.addEventListener("transitionend", cleanup, { once: true });
+              setTimeout(cleanup, ENTRANCE_ANIMATION_MS + 50);
+            });
+          });
         };
         el.addEventListener("transitionend", finish, { once: true });
         setTimeout(finish, COMMIT_ANIMATION_MS + 50);
