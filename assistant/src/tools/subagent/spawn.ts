@@ -1,3 +1,4 @@
+import { validateInferenceProfileKey } from "../../config/inference-profile-validation.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
 import { getConversationOverrideProfile } from "../../memory/conversation-crud.js";
 import type { Message } from "../../providers/types.js";
@@ -14,6 +15,7 @@ export async function executeSubagentSpawn(
   const extraContext = input.context as string | undefined;
   const fork = input.fork === true;
   const role = (input.role as string | undefined) ?? undefined;
+  const inferenceProfile = input.inference_profile;
 
   // For fork mode, sendResultToUser defaults to false unless explicitly set to true.
   // For regular mode, sendResultToUser defaults to true (existing behavior).
@@ -26,6 +28,24 @@ export async function executeSubagentSpawn(
       content: 'Both "label" and "objective" are required.',
       isError: true,
     };
+  }
+
+  let requestedOverrideProfile: string | undefined;
+  if (inferenceProfile !== undefined) {
+    if (typeof inferenceProfile !== "string") {
+      return {
+        content: "Error: inference_profile must be a string",
+        isError: true,
+      };
+    }
+    const profileError = validateInferenceProfileKey(inferenceProfile);
+    if (profileError) {
+      return {
+        content: `Error: ${profileError}`,
+        isError: true,
+      };
+    }
+    requestedOverrideProfile = inferenceProfile;
   }
 
   const manager = getSubagentManager();
@@ -75,16 +95,18 @@ export async function executeSubagentSpawn(
   // `SubagentManager.spawn` forwards it back into the subagent's
   // `runAgentLoop` call as `options.overrideProfile`.
   //
-  // Prefer the per-turn `context.overrideProfile` (populated by
-  // `runAgentLoopImpl` from its resolved `turnOverrideProfile`) over a
-  // row read so nested spawns inherit correctly. The current subagent's
-  // own conversation row never has `inferenceProfile` set — its override
-  // arrived via in-memory `SubagentConfig.overrideProfile` — and even if it
-  // were set, `getConversationOverrideProfile` short-circuits for
-  // background conversations and returns `undefined`. Falling back to the
-  // row read preserves behavior for tool calls that originate outside an
-  // agent-loop turn.
+  // Prefer an explicit spawn-time profile, then the per-turn
+  // `context.overrideProfile` (populated by `runAgentLoopImpl` from its
+  // resolved `turnOverrideProfile`) over a row read so nested spawns inherit
+  // correctly. The current subagent's own conversation row never has
+  // `inferenceProfile` set — its override arrived via in-memory
+  // `SubagentConfig.overrideProfile` — and even if it were set,
+  // `getConversationOverrideProfile` short-circuits for background
+  // conversations and returns `undefined`. Falling back to the row read
+  // preserves behavior for tool calls that originate outside an agent-loop
+  // turn.
   const inheritedOverrideProfile =
+    requestedOverrideProfile ??
     context.overrideProfile ??
     getConversationOverrideProfile(context.conversationId);
 

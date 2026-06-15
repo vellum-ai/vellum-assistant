@@ -71,6 +71,10 @@ Only the parent conversation that spawned a subagent can interact with it (check
 
 Set `send_result_to_user: false` when spawning a subagent whose result is for internal processing only. The parent will still be notified on completion, but the notification will instruct it to read the result without presenting it to the user.
 
+## Inference Profile
+
+Set `inference_profile` to an `llm.profiles` key when a subagent should run under a specific model profile. When omitted, the subagent inherits the parent turn's active profile if one exists; otherwise it uses the `subagentSpawn` call site's default model selection.
+
 ## Fork Mode
 
 Forks are sub-agents that inherit the parent's full context -- messages, system prompt, and memory -- sharing the KV cache for near-free context inheritance. Use forks when the task benefits from knowing what you've been discussing; use a regular sub-agent when the task is self-contained.

@@ -6,6 +6,26 @@ import { describe, expect, mock, test } from "bun:test";
 let mockGetMessages: (
   conversationId: string,
 ) => Array<{ role: string; content: string }> | null = () => null;
+const mockProfiles = {
+  balanced: {},
+  "quality-optimized": {},
+};
+mock.module("../config/loader.js", () => ({
+  getConfigReadOnly: () => ({
+    llm: { profiles: mockProfiles },
+  }),
+  getConfig: () => ({
+    llm: {
+      default: {
+        provider: "anthropic",
+        provider_connection: "anthropic-managed",
+        model: "claude-opus-4-7",
+      },
+      profiles: mockProfiles,
+    },
+    rateLimit: { maxRequestsPerMinute: 0 },
+  }),
+}));
 mock.module("../memory/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
@@ -140,6 +160,7 @@ describe("Subagent tool definitions", () => {
     const def = findTool("subagent_spawn");
     expect(def).toBeDefined();
     expect(def.input_schema.required).toEqual(["label", "objective"]);
+    expect(def.input_schema.properties.inference_profile).toBeDefined();
   });
 
   test("abort tool has correct definition", () => {
@@ -417,6 +438,67 @@ describe("Subagent spawn success and failure", () => {
       expect(capturedConfig!.objective).toBe("Do it");
       expect(capturedConfig!.context).toBe("Extra info here");
       expect(capturedConfig!.parentConversationId).toBe("sess-spawn-3");
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("spawn passes explicit inference_profile to manager over inherited override", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "profile-subagent-id";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        {
+          label: "Profile test",
+          objective: "Do it with a chosen model profile",
+          inference_profile: "quality-optimized",
+        },
+        makeContext("sess-spawn-profile", {
+          sendToClient: () => {},
+          overrideProfile: "balanced",
+        }),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(capturedConfig).toBeDefined();
+      expect(capturedConfig!.overrideProfile).toBe("quality-optimized");
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("spawn returns error for unknown inference_profile", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let spawnCalled = false;
+
+    manager.spawn = async () => {
+      spawnCalled = true;
+      return "profile-subagent-id";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        {
+          label: "Bad profile",
+          objective: "Do it",
+          inference_profile: "does-not-exist",
+        },
+        makeContext("sess-spawn-bad-profile", { sendToClient: () => {} }),
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain(
+        'Inference profile "does-not-exist" is not defined',
+      );
+      expect(spawnCalled).toBe(false);
     } finally {
       manager.spawn = originalSpawn;
     }
