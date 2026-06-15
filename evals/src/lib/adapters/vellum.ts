@@ -251,6 +251,7 @@ export class VellumAgent implements BaseAgent {
   private jail?: DockerEgressJail;
   private hatched = false;
   private stopped = false;
+  private baselineAppDistDirs = new Set<string>();
 
   constructor(opts: VellumAgentOptions) {
     this.profile = opts.profile;
@@ -420,6 +421,12 @@ export class VellumAgent implements BaseAgent {
       }
 
       this.hatched = true;
+
+      // Record the apps that already exist before the evaluated turn runs
+      // (e.g. startup-seeded preloaded apps like the personal landing page,
+      // which the daemon compiles in the background at boot). resolveAppPage()
+      // excludes these so it only ever returns an app the turn itself built.
+      this.baselineAppDistDirs = new Set(await this.listAppDistDirs());
     } catch (err) {
       // Capture container forensics BEFORE any teardown — once
       // containers are removed, `docker inspect` and `docker logs`
@@ -739,24 +746,39 @@ export class VellumAgent implements BaseAgent {
   }
 
   /**
-   * Find the `dist` directory of the most recently built app, or
-   * `undefined` when none exists. `ls -1t … | head -n1` returns the
-   * newest `dist/index.html` by mtime; the dist dir is the path up to
-   * its last `/`. The glob is quoted so the shell — not this process —
-   * expands it inside the container, and `2>/dev/null` swallows the
-   * "no matches" stderr so the command still exits 0 with empty stdout.
+   * Find the `dist` directory of the newest app the evaluated turn built,
+   * or `undefined` when the turn built none. Apps that already existed at
+   * hatch (the `baselineAppDistDirs` snapshot — e.g. startup-seeded
+   * preloaded apps) are excluded, so a turn that builds nothing never
+   * resolves to a pre-existing page. `listAppDistDirs` is newest-first by
+   * mtime, so the first non-baseline entry is the freshest turn-built app.
    */
   private async findNewestAppDistDir(): Promise<string | undefined> {
+    const distDirs = await this.listAppDistDirs();
+    return distDirs.find((dir) => !this.baselineAppDistDirs.has(dir));
+  }
+
+  /**
+   * List every compiled app's `dist` directory, newest first by
+   * `dist/index.html` mtime. Each returned path is the dist dir (the path
+   * up to the `index.html`'s last `/`). The glob is quoted so the shell —
+   * not this process — expands it inside the container, and `2>/dev/null`
+   * swallows the "no matches" stderr so the command still exits 0 with
+   * empty stdout.
+   */
+  private async listAppDistDirs(): Promise<string[]> {
     const result = await this.runner.run("docker", [
       "exec",
       this.assistantContainerName,
       "sh",
       "-lc",
-      `ls -1t ${CONTAINER_APPS_DIR}/*/dist/index.html 2>/dev/null | head -n1`,
+      `ls -1t ${CONTAINER_APPS_DIR}/*/dist/index.html 2>/dev/null`,
     ]);
-    const indexPath = result.stdout.trim();
-    if (indexPath === "") return undefined;
-    return indexPath.slice(0, indexPath.lastIndexOf("/"));
+    return result.stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line !== "")
+      .map((indexPath) => indexPath.slice(0, indexPath.lastIndexOf("/")));
   }
 
   /**
