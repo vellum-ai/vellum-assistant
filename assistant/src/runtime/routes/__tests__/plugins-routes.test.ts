@@ -35,6 +35,12 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
+  type DiffPluginDeps,
+  type DiffPluginOptions,
+  type PluginDiffResult,
+  PluginDiffUnavailableError,
+} from "../../../cli/lib/diff-plugin.js";
+import {
   type InspectPluginDeps,
   type InspectPluginOptions,
   type PluginInspection,
@@ -177,6 +183,23 @@ mock.module("../../../cli/lib/upgrade-plugin.js", () => ({
   upgradePlugin: upgradeSpy,
 }));
 
+// Mock diffPlugin: the lib re-materializes the install commit and computes the
+// per-file unified diff (covered by diff-plugin.test.ts); the route forwards
+// the name and maps the lib's error taxonomy to HTTP status codes.
+const diffSpy = mock(
+  async (
+    _opts: DiffPluginOptions,
+    _deps: DiffPluginDeps,
+  ): Promise<PluginDiffResult> => {
+    throw new Error("diffSpy default impl not configured");
+  },
+);
+
+mock.module("../../../cli/lib/diff-plugin.js", () => ({
+  PluginDiffUnavailableError,
+  diffPlugin: diffSpy,
+}));
+
 import {
   BadRequestError,
   ConflictError,
@@ -200,6 +223,7 @@ const getHandler = findHandler("plugins_get");
 const installHandler = findHandler("plugins_install");
 const inspectHandler = findHandler("plugins_inspect");
 const upgradeHandler = findHandler("plugins_upgrade");
+const diffHandler = findHandler("plugins_diff");
 
 function invoke(args: RouteHandlerArgs = {}): {
   plugins: Array<Record<string, unknown>>;
@@ -1239,6 +1263,135 @@ describe("POST /v1/plugins/:name/upgrade", () => {
     let caught: unknown;
     try {
       await invokeUpgrade({ pathParams: { name: "level-up" } });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(InternalError);
+    expect((caught as Error).message).toContain("ECONNRESET");
+  });
+});
+
+function diffResult(
+  overrides: Partial<PluginDiffResult> = {},
+): PluginDiffResult {
+  return {
+    name: overrides.name ?? "level-up",
+    target: overrides.target ?? "/workspace/.vellum/plugins/level-up",
+    commit: overrides.commit ?? "60a392b0000000000000000000000000000000aa",
+    committedAt: overrides.committedAt ?? "2026-06-01T12:34:56.000Z",
+    clean: overrides.clean ?? false,
+    files: overrides.files ?? [
+      {
+        path: "src/skill.ts",
+        status: "modified",
+        diff: "--- a/src/skill.ts\n+++ b/src/skill.ts\n@@ -1 +1 @@\n-old\n+new\n",
+        binary: false,
+      },
+    ],
+  };
+}
+
+async function invokeDiff(
+  args: RouteHandlerArgs = {},
+): Promise<PluginDiffResult> {
+  return (await diffHandler(args)) as PluginDiffResult;
+}
+
+describe("GET /v1/plugins/:name/diff", () => {
+  beforeEach(() => {
+    diffSpy.mockReset();
+  });
+
+  test("forwards the name to diffPlugin and returns the diff verbatim", async () => {
+    // GIVEN diffPlugin reports a single modified file against the install commit
+    const view = diffResult();
+    diffSpy.mockImplementation(async () => view);
+
+    // WHEN the route handler is invoked with the path name
+    const result = await invokeDiff({ pathParams: { name: "level-up" } });
+
+    // THEN the diff is returned unchanged
+    expect(result).toEqual(view);
+    // AND only the name is forwarded to the lib (ref is never caller-supplied)
+    expect(diffSpy.mock.calls[0]?.[0]).toEqual({ name: "level-up" });
+  });
+
+  test("InvalidPluginNameError → BadRequestError (400)", async () => {
+    diffSpy.mockImplementation(async () => {
+      throw new InvalidPluginNameError("../escape");
+    });
+
+    await expect(
+      invokeDiff({ pathParams: { name: "../escape" } }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+  });
+
+  test("PluginNotInstalledError → NotFoundError (404)", async () => {
+    diffSpy.mockImplementation(async () => {
+      throw new PluginNotInstalledError(
+        "ghost",
+        "/workspace/.vellum/plugins/ghost",
+      );
+    });
+
+    await expect(
+      invokeDiff({ pathParams: { name: "ghost" } }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  test("PluginNotFoundError → NotFoundError (404)", async () => {
+    // The recorded commit no longer resolves to a tree (source/commit gone).
+    diffSpy.mockImplementation(async () => {
+      throw new PluginNotFoundError(
+        "level-up",
+        "deadbeef",
+        "vellum-ai/level-up",
+      );
+    });
+
+    await expect(
+      invokeDiff({ pathParams: { name: "level-up" } }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  test("PluginDiffUnavailableError → ConflictError (409)", async () => {
+    // The install recorded no commit, so there is no baseline to diff against:
+    // a well-formed request that is not actionable in the current state.
+    diffSpy.mockImplementation(async () => {
+      throw new PluginDiffUnavailableError(
+        "level-up",
+        "no install commit was recorded",
+      );
+    });
+
+    await expect(
+      invokeDiff({ pathParams: { name: "level-up" } }),
+    ).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  test("PluginSourceUnavailableError → ServiceUnavailableError (503)", async () => {
+    // Re-materializing the baseline can hit a rate-limited/down GitHub; that is
+    // retryable, so surface 503 rather than a misleading 500.
+    diffSpy.mockImplementation(async () => {
+      throw new PluginSourceUnavailableError(
+        "git clone failed for vellum-ai/level-up: HTTP 403",
+        503,
+      );
+    });
+
+    await expect(
+      invokeDiff({ pathParams: { name: "level-up" } }),
+    ).rejects.toBeInstanceOf(ServiceUnavailableError);
+  });
+
+  test("unknown errors → InternalError with original message preserved", async () => {
+    diffSpy.mockImplementation(async () => {
+      throw new Error("ECONNRESET");
+    });
+
+    let caught: unknown;
+    try {
+      await invokeDiff({ pathParams: { name: "level-up" } });
     } catch (err) {
       caught = err;
     }

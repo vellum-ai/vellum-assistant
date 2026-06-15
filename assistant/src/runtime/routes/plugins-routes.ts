@@ -26,6 +26,10 @@
 import { z } from "zod";
 
 import {
+  diffPlugin,
+  PluginDiffUnavailableError,
+} from "../../cli/lib/diff-plugin.js";
+import {
   inspectPlugin,
   PluginInspectNotFoundError,
 } from "../../cli/lib/inspect-plugin.js";
@@ -459,6 +463,57 @@ const pluginUpgradeResponseSchema = z.object({
     ),
 });
 
+const pluginFileDiffSchema = z
+  .object({
+    path: z.string().describe("POSIX-relative path within the plugin root."),
+    status: z
+      .enum(["modified", "added", "removed"])
+      .describe(
+        "Whether the file was edited, newly added, or deleted since install.",
+      ),
+    diff: z
+      .string()
+      .describe(
+        "Unified diff (`--- a/… / +++ b/…`) of the file. A short `Binary files differ` marker for binary files.",
+      ),
+    binary: z
+      .boolean()
+      .describe(
+        "True when either side was detected as binary (NUL byte present).",
+      ),
+  })
+  .describe("Unified diff of a single drifted file.");
+
+const pluginDiffResponseSchema = z.object({
+  name: z
+    .string()
+    .describe("Install name. Matches `assistant plugins install <name>`."),
+  target: z
+    .string()
+    .describe("Absolute path to the installed plugin directory on the host."),
+  commit: z
+    .string()
+    .describe(
+      "Commit the baseline was re-materialized from (the recorded install SHA).",
+    ),
+  committedAt: z
+    .string()
+    .nullable()
+    .describe(
+      "ISO-8601 committer timestamp (UTC) of `commit`; null when not recorded.",
+    ),
+  clean: z
+    .boolean()
+    .describe(
+      "True when the on-disk tree exactly matches the re-materialized baseline.",
+    ),
+  files: z
+    .array(pluginFileDiffSchema)
+    .describe(
+      "One entry per drifted file, sorted by path. Empty when `clean`.",
+    ),
+});
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -741,6 +796,45 @@ async function handleInspectPlugin({ pathParams = {} }: RouteHandlerArgs) {
 }
 
 // ---------------------------------------------------------------------------
+// Handler — diff
+// ---------------------------------------------------------------------------
+
+async function handleDiffPlugin({ pathParams = {} }: RouteHandlerArgs) {
+  const rawName = pathParams.name ?? "";
+
+  try {
+    return await diffPlugin(
+      { name: rawName },
+      { fetch: globalThis.fetch.bind(globalThis) },
+    );
+  } catch (err) {
+    if (err instanceof InvalidPluginNameError) {
+      throw new BadRequestError(err.message);
+    }
+    if (
+      err instanceof PluginNotInstalledError ||
+      err instanceof PluginNotFoundError
+    ) {
+      throw new NotFoundError(err.message);
+    }
+    // The install exists but recorded no commit to re-materialize a baseline
+    // from — a permanent state the caller cannot resolve by retrying. 409
+    // marks the request as well-formed but not actionable in the current state.
+    if (err instanceof PluginDiffUnavailableError) {
+      throw new ConflictError(err.message);
+    }
+    // A rate-limited or temporarily-down source (the plugin repo) is a
+    // retryable outage, not a conflict — 503.
+    if (err instanceof PluginSourceUnavailableError) {
+      throw new ServiceUnavailableError(err.message);
+    }
+    throw new InternalError(
+      err instanceof Error ? err.message : "plugin diff failed",
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Handler — upgrade
 // ---------------------------------------------------------------------------
 
@@ -991,6 +1085,47 @@ export const ROUTES: RouteDefinition[] = [
       },
     },
     handler: handleInspectPlugin,
+  },
+  {
+    operationId: "plugins_diff",
+    endpoint: "plugins/:name/diff",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Diff a plugin against its install commit",
+    description:
+      "Show a unified diff of local edits to an installed plugin against the exact commit it was installed at (recorded in its `install-meta.json`), re-materialized through the install pipeline so an install-time adapter transform never reads as a local change. Returns the baseline `commit`, a `clean` flag, and a `files` array of `{ path, status, diff, binary }` for each modified/added/removed file. The baseline is the install commit, not the marketplace pin — comparing against the current pin is `POST /v1/plugins/:name/upgrade` with `dryRun`. A name with no installed copy returns 404; an install that recorded no commit returns 409; an unreachable source returns 503. Mirrors the CLI's `assistant plugins diff <name>`.",
+    tags: ["plugins"],
+    pathParams: [
+      {
+        name: "name",
+        type: "string",
+        description:
+          "Install name. Must match the kebab-case name accepted by `assistant plugins install`.",
+      },
+    ],
+    responseBody: pluginDiffResponseSchema,
+    additionalResponses: {
+      "400": {
+        description:
+          "The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).",
+      },
+      "404": {
+        description:
+          "No copy of the plugin is installed, or its recorded commit resolves to nothing.",
+      },
+      "409": {
+        description:
+          "The install recorded no commit to re-materialize a baseline from.",
+      },
+      "503": {
+        description:
+          "The plugin source (GitHub) was temporarily unavailable; the diff is retryable.",
+      },
+    },
+    handler: handleDiffPlugin,
   },
   {
     operationId: "plugins_upgrade",

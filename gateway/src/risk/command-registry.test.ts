@@ -609,6 +609,7 @@ describe("command-registry", () => {
       expect(getAssistantPath("schedules execute").baseRisk).toBe("high");
       expect(getAssistantPath("plugins list").baseRisk).toBe("low");
       expect(getAssistantPath("plugins inspect").baseRisk).toBe("low");
+      expect(getAssistantPath("plugins diff").baseRisk).toBe("low");
       expect(getAssistantPath("plugins install").baseRisk).toBe("high");
       expect(getAssistantPath("plugins upgrade").baseRisk).toBe("high");
       expect(getAssistantPath("plugins uninstall").baseRisk).toBe("medium");

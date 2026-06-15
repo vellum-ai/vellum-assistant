@@ -11,6 +11,11 @@ import type { Command } from "commander";
 
 import { confirmPrompt } from "../lib/confirm-prompt.js";
 import {
+  diffPlugin,
+  type PluginDiffResult,
+  PluginDiffUnavailableError,
+} from "../lib/diff-plugin.js";
+import {
   inspectPlugin,
   type PluginInspection,
   PluginInspectNotFoundError,
@@ -60,6 +65,8 @@ Examples:
   $ assistant plugins list --json
   $ assistant plugins inspect example
   $ assistant plugins inspect example --json
+  $ assistant plugins diff example
+  $ assistant plugins diff example --json
   $ assistant plugins upgrade example
   $ assistant plugins upgrade example --dry-run
   $ assistant plugins search example
@@ -208,6 +215,73 @@ Examples:
             }
             const message = err instanceof Error ? err.message : String(err);
             console.error(`Plugin inspect failed: ${message}`);
+            process.exitCode = 1;
+          }
+        });
+
+      plugins
+        .command("diff <name>")
+        .description(
+          "Show a unified diff of local edits to an installed plugin against the commit it was installed at",
+        )
+        .option(
+          "--json",
+          "Emit machine-readable JSON ({ path, status, diff }[]) instead of a unified diff",
+        )
+        .addHelpText(
+          "after",
+          `
+Arguments:
+  name   Install name (kebab-case directory under the workspace plugins dir);
+         run 'assistant plugins list' to see installed names.
+
+The baseline is the exact commit the plugin was installed at (recorded in its
+install-meta.json), re-materialized through the install pipeline — so an
+install-time adapter transform never reads as a local change. To compare
+against the marketplace's current pin instead, use 'plugins upgrade --dry-run'.
+
+Examples:
+  $ assistant plugins diff example
+  $ assistant plugins diff example --json`,
+        )
+        .action(async (name: string, opts: { json?: boolean }) => {
+          try {
+            const result = await diffPlugin(
+              { name },
+              { fetch: globalThis.fetch.bind(globalThis) },
+            );
+
+            if (opts.json) {
+              process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+              return;
+            }
+
+            // Logged after the JSON early-return: the CLI logger writes
+            // info to stdout, which would otherwise corrupt --json output.
+            log.info(
+              {
+                name: result.name,
+                clean: result.clean,
+                files: result.files.length,
+              },
+              "plugin diff",
+            );
+
+            for (const line of formatDiff(result)) {
+              console.log(line);
+            }
+          } catch (err) {
+            if (
+              err instanceof PluginNotInstalledError ||
+              err instanceof PluginDiffUnavailableError ||
+              err instanceof InvalidPluginNameError
+            ) {
+              console.error(err.message);
+              process.exitCode = 1;
+              return;
+            }
+            const message = err instanceof Error ? err.message : String(err);
+            console.error(`Plugin diff failed: ${message}`);
             process.exitCode = 1;
           }
         });
@@ -531,4 +605,27 @@ function formatUpgrade(result: PluginUpgradeResult): string[] {
       return lines;
     }
   }
+}
+
+/**
+ * Render a diff result: a one-line "no local changes" when clean, otherwise a
+ * header naming the install-commit baseline followed by each file's unified
+ * diff (blank-line separated, mirroring how `git diff` stacks file patches).
+ */
+function formatDiff(result: PluginDiffResult): string[] {
+  const baseline = `${formatTimestamp(result.committedAt)} (${shortSha(result.commit)})`;
+  if (result.clean) {
+    return [
+      `"${result.name}" has no local changes (matches install commit ${baseline}).`,
+    ];
+  }
+  const count = result.files.length;
+  const lines = [
+    `"${result.name}" — ${count} file${count === 1 ? "" : "s"} changed vs install commit ${baseline}`,
+    "",
+  ];
+  for (const file of result.files) {
+    lines.push(file.diff.trimEnd(), "");
+  }
+  return lines;
 }

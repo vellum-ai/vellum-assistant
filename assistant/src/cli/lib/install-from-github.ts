@@ -221,7 +221,7 @@ function isTransientUpstreamStatus(res: Response): boolean {
 }
 
 /** Resolved GitHub coordinates a plugin name is fetched from. */
-interface PluginFetchSource {
+export interface PluginFetchSource {
   readonly owner: string;
   readonly repo: string;
   /** Repo-relative directory holding the plugin root; `""` = repo root. */
@@ -376,22 +376,13 @@ export async function installPlugin(
   let commit: string | null = null;
   let committedAt: string | null = null;
   try {
-    const cloned = await copyExternalViaGit(
-      source,
-      stagingDir,
-      deps.runGit ?? defaultGitRunner,
+    const materialized = await materializePluginTree(
+      { source, name, stubRef: marketplaceRef, destDir: stagingDir },
+      deps,
     );
-    fileCount = cloned.fileCount;
-    commit = cloned.commit;
-    committedAt = cloned.committedAt;
-    // An external clone is often a foreign-ecosystem plugin (e.g. a Claude
-    // Code plugin) that the Vellum loader can't run as-is. When we curate an
-    // adapter stub for it, overlay the stub and run its transform so the
-    // materialized tree is a valid Vellum plugin. Raw clones (no stub) are
-    // left untouched.
-    if (fileCount > 0) {
-      await applyAdapterStub(name, marketplaceRef, stagingDir, deps);
-    }
+    fileCount = materialized.fileCount;
+    commit = materialized.commit;
+    committedAt = materialized.committedAt;
   } catch (err) {
     rmSync(stagingDir, { recursive: true, force: true });
     throw err;
@@ -521,6 +512,56 @@ export interface InstallMeta {
    * then report local-modification state as unknown rather than clean.
    */
   readonly fingerprint: Fingerprint | null;
+}
+
+/** Outcome of materializing an external plugin tree into a directory. */
+export interface MaterializedTree {
+  /** Number of regular files written into the destination. */
+  readonly fileCount: number;
+  /** Commit SHA the source was cloned at; `null` when it could not be read. */
+  readonly commit: string | null;
+  /** ISO-8601 committer timestamp of {@link MaterializedTree.commit}; `null` when unread. */
+  readonly committedAt: string | null;
+}
+
+/**
+ * Produce the exact plugin tree an install stages, into `destDir`: clone the
+ * source at `source.ref`, then overlay the curated adapter stub (when one
+ * exists) so a foreign-ecosystem clone is translated into Vellum shape.
+ *
+ * `installPlugin` calls this and then fingerprints, records provenance, and
+ * swaps the result into the workspace. `diffPlugin` (see {@link ./diff-plugin})
+ * calls it with the *recorded install commit* to reconstruct the install-time
+ * baseline. Routing both through one path guarantees a re-materialized commit
+ * is byte-identical to what the original install produced, so an install-time
+ * adapter transform never reads as local drift when diffing.
+ */
+export async function materializePluginTree(
+  opts: {
+    /** Source coordinates; `source.ref` selects the commit to clone. */
+    readonly source: PluginFetchSource;
+    /** Install name, used to locate the curated adapter stub. */
+    readonly name: string;
+    /** Ref the curated adapter stub is fetched at (the canonical repo ref). */
+    readonly stubRef: string;
+    /** Directory the tree is written into. */
+    readonly destDir: string;
+  },
+  deps: InstallPluginDeps,
+): Promise<MaterializedTree> {
+  const cloned = await copyExternalViaGit(
+    opts.source,
+    opts.destDir,
+    deps.runGit ?? defaultGitRunner,
+  );
+  // An external clone is often a foreign-ecosystem plugin (e.g. a Claude Code
+  // plugin) that the Vellum loader can't run as-is. When we curate an adapter
+  // stub for it, overlay the stub and run its transform so the materialized
+  // tree is a valid Vellum plugin. Raw clones (no stub) are left untouched.
+  if (cloned.fileCount > 0) {
+    await applyAdapterStub(opts.name, opts.stubRef, opts.destDir, deps);
+  }
+  return cloned;
 }
 
 /**
