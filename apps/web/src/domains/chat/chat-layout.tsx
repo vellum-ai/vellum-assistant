@@ -209,9 +209,9 @@ export function ChatLayout() {
     const idx = (window.history.state?.idx as number) ?? 0;
     setPrevLocation(location);
     setHistoryIndex(idx);
-    // On PUSH/REPLACE the browser drops forward entries, so max resets to
-    // the current index. On POP (back/forward) forward entries still exist.
-    setMaxHistoryIndex(navigationType === "POP" ? (prev) => Math.max(prev, idx) : idx);
+    // Only PUSH clears forward entries (pushState). REPLACE (replaceState)
+    // and POP preserve them, so max must not reset.
+    setMaxHistoryIndex(navigationType === "PUSH" ? idx : (prev) => Math.max(prev, idx));
   }
 
   const canGoBack = historyIndex > 0;
