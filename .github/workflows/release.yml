@@ -2978,6 +2978,10 @@ jobs:
               echo "::error::Missing ZIP for ${ARCH}"
               exit 1
             fi
+            if [ -z "$(find "$DIR" -name '*.zip.blockmap' -type f 2>/dev/null | grep -m1 .)" ]; then
+              echo "::error::Missing blockmap (*.zip.blockmap) for ${ARCH}"
+              exit 1
+            fi
           done
 
       - name: Authenticate to GCP
