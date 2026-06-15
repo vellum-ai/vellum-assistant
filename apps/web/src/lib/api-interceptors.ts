@@ -260,7 +260,8 @@ export function daemonUnreachableInterceptor(response: Response): Response {
 }
 
 /**
- * Normalizes HeyAPI's raw thrown errors into {@link ApiError} instances.
+ * Normalizes HeyAPI's raw thrown errors into {@link ApiError} instances
+ * for `throwOnError: true` calls only.
  *
  * HeyAPI's fetch client throws the parsed JSON response body (a plain
  * object) on non-OK responses. Downstream consumers like
@@ -269,12 +270,21 @@ export function daemonUnreachableInterceptor(response: Response): Response {
  * Without this interceptor, those checks always fail and retries never
  * fire.
  *
+ * Only applies when the caller set `throwOnError: true` (generated
+ * query factories). Callers using `throwOnError: false` inspect the
+ * raw error body for machine-readable fields (e.g. `error: "secret_blocked"`
+ * from `postChatMessage`) — wrapping those into `ApiError` would discard
+ * the structured payload.
+ *
  * Reference: https://heyapi.dev/openapi-ts/clients/fetch#interceptors
  */
 export function daemonErrorInterceptor(
   error: unknown,
   response: Response | undefined,
+  _request: Request | undefined,
+  options: { throwOnError?: boolean },
 ): unknown {
+  if (!options.throwOnError) return error;
   if (error instanceof ApiError) return error;
   if (!response || response.ok) return error;
   return new ApiError(
