@@ -96,7 +96,7 @@ export function up(): MigrationResult {
         FROM contact_channels AS blocker
         INNER JOIN contact_channels AS normalizer
           ON normalizer.type = blocker.type
-          AND normalizer.external_user_id = blocker.address
+          AND normalizer.external_user_id = blocker.address COLLATE NOCASE
           AND normalizer.address != normalizer.external_user_id
           AND normalizer.external_user_id IS NOT NULL
           AND normalizer.id != blocker.id
