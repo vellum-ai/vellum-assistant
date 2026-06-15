@@ -11,6 +11,7 @@ import { z } from "zod";
 import { assistantDbQuery, assistantDbRun } from "../db/assistant-db-proxy.js";
 import { ContactStore } from "../db/contact-store.js";
 import { getLogger } from "../logger.js";
+import { canonicalizeInboundIdentity } from "../verification/identity.js";
 import type { IpcRoute } from "./server.js";
 
 const log = getLogger("contact-handlers");
@@ -83,7 +84,9 @@ export const contactRoutes: IpcRoute[] = [
       const { channelType, address, role, displayName } =
         CreateContactParamsSchema.parse(params);
 
-      const normalizedAddress = address.trim();
+      const normalizedAddress =
+        canonicalizeInboundIdentity(channelType, address.trim()) ??
+        address.trim();
       const effectiveDisplayName = displayName ?? normalizedAddress;
       // Map prompt roles to valid ContactRole values ("guardian" | "contact").
       const effectiveRole: string =
