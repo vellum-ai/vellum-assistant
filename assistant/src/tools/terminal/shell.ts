@@ -200,7 +200,7 @@ export const shellTool = {
         return {
           content: `Error: unknown credential reference(s): ${unresolvedRefs.join(
             ", ",
-          )}. Use credential_store list to see available credentials.`,
+          )}. Use \`assistant credentials list\` to see available credentials.`,
           isError: true,
         };
       }

@@ -100,7 +100,7 @@ The threat vectors that skills _do_ introduce are:
 | ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | **Skill source file mutations** — editing a skill's own source files could inject behavior on next load | `isSkillSourcePath()` escalates `file_write`/`file_edit` targeting skill roots to **High**, requiring explicit approval |
 | **New skill-origin tools** — tools registered and invoked through the skill IPC contract                | Skill-origin tools with no matching trust rule are always **prompted**, regardless of their risk level                  |
-| **Credential storage** — a skill collecting and storing an API key                                      | Mediated by the `credential_store` approval flow                                                                        |
+| **Credential storage** — a skill collecting and storing an API key                                      | Mediated by the secure credential prompt flow (`assistant credentials prompt`)                                          |
 
 What skills do **not** introduce:
 

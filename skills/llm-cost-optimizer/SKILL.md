@@ -201,7 +201,7 @@ If the user has a personal API key, wire it as a custom profile:
 
 ```bash
 # Collect the key securely — never paste it in chat
-credential_store prompt --service anthropic --field api_key \
+assistant credentials prompt --service anthropic --field api_key \
   --label "Anthropic API Key" --placeholder "sk-ant-..."
 
 assistant inference providers connections create my-anthropic-key \

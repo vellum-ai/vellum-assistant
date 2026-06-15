@@ -6,11 +6,11 @@ Claude (Anthropic) is a hosted assistant, handled **separately from ChatGPT**. T
 
 Three sources, in order of preference:
 
-| Source                                                                | What it contains                                                            | How to obtain it                                                                          |
-| --------------------------------------------------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Official Claude data export (Settings → Privacy)                      | Account data including conversations, depending on plan                     | Anthropic emails a download link; arrives as a downloadable archive                       |
-| Individual conversation exports / copies                              | One or more specific conversations the creator cares about                  | Creator copies conversation text, or uses any per-conversation export available           |
-| Claude-produced self-summaries (fallback, often the only option)      | Identity, preferences, relationships, active projects, durable instructions | Ask Claude to produce portable summaries per SKILL.md's "Memory Import Guidance"           |
+| Source                                                           | What it contains                                                            | How to obtain it                                                                 |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Official Claude data export (Settings → Privacy)                 | Account data including conversations, depending on plan                     | Anthropic emails a download link; arrives as a downloadable archive              |
+| Individual conversation exports / copies                         | One or more specific conversations the creator cares about                  | Creator copies conversation text, or uses any per-conversation export available  |
+| Claude-produced self-summaries (fallback, often the only option) | Identity, preferences, relationships, active projects, durable instructions | Ask Claude to produce portable summaries per SKILL.md's "Memory Import Guidance" |
 
 Prefer an official export when the creator has one. When there is no export, fall back to the interview/summary flow: ask Claude for high-signal, reviewable summaries (identity, preferences, relationships, active projects, durable instructions, meaningful recent history) and bring them in as memory candidates.
 
@@ -42,6 +42,6 @@ Claude / Anthropic credentials and connected secrets are **never** imported:
 
 - **Anthropic / Claude account login**: not migrated. The creator signs into Vellum independently.
 - **Connected MCP servers and integrations**: reconnect through Vellum's MCP setup and OAuth connect flows. Any tokens present in an export or pasted config are ignored.
-- **API keys**: rebind via `credential_store action=prompt`, never via chat text.
+- **API keys**: rebind via `assistant credentials prompt`, never via chat text.
 
 When in doubt, pause and ask before sending any production message on a newly reconnected integration.

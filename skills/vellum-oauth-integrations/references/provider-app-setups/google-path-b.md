@@ -104,7 +104,7 @@ Before sending this step, resolve the concrete callback URL:
 - Build `oauthCallbackUrl` as `<public gateway URL>/webhooks/oauth/callback`.
 - Replace `OAUTH_CALLBACK_URL` below with that concrete value. Never send the placeholder literally.
 
-In this step, present credential creation instructions AND collect both the Client ID and Client Secret in the same turn. Output the chat text first (including the Client ID request), then invoke the `credential_store prompt` tool call for the Client Secret in the same turn.
+In this step, present credential creation instructions AND collect both the Client ID and Client Secret in the same turn. Output the chat text first (including the Client ID request), then run `assistant credentials prompt` (via the bash tool) for the Client Secret in the same turn.
 
 Tell the user:
 
@@ -122,18 +122,16 @@ Tell the user:
 >
 > After you click **Create** and the dialog appears — paste your **Client ID** here in chat, and paste the full **Client Secret** into the secure form I've just opened.
 
-Then, in the same turn, invoke:
+Then, in the same turn, run:
 
-```
-credential_store prompt:
-  service: "google"
-  field: "client_secret"
-  label: "OAuth Client Secret"
-  description: "Copy the full Client Secret (including the GOCSPX- prefix) from the dialog and paste it here."
-  placeholder: "GOCSPX-..."
+```bash
+assistant credentials prompt --service google --field client_secret \
+  --label "OAuth Client Secret" \
+  --placeholder "GOCSPX-..." \
+  --description "Copy the full Client Secret (including the GOCSPX- prefix) from the dialog and paste it here."
 ```
 
-The `credential_store prompt` is a secure input (not visible in chat), so there is no risk of channel scanners triggering on the `GOCSPX-` prefix. Collect the entire Client Secret value directly — do not ask the user to split or strip any prefix.
+The `assistant credentials prompt` command is a secure input (not visible in chat), so there is no risk of channel scanners triggering on the `GOCSPX-` prefix. Collect the entire Client Secret value directly — do not ask the user to split or strip any prefix.
 
 ## Path B Step 5: Authorize and Verify
 
