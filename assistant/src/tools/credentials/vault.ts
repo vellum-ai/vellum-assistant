@@ -675,8 +675,8 @@ export const credentialStoreTool = {
           value: result.value,
           delivery: result.delivery,
           policy: {
-            allowedTools: promptPolicy.allowedTools,
-            allowedDomains: promptPolicy.allowedDomains,
+            allowedTools: promptPolicyInput.allowed_tools,
+            allowedDomains: promptPolicyInput.allowed_domains,
             usageDescription: promptPolicy.usageDescription,
             injectionTemplates: promptInjectionTemplates,
           },

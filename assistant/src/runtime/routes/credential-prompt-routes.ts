@@ -89,8 +89,8 @@ async function handleCredentialPrompt({ body = {} }: RouteHandlerArgs) {
     value: result.value,
     delivery: result.delivery,
     policy: {
-      allowedTools: validated.allowedTools ?? [],
-      allowedDomains: validated.allowedDomains ?? [],
+      allowedTools: validated.allowedTools,
+      allowedDomains: validated.allowedDomains,
       usageDescription: validated.usageDescription,
       injectionTemplates: validated.injectionTemplates,
     },
