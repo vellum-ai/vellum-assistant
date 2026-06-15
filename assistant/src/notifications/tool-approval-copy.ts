@@ -100,8 +100,9 @@ function buildCardFromFields(
 
   const metadata: Array<{ label: string; value: string }> = [];
   metadata.push({ label: "Tool", value: toolName });
-  if (p.sourceChannel) {
-    metadata.push({ label: "Source", value: p.sourceChannel });
+  const sourceChannel = nonEmpty(p.sourceChannel);
+  if (sourceChannel) {
+    metadata.push({ label: "Source", value: sourceChannel });
   }
 
   const body = p.questionText
@@ -116,7 +117,7 @@ function buildCardFromFields(
   if (requestCode) {
     const modeResolution = resolveGuardianInstructionModeFromFields(
       p.requestKind,
-      "toolName" in p ? p.toolName : undefined,
+      "toolName" in p ? (p.toolName ?? undefined) : undefined,
     );
     const mode = modeResolution?.mode ?? "approval";
     const instruction = buildGuardianRequestCodeInstruction(
