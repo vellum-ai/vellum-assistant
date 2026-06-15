@@ -294,17 +294,16 @@ export function useSendMessage({
       if (useServerMint) {
         pendingDraftMintRef.current = requestConversationId;
       }
-      // A model profile the user picked in the composer for this brand-new
-      // draft chat (see `ComposerSettingsMenu`). Forwarded only for the draft's
-      // first message so the minted conversation gets it as a per-conversation
-      // override — keeping the selection scoped to this conversation instead of
-      // mutating the global default profile. Keyed by id, so only this draft's
-      // own stash is read.
-      const inferenceProfileForSend = isDraft
-        ? useConversationStore
-            .getState()
-            .pendingDraftProfiles.get(requestConversationId)
-        : undefined;
+      // A model profile the user picked in the composer before this
+      // conversation's row was available — a brand-new draft, or an existing
+      // conversation opened by URL while still loading (see
+      // `ComposerSettingsMenu`). Forward it so this turn, and the conversation's
+      // per-conversation override, use the chosen profile instead of the global
+      // default — covering the window before the menu's load-time promotion PUT
+      // lands. Keyed by id, so only this conversation's own stash is read.
+      const inferenceProfileForSend = useConversationStore
+        .getState()
+        .pendingDraftProfiles.get(requestConversationId);
       const postResult = await postChatMessage(
         requestAssistantId,
         useServerMint ? null : requestConversationId,
