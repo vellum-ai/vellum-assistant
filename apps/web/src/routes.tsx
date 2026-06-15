@@ -192,7 +192,7 @@ export const routeTree = [
             },
             {
               path: "onboarding/prechat",
-              lazy: { Component: () => import("@/domains/onboarding/pages/pre-chat-flow").then((m) => m.PreChatFlow) },
+              lazy: { Component: () => import("@/domains/onboarding/pages/prechat-route").then((m) => m.PreChatRoute) },
             },
             {
               path: "onboarding/hatching",

@@ -1,0 +1,180 @@
+/* Cast — proof view: bespoke artifact/aura visuals only.
+ *
+ * Chrome/layout/typography for the artifact cards, endpoint CTAs, and overlay
+ * sheet now live as Tailwind utilities + design-library components in
+ * cast-proof-view.tsx. What remains here is the irreducibly-bespoke surface:
+ * the persistent hero/prop positioning + drop-shadows, the prop-throw/juggle
+ * geometry, the skeleton shimmer, the overlay aura backdrop + scribble dude,
+ * and the markdown prose styling for the rendered artifact body. */
+
+
+/* the persistent character across beats — positioned + sized inline; props are
+   placed as absolute children relative to this box */
+.cast-hero {
+  position: absolute;
+}
+.cast-hero__body {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  outline: none;
+  filter: drop-shadow(0 14px 30px rgba(0, 0, 0, 0.5));
+}
+.cast-hero__body:focus-visible {
+  border-radius: var(--radius-xl);
+  outline: 2px solid var(--border-element);
+  outline-offset: 10px;
+}
+
+/* props placed relative to the hero box */
+.cast-prop {
+  position: absolute;
+  aspect-ratio: 1;
+}
+.cast-prop__art {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+  filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.45));
+}
+
+/* ---- Beat 6: proof (held / thrown props) ---- */
+
+.cast-proof-prop {
+  position: absolute;
+  z-index: 5;
+  aspect-ratio: 1;
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.5));
+}
+
+/* juggling props (shape "few") — arcing overhead */
+.cast-juggle {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+}
+.cast-juggle__item {
+  position: absolute;
+  left: 50%;
+  top: 44%;
+  aspect-ratio: 1;
+  filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.45));
+}
+
+/* artifact scroll column — bespoke hidden scrollbar (no Tailwind equivalent);
+   layout/spacing lives on the element via Tailwind. */
+.cast-proof {
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.cast-proof::-webkit-scrollbar {
+  display: none;
+}
+
+/* skeletons — shimmer is a bespoke loading effect, not tokenized */
+.cast-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+.cast-skeleton--row {
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+}
+.cast-skel-line,
+.cast-skel-icon {
+  display: block;
+  border-radius: var(--radius-md);
+  background: linear-gradient(
+    90deg,
+    rgba(233, 230, 226, 0.05) 25%,
+    rgba(233, 230, 226, 0.12) 37%,
+    rgba(233, 230, 226, 0.05) 63%
+  );
+  background-size: 400% 100%;
+  animation: cast-shimmer 1.4s ease infinite;
+}
+.cast-skel-line {
+  height: 16px;
+  margin: 0 auto;
+}
+.cast-skel-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-lg);
+  flex-shrink: 0;
+}
+
+/* ---- Beat 6: Open overlay (full artifact) ---- */
+
+/* bespoke aura backdrop + hidden scrollbar */
+.cast-overlay {
+  background: radial-gradient(120% 90% at 50% 0%, var(--surface-overlay) 0%, var(--surface-base) 60%, var(--cast-shroud) 100%);
+  scrollbar-width: none;
+}
+.cast-overlay::-webkit-scrollbar {
+  display: none;
+}
+
+/* small persistent dude in the corner — bespoke fixed placement + scribble */
+.cast-overlay__dude {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  width: 76px;
+  height: 76px;
+  z-index: 2;
+  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.5));
+  pointer-events: none;
+}
+.cast-overlay__dude > div {
+  width: 100%;
+  height: 100%;
+}
+.cast-overlay__pencil {
+  position: absolute;
+  right: -6px;
+  bottom: 6px;
+  width: 34px;
+  height: 34px;
+  transform-origin: bottom right;
+  animation: cast-scribble-pen 0.32s ease-in-out infinite;
+}
+.cast-scribble {
+  animation: cast-scribble-body 0.7s ease-in-out infinite;
+}
+
+/* rendered artifact markdown prose — bespoke element styling for the streamed
+   body (base font/colour applied via Tailwind on the wrapper in the .tsx). */
+.cast-overlay__body h1,
+.cast-overlay__body h2,
+.cast-overlay__body h3 {
+  color: var(--content-default);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin: 22px 0 10px;
+  line-height: 1.3;
+}
+.cast-overlay__body h2 { font-size: 20px; }
+.cast-overlay__body h3 { font-size: 17px; }
+.cast-overlay__body p { margin: 0 0 14px; }
+.cast-overlay__body ul,
+.cast-overlay__body ol { margin: 0 0 14px; padding-left: 22px; }
+.cast-overlay__body li { margin: 0 0 var(--app-spacing-sm); }
+.cast-overlay__body strong { color: var(--content-default); font-weight: 640; }
+.cast-overlay__body a { color: var(--primary-base); }
+.cast-overlay__body code {
+  background: var(--surface-hover);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+}

@@ -1,0 +1,14 @@
+/* Cast — handoff screen. Layout/chrome moved to Tailwind + design tokens in
+ * done-screen.tsx; only the bespoke editorial serif heading remains here. */
+
+.cast-handoff__heading {
+  margin: 0;
+  font-family: "Instrument Serif", var(--font-serif), serif;
+  font-size: clamp(1.4rem, 0.8rem + 1.6vw, 2.2rem);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: var(--content-default);
+  text-align: center;
+  max-width: 380px;
+  line-height: 1.3;
+}

@@ -1,0 +1,75 @@
+/* Cast — preamble screen: bespoke grid-art backdrop only.
+ *
+ * The preamble layout/typography now lives in `preamble-screen.tsx` as Tailwind
+ * + design tokens. What remains here is the irreducibly-bespoke setup-shell
+ * furniture rendered by `cast-shell.tsx` (SetupShell): the green character-grid
+ * art anchored to the bottom corners, its masked grid-lines, and the topbar.
+ * Grid stroke/outline colors are bespoke rgba literals set inline on the SVGs
+ * in `cast-shell.tsx` (no token equivalent for the faint ground-plane wash). */
+
+.cast-preamble__topbar {
+  position: absolute;
+  top: var(--app-spacing-xxl);
+  left: 80px; /* bespoke: aligns the topbar with the grid gutter */
+  display: flex;
+  align-items: center;
+  gap: var(--app-spacing-md);
+  z-index: 5;
+}
+.cast-preamble__setup-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--content-tertiary);
+  white-space: nowrap;
+}
+
+/* Preamble grid — cohesive character-outline grid anchored to bottom corners. */
+.cast-preamble__boxes {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.cast-preamble__grid {
+  position: absolute;
+  bottom: 0;
+}
+.cast-preamble__grid--left {
+  left: 0;
+}
+.cast-preamble__grid--right {
+  right: 0;
+}
+.cast-preamble__lines {
+  position: absolute;
+  inset: 0;
+}
+/* bespoke: dual-gradient mask fades the grid-lines toward the top + outer edge */
+.cast-preamble__lines--left {
+  mask-image: linear-gradient(to bottom, transparent 0%, black 25%),
+              linear-gradient(to left, transparent 0%, black 20%);
+  mask-composite: intersect;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 25%),
+                      linear-gradient(to left, transparent 0%, black 20%);
+  -webkit-mask-composite: source-in;
+}
+.cast-preamble__lines--right {
+  mask-image: linear-gradient(to bottom, transparent 0%, black 25%),
+              linear-gradient(to right, transparent 0%, black 20%);
+  mask-composite: intersect;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 25%),
+                      linear-gradient(to right, transparent 0%, black 20%);
+  -webkit-mask-composite: source-in;
+}
+.cast-preamble__gridlines {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+.cast-preamble__cell {
+  position: absolute;
+  padding: var(--app-spacing-lg);
+}
+.cast-preamble__cell svg {
+  display: block;
+}
