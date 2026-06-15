@@ -2,9 +2,12 @@
 mitmproxy addon. Two responsibilities:
 
   1. **Recording.** Wires the `response` hook into the pure-function
-     parser (`usage_parser.parse_anthropic_messages_response`) and
-     appends each parsed Anthropic usage record as one NDJSON line to
-     `RECORDING_OUTPUT_PATH` (default `/recording/egress-usage.ndjson`).
+     usage parsers (`usage_parser.parse_*`) and appends each parsed
+     usage record as one NDJSON line to `RECORDING_OUTPUT_PATH`
+     (default `/recording/egress-usage.ndjson`). Anthropic
+     `/v1/messages` and OpenAI-compatible `/chat/completions` (OpenAI,
+     Fireworks) traffic are parsed; every record carries a `provider`
+     field so the report can key pricing on `<provider>:<model>`.
   2. **Mocking.** Wires the `request` hook into the pure-function
      mock-github handler (`mock_github_handler.handle`). When the
      handler returns a synthesized response, the addon short-circuits
@@ -16,16 +19,21 @@ mitmproxy addon. Two responsibilities:
      through the iptables allowlist.
 
 Hosts intercepted for response parsing:
-  - `api.anthropic.com` (the only provider parsed in v1)
+  - `api.anthropic.com` — Anthropic `/v1/messages`
+  - `api.openai.com` — OpenAI `/chat/completions`
+  - `api.fireworks.ai` — Fireworks `/inference/v1/chat/completions`
+    (open-weight models, e.g. the `vellum-minimax` profile's MiniMax-M3)
 
 Hosts intercepted for request mocking (when `PLUGIN_FIXTURES_DIR` is
 set):
   - `api.github.com` — plugin Contents API listings
   - `raw.githubusercontent.com` — plugin file downloads
 
-Other allowlisted hosts (OpenAI, Gemini) flow through mitmproxy and out
-the egress jail just like before — the recording addon doesn't touch
-their bodies. Follow-up tickets will add per-provider parsers as needed.
+Other allowlisted model hosts flow through mitmproxy and out the egress
+jail untouched — the addon only parses hosts whose wire format it
+understands. Gemini (`generativelanguage.googleapis.com`) uses a
+distinct API shape and is not metered, so its runs score $0 on the cost
+metric until a parser for it is added.
 
 Design notes:
 - Bodies are accumulated by mitmproxy. For SSE streaming we let
@@ -33,7 +41,7 @@ Design notes:
   this is fine for evals (we're not consuming the stream — the
   assistant container is — and mitmproxy's response_streaming=False
   default gives us a complete body). Latency overhead is bounded by the
-  longest single Anthropic response.
+  longest single model response.
 - Errors during parsing are swallowed and logged via ctx.log so a
   single bad response can never crash the proxy and bring the whole
   evals run down.
@@ -81,6 +89,16 @@ MAX_PAYLOAD_CHARS = int(os.environ.get("RECORDING_MAX_PAYLOAD_CHARS", "32768"))
 # directory instead of letting it egress. Unset = mocking disabled,
 # requests fall through to the iptables DROP-default policy.
 PLUGIN_FIXTURES_DIR: Optional[str] = os.environ.get("PLUGIN_FIXTURES_DIR")
+
+# Hosts whose responses speak the OpenAI chat-completions wire format,
+# mapped to the provider label stamped onto each usage record. OpenAI and
+# Fireworks share an identical request/response shape, so one parser
+# serves both; only the observed host distinguishes the provider for
+# pricing (`<provider>:<model>` in `src/lib/pricing.ts`).
+OPENAI_COMPATIBLE_HOSTS = {
+    "api.openai.com": "openai",
+    "api.fireworks.ai": "fireworks",
+}
 
 # Lock guards the NDJSON file writer — mitmproxy can fire `response`
 # hooks concurrently for parallel requests.
@@ -200,10 +218,10 @@ def response(flow) -> None:  # type: ignore[no-untyped-def]
         request = flow.request
         response = flow.response
         host = (request.pretty_host or "").lower()
-        if host != "api.anthropic.com":
+        if host != "api.anthropic.com" and host not in OPENAI_COMPATIBLE_HOSTS:
             return
-        # Use the content-decoded body, not `raw_content`. The Anthropic SDK
-        # negotiates `Accept-Encoding: gzip` (and brotli/zstd when those libs
+        # Use the content-decoded body, not `raw_content`. The model SDKs
+        # negotiate `Accept-Encoding: gzip` (and brotli/zstd when those libs
         # are present), so the on-the-wire `raw_content` is compressed and the
         # JSON / SSE parser would always fail to read it. mitmproxy's `content`
         # accessor strips the `Content-Encoding`; we fall back to `raw_content`
@@ -212,12 +230,23 @@ def response(flow) -> None:  # type: ignore[no-untyped-def]
         request_body = _decoded_body(request)
         response_body = _decoded_body(response)
         content_type = response.headers.get("content-type", "")
-        record: Optional[dict] = usage_parser.parse_anthropic_messages_response(
-            request_path=request.path,
-            request_body=request_body,
-            response_content_type=content_type,
-            response_body=response_body,
-        )
+        if host == "api.anthropic.com":
+            record: Optional[dict] = (
+                usage_parser.parse_anthropic_messages_response(
+                    request_path=request.path,
+                    request_body=request_body,
+                    response_content_type=content_type,
+                    response_body=response_body,
+                )
+            )
+        else:
+            record = usage_parser.parse_openai_chat_completions_response(
+                provider=OPENAI_COMPATIBLE_HOSTS[host],
+                request_path=request.path,
+                request_body=request_body,
+                response_content_type=content_type,
+                response_body=response_body,
+            )
         if record is None:
             return
         record["recorded_at"] = datetime.now(timezone.utc).isoformat()
@@ -227,7 +256,8 @@ def response(flow) -> None:  # type: ignore[no-untyped-def]
         record.update(_payload_fields("response", response_body))
         _append_ndjson(record)
         _log_info(
-            f"recording: anthropic usage {record.get('input_tokens')}/"
+            f"recording: {record.get('provider', '?')} usage "
+            f"{record.get('input_tokens')}/"
             f"{record.get('output_tokens')} tokens "
             f"({record.get('model', '?')})"
         )
