@@ -274,9 +274,10 @@ export { createSkillLoadedEventsTable } from "./279-create-skill-loaded-events.j
 export { migrateConversationsSurfacedAt } from "./280-conversations-surfaced-at.js";
 export { migrateMemoryRetrospectiveRememberedLog } from "./281-memory-retrospective-remembered-log.js";
 export { migrateScheduleInferenceProfile } from "./282-schedule-inference-profile.js";
-export { migrateWorkflowRuns } from "./283-workflow-runs.js";
-export { migrateScheduleWorkflowMode } from "./284-schedule-workflow-mode.js";
-export { migrateWorkflowRunTrust } from "./285-workflow-run-trust.js";
+export { migrateMemoryV3SelectionsMessageIdAndSections } from "./283-memory-v3-selections-message-id-and-sections.js";
+export { migrateWorkflowRuns } from "./284-workflow-runs.js";
+export { migrateScheduleWorkflowMode } from "./285-schedule-workflow-mode.js";
+export { migrateWorkflowRunTrust } from "./286-workflow-run-trust.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

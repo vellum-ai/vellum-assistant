@@ -29,6 +29,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { migrateAddMemoryV3Selections } from "../../../../memory/migrations/268-add-memory-v3-selections.js";
 import { migrateAddMemoryV3EverInjected } from "../../../../memory/migrations/277-add-memory-v3-ever-injected.js";
+import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../memory/migrations/283-memory-v3-selections-message-id-and-sections.js";
 import * as schema from "../../../../memory/schema.js";
 import type { HotSetEntry, HotSetOptions } from "../hot-set.js";
 import type { OrchestrateResult } from "../orchestrate.js";
@@ -154,6 +155,7 @@ function makeDb() {
   testSqlite.exec("PRAGMA journal_mode=WAL");
   const db = drizzle(testSqlite, { schema });
   migrateAddMemoryV3Selections(db);
+  migrateMemoryV3SelectionsMessageIdAndSections(db);
   // The live injector's net-new dedup reads/writes the everInjected store.
   migrateAddMemoryV3EverInjected(db);
   return db;
@@ -545,7 +547,15 @@ describe("memory-v3 shadow plugin", () => {
         finder: [{ slug: "page-core", descriptor: "", lane: "needle" }],
       },
     });
-    expect(rows).toEqual([{ slug: "page-core", source: "core", pinned: 0 }]);
+    expect(rows).toEqual([
+      {
+        slug: "page-core",
+        source: "core",
+        pinned: 0,
+        sectionOrdinal: null,
+        sectionTitle: null,
+      },
+    ]);
   });
 
   test("the turn passed to orchestrate carries the latest user message", async () => {

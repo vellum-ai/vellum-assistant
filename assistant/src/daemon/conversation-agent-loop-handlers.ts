@@ -51,6 +51,7 @@ import {
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
+import { backfillMemoryV3SelectionMessageId } from "../plugins/defaults/memory-v3-shadow/shadow-plugin.js";
 import type {
   ContentBlock,
   ImageContent,
@@ -1943,6 +1944,18 @@ export async function handleMessageComplete(
     deps.rlog.warn(
       { err },
       "Failed to backfill memory v2 activation log messageId (non-fatal)",
+    );
+  }
+
+  try {
+    backfillMemoryV3SelectionMessageId(
+      deps.ctx.conversationId,
+      assistantMessageId,
+    );
+  } catch (err) {
+    deps.rlog.warn(
+      { err },
+      "Failed to backfill memory v3 selection messageId (non-fatal)",
     );
   }
 

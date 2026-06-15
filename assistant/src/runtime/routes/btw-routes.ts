@@ -22,8 +22,16 @@ import { getAllToolDefinitions } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { runBtwSidechain } from "../btw-sidechain.js";
+import {
+  getCachedEmptyStateGreeting,
+  setCachedEmptyStateGreeting,
+} from "./empty-state-greeting-cache.js";
 import { BadRequestError, ServiceUnavailableError } from "./errors.js";
-import { getCachedIntro, setCachedIntro } from "./identity-intro-cache.js";
+import {
+  getCachedIntro,
+  readWorkspaceGreetings,
+  setCachedIntro,
+} from "./identity-intro-cache.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("btw-routes");
@@ -70,6 +78,24 @@ async function handleBtw({
     if (fastText) {
       log.debug("Returning identity intro fast-path");
       return streamText(fastText);
+    }
+  }
+
+  // ----- Empty-state greeting fast-path -----
+  // User-authored `## Greetings` win; otherwise replay a cached greeting when
+  // one is fresh within the configurable TTL (`ui.emptyStateGreetingCacheTtlMs`,
+  // 0 = always regenerate). Either path avoids an LLM call and streams the
+  // text straight back.
+  if (conversationKey === GREETING_KEY) {
+    const authored = readWorkspaceGreetings();
+    if (authored && authored.length > 0) {
+      log.debug("Returning authored empty-state greeting");
+      return streamText(pickRandom(authored));
+    }
+    const cached = getCachedEmptyStateGreeting();
+    if (cached) {
+      log.debug("Returning cached empty-state greeting");
+      return streamText(cached);
     }
   }
 
@@ -136,6 +162,12 @@ async function handleBtw({
             }
           }
 
+          if (isGreeting && result.text) {
+            // setCachedEmptyStateGreeting is a no-op when the TTL is 0.
+            setCachedEmptyStateGreeting(result.text);
+            log.debug("Cached empty-state greeting text");
+          }
+
           controller.enqueue(sseEvent("btw_complete", {}));
           controller.close();
         } catch (err: unknown) {
@@ -151,6 +183,10 @@ async function handleBtw({
       })();
     },
   });
+}
+
+function pickRandom<T>(items: readonly T[]): T {
+  return items[Math.floor(Math.random() * items.length)]!;
 }
 
 function streamText(text: string): ReadableStream<Uint8Array> {
