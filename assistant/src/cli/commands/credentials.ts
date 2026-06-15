@@ -589,6 +589,10 @@ Examples:
         .option("--description <description>", "Context shown in the prompt UI")
         .option("--placeholder <placeholder>", "Placeholder text for the input")
         .option(
+          "--usage-description <description>",
+          "Human-readable description of intended usage, stored in credential metadata and shown as the prompt's purpose",
+        )
+        .option(
           "--allowed-domains <domains>",
           "Comma-separated domains where this credential may be used",
         )
@@ -613,6 +617,7 @@ Requires the assistant to be running with at least one connected client.
 Examples:
   $ assistant credentials prompt --service sentry --field auth_token \\
       --label "Sentry Auth Token" --placeholder "sntrys_..." \\
+      --usage-description "Read Sentry issues and events" \\
       --allowed-domains "sentry.io" \\
       --injection-templates '[{"hostPattern":"sentry.io","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]'`,
         )
@@ -624,6 +629,7 @@ Examples:
               label: string;
               description?: string;
               placeholder?: string;
+              usageDescription?: string;
               allowedDomains?: string;
               allowedTools?: string;
               injectionTemplates?: string;
@@ -663,6 +669,7 @@ Examples:
                   label: opts.label,
                   description: opts.description,
                   placeholder: opts.placeholder,
+                  usageDescription: opts.usageDescription,
                   allowedDomains,
                   allowedTools,
                   injectionTemplates,
