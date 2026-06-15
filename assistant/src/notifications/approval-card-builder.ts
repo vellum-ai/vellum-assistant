@@ -200,8 +200,7 @@ function buildAccessRequestFallbackText(data: AccessRequestCardData): string {
     sourceChannel: data.sourceChannel,
     conversationExternalId: data.conversationExternalId,
     actorExternalId: data.externalId,
-    actorDisplayName:
-      data.displayName !== "Someone" ? data.displayName : undefined,
+    actorDisplayName: data.actorDisplayName,
     actorUsername: data.username,
     senderIdentifier: data.senderIdentifier,
     guardianResolutionSource: data.guardianResolutionSource,
