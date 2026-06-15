@@ -97,6 +97,16 @@ export interface FileClassifierInput {
     | "host_file_transfer";
   filePath: string;
   workingDir: string;
+  /**
+   * For `host_file_transfer` with `direction: "to_sandbox"`, the sandbox-side
+   * destination path — the workspace location the transfer writes to. The
+   * host-side `filePath` is the (benign) read source, so the workspace
+   * code-injection escalations must run against this path instead. Unset for
+   * every other tool / direction.
+   */
+  sandboxPath?: string;
+  /** Sandbox working directory used to resolve a relative {@link sandboxPath}. */
+  sandboxWorkingDir?: string;
 }
 
 // -- Helpers ------------------------------------------------------------------
@@ -240,6 +250,33 @@ function isSkillSourcePath(
   return false;
 }
 
+/**
+ * If a resolved path targets a workspace directory whose contents become
+ * daemon-executed / hot-loaded code (skill source, hooks, user plugins, or
+ * workspace tools), return the high-risk escalation reason; otherwise null.
+ * `verb` is "Writes" for direct writes/edits and "Transfers" for host
+ * transfers, matching the existing reason strings.
+ */
+function workspaceCodeWriteReason(
+  resolvedPath: string,
+  context: FileClassificationContext,
+  verb: "Writes" | "Transfers",
+): string | null {
+  if (isSkillSourcePath(resolvedPath, context)) {
+    return `${verb} to skill source code`;
+  }
+  if (isHooksPath(resolvedPath, context)) {
+    return `${verb} to hooks directory`;
+  }
+  if (isPluginsPath(resolvedPath, context)) {
+    return `${verb} to plugins directory`;
+  }
+  if (isToolsPath(resolvedPath, context)) {
+    return `${verb} to workspace tools directory`;
+  }
+  return null;
+}
+
 // -- Allowlist option helpers -------------------------------------------------
 
 const FILE_TOOL_DISPLAY_NAMES: Record<string, string> = {
@@ -371,40 +408,15 @@ export class FileRiskClassifier implements RiskClassifier<
             workingDir,
             context,
           );
-          if (isSkillSourcePath(resolvedPath, context)) {
+          const reason = workspaceCodeWriteReason(
+            resolvedPath,
+            context,
+            "Writes",
+          );
+          if (reason) {
             assessment = {
               riskLevel: "high",
-              reason: "Writes to skill source code",
-              scopeOptions: [],
-              matchType: "registry",
-              allowlistOptions,
-            };
-            break;
-          }
-          if (isHooksPath(resolvedPath, context)) {
-            assessment = {
-              riskLevel: "high",
-              reason: "Writes to hooks directory",
-              scopeOptions: [],
-              matchType: "registry",
-              allowlistOptions,
-            };
-            break;
-          }
-          if (isPluginsPath(resolvedPath, context)) {
-            assessment = {
-              riskLevel: "high",
-              reason: "Writes to plugins directory",
-              scopeOptions: [],
-              matchType: "registry",
-              allowlistOptions,
-            };
-            break;
-          }
-          if (isToolsPath(resolvedPath, context)) {
-            assessment = {
-              riskLevel: "high",
-              reason: "Writes to workspace tools directory",
+              reason,
               scopeOptions: [],
               matchType: "registry",
               allowlistOptions,
@@ -442,44 +454,48 @@ export class FileRiskClassifier implements RiskClassifier<
         // "Writes" for write/edit (both mutate files), "Transfers" for transfer.
         const actionVerb =
           toolName === "host_file_transfer" ? "Transfers" : "Writes";
+
+        // For a `to_sandbox` transfer the file the model can weaponize is the
+        // sandbox *destination* (where daemon-loaded code is planted), not the
+        // host source carried by `filePath`. Classify that destination against
+        // the workspace code-injection escalations — with the same /workspace
+        // remapping — and take the higher risk.
+        if (toolName === "host_file_transfer" && input.sandboxPath) {
+          const sandboxResolved = resolveSandboxPath(
+            input.sandboxPath,
+            input.sandboxWorkingDir ?? workingDir,
+            context,
+          );
+          const reason = workspaceCodeWriteReason(
+            sandboxResolved,
+            context,
+            "Transfers",
+          );
+          if (reason) {
+            assessment = {
+              riskLevel: "high",
+              reason,
+              scopeOptions: [],
+              matchType: "registry",
+              allowlistOptions,
+            };
+            break;
+          }
+        }
+
         if (filePath) {
           // Host file tools resolve paths without workingDir — resolve(filePath)
           // treats the path as absolute or relative to cwd.
           const resolvedPath = resolve(filePath);
-          if (isSkillSourcePath(resolvedPath, context)) {
+          const reason = workspaceCodeWriteReason(
+            resolvedPath,
+            context,
+            actionVerb,
+          );
+          if (reason) {
             assessment = {
               riskLevel: "high",
-              reason: `${actionVerb} to skill source code`,
-              scopeOptions: [],
-              matchType: "registry",
-              allowlistOptions,
-            };
-            break;
-          }
-          if (isHooksPath(resolvedPath, context)) {
-            assessment = {
-              riskLevel: "high",
-              reason: `${actionVerb} to hooks directory`,
-              scopeOptions: [],
-              matchType: "registry",
-              allowlistOptions,
-            };
-            break;
-          }
-          if (isPluginsPath(resolvedPath, context)) {
-            assessment = {
-              riskLevel: "high",
-              reason: `${actionVerb} to plugins directory`,
-              scopeOptions: [],
-              matchType: "registry",
-              allowlistOptions,
-            };
-            break;
-          }
-          if (isToolsPath(resolvedPath, context)) {
-            assessment = {
-              riskLevel: "high",
-              reason: `${actionVerb} to workspace tools directory`,
+              reason,
               scopeOptions: [],
               matchType: "registry",
               allowlistOptions,

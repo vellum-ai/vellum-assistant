@@ -54,6 +54,8 @@ function classifyInput(
       filePath: input.filePath ?? "",
       workingDir: input.workingDir ?? WORKING_DIR,
       toolName: input.toolName,
+      sandboxPath: input.sandboxPath,
+      sandboxWorkingDir: input.sandboxWorkingDir,
     },
     makeContext(),
   );
@@ -711,6 +713,56 @@ describe("FileRiskClassifier", () => {
       });
       expect(result.riskLevel).toBe("high");
       expect(result.reason).toBe("Transfers to workspace tools directory");
+    });
+
+    // to_sandbox transfers: the host source (filePath) is benign, but the
+    // sandbox destination (sandboxPath) plants daemon-loaded code. The
+    // destination must be classified for the workspace escalations.
+    test("to_sandbox destination inside tools dir is high (benign host source)", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "host_file_transfer",
+        filePath: "/tmp/evil.ts",
+        sandboxPath: join(MOCK_TOOLS_DIR, "skill_load.ts"),
+        sandboxWorkingDir: MOCK_WORKSPACE_DIR,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Transfers to workspace tools directory");
+    });
+
+    test("to_sandbox destination via /workspace alias into tools dir is high", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "host_file_transfer",
+        filePath: "/tmp/evil.ts",
+        sandboxPath: "/workspace/tools/skill_load.ts",
+        sandboxWorkingDir: "/some/other/cwd",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Transfers to workspace tools directory");
+    });
+
+    test("to_sandbox destination into plugins dir is high", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "host_file_transfer",
+        filePath: "/tmp/evil.ts",
+        sandboxPath: join(MOCK_PLUGINS_DIR, "evil", "register.ts"),
+        sandboxWorkingDir: MOCK_WORKSPACE_DIR,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Transfers to plugins directory");
+    });
+
+    test("to_sandbox destination outside escalation dirs is medium", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "host_file_transfer",
+        filePath: "/tmp/evil.ts",
+        sandboxPath: join(MOCK_WORKSPACE_DIR, "scratch", "note.txt"),
+        sandboxWorkingDir: MOCK_WORKSPACE_DIR,
+      });
+      expect(result.riskLevel).toBe("medium");
     });
   });
 

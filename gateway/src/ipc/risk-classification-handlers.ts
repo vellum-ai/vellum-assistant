@@ -42,6 +42,8 @@ const ClassifyRiskSchema = z.object({
   command: z.string().optional(),
   url: z.string().optional(),
   path: z.string().optional(),
+  sandboxPath: z.string().optional(),
+  sandboxWorkingDir: z.string().optional(),
   skill: z.string().optional(),
   mode: z.string().optional(),
   script: z.string().optional(),
@@ -443,7 +445,13 @@ export async function handleClassifyRisk(
       };
 
       const assessment = await fileRiskClassifier.classify(
-        { toolName: tool, filePath, workingDir },
+        {
+          toolName: tool,
+          filePath,
+          workingDir,
+          sandboxPath: params.sandboxPath,
+          sandboxWorkingDir: params.sandboxWorkingDir,
+        },
         context,
       );
 

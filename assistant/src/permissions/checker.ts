@@ -352,6 +352,8 @@ function buildClassifyRiskParams(
   ) {
     const isHostTool = toolName.startsWith("host_");
     let filePath: string;
+    let sandboxPath: string | undefined;
+    let sandboxWorkingDir: string | undefined;
     if (toolName === "host_file_transfer") {
       // For host_file_transfer the security-sensitive path is the host-side
       // path: source_path when reading from the host (to_sandbox), dest_path
@@ -361,12 +363,22 @@ function buildClassifyRiskParams(
         direction === "to_sandbox"
           ? getStringField(input, "source_path")
           : getStringField(input, "dest_path");
+      // For to_sandbox the transfer *writes* into the workspace at dest_path,
+      // which can plant daemon-loaded code (workspace tool / plugin / hook /
+      // skill). Forward it so the gateway runs the workspace escalations on
+      // the destination, not just the benign host source.
+      if (direction === "to_sandbox") {
+        sandboxPath = getStringField(input, "dest_path");
+        sandboxWorkingDir = workingDir ?? process.cwd();
+      }
     } else {
       filePath = getStringField(input, "path", "file_path");
     }
     return {
       tool: toolName,
       path: filePath,
+      sandboxPath,
+      sandboxWorkingDir,
       workingDir: isHostTool ? "/" : (workingDir ?? process.cwd()),
       fileContext: buildFileContext(),
     };

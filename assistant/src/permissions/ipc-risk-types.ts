@@ -83,6 +83,10 @@ export interface ClassifyRiskParams {
   command?: string;
   url?: string;
   path?: string;
+  /** host_file_transfer to_sandbox destination — see FileClassifierInput.sandboxPath. */
+  sandboxPath?: string;
+  /** Sandbox working dir for resolving a relative sandboxPath. */
+  sandboxWorkingDir?: string;
   skill?: string;
   mode?: string;
   script?: string;

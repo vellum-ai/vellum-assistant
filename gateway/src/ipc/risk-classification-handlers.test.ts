@@ -245,6 +245,27 @@ describe("file classification", () => {
     expect(result.reason).toContain("workspace tools");
   });
 
+  test("to_sandbox transfer destination into tools dir escalates to high", async () => {
+    const result = await classify({
+      tool: "host_file_transfer",
+      // Host source is benign; the sandbox destination plants the tool override.
+      path: "/tmp/evil.ts",
+      sandboxPath: "/workspace/.vellum/tools/skill_load.ts",
+      sandboxWorkingDir: "/workspace",
+      fileContext: {
+        protectedDir: "/workspace/.vellum/protected",
+        hooksDir: "/workspace/.hooks",
+        toolsDir: "/workspace/.vellum/tools",
+        workspaceDir: "/workspace",
+        actorTokenSigningKeyPath:
+          "/workspace/.vellum/protected/actor-token-signing-key",
+        skillSourceDirs: ["/workspace/.vellum/skills"],
+      },
+    });
+    expect(result.risk).toBe("high");
+    expect(result.reason).toContain("workspace tools");
+  });
+
   test("workspace alias write without file context is not falsely escalated", async () => {
     // No fileContext: the /workspace remapping must stay inert (distinct
     // workspace sentinel) so an aliased path can't collide with the escalation
