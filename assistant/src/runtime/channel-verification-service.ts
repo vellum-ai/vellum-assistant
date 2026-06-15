@@ -333,7 +333,8 @@ export function getGuardianBinding(
       id: result.channel.id,
       assistantId,
       channel,
-      guardianExternalUserId: result.channel.externalUserId ?? "",
+      guardianExternalUserId:
+        result.channel.externalUserId ?? result.channel.address ?? "",
       guardianDeliveryChatId: result.channel.externalChatId ?? "",
       guardianPrincipalId: result.contact.principalId ?? "",
       status: "active" as const,
@@ -355,11 +356,11 @@ export function getGuardianBinding(
 export function isGuardian(
   assistantId: string,
   channel: string,
-  externalUserId: string,
+  address: string,
 ): boolean {
   const result = findGuardianForChannel(channel);
   if (result) {
-    return result.channel.externalUserId === externalUserId;
+    return result.channel.address.toLowerCase() === address.toLowerCase();
   }
 
   return false;

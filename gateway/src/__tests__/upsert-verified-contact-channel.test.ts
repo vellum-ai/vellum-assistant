@@ -189,7 +189,7 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
 });
 
 describe("upsertContactChannel — channel address casing", () => {
-  test("preserves Slack actor ID casing when seeding an inbound contact channel", async () => {
+  test("preserves original Slack address casing", async () => {
     queryRows = [];
 
     await upsertContactChannel({
@@ -202,15 +202,11 @@ describe("upsertContactChannel — channel address casing", () => {
       c.sql.includes("INSERT OR IGNORE INTO contact_channels"),
     );
     expect(channelInsert).toBeTruthy();
+    // address and externalUserId both preserve original casing
     expect(channelInsert!.params[3]).toBe("U123EXAMPLE");
     expect(channelInsert!.params[4]).toBe("U123EXAMPLE");
 
-    expect(queryCalls[0]!.sql).toContain("CASE WHEN cc.address = ?");
-    expect(queryCalls[0]!.params).toEqual([
-      "slack",
-      "U123EXAMPLE",
-      "U123EXAMPLE",
-      "U123EXAMPLE",
-    ]);
+    expect(queryCalls[0]!.sql).toContain("cc.address = ?");
+    expect(queryCalls[0]!.params).toEqual(["slack", "U123EXAMPLE"]);
   });
 });

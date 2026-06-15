@@ -1,12 +1,14 @@
 import { and, asc, desc, eq, isNotNull, like, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import type { ChannelId } from "../channels/types.js";
 import { getDb } from "../memory/db-connection.js";
 import {
   assistantContactMetadata,
   contactChannels,
   contacts,
 } from "../memory/schema.js";
+import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { emitContactChange } from "./contact-events.js";
 import type {
   AssistantContactMetadata,
@@ -25,6 +27,27 @@ import type {
  * SQLite has no default escape character for LIKE, so we strip rather than escape. */
 function escapeLike(value: string): string {
   return value.replace(/%/g, "").replace(/_/g, "");
+}
+
+/**
+ * Find the first contact_channels row whose (type, address) matches.
+ * Uses COLLATE NOCASE to find legacy lowercased rows (pre-migration 290).
+ */
+function findConflictingChannel(
+  db: ReturnType<typeof getDb>,
+  type: string,
+  address: string,
+) {
+  return db
+    .select()
+    .from(contactChannels)
+    .where(
+      and(
+        eq(contactChannels.type, type),
+        sql`${contactChannels.address} = ${address} COLLATE NOCASE`,
+      ),
+    )
+    .get();
 }
 
 /**
@@ -199,6 +222,15 @@ export function upsertContact(params: {
   const db = getDb();
   const now = Date.now();
 
+  // Canonicalize all channel addresses up front so every downstream path
+  // (lookups, inserts, conflict checks) uses the canonical form.
+  const canonicalChannels = params.channels?.map((ch) => ({
+    ...ch,
+    address:
+      canonicalizeInboundIdentity(ch.type as ChannelId, ch.address) ??
+      ch.address,
+  }));
+
   let contactId = params.id;
 
   // If an ID is provided, check if the contact exists for update
@@ -226,10 +258,10 @@ export function upsertContact(params: {
         .where(eq(contacts.id, contactId))
         .run();
 
-      if (params.channels) {
+      if (canonicalChannels) {
         syncChannels(
           contactId,
-          params.channels,
+          canonicalChannels,
           now,
           params.reassignConflictingChannels,
         );
@@ -240,20 +272,10 @@ export function upsertContact(params: {
     }
   }
 
-  // Try to find by channel address to avoid duplicates
-  if (!contactId && params.channels && params.channels.length > 0) {
-    for (const ch of params.channels) {
-      // Primary lookup: match by (type, address)
-      const existingChannel = db
-        .select()
-        .from(contactChannels)
-        .where(
-          and(
-            eq(contactChannels.type, ch.type),
-            eq(contactChannels.address, ch.address.toLowerCase()),
-          ),
-        )
-        .get();
+  // Try to find by channel canonical identity to avoid duplicates
+  if (!contactId && canonicalChannels && canonicalChannels.length > 0) {
+    for (const ch of canonicalChannels) {
+      const existingChannel = findConflictingChannel(db, ch.type, ch.address);
 
       if (existingChannel) {
         contactId = existingChannel.contactId;
@@ -274,7 +296,7 @@ export function upsertContact(params: {
           .where(eq(contacts.id, contactId))
           .run();
 
-        syncChannels(contactId, params.channels, now);
+        syncChannels(contactId, canonicalChannels, now);
         emitContactChange();
         return { ...getContactInternal(contactId)!, created: false };
       }
@@ -318,10 +340,10 @@ export function upsertContact(params: {
     })
     .run();
 
-  if (params.channels) {
+  if (canonicalChannels) {
     syncChannels(
       contactId,
-      params.channels,
+      canonicalChannels,
       now,
       params.reassignConflictingChannels,
     );
@@ -345,9 +367,8 @@ function syncChannels(
   const db = getDb();
 
   for (const ch of channels) {
-    const normalizedAddress = ch.address.toLowerCase();
-
-    // Check if this channel already exists for this contact
+    // Match by (type, address) — the canonical identity for all channel types.
+    // COLLATE NOCASE catches legacy rows that were lowercased by old write paths.
     const existing = db
       .select()
       .from(contactChannels)
@@ -355,7 +376,7 @@ function syncChannels(
         and(
           eq(contactChannels.contactId, contactId),
           eq(contactChannels.type, ch.type),
-          eq(contactChannels.address, normalizedAddress),
+          sql`${contactChannels.address} = ${ch.address} COLLATE NOCASE`,
         ),
       )
       .get();
@@ -367,6 +388,8 @@ function syncChannels(
       const isBlocked = existing.status === "blocked";
 
       const updateSet: Record<string, unknown> = {};
+      // Self-heal legacy lowercased addresses to canonical form.
+      if (existing.address !== ch.address) updateSet.address = ch.address;
       if (ch.isPrimary !== undefined) updateSet.isPrimary = ch.isPrimary;
       if (ch.externalUserId !== undefined)
         updateSet.externalUserId = ch.externalUserId;
@@ -394,17 +417,8 @@ function syncChannels(
       continue;
     }
 
-    // Check if this channel exists for a different contact (unique constraint)
-    const conflicting = db
-      .select()
-      .from(contactChannels)
-      .where(
-        and(
-          eq(contactChannels.type, ch.type),
-          eq(contactChannels.address, normalizedAddress),
-        ),
-      )
-      .get();
+    // Check if this channel's canonical identity conflicts with another contact.
+    const conflicting = findConflictingChannel(db, ch.type, ch.address);
 
     if (conflicting) {
       if (reassignConflicting) {
@@ -451,7 +465,7 @@ function syncChannels(
         id: uuid(),
         contactId,
         type: ch.type,
-        address: normalizedAddress,
+        address: ch.address,
         isPrimary: ch.isPrimary ?? false,
         externalUserId: ch.externalUserId ?? null,
         externalChatId: ch.externalChatId ?? null,
@@ -480,8 +494,8 @@ export function searchContacts(params: {
 
   // Search by channel address first (exact or partial match)
   if (params.channelAddress) {
-    const normalizedAddress = escapeLike(params.channelAddress.toLowerCase());
-    if (!normalizedAddress) return [];
+    const escapedAddress = escapeLike(params.channelAddress);
+    if (!escapedAddress) return [];
     const channelRows = db
       .select({ contactId: contactChannels.contactId })
       .from(contactChannels)
@@ -490,9 +504,9 @@ export function searchContacts(params: {
         params.channelType
           ? and(
               eq(contactChannels.type, params.channelType),
-              like(contactChannels.address, `%${normalizedAddress}%`),
+              like(contactChannels.address, `%${escapedAddress}%`),
             )
-          : and(like(contactChannels.address, `%${normalizedAddress}%`)),
+          : and(like(contactChannels.address, `%${escapedAddress}%`)),
       )
       .all();
 
@@ -675,17 +689,13 @@ export function mergeContacts(
       .all();
 
     for (const ch of donorChannels) {
-      const exists = tx
-        .select()
-        .from(contactChannels)
-        .where(
-          and(
-            eq(contactChannels.contactId, keepId),
-            eq(contactChannels.type, ch.type),
-            eq(contactChannels.address, ch.address),
-          ),
-        )
-        .get();
+      const typeMatch = eq(contactChannels.type, ch.type);
+      const ownerMatch = eq(contactChannels.contactId, keepId);
+      const addressMatch = eq(contactChannels.address, ch.address);
+
+      const condition = and(ownerMatch, typeMatch, addressMatch);
+
+      const exists = tx.select().from(contactChannels).where(condition).get();
 
       if (!exists) {
         tx.update(contactChannels)
@@ -705,11 +715,15 @@ export function mergeContacts(
 
 /**
  * Find a contact by a specific channel address. Returns null if not found.
+ * Canonicalizes the address before querying. Uses COLLATE NOCASE to match
+ * legacy lowercased rows that migration 290 couldn't restore.
  */
 export function findContactByAddress(
   type: string,
   address: string,
 ): ContactWithChannels | null {
+  const canonical =
+    canonicalizeInboundIdentity(type as ChannelId, address) ?? address;
   const db = getDb();
   const channel = db
     .select()
@@ -717,31 +731,7 @@ export function findContactByAddress(
     .where(
       and(
         eq(contactChannels.type, type),
-        eq(contactChannels.address, address.toLowerCase()),
-      ),
-    )
-    .get();
-
-  if (!channel) return null;
-  return getContactInternal(channel.contactId);
-}
-
-/**
- * Find a contact by channel external user ID. This is the key lookup for trust
- * resolution — maps a channel-native sender identity to its parent Contact.
- */
-export function findContactByChannelExternalId(
-  channelType: string,
-  externalUserId: string,
-): ContactWithChannels | null {
-  const db = getDb();
-  const channel = db
-    .select()
-    .from(contactChannels)
-    .where(
-      and(
-        eq(contactChannels.type, channelType),
-        eq(contactChannels.externalUserId, externalUserId),
+        sql`${contactChannels.address} = ${canonical} COLLATE NOCASE`,
       ),
     )
     .get();
@@ -753,6 +743,7 @@ export function findContactByChannelExternalId(
 /**
  * Find a contact by channel external chat ID. This is the fallback lookup path
  * when externalUserId is not available — matches by (type, externalChatId).
+ * No unique constraint exists on externalChatId, so ORDER BY is needed.
  */
 function findContactByChannelExternalChatId(
   channelType: string,
@@ -768,30 +759,40 @@ function findContactByChannelExternalChatId(
         eq(contactChannels.externalChatId, externalChatId),
       ),
     )
+    .orderBy(
+      sql`CASE ${contactChannels.status}
+        WHEN 'active' THEN 0
+        WHEN 'unverified' THEN 1
+        ELSE 2
+      END`,
+      desc(contactChannels.updatedAt),
+    )
     .get();
   if (!channel) return null;
   return getContactInternal(channel.contactId);
 }
 
 /**
- * Find a contact and matching channel by trying externalUserId first, then
+ * Find a contact and matching channel by trying address first, then
  * falling back to externalChatId. Mirrors the findMember lookup strategy.
  */
 export function findContactChannel(params: {
   channelType: string;
-  externalUserId?: string;
+  address?: string;
   externalChatId?: string;
 }): { contact: ContactWithChannels; channel: ContactChannel } | null {
-  if (params.externalUserId) {
-    const contact = findContactByChannelExternalId(
-      params.channelType,
-      params.externalUserId,
-    );
+  if (params.address) {
+    const canonical =
+      canonicalizeInboundIdentity(
+        params.channelType as ChannelId,
+        params.address,
+      ) ?? params.address;
+    const contact = findContactByAddress(params.channelType, canonical);
     if (contact) {
       const ch = contact.channels.find(
         (c) =>
           c.type === params.channelType &&
-          c.externalUserId === params.externalUserId,
+          c.address.toLowerCase() === canonical.toLowerCase(),
       );
       if (ch) return { contact, channel: ch };
     }
@@ -952,8 +953,6 @@ export function updateContactPrincipalAndChannel(
 ): boolean {
   const db = getDb();
   const now = Date.now();
-  const normalizedAddress = newPrincipalId.toLowerCase();
-
   // Look up the channel we're about to update so we know its type.
   const channel = db
     .select()
@@ -962,17 +961,8 @@ export function updateContactPrincipalAndChannel(
     .get();
   if (!channel) return false;
 
-  // Guard: check if another channel row already holds this (type, address).
-  const conflicting = db
-    .select()
-    .from(contactChannels)
-    .where(
-      and(
-        eq(contactChannels.type, channel.type),
-        eq(contactChannels.address, normalizedAddress),
-      ),
-    )
-    .get();
+  // Guard: check if another channel row holds this canonical identity.
+  const conflicting = findConflictingChannel(db, channel.type, newPrincipalId);
 
   if (conflicting && conflicting.id !== channelId) {
     return false;
@@ -986,8 +976,8 @@ export function updateContactPrincipalAndChannel(
 
     db.update(contactChannels)
       .set({
+        address: newPrincipalId,
         externalUserId: newPrincipalId,
-        address: normalizedAddress,
         updatedAt: now,
       })
       .where(eq(contactChannels.id, channelId))

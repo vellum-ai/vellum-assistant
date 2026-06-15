@@ -193,6 +193,88 @@ export async function initGatewayDb(): Promise<void> {
   raw.exec("PRAGMA busy_timeout=5000");
   raw.exec("PRAGMA foreign_keys=ON");
 
+  // Deduplicate and normalize contact_channels before schema push — the
+  // UNIQUE(type, address) index will fail to create if duplicates exist,
+  // and address must reflect original platform casing for exact lookups.
+  try {
+    raw.exec(/*sql*/ `
+      DELETE FROM contact_channels
+      WHERE id NOT IN (
+        SELECT id FROM (
+          SELECT id,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY type, address COLLATE NOCASE
+                   ORDER BY
+                     CASE status
+                       WHEN 'blocked' THEN 0
+                       WHEN 'revoked' THEN 1
+                       WHEN 'active' THEN 2
+                       WHEN 'unverified' THEN 3
+                       ELSE 4
+                     END,
+                     updated_at DESC
+                 ) AS rn
+          FROM contact_channels
+        )
+        WHERE rn = 1
+      )
+    `);
+    raw.exec(/*sql*/ `
+      DELETE FROM contact_channels
+      WHERE external_user_id IS NOT NULL
+        AND id NOT IN (
+          SELECT id FROM (
+            SELECT id,
+                   ROW_NUMBER() OVER (
+                     PARTITION BY type, external_user_id COLLATE NOCASE
+                     ORDER BY
+                       CASE status
+                         WHEN 'blocked' THEN 0
+                         WHEN 'revoked' THEN 1
+                         WHEN 'active' THEN 2
+                         WHEN 'unverified' THEN 3
+                         ELSE 4
+                       END,
+                       updated_at DESC
+                   ) AS rn
+            FROM contact_channels
+            WHERE external_user_id IS NOT NULL
+          )
+          WHERE rn = 1
+        )
+    `);
+    raw.exec(/*sql*/ `
+      DELETE FROM contact_channels
+      WHERE external_user_id IS NULL
+        AND id IN (
+          SELECT blocker.id
+          FROM contact_channels AS blocker
+          INNER JOIN contact_channels AS normalizer
+            ON normalizer.type = blocker.type
+            AND normalizer.external_user_id = blocker.address COLLATE NOCASE
+            AND normalizer.address != normalizer.external_user_id
+            AND normalizer.external_user_id IS NOT NULL
+            AND normalizer.id != blocker.id
+        )
+    `);
+    raw.exec(/*sql*/ `
+      UPDATE OR IGNORE contact_channels
+      SET address = external_user_id
+      WHERE external_user_id IS NOT NULL
+        AND address != external_user_id
+        AND type != 'email'
+    `);
+    raw.exec(/*sql*/ `
+      UPDATE OR IGNORE contact_channels
+      SET address = LOWER(external_user_id)
+      WHERE type = 'email'
+        AND external_user_id IS NOT NULL
+        AND address != LOWER(external_user_id)
+    `);
+  } catch {
+    // Table doesn't exist yet on fresh installs — schema push will create it.
+  }
+
   db = drizzle(raw, { schema });
 
   const { statementsToExecute, apply } = await pushSchemaNoPrompt(schema, db);

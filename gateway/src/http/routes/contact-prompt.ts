@@ -26,6 +26,7 @@ import {
 } from "../../db/schema.js";
 import { ipcCallAssistant } from "../../ipc/assistant-client.js";
 import { getLogger } from "../../logger.js";
+import { canonicalizeInboundIdentity } from "../../verification/identity.js";
 
 const log = getLogger("contact-prompt");
 
@@ -79,7 +80,8 @@ export async function handleContactPromptSubmit(
     );
   }
 
-  const normalizedAddress = address.toLowerCase().trim();
+  const normalizedAddress =
+    canonicalizeInboundIdentity(channelType, address) ?? address.trim();
   const effectiveDisplayName = displayName ?? normalizedAddress;
   // Map prompt roles to valid ContactRole values ("guardian" | "contact").
   const effectiveRole: string = role === "guardian" ? "guardian" : "contact";
@@ -227,9 +229,17 @@ export async function handleContactPromptSubmit(
 
       try {
         await assistantDbRun(
-          `INSERT INTO contact_channels (id, contact_id, type, address, is_primary, status, policy, interaction_count, created_at, updated_at)
-           VALUES (?, ?, ?, ?, 1, 'unverified', 'allow', 0, ?, ?)`,
-          [channelId, contactId, channelType, normalizedAddress, now, now],
+          `INSERT INTO contact_channels (id, contact_id, type, address, external_user_id, is_primary, status, policy, interaction_count, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, 1, 'unverified', 'allow', 0, ?, ?)`,
+          [
+            channelId,
+            contactId,
+            channelType,
+            normalizedAddress,
+            normalizedAddress,
+            now,
+            now,
+          ],
         );
         try {
           getGatewayDb()

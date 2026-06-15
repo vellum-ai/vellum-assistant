@@ -68,6 +68,7 @@ import {
   migrateChannelInboundDeliveryAttempts,
   migrateChannelInteractionColumns,
   migrateContactChannelsAccessFields,
+  migrateContactChannelsRenormalizeAddresses,
   migrateContactChannelsTypeChatIdIndex,
   migrateContactChannelsUniqueExtUser,
   migrateContactsAssistantId,
@@ -516,6 +517,7 @@ export function initializeDb(): void {
     migrateConversationOriginChannelIndex,
     migrateBackfillOriginChannelFromBindings,
     migrateContactChannelsUniqueExtUser,
+    migrateContactChannelsRenormalizeAddresses,
   ];
 
   // Run each migration step, catching and logging individual failures so one

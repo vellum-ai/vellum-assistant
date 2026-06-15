@@ -763,7 +763,7 @@ async function handleAccessRequestApproval(
   const requesterContactResult = approval.requesterExternalUserId
     ? findContactChannel({
         channelType: approval.channel,
-        externalUserId: approval.requesterExternalUserId,
+        address: approval.requesterExternalUserId,
       })
     : null;
   const requesterDisplayName =
@@ -772,7 +772,7 @@ async function handleAccessRequestApproval(
   const decidedByContactResult = decidedByExternalUserId
     ? findContactChannel({
         channelType: approval.channel,
-        externalUserId: decidedByExternalUserId,
+        address: decidedByExternalUserId,
       })
     : null;
   const decidedByDisplayName =

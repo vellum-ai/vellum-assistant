@@ -1,6 +1,6 @@
 import { type Database } from "bun:sqlite";
 
-import { and, desc, eq, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
 
 import {
   type SqliteValue,
@@ -10,6 +10,7 @@ import {
 import { type GatewayDb, getGatewayDb } from "./connection.js";
 import { contacts, contactChannels } from "./schema.js";
 import { getLogger } from "../logger.js";
+import { canonicalizeInboundIdentity } from "../verification/identity.js";
 
 const log = getLogger("contact-store");
 
@@ -61,7 +62,7 @@ export class ContactStore {
       .where(
         and(
           eq(contactChannels.type, channelType),
-          eq(contactChannels.externalUserId, externalUserId),
+          eq(contactChannels.address, externalUserId),
         ),
       )
       .limit(1)
@@ -78,9 +79,9 @@ export class ContactStore {
   }
 
   /**
-   * Looks up a non-revoked phone channel whose externalUserId or address
-   * matches the given phone number. Used to detect callers whose number is
-   * registered but not yet verified via DTMF challenge.
+   * Looks up a non-revoked phone channel whose address matches the given
+   * phone number. Used to detect callers whose number is registered but
+   * not yet verified via DTMF challenge.
    */
   getContactByPhoneNumber(
     phoneNumber: string,
@@ -93,10 +94,7 @@ export class ContactStore {
         and(
           eq(contactChannels.type, "phone"),
           ne(contactChannels.status, "revoked"),
-          or(
-            eq(contactChannels.externalUserId, phoneNumber),
-            eq(contactChannels.address, phoneNumber),
-          ),
+          eq(contactChannels.address, phoneNumber),
         ),
       )
       .limit(1)
@@ -397,6 +395,14 @@ export class ContactStore {
     let contactId = params.id;
     let created = false;
 
+    // Canonicalize all channel addresses up front so every downstream path
+    // (gateway DB, assistant DB dual-write, conflict checks) uses the
+    // canonical form.
+    const canonicalChannels = params.channels?.map((ch) => ({
+      ...ch,
+      address: canonicalizeInboundIdentity(ch.type, ch.address) ?? ch.address,
+    }));
+
     // ── 1. Look up by id ──────────────────────────────────────────────
     if (contactId) {
       const existing = this.db
@@ -435,16 +441,15 @@ export class ContactStore {
     // ── 2. Look up by channel address ─────────────────────────────────
     // Channel-match UPDATE preserves existing role/principalId — those
     // fields are not part of this method's input surface.
-    if (!contactId && params.channels?.length) {
-      for (const ch of params.channels) {
-        const address = ch.address.toLowerCase();
+    if (!contactId && canonicalChannels?.length) {
+      for (const ch of canonicalChannels) {
         const match = this.db
           .select({ contactId: contactChannels.contactId })
           .from(contactChannels)
           .where(
             and(
               eq(contactChannels.type, ch.type),
-              eq(contactChannels.address, address),
+              eq(contactChannels.address, ch.address),
             ),
           )
           .get();
@@ -482,13 +487,21 @@ export class ContactStore {
     }
 
     // ── 4. Sync channels (gateway DB) ─────────────────────────────────
-    if (params.channels?.length) {
-      this.syncChannels(contactId, params.channels, now);
+    if (canonicalChannels?.length) {
+      this.syncChannels(contactId, canonicalChannels, now);
     }
 
     // ── 5. Dual-write to assistant DB (best-effort) ───────────────────
+    const canonicalParams = canonicalChannels
+      ? { ...params, channels: canonicalChannels }
+      : params;
     try {
-      await this.dualWriteContactToAssistantDb(contactId, params, now, created);
+      await this.dualWriteContactToAssistantDb(
+        contactId,
+        canonicalParams,
+        now,
+        created,
+      );
     } catch (err) {
       log.warn(
         { contactId, err },
@@ -548,8 +561,6 @@ export class ContactStore {
     now: number,
   ): void {
     for (const ch of channels) {
-      const address = ch.address.toLowerCase();
-
       const existing = this.db
         .select()
         .from(contactChannels)
@@ -557,7 +568,7 @@ export class ContactStore {
           and(
             eq(contactChannels.contactId, contactId),
             eq(contactChannels.type, ch.type),
-            eq(contactChannels.address, address),
+            eq(contactChannels.address, ch.address),
           ),
         )
         .get();
@@ -579,7 +590,8 @@ export class ContactStore {
             updateSet.blockedReason = ch.blockedReason;
         }
         if (ch.verifiedAt !== undefined) updateSet.verifiedAt = ch.verifiedAt;
-        if (ch.verifiedVia !== undefined) updateSet.verifiedVia = ch.verifiedVia;
+        if (ch.verifiedVia !== undefined)
+          updateSet.verifiedVia = ch.verifiedVia;
         if (ch.inviteId !== undefined) updateSet.inviteId = ch.inviteId;
         this.db
           .update(contactChannels)
@@ -596,7 +608,7 @@ export class ContactStore {
         .where(
           and(
             eq(contactChannels.type, ch.type),
-            eq(contactChannels.address, address),
+            eq(contactChannels.address, ch.address),
           ),
         )
         .get();
@@ -609,7 +621,7 @@ export class ContactStore {
           id: crypto.randomUUID(),
           contactId,
           type: ch.type,
-          address,
+          address: ch.address,
           isPrimary: ch.isPrimary ?? false,
           externalUserId: ch.externalUserId ?? null,
           externalChatId: ch.externalChatId ?? null,
@@ -724,11 +736,9 @@ export class ContactStore {
 
     // Sync channels to the assistant DB.
     for (const ch of params.channels ?? []) {
-      const address = ch.address.toLowerCase();
-
       const existingCh = await assistantDbQuery<{ id: string; status: string }>(
         "SELECT id, status FROM contact_channels WHERE contact_id = ? AND type = ? AND address = ?",
-        [contactId, ch.type, address],
+        [contactId, ch.type, ch.address],
       );
 
       if (existingCh.length) {
@@ -762,7 +772,7 @@ export class ContactStore {
         // Skip if an address conflict exists on a different contact.
         const conflict = await assistantDbQuery<{ id: string }>(
           "SELECT id FROM contact_channels WHERE type = ? AND address = ?",
-          [ch.type, address],
+          [ch.type, ch.address],
         );
         if (conflict.length) continue;
 
@@ -776,7 +786,7 @@ export class ContactStore {
             crypto.randomUUID(),
             contactId,
             ch.type,
-            address,
+            ch.address,
             ch.isPrimary ? 1 : 0,
             ch.externalUserId ?? null,
             ch.externalChatId ?? null,
@@ -921,10 +931,8 @@ export class ContactStore {
       0,
     );
     const lastInteraction =
-      channels.reduce(
-        (max, ch) => Math.max(max, ch.lastInteraction ?? 0),
-        0,
-      ) || null;
+      channels.reduce((max, ch) => Math.max(max, ch.lastInteraction ?? 0), 0) ||
+      null;
 
     return {
       id: first.id,

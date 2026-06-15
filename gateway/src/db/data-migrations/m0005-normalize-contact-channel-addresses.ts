@@ -1,16 +1,16 @@
 /**
  * One-time migration: deduplicate historical case collisions in the
- * gateway's contact_channels table.
+ * gateway's contact_channels table and restore original platform-provided
+ * casing.
  *
  * Historical writes lowercased addresses inconsistently — some paths stored
  * 'U12345' and others stored 'u12345' for the same identity. This migration
  * resolves collisions by keeping the best row per (type, address) group
- * (case-insensitive match for dedup only).
+ * (case-insensitive match for dedup only), then restores original casing
+ * from external_user_id into address.
  *
- * Casing restoration is deferred to a later migration that lands alongside
- * the lookup refactor.
- *
- * Idempotent: on a DB with no case collisions, the DELETEs are no-ops.
+ * Idempotent: on a DB with no case collisions, the DELETE and UPDATE are
+ * no-ops.
  */
 
 import { Database } from "bun:sqlite";
@@ -104,6 +104,34 @@ export function up(): MigrationResult {
   `);
 
   log.info("Removed cross-column collision blockers");
+
+  // Restore original platform-provided casing from external_user_id.
+  // Email addresses stay lowercased (canonical per RFC 5321).
+  // UPDATE OR IGNORE as safety net for any remaining edge cases.
+  db.exec(/*sql*/ `
+    UPDATE OR IGNORE contact_channels
+    SET address = external_user_id
+    WHERE external_user_id IS NOT NULL
+      AND address != external_user_id
+      AND type != 'email'
+  `);
+  db.exec(/*sql*/ `
+    UPDATE OR IGNORE contact_channels
+    SET address = LOWER(external_user_id)
+    WHERE type = 'email'
+      AND external_user_id IS NOT NULL
+      AND address != LOWER(external_user_id)
+  `);
+
+  log.info("Restored original casing from external_user_id into address");
+
+  // Enforce uniqueness at the DB level (defense-in-depth).
+  db.exec(/*sql*/ `
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_channels_type_address_unique
+    ON contact_channels(type, address)
+  `);
+
+  log.info("Ensured UNIQUE(type, address) index exists");
   return "done";
 }
 

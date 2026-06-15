@@ -26,15 +26,6 @@ import { canonicalizeInboundIdentity } from "./identity.js";
 
 const log = getLogger("verification-contacts");
 
-function contactChannelAddress(
-  sourceChannel: string,
-  canonicalUserId: string,
-): string {
-  return sourceChannel === "slack"
-    ? canonicalUserId
-    : canonicalUserId.toLowerCase();
-}
-
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -53,11 +44,11 @@ export interface ContactChannelRow {
 // ---------------------------------------------------------------------------
 
 /**
- * Find an existing contact channel for a given channel type + external user ID.
+ * Find an existing contact channel by (type, address).
  */
-export async function findContactChannelByExternalUserId(
+export async function findContactChannelByAddress(
   channelType: string,
-  externalUserId: string,
+  address: string,
 ): Promise<ContactChannelRow | null> {
   const rows = await assistantDbQuery<ContactChannelRow>(
     `SELECT cc.id AS channelId, cc.contact_id AS contactId,
@@ -67,9 +58,9 @@ export async function findContactChannelByExternalUserId(
             cc.status
      FROM contact_channels cc
      JOIN contacts c ON c.id = cc.contact_id
-     WHERE cc.type = ? AND cc.external_user_id = ?
+     WHERE cc.type = ? AND cc.address = ?
      LIMIT 1`,
-    [channelType, externalUserId],
+    [channelType, address],
   );
   return rows[0] ?? null;
 }
@@ -98,11 +89,10 @@ export async function upsertVerifiedContactChannel(params: {
   const now = Date.now();
   const { sourceChannel, externalChatId, displayName, username } = params;
 
-  const canonicalUserId =
+  const address =
     canonicalizeInboundIdentity(sourceChannel, params.externalUserId) ??
     params.externalUserId;
-  const address = contactChannelAddress(sourceChannel, canonicalUserId);
-  const contactDisplayName = displayName ?? username ?? canonicalUserId;
+  const contactDisplayName = displayName ?? username ?? address;
 
   // Check if a channel for this actor already exists.
   const existing = await assistantDbQuery<{
@@ -112,9 +102,8 @@ export async function upsertVerifiedContactChannel(params: {
   }>(
     `SELECT cc.id AS channelId, cc.contact_id AS contactId, cc.status AS channelStatus
      FROM contact_channels cc
-     WHERE cc.type = ? AND (cc.address = ? OR cc.external_user_id = ?)
+     WHERE cc.type = ? AND cc.address = ?
      ORDER BY
-       CASE WHEN cc.address = ? THEN 0 ELSE 1 END,
        CASE cc.status
          WHEN 'active' THEN 0
          WHEN 'unverified' THEN 1
@@ -122,7 +111,7 @@ export async function upsertVerifiedContactChannel(params: {
        END,
        cc.updated_at DESC
      LIMIT 1`,
-    [sourceChannel, address, canonicalUserId, address],
+    [sourceChannel, address],
   );
 
   if (existing.length > 0) {
@@ -146,7 +135,7 @@ export async function upsertVerifiedContactChannel(params: {
            revoked_reason = NULL, blocked_reason = NULL,
            updated_at = ?
        WHERE id = ?`,
-      [address, canonicalUserId, externalChatId, now, row.channelId],
+      [address, params.externalUserId, externalChatId, now, row.channelId],
     );
 
     // Dual-write to gateway DB
@@ -158,7 +147,7 @@ export async function upsertVerifiedContactChannel(params: {
           status: "active",
           policy: "allow",
           address,
-          externalUserId: canonicalUserId,
+          externalUserId: params.externalUserId,
           externalChatId,
           revokedReason: null,
           blockedReason: null,
@@ -199,7 +188,7 @@ export async function upsertVerifiedContactChannel(params: {
       contactId,
       sourceChannel,
       address,
-      canonicalUserId,
+      params.externalUserId,
       externalChatId,
       now,
       now,
@@ -229,7 +218,7 @@ export async function upsertVerifiedContactChannel(params: {
         type: sourceChannel,
         address,
         isPrimary: false,
-        externalUserId: canonicalUserId,
+        externalUserId: params.externalUserId,
         externalChatId,
         status: "active",
         policy: "allow",
@@ -272,11 +261,10 @@ export async function upsertContactChannel(params: {
 
   const { sourceChannel, externalChatId, displayName, username } = params;
   const now = Date.now();
-  const canonicalUserId =
+  const address =
     canonicalizeInboundIdentity(sourceChannel, params.externalUserId) ??
     params.externalUserId;
-  const address = contactChannelAddress(sourceChannel, canonicalUserId);
-  const contactDisplayName = displayName ?? username ?? canonicalUserId;
+  const contactDisplayName = displayName ?? username ?? address;
 
   const existing = await assistantDbQuery<{
     channelId: string;
@@ -285,9 +273,8 @@ export async function upsertContactChannel(params: {
   }>(
     `SELECT cc.id AS channelId, cc.contact_id AS contactId, cc.status AS channelStatus
      FROM contact_channels cc
-     WHERE cc.type = ? AND (cc.address = ? OR cc.external_user_id = ?)
+     WHERE cc.type = ? AND cc.address = ?
      ORDER BY
-       CASE WHEN cc.address = ? THEN 0 ELSE 1 END,
        CASE cc.status
          WHEN 'active' THEN 0
          WHEN 'unverified' THEN 1
@@ -295,7 +282,7 @@ export async function upsertContactChannel(params: {
        END,
        cc.updated_at DESC
      LIMIT 1`,
-    [sourceChannel, address, canonicalUserId, address],
+    [sourceChannel, address],
   );
 
   if (existing.length > 0) {
@@ -314,7 +301,13 @@ export async function upsertContactChannel(params: {
            external_chat_id = COALESCE(?, external_chat_id),
            updated_at = ?
        WHERE id = ?`,
-      [address, canonicalUserId, externalChatId ?? null, now, row.channelId],
+      [
+        address,
+        params.externalUserId,
+        externalChatId ?? null,
+        now,
+        row.channelId,
+      ],
     );
 
     try {
@@ -323,7 +316,7 @@ export async function upsertContactChannel(params: {
         .update(gwContactChannels)
         .set({
           address,
-          externalUserId: canonicalUserId,
+          externalUserId: params.externalUserId,
           ...(externalChatId ? { externalChatId } : {}),
           updatedAt: now,
         })
@@ -357,7 +350,7 @@ export async function upsertContactChannel(params: {
       contactId,
       sourceChannel,
       address,
-      canonicalUserId,
+      params.externalUserId,
       externalChatId ?? null,
       now,
       now,
@@ -385,7 +378,7 @@ export async function upsertContactChannel(params: {
         type: sourceChannel,
         address,
         isPrimary: false,
-        externalUserId: canonicalUserId,
+        externalUserId: params.externalUserId,
         externalChatId: externalChatId ?? null,
         status: "unverified",
         policy: "allow",
