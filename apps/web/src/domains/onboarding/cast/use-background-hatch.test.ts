@@ -46,6 +46,16 @@ mock.module("@/assistant/api", () => ({
 mock.module("@/lib/sentry/capture-error", () => ({
   captureError: () => {},
 }));
+
+// Avatar seeding is fire-and-forget and tested separately; stub it and the
+// QueryClient the hook reads so the hook renders without a provider.
+const seedHatchAvatarMock = mock(async (..._args: unknown[]) => {});
+mock.module("@/assistant/seed-hatch-avatar", () => ({
+  seedHatchAvatar: seedHatchAvatarMock,
+}));
+mock.module("@tanstack/react-query", () => ({
+  useQueryClient: () => ({ invalidateQueries: () => {} }),
+}));
 mock.module("@/utils/api-errors", () => ({
   extractErrorMessage: (
     e: unknown,
@@ -70,6 +80,7 @@ beforeEach(() => {
   hatchAssistantMock.mockClear();
   getAssistantMock.mockClear();
   getAssistantHealthzMock.mockClear();
+  seedHatchAvatarMock.mockClear();
 });
 
 describe("useBackgroundHatch", () => {
@@ -126,5 +137,35 @@ describe("useBackgroundHatch", () => {
     await waitFor(() => expect(rejection?.message).toBe("Bad hatch request"));
     // A terminal (non-5xx) hatch failure must not fall through to polling.
     expect(getAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("seeds the avatar for a freshly created (201) assistant", async () => {
+    const { result } = renderHook(() => useBackgroundHatch());
+
+    act(() => {
+      result.current.start();
+    });
+
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(seedHatchAvatarMock).toHaveBeenCalledTimes(1);
+    expect(seedHatchAvatarMock.mock.calls[0]?.[0]).toBe("ast-cast");
+  });
+
+  test("does not seed the avatar for an existing (200) assistant", async () => {
+    hatchResult = {
+      ok: true,
+      status: 200,
+      data: { id: "ast-cast" } as never,
+    };
+
+    const { result } = renderHook(() => useBackgroundHatch());
+
+    act(() => {
+      result.current.start();
+    });
+
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    // A 200 returned an existing assistant — its avatar must not be clobbered.
+    expect(seedHatchAvatarMock).not.toHaveBeenCalled();
   });
 });
