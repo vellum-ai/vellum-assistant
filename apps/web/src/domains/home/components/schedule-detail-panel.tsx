@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   BarChart3,
+  Calendar,
   ChevronRight,
   Coins,
   Loader2,
@@ -260,11 +261,11 @@ export function ScheduleDetailPanel({
       className={cn(
         "flex h-full flex-col bg-[var(--surface-overlay)]",
         !isMobile &&
-          "rounded-[var(--radius-lg)] border border-[var(--border-base)]",
+          "rounded-[var(--radius-xl)] border border-[var(--border-base)]",
       )}
     >
       {/* Header */}
-      <div className="flex shrink-0 items-start gap-3 border-b border-[var(--border-base)] px-[var(--app-spacing-lg)] py-[var(--app-spacing-md)]">
+      <div className="flex shrink-0 items-start gap-3 border-b border-[var(--border-base)] p-[var(--app-spacing-lg)]">
         <div className="min-w-0 flex-1">
           <Typography
             variant="title-small"
@@ -334,7 +335,7 @@ export function ScheduleDetailPanel({
       </div>
 
       {/* Footer actions */}
-      <div className="flex shrink-0 items-center justify-between gap-2 border-t border-[var(--border-base)] px-[var(--app-spacing-lg)] py-[var(--app-spacing-md)]">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-t border-[var(--border-base)] p-[var(--app-spacing-lg)]">
         {!confirmingDelete ? (
           <Button
             variant="dangerOutline"
@@ -362,6 +363,13 @@ export function ScheduleDetailPanel({
           </div>
         )}
         <div className="flex items-center gap-2">
+          <Button
+            variant="outlined"
+            leftIcon={<Calendar className="h-3.5 w-3.5" />}
+            onClick={() => navigate(routes.settings.schedule(schedule.id))}
+          >
+            View schedule
+          </Button>
           <Button
             variant="outlined"
             leftIcon={<BarChart3 className="h-3.5 w-3.5" />}

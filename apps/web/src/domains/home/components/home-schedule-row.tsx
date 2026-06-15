@@ -70,7 +70,9 @@ export function HomeScheduleRow({
   return (
     <div
       className={`flex items-center gap-3 rounded-md px-2 py-3 transition-colors [&+&]:border-t [&+&]:border-[var(--border-base)] ${
-        selected ? "bg-[var(--surface-hover)]" : "hover:bg-[var(--surface-hover)]"
+        selected
+          ? "bg-[var(--surface-active)]"
+          : "hover:bg-[var(--surface-hover)]"
       }`}
     >
       <Toggle

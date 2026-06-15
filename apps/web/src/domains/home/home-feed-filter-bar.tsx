@@ -2,7 +2,10 @@ import { Bell, Clock, List, Mail, Settings, ShieldCheck } from "lucide-react";
 import { type ComponentType, type SVGProps } from "react";
 
 import type { FeedItemCategory } from "@vellumai/assistant-api";
-import { Typography, cn } from "@vellumai/design-library";
+import {
+  SegmentControl,
+  type SegmentControlItem,
+} from "@vellumai/design-library";
 
 type LucideIcon = ComponentType<SVGProps<SVGSVGElement>>;
 
@@ -48,46 +51,8 @@ export const CATEGORY_ORDER: FeedItemCategory[] = [
   "system",
 ];
 
-function FilterPill({
-  icon: Icon,
-  iconColor,
-  bgColor,
-  isSelected,
-  label,
-  onClick,
-}: {
-  icon: LucideIcon;
-  iconColor: string;
-  bgColor: string;
-  isSelected: boolean;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      aria-pressed={isSelected}
-      onClick={onClick}
-      className={cn(
-        "flex shrink-0 cursor-pointer items-center justify-center rounded-full transition-opacity",
-        isSelected ? "opacity-100" : "opacity-50 hover:opacity-75",
-      )}
-      style={{
-        width: 26,
-        height: 26,
-        backgroundColor: bgColor,
-      }}
-    >
-      <Icon
-        width={12}
-        height={12}
-        style={{ color: iconColor }}
-        aria-hidden="true"
-      />
-    </button>
-  );
-}
+const ALL_FILTER = "all";
+type FilterValue = FeedItemCategory | typeof ALL_FILTER;
 
 export interface HomeFeedFilterBarProps {
   categories: FeedItemCategory[];
@@ -106,38 +71,26 @@ export function HomeFeedFilterBar({
 
   if (presentCategories.length <= 1) return null;
 
+  const items: SegmentControlItem<FilterValue>[] = [
+    { value: ALL_FILTER, label: "All", icon: <List className="h-4 w-4" /> },
+    ...presentCategories.map((category) => {
+      const Icon = CATEGORY_STYLES[category].icon;
+      return {
+        value: category,
+        label: category.charAt(0).toUpperCase() + category.slice(1),
+        icon: <Icon className="h-4 w-4" />,
+      };
+    }),
+  ];
+
   return (
-    <div className="flex items-center gap-[var(--app-spacing-sm)] overflow-x-auto">
-      <Typography
-        variant="body-small-default"
-        className="shrink-0 text-[var(--content-tertiary)]"
-      >
-        Filter:
-      </Typography>
-
-      <FilterPill
-        icon={List}
-        iconColor="var(--content-secondary)"
-        bgColor="var(--surface-overlay)"
-        isSelected={activeFilter === null}
-        label="All"
-        onClick={() => onFilterChange(null)}
-      />
-
-      {presentCategories.map((category) => {
-        const style = CATEGORY_STYLES[category];
-        return (
-          <FilterPill
-            key={category}
-            icon={style.icon}
-            iconColor={style.strong}
-            bgColor={style.weak}
-            isSelected={activeFilter === category}
-            label={category.charAt(0).toUpperCase() + category.slice(1)}
-            onClick={() => onFilterChange(category)}
-          />
-        );
-      })}
-    </div>
+    <SegmentControl<FilterValue>
+      ariaLabel="Filter notifications"
+      iconOnly
+      value={activeFilter ?? ALL_FILTER}
+      onChange={(next) => onFilterChange(next === ALL_FILTER ? null : next)}
+      items={items}
+      className="self-start"
+    />
   );
 }

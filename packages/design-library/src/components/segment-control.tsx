@@ -134,6 +134,7 @@ export function SegmentControl<T extends string>({
             role="radio"
             aria-checked={isActive}
             aria-label={iconOnly ? item.label : undefined}
+            tooltip={iconOnly ? item.label : undefined}
             disabled={isDisabled}
             tabIndex={isActive ? 0 : -1}
             onClick={() => {
