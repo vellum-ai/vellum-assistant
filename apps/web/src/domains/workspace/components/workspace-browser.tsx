@@ -16,14 +16,27 @@ import {
   WorkspaceTree,
   type WorkspaceSortMode,
 } from "@/domains/workspace/components/workspace-tree";
+import {
+  ancestorPaths,
+  normalizeDeepLinkPath,
+} from "@/domains/workspace/utils/deep-link";
 
 export type WorkspaceViewMode = "preview" | "source";
 
 export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [showHidden, setShowHidden] = useState(false);
   const [searchParams] = useSearchParams();
+  // Seed selection/expansion from `?path=` on mount so links into the workspace
+  // (e.g. file paths in chat) open the targeted entry with its ancestors
+  // revealed. Subsequent param changes are ignored — selection is then
+  // user-driven via the tree.
+  const [initialPath] = useState(() =>
+    normalizeDeepLinkPath(searchParams.get("path")),
+  );
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(
+    () => new Set(initialPath ? ancestorPaths(initialPath) : []),
+  );
+  const [selectedPath, setSelectedPath] = useState<string | null>(initialPath);
+  const [showHidden, setShowHidden] = useState(false);
   const [sortMode, setSortMode] = useState<WorkspaceSortMode>(() =>
     searchParams.get("sort") === "size" ? "size" : "name",
   );
