@@ -1,9 +1,11 @@
 import { ArrowLeft } from "lucide-react";
-import { type ReactNode } from "react";
+import { type ReactNode, useCallback, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { Button, Typography } from "@vellumai/design-library";
 
 import { StatusBanner } from "@/components/status-banner";
+import { useEdgeSwipeBack } from "@/hooks/use-edge-swipe-back";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { isElectron } from "@/runtime/is-electron";
 import { routes } from "@/utils/routes";
 
@@ -34,6 +36,19 @@ export function SidebarShell({
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const isMenuRoute = pathname === menuRoute;
+  const isMobile = useIsMobile();
+
+  // Edge-swipe back gesture for mobile subpages.
+  const swipeContainerRef = useRef<HTMLElement | null>(null);
+  const mobileBackHref = isMenuRoute ? backHref : menuRoute;
+  const handleSwipeBack = useCallback(() => {
+    navigate(mobileBackHref);
+  }, [navigate, mobileBackHref]);
+  useEdgeSwipeBack({
+    containerRef: swipeContainerRef,
+    onBack: handleSwipeBack,
+    enabled: isMobile && !isMenuRoute,
+  });
 
   // In the Electron shell the macOS window controls (traffic lights) sit in an
   // inline title-bar zone at the top of the renderer (see `ChatLayoutHeader` /
@@ -44,7 +59,6 @@ export function SidebarShell({
   // Off Electron it stays at the standard 1rem inset.
   const electron = isElectron();
 
-  const mobileBackHref = isMenuRoute ? backHref : menuRoute;
   const mobileBackLabel = isMenuRoute
     ? `Back from ${title}`
     : `Back to ${title} menu`;
@@ -136,6 +150,7 @@ export function SidebarShell({
           ) : null}
 
           <main
+            ref={swipeContainerRef}
             className={`min-w-0 min-h-0 flex-1 flex-col gap-4 overflow-y-auto pb-6 md:flex md:px-6 md:pt-0 ${
               isMenuRoute ? "hidden" : "flex"
             }`}
