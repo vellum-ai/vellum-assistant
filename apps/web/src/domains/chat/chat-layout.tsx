@@ -557,6 +557,9 @@ export function ChatLayout() {
       onOpenIntelligence={handleOpenIdentity}
       isLibraryActive={isLibraryActive}
       onOpenLibrary={handleOpenLibrary}
+      isHomeActive={isHomeActive}
+      onOpenHome={handleOpenHome}
+      hasUnreadHome={hasUnreadHome}
       activeAppId={activeAppId ?? undefined}
       onOpenApp={handleOpenAppFromSidebar}
       onPinConversation={handleTogglePinConversation}
@@ -598,9 +601,6 @@ export function ChatLayout() {
           canGoForward={canGoForward}
           onGoBack={handleGoBack}
           onGoForward={handleGoForward}
-          onOpenHome={handleOpenHome}
-          isHomeActive={isHomeActive}
-          hasUnreadHome={hasUnreadHome}
         />
       )}
 

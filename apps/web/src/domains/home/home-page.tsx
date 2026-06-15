@@ -1,18 +1,16 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import type {
-    FeedItem,
-    FeedItemStatus,
-    SuggestedPrompt,
-} from "@vellumai/assistant-api";
+import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import { ResizablePanel } from "@vellumai/design-library";
 import { HomeSchedulesPanel } from "./components/home-schedules-panel";
+import { ScheduleDetailPanel } from "./components/schedule-detail-panel";
 import { HomeDetailPanel } from "./detail-panel/home-detail-panel";
 import { HomeFeedList } from "./home-feed-list";
 import { HomeGreetingHeader } from "./home-greeting-header";
-import { HomeSuggestionPillBar } from "./home-suggestion-pill-bar";
+import { HomeTopHeader } from "./home-top-header";
+import { useHomeSchedulesData } from "./hooks/use-home-schedules-data";
 import { useHomeFeedQuery } from "./hooks/use-home-feed-query";
 import { useHomeStateQuery } from "./hooks/use-home-state-query";
 
@@ -25,12 +23,6 @@ function HomePageSkeleton() {
           <div className="h-7 w-64 animate-pulse rounded-md bg-[var(--surface-lift)]" />
         </div>
         <div className="h-9 w-28 animate-pulse rounded-md bg-[var(--surface-lift)]" />
-      </div>
-
-      <div className="flex gap-2">
-        <div className="h-8 w-36 animate-pulse rounded-full bg-[var(--surface-lift)]" />
-        <div className="h-8 w-28 animate-pulse rounded-full bg-[var(--surface-lift)]" />
-        <div className="h-8 w-32 animate-pulse rounded-full bg-[var(--surface-lift)]" />
       </div>
 
       <div className="flex flex-col gap-[var(--app-spacing-sm)]">
@@ -50,7 +42,6 @@ export interface HomePageProps {
   validConversationIds: Set<string>;
   onStartNewChat: () => void;
   onOpenConversation: (conversationId: string) => void;
-  onSuggestionSelected: (prompt: string) => void;
 }
 
 export function HomePage({
@@ -58,17 +49,39 @@ export function HomePage({
   validConversationIds,
   onStartNewChat,
   onOpenConversation,
-  onSuggestionSelected,
 }: HomePageProps) {
   const isMobile = useIsMobile();
   const avatar = useAssistantAvatar(assistantId);
   const feedQuery = useHomeFeedQuery(assistantId);
   useHomeStateQuery(assistantId);
+  const schedules = useHomeSchedulesData(assistantId);
 
   const [selectedItem, setSelectedItem] = useState<FeedItem | null>(null);
+  const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(
+    null,
+  );
+
+  const selectedSchedule = selectedScheduleId
+    ? (schedules.recurring.find((s) => s.id === selectedScheduleId) ??
+      schedules.oneTime.find((s) => s.id === selectedScheduleId) ??
+      null)
+    : null;
+
+  // Drop the selection if the schedule disappears (e.g. after a delete/refetch).
+  useEffect(() => {
+    if (selectedScheduleId && !selectedSchedule) setSelectedScheduleId(null);
+  }, [selectedScheduleId, selectedSchedule]);
+
+  // The right pane shows one detail at a time — selecting a schedule closes any
+  // open feed item, and vice versa.
+  const handleSelectSchedule = useCallback((scheduleId: string) => {
+    setSelectedItem(null);
+    setSelectedScheduleId(scheduleId);
+  }, []);
 
   const handleSelectItem = useCallback(
     (item: FeedItem) => {
+      setSelectedScheduleId(null);
       if (item.status === "new") {
         setSelectedItem({ ...item, status: "seen" });
         feedQuery.updateStatus.mutate({ itemId: item.id, status: "seen" });
@@ -121,22 +134,27 @@ export function HomePage({
     [onOpenConversation],
   );
 
-  const handleSuggestionSelect = useCallback(
-    (prompt: SuggestedPrompt) => {
-      onSuggestionSelected(prompt.prompt);
-    },
-    [onSuggestionSelected],
-  );
-
   const feedContent = feedQuery.isLoading ? (
     <HomePageSkeleton />
   ) : (
     <>
-      <HomeSchedulesPanel assistantId={assistantId} />
-      <HomeGreetingHeader
+      <HomeTopHeader
         avatarComponents={avatar.components}
         avatarTraits={avatar.traits}
         avatarImageUrl={avatar.customImageUrl}
+      />
+      <HomeSchedulesPanel
+        recurring={schedules.recurring}
+        oneTime={schedules.oneTime}
+        usageForSchedule={schedules.usageForSchedule}
+        isLoading={schedules.isLoading}
+        isError={schedules.isError}
+        refetch={schedules.refetch}
+        onToggle={schedules.handleToggle}
+        onSelectSchedule={handleSelectSchedule}
+        selectedScheduleId={selectedScheduleId}
+      />
+      <HomeGreetingHeader
         greeting={feedQuery.data?.contextBanner?.greeting}
         isMobile={isMobile}
         onStartNewChat={onStartNewChat}
@@ -152,11 +170,6 @@ export function HomePage({
             : "."}
         </div>
       ) : null}
-      <HomeSuggestionPillBar
-        suggestions={feedQuery.data?.suggestedPrompts ?? []}
-        maxVisible={isMobile ? 2 : 3}
-        onSelect={handleSuggestionSelect}
-      />
       <HomeFeedList
         items={feedQuery.data?.items ?? []}
         selectedItemId={selectedItem?.id}
@@ -170,7 +183,31 @@ export function HomePage({
     </>
   );
 
-  if (selectedItem && isMobile) {
+  const rightPanel = selectedItem ? (
+    <HomeDetailPanel
+      item={selectedItem}
+      isMobile={isMobile}
+      validConversationIds={validConversationIds}
+      onClose={handleCloseDetail}
+      onGoToThread={handleGoToThread}
+      onUpdateStatus={handleUpdateStatus}
+      onDismiss={handleDismissItem}
+    />
+  ) : selectedSchedule ? (
+    <ScheduleDetailPanel
+      schedule={selectedSchedule}
+      assistantId={assistantId}
+      usage={schedules.usageForSchedule(selectedSchedule.id)}
+      isMobile={isMobile}
+      onClose={() => setSelectedScheduleId(null)}
+      onDeleted={() => {
+        setSelectedScheduleId(null);
+        schedules.refetch();
+      }}
+    />
+  ) : null;
+
+  if (rightPanel && isMobile) {
     return (
       <div
         className="fixed inset-0 z-30 bg-[var(--surface-overlay)]"
@@ -181,20 +218,12 @@ export function HomePage({
             "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
         }}
       >
-        <HomeDetailPanel
-          item={selectedItem}
-          isMobile
-          validConversationIds={validConversationIds}
-          onClose={handleCloseDetail}
-          onGoToThread={handleGoToThread}
-          onUpdateStatus={handleUpdateStatus}
-          onDismiss={handleDismissItem}
-        />
+        {rightPanel}
       </div>
     );
   }
 
-  if (selectedItem && !isMobile) {
+  if (rightPanel && !isMobile) {
     return (
       <ResizablePanel
         storageKey="homeDetailPanelWidth"
@@ -206,16 +235,7 @@ export function HomePage({
             {feedContent}
           </div>
         }
-        right={
-          <HomeDetailPanel
-            item={selectedItem}
-            validConversationIds={validConversationIds}
-            onClose={handleCloseDetail}
-            onGoToThread={handleGoToThread}
-            onUpdateStatus={handleUpdateStatus}
-            onDismiss={handleDismissItem}
-          />
-        }
+        right={rightPanel}
       />
     );
   }

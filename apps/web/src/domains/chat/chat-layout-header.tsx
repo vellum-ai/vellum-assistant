@@ -2,7 +2,6 @@ import { Button } from "@vellumai/design-library";
 import {
     ChevronLeft,
     ChevronRight,
-    House,
     Menu as MenuIcon,
     PanelLeft,
     Search,
@@ -35,9 +34,6 @@ export interface ChatLayoutHeaderProps {
   canGoForward?: boolean;
   onGoBack?: () => void;
   onGoForward?: () => void;
-  onOpenHome?: () => void;
-  isHomeActive?: boolean;
-  hasUnreadHome?: boolean;
 }
 
 export function ChatLayoutHeader({
@@ -52,9 +48,6 @@ export function ChatLayoutHeader({
   canGoForward,
   onGoBack,
   onGoForward,
-  onOpenHome,
-  isHomeActive,
-  hasUnreadHome,
 }: ChatLayoutHeaderProps) {
   const toggleCommandPalette = useCommandPaletteStore.use.toggle();
   const handleSearchClick = useCallback(() => { toggleCommandPalette(); }, [toggleCommandPalette]);
@@ -126,24 +119,6 @@ export function ChatLayoutHeader({
             onClick={toggleSidebar}
           />
         )}
-        {onOpenHome && !(isMobile && isHomeActive) ? (
-          <span className="relative">
-            <Button
-              variant="ghost"
-              iconOnly={<House />}
-              aria-label={hasUnreadHome && !isHomeActive ? "Home (unread notifications)" : "Home"}
-              aria-current={isHomeActive ? "page" : undefined}
-              tooltip="Home"
-              onClick={onOpenHome}
-            />
-            {hasUnreadHome && !isHomeActive ? (
-              <span
-                className="pointer-events-none absolute right-1 top-1 h-2 w-2 rounded-full bg-[var(--system-negative-strong)]"
-                aria-hidden="true"
-              />
-            ) : null}
-          </span>
-        ) : null}
         {!isMobile ? (
           <>
             <Button

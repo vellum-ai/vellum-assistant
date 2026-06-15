@@ -1,5 +1,6 @@
 import {
     Brain,
+    Calendar,
     Clock,
     Hash,
     LayoutGrid,
@@ -52,6 +53,9 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onOpenIntelligence?: () => void;
   isLibraryActive?: boolean;
   onOpenLibrary?: () => void;
+  isHomeActive?: boolean;
+  onOpenHome?: () => void;
+  hasUnreadHome?: boolean;
   onOpenApp?: (appId: string) => void;
   activeAppId?: string;
   onStartNewConversation?: () => void;
@@ -133,6 +137,9 @@ export function AssistantSideMenu({
   onOpenIntelligence,
   isLibraryActive = false,
   onOpenLibrary,
+  isHomeActive = false,
+  onOpenHome,
+  hasUnreadHome = false,
   onOpenApp,
   activeAppId,
   onStartNewConversation,
@@ -440,6 +447,23 @@ export function AssistantSideMenu({
             showCollapsedTooltip
             active={isLibraryActive}
             onSelect={onOpenLibrary ? () => { onOpenLibrary(); onClose?.(); } : undefined}
+          />
+        ) : null}
+        {onOpenHome ? (
+          <SideMenu.Item
+            icon={Calendar}
+            label="Schedules"
+            showCollapsedTooltip
+            active={isHomeActive}
+            badge={
+              hasUnreadHome && !isHomeActive ? (
+                <span
+                  className="h-2 w-2 rounded-full bg-[var(--system-negative-strong)]"
+                  aria-hidden="true"
+                />
+              ) : undefined
+            }
+            onSelect={onOpenHome ? () => { onOpenHome(); onClose?.(); } : undefined}
           />
         ) : null}
         {pinnedApps.map((app) => (

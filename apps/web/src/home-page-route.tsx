@@ -51,7 +51,7 @@ export function HomePageRoute() {
           variant="body-medium-default"
           className="text-[var(--content-secondary)]"
         >
-          Home
+          Schedules
         </Typography>,
       );
     } else {
@@ -74,14 +74,6 @@ export function HomePageRoute() {
       onOpenConversation={(conversationId) =>
         navigate(routes.conversation(conversationId))
       }
-      onSuggestionSelected={(prompt) => {
-        useViewerStore.getState().setMainView("chat");
-        const draftConversationId = createDraftConversationId();
-        useConversationStore.getState().setActiveConversationId(draftConversationId);
-        navigate(
-          `${routes.conversation(draftConversationId)}?prompt=${encodeURIComponent(prompt)}`,
-        );
-      }}
     />
   );
 }

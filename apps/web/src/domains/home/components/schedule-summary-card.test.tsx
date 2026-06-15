@@ -39,6 +39,11 @@ describe("ScheduleSummaryCard", () => {
     expect(queryByText("hidden child")).toBeNull();
   });
 
+  test("collapsed renders an Expand affordance", () => {
+    const { getByText } = render(<ScheduleSummaryCard {...BASE_PROPS} />);
+    expect(getByText("Expand")).toBeTruthy();
+  });
+
   test("clicking the collapsed card calls onToggleExpand", () => {
     const onToggleExpand = mock(() => {});
     const { getByRole } = render(

@@ -1,13 +1,8 @@
 import { SquarePen } from "lucide-react";
 
-import { ChatAvatar } from "@/components/avatar/chat-avatar";
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { Button, Typography } from "@vellumai/design-library";
 
 interface HomeGreetingHeaderProps {
-  avatarComponents: CharacterComponents | null;
-  avatarTraits: CharacterTraits | null;
-  avatarImageUrl: string | null;
   /** Optional daemon-supplied dynamic greeting. Falls back to a time-of-day greeting. */
   greeting?: string;
   isMobile?: boolean;
@@ -25,31 +20,29 @@ function clientComputeGreeting(now: Date): string {
   return "Welcome back";
 }
 
+/**
+ * Secondary greeting banner shown beneath the top header and schedules panel.
+ * Smaller and de-emphasised relative to the "Home" title, paired with the
+ * New Chat action.
+ */
 export function HomeGreetingHeader({
-  avatarComponents,
-  avatarTraits,
-  avatarImageUrl,
   greeting,
   isMobile,
   onStartNewChat,
 }: HomeGreetingHeaderProps) {
   return (
     <div className="flex items-center justify-between gap-[var(--app-spacing-md)]">
-      <div className="flex min-w-0 flex-1 items-center gap-[var(--app-spacing-md)]">
-        <ChatAvatar
-          components={avatarComponents}
-          traits={avatarTraits}
-          customImageUrl={avatarImageUrl}
-          size={36}
-        />
-        <Typography variant="title-large" as="h1" className="truncate">
-          {greeting || clientComputeGreeting(new Date())}
-        </Typography>
-      </div>
+      <Typography
+        variant="title-medium"
+        as="h2"
+        className="min-w-0 flex-1 truncate text-[var(--content-secondary)]"
+      >
+        {greeting || clientComputeGreeting(new Date())}
+      </Typography>
 
       {isMobile ? (
         <Button
-          variant="primary"
+          variant="ghost"
           iconOnly={<SquarePen />}
           onClick={onStartNewChat}
           aria-label="New Chat"
@@ -58,7 +51,7 @@ export function HomeGreetingHeader({
         />
       ) : (
         <Button
-          variant="primary"
+          variant="ghost"
           leftIcon={<SquarePen />}
           onClick={onStartNewChat}
         >
