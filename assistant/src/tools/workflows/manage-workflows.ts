@@ -123,10 +123,14 @@ export const manageWorkflowsTool = {
   name: "manage_workflows",
   description:
     'Inspect or control workflow runs started by run_workflow. action="status" (requires run_id) returns a run\'s status and counts; action="abort" (requires run_id) signals an in-flight run to stop; action="resume" (requires run_id) restarts an interrupted run (one orphaned by an assistant restart), replaying its journaled prefix and continuing from the first unfinished step; action="list_runs" returns recent runs newest-first.',
-  // Low risk: status/list are pure reads; abort only signals an existing run to
-  // stop; resume replays a journaled prefix and continues a previously-consented
-  // run under the same structural agent cap — none can introduce new unbounded
-  // work or side effects beyond what the run already declared.
+  // Low risk by default: status/list are pure reads; abort only signals an
+  // existing run to stop; resuming a READ-ONLY run replays a journaled prefix
+  // and continues under the same structural agent cap. Resuming a run whose
+  // STORED manifest granted side-effecting tools/host functions is promoted to
+  // require fresh interactive approval in the executor (see executor.ts) —
+  // resume restarts unfinished side-effecting leaves and is reachable by any
+  // actor who can list/guess the run id, so it must not silently reuse the
+  // launch-time consent.
   defaultRiskLevel: RiskLevel.Low,
   input_schema: {
     type: "object",

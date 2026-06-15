@@ -131,6 +131,16 @@ mock.module("../permissions/gateway-threshold-reader.js", () => ({
   _clearGlobalCacheForTesting: () => {},
 }));
 
+// Stub the workflow run manager so the `manage_workflows` resume gate can read a
+// target run's STORED capabilities without a real journal/DB. Tests set
+// `fakeWorkflowRun` to control the stored manifest (or null for "not found").
+let fakeWorkflowRun: { capabilities: unknown } | null = null;
+mock.module("../workflows/run-manager.js", () => ({
+  getWorkflowRunManager: () => ({
+    status: (_runId: string) => fakeWorkflowRun,
+  }),
+}));
+
 mock.module("../tools/shared/filesystem/path-policy.js", () => ({
   sandboxPolicy: () => ({ ok: false }),
   hostPolicy: () => ({ ok: false }),
@@ -490,6 +500,7 @@ describe("requireFreshApproval: workflow capability grants", () => {
     checkResultOverride = undefined;
     scopeOptionsOverride = undefined;
     riskOverride = "low";
+    fakeWorkflowRun = null;
   });
 
   afterEach(() => {});
@@ -559,5 +570,77 @@ describe("requireFreshApproval: workflow capability grants", () => {
     expect(ctx.requireFreshApproval).toBeUndefined();
     expect(state.prompted).toBe(false);
     expect(result.isError).toBe(false);
+  });
+
+  test("manage_workflows resume of a side-effecting run requires fresh approval", async () => {
+    // The target run's STORED manifest granted tools, so resuming it (which
+    // restarts unfinished side-effecting leaves) must re-prompt.
+    fakeWorkflowRun = { capabilities: { tools: ["bash"] } };
+    checkResultOverride = { decision: "allow", reason: "allowed" };
+    const state = { prompted: false };
+    const executor = new ToolExecutor(trackingPrompter(state));
+    const ctx = makeContext();
+
+    await executor.execute(
+      "manage_workflows",
+      { action: "resume", run_id: "wf-run-1" },
+      ctx,
+    );
+
+    expect(ctx.requireFreshApproval).toBe(true);
+    expect(state.prompted).toBe(true);
+  });
+
+  test("manage_workflows resume of a read-only run stays silent", async () => {
+    fakeWorkflowRun = { capabilities: {} };
+    checkResultOverride = { decision: "allow", reason: "allowed" };
+    const state = { prompted: false };
+    const executor = new ToolExecutor(trackingPrompter(state));
+    const ctx = makeContext();
+
+    await executor.execute(
+      "manage_workflows",
+      { action: "resume", run_id: "wf-run-1" },
+      ctx,
+    );
+
+    expect(ctx.requireFreshApproval).toBeUndefined();
+    expect(state.prompted).toBe(false);
+  });
+
+  test("manage_workflows non-resume actions never gate (status of a side-effecting run)", async () => {
+    // Even though the run granted tools, status/abort/list_runs are pure
+    // control/reads and must stay low-risk and silent.
+    fakeWorkflowRun = { capabilities: { tools: ["bash"] } };
+    checkResultOverride = { decision: "allow", reason: "allowed" };
+    const state = { prompted: false };
+    const executor = new ToolExecutor(trackingPrompter(state));
+    const ctx = makeContext();
+
+    await executor.execute(
+      "manage_workflows",
+      { action: "status", run_id: "wf-run-1" },
+      ctx,
+    );
+
+    expect(ctx.requireFreshApproval).toBeUndefined();
+    expect(state.prompted).toBe(false);
+  });
+
+  test("manage_workflows resume of an unknown run does not gate (run not found)", async () => {
+    fakeWorkflowRun = null;
+    checkResultOverride = { decision: "allow", reason: "allowed" };
+    const state = { prompted: false };
+    const executor = new ToolExecutor(trackingPrompter(state));
+    const ctx = makeContext();
+
+    await executor.execute(
+      "manage_workflows",
+      { action: "resume", run_id: "missing" },
+      ctx,
+    );
+
+    expect(ctx.requireFreshApproval).toBeUndefined();
+    expect(state.prompted).toBe(false);
   });
 });

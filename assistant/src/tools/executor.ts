@@ -13,6 +13,7 @@ import { PermissionDeniedError, ToolError } from "../util/errors.js";
 import { pathExists, safeStatSync } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
 import { manifestGrantsSideEffects } from "../workflows/capabilities.js";
+import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { resolveExecutionTarget } from "./execution-target.js";
 import { executeWithTimeout, safeTimeoutMs } from "./execution-timeout.js";
 import { PermissionChecker } from "./permission-checker.js";
@@ -155,6 +156,26 @@ export class ToolExecutor {
         manifestGrantsSideEffects(input.capabilities)
       ) {
         context.requireFreshApproval = true;
+      }
+
+      // Resuming a workflow whose STORED manifest granted side-effecting tools /
+      // host functions restarts unfinished leaves that perform those side
+      // effects. The original consent was given at LAUNCH (run_workflow above),
+      // but resume is reachable by any actor who can list or guess the run id —
+      // so re-require a fresh interactive approval when the target run's stored
+      // manifest grants side effects. The other manage_workflows actions
+      // (status/abort/list_runs) and resumes of read-only runs stay low-risk and
+      // silent. `manage_workflows` is not a SIDE_EFFECT tool, so (like
+      // run_workflow) requireFreshApproval is the self-sufficient promotion.
+      if (name === "manage_workflows" && input.action === "resume") {
+        const targetRunId =
+          typeof input.run_id === "string" ? input.run_id : undefined;
+        const targetRun = targetRunId
+          ? getWorkflowRunManager().status(targetRunId)
+          : null;
+        if (targetRun && manifestGrantsSideEffects(targetRun.capabilities)) {
+          context.requireFreshApproval = true;
+        }
       }
 
       // A consumed scoped grant is a complete authorization - skip the
