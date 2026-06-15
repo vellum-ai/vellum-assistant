@@ -23,12 +23,11 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { ByoServiceCard, SaveButton, ServiceCard } from "@/domains/settings/ai/ai-shared-ui";
-import type { EmailByoProvider, ServiceMode } from "@/domains/settings/ai/ai-types";
-import {
-    EMAIL_BYO_PROVIDERS,
-    LS_EMAIL_BYO_PROVIDER,
-    LS_EMAIL_MODE,
-} from "@/domains/settings/ai/ai-types";
+import { LS_EMAIL_BYO_PROVIDER, LS_EMAIL_MODE } from "@/domains/settings/ai/ai-local-storage-keys";
+import type { EmailByoProvider } from "@/domains/settings/ai/ai-provider-catalogs";
+import { EMAIL_BYO_PROVIDERS } from "@/domains/settings/ai/ai-provider-catalogs";
+import { parseServiceMode } from "@/domains/settings/ai/ai-types";
+import type { ServiceMode } from "@/generated/daemon/types.gen";
 import { EmailManagedContent } from "@/domains/settings/ai/email-managed-content";
 
 export function EmailServiceCard() {
@@ -47,12 +46,12 @@ export function EmailServiceCard() {
 
   const [mode, setMode] = useState<ServiceMode>(() => {
     if (platformGate === "gated") return "your-own";
-    const raw = getLocalSetting(LS_EMAIL_MODE, "managed");
-    return raw === "managed" || raw === "your-own" ? raw : "managed";
+    return parseServiceMode(getLocalSetting(LS_EMAIL_MODE, "managed"), "managed");
   });
-  const [byoProviderId, setByoProviderId] = useState<EmailByoProvider["id"]>(
-    () => getLocalSetting(LS_EMAIL_BYO_PROVIDER, "resend") as EmailByoProvider["id"],
-  );
+  const [byoProviderId, setByoProviderId] = useState<EmailByoProvider["id"]>(() => {
+    const raw = getLocalSetting(LS_EMAIL_BYO_PROVIDER, "resend");
+    return raw === "mailgun" || raw === "resend" ? raw : "resend";
+  });
 
   // -- BYO credential check (your-own mode) ----------------------------------
   const byoCredentialQuery = useQuery({
@@ -131,9 +130,9 @@ export function EmailServiceCard() {
         </label>
         <Dropdown
           value={byoProviderId}
-          onChange={(val) =>
-            setByoProviderId(val as EmailByoProvider["id"])
-          }
+          onChange={(val) => {
+            if (val === "mailgun" || val === "resend") setByoProviderId(val);
+          }}
           options={EMAIL_BYO_PROVIDERS.map((p) => ({
             value: p.id,
             label: p.displayName,

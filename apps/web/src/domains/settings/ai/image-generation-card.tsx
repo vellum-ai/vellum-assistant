@@ -14,13 +14,10 @@ import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import type { ServiceMode } from "@/domains/settings/ai/ai-types";
-import {
-    AVAILABLE_IMAGE_GEN_MODELS,
-    IMAGE_GEN_MODEL_DISPLAY_NAMES,
-    LS_IMAGE_GEN_MODE,
-    LS_IMAGE_GEN_MODEL,
-} from "@/domains/settings/ai/ai-types";
+import { LS_IMAGE_GEN_MODE, LS_IMAGE_GEN_MODEL } from "@/domains/settings/ai/ai-local-storage-keys";
+import { AVAILABLE_IMAGE_GEN_MODELS, IMAGE_GEN_MODEL_DISPLAY_NAMES } from "@/domains/settings/ai/ai-provider-catalogs";
+import { parseServiceMode } from "@/domains/settings/ai/ai-types";
+import type { ServiceMode } from "@/generated/daemon/types.gen";
 
 import { ResetButton, SaveButton, ServiceCard } from "@/domains/settings/ai/ai-shared-ui";
 import { useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
@@ -48,11 +45,9 @@ export function ImageGenerationCard() {
   // Updates automatically when the cache refreshes.
   const serverImageGenMode = useMemo<ServiceMode>(() => {
     if (!daemonConfig) {
-      const raw = getLocalSetting(LS_IMAGE_GEN_MODE, "your-own");
-      return raw === "managed" || raw === "your-own" ? raw : "your-own";
+      return parseServiceMode(getLocalSetting(LS_IMAGE_GEN_MODE, "your-own"), "your-own");
     }
-    const mode = daemonConfig.services?.["image-generation"]?.mode;
-    return mode === "managed" || mode === "your-own" ? mode : "your-own";
+    return daemonConfig.services?.["image-generation"]?.mode ?? "your-own";
   }, [daemonConfig]);
 
   const [imageGenMode, setDraftImageGenMode] = useDraftOverride(serverImageGenMode);

@@ -13,12 +13,8 @@ import {
     ResetButton,
     SaveButton,
 } from "@/domains/settings/ai/ai-shared-ui";
-import {
-    LS_STT_API_KEY_PREFIX,
-    LS_STT_PROVIDER,
-    MACOS_NATIVE_STT_PROVIDER_ID,
-    STT_PROVIDERS,
-} from "@/domains/settings/ai/ai-types";
+import { LS_STT_API_KEY_PREFIX, LS_STT_PROVIDER } from "@/domains/settings/ai/ai-local-storage-keys";
+import { MACOS_NATIVE_STT_PROVIDER_ID, STT_PROVIDERS } from "@/domains/settings/ai/ai-provider-catalogs";
 
 export function SpeechToTextCard() {
   // Capability is fixed for the renderer's lifetime, so compute the offered

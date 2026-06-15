@@ -20,8 +20,9 @@ import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { ResetButton, SaveButton, ServiceCard } from "@/domains/settings/ai/ai-shared-ui";
-import type { ServiceMode } from "@/domains/settings/ai/ai-types";
-import { LS_WEB_SEARCH_MODE, LS_WEB_SEARCH_PROVIDER } from "@/domains/settings/ai/ai-types";
+import { LS_WEB_SEARCH_MODE, LS_WEB_SEARCH_PROVIDER } from "@/domains/settings/ai/ai-local-storage-keys";
+import { parseServiceMode } from "@/domains/settings/ai/ai-types";
+import type { ServiceMode } from "@/generated/daemon/types.gen";
 import { getWebSearchProviderKeyStorage } from "@/domains/settings/ai/ai-utils";
 import { useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
@@ -54,16 +55,14 @@ export function WebSearchCard() {
     serverWebSearchProvider: string;
   } => {
     if (!daemonConfig) {
-      const raw = getLocalSetting(LS_WEB_SEARCH_MODE, "your-own");
       return {
-        serverWebSearchMode: raw === "managed" || raw === "your-own" ? raw : "your-own",
+        serverWebSearchMode: parseServiceMode(getLocalSetting(LS_WEB_SEARCH_MODE, "your-own"), "your-own"),
         serverWebSearchProvider: getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native"),
       };
     }
     const wsService = daemonConfig.services?.["web-search"];
-    const mode = wsService?.mode;
     return {
-      serverWebSearchMode: mode === "managed" || mode === "your-own" ? mode : "your-own",
+      serverWebSearchMode: wsService?.mode ?? "your-own",
       serverWebSearchProvider: wsService?.provider || getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native"),
     };
   }, [daemonConfig]);
