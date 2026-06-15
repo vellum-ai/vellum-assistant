@@ -250,16 +250,22 @@ export function useSidebarState({
     const isExpanded =
       visibleSlackCount > SIDEBAR_CONVERSATION_LIMIT &&
       grouped.slack.length > SIDEBAR_CONVERSATION_LIMIT;
+    const hasMoreSlackItems =
+      effectiveVisibleCount < grouped.slack.length || (hasNextPage ?? false);
     return {
       all: grouped.slack,
       items: grouped.slack.slice(0, effectiveVisibleCount),
       totalCount: grouped.slack.length,
-      showMore: !isExpanded && effectiveVisibleCount < grouped.slack.length,
+      showMore: !isExpanded && hasMoreSlackItems,
       showLess: isExpanded,
-      onShowMore: () => setVisibleSlackCount(Number.MAX_SAFE_INTEGER),
+      onShowMore: () => {
+        setVisibleSlackCount(Number.MAX_SAFE_INTEGER);
+        if (hasNextPage) fetchNextPage?.();
+      },
       onShowLess: () => setVisibleSlackCount(SIDEBAR_CONVERSATION_LIMIT),
+      onScrollLoadMore: isExpanded && hasNextPage ? fetchNextPage : undefined,
     };
-  }, [grouped.slack, visibleSlackCount, attentionConversationIds]);
+  }, [grouped.slack, visibleSlackCount, attentionConversationIds, fetchNextPage, hasNextPage]);
 
   // --- Attention-forced expansion ---
 

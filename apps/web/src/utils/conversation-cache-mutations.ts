@@ -46,10 +46,9 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
- * Mark the conversation as seen in the local cache. The matching server
- * call (`markConversationSeen` in `chat/api/conversations.ts`) is fired
- * separately by callers — keep them independent so the cache update can
- * run regardless of network success.
+ * Mark the conversation as seen in the local cache and invalidate the
+ * server-side unread count so the dock badge updates immediately rather
+ * than waiting for the next 30-second poll.
  */
 export function markConversationSeenLocal(
   queryClient: QueryClient,
@@ -76,6 +75,9 @@ export function markConversationSeenLocal(
     return changed ? next : conversations;
   };
   updateAllConversationCaches(queryClient, assistantId, markSeen);
+  void queryClient.invalidateQueries({
+    queryKey: unreadCountQueryKey(assistantId),
+  });
 }
 
 export function prependConversation(
