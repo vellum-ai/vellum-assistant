@@ -126,25 +126,24 @@ function buildPaginatedSection({
   const visibleCount = isExpanded ? items.length : SIDEBAR_CONVERSATION_LIMIT;
   const effectiveVisibleCount =
     attentionIndex >= visibleCount ? attentionIndex + 1 : visibleCount;
-  // Treat the section as effectively expanded when attention forces us past
-  // the collapsed limit — otherwise the user sees many items with "Show more"
-  // and no "Show less" (a broken state).
-  const effectivelyExpanded =
-    isExpanded || effectiveVisibleCount > SIDEBAR_CONVERSATION_LIMIT;
   const hasMoreItems =
     effectiveVisibleCount < items.length || (hasNextPage ?? false);
   return {
     loaded: items,
     items: items.slice(0, effectiveVisibleCount),
     totalCount: items.length,
-    showMore: !effectivelyExpanded && hasMoreItems,
-    showLess: effectivelyExpanded,
+    // Button visibility is driven by the user's explicit expand/collapse action,
+    // NOT by attention-forced visibility. When attention forces items past the
+    // limit (e.g., attention at index 8 with limit 5), the user still sees
+    // "Show more" to explicitly expand and "Show less" only after they do so.
+    showMore: !isExpanded && hasMoreItems,
+    showLess: isExpanded,
     onShowMore: () => {
       onExpand();
       if (hasNextPage) fetchNextPage?.();
     },
     onShowLess: onCollapse,
-    onScrollLoadMore: effectivelyExpanded && hasNextPage ? fetchNextPage : undefined,
+    onScrollLoadMore: isExpanded && hasNextPage ? fetchNextPage : undefined,
   };
 }
 
