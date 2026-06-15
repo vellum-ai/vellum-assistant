@@ -5,6 +5,7 @@
  * prompt is shown literally, never formatted.
  */
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -24,8 +25,20 @@ function makeEntry(sections: LLMContextSection[]): LLMRequestLogEntry {
   };
 }
 
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+});
+
 function render(sections: LLMContextSection[]): string {
-  return renderToStaticMarkup(<PromptTab entry={makeEntry(sections)} />);
+  return renderToStaticMarkup(
+    <QueryClientProvider client={queryClient}>
+      <PromptTab
+        entry={makeEntry(sections)}
+        previous={null}
+        assistantId={undefined}
+      />
+    </QueryClientProvider>,
+  );
 }
 
 describe("PromptTab", () => {
