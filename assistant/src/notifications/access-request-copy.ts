@@ -5,6 +5,8 @@
  * post-generation enforcement to ensure required directives always appear.
  */
 
+import { buildApprovalCardBlocks } from "./approval-card-builder.js";
+
 // ── Local string utilities ──────────────────────────────────────────────────
 //
 // Tiny helpers duplicated from copy-composer to keep this module
@@ -378,9 +380,6 @@ export function buildAccessRequestContractText(
  * render as an interactive card via `SurfaceRouter → CardSurface`, plus a
  * plain-text fallback block for search, CLI display, and backward-compatible
  * clients that don't support surfaces.
- *
- * The card data shape matches {@link CardSurfaceData} from
- * `daemon/message-types/surfaces.ts`: `{ title, subtitle, body, metadata }`.
  */
 export function buildAccessRequestSeedContentBlocks(
   payload: Record<string, unknown>,
@@ -433,42 +432,14 @@ export function buildAccessRequestSeedContentBlocks(
       ? bodyParts.join("\n\n")
       : "No additional context available.";
 
-  // Actions match the canonical `apr:<requestId>:<action>` callback format
-  // used by Telegram and Slack adapters, and the `SurfaceActionSchema`
-  // shape that `SurfaceContainer` renders as buttons.
-  const actions = p.requestId
-    ? [
-        {
-          id: `apr:${p.requestId}:approve_once`,
-          label: "Approve",
-          style: "primary",
-        },
-        {
-          id: `apr:${p.requestId}:reject`,
-          label: "Reject",
-          style: "destructive",
-        },
-      ]
-    : undefined;
-
-  const surfaceBlock = {
-    type: "ui_surface" as const,
-    surfaceId: `access-request-${p.requestId ?? "unknown"}`,
-    surfaceType: "card" as const,
-    title: "Access Request",
-    data: {
-      title: displayName,
-      subtitle: "Requesting access to the assistant",
-      body,
-      metadata,
-    },
-    ...(actions ? { actions } : {}),
-  };
-
-  const textBlock = {
-    type: "text" as const,
-    text: buildAccessRequestContractText(payload),
-  };
-
-  return [surfaceBlock, textBlock];
+  return buildApprovalCardBlocks({
+    surfaceIdPrefix: "access-request",
+    cardTitle: "Access Request",
+    requesterName: displayName,
+    subtitle: "Requesting access to the assistant",
+    body,
+    metadata,
+    requestId: p.requestId,
+    fallbackText: buildAccessRequestContractText(payload),
+  });
 }

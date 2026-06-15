@@ -614,22 +614,15 @@ function enforceGuardianRequestCode(
 }
 
 /**
- * Tool-approval and tool-grant notifications need a Surface card with
- * Approve/Reject buttons. The copy-composer template generates the blocks
- * on the fallback path, but the LLM and assistant_tool paths produce
- * text-only copy. This guard injects seedContentBlocks on all paths
- * regardless of whether a requestCode is present.
+ * Inject seedContentBlocks into every channel's copy when not already present.
+ * Used by both tool-approval and access-request guards to ensure Surface cards
+ * render on all decision paths (LLM, assistant_tool, fallback).
  */
-function enforceToolApprovalSeedBlocks(
+function ensureSeedContentBlocks(
   decision: NotificationDecision,
-  signal: NotificationSignal,
+  blocks: unknown[] | null | undefined,
 ): NotificationDecision {
-  if (signal.sourceEventName !== "guardian.question") return decision;
-
-  const toolApprovalBlocks = buildToolApprovalSeedContentBlocks(
-    signal.contextPayload,
-  );
-  if (!toolApprovalBlocks) return decision;
+  if (!blocks) return decision;
 
   const nextCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {
     ...decision.renderedCopy,
@@ -638,7 +631,7 @@ function enforceToolApprovalSeedBlocks(
     const copy = nextCopy[channel];
     if (!copy) continue;
     if (!copy.seedContentBlocks) {
-      nextCopy[channel] = { ...copy, seedContentBlocks: toolApprovalBlocks };
+      nextCopy[channel] = { ...copy, seedContentBlocks: blocks };
     }
   }
 
@@ -646,6 +639,21 @@ function enforceToolApprovalSeedBlocks(
     ...decision,
     renderedCopy: nextCopy,
   };
+}
+
+/**
+ * Tool-approval and tool-grant notifications need a Surface card with
+ * Approve/Reject buttons on all decision paths.
+ */
+function enforceToolApprovalSeedBlocks(
+  decision: NotificationDecision,
+  signal: NotificationSignal,
+): NotificationDecision {
+  if (signal.sourceEventName !== "guardian.question") return decision;
+  return ensureSeedContentBlocks(
+    decision,
+    buildToolApprovalSeedContentBlocks(signal.contextPayload),
+  );
 }
 
 /**
@@ -702,24 +710,18 @@ function enforceAccessRequestInstructions(
     }
   }
 
-  // Ensure seedContentBlocks is present on all paths (LLM, assistant_tool,
-  // fallback). The LLM path generates text-only copy; injecting the blocks
-  // here guarantees the Surface card renders regardless of decision source.
-  const seedContentBlocks = buildAccessRequestSeedContentBlocks(
-    signal.contextPayload,
-  );
-  for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
-    const copy = nextCopy[channel];
-    if (!copy) continue;
-    if (!copy.seedContentBlocks) {
-      nextCopy[channel] = { ...copy, seedContentBlocks };
-    }
-  }
-
-  return {
+  let result: NotificationDecision = {
     ...decision,
     renderedCopy: nextCopy,
   };
+
+  // Ensure seedContentBlocks on all paths (LLM, assistant_tool, fallback).
+  result = ensureSeedContentBlocks(
+    result,
+    buildAccessRequestSeedContentBlocks(signal.contextPayload),
+  );
+
+  return result;
 }
 
 function ensureAccessRequestInstructionsInCopy(

@@ -1,20 +1,22 @@
 /**
  * Deterministic helpers for building guardian-facing tool-approval copy.
  *
- * Produces Surface card seed content blocks for `tool_approval` and
- * `tool_grant_request` guardian questions, enabling Approve/Reject buttons
- * in the Vellum in-app channel (web/macOS/iOS).
- *
- * Mirrors the pattern established by `access-request-copy.ts`.
+ * Produces Surface card seed content blocks for `tool_approval`,
+ * `tool_grant_request`, and voice/call `pending_question` (with `toolName`)
+ * guardian questions, enabling Approve/Reject buttons in the Vellum in-app
+ * channel (web/macOS/iOS).
  */
 
 import { sanitizeIdentityField } from "./access-request-copy.js";
+import { buildApprovalCardBlocks } from "./approval-card-builder.js";
 import {
   buildGuardianRequestCodeInstruction,
   resolveGuardianQuestionInstructionMode,
 } from "./guardian-question-mode.js";
 
-// ── Local string utilities ──────────────────────────────────────────────────
+// ── Local string utility ────────────────────────────────────────────────────
+// Duplicated from copy-composer to avoid a circular import
+// (copy-composer imports this module).
 
 function nonEmpty(value: string | undefined): string | undefined {
   if (typeof value !== "string") return undefined;
@@ -56,12 +58,11 @@ function parseToolApprovalPayload(
 
 /**
  * Build structured content blocks for a tool approval/grant notification seed
- * message. Produces a `ui_surface` card block with Approve/Reject buttons
- * plus a plain-text fallback block.
+ * message. Returns `null` when the payload does not represent a tool approval.
  *
- * Returns `null` when the payload does not represent a tool approval. Covers
- * `tool_approval`, `tool_grant_request`, and `pending_question` with a
- * `toolName` (voice/call tool approvals persisted as pending questions).
+ * Covers `tool_approval`, `tool_grant_request`, and `pending_question` with a
+ * `toolName` (voice/call tool approvals persisted as pending questions — see
+ * `guardian-question-mode.ts` REQUEST_KIND_MODE_CONFIG).
  */
 export function buildToolApprovalSeedContentBlocks(
   payload: Record<string, unknown>,
@@ -84,81 +85,40 @@ export function buildToolApprovalSeedContentBlocks(
     : "Someone";
 
   const isGrant = p.requestKind === "tool_grant_request";
-  const subtitle = isGrant
-    ? "Requesting permission to use this tool"
-    : "Requesting approval to run this tool";
 
   const metadata: Array<{ label: string; value: string }> = [];
   metadata.push({ label: "Tool", value: toolName });
-
   if (p.sourceChannel) {
     metadata.push({ label: "Source", value: p.sourceChannel });
   }
 
-  // questionText contains the full formatted string (e.g.
-  // 'Bob wants to use "bash": mkdir -p scratch && ...').
-  // Extract the input summary portion after the tool name for the card body.
-  const bodyParts: string[] = [];
-  if (p.questionText) {
-    // The questionText may contain the input summary after a colon or dash.
-    // Display it as a blockquote for readability.
-    bodyParts.push(`> ${p.questionText}`);
-  }
+  const body = p.questionText
+    ? `> ${p.questionText}`
+    : "No additional context available.";
 
-  const body =
-    bodyParts.length > 0
-      ? bodyParts.join("\n\n")
-      : "No additional context available.";
-
-  const actions = p.requestId
-    ? [
-        {
-          id: `apr:${p.requestId}:approve_once`,
-          label: "Approve",
-          style: "primary",
-        },
-        {
-          id: `apr:${p.requestId}:reject`,
-          label: "Reject",
-          style: "destructive",
-        },
-      ]
-    : undefined;
-
-  const surfaceBlock = {
-    type: "ui_surface" as const,
-    surfaceId: `tool-approval-${p.requestId ?? "unknown"}`,
-    surfaceType: "card" as const,
-    title: isGrant ? "Tool Grant Request" : "Tool Approval",
-    data: {
-      title: requester,
-      subtitle,
-      body,
-      metadata,
-    },
-    ...(actions ? { actions } : {}),
-  };
-
-  const fallbackText =
+  // Build fallback text with request-code instructions for older clients.
+  const baseFallback =
     p.questionText ?? `${requester} is requesting approval to use ${toolName}`;
-
-  // Include request-code instruction in the text fallback so older clients
-  // that cannot render ui_surface blocks still show the approve/reject
-  // disambiguation.
-  let textContent = fallbackText;
+  let fallbackText = baseFallback;
   if (p.requestCode) {
     const modeResolution = resolveGuardianQuestionInstructionMode(payload);
     const instruction = buildGuardianRequestCodeInstruction(
       p.requestCode.trim().toUpperCase(),
       modeResolution.mode,
     );
-    textContent = `${fallbackText}\n\n${instruction}`;
+    fallbackText = `${baseFallback}\n\n${instruction}`;
   }
 
-  const textBlock = {
-    type: "text" as const,
-    text: textContent,
-  };
-
-  return [surfaceBlock, textBlock];
+  return buildApprovalCardBlocks({
+    surfaceIdPrefix: "tool-approval",
+    cardTitle: isGrant ? "Tool Grant Request" : "Tool Approval",
+    requesterName: requester,
+    subtitle: isGrant
+      ? "Requesting permission to use this tool"
+      : "Requesting approval to run this tool",
+    body,
+    metadata,
+    requestId: p.requestId,
+    fallbackText,
+  });
 }
