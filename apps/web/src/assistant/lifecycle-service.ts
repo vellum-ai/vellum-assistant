@@ -104,6 +104,19 @@ class AssistantLifecycleService {
   };
   private probeTimer: ReturnType<typeof setTimeout> | null = null;
   /**
+   * Tracks the assistant being actively probed. Non-null when a probe
+   * loop is running (timer pending OR tick in-flight). Prevents
+   * re-entry: the probe's own 502 response fires the unreachable-bus
+   * which calls `triggerReachabilityProbe` again — without this guard
+   * each re-entry creates an orphaned timer that can never be
+   * cancelled, doubling probe traffic on every cycle and consuming CPU.
+   *
+   * Storing the assistantId (rather than a bare boolean) allows a
+   * switch to a different assistant to cancel the stale loop and start
+   * a fresh one.
+   */
+  private probeLoopAssistantId: string | null = null;
+  /**
    * Auto-retry for transient (transport-shaped) error states —
    * armed by `transition` on entering such a state, cleared on
    * leaving it. The attempt counter drives the backoff schedule and
@@ -163,6 +176,8 @@ class AssistantLifecycleService {
       useResolvedAssistantsStore.getState().setActiveAssistantId(null);
     }
     this.setOperationalStatusAssistantId(null);
+    this.cancelProbeTimer();
+    this.probeLoopAssistantId = null;
     if (this.state.kind !== "loading") {
       this.transition({ kind: "loading" });
     }
@@ -576,15 +591,32 @@ class AssistantLifecycleService {
   }
 
   private startProbeLoop(assistantId: string): void {
+    if (this.probeLoopAssistantId === assistantId) return;
     this.cancelProbeTimer();
+    this.probeLoopAssistantId = assistantId;
     const startedAt = Date.now();
+    const exit = () => {
+      this.probeLoopAssistantId = null;
+    };
     const tick = async () => {
-      if (this.state.kind !== "active" || this.state.reachable === true) return;
-      if (Date.now() - startedAt > PROBE_RETRY_LIMIT_MS) return;
+      if (this.state.kind !== "active" || this.state.reachable === true) {
+        exit();
+        return;
+      }
+      if (Date.now() - startedAt > PROBE_RETRY_LIMIT_MS) {
+        exit();
+        return;
+      }
       await this.probeReachability(assistantId);
       const s = this.state;
-      if (s.kind !== "active" || s.reachable === true) return;
-      if (Date.now() - startedAt > PROBE_RETRY_LIMIT_MS) return;
+      if (s.kind !== "active" || s.reachable === true) {
+        exit();
+        return;
+      }
+      if (Date.now() - startedAt > PROBE_RETRY_LIMIT_MS) {
+        exit();
+        return;
+      }
       this.probeTimer = setTimeout(() => void tick(), PROBE_RETRY_DELAY_MS);
     };
     this.probeTimer = setTimeout(() => void tick(), PROBE_RETRY_DELAY_MS);
@@ -621,6 +653,7 @@ class AssistantLifecycleService {
       this.initializingTimeout = null;
     }
     this.cancelProbeTimer();
+    this.probeLoopAssistantId = null;
     this.clearErrorRetry(true);
     this.state = { kind: "loading" };
     this.generation = 0;
