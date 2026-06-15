@@ -55,7 +55,7 @@
 
 .cast-panel__title {
   margin: 0;
-  font-family: "Instrument Serif", var(--font-serif), serif;
+  font-family: var(--font-serif), serif;
   font-size: clamp(2rem, 1rem + 2.4vw, 3rem);
   font-weight: 400;
   letter-spacing: -0.01em;
@@ -316,14 +316,9 @@
   z-index: 3;
   display: flex;
   flex-direction: column;
+  /* bespoke: dark-green editorial vignette for the setup stage (no token
+     equivalent — the cast green is brighter than --system-positive-*). */
   background: radial-gradient(ellipse at 50% 30%, #162b16 0%, #0f1f0f 40%, #091509 100%);
-}
-.cast-setup-shell__content {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
 }
 
 /* ---- bottom controls ---- */
@@ -392,6 +387,7 @@
 .cast-modal__scrim {
   position: absolute;
   inset: 0;
+  /* bespoke: heavier-than-token modal scrim for the dark cast stage */
   background: rgba(0, 0, 0, 0.55);
   display: flex;
   align-items: center;
@@ -446,8 +442,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
-  padding: 26px 24px 22px;
+  gap: var(--app-spacing-lg);
+  padding: 26px var(--app-spacing-xl) 22px;
   z-index: 2;
 }
 
@@ -466,6 +462,8 @@
   background: var(--surface-active);
 }
 .cast-focus__pdot.is-on {
+  /* bespoke: cast brand green (brighter than --system-positive-strong); kept
+     literal across the shell for exact parity with the prototype. */
   background: #46c178;
 }
 
@@ -549,10 +547,10 @@
 .cast-focus__col {
   width: 100%;
   max-width: var(--chat-max-width);
-  padding: 20px 24px 64px;
+  padding: 20px var(--app-spacing-xl) 64px;
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: var(--app-spacing-xxl);
 }
 .cast-focus__turn {
   display: flex;
@@ -646,8 +644,8 @@
   background: var(--surface-lift);
   cursor: pointer;
   transition:
-    background 0.12s,
-    border-color 0.12s;
+    background var(--anim-snappy),
+    border-color var(--anim-snappy);
 }
 .cast-tile:hover:not(:disabled) {
   background: var(--surface-active);
