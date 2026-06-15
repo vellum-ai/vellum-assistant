@@ -39,10 +39,13 @@
  *   - An event whose seq < cursor: the daemon's counter restarted
  *     (daemon restart). Replace the stale cursor and reconcile.
  *   - An event whose seq > cursor + 1: events were missed on the
- *     connection. Fire a reconcile of the active conversation and defer
- *     cursor advancement until it resolves. While a reconcile is
- *     in-flight, subsequent gap events are debounced — only the latest
- *     seq is tracked. On success the cursor jumps to the latest seq; on
+ *     connection. Mark the active conversation's transcript as holey
+ *     (`conversation-gap.ts`) so the reconcile takes the server snapshot
+ *     authoritatively, then fire a reconcile of the active conversation.
+ *     While a reconcile is in-flight, subsequent gap events are debounced
+ *     — only the latest seq is tracked. On resolve the cursor jumps to the
+ *     latest seq (the events were dispatched, so the cursor belongs at the
+ *     frontier; healing is owned by the gap marker, not the cursor); on
  *     failure it stays pinned so the next event retries.
  *   - On the normal (no-gap) path the cursor advances AFTER the
  *     handler returns. A thrown handler keeps the cursor pinned so the
@@ -70,6 +73,7 @@ import { useStreamStore } from "@/domains/chat/stream-store";
 import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { getLocalSeq, recordLocalSeq } from "@/lib/streaming/local-seq";
+import { markConversationGap } from "@/lib/streaming/conversation-gap";
 import {
   advanceReconnectCursor,
   getReconnectCursor,
@@ -116,6 +120,17 @@ export function createSseEventConsumer(
   let reconcileInFlight = false;
   let latestGapSeq: number | null = null;
 
+  // Mark the active conversation's transcript as holey so the reconcile it
+  // triggers takes the server snapshot authoritatively (heals the gap)
+  // instead of preserving truncated live rows. `reconcileActive` heals the
+  // active conversation, so the marker is keyed to it.
+  const markActiveConversationGap = () => {
+    const activeId = deps.activeConversationIdRef.current;
+    if (activeId !== null) {
+      markConversationGap(activeId);
+    }
+  };
+
   return {
     handleSseEvent(envelope) {
       const event = envelope.message;
@@ -142,6 +157,7 @@ export function createSseEventConsumer(
           });
           replaceReconnectCursor(eventSeq);
           gapDeferred = true;
+          markActiveConversationGap();
           // Fire-and-forget: cursor is already replaced above (the old
           // seq space is meaningless after a restart). Swallow rejection
           // to prevent unhandled-promise warnings.
@@ -154,22 +170,22 @@ export function createSseEventConsumer(
             gap: eventSeq - stored,
           });
           gapDeferred = true;
+          markActiveConversationGap();
           // Track the latest seq seen during a gap so the cursor jumps
           // to the right place when reconcile succeeds.
           latestGapSeq = eventSeq;
           if (!reconcileInFlight) {
             reconcileInFlight = true;
-            const reconcileEpoch = useStreamStore.getState().streamEpoch;
             deps.reconcileActive()
               .then(() => {
-                // Only advance if the epoch is still current. A stale
-                // reconcile (SSE reconnected during the fetch) resolves
-                // with empty — advancing would mark the gap as repaired
-                // without authoritative data.
-                if (
-                  latestGapSeq != null &&
-                  useStreamStore.getState().streamEpoch === reconcileEpoch
-                ) {
+                // Advance the cursor to the latest seq observed during the
+                // gap once the reconcile resolves. The events were dispatched
+                // live (the gap doesn't block dispatch), so the cursor — the
+                // highest global seq seen — belongs at the frontier. Healing
+                // the hole is owned by the gap marker (cleared only once the
+                // snapshot catches up), so a stale or empty reconcile can't
+                // mark the gap repaired by advancing the cursor here.
+                if (latestGapSeq != null) {
                   replaceReconnectCursor(latestGapSeq);
                   latestGapSeq = null;
                 }

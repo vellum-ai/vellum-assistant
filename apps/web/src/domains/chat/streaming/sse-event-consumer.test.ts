@@ -4,6 +4,10 @@ import {
   __resetLocalSeqForTesting,
   getLocalSeq,
 } from "@/lib/streaming/local-seq";
+import {
+  __resetConversationGapForTesting,
+  hasConversationGap,
+} from "@/lib/streaming/conversation-gap";
 import type { AssistantEvent } from "@/types/event-types";
 
 let mockStreamEpoch = 7;
@@ -78,6 +82,7 @@ beforeEach(() => {
   mockStreamEpoch = 7;
   globalCursor = null;
   __resetLocalSeqForTesting();
+  __resetConversationGapForTesting();
   recordDiagnosticMock.mockClear();
 });
 
@@ -431,14 +436,15 @@ describe("sse-event-consumer — seq-gap detection", () => {
     expect(globalCursor).toBe(12);
   });
 
-  test("gap reconcile does not advance cursor when the stream reconnected (epoch changed) during reconcile", async () => {
+  test("gap reconcile advances cursor on resolve even when the stream reconnected (epoch changed) during reconcile", async () => {
+    // GIVEN a reconcile that resolves under our control
     let resolveReconcile!: () => void;
     const reconcilePromise = new Promise<void>((r) => { resolveReconcile = r; });
     const reconcileActive = mock(() => reconcilePromise);
     const { deps } = makeDeps({ reconcileActive });
     const consumer = createSseEventConsumer(deps);
 
-    // Seed.
+    // AND a seeded cursor
     consumer.handleSseEvent(
       makeEnvelope({
         conversationId: "conv-1",
@@ -446,7 +452,7 @@ describe("sse-event-consumer — seq-gap detection", () => {
         message: { type: "assistant_text_delta", text: "a" },
       }),
     );
-    // Gap.
+    // AND a gap that triggers a reconcile
     consumer.handleSseEvent(
       makeEnvelope({
         conversationId: "conv-1",
@@ -456,18 +462,22 @@ describe("sse-event-consumer — seq-gap detection", () => {
     );
 
     expect(reconcileActive).toHaveBeenCalledTimes(1);
-    expect(globalCursor).toBe(5); // Pinned.
+    expect(globalCursor).toBe(5); // Pinned while in-flight.
 
-    // The SSE stream reconnects (new epoch) while the reconcile is
-    // in-flight, making this reconcile's result stale.
+    // WHEN the SSE stream reconnects (new epoch) before the reconcile resolves
     mockStreamEpoch = 8;
-
-    // Resolve the reconcile — cursor should NOT advance because the
-    // epoch no longer matches the one captured when reconcile started.
     resolveReconcile();
     await reconcilePromise;
     await Promise.resolve();
-    expect(globalCursor).toBe(5); // Still pinned.
+
+    // THEN the cursor still advances to the latest gap seq: the events were
+    // dispatched live, so the cursor belongs at the frontier. Healing the
+    // hole is owned by the gap marker, not the cursor, so advancing here
+    // can't falsely mark the gap repaired.
+    expect(globalCursor).toBe(10);
+    // AND the active conversation stays marked as holey until a reconcile
+    // catches the snapshot up.
+    expect(hasConversationGap("conv-1")).toBe(true);
   });
 
   test("counter-reset (seq < stored) replaces the cursor synchronously and reconciles", () => {
@@ -499,6 +509,87 @@ describe("sse-event-consumer — seq-gap detection", () => {
 
     expect(reconcileActive).toHaveBeenCalledTimes(1);
     expect(globalCursor).toBe(3);
+  });
+
+  test("counter-reset marks the active conversation as holey", () => {
+    // GIVEN a consumer whose active conversation is conv-1
+    const { deps } = makeDeps({ activeConversationId: "conv-1" });
+    const consumer = createSseEventConsumer(deps);
+
+    // AND a seeded cursor
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 500,
+        message: { type: "assistant_text_delta", text: "a" },
+      }),
+    );
+
+    // WHEN the daemon restarts (seq counter resets below the cursor)
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 3,
+        message: { type: "assistant_text_delta", text: "b" },
+      }),
+    );
+
+    // THEN the active conversation is flagged so its reconcile heals
+    // authoritatively
+    expect(hasConversationGap("conv-1")).toBe(true);
+  });
+
+  test("a gap on another conversation marks the active conversation as holey", () => {
+    // GIVEN a consumer whose active conversation is conv-1
+    const { deps } = makeDeps({ activeConversationId: "conv-1" });
+    const consumer = createSseEventConsumer(deps);
+
+    // AND a seeded connection-wide cursor
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 5,
+        message: { type: "assistant_text_delta", text: "a" },
+      }),
+    );
+
+    // WHEN the connection misses events (gap observed on a different
+    // conversation's event, since seq is connection-wide)
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-2",
+        seq: 10,
+        message: { type: "assistant_text_delta", text: "b" },
+      }),
+    );
+
+    // THEN the active conversation — the one its reconcile heals — is flagged
+    expect(hasConversationGap("conv-1")).toBe(true);
+  });
+
+  test("a contiguous stream never marks a gap", () => {
+    // GIVEN a consumer on conv-1
+    const { deps } = makeDeps({ activeConversationId: "conv-1" });
+    const consumer = createSseEventConsumer(deps);
+
+    // WHEN events arrive contiguously
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 5,
+        message: { type: "assistant_text_delta", text: "a" },
+      }),
+    );
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 6,
+        message: { type: "assistant_text_delta", text: "b" },
+      }),
+    );
+
+    // THEN no gap is flagged
+    expect(hasConversationGap("conv-1")).toBe(false);
   });
 
   test("active-conversation key is read from the ref on every event (commit-phase update)", () => {

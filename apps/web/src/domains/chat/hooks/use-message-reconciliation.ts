@@ -12,6 +12,10 @@ import {
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { reconcileSnapshot } from "@/domains/chat/utils/reconcile-snapshot";
 import { getLocalSeq, recordLocalSeq } from "@/lib/streaming/local-seq";
+import {
+  clearConversationGap,
+  hasConversationGap,
+} from "@/lib/streaming/conversation-gap";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { mapMessageToolCalls } from "@/domains/chat/utils/map-message-tool-calls";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
@@ -172,6 +176,10 @@ export function useMessageReconciliation({
       // advance the frontier to the server seq for later consumers.
       // Both run outside the updater so the updater stays pure.
       const localSeq = getLocalSeq(conversationId);
+      // A gap on the live stream means the local transcript may be missing
+      // content below `L`, so this snapshot is taken authoritatively even when
+      // `S < L`. The marker is cleared once the snapshot has caught up.
+      const gapPending = hasConversationGap(conversationId);
       recordLocalSeq(conversationId, serverSeq);
 
       let changed = false;
@@ -190,6 +198,7 @@ export function useMessageReconciliation({
           serverSeq,
           localSeq,
           oldestPageTimestamp: initialPageOldestTsRef.current,
+          gapPending,
         });
         changed = next !== prev;
         // The "added" count is what telemetry uses to distinguish a
@@ -201,10 +210,21 @@ export function useMessageReconciliation({
         localAfter = summarizeDisplayMessages(next);
         return next;
       });
+      // Clear the gap marker once the snapshot has caught up to the live
+      // frontier (`S >= L`, or either seq unknown): the transcript is whole
+      // again, so subsequent reconciles resume the normal stream-ahead guard.
+      // While `S < L` the hole persists, so keep healing authoritatively.
+      if (
+        gapPending &&
+        !(serverSeq != null && localSeq != null && serverSeq < localSeq)
+      ) {
+        clearConversationGap(conversationId);
+      }
       recordDiagnostic("reconciliation_applied", {
         changed,
         assistantProgress,
         messagesAdded,
+        gapPending,
         oldestPageTimestamp: initialPageOldestTsRef.current,
         server: summarizeRuntimeMessages(serverMessages),
         localBefore,

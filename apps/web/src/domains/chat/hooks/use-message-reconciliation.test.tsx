@@ -30,6 +30,11 @@ import {
   __resetLocalSeqForTesting,
   recordLocalSeq,
 } from "@/lib/streaming/local-seq";
+import {
+  __resetConversationGapForTesting,
+  hasConversationGap,
+  markConversationGap,
+} from "@/lib/streaming/conversation-gap";
 
 // ---------------------------------------------------------------------------
 // Mocks — module mocks MUST come before importing the subject under test.
@@ -231,6 +236,7 @@ beforeEach(async () => {
   // The local seq frontier is module-global; clear it so a frontier seeded
   // by one test never leaks into the next.
   __resetLocalSeqForTesting();
+  __resetConversationGapForTesting();
   // Zustand stores survive across tests in the same Bun process; reset
   // the conversation-list state so each test sees a clean slate.
   useConversationStore.setState({
@@ -319,6 +325,50 @@ describe("reconcileFromServer", () => {
     expect(assistantMsg).toBeDefined();
     expect(assistantMsg!.surfaces).toHaveLength(1);
     expect(assistantMsg!.surfaces![0]!.surfaceId).toBe("surf-1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// gap-pending heal
+// ---------------------------------------------------------------------------
+
+describe("reconcileFromServer — gap-pending heal", () => {
+  test("heals a truncated row and clears the gap once the snapshot catches up", () => {
+    // GIVEN a local row missing its beginning (the stream resumed mid-row
+    // after a ring-eviction gap) and a live frontier ahead of the snapshot
+    messages = [
+      makeMessage({
+        id: "m2",
+        role: "assistant",
+        ...textBody("the rest of the answer"),
+      }),
+    ];
+    recordLocalSeq("conv-1", 10);
+    markConversationGap("conv-1");
+    const { reconcileFromServer } = createHarness();
+
+    // WHEN a still-lagging snapshot (S < L) reconciles while the gap is pending
+    const laggingSnapshot: ConversationMessage[] = [
+      makeServerMessage({
+        id: "m2",
+        role: "assistant",
+        ...wireTextBody("The beginning and the rest of the answer"),
+      }),
+    ];
+    reconcileFromServer(laggingSnapshot, "conv-1", 5);
+
+    // THEN the complete server content heals the truncation despite S < L
+    expect(messages.find((m) => m.id === "m2")).toMatchObject(
+      textBody("The beginning and the rest of the answer"),
+    );
+    // AND the gap stays pending because the snapshot has not caught up yet
+    expect(hasConversationGap("conv-1")).toBe(true);
+
+    // WHEN a later snapshot reaches the live frontier (S >= L)
+    reconcileFromServer(laggingSnapshot, "conv-1", 12);
+
+    // THEN the gap clears so normal stream-ahead protection resumes
+    expect(hasConversationGap("conv-1")).toBe(false);
   });
 });
 

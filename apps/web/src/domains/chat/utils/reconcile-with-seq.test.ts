@@ -57,6 +57,51 @@ describe("reconcileMessagesWithSeq", () => {
     expect(result[0]!.id).toBe("a1");
   });
 
+  test("heals a truncated local row from the snapshot when a gap is pending (L > S)", () => {
+    /**
+     * A ring-eviction gap (tab suspended past the daemon's replay window) makes
+     * the stream resume mid-row, so the local row is missing its beginning even
+     * though `L` advanced past it. `gapPending` forces the snapshot
+     * authoritative so the persisted, hole-free row heals the truncation —
+     * without the flag the `L > S` rule would keep the truncated live row.
+     */
+    // GIVEN a local row that the stream applied only from a late delta, so it
+    // is missing the beginning of the answer
+    const local = [
+      makeRow({
+        id: "a1",
+        role: "assistant",
+        ...textBody("the rest of the answer"),
+        timestamp: 1000,
+      }),
+    ];
+
+    // AND a snapshot that carries the complete row
+    const server = [
+      makeRow({
+        id: "a1",
+        role: "assistant",
+        ...textBody("The beginning and the rest of the answer"),
+        timestamp: 1000,
+      }),
+    ];
+
+    // WHEN the snapshot watermark still lags the live frontier (S < L) but the
+    // conversation is flagged as holey
+    const result = reconcileMessagesWithSeq(local, server, {
+      serverSeq: 5,
+      localSeq: 10,
+      gapPending: true,
+    });
+
+    // THEN the complete server content heals the truncated local row
+    expect(result).toHaveLength(1);
+    expect(messageText(result[0])).toBe(
+      "The beginning and the rest of the answer",
+    );
+    expect(result[0]!.id).toBe("a1");
+  });
+
   test("takes the server row wholesale when the snapshot is fresh (S >= L)", () => {
     /**
      * A snapshot that has seen everything the stream applied is authoritative,

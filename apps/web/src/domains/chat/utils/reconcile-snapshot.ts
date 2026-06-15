@@ -19,6 +19,11 @@ export interface ReconcileSnapshotOptions {
   /** Local seq `L` as of before this snapshot is applied. */
   localSeq: number | null;
   oldestPageTimestamp?: number | null;
+  /**
+   * The live stream lost contiguity for this conversation, so the snapshot is
+   * taken authoritatively even when `S < L`. See `reconcile-with-seq.ts`.
+   */
+  gapPending?: boolean;
 }
 
 export function reconcileSnapshot(
@@ -30,6 +35,7 @@ export function reconcileSnapshot(
     serverSeq: options.serverSeq,
     localSeq: options.localSeq,
     oldestPageTimestamp: options.oldestPageTimestamp,
+    gapPending: options.gapPending,
   });
 }
 

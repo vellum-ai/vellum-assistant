@@ -35,6 +35,15 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
  * snapshot has seen everything the stream applied, so it is authoritative and
  * we take the server rows wholesale.
  *
+ * The `L > S` rule rests on a contiguity precondition: that the stream applied
+ * an unbroken prefix up to `L`, so local is a superset of any snapshot at
+ * `S < L`. A ring-eviction gap (the tab was suspended past the daemon's replay
+ * window, so the daemon could only resume live) breaks it — `L` advanced
+ * across a hole and local is missing content *below* `L`. `gapPending` carries
+ * that signal: when set, the local transcript is known-holey, so the snapshot
+ * (which is hole-free up to `S`) is taken authoritatively even though `S < L`,
+ * healing the gap. The caller clears the flag once `S >= L` again.
+ *
  * Idempotent stream apply (events with `seq <= L` are no-ops) is enforced
  * upstream in the SSE consumer, so this merge never has to dedupe replays.
  *
@@ -55,6 +64,13 @@ export interface ReconcileWithSeqOptions {
    * a snapshot can't pull old messages back into the current window.
    */
   oldestPageTimestamp?: number | null;
+  /**
+   * The live stream lost contiguity for this conversation (a seq gap the
+   * daemon could not replay), so the local transcript may be missing content
+   * below `L`. Forces the snapshot authoritative even when `S < L`, healing
+   * the hole instead of preserving the truncated live rows.
+   */
+  gapPending?: boolean;
 }
 
 /**
@@ -72,6 +88,7 @@ export function reconcileMessagesWithSeq(
   }
 
   const streamAhead =
+    !options.gapPending &&
     options.serverSeq != null &&
     options.localSeq != null &&
     options.serverSeq < options.localSeq;
