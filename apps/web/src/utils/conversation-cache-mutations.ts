@@ -217,9 +217,7 @@ export async function refreshConversationRow(
     throw err;
   }
 
-  // Replace the row in whichever cache already holds it. Only when it lives
-  // in neither do we append, routing the new row to the cache that matches
-  // its type so a background job never lands in the foreground list.
+  // Replace the row in whichever cache already holds it.
   const replaceMatching = (conversations: Conversation[]) => {
     let replaced = false;
     const next = conversations.map((c) => {
@@ -238,6 +236,12 @@ export async function refreshConversationRow(
     return;
   }
 
+  // The conversation is not in any loaded cache. Route by type:
+  // - Background/Scheduled: flat caches that hold the complete list, so
+  //   absence genuinely means new — append.
+  // - Foreground: paginated, so absence may just mean "on a later page."
+  //   Invalidate instead of prepending to avoid surfacing old conversations
+  //   to page 1 when only their metadata changed.
   if (isScheduledConversation(result)) {
     updateScheduledConversationsCache(queryClient, assistantId, (conversations) => [
       ...conversations,
@@ -252,7 +256,9 @@ export async function refreshConversationRow(
     ]);
     return;
   }
-  prependToConversationsCache(queryClient, assistantId, result);
+  void queryClient.invalidateQueries({
+    queryKey: conversationListInfiniteQueryKey(assistantId),
+  });
 }
 
 /**
