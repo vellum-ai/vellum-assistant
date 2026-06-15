@@ -15,6 +15,8 @@ import {
 } from "./access-request-copy.js";
 import {
   buildGuardianRequestCodeInstruction,
+  parseGuardianQuestionPayload,
+  resolveGuardianInstructionModeFromPayload,
   resolveGuardianQuestionInstructionMode,
 } from "./guardian-question-mode.js";
 import {
@@ -62,17 +64,27 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
       payload.questionText,
       "A guardian question needs your attention",
     );
-    const requestCode = nonEmpty(
-      typeof payload.requestCode === "string" ? payload.requestCode : undefined,
-    );
+
+    // Parse once with Zod and reuse the typed payload downstream.
+    const parsed = parseGuardianQuestionPayload(payload);
 
     // For tool_grant_request, the questionText already includes requester name + input summary.
     // Use it directly as the conversation seed to avoid LLM-generated filler.
-    const isToolGrant = payload.requestKind === "tool_grant_request";
+    const isToolGrant = parsed?.requestKind === "tool_grant_request";
     const conversationSeedMessage = isToolGrant ? question : undefined;
 
     const seedContentBlocks =
-      buildToolApprovalSeedContentBlocks(payload) ?? undefined;
+      (parsed
+        ? buildToolApprovalSeedContentBlocks(parsed)
+        : buildToolApprovalSeedContentBlocks(payload)) ?? undefined;
+
+    const requestCode = parsed
+      ? nonEmpty(parsed.requestCode)
+      : nonEmpty(
+          typeof payload.requestCode === "string"
+            ? payload.requestCode
+            : undefined,
+        );
 
     if (!requestCode) {
       return {
@@ -84,7 +96,9 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     }
 
     const normalizedCode = requestCode.toUpperCase();
-    const modeResolution = resolveGuardianQuestionInstructionMode(payload);
+    const modeResolution = parsed
+      ? resolveGuardianInstructionModeFromPayload(parsed)
+      : resolveGuardianQuestionInstructionMode(payload);
     const instruction = buildGuardianRequestCodeInstruction(
       normalizedCode,
       modeResolution.mode,
