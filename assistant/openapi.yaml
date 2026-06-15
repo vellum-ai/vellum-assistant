@@ -18878,6 +18878,8 @@ paths:
                       type: string
                     userName:
                       type: string
+                    occupation:
+                      type: string
                     assistantName:
                       type: string
                     googleConnected:
