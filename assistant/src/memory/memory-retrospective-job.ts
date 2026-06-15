@@ -445,12 +445,12 @@ async function runForkBasedRetrospective(
     : undefined;
 
   // Persona + tool-context parity pins derived from the source conversation
-  // (see `resolveSourceParityPins`). The persona override is passed
-  // unconditionally — the correct persona is a review-quality fix on its
-  // own; with profile matching it additionally preserves the source's
-  // cached system-prompt prefix. The tool-context pin rides only with
-  // execution gate mode below: it exists purely for wire tool-surface
-  // cache parity.
+  // (see `resolveSourceParityPins`), both passed unconditionally. The persona
+  // override keeps the system-prompt prefix in parity (and is a review-quality
+  // fix on its own); the tool-context pin keeps the wire tool surface in
+  // parity — the fork always runs execution gate mode below, so the source's
+  // full tool surface stays on the wire while the allowlist holds at
+  // execution time.
   const { personaOverride, toolContextPin } = resolveSourceParityPins(
     sourceConversation,
     newMessages,
@@ -469,19 +469,21 @@ async function runForkBasedRetrospective(
       trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
       callSite: "memoryRetrospective",
       allowedTools: ["remember"],
-      // When the profile match resolved (cache parity is in play), keep the
-      // source's full tool surface on the wire AND resolve it under the
-      // source's client context — see {@link SubagentToolGateMode} and
-      // {@link WakeToolContextPin} for the rationale; the allowlist still
-      // holds at execution time. No match ⇒ no source cache to preserve, so
-      // the smaller wire-filtered request wins (keyed on `matchedProfile`,
-      // not the bare config flag).
+      // Always keep the source's full tool surface on the wire and resolve it
+      // under the source's client context (`toolContextPin`). The wire tool
+      // block is the first tier of the provider cache prefix
+      // (tools → system → messages), so a `remember`-only wire filter busts
+      // cache parity with the source's live turns — re-creating the cached
+      // prefix instead of reading it. The allowlist still holds at execution
+      // time: non-`remember` calls are rejected before any executor or side
+      // effect runs. See {@link SubagentToolGateMode} and
+      // {@link WakeToolContextPin}.
+      toolGateMode: "execution" as const,
+      toolContextPin,
+      // Profile forcing (model/thinking/effort parity) is a separate concern
+      // and stays keyed on `matchConversationProfile` via `matchedProfile`.
       ...(matchedProfile !== undefined
-        ? {
-            toolGateMode: "execution" as const,
-            forceOverrideProfile: matchedProfile,
-            toolContextPin,
-          }
+        ? { forceOverrideProfile: matchedProfile }
         : {}),
       personaOverride,
       hintRole: "user",
@@ -595,12 +597,27 @@ interface SourceParityPins {
  * for the former and outcome-equal for the latter.
  */
 function resolveSourceParityPins(
-  source: Pick<ConversationRow, "originChannel" | "originInterface">,
+  source: Pick<ConversationRow, "id" | "originChannel" | "originInterface">,
   sliceMessages: Array<{ role: string; metadata: string | null }>,
 ): SourceParityPins {
   const channel = source.originChannel;
   const channelRouted = channel != null && channel !== "vellum";
   const recovered = resolveSourceLiveInterface(source, sliceMessages);
+  if (recovered === undefined && !channelRouted) {
+    // No per-turn interface stamp and no originInterface, so the pin falls
+    // back to "web" below. If the source actually ran on a desktop interface
+    // (e.g. macos with host_* tools), those tools won't be reproduced on the
+    // fork's wire and tool-surface cache parity will partially miss. Surface
+    // it rather than silently miss.
+    log.warn(
+      {
+        conversationId: source.id,
+        originInterface: source.originInterface,
+        originChannel: source.originChannel,
+      },
+      "memory-retrospective (fork): source live interface unrecoverable; tool-surface cache parity may miss (defaulting to web)",
+    );
+  }
   // Non-channel-routed sources always have a client-connected interface;
   // when none is recoverable, default to "web" — the same terminal fallback
   // `resolveTurnInterface` applies to live turns. Channel-routed sources
@@ -1031,7 +1048,7 @@ function buildForkInstruction({
     ? "Your review window is the full conversation above, ending just before this instruction message."
     : `Your review window starts at ${anchorDescription} and ends just before this instruction message. If you cannot locate that anchoring turn in your visible history (for example, it is behind the compaction summary), fail closed: review only the most recent visible messages after the summary, not the whole conversation.`;
 
-  return `This is an automated background memory pass over the conversation above — not a message from the user. Do not reply conversationally or in persona; just perform the review described here.
+  return `This is an automated background memory pass over the conversation above — not a message from the user. Do not reply conversationally or in persona; just perform the review described here. Only the \`remember\` tool is available for this pass — any other tool call will be rejected, so don't attempt one.
 
 ${windowAnchor}
 

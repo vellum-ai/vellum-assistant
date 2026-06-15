@@ -764,12 +764,14 @@ describe("memoryRetrospectiveJob", () => {
 
     expect(wakeCalls).toHaveLength(1);
     expect("forceOverrideProfile" in wakeCalls[0]!.opts).toBe(false);
-    // Wire mode (default) when not matching the profile — there is no cache
-    // to preserve, so the smaller filtered request wins.
-    expect("toolGateMode" in wakeCalls[0]!.opts).toBe(false);
+    // Tool-surface parity is unconditional: execution gate mode + the
+    // source-derived tool-context pin ride every fork wake, independently of
+    // profile matching. Only `forceOverrideProfile` is gated on the flag.
+    expect(wakeCalls[0]!.opts.toolGateMode).toBe("execution");
+    expect(wakeCalls[0]!.opts.toolContextPin).toBeDefined();
   });
 
-  test("fork path: matchConversationProfile on but source has no inferenceProfile → wire mode, no forceOverrideProfile", async () => {
+  test("fork path: matchConversationProfile on but source has no inferenceProfile → execution mode (tool parity unconditional), no forceOverrideProfile", async () => {
     forkFlagEnabled = true;
 
     await memoryRetrospectiveJob(
@@ -778,16 +780,15 @@ describe("memoryRetrospectiveJob", () => {
     );
 
     expect(wakeCalls).toHaveLength(1);
+    // No resolved profile ⇒ no forceOverrideProfile, but tool-surface parity
+    // (execution mode + tool-context pin) still rides — it's decoupled from
+    // profile matching.
     expect("forceOverrideProfile" in wakeCalls[0]!.opts).toBe(false);
-    // toolGateMode keys on the RESOLVED profile match, not the bare config
-    // flag: with no pinned profile the wake runs the call-site default
-    // model, so there is no source cache to preserve — shipping the full
-    // tool surface would pay wire cost for nothing. Wire mode (absent
-    // toolGateMode) keeps the smaller filtered request.
-    expect("toolGateMode" in wakeCalls[0]!.opts).toBe(false);
+    expect(wakeCalls[0]!.opts.toolGateMode).toBe("execution");
+    expect(wakeCalls[0]!.opts.toolContextPin).toBeDefined();
   });
 
-  test("fork path: matchConversationProfile on but the profile session expired → wire mode, no forceOverrideProfile", async () => {
+  test("fork path: matchConversationProfile on but the profile session expired → execution mode, no forceOverrideProfile", async () => {
     forkFlagEnabled = true;
     conversationOverrides["src-conv-1"] = {
       source: "user",
@@ -805,7 +806,7 @@ describe("memoryRetrospectiveJob", () => {
 
     expect(wakeCalls).toHaveLength(1);
     expect("forceOverrideProfile" in wakeCalls[0]!.opts).toBe(false);
-    expect("toolGateMode" in wakeCalls[0]!.opts).toBe(false);
+    expect(wakeCalls[0]!.opts.toolGateMode).toBe("execution");
   });
 
   test("fork path: local/vellum source → wake carries the guardian persona + vellum channel override", async () => {
@@ -918,7 +919,7 @@ describe("memoryRetrospectiveJob", () => {
     });
   });
 
-  test("fork path: wire mode (no resolved profile) → no toolContextPin on the wake", async () => {
+  test("fork path: execution mode is unconditional → toolContextPin rides even without a resolved profile", async () => {
     forkFlagEnabled = true;
 
     await memoryRetrospectiveJob(
@@ -927,9 +928,10 @@ describe("memoryRetrospectiveJob", () => {
     );
 
     expect(wakeCalls).toHaveLength(1);
-    // The pin exists purely for wire tool-surface cache parity, which is
-    // only in play in execution gate mode.
-    expect("toolContextPin" in wakeCalls[0]!.opts).toBe(false);
+    // Tool-surface parity is unconditional: the pin + execution gate mode ride
+    // every fork wake, even when no profile resolved.
+    expect(wakeCalls[0]!.opts.toolGateMode).toBe("execution");
+    expect(wakeCalls[0]!.opts.toolContextPin).toBeDefined();
   });
 
   test("fork path: toolContextPin recovers the interface from the NEWEST stamped user message in the slice", async () => {
