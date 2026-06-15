@@ -2,6 +2,8 @@
 import {
     Archive,
     Code2,
+    Download,
+    Eye,
     FileAudio,
     File as FileIcon,
     FileImage,
@@ -10,9 +12,10 @@ import {
     FileType2,
     FileVideo,
 } from "lucide-react";
-import type { FC, ReactNode } from "react";
+import type { FC, MouseEvent, ReactNode } from "react";
+import { useCallback } from "react";
 
-import { Typography } from "@vellumai/design-library";
+import { Tooltip, Typography } from "@vellumai/design-library";
 
 import {
     classifyAttachment,
@@ -28,6 +31,8 @@ interface MessageAttachmentSquareProps {
   previewUrl: string | null;
   /** Called when the user clicks the thumbnail to open a full-screen preview. */
   onPreview?: () => void;
+  /** Called when the user clicks the download overlay button. */
+  onDownload?: () => void;
 }
 
 const ICON_BY_KIND: Record<AttachmentIconKind, ReactNode> = {
@@ -44,10 +49,10 @@ const ICON_BY_KIND: Record<AttachmentIconKind, ReactNode> = {
 };
 
 /**
- * Square thumbnail used inside sent user message bubbles. Image attachments
- * render their preview edge-to-edge; non-image attachments fall back to a
- * neutral surface with an icon. The filename and size render below the
- * thumbnail so users can identify what they sent without opening a preview.
+ * Square thumbnail used inside message bubbles. Image attachments render their
+ * preview edge-to-edge; non-image attachments fall back to a neutral surface
+ * with an icon. On hover, an overlay reveals Eye (preview) and Download action
+ * buttons so users can act without opening the full-screen preview modal first.
  */
 export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
   filename,
@@ -55,12 +60,30 @@ export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
   sizeBytes,
   previewUrl,
   onPreview,
+  onDownload,
 }) => {
   const kind = classifyAttachment(mimeType, filename);
   const hasImagePreview = kind === "image" && previewUrl !== null;
   const isClickable = onPreview != null;
   const displayName = middleTruncate(filename, 18);
   const displaySize = formatAttachmentSize(sizeBytes);
+  const hasOverlayActions = onPreview != null || onDownload != null;
+
+  const handlePreviewClick = useCallback(
+    (e: MouseEvent) => {
+      e.stopPropagation();
+      onPreview?.();
+    },
+    [onPreview],
+  );
+
+  const handleDownloadClick = useCallback(
+    (e: MouseEvent) => {
+      e.stopPropagation();
+      onDownload?.();
+    },
+    [onDownload],
+  );
 
   return (
     <div
@@ -79,17 +102,47 @@ export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
             }
           : undefined
       }
-      className={`flex flex-col gap-1${isClickable ? " cursor-pointer" : ""}`}
+      className={`group/square flex flex-col gap-1${isClickable ? " cursor-pointer" : ""}`}
     >
-      <div
-        className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[var(--surface-lift)] bg-cover bg-center text-[var(--content-secondary)]"
-        style={
-          hasImagePreview
-            ? { backgroundImage: `url(${JSON.stringify(previewUrl)})` }
-            : undefined
-        }
-      >
-        {hasImagePreview ? null : ICON_BY_KIND[kind]}
+      <div className="relative">
+        <div
+          className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[var(--surface-lift)] bg-cover bg-center text-[var(--content-secondary)]"
+          style={
+            hasImagePreview
+              ? { backgroundImage: `url(${JSON.stringify(previewUrl)})` }
+              : undefined
+          }
+        >
+          {hasImagePreview ? null : ICON_BY_KIND[kind]}
+        </div>
+        {hasOverlayActions && (
+          <div className="absolute inset-0 flex items-center justify-center gap-1 rounded-lg bg-black/50 opacity-0 transition-opacity group-hover/square:opacity-100 group-focus-within/square:opacity-100">
+            {onPreview && (
+              <Tooltip content="Preview">
+                <button
+                  type="button"
+                  onClick={handlePreviewClick}
+                  aria-label={`Preview ${filename}`}
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-white/80 transition-colors hover:bg-white/20 hover:text-white"
+                >
+                  <Eye className="h-4 w-4" />
+                </button>
+              </Tooltip>
+            )}
+            {onDownload && (
+              <Tooltip content="Download">
+                <button
+                  type="button"
+                  onClick={handleDownloadClick}
+                  aria-label={`Download ${filename}`}
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-white/80 transition-colors hover:bg-white/20 hover:text-white"
+                >
+                  <Download className="h-4 w-4" />
+                </button>
+              </Tooltip>
+            )}
+          </div>
+        )}
       </div>
       <Typography
         variant="label-small-default"

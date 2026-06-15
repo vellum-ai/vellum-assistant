@@ -1,8 +1,10 @@
 
+import { useCallback } from "react";
 import type { FC } from "react";
 
 import type { DisplayAttachment } from "@/domains/chat/types/types";
 
+import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { MessageAttachmentSquare } from "@/domains/chat/components/chat-attachments/message-attachment-square";
 import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments/use-attachment-preview";
 import { classifyAttachment } from "@/domains/chat/components/chat-attachments/utils";
@@ -29,6 +31,13 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
   assistantId,
 }) => {
   const { openPreview, previewModal } = useAttachmentPreview(assistantId);
+
+  const handleDownload = useCallback(
+    (att: DisplayAttachment) => {
+      void downloadAttachment(att, assistantId);
+    },
+    [assistantId],
+  );
 
   if (attachments.length === 0) {
     return null;
@@ -72,6 +81,7 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
               sizeBytes={att.sizeBytes}
               previewUrl={att.previewUrl}
               onPreview={() => openPreview(att)}
+              onDownload={() => handleDownload(att)}
             />
           );
         })}
