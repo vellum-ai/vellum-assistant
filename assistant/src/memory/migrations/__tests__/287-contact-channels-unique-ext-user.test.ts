@@ -401,7 +401,7 @@ describe("migration 287 — dedup case collisions + drop ext_user indexes", () =
     expect(channels).toHaveLength(2);
   });
 
-  test("normalizes lowercased address from external_user_id (single row, no collision)", () => {
+  test("does not normalize address casing (deferred to follow-up migration)", () => {
     const db = createTestDb();
     const raw = getSqliteFrom(db);
     bootstrap(db);
@@ -422,8 +422,8 @@ describe("migration 287 — dedup case collisions + drop ext_user indexes", () =
 
     const channels = getAllChannels(raw);
     expect(channels).toHaveLength(1);
-    // Address restored to original casing from externalUserId
-    expect(channels[0]!.address).toBe("U12345ABC");
+    // Address is NOT normalized — casing restoration deferred to later migration
+    expect(channels[0]!.address).toBe("u12345abc");
   });
 
   test("deduplicates rows sharing external_user_id but having different addresses", () => {
@@ -466,7 +466,7 @@ describe("migration 287 — dedup case collisions + drop ext_user indexes", () =
     expect(channels[0]!.address).toBe("U12345");
   });
 
-  test("cross-column collision: row with NULL ext_user_id blocks normalization", () => {
+  test("cross-column collision: row with NULL ext_user_id removed as blocker", () => {
     const db = createTestDb();
     const raw = getSqliteFrom(db);
     bootstrap(db);
@@ -499,10 +499,10 @@ describe("migration 287 — dedup case collisions + drop ext_user indexes", () =
     migrateContactChannelsUniqueExtUser(db);
 
     const channels = getAllChannels(raw);
-    // Blocker removed, normalizer updated to correct address
+    // Blocker removed; normalizer keeps its address (normalization deferred)
     expect(channels).toHaveLength(1);
     expect(channels[0]!.id).toBe("ch-normalizer");
-    expect(channels[0]!.address).toBe("U12345");
+    expect(channels[0]!.address).toBe("old-handle");
   });
 
   test("idempotent — safe to run twice", () => {

@@ -26,7 +26,6 @@ import {
 } from "../../db/schema.js";
 import { ipcCallAssistant } from "../../ipc/assistant-client.js";
 import { getLogger } from "../../logger.js";
-import { canonicalizeInboundIdentity } from "../../verification/identity.js";
 
 const log = getLogger("contact-prompt");
 
@@ -80,8 +79,7 @@ export async function handleContactPromptSubmit(
     );
   }
 
-  const normalizedAddress =
-    canonicalizeInboundIdentity(channelType, address.trim()) ?? address.trim();
+  const normalizedAddress = address.toLowerCase().trim();
   const effectiveDisplayName = displayName ?? normalizedAddress;
   // Map prompt roles to valid ContactRole values ("guardian" | "contact").
   const effectiveRole: string = role === "guardian" ? "guardian" : "contact";
