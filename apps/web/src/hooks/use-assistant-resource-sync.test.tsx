@@ -11,15 +11,17 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { AssistantEvent } from "@/types/event-types";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
+import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import {
   assistantDaemonConfigQueryKey,
   assistantIdentityQueryKey,
   assistantIdentityIntroQueryKey,
+  assistantSoundsConfigQueryKey,
+} from "@/utils/assistant-resource-keys";
+import {
   assistantScheduleUsageSummaryQueryKey,
   assistantSchedulesQueryKey,
-  assistantSoundsConfigQueryKey,
-  avatarQueryKey,
-} from "@/lib/sync/query-tags";
+} from "@/utils/schedule-query-keys";
 import { SYNC_TAGS } from "@/lib/sync/types";
 import type { SyncChangedEvent } from "@/lib/sync/types";
 import { __resetForTesting, publish } from "@/lib/event-bus";

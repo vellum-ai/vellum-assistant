@@ -30,7 +30,7 @@ import {
   backgroundConversationsQueryKey,
   conversationsQueryKey,
   scheduledConversationsQueryKey,
-} from "@/lib/sync/query-tags";
+} from "@/utils/conversation-list-keys";
 import {
   type ConversationListPage,
   listBackgroundConversationsFirstPage,

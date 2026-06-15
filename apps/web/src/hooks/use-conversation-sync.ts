@@ -37,7 +37,7 @@ import {
   archivedConversationsQueryKey,
   conversationGroupsQueryKey,
   originChannelListPrefix,
-} from "@/lib/sync/query-tags";
+} from "@/utils/conversation-list-keys";
 import { getClientId } from "@/lib/telemetry/client-identity";
 import {
   parseConversationSyncTag,

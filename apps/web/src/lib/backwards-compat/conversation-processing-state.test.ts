@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
 import { useActiveConversationIsProcessing } from "@/lib/backwards-compat/conversation-processing-state";
-import { conversationsQueryKey } from "@/lib/sync/query-tags";
+import { conversationsQueryKey } from "@/utils/conversation-list-keys";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";

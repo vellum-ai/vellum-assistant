@@ -8,7 +8,7 @@ import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
 import {
   assistantFlagValuesQueryKey,
   CLIENT_FLAG_QUERY_KEY,
-} from "@/lib/sync/query-tags";
+} from "@/utils/feature-flag-keys";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
 import {
   __resetForTesting,

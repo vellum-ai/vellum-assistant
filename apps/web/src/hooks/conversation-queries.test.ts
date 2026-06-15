@@ -18,7 +18,7 @@ import {
   conversationGroupsQueryKey,
   conversationsQueryKey,
   scheduledConversationsQueryKey,
-} from "@/lib/sync/query-tags";
+} from "@/utils/conversation-list-keys";
 import { patchConversation } from "@/utils/conversation-cache";
 import type {
   Conversation,

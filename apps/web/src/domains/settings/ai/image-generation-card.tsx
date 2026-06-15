@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { captureError } from "@/lib/sentry/capture-error";
-import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
+import { assistantDaemonConfigQueryKey } from "@/utils/assistant-resource-keys";
 import {
     getLocalSetting,
     setLocalSetting,

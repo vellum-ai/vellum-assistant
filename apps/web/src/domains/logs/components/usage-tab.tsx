@@ -53,7 +53,7 @@ import type {
     UsageTimeRange,
     UsageTotals,
 } from "@/domains/logs/usage-types";
-import { assistantSchedulesQueryKey } from "@/lib/sync/query-tags";
+import { assistantSchedulesQueryKey } from "@/utils/schedule-query-keys";
 import { storePendingInitialMessage } from "@/utils/initial-message-launch";
 import { routes } from "@/utils/routes";
 import { fetchSchedules, type AssistantSchedule } from "@/utils/schedules";

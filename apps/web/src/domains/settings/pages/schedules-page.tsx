@@ -29,7 +29,7 @@ import {
 } from "@/domains/settings/utils/schedule-formatters";
 import { captureError } from "@/lib/sentry/capture-error";
 import type { Schedule } from "@/domains/settings/types/schedules";
-import { assistantSchedulesQueryKey } from "@/lib/sync/query-tags";
+import { assistantSchedulesQueryKey } from "@/utils/schedule-query-keys";
 import { routes } from "@/utils/routes";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import { Button } from "@vellumai/design-library/components/button";

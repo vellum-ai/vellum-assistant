@@ -30,7 +30,7 @@ import {
   MODE_TONE,
 } from "@/domains/settings/utils/schedule-formatters";
 import { captureError } from "@/lib/sentry/capture-error";
-import { assistantScheduleRunsQueryKey } from "@/lib/sync/query-tags";
+import { assistantScheduleRunsQueryKey } from "@/utils/schedule-query-keys";
 import { fetchUsageProfileMetadata } from "@/utils/profile-metadata";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";

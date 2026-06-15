@@ -31,17 +31,19 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { getClientId } from "@/lib/telemetry/client-identity";
+import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import {
   assistantDaemonConfigQueryKey,
   assistantIdentityQueryKey,
   assistantIdentityIntroQueryKey,
+  assistantSoundsAvailableQueryKey,
+  assistantSoundsConfigQueryKey,
+} from "@/utils/assistant-resource-keys";
+import {
   assistantScheduleRunsQueryKey,
   assistantScheduleUsageSummaryQueryKey,
   assistantSchedulesQueryKey,
-  assistantSoundsAvailableQueryKey,
-  assistantSoundsConfigQueryKey,
-  avatarQueryKey,
-} from "@/lib/sync/query-tags";
+} from "@/utils/schedule-query-keys";
 import { SYNC_TAGS } from "@/lib/sync/types";
 
 /**

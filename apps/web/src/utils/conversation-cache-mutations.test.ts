@@ -9,7 +9,7 @@ import {
   scheduledConversationsQueryKey,
   archivedConversationsQueryKey,
   conversationGroupsQueryKey,
-} from "@/lib/sync/query-tags";
+} from "@/utils/conversation-list-keys";
 
 import {
   markConversationSeenLocal,

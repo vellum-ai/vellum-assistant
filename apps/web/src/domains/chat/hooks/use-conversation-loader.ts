@@ -35,7 +35,7 @@ import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useConversationListQuery } from "@/hooks/conversation-queries";
-import { conversationGroupsQueryKey } from "@/lib/sync/query-tags";
+import { conversationGroupsQueryKey } from "@/utils/conversation-list-keys";
 import type { Conversation } from "@/types/conversation-types";
 import { ApiError } from "@/utils/api-errors";
 import { invalidateConversationQueries } from "@/utils/conversation-cache";

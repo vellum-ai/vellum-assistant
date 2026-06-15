@@ -10,7 +10,7 @@ import {
   flagKeyToStoreKey,
 } from "@/lib/feature-flags/feature-flag-catalog";
 import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
-import { assistantFlagValuesQueryKey } from "@/lib/sync/query-tags";
+import { assistantFlagValuesQueryKey } from "@/utils/feature-flag-keys";
 
 interface FeatureFlagEntry {
   key: string;

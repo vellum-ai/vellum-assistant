@@ -12,7 +12,7 @@ import {
 } from "@/domains/chat/utils/stream-handlers/message-handlers";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
-import { conversationsQueryKey } from "@/lib/sync/query-tags";
+import { conversationsQueryKey } from "@/utils/conversation-list-keys";
 import { findConversation } from "@/utils/conversation-cache";
 import type { Conversation } from "@/types/conversation-types";
 

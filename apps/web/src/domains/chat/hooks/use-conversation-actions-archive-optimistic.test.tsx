@@ -42,7 +42,7 @@ import type { Conversation } from "@/types/conversation-types";
 import {
   archivedConversationsQueryKey,
   conversationsQueryKey,
-} from "@/lib/sync/query-tags";
+} from "@/utils/conversation-list-keys";
 
 // ---------------------------------------------------------------------------
 // Module mocks. Archive/unarchive impls are pulled from module-level holders

@@ -18,7 +18,7 @@ import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import {
   assistantFlagValuesQueryKey,
   CLIENT_FLAG_QUERY_KEY,
-} from "@/lib/sync/query-tags";
+} from "@/utils/feature-flag-keys";
 import { SYNC_TAGS } from "@/lib/sync/types";
 import { getClientId } from "@/lib/telemetry/client-identity";
 

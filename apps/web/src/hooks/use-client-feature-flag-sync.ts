@@ -11,7 +11,7 @@ import {
   flagKeyToStoreKey,
 } from "@/lib/feature-flags/feature-flag-catalog";
 import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
-import { CLIENT_FLAG_QUERY_KEY } from "@/lib/sync/query-tags";
+import { CLIENT_FLAG_QUERY_KEY } from "@/utils/feature-flag-keys";
 
 const VALID_BOOL_KEYS = new Set(Object.keys(CLIENT_FLAG_DEFAULTS));
 const VALID_STRING_KEYS = new Set(Object.keys(CLIENT_STRING_FLAG_DEFAULTS));

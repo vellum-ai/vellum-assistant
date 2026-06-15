@@ -23,7 +23,7 @@ import {
   replaceOptimisticGroup,
 } from "@/utils/conversation-cache-mutations";
 import { cancelConversationQueries, invalidateConversationQueries } from "@/utils/conversation-cache";
-import { conversationGroupsQueryKey } from "@/lib/sync/query-tags";
+import { conversationGroupsQueryKey } from "@/utils/conversation-list-keys";
 
 import { haptic } from "@/utils/haptics";
 import type { ConversationGroup } from "@/types/conversation-types";
