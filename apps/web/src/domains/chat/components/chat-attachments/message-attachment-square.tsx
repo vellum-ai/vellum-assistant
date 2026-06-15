@@ -94,7 +94,7 @@ export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
       }
       className={`group/square flex flex-col gap-1${isClickable ? " cursor-pointer" : ""}`}
     >
-      <div className="relative">
+      <div className="relative w-fit">
         <div
           className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[var(--surface-lift)] bg-cover bg-center text-[var(--content-secondary)]"
           style={
