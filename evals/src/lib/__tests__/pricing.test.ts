@@ -357,4 +357,55 @@ describe("priceUsageRecord", () => {
     expect(result.costUsd).toBeCloseTo(0.002, 6);
     expect(result.diagnostic).toBeUndefined();
   });
+
+  test("prices a Fireworks MiniMax-M3 record from its slash-prefixed model id", () => {
+    /**
+     * The `vellum-minimax` profile points the assistant at Fireworks'
+     * `accounts/fireworks/models/minimax-m3`. The recorder writes that full
+     * id, so the pricer must strip the `accounts/fireworks/models/` prefix
+     * down to the `minimax-m3` table key before looking up the rate.
+     */
+    // GIVEN a Fireworks record with the fully-qualified Fireworks model id
+    const record = {
+      provider: "fireworks",
+      model: "accounts/fireworks/models/minimax-m3",
+      input_tokens: 1_000_000,
+      output_tokens: 1_000_000,
+    };
+
+    // WHEN it is priced
+    const result = priceUsageRecord(record);
+
+    // THEN it bills at the catalog rate of $0.30 in + $1.20 out per 1M = 1.5
+    expect(result.costUsd).toBeCloseTo(1.5, 6);
+    expect(result.diagnostic).toBeUndefined();
+  });
+
+  test("prices Fireworks cached input tokens at the discounted cache-read rate", () => {
+    /**
+     * Fireworks is OpenAI-compatible, so its cached subset is folded into
+     * `prompt_tokens` (and thus `input_tokens`). The MiniMax-M3 catalog row
+     * bills cache reads at a discounted $0.06/1M, so the pricer must split
+     * the cached subset out of the inclusive input count and charge it at
+     * `cacheReadPer1M` rather than the full input rate — mirroring the
+     * daemon's non-Anthropic `calculateUsageCost` branch.
+     */
+    // GIVEN a Fireworks record whose `input_tokens` already includes an
+    // 800-token cache-read subset
+    const record = {
+      provider: "fireworks",
+      model: "accounts/fireworks/models/minimax-m3",
+      input_tokens: 1_000,
+      output_tokens: 0,
+      cache_read_input_tokens: 800,
+    };
+
+    // WHEN it is priced
+    const result = priceUsageRecord(record);
+
+    // THEN the 200 uncached tokens bill at $0.30/1M and the 800 cached
+    // tokens at $0.06/1M: 200 * 0.3/1M + 800 * 0.06/1M = 0.000108
+    expect(result.costUsd).toBeCloseTo(0.000108, 6);
+    expect(result.diagnostic).toBeUndefined();
+  });
 });

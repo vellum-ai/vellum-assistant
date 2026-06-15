@@ -61,9 +61,8 @@ export function consumePendingProviderKey(): PendingProviderKey | null {
   return value;
 }
 
-// Daemon wrappers via the generated SDK. Duplicated minimally here rather
-// than importing domains/settings/ai/provider-connections-client (cross-domain
-// imports are ESLint-gated in apps/web).
+// Daemon wrappers via the generated SDK. Duplicated minimally here because
+// cross-domain imports are ESLint-gated in apps/web.
 
 async function writeApiKeySecret(
   assistantId: string,

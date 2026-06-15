@@ -33,6 +33,16 @@ function settings(data: unknown): LLMContextSection {
   return { kind: "settings", label: "Request settings", data };
 }
 
+function toolCall(toolName: string, args: unknown): LLMContextSection {
+  return {
+    kind: "function_call",
+    label: `Request tool call (${toolName})`,
+    role: "assistant",
+    toolName,
+    data: args,
+  };
+}
+
 describe("computeCacheDiff", () => {
   test("reports no-previous when there is no earlier call", () => {
     const result = computeCacheDiff(
@@ -158,6 +168,29 @@ describe("computeCacheDiff", () => {
     const result = computeCacheDiff(current, previous);
     expect(result.cause).toBe("settings");
     expect(result.changedGroups.settings).toBe(true);
+  });
+
+  test("detects a tool swap when only the tool name differs", () => {
+    const previous = {
+      sections: [
+        system("a"),
+        message("user", "hi"),
+        toolCall("search", { query: "x" }),
+      ],
+      model: "claude",
+    };
+    const current = {
+      sections: [
+        system("a"),
+        message("user", "hi"),
+        toolCall("fetch", { query: "x" }),
+      ],
+      model: "claude",
+    };
+    const result = computeCacheDiff(current, previous);
+    expect(result.cause).toBe("messages");
+    expect(result.changedGroups.messages).toBe(true);
+    expect(result.firstChangedMessageIndex).toBe(1);
   });
 
   test("ignores object key ordering when comparing section data", () => {
