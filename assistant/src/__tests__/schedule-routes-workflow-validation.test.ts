@@ -24,12 +24,29 @@ mock.module("../config/loader.js", () => ({
   saveRawConfig: () => {},
 }));
 
+// Capture workflow-mode run-now dispatch. `handleRunScheduleNow`'s workflow
+// branch calls `getWorkflowRunManager().start(...)`; stub the singleton so the
+// trigger is observable without spinning up the real engine.
+const workflowStartCalls: Array<Record<string, unknown>> = [];
+mock.module("../workflows/run-manager.js", () => ({
+  getWorkflowRunManager: () => ({
+    start: (opts: Record<string, unknown>) => {
+      workflowStartCalls.push(opts);
+      return { runId: "wf-run-1" };
+    },
+  }),
+}));
+
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { BadRequestError } from "../runtime/routes/errors.js";
 import { ROUTES as SCHEDULE_ROUTES } from "../runtime/routes/schedule-routes.js";
 import type { RouteDefinition } from "../runtime/routes/types.js";
-import { createSchedule, listSchedules } from "../schedule/schedule-store.js";
+import {
+  createSchedule,
+  getScheduleRuns,
+  listSchedules,
+} from "../schedule/schedule-store.js";
 
 initializeDb();
 
@@ -52,6 +69,14 @@ function createRoute(): RouteDefinition {
     (r) => r.endpoint === "schedules" && r.method === "POST",
   );
   if (!route) throw new Error("POST schedules route not found");
+  return route;
+}
+
+function runNowRoute(): RouteDefinition {
+  const route = SCHEDULE_ROUTES.find(
+    (r) => r.endpoint === "schedules/:id/run" && r.method === "POST",
+  );
+  if (!route) throw new Error("POST schedules/:id/run route not found");
   return route;
 }
 
@@ -228,5 +253,69 @@ describe("POST /schedules — workflow mode does not require a message", () => {
         },
       }),
     ).toThrow("message is required");
+  });
+});
+
+describe("POST /schedules/:id/run — workflow mode triggers the workflow", () => {
+  beforeEach(() => {
+    clearTables();
+    workflowStartCalls.length = 0;
+  });
+
+  test("starts the saved workflow instead of running a message turn", async () => {
+    const schedule = createSchedule({
+      name: "Nightly triage",
+      cronExpression: "0 9 * * *",
+      message: "", // workflow mode carries no message
+      syntax: "cron",
+      mode: "workflow",
+      workflowName: "triage-inbox",
+      workflowArgs: { scope: "unread" },
+    });
+
+    const result = (await runNowRoute().handler({
+      pathParams: { id: schedule.id },
+    })) as { schedules: Array<{ id: string }> };
+
+    // The workflow was launched with the read-only baseline manifest and
+    // guardian trust, forwarding name + args — not a message turn.
+    expect(workflowStartCalls).toHaveLength(1);
+    const call = workflowStartCalls[0]!;
+    expect(call.name).toBe("triage-inbox");
+    expect(call.args).toEqual({ scope: "unread" });
+    expect(call.manifest).toEqual({
+      tools: [],
+      hostFunctions: [],
+      persona: false,
+    });
+    expect((call.trustContext as { trustClass: string }).trustClass).toBe(
+      "guardian",
+    );
+
+    // A schedule run row was recorded as ok with the workflow run id.
+    const runs = getScheduleRuns(schedule.id);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].status).toBe("ok");
+    expect(runs[0].output).toContain("wf-run-1");
+    // Response is the standard schedule list.
+    expect(Array.isArray(result.schedules)).toBe(true);
+  });
+
+  test("rejects a workflow schedule with no workflowName", async () => {
+    // Defensive guard mirroring the scheduler's automatic firing path; a
+    // nameless workflow schedule cannot be created via the routes, but the store
+    // does not enforce it, so run-now must fail fast rather than fall through.
+    const schedule = createSchedule({
+      name: "Nameless workflow",
+      cronExpression: "0 9 * * *",
+      message: "",
+      syntax: "cron",
+      mode: "workflow",
+    });
+
+    await expect(
+      runNowRoute().handler({ pathParams: { id: schedule.id } }),
+    ).rejects.toThrow("workflowName");
+    expect(workflowStartCalls).toHaveLength(0);
   });
 });

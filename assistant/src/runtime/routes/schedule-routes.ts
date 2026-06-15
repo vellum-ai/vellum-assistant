@@ -41,6 +41,7 @@ import {
 } from "../../schedule/schedule-store.js";
 import { getScheduleUsageSummaries } from "../../schedule/schedule-usage-store.js";
 import { getLogger } from "../../util/logger.js";
+import { getWorkflowRunManager } from "../../workflows/run-manager.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { parseEpochMillisRange } from "./epoch-millis-range.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
@@ -925,6 +926,58 @@ async function handleRunScheduleNow(id: string) {
       log.warn(
         { err, jobId: schedule.id, name: schedule.name },
         "Manual script schedule execution failed",
+      );
+      completeScheduleRun(runId, { status: "error", error: errorMsg });
+    }
+    return handleListSchedules({});
+  }
+
+  // ── Workflow mode (trigger a saved workflow by name) ──────────────
+  // Mirrors the scheduler's automatic workflow-firing branch. Without this, a
+  // workflow-mode schedule manually triggered via `POST /schedules/:id/run`
+  // would fall through to the regular message path below and process
+  // `schedule.message` (usually empty — workflow-mode create no longer requires
+  // a message), running a no-op normal turn instead of the workflow.
+  if (schedule.mode === "workflow") {
+    // Fail fast at the route when the flag is off (the run manager would also
+    // hard-fail with WorkflowsDisabledError); matches create/update handling.
+    assertWorkflowsEnabled();
+    if (!schedule.workflowName) {
+      throw new BadRequestError("Workflow schedule has no workflowName");
+    }
+    const runId = createScheduleRun(schedule.id, `workflow:${schedule.id}`);
+    try {
+      log.info(
+        {
+          jobId: schedule.id,
+          name: schedule.name,
+          workflowName: schedule.workflowName,
+        },
+        "Triggering workflow schedule manually (run now)",
+      );
+      // V1 LIMITATION: scheduled workflows run with the read-only baseline
+      // manifest only (no tools / host functions / persona), exactly as the
+      // scheduler's automatic firing path does — the schedule record carries no
+      // capability manifest.
+      const { runId: workflowRunId } = getWorkflowRunManager().start({
+        name: schedule.workflowName,
+        args: schedule.workflowArgs ?? {},
+        conversationId: schedule.wakeConversationId ?? undefined,
+        manifest: { tools: [], hostFunctions: [], persona: false },
+        trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
+      });
+      // `start` launches the run fire-and-forget and returns synchronously;
+      // a successful trigger is recorded as ok. Completion/failure is surfaced
+      // out-of-band via workflow events and the completion wake.
+      completeScheduleRun(runId, {
+        status: "ok",
+        output: `workflow run ${workflowRunId} started`,
+      });
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      log.warn(
+        { err, jobId: schedule.id, name: schedule.name },
+        "Manual workflow schedule execution failed",
       );
       completeScheduleRun(runId, { status: "error", error: errorMsg });
     }
