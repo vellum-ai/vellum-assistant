@@ -500,11 +500,19 @@ function CastFlowBody({
   onCompleted,
   onHandoffError,
   emitFunnelStep,
+  isPreview,
 }: {
   completedData: CastCompletionData | null;
   onCompleted: (data: CastCompletionData) => void;
   onHandoffError: (message: string) => void;
   emitFunnelStep: EmitCastFunnelStep;
+  /**
+   * Preview (`?preview=true`) renders the flow purely visually — no side
+   * effects. The background hatch and the real handoff (hatch + select +
+   * stash context + auto-send) are gated off, mirroring how
+   * `pages/pre-chat-flow.tsx` skips its real completion in preview.
+   */
+  isPreview: boolean;
 }) {
   const navigate = useNavigate();
   const { start, awaitReady } = useBackgroundHatch();
@@ -552,17 +560,21 @@ function CastFlowBody({
 
   // On a (re)mount that already has completion data — i.e. a retry — provision a
   // fresh hatch (the user is past the login step, so nothing else triggers it)
-  // and replay the handoff. Ref-guarded so it fires once per mount.
+  // and replay the handoff. Ref-guarded so it fires once per mount. Inert in
+  // preview (retry isn't reachable in preview since the handoff never runs).
   useEffect(() => {
-    if (!completedData || handoffStartedRef.current) return;
+    if (isPreview || !completedData || handoffStartedRef.current) return;
     handoffStartedRef.current = true;
     start();
     void runHandoff(completedData);
     // runHandoff/start are stable for the lifetime of this mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [completedData]);
+  }, [completedData, isPreview]);
 
   function handleComplete(data: CastCompletionData) {
+    // Preview is purely visual: let the flow advance but run no handoff (no
+    // hatch readiness wait, no context stash, no select/auto-send, no nav).
+    if (isPreview) return;
     if (handoffStartedRef.current) return;
     handoffStartedRef.current = true;
     onCompleted(data);
@@ -572,11 +584,15 @@ function CastFlowBody({
   return (
     <InteractiveCastFlow
       onComplete={handleComplete}
-      onLoginPhase={start}
+      // In preview the login phase must NOT kick off the background hatch.
+      onLoginPhase={isPreview ? noop : start}
       emitFunnelStep={emitFunnelStep}
     />
   );
 }
+
+/** Stable no-op for inert preview wiring. */
+function noop(): void {}
 
 export function CastOnboardingFlow() {
   // Captured completion data survives a retry remount; bumping `attempt`
@@ -620,6 +636,7 @@ export function CastOnboardingFlow() {
         onCompleted={setCompletedData}
         onHandoffError={setHandoffError}
         emitFunnelStep={emitFunnelStep}
+        isPreview={isPreview}
       />
       {handoffError !== null && (
         <div className="cast-handoff-error" role="alert">

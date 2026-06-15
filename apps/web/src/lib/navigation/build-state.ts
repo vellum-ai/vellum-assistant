@@ -26,6 +26,16 @@ function isCastArm(): boolean {
   );
 }
 
+// Whether the client feature-flag fetch has settled, so the cast-arm decision
+// can be trusted. Read off the store's `loaded`. Guarded `false` in local mode,
+// consistent with how `isCastArm` is gated there — the activation experiment
+// never runs locally, and the local-mode branch of `requireAssistant` returns
+// before the settle check, so this never makes local users wait.
+function activationArmSettled(): boolean {
+  if (isLocalMode()) return false;
+  return useClientFeatureFlagStore.getState().loaded;
+}
+
 export function buildNavigationState(
   overrides?: Partial<NavigationState>,
 ): NavigationState {
@@ -40,6 +50,7 @@ export function buildNavigationState(
     tosAccepted: readTosAccepted(),
     aiDataConsent: readAiDataConsent(),
     isCastArm: isCastArm(),
+    activationArmSettled: activationArmSettled(),
     ...overrides,
   };
 }

@@ -45,7 +45,7 @@ function mapFlags(
 
 export function useClientFeatureFlagSync(enabled: boolean) {
   const freshness = useFlagQueryFreshness();
-  const { data } = useQuery({
+  const { data, isFetched } = useQuery({
     queryKey: CLIENT_FLAG_QUERY_KEY,
     queryFn: fetchClientFlagValues,
     enabled,
@@ -63,6 +63,17 @@ export function useClientFeatureFlagSync(enabled: boolean) {
       }
     }
   }, [data]);
+
+  // Mark the store `loaded` once the query SETTLES — `isFetched` is true on
+  // success AND on terminal error (react-query's `isFetched`, same signal
+  // `useActivationFlowArm` exposes as `settled`). Persisting it into the store
+  // lets the synchronous `buildNavigationState()` know the arm is no longer
+  // unknown, so a failed fetch doesn't hang the route guard forever.
+  useEffect(() => {
+    if (isFetched) {
+      useClientFeatureFlagStore.getState().setLoaded();
+    }
+  }, [isFetched]);
 }
 
 const ACTIVATION_FLOW_STORE_KEY = "experimentActivationFlow20260603";

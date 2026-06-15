@@ -75,10 +75,12 @@ mock.module("@/stores/resolved-assistants-store", () => ({
 }));
 
 const setSearchParamsMock = mock(() => {});
+// Mutable so individual tests can flip the flow into preview mode.
+let searchParamsValue = new URLSearchParams();
 mock.module("react-router", () => ({
   useNavigate: () => navigateMock,
   useSearchParams: () =>
-    [new URLSearchParams(), setSearchParamsMock] as const,
+    [searchParamsValue, setSearchParamsMock] as const,
 }));
 
 // --- cast screens (driven via testid buttons) --------------------------------
@@ -178,6 +180,7 @@ async function completeFlow(): Promise<void> {
 }
 
 beforeEach(() => {
+  searchParamsValue = new URLSearchParams();
   awaitReadyImpl = async () => "asst-ready";
   startMock.mockClear();
   awaitReadyMock.mockClear();
@@ -269,5 +272,29 @@ describe("CastOnboardingFlow handoff", () => {
     await waitFor(() => expect(setPendingPreChatContextMock).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(navigateMock).toHaveBeenCalledTimes(1));
     expect(setActiveAssistantIdMock).toHaveBeenCalledWith("asst-retry");
+  });
+
+  // -- preview mode: purely visual, zero side effects -------------------------
+
+  test("preview does not start the background hatch on login-phase entry", async () => {
+    searchParamsValue = new URLSearchParams("preview=true");
+    render(<CastOnboardingFlow />);
+    await screen.findByTestId("login-continue");
+    expect(startMock).not.toHaveBeenCalled();
+  });
+
+  test("preview runs no handoff on completion (no hatch wait, no stash, no nav)", async () => {
+    searchParamsValue = new URLSearchParams("preview=true");
+    render(<CastOnboardingFlow />);
+    await completeFlow();
+    await drainMicrotasks();
+
+    expect(startMock).not.toHaveBeenCalled();
+    expect(awaitReadyMock).not.toHaveBeenCalled();
+    expect(setPendingPreChatContextMock).not.toHaveBeenCalled();
+    expect(setPendingAssistantNameMock).not.toHaveBeenCalled();
+    expect(setActiveAssistantIdMock).not.toHaveBeenCalled();
+    expect(setSelectedAssistantMock).not.toHaveBeenCalled();
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 });
