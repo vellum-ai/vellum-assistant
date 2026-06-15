@@ -2,7 +2,11 @@
  * Channel delivery routes: delivery ack, dead letters, reply delivery,
  * and post-decision delivery scheduling.
  */
-import { acknowledgeDelivery, getDeadLetterEvents, replayDeadLetters } from "../../memory/delivery-status.js";
+import {
+  acknowledgeDelivery,
+  getDeadLetterEvents,
+  replayDeadLetters,
+} from "../../memory/delivery-status.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteHandlerArgs } from "./types.js";
 
@@ -10,6 +14,7 @@ export {
   type DeliverReplyOptions,
   deliverReplyViaCallback,
 } from "../channel-reply-delivery.js";
+export { finalizeEventDelivery } from "../finalize-event-delivery.js";
 
 // ---------------------------------------------------------------------------
 // Dead letter management
@@ -36,12 +41,11 @@ export function handleReplayDeadLetters({ body = {} }: RouteHandlerArgs) {
 // ---------------------------------------------------------------------------
 
 export function handleChannelDeliveryAck({ body = {} }: RouteHandlerArgs) {
-  const { sourceChannel, conversationExternalId, externalMessageId } =
-    body as {
-      sourceChannel?: string;
-      conversationExternalId?: string;
-      externalMessageId?: string;
-    };
+  const { sourceChannel, conversationExternalId, externalMessageId } = body as {
+    sourceChannel?: string;
+    conversationExternalId?: string;
+    externalMessageId?: string;
+  };
 
   if (!sourceChannel || typeof sourceChannel !== "string") {
     throw new BadRequestError("sourceChannel is required");
