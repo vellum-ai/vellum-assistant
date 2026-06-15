@@ -55,8 +55,8 @@ export function up(): MigrationResult {
 
   log.info("Deduplicated contact_channels by (type, address) case-insensitive");
 
-  // Deduplicate by (type, external_user_id) so that normalization below
-  // cannot produce address collisions.
+  // Deduplicate by (type, external_user_id) so that a future
+  // normalization (SET address = external_user_id) cannot produce collisions.
   db.exec(/*sql*/ `
     DELETE FROM contact_channels
     WHERE external_user_id IS NOT NULL
