@@ -357,4 +357,52 @@ describe("priceUsageRecord", () => {
     expect(result.costUsd).toBeCloseTo(0.002, 6);
     expect(result.diagnostic).toBeUndefined();
   });
+
+  test("prices a Fireworks MiniMax-M3 record from its slash-prefixed model id", () => {
+    /**
+     * The `vellum-minimax` profile points the assistant at Fireworks'
+     * `accounts/fireworks/models/minimax-m3`. The recorder writes that full
+     * id, so the pricer must strip the `accounts/fireworks/models/` prefix
+     * down to the `minimax-m3` table key before looking up the rate.
+     */
+    // GIVEN a Fireworks record with the fully-qualified Fireworks model id
+    const record = {
+      provider: "fireworks",
+      model: "accounts/fireworks/models/minimax-m3",
+      input_tokens: 1_000_000,
+      output_tokens: 1_000_000,
+    };
+
+    // WHEN it is priced
+    const result = priceUsageRecord(record);
+
+    // THEN it bills at the catalog rate of $0.30 in + $1.20 out per 1M = 1.5
+    expect(result.costUsd).toBeCloseTo(1.5, 6);
+    expect(result.diagnostic).toBeUndefined();
+  });
+
+  test("does not double-bill cached input tokens for Fireworks", () => {
+    /**
+     * Fireworks is OpenAI-compatible, so its cached subset is already folded
+     * into `prompt_tokens` (and thus `input_tokens`). The additive cache path
+     * stays Anthropic-only; Fireworks must price the inclusive input count
+     * once, mirroring the OpenAI treatment above.
+     */
+    // GIVEN a Fireworks record whose `input_tokens` already includes its
+    // cache-read subset
+    const record = {
+      provider: "fireworks",
+      model: "accounts/fireworks/models/minimax-m3",
+      input_tokens: 1_000,
+      output_tokens: 0,
+      cache_read_input_tokens: 800,
+    };
+
+    // WHEN it is priced
+    const result = priceUsageRecord(record);
+
+    // THEN cost is just the input rate on the inclusive count: 1k * 0.3/1M
+    expect(result.costUsd).toBeCloseTo(0.0003, 6);
+    expect(result.diagnostic).toBeUndefined();
+  });
 });

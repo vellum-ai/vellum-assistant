@@ -1,8 +1,8 @@
 """
-Pure-function Anthropic /v1/messages usage parser.
+Pure-function usage parsers for the egress recorder.
 
 The mitmproxy addon (`addon.py`) is a thin event-handler shim around this
-module: for every HTTPS response intercepted on `api.anthropic.com`, the
+module: for every HTTPS response intercepted on a metered model host, the
 addon calls one of these parse_* functions with the raw response bytes and
 writes the returned dict (if any) to the per-run NDJSON usage log.
 
@@ -10,30 +10,49 @@ Keeping the parsing logic in a stand-alone module without mitmproxy
 imports means the tests can exercise it directly with realistic JSON
 fixtures, no docker / no network. mitmproxy is only the transport.
 
-Two response shapes are recognized:
+Two wire formats are parsed, each with a streaming and a non-streaming
+shape:
 
-1. **Non-streaming `/v1/messages`** — request body has `stream != true`,
-   response is a single JSON document with a top-level `usage` object
-   (see https://docs.anthropic.com/en/api/messages). The dict carries
+**Anthropic `/v1/messages`** (`parse_anthropic_messages_response`):
+
+1. **Non-streaming** — request body has `stream != true`, response is a
+   single JSON document with a top-level `usage` object (see
+   https://docs.anthropic.com/en/api/messages). The dict carries
    `input_tokens`, `output_tokens`, optionally
    `cache_creation_input_tokens` + `cache_read_input_tokens`, and — when
    prompt caching is in play — a `cache_creation` object splitting the
    write into `ephemeral_5m_input_tokens` / `ephemeral_1h_input_tokens`
    (priced at different TTL rates).
 
-2. **Streaming `/v1/messages`** — request body has `stream: true`,
-   response is a `text/event-stream` body. The model emits a
-   `message_start` event whose `message.usage` carries the prompt-side
-   counters with `output_tokens: 0`, then a sequence of
-   `content_block_*` events, then a `message_delta` event whose
-   `usage.output_tokens` carries the COMPLETION-side counter. The final
-   per-request totals are the union (input + cache fields from
-   `message_start`, output from `message_delta`).
+2. **Streaming** — request body has `stream: true`, response is a
+   `text/event-stream` body. The model emits a `message_start` event
+   whose `message.usage` carries the prompt-side counters with
+   `output_tokens: 0`, then a sequence of `content_block_*` events, then
+   a `message_delta` event whose `usage.output_tokens` carries the
+   COMPLETION-side counter. The final per-request totals are the union
+   (input + cache fields from `message_start`, output from
+   `message_delta`).
 
-Both paths funnel through `parse_anthropic_messages_response` which
-returns a normalized dict shaped like the evals harness's existing
-`event.message.usage` records — so downstream `summarizeAssistantUsage`
-can consume them without any new shape awareness.
+**OpenAI-compatible `/chat/completions`**
+(`parse_openai_chat_completions_response`) — shared by OpenAI itself
+(`/v1/chat/completions`) and Fireworks
+(`/inference/v1/chat/completions`), which serves open-weight models like
+MiniMax-M3 behind the same API (see
+https://platform.openai.com/docs/api-reference/chat):
+
+1. **Non-streaming** — a single JSON document with a top-level `usage`
+   object carrying `prompt_tokens` / `completion_tokens`.
+
+2. **Streaming** — a `text/event-stream` body. Because the assistant
+   always sends `stream_options: { include_usage: true }`, the server
+   emits a terminal chunk with a populated top-level `usage` object and
+   an empty `choices` array just before the `data: [DONE]` sentinel.
+
+Both entry points return a normalized dict shaped like the evals
+harness's existing `event.message.usage` records (`provider`, `model`,
+top-level `input_tokens` / `output_tokens`, plus the raw `usage` object)
+— so downstream `summarizeAssistantUsage` and the pricing table can
+consume them without any new shape awareness.
 """
 
 from __future__ import annotations
@@ -229,3 +248,136 @@ def parse_anthropic_messages_response(
     if isinstance(req, dict) and req.get("stream") is True:
         return _parse_anthropic_streaming(response_body)
     return _parse_anthropic_non_streaming(response_body)
+
+
+def _usage_record_from_openai_usage(
+    provider: str,
+    model: Optional[str],
+    usage: dict,
+) -> dict:
+    """Project an OpenAI-compatible `usage` object onto the evals record shape.
+
+    OpenAI / Fireworks chat-completions report `prompt_tokens` (the full
+    prompt count, with the cached subset already included) and
+    `completion_tokens`. Those map onto the evals record's `input_tokens`
+    / `output_tokens` — the same flat shape `summarizeAssistantUsage` and
+    the pricing table read for Anthropic.
+
+    The cached subset lives in `usage.prompt_tokens_details.cached_tokens`
+    but is already counted inside `prompt_tokens`, so it is left folded in:
+    the evals pricer charges non-Anthropic cache through the base input
+    rate rather than as a separate discounted tier (see
+    `src/lib/pricing.ts`). Hoisting it to a top-level
+    `cache_read_input_tokens` would not change the price and would risk a
+    future double-count, so only the raw `usage` object preserves it (for
+    report display).
+
+    `provider` is supplied by the caller (`"openai"` or `"fireworks"`)
+    because the wire format is identical across both — only the host the
+    addon observed disambiguates them.
+    """
+    record: dict = {"provider": provider, "usage": usage}
+    if model:
+        record["model"] = model
+    input_tokens = _coerce_int(usage.get("prompt_tokens"))
+    output_tokens = _coerce_int(usage.get("completion_tokens"))
+    if input_tokens is not None:
+        record["input_tokens"] = input_tokens
+    if output_tokens is not None:
+        record["output_tokens"] = output_tokens
+    return record
+
+
+def _parse_openai_non_streaming(
+    provider: str, response_body: bytes
+) -> Optional[dict]:
+    """Parse a non-streaming chat-completions response body."""
+    try:
+        payload = json.loads(response_body)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    usage = payload.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    model = payload.get("model")
+    if not isinstance(model, str):
+        model = None
+    return _usage_record_from_openai_usage(provider, model, usage)
+
+
+def _parse_openai_streaming(
+    provider: str, response_body: bytes
+) -> Optional[dict]:
+    """Pull the usage + model out of a chat-completions SSE stream.
+
+    With `stream_options: { include_usage: true }` — which the assistant
+    always sends for OpenAI-compatible providers — the server emits a
+    terminal chunk carrying a populated top-level `usage` object and an
+    empty `choices` array, just before the `data: [DONE]` sentinel. Every
+    content chunk carries the resolved `model`. The last populated `usage`
+    dict and the last `model` seen are taken so a stray earlier null-usage
+    chunk can't shadow the real totals.
+    """
+    events = _parse_sse_events(response_body)
+    if not events:
+        return None
+
+    model: Optional[str] = None
+    usage: Optional[dict] = None
+    for event in events:
+        if isinstance(event.get("model"), str):
+            model = event["model"]
+        candidate = event.get("usage")
+        if isinstance(candidate, dict) and candidate:
+            usage = candidate
+
+    if usage is None:
+        return None
+    return _usage_record_from_openai_usage(provider, model, usage)
+
+
+def parse_openai_chat_completions_response(
+    provider: str,
+    request_path: str,
+    request_body: bytes,
+    response_content_type: str,
+    response_body: bytes,
+) -> Optional[dict]:
+    """Top-level entry point for OpenAI-compatible chat-completions.
+
+    Shared by every provider that speaks the OpenAI chat-completions wire
+    format — OpenAI itself (`/v1/chat/completions`) and Fireworks
+    (`/inference/v1/chat/completions`, which fronts open-weight models like
+    MiniMax-M3). `provider` is the label written onto the record so the
+    evals pricer can key on `<provider>:<model>`; the caller derives it
+    from the observed host.
+
+    Returns `None` when the response carries no usage record — either
+    because it isn't a chat-completions response or the body is malformed.
+    `None` tells the addon to skip writing an NDJSON line.
+    """
+    # Match on the path component only, so a `?` query string can't defeat
+    # the suffix check. Fireworks posts to `/inference/v1/chat/completions`
+    # and OpenAI to `/v1/chat/completions`; both share the trailing
+    # `/chat/completions`. Embeddings / models endpoints carry no usable
+    # usage record and don't end in `/chat/completions`, so they're skipped.
+    path_only = urlsplit(request_path).path
+    if not path_only.endswith("/chat/completions"):
+        return None
+    # SSE streaming responses have content-type "text/event-stream".
+    # Non-streaming responses are "application/json".
+    if "text/event-stream" in response_content_type.lower():
+        return _parse_openai_streaming(provider, response_body)
+    if "application/json" in response_content_type.lower():
+        return _parse_openai_non_streaming(provider, response_body)
+    # Some intermediate proxies omit the content-type; fall back to
+    # inspecting the request body's `stream` flag.
+    try:
+        req = json.loads(request_body) if request_body else {}
+    except (json.JSONDecodeError, ValueError):
+        req = {}
+    if isinstance(req, dict) and req.get("stream") is True:
+        return _parse_openai_streaming(provider, response_body)
+    return _parse_openai_non_streaming(provider, response_body)

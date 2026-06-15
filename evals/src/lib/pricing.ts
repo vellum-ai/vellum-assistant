@@ -10,8 +10,9 @@
  * Instead, evals carries this tiny local table to convert
  * `assistant events --json` usage records into dollar amounts on the
  * report. It deliberately covers only the providers and models we
- * actually point evals profiles at today — Anthropic Claude and OpenAI
- * GPT. Adding a new model that an eval run touches is a one-line edit
+ * actually point evals profiles at today — Anthropic Claude, OpenAI
+ * GPT, and Fireworks-hosted open-weight models (e.g. MiniMax-M3).
+ * Adding a new model that an eval run touches is a one-line edit
  * here; until the row exists, `priceUsageRecord` emits an
  * `unpriced_model` diagnostic so the report's Usage section explains
  * exactly which provider/model pair lacks coverage instead of silently
@@ -107,6 +108,15 @@ const PRICING_TABLE: Record<string, ModelRow> = {
   "openai:o3": { inputPer1M: 2.0, outputPer1M: 8.0 },
   "openai:o3-mini": { inputPer1M: 1.1, outputPer1M: 4.4 },
   "openai:o4-mini": { inputPer1M: 1.1, outputPer1M: 4.4 },
+
+  // Fireworks — open-weight models served on Fireworks' own infra,
+  // priced per the `accounts/fireworks/models/*` catalog rows in
+  // `assistant/src/providers/model-catalog.ts`. MiniMax-M3 is what the
+  // `vellum-minimax` eval profile points at. Fireworks is
+  // OpenAI-compatible (chat-completions wire format), so its cached
+  // tokens fold into `prompt_tokens` and are priced through the base
+  // input rate — no separate cache tier, mirroring the OpenAI rows.
+  "fireworks:minimax-m3": { inputPer1M: 0.3, outputPer1M: 1.2 },
 };
 
 /**
@@ -154,8 +164,11 @@ function readProvider(record: Record<string, unknown>): string | undefined {
 function readModel(record: Record<string, unknown>): string | undefined {
   const value = record.model;
   if (typeof value !== "string" || value.trim().length === 0) return undefined;
-  // Strip OpenRouter-style `anthropic/` prefix so the table key matches
-  // the bare model id stored in PRICING_TABLE.
+  // Reduce a slash-qualified model id to its final segment so the table
+  // key matches the bare model id stored in PRICING_TABLE. This covers
+  // both the OpenRouter-style `anthropic/<model>` prefix and Fireworks'
+  // `accounts/fireworks/models/<model>` path, which both collapse to the
+  // trailing `<model>`.
   const bare = value.includes("/") ? value.split("/").pop()! : value;
   // Lowercase so a record with `"Claude-Sonnet-4-6"` still hits a
   // lowercase table row. PRICING_TABLE is lowercase by construction.

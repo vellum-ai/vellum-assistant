@@ -5,8 +5,8 @@ Plain `unittest`, no third-party deps. Runnable as:
 
     python3 -m unittest evals/src/lib/egress/recording/test_usage_parser.py
 
-The Bun test sweep shells out to this via `recording-parser.test.ts` so
-the Python parser stays covered alongside the TypeScript surface.
+The `python-egress-checks` CI job runs these via
+`python3 -m unittest discover -p 'test_*.py'` in this directory.
 """
 
 from __future__ import annotations
@@ -16,8 +16,11 @@ import unittest
 
 from usage_parser import (
     parse_anthropic_messages_response,
+    parse_openai_chat_completions_response,
     _parse_anthropic_non_streaming,
     _parse_anthropic_streaming,
+    _parse_openai_non_streaming,
+    _parse_openai_streaming,
 )
 
 
@@ -262,6 +265,361 @@ class StreamingTests(unittest.TestCase):
                 "usage": {"input_tokens": 10},
             },
         )
+
+
+# --- OpenAI-compatible (OpenAI + Fireworks) chat-completions fixtures ---
+
+MINIMAX_MODEL = "accounts/fireworks/models/minimax-m3"
+
+OPENAI_NON_STREAMING_REQUEST_BODY = json.dumps(
+    {
+        "model": MINIMAX_MODEL,
+        "messages": [{"role": "user", "content": "hi"}],
+    }
+).encode("utf-8")
+
+OPENAI_STREAMING_REQUEST_BODY = json.dumps(
+    {
+        "model": MINIMAX_MODEL,
+        "messages": [{"role": "user", "content": "hi"}],
+        "stream": True,
+        "stream_options": {"include_usage": True},
+    }
+).encode("utf-8")
+
+
+def _openai_non_streaming_response() -> bytes:
+    return json.dumps(
+        {
+            "id": "chatcmpl-01",
+            "object": "chat.completion",
+            "model": MINIMAX_MODEL,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "Hello!"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 1234,
+                "completion_tokens": 567,
+                "total_tokens": 1801,
+                # Cached subset is already folded into prompt_tokens.
+                "prompt_tokens_details": {"cached_tokens": 200},
+            },
+        }
+    ).encode("utf-8")
+
+
+def _openai_streaming_response() -> bytes:
+    # Shape of the SSE frames an OpenAI-compatible server sends when
+    # `stream_options: {include_usage: true}` is set: content chunks carry
+    # `choices`, then a terminal chunk carries an empty `choices` array and
+    # the populated top-level `usage`, then the `[DONE]` sentinel.
+    frames = [
+        "data: "
+        + json.dumps(
+            {
+                "id": "chatcmpl-02",
+                "object": "chat.completion.chunk",
+                "model": MINIMAX_MODEL,
+                "choices": [
+                    {"index": 0, "delta": {"role": "assistant"}}
+                ],
+            }
+        ),
+        "data: "
+        + json.dumps(
+            {
+                "id": "chatcmpl-02",
+                "object": "chat.completion.chunk",
+                "model": MINIMAX_MODEL,
+                "choices": [
+                    {"index": 0, "delta": {"content": "Hi"}}
+                ],
+            }
+        ),
+        "data: "
+        + json.dumps(
+            {
+                "id": "chatcmpl-02",
+                "object": "chat.completion.chunk",
+                "model": MINIMAX_MODEL,
+                "choices": [],
+                "usage": {
+                    "prompt_tokens": 2000,
+                    "completion_tokens": 800,
+                    "total_tokens": 2800,
+                },
+            }
+        ),
+        "data: [DONE]",
+    ]
+    return "\n\n".join(frames).encode("utf-8")
+
+
+class OpenAICompatibleNonStreamingTests(unittest.TestCase):
+    def test_maps_prompt_and_completion_tokens_to_input_and_output(self) -> None:
+        """
+        Tests that a non-streaming chat-completions body maps
+        prompt/completion tokens onto the evals record's input/output.
+        """
+        # GIVEN a non-streaming Fireworks chat-completions response
+        body = _openai_non_streaming_response()
+
+        # WHEN it is parsed with the fireworks provider label
+        record = _parse_openai_non_streaming("fireworks", body)
+
+        # THEN prompt_tokens -> input_tokens, completion_tokens -> output_tokens
+        # AND the provider + model + raw usage are preserved
+        self.assertEqual(
+            record,
+            {
+                "provider": "fireworks",
+                "model": MINIMAX_MODEL,
+                "input_tokens": 1234,
+                "output_tokens": 567,
+                "usage": {
+                    "prompt_tokens": 1234,
+                    "completion_tokens": 567,
+                    "total_tokens": 1801,
+                    "prompt_tokens_details": {"cached_tokens": 200},
+                },
+            },
+        )
+
+    def test_does_not_hoist_cached_tokens_to_top_level(self) -> None:
+        """
+        Tests that the cached-token subset is left folded into
+        prompt_tokens rather than hoisted to cache_read_input_tokens.
+        """
+        # GIVEN a response whose usage carries prompt_tokens_details.cached_tokens
+        body = _openai_non_streaming_response()
+
+        # WHEN it is parsed
+        record = _parse_openai_non_streaming("fireworks", body)
+        assert record is not None
+
+        # THEN no separate top-level cache_read_input_tokens field is added
+        # (so the pricer charges the full prompt at the base input rate)
+        self.assertNotIn("cache_read_input_tokens", record)
+        self.assertEqual(record["input_tokens"], 1234)
+
+    def test_labels_record_with_the_provider_argument(self) -> None:
+        """
+        Tests that the provider label is taken from the caller's argument,
+        since OpenAI and Fireworks share an identical wire format.
+        """
+        # GIVEN the same wire body but parsed as openai rather than fireworks
+        body = _openai_non_streaming_response()
+
+        # WHEN it is parsed with the openai provider label
+        record = _parse_openai_non_streaming("openai", body)
+        assert record is not None
+
+        # THEN the record carries the supplied provider
+        self.assertEqual(record["provider"], "openai")
+
+    def test_rejects_non_json_response_body(self) -> None:
+        """
+        Tests that malformed / empty bodies parse to None.
+        """
+        # GIVEN non-JSON and empty bodies
+        # WHEN each is parsed
+        # THEN both return None
+        self.assertIsNone(_parse_openai_non_streaming("fireworks", b"not json"))
+        self.assertIsNone(_parse_openai_non_streaming("fireworks", b""))
+
+    def test_rejects_json_without_usage_field(self) -> None:
+        """
+        Tests that a chat-completions body lacking `usage` parses to None.
+        """
+        # GIVEN a response with no usage object
+        body = json.dumps({"id": "chatcmpl-x", "model": MINIMAX_MODEL}).encode(
+            "utf-8"
+        )
+
+        # WHEN it is parsed
+        # THEN it returns None
+        self.assertIsNone(_parse_openai_non_streaming("fireworks", body))
+
+    def test_rejects_booleans_as_token_counts(self) -> None:
+        """
+        Tests that a malformed boolean token count is not summed as 1.
+        """
+        # GIVEN a usage object whose prompt_tokens is a boolean
+        body = json.dumps(
+            {
+                "model": MINIMAX_MODEL,
+                "usage": {"prompt_tokens": True, "completion_tokens": 50},
+            }
+        ).encode("utf-8")
+
+        # WHEN it is parsed
+        record = _parse_openai_non_streaming("fireworks", body)
+
+        # THEN the boolean prompt_tokens is rejected and completion_tokens kept
+        self.assertNotIn("input_tokens", record or {})
+        self.assertEqual((record or {}).get("output_tokens"), 50)
+
+
+class OpenAICompatibleStreamingTests(unittest.TestCase):
+    def test_reads_usage_from_terminal_chunk(self) -> None:
+        """
+        Tests that the terminal include_usage chunk's totals are recorded.
+        """
+        # GIVEN a streaming response whose final chunk carries usage
+        body = _openai_streaming_response()
+
+        # WHEN it is parsed
+        record = _parse_openai_streaming("fireworks", body)
+
+        # THEN the usage chunk's prompt/completion tokens map to input/output
+        # AND the model is read from the content chunks
+        self.assertEqual(
+            record,
+            {
+                "provider": "fireworks",
+                "model": MINIMAX_MODEL,
+                "input_tokens": 2000,
+                "output_tokens": 800,
+                "usage": {
+                    "prompt_tokens": 2000,
+                    "completion_tokens": 800,
+                    "total_tokens": 2800,
+                },
+            },
+        )
+
+    def test_returns_none_when_no_usage_chunk_present(self) -> None:
+        """
+        Tests that a stream with no usage chunk (include_usage omitted)
+        parses to None rather than a partial record.
+        """
+        # GIVEN a stream of content chunks with no terminal usage chunk
+        frames = [
+            "data: "
+            + json.dumps(
+                {
+                    "model": MINIMAX_MODEL,
+                    "choices": [{"index": 0, "delta": {"content": "Hi"}}],
+                }
+            ),
+            "data: [DONE]",
+        ]
+        body = "\n\n".join(frames).encode("utf-8")
+
+        # WHEN it is parsed
+        record = _parse_openai_streaming("fireworks", body)
+
+        # THEN no record is produced
+        self.assertIsNone(record)
+
+    def test_returns_none_for_completely_empty_stream(self) -> None:
+        """
+        Tests that an empty body parses to None.
+        """
+        # GIVEN an empty body
+        # WHEN it is parsed
+        # THEN it returns None
+        self.assertIsNone(_parse_openai_streaming("fireworks", b""))
+
+
+class OpenAICompatibleDispatchTests(unittest.TestCase):
+    def test_routes_event_stream_content_type_to_streaming_parser(self) -> None:
+        """
+        Tests that a text/event-stream response routes to the streaming parser.
+        """
+        # GIVEN a Fireworks streaming response and its event-stream content type
+        # WHEN the top-level entry point parses it
+        record = parse_openai_chat_completions_response(
+            provider="fireworks",
+            request_path="/inference/v1/chat/completions",
+            request_body=OPENAI_STREAMING_REQUEST_BODY,
+            response_content_type="text/event-stream; charset=utf-8",
+            response_body=_openai_streaming_response(),
+        )
+
+        # THEN the streaming usage totals are recovered
+        assert record is not None
+        self.assertEqual(record["output_tokens"], 800)
+
+    def test_routes_application_json_content_type_to_non_streaming_parser(
+        self,
+    ) -> None:
+        """
+        Tests that an application/json response routes to the JSON parser.
+        """
+        # GIVEN an OpenAI non-streaming response and its json content type
+        # WHEN the top-level entry point parses it
+        record = parse_openai_chat_completions_response(
+            provider="openai",
+            request_path="/v1/chat/completions",
+            request_body=OPENAI_NON_STREAMING_REQUEST_BODY,
+            response_content_type="application/json",
+            response_body=_openai_non_streaming_response(),
+        )
+
+        # THEN the non-streaming usage totals are recovered under the provider
+        assert record is not None
+        self.assertEqual(record["output_tokens"], 567)
+        self.assertEqual(record["provider"], "openai")
+
+    def test_falls_back_to_request_body_stream_flag_when_content_type_is_missing(
+        self,
+    ) -> None:
+        """
+        Tests that a missing content type falls back to the request `stream` flag.
+        """
+        # GIVEN a streaming response with no content-type header
+        # WHEN the top-level entry point parses it
+        record = parse_openai_chat_completions_response(
+            provider="fireworks",
+            request_path="/inference/v1/chat/completions",
+            request_body=OPENAI_STREAMING_REQUEST_BODY,
+            response_content_type="",
+            response_body=_openai_streaming_response(),
+        )
+
+        # THEN the stream flag selects the streaming parser
+        assert record is not None
+        self.assertEqual(record["output_tokens"], 800)
+
+    def test_skips_non_chat_completions_paths(self) -> None:
+        """
+        Tests that endpoints other than /chat/completions return no record.
+        """
+        # GIVEN an embeddings request path that carries no chat usage
+        # WHEN the top-level entry point parses it
+        # THEN it returns None
+        self.assertIsNone(
+            parse_openai_chat_completions_response(
+                provider="openai",
+                request_path="/v1/embeddings",
+                request_body=b"",
+                response_content_type="application/json",
+                response_body=b'{"data":[]}',
+            )
+        )
+
+    def test_ignores_query_string_on_chat_completions_path(self) -> None:
+        """
+        Tests that a query string does not defeat the /chat/completions match.
+        """
+        # GIVEN a chat-completions path with a trailing query string
+        # WHEN the top-level entry point parses it
+        record = parse_openai_chat_completions_response(
+            provider="fireworks",
+            request_path="/inference/v1/chat/completions?foo=bar",
+            request_body=OPENAI_NON_STREAMING_REQUEST_BODY,
+            response_content_type="application/json",
+            response_body=_openai_non_streaming_response(),
+        )
+
+        # THEN the record is still produced
+        assert record is not None
+        self.assertEqual(record["output_tokens"], 567)
 
 
 class TopLevelDispatchTests(unittest.TestCase):
