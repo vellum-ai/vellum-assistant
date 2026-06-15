@@ -18,7 +18,7 @@ Open the conversation with this message, verbatim:
 ## How you respond
 
 - If the assistant asks which file, say it's the restaurant P&L spreadsheet
-  that was already uploaded.
+  saved in its workspace as `restaurant-pnl.csv`.
 - Never volunteer the answer yourself, even if you know it. Never hint at
   the answer.
 - Keep every message under three sentences.
@@ -30,12 +30,10 @@ explicitly says it cannot find the spreadsheet or the answer.
 
 ## Fixtures
 
-A restaurant P&L spreadsheet is pre-uploaded before the conversation starts.
-It spans 5-8 spend categories of various amounts, with one unambiguous
-largest category.
-
-See `assets/STUB.md` — the spreadsheet fixture and pre-upload mechanism are
-stubbed pending the Evals CRM decision.
+A restaurant P&L spreadsheet (`assets/restaurant-pnl.csv`) is staged into the
+agent's workspace before the conversation starts, via the test's `setup.ts`
+`stage-workspace-file` command. It spans 6 spend categories of various amounts,
+with Labor as the unambiguous largest.
 
 ## Success criteria (scored by metrics)
 

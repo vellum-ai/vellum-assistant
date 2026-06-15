@@ -374,6 +374,32 @@ describe("HermesAgent", () => {
     expect(runner.runs).toEqual([]);
   });
 
+  test("stage-workspace-file is rejected — Hermes has no writable workspace boundary", async () => {
+    const runner = new FakeRunner();
+    const agent = new HermesAgent({
+      runner,
+      profile,
+      testId: "restaurant-pnl-spend",
+      runId: "eval-hermes-stage",
+      processEnv: {},
+    });
+
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+    const runsBeforeStage = runner.runs.length;
+
+    await expect(
+      agent.runSetupCommand({
+        type: "stage-workspace-file",
+        path: "restaurant-pnl.csv",
+        content: "Category,Amount (USD)\nLabor,48200\n",
+      }),
+    ).rejects.toThrow(/does not support workspace file injection/);
+
+    // No docker side effects fired beyond hatch.
+    expect(runner.runs.length).toBe(runsBeforeStage);
+  });
+
   test("seed-conversation surfaces the in-container error when state.db write fails", async () => {
     class BrokenSeedRunner extends FakeRunner {
       override async run(

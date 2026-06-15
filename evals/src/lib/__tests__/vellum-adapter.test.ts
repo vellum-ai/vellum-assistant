@@ -450,6 +450,39 @@ describe("VellumAgent", () => {
     expect(agent.conversationKey).toBe("generated-key-123");
   });
 
+  test("stage-workspace-file setup command docker cp's the payload into the workspace", async () => {
+    const runner = new FakeRunner();
+    const agent = new VellumAgent({
+      runner,
+      profile,
+      testId: "restaurant-pnl-spend",
+      runId: "eval-run-stage",
+    });
+
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+
+    const baseline = runner.runs.length;
+    await agent.runSetupCommand({
+      type: "stage-workspace-file",
+      path: "restaurant-pnl.csv",
+      content: "Category,Amount (USD)\nLabor,48200\n",
+    });
+    const newRuns = runner.runs.slice(baseline);
+
+    // mkdir -p the (root) parent, then docker cp the file into /workspace.
+    expect(newRuns[0].args.slice(0, 2)).toEqual([
+      "exec",
+      "eval-run-stage-assistant",
+    ]);
+    expect(newRuns[0].args.slice(2)).toEqual(["mkdir", "-p", "/workspace"]);
+    expect(newRuns[1].command).toBe("docker");
+    expect(newRuns[1].args[0]).toBe("cp");
+    expect(newRuns[1].args[2]).toBe(
+      "eval-run-stage-assistant:/workspace/restaurant-pnl.csv",
+    );
+  });
+
   test("sends through the same conversation key and shuts down resources", async () => {
     const runner = new FakeRunner();
     const agent = new VellumAgent({

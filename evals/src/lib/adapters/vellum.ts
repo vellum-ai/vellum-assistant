@@ -582,6 +582,13 @@ export class VellumAgent implements BaseAgent {
         }
         break;
       }
+      case "stage-workspace-file": {
+        await this.writeWorkspaceFile({
+          path: command.path,
+          content: command.content,
+        });
+        break;
+      }
     }
   }
 
