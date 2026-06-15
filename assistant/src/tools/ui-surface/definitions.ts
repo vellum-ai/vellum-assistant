@@ -35,6 +35,14 @@ function proxyExecute(toolName: string) {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> => {
+    if (toolName === "ui_show" && isEmptyDynamicPage(input)) {
+      return {
+        content:
+          "Error: ui_show dynamic_page requires non-empty HTML in `data.html`. The surface was not displayed because no content was provided — the user would see a blank box. Resend ui_show with the full HTML markup in `data.html`.",
+        isError: true,
+      };
+    }
+
     if (toolName === "ui_show" && isDynamicPageAppSubstitute(input)) {
       return {
         content:
@@ -51,6 +59,15 @@ function proxyExecute(toolName: string) {
     }
     return context.proxyToolResolver(toolName, input);
   };
+}
+
+function isEmptyDynamicPage(input: Record<string, unknown>): boolean {
+  if (input.surface_type !== "dynamic_page") {
+    return false;
+  }
+  const data = asRecord(input.data);
+  const html = data?.html;
+  return typeof html !== "string" || html.trim().length === 0;
 }
 
 function isDynamicPageAppSubstitute(input: Record<string, unknown>): boolean {
