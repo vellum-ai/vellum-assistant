@@ -2,6 +2,10 @@ import { join } from "path";
 
 import { resolveAssistant } from "../lib/assistant-config";
 import { runCloudflareTunnel } from "../lib/cloudflare-tunnel.js";
+import {
+  isAssistantFeatureFlagEnabled,
+  WEB_REMOTE_INGRESS_FLAG,
+} from "../lib/feature-flags.js";
 import { runNgrokTunnel } from "../lib/ngrok";
 
 const VALID_PROVIDERS = ["vellum", "ngrok", "cloudflare", "tailscale"] as const;
@@ -88,6 +92,21 @@ function parseArgs(): TunnelArgs {
   return { assistantName, provider };
 }
 
+async function shouldPreferNginxIngress(assistantId: string): Promise<boolean> {
+  try {
+    return await isAssistantFeatureFlagEnabled(
+      assistantId,
+      WEB_REMOTE_INGRESS_FLAG,
+    );
+  } catch (err) {
+    throw new Error(
+      `Could not verify the \`${WEB_REMOTE_INGRESS_FLAG}\` feature flag before starting the tunnel. Is the assistant running? Try \`vellum wake\` and retry. ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+}
+
 export async function tunnel(): Promise<void> {
   const { assistantName, provider } = parseArgs();
 
@@ -104,21 +123,27 @@ export async function tunnel(): Promise<void> {
     process.exit(1);
   }
 
+  const resources = entry.resources;
+  const baseTunnelOpts = resources
+    ? {
+        port: resources.gatewayPort,
+        workspaceDir: join(resources.instanceDir, ".vellum", "workspace"),
+      }
+    : {};
+
   if (provider === "ngrok") {
-    await runNgrokTunnel();
+    await runNgrokTunnel({
+      ...baseTunnelOpts,
+      preferNginxIngress: await shouldPreferNginxIngress(entry.assistantId),
+    });
     return;
   }
 
   if (provider === "cloudflare") {
-    const resources = entry.resources;
-    await runCloudflareTunnel(
-      resources
-        ? {
-            port: resources.gatewayPort,
-            workspaceDir: join(resources.instanceDir, ".vellum", "workspace"),
-          }
-        : {},
-    );
+    await runCloudflareTunnel({
+      ...baseTunnelOpts,
+      preferNginxIngress: await shouldPreferNginxIngress(entry.assistantId),
+    });
     return;
   }
 
