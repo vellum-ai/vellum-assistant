@@ -33,7 +33,6 @@ function makeContext(): FileClassificationContext {
     hooksDir: MOCK_HOOKS_DIR,
     pluginsDir: MOCK_PLUGINS_DIR,
     toolsDir: MOCK_TOOLS_DIR,
-    workspaceDir: MOCK_WORKSPACE_DIR,
     skillSourceDirs: testSkillSourceDirs,
   };
 }
@@ -317,17 +316,17 @@ describe("FileRiskClassifier", () => {
       expect(result.riskLevel).toBe("low");
     });
 
-    // The sandbox executor remaps container-scoped /workspace/... paths onto
-    // the real workspace dir even in local mode, so the classifier must too —
-    // otherwise the alias dodges the tools-dir escalation.
+    // The sandbox executor strips a container-scoped /workspace/ alias and
+    // resolves the remainder against the tool's workingDir, so the classifier
+    // must too — otherwise the alias dodges the tools-dir escalation.
     test("/workspace/ alias into tools directory is high", async () => {
       testSkillSourceDirs = [];
       const result = await classifyInput({
         toolName: "file_write",
         filePath: "/workspace/tools/skill_load.ts",
-        // workingDir intentionally unrelated to the workspace dir: only the
-        // /workspace alias remapping should make this resolve into toolsDir.
-        workingDir: "/some/other/cwd",
+        // workingDir is the workspace root (the sandbox boundary); the alias
+        // strips to "tools/skill_load.ts" and resolves into toolsDir.
+        workingDir: MOCK_WORKSPACE_DIR,
       });
       expect(result.riskLevel).toBe("high");
       expect(result.reason).toBe("Writes to workspace tools directory");
@@ -338,10 +337,24 @@ describe("FileRiskClassifier", () => {
       const result = await classifyInput({
         toolName: "file_write",
         filePath: "/workspace/plugins/evil/register.ts",
-        workingDir: "/some/other/cwd",
+        workingDir: MOCK_WORKSPACE_DIR,
       });
       expect(result.riskLevel).toBe("high");
       expect(result.reason).toBe("Writes to plugins directory");
+    });
+
+    // workingDir is a sub-directory of the workspace (e.g. the tools dir
+    // itself): the executor resolves /workspace/<name> against it, so a bare
+    // /workspace/skill_load.ts lands in the tools dir and must escalate.
+    test("/workspace alias resolves against a sub-directory workingDir", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: "/workspace/skill_load.ts",
+        workingDir: MOCK_TOOLS_DIR,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to workspace tools directory");
     });
 
     test("non-skill, non-hooks path is low", async () => {
@@ -736,7 +749,7 @@ describe("FileRiskClassifier", () => {
         toolName: "host_file_transfer",
         filePath: "/tmp/evil.ts",
         sandboxPath: "/workspace/tools/skill_load.ts",
-        sandboxWorkingDir: "/some/other/cwd",
+        sandboxWorkingDir: MOCK_WORKSPACE_DIR,
       });
       expect(result.riskLevel).toBe("high");
       expect(result.reason).toBe("Transfers to workspace tools directory");

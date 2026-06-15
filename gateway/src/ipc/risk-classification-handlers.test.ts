@@ -198,7 +198,6 @@ describe("file classification", () => {
       fileContext: {
         protectedDir: "/workspace/.vellum/protected",
         hooksDir: "/workspace/.hooks",
-        workspaceDir: "/workspace",
         actorTokenSigningKeyPath:
           "/workspace/.vellum/protected/actor-token-signing-key",
         skillSourceDirs: ["/workspace/.vellum/skills"],
@@ -216,7 +215,6 @@ describe("file classification", () => {
       fileContext: {
         protectedDir: "/workspace/.vellum/protected",
         hooksDir: "/workspace/.hooks",
-        workspaceDir: "/workspace",
         actorTokenSigningKeyPath:
           "/workspace/.vellum/protected/actor-token-signing-key",
         skillSourceDirs: ["/workspace/.vellum/skills"],
@@ -235,7 +233,6 @@ describe("file classification", () => {
         protectedDir: "/workspace/.vellum/protected",
         hooksDir: "/workspace/.hooks",
         toolsDir: "/workspace/.vellum/tools",
-        workspaceDir: "/workspace",
         actorTokenSigningKeyPath:
           "/workspace/.vellum/protected/actor-token-signing-key",
         skillSourceDirs: ["/workspace/.vellum/skills"],
@@ -256,7 +253,6 @@ describe("file classification", () => {
         protectedDir: "/workspace/.vellum/protected",
         hooksDir: "/workspace/.hooks",
         toolsDir: "/workspace/.vellum/tools",
-        workspaceDir: "/workspace",
         actorTokenSigningKeyPath:
           "/workspace/.vellum/protected/actor-token-signing-key",
         skillSourceDirs: ["/workspace/.vellum/skills"],

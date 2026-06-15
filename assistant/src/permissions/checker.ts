@@ -280,7 +280,6 @@ function buildFileContext(): FileContext {
     hooksDir: getWorkspaceHooksDir(),
     pluginsDir: getWorkspacePluginsDir(),
     toolsDir: getWorkspaceToolsDir(),
-    workspaceDir: getWorkspaceDir(),
     actorTokenSigningKeyPath: join(
       getProtectedDir(),
       "actor-token-signing-key",
