@@ -2705,16 +2705,16 @@ jobs:
 
   # ── Electron macOS build (arm64 + x64) ────────────────────────────────
   # Builds the Electron-wrapped macOS app for each architecture, code-signs,
-  # notarizes, and uploads as release assets. Now GA: a failure on either arch
-  # fails this job and blocks the release (no longer continue-on-error).
+  # notarizes, and uploads as release assets. A failure on either arch fails
+  # this job and blocks the release.
   build-electron:
     needs: [extract-version, publish-meta-prod, publish-meta-staging]
     if: ${{ always() && !cancelled() && (needs.publish-meta-prod.result == 'success' || needs.publish-meta-staging.result == 'success') }}
     runs-on: macos-26
     timeout-minutes: 30
     strategy:
-      # Let both arches finish so a failure reports which arch(es) broke, but
-      # any failed leg still fails the job (and therefore the release).
+      # Let both arches finish so a failure reports which arch(es) broke; any
+      # failed leg fails the job (and therefore the release).
       fail-fast: false
       matrix:
         include:
@@ -2947,9 +2947,9 @@ jobs:
       contents: read
       id-token: write
     steps:
-      # build-electron is a hard dependency (no longer continue-on-error), so
-      # both arches' update artifacts must be present and complete. A missing
-      # download or artifact fails the job, which blocks the release gate.
+      # build-electron is a hard dependency, so both arches' update artifacts
+      # must be present and complete. A missing download or artifact fails the
+      # job, which blocks the release gate.
       - name: Download arm64 update artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -3076,10 +3076,10 @@ jobs:
           name: chrome-extension-crx-zip
           path: chrome-extension-artifacts
 
-      # Electron is GA and a hard release dependency: the `release` job only
-      # runs when both build-electron and upload-electron-updates succeeded, so
-      # these artifacts are guaranteed present. A download failure here fails
-      # the release rather than silently shipping without Electron assets.
+      # Electron is a hard release dependency: the `release` job only runs when
+      # both build-electron and upload-electron-updates succeeded, so these
+      # artifacts are guaranteed present. A download failure here fails the
+      # release rather than silently shipping without Electron assets.
       - name: Download Electron DMG artifact (arm64)
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -3131,7 +3131,7 @@ jobs:
             [ -n "$X64_DMG" ] && ASSETS+=("$X64_DMG#vellum-assistant-x64.dmg")
           fi
 
-          # Electron is GA: its DMGs are required. A missing DMG here fails the
+          # The Electron DMGs are required. A missing DMG here fails the
           # release rather than publishing without it.
           ELECTRON_DMG=$(find electron-artifacts -name "vellum-assistant-electron.dmg" -type f | grep -m1 .)
           if [ -z "$ELECTRON_DMG" ]; then
