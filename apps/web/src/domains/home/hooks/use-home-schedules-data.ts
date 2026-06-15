@@ -6,10 +6,9 @@ import { useSystemTasks } from "@/domains/settings/hooks/use-system-tasks";
 import type { Schedule } from "@/domains/settings/types/schedules";
 import {
   formatScheduleCost,
+  groupSchedules,
   type ScheduleRowUsage,
   scheduleUsageSummaryQueryOptions,
-  shouldShowSystemTaskToggles,
-  sortSchedules,
   systemTaskUsageCost,
   totalUsageCost,
   zeroScheduleUsageSummary,
@@ -51,10 +50,7 @@ export function useHomeSchedulesData(
   const assistantFlagsHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
   const systemScheduleToggles =
     useAssistantFeatureFlagStore.use.systemScheduleToggles();
-  const showSystemTaskToggles = shouldShowSystemTaskToggles(
-    assistantFlagsHydrated,
-    systemScheduleToggles,
-  );
+  const showSystemTaskToggles = assistantFlagsHydrated && systemScheduleToggles;
 
   // -------------------------------------------------------------------------
   // User schedule queries
@@ -88,10 +84,13 @@ export function useHomeSchedulesData(
   // Derived state
   // -------------------------------------------------------------------------
 
-  const { recurring, oneTime } = useMemo(
-    () => sortSchedules(schedules ?? []),
-    [schedules],
-  );
+  const { recurring, oneTime } = useMemo(() => {
+    const grouped = groupSchedules(schedules ?? [], Date.now());
+    return {
+      recurring: grouped.recurring,
+      oneTime: [...grouped.upcomingOneTime, ...grouped.pastOneTime],
+    };
+  }, [schedules]);
 
   const usageSummaryByScheduleId = useMemo(
     () =>

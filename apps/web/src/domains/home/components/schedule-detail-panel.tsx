@@ -325,7 +325,7 @@ export function ScheduleDetailPanel({
         <section>
           <SectionLabel>Recent runs</SectionLabel>
           <RecentRuns
-            runs={runs}
+            runs={runs?.runs}
             isLoading={isLoading}
             onOpenConversation={(conversationId) =>
               navigate(routes.conversation(conversationId))
