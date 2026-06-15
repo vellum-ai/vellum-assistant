@@ -179,7 +179,7 @@ describe("bundled skill retrieval guard", () => {
     if (violations.length > 0) {
       const message = [
         "Direct credential lookup instructions were found in skills.",
-        "Use credential_store and CLI/proxied flows instead.",
+        "Use the `assistant credentials` CLI and proxied flows instead.",
         "",
         "Violations:",
         ...violations.map((v) => `  - ${v}`),

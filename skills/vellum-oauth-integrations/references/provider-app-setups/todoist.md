@@ -83,4 +83,4 @@ Key Todoist-specific differences for Path B:
 
 - Loopback callback won't work from a remote channel - need public ingress configured
 - Add the ingress-based redirect URI under **OAuth redirect URL** in the app settings
-- The app secret doesn't have a known prefix that triggers scanners, but still use `credential_store prompt` or `credential_store store` for security
+- The app secret doesn't have a known prefix that triggers scanners, but still use `assistant credentials prompt` or `assistant credentials set` for security

@@ -99,24 +99,22 @@ ngrok config check
 If not authenticated:
 
 1. Tell the user: "You need an ngrok account to create tunnels. If you don't have one, sign up at https://dashboard.ngrok.com/signup - it's free."
-2. Once they have an account, use `credential_store` to securely collect their auth token. **Never ask the user to paste the token directly in chat.**
-
-   Use `credential_store` with:
-   - action: `prompt`
-   - service: `ngrok`
-   - field: `authtoken`
-   - label: `ngrok Auth Token`
-   - description: `Get your auth token from https://dashboard.ngrok.com/get-started/your-authtoken`
-   - usage_description: `ngrok authentication token for creating public tunnels`
-
-3. Once the credential is stored, retrieve it via `credential_store` and apply it to ngrok:
+2. Once they have an account, run `assistant credentials prompt` (via the bash tool) to securely collect their auth token. **Never ask the user to paste the token directly in chat.**
 
    ```bash
-   credential_store action=get service=ngrok field=authtoken
-   ngrok config add-authtoken "<authtoken_from_credential_store>"
+   assistant credentials prompt --service ngrok --field authtoken \
+     --label "ngrok Auth Token" \
+     --description "Get your auth token from https://dashboard.ngrok.com/get-started/your-authtoken" \
+     --usage-description "ngrok authentication token for creating public tunnels"
    ```
 
-   If no value is returned, re-run `credential_store` with `action: "prompt"` and try again.
+3. Once the credential is stored, reveal it and apply it to ngrok:
+
+   ```bash
+   ngrok config add-authtoken "$(assistant credentials reveal --service ngrok --field authtoken)"
+   ```
+
+   If no value is returned, re-run `assistant credentials prompt` and try again.
 
 Verify authentication succeeded by checking `ngrok config check` again.
 

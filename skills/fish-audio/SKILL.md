@@ -38,8 +38,11 @@ assistant credentials inspect --service fish-audio --field api_key --json
 
 If not set, collect it securely (never ask the user to paste it in chat):
 
-```
-credential_store action="prompt" service="fish-audio" field="api_key" label="Fish Audio API Key" description="Enter your Fish Audio API key" placeholder="sk-..."
+```bash
+assistant credentials prompt --service fish-audio --field api_key \
+  --label "Fish Audio API Key" \
+  --placeholder "sk-..." \
+  --description "Enter your Fish Audio API key"
 ```
 
 ## Generating a Single Clip

@@ -149,5 +149,5 @@ For non-interactive channels, see [twitter-path-b.md](twitter-path-b.md).
 Key Twitter-specific differences for Path B:
 
 - Gateway callback requires public ingress - must be configured before starting
-- OAuth 2.0 Client Secret doesn't have a known prefix that triggers channel scanners, but still use `credential_store store` for security
+- OAuth 2.0 Client Secret doesn't have a known prefix that triggers channel scanners, but still use `assistant credentials set` for security
 - App type must be **Web App, Automated App or Bot** (same as Path A, since gateway transport is used in both paths)
