@@ -228,9 +228,12 @@ export function useSidebarState({
       totalCount: grouped.recents.length,
       showMore: !isExpanded && hasMoreItems,
       showLess: isExpanded,
-      onShowMore: () => setVisibleRecentsCount(Number.MAX_SAFE_INTEGER),
+      onShowMore: () => {
+        setVisibleRecentsCount(Number.MAX_SAFE_INTEGER);
+        if (hasNextPage) fetchNextPage?.();
+      },
       onShowLess: () => setVisibleRecentsCount(SIDEBAR_CONVERSATION_LIMIT),
-      onScrollLoadMore: hasNextPage ? fetchNextPage : undefined,
+      onScrollLoadMore: isExpanded && hasNextPage ? fetchNextPage : undefined,
     };
   }, [grouped.recents, visibleRecentsCount, attentionConversationIds, fetchNextPage, hasNextPage]);
 

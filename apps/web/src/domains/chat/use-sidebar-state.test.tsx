@@ -137,7 +137,7 @@ describe("useSidebarState pagination", () => {
     expect(result.current.slack.showLess).toBe(true);
   });
 
-  test("exposes onScrollLoadMore when hasNextPage is true", () => {
+  test("onScrollLoadMore only fires when expanded, not when collapsed", () => {
     const fetchNextPage = mock(() => {});
     const conversations = Array.from({ length: 12 }, (_, i) =>
       makeConversation(i),
@@ -154,16 +154,45 @@ describe("useSidebarState pagination", () => {
       { initialProps: { hasNextPage: true } },
     );
 
-    // onScrollLoadMore is defined when hasNextPage is true
-    expect(result.current.recents.onScrollLoadMore).toBeDefined();
+    // Collapsed: onScrollLoadMore must be undefined to prevent the
+    // IntersectionObserver sentinel from eagerly draining all server pages.
+    expect(result.current.recents.onScrollLoadMore).toBeUndefined();
 
-    // Calling it invokes fetchNextPage
-    act(() => result.current.recents.onScrollLoadMore?.());
+    // Expand the list (also fires fetchNextPage since hasNextPage is true)
+    act(() => result.current.recents.onShowMore());
     expect(fetchNextPage).toHaveBeenCalledTimes(1);
+
+    // Expanded + hasNextPage: onScrollLoadMore is defined
+    expect(result.current.recents.onScrollLoadMore).toBeDefined();
+    act(() => result.current.recents.onScrollLoadMore?.());
+    expect(fetchNextPage).toHaveBeenCalledTimes(2);
 
     // When hasNextPage becomes false, onScrollLoadMore is undefined
     rerender({ hasNextPage: false });
     expect(result.current.recents.onScrollLoadMore).toBeUndefined();
+  });
+
+  test("onShowMore triggers fetchNextPage when server has more pages", () => {
+    const fetchNextPage = mock(() => {});
+    const conversations = Array.from({ length: 3 }, (_, i) =>
+      makeConversation(i),
+    );
+
+    const { result } = renderHook(() =>
+      useSidebarState({
+        assistantId: "asst-1",
+        conversations,
+        fetchNextPage,
+        hasNextPage: true,
+      }),
+    );
+
+    // With < SIDEBAR_CONVERSATION_LIMIT items but hasNextPage, showMore is visible
+    expect(result.current.recents.showMore).toBe(true);
+
+    // Clicking "Show more" triggers a page fetch
+    act(() => result.current.recents.onShowMore());
+    expect(fetchNextPage).toHaveBeenCalledTimes(1);
   });
 
   test("Show more and Show less are never both visible", () => {
