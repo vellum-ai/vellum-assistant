@@ -3,12 +3,45 @@ import { useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { secretsGet } from "@/generated/daemon/sdk.gen";
+import type { SecretsGetResponse } from "@/generated/daemon/types.gen";
 import { ApiError, assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
 import { shouldRetryDaemonError } from "@/utils/daemon-errors";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 
-import { parseCredentialEntries } from "@/domains/settings/ai/provider-connections-client";
+// ---------------------------------------------------------------------------
+// Credential-entry parser (transforms secrets list into service/field pairs)
+// ---------------------------------------------------------------------------
+
+export interface CredentialEntry {
+  service: string;
+  field: string;
+}
+
+type SecretEntry = SecretsGetResponse["secrets"][number];
+
+/**
+ * Parse a typed secrets-list response into credential entries suitable for
+ * the provider-editor's Advanced dropdown.
+ */
+export function parseCredentialEntries(
+  entries: readonly SecretEntry[],
+): CredentialEntry[] {
+  const results: CredentialEntry[] = [];
+  for (const entry of entries) {
+    if (entry.type === "api_key") {
+      results.push({ service: entry.name, field: "api_key" });
+    } else if (entry.type === "credential") {
+      const colonIdx = entry.name.lastIndexOf(":");
+      if (colonIdx >= 0) {
+        const service = entry.name.slice(0, colonIdx);
+        const field = entry.name.slice(colonIdx + 1);
+        if (service && field) results.push({ service, field });
+      }
+    }
+  }
+  return results;
+}
 
 const PROVIDER_CREDENTIALS_LIST_QK = "provider-credentials-list" as const;
 

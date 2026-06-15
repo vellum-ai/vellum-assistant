@@ -14,14 +14,10 @@ import {
     secretsPost,
 } from "@/generated/daemon/sdk.gen";
 
-import { providerSupportsPlatformAuth } from "@/assistant/llm-model-catalog";
+import { providerSupportsPlatformAuth, PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import { ChatgptOAuthSection } from "@/domains/settings/ai/chatgpt-oauth-section";
 import { deriveProviderDefaults } from "@/domains/settings/ai/profile-prefill";
-import type { Auth, ConnectionProvider, ProviderConnection } from "@/generated/daemon/types.gen";
-import {
-    PROVIDER_DISPLAY_NAMES,
-    type CreateConnectionInput,
-} from "@/domains/settings/ai/provider-connections-client";
+import type { Auth, ConnectionProvider, InferenceProviderconnectionsPostData, ProviderConnection } from "@/generated/daemon/types.gen";
 import { ProviderEditorApiKeySection } from "@/domains/settings/ai/provider-editor-api-key-section";
 import {
     AUTH_TYPE_DISPLAY_NAMES,
@@ -217,7 +213,7 @@ export function ProviderCreateForm({
 
       const labelValue = label.trim() || null;
 
-      const input: CreateConnectionInput = {
+      const input: InferenceProviderconnectionsPostData["body"] = {
         name: name.trim(),
         provider,
         auth,

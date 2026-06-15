@@ -4,12 +4,12 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
 import {
     getDefaultModelForProvider,
     getModelsForProvider,
+    PROVIDER_DISPLAY_NAMES,
 } from "@/assistant/llm-model-catalog";
 import type { CallSiteOverrideDraft } from "@/generated/daemon/types.gen";
 
 import {
     INFERENCE_PROVIDERS,
-    INFERENCE_PROVIDER_DISPLAY_NAMES,
 } from "@/domains/settings/ai/constants";
 import { CUSTOM_SENTINEL, isDraftActive } from "@/domains/settings/ai/call-site-helpers";
 
@@ -134,7 +134,7 @@ export function CallSiteOverrideRow({
                 onChange={handleProviderChange}
                 options={INFERENCE_PROVIDERS.map((p) => ({
                   value: p,
-                  label: INFERENCE_PROVIDER_DISPLAY_NAMES[p] ?? p,
+                  label: PROVIDER_DISPLAY_NAMES[p] ?? p,
                 }))}
               />
             </div>

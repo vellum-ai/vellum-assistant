@@ -13,13 +13,9 @@ import {
     secretsPost,
 } from "@/generated/daemon/sdk.gen";
 
-import { providerSupportsPlatformAuth } from "@/assistant/llm-model-catalog";
+import { providerSupportsPlatformAuth, PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import { ChatgptOAuthSection } from "@/domains/settings/ai/chatgpt-oauth-section";
-import type { Auth, ConnectionProvider, ProviderConnection } from "@/generated/daemon/types.gen";
-import {
-    PROVIDER_DISPLAY_NAMES,
-    type UpdateConnectionInput,
-} from "@/domains/settings/ai/provider-connections-client";
+import type { Auth, ConnectionProvider, InferenceProviderconnectionsByNamePatchData, ProviderConnection } from "@/generated/daemon/types.gen";
 import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import { ProviderEditorApiKeySection } from "@/domains/settings/ai/provider-editor-api-key-section";
 import {
@@ -291,7 +287,7 @@ export function ProviderEditorContent({
       // Edit / managed-edit only — create mode is handled by
       // ProviderCreateForm (see the early return above), which owns the
       // POST path. This component never reaches handleSave in create mode.
-      const input: UpdateConnectionInput = {
+      const input: InferenceProviderconnectionsByNamePatchData["body"] = {
         auth,
         label: labelValue,
         ...(isOpenAICompatible && {

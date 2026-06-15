@@ -7,7 +7,7 @@ import { Typography } from "@vellumai/design-library/components/typography";
 import { ChevronRight, Loader2 } from "lucide-react";
 
 import type { ConnectionProvider } from "@/generated/daemon/types.gen";
-import type { CredentialEntry } from "@/domains/settings/ai/provider-connections-client";
+import type { CredentialEntry } from "@/domains/settings/ai/use-provider-credentials-list";
 
 // ---------------------------------------------------------------------------
 // Props

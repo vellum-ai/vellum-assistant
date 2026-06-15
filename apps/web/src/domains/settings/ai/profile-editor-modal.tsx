@@ -10,12 +10,11 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Typography } from "@vellumai/design-library/components/typography";
 import { ChevronRight } from "lucide-react";
 
-import { getModelsForProvider } from "@/assistant/llm-model-catalog";
+import { getModelsForProvider, PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import { configGetOptions, inferenceProviderconnectionsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 
 import type { ProfileEntry, ProfilePatchEntry, ProfileStatus } from "@/generated/daemon/types.gen";
 
-import { INFERENCE_PROVIDER_DISPLAY_NAMES } from "@/domains/settings/ai/constants";
 import type { ProfileWithName } from "@/domains/settings/ai/utils";
 import {
     ProfileAdvancedParams,
@@ -682,7 +681,7 @@ function ProfileEditorModalInner({
         seen.add(c.provider);
         opts.push({
           value: c.provider,
-          label: INFERENCE_PROVIDER_DISPLAY_NAMES[c.provider] ?? c.provider,
+          label: PROVIDER_DISPLAY_NAMES[c.provider] ?? c.provider,
         });
       }
     }
