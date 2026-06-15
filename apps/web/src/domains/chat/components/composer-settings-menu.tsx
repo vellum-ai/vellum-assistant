@@ -193,12 +193,21 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
           body: { profile: stashed },
           throwOnError: true,
         });
-        useConversationStore.getState().clearPendingDraftProfile(id);
-        void queryClient.invalidateQueries({
-          queryKey: conversationsByIdGetQueryKey({
-            path: { assistant_id: assistantId, id },
-          }),
-        });
+        // Finalize only if this promotion is still the latest intent for `id`.
+        // A direct selection made meanwhile clears/replaces the stash and owns
+        // the cache update, so a late promotion must not write its stale value
+        // back or re-invalidate.
+        if (
+          useConversationStore.getState().pendingDraftProfiles.get(id) ===
+          stashed
+        ) {
+          useConversationStore.getState().clearPendingDraftProfile(id);
+          void queryClient.invalidateQueries({
+            queryKey: conversationsByIdGetQueryKey({
+              path: { assistant_id: assistantId, id },
+            }),
+          });
+        }
       } catch {
         // Leave the stash so a later interaction can retry; a toast here would
         // be noisy during navigation/load.
@@ -298,6 +307,14 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
         setOptimisticActiveProfile(lastConfirmedProfileRef.current);
         return false;
       }
+
+      // A direct selection supersedes any stash recorded for this conversation
+      // while it was loading — drop it so an in-flight promotion can't write the
+      // older value back (the promotion also re-checks the stash before
+      // finalizing, so a not-yet-started one simply never fires).
+      useConversationStore
+        .getState()
+        .clearPendingDraftProfile(capturedConversationId);
 
       try {
         await conversationsByIdInferenceprofilePut({
