@@ -72,17 +72,6 @@ function truncate(text: string, maxLength: number): string {
 // Slack Card block builders for approval notifications
 // ---------------------------------------------------------------------------
 
-/** Shared reaction-instruction context block. */
-const REACTION_INSTRUCTION_BLOCK = {
-  type: "context",
-  elements: [
-    {
-      type: "mrkdwn",
-      text: "You can also react with :thumbsup: to approve or :thumbsdown: to deny",
-    },
-  ],
-};
-
 /** Build action buttons for a Slack Card block from approval metadata. */
 function buildCardActions(approval: ApprovalUIMetadata): unknown[] {
   return approval.actions.map((action) => ({
@@ -119,7 +108,12 @@ function buildAccessRequestSubtitle(p: ParsedAccessRequestPayload): string {
 function buildAccessRequestBody(p: ParsedAccessRequestPayload): string {
   if (p.messagePreview) {
     const sanitized = sanitizeMessagePreview(p.messagePreview);
-    if (sanitized) return truncate(`> _"${sanitized}"_`, 200);
+    if (sanitized) {
+      // Truncate content before wrapping so formatting chars stay balanced.
+      // Wrapper `> _"..."_` is 6 chars; reserve space for them.
+      const trimmed = truncate(sanitized, 200 - 6);
+      return `> _"${trimmed}"_`;
+    }
   }
   return "Requesting access to the assistant";
 }
@@ -153,13 +147,38 @@ function buildSourceContextBlock(
   };
 }
 
+/** Stable requester identifier context block (external ID when it adds info). */
+function buildRequesterIdBlock(
+  p: ParsedAccessRequestPayload,
+): unknown | undefined {
+  const safeExternalId = nonEmpty(
+    p.actorExternalId ? sanitizeIdentityField(p.actorExternalId) : undefined,
+  );
+  if (!safeExternalId) return undefined;
+
+  const displayedName =
+    nonEmpty(p.actorDisplayName) ?? nonEmpty(p.senderIdentifier);
+  const displayedUsername = nonEmpty(p.actorUsername);
+  if (
+    safeExternalId === displayedName ||
+    safeExternalId === displayedUsername
+  ) {
+    return undefined;
+  }
+
+  return {
+    type: "context",
+    elements: [{ type: "mrkdwn", text: `ID: ${safeExternalId}` }],
+  };
+}
+
 /**
  * Build Slack blocks for an access request using a native Card block.
  *
  * Layout:
  *   Card — title + subtitle (identity) + body (preview) + actions + subtext (warnings)
  *   Context — source permalink (when the request is from Slack)
- *   Context — reaction instruction
+ *   Context — stable requester ID (when it adds info beyond subtitle)
  *   Context — invite directive
  *   Context — guardian verification note (conditional)
  */
@@ -192,7 +211,8 @@ function buildAccessRequestCardBlocks(
   const sourceContext = buildSourceContextBlock(p);
   if (sourceContext) blocks.push(sourceContext);
 
-  blocks.push(REACTION_INSTRUCTION_BLOCK);
+  const idBlock = buildRequesterIdBlock(p);
+  if (idBlock) blocks.push(idBlock);
 
   blocks.push({
     type: "context",
@@ -227,7 +247,6 @@ function buildAccessRequestCardBlocks(
  *
  * Layout:
  *   Card — title + subtitle (tool + requester) + body (notification text) + actions
- *   Context — reaction instruction
  */
 function buildToolApprovalCardBlocks(
   payload: ChannelDeliveryPayload,
@@ -254,8 +273,6 @@ function buildToolApprovalCardBlocks(
   };
   if (subtitle) card.subtitle = { type: "mrkdwn", text: subtitle };
   blocks.push(card);
-
-  blocks.push(REACTION_INSTRUCTION_BLOCK);
 
   return blocks;
 }
