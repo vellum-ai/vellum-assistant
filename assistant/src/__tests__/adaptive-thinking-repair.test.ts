@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-thinking-repair.js";
 import { enableAdaptiveThinkingManagedProfilesMigration } from "../workspace/migrations/097-enable-adaptive-thinking-managed-profiles.js";
+import { recheckAdaptiveThinkingModelImpliedAnthropicMigration } from "../workspace/migrations/104-recheck-adaptive-thinking-model-implied-anthropic.js";
 
 const ADAPTIVE = { enabled: true, streamThinking: true };
 
@@ -48,14 +49,18 @@ function profile(name: string): Record<string, unknown> {
   return profiles[name] as Record<string, unknown>;
 }
 
-// The startup repair and migration 097 keep frozen copies of the same logic
-// (migration modules must stay self-contained). Run every scenario against
-// both so the copies can't drift.
+// The startup repair, migration 097, and migration 104 keep frozen copies of
+// the same logic (migration modules must stay self-contained). Run every
+// scenario against all of them so the copies can't drift.
 const implementations: Array<[string, (dir: string) => void]> = [
   ["startup repair", repairAdaptiveThinkingOnManagedProfiles],
   [
     "migration 097",
     (dir) => enableAdaptiveThinkingManagedProfilesMigration.run(dir),
+  ],
+  [
+    "migration 104",
+    (dir) => recheckAdaptiveThinkingModelImpliedAnthropicMigration.run(dir),
   ],
 ];
 
