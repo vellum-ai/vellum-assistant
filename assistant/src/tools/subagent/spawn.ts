@@ -31,6 +31,7 @@ export async function executeSubagentSpawn(
   }
 
   let requestedOverrideProfile: string | undefined;
+  let forceOverrideProfile = false;
   if (inferenceProfile !== undefined) {
     if (typeof inferenceProfile !== "string") {
       return {
@@ -46,6 +47,7 @@ export async function executeSubagentSpawn(
       };
     }
     requestedOverrideProfile = inferenceProfile;
+    forceOverrideProfile = true;
   }
 
   const manager = getSubagentManager();
@@ -124,6 +126,7 @@ export async function executeSubagentSpawn(
         ...(inheritedOverrideProfile
           ? { overrideProfile: inheritedOverrideProfile }
           : {}),
+        ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
         ...(context.toolUseId ? { parentToolUseId: context.toolUseId } : {}),
         ...forkFields,
       },

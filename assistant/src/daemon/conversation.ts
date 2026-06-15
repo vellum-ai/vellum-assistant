@@ -1847,6 +1847,8 @@ export class Conversation {
        * this value via {@link SubagentManager.spawn}.
        */
       overrideProfile?: string;
+      /** Float `overrideProfile` above call-site layers for this run. */
+      forceOverrideProfile?: boolean;
     },
   ): Promise<void> {
     const { onEvent, ...rest } = options ?? {};

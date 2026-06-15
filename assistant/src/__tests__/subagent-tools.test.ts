@@ -8,6 +8,7 @@ let mockGetMessages: (
 ) => Array<{ role: string; content: string }> | null = () => null;
 const mockProfiles = {
   balanced: {},
+  disabled: { status: "disabled" },
   "quality-optimized": {},
 };
 mock.module("../config/loader.js", () => ({
@@ -469,6 +470,7 @@ describe("Subagent spawn success and failure", () => {
       expect(result.isError).toBe(false);
       expect(capturedConfig).toBeDefined();
       expect(capturedConfig!.overrideProfile).toBe("quality-optimized");
+      expect(capturedConfig!.forceOverrideProfile).toBe(true);
     } finally {
       manager.spawn = originalSpawn;
     }
@@ -497,6 +499,38 @@ describe("Subagent spawn success and failure", () => {
       expect(result.isError).toBe(true);
       expect(result.content).toContain(
         'Inference profile "does-not-exist" is not defined',
+      );
+      expect(spawnCalled).toBe(false);
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("spawn returns error for disabled inference_profile", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let spawnCalled = false;
+
+    manager.spawn = async () => {
+      spawnCalled = true;
+      return "profile-subagent-id";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        {
+          label: "Disabled profile",
+          objective: "Do it",
+          inference_profile: "disabled",
+        },
+        makeContext("sess-spawn-disabled-profile", {
+          sendToClient: () => {},
+        }),
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain(
+        'Inference profile "disabled" is disabled',
       );
       expect(spawnCalled).toBe(false);
     } finally {
