@@ -537,6 +537,13 @@ export function createConversation(
     | string
     | {
         title?: string;
+        /**
+         * Override the `is_auto_title` column (schema default 1). Pass
+         * `AUTO_TITLE_DETERMINISTIC` (2) when the title was derived
+         * deterministically at bootstrap so later generation passes know
+         * they may replace it.
+         */
+        isAutoTitle?: number;
         conversationType?: ConversationCreateType;
         source?: string;
         scheduleJobId?: string;
@@ -566,6 +573,9 @@ export function createConversation(
   const conversation = {
     id,
     title: opts.title ?? null,
+    ...(opts.isAutoTitle !== undefined
+      ? { isAutoTitle: opts.isAutoTitle }
+      : {}),
     createdAt: now,
     updatedAt: now,
     totalInputTokens: 0,
@@ -721,6 +731,13 @@ export function findAnalysisConversationFor(
  * Once the fork accumulates its own retros, those are found at the first
  * iteration and we never walk up.
  *
+ * The returned `forkParentConversationId` is the conversation the
+ * retrospective row is rooted at — `parentConversationId` itself when it has
+ * its own retros, or an ancestor when the chain walk found the row higher
+ * up. Callers that mutate the prior (e.g. GC of superseded runs) must check
+ * it against the source conversation: an ancestor's row is that ancestor's
+ * dedup baseline, not the caller's to delete.
+ *
  * Returns `null` when no prior retrospective exists anywhere in the fork
  * chain (true first-run case).
  *
@@ -731,7 +748,7 @@ const MAX_FORK_CHAIN_DEPTH = 16;
 
 export function findMostRecentRetrospectiveFor(
   parentConversationId: string,
-): { id: string } | null {
+): { id: string; forkParentConversationId: string } | null {
   const db = getDb();
   let currentId: string | null = parentConversationId;
   for (let depth = 0; depth < MAX_FORK_CHAIN_DEPTH && currentId; depth++) {
@@ -747,7 +764,7 @@ export function findMostRecentRetrospectiveFor(
       .orderBy(desc(conversations.createdAt))
       .limit(1)
       .get();
-    if (row) return { id: row.id };
+    if (row) return { id: row.id, forkParentConversationId: currentId };
 
     const parent = db
       .select({
@@ -2039,8 +2056,8 @@ export interface OverrideProfileFields {
 /**
  * Resolve the per-turn inference-profile override from a conversation's
  * fields. Returns the `inferenceProfile` for interactive conversations,
- * `undefined` for automation threads (subagent fan-out, scheduled tasks,
- * update bulletins) so they run on the workspace defaults rather than
+ * `undefined` for automation threads (subagent fan-out, scheduled
+ * tasks) so they run on the workspace defaults rather than
  * inheriting an interactive override.
  */
 export function resolveOverrideProfile(

@@ -16,11 +16,14 @@ import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 
 import {
+  pluginsByNameInspectGetQueryKey,
   pluginsGetQueryKey,
   pluginsSearchGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { Options } from "@/generated/daemon/sdk.gen";
 import type {
+  PluginsByNameInspectGetData,
+  PluginsByNameInspectGetResponse,
   PluginsGetData,
   PluginsGetResponse,
   PluginsSearchGetData,
@@ -38,6 +41,8 @@ const ASSISTANT_ID = "asst-1";
 interface CachedState {
   installed?: PluginsGetResponse;
   catalog?: PluginsSearchGetResponse;
+  /** Inspect results keyed by plugin name, seeded for the row's drift query. */
+  drift?: Record<string, PluginsByNameInspectGetResponse>;
 }
 
 function renderTab(state: CachedState): string {
@@ -62,6 +67,14 @@ function renderTab(state: CachedState): string {
       state.catalog,
     );
   }
+  for (const [name, inspect] of Object.entries(state.drift ?? {})) {
+    client.setQueryData(
+      pluginsByNameInspectGetQueryKey({
+        path: { assistant_id: ASSISTANT_ID, name },
+      } as Options<PluginsByNameInspectGetData>),
+      inspect,
+    );
+  }
   return renderToStaticMarkup(
     <QueryClientProvider client={client}>
       <Wrapper>
@@ -79,6 +92,47 @@ function Wrapper({ children }: { children: ReactNode }) {
       <div>{children}</div>
     </MemoryRouter>
   );
+}
+
+/**
+ * Minimal inspect result for the row's drift query. The row only reads
+ * `status`, so the local/remote blocks just need to be schema-valid.
+ */
+function driftResponse(
+  name: string,
+  status: PluginsByNameInspectGetResponse["status"],
+): PluginsByNameInspectGetResponse {
+  return {
+    name,
+    installed: true,
+    status,
+    local: {
+      target: `/ws/plugins/${name}`,
+      commit: "60a392b0000000000000000000000000000000aa",
+      committedAt: null,
+      version: "0.1.0",
+      description: "Level Up plugin",
+      installedAt: "2026-06-01T00:00:00.000Z",
+      source: { kind: "github", owner: "vellum-ai", repo: name, ref: "main" },
+      localChanges: { modified: [], added: [], removed: [], clean: true },
+      issues: [],
+    },
+    remote: {
+      repo: `vellum-ai/${name}`,
+      path: "",
+      commit:
+        status === "update-available"
+          ? "3eae1820000000000000000000000000000000bb"
+          : "60a392b0000000000000000000000000000000aa",
+      committedAt: null,
+      description: "Level Up plugin",
+      homepage: null,
+      license: "MIT",
+      category: null,
+      marketplaceRef: "main",
+    },
+    remoteError: null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -117,6 +171,50 @@ describe("PluginsTab", () => {
     expect(html).toContain("simple-memory");
     expect(html).toContain("v0.1.0");
     expect(html).toContain("Memory plugin");
+  });
+
+  test("flags an installed plugin that is behind the marketplace pin", () => {
+    // GIVEN an installed plugin whose inspect result reports drift
+    const html = renderTab({
+      installed: {
+        plugins: [
+          {
+            id: "level-up",
+            name: "level-up",
+            description: "Level Up plugin",
+            version: "0.1.0",
+          },
+        ],
+      },
+      catalog: { query: "", ref: "main", matches: [] },
+      drift: {
+        "level-up": driftResponse("level-up", "update-available"),
+      },
+    });
+    // THEN the row advertises the available update
+    expect(html).toContain("Update available");
+  });
+
+  test("does not flag an installed plugin that is up to date", () => {
+    // GIVEN an installed plugin whose inspect result reports no drift
+    const html = renderTab({
+      installed: {
+        plugins: [
+          {
+            id: "level-up",
+            name: "level-up",
+            description: "Level Up plugin",
+            version: "0.1.0",
+          },
+        ],
+      },
+      catalog: { query: "", ref: "main", matches: [] },
+      drift: {
+        "level-up": driftResponse("level-up", "up-to-date"),
+      },
+    });
+    // THEN no update badge is rendered
+    expect(html).not.toContain("Update available");
   });
 
   test("renders catalog matches linking to the detail page", () => {

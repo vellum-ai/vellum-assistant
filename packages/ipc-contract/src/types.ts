@@ -53,7 +53,6 @@ export type VellumCommand =
   | { kind: "createAssistant" }
   | { kind: "retireAssistant"; assistantId: string }
   | { kind: "quickInputSubmit"; message: string }
-  | { kind: "cancelActiveAction" }
   | { kind: "cancelDictation" }
   | { kind: "replayOnboarding" }
   | { kind: "previewPrechat" }
@@ -376,7 +375,6 @@ export interface LockfileAssistant {
   runtimeUrl?: string;
   species?: string;
   hatchedAt?: string;
-  version?: string;
   organizationId?: string;
   resources?: LocalAssistantResources;
 }

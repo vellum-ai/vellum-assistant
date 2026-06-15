@@ -1,14 +1,14 @@
 import { Coins, DollarSign, Hourglass, Loader2 } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { AddCreditsModal } from "@/components/add-credits-modal";
 import { AutoTopUpCard } from "@/domains/settings/components/auto-top-up-card";
 import {
-    organizationsBillingSummaryCreateMutation,
     organizationsBillingSummaryRetrieveOptions,
     organizationsBillingSummaryRetrieveQueryKey,
+    useOrganizationsBillingSummaryCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
@@ -70,8 +70,7 @@ export function BillingPanel() {
   const bootstrapAttemptsRef = useRef(0);
   const bootstrapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const bootstrapMutation = useMutation({
-    ...organizationsBillingSummaryCreateMutation(),
+  const bootstrapMutation = useOrganizationsBillingSummaryCreateMutation({
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: organizationsBillingSummaryRetrieveQueryKey(),

@@ -21,6 +21,7 @@ import { useVellumCommands } from "@/runtime/vellum-commands";
 import { routes } from "@/utils/routes";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
+import { useBookmarksSync } from "@/hooks/use-bookmarks-sync";
 import { useNotificationIntentSync } from "@/hooks/use-notification-intent-sync";
 import { useOnboardingWindowSize } from "@/hooks/use-onboarding-window-size";
 import { useConversationSync } from "@/hooks/use-conversation-sync";
@@ -43,7 +44,7 @@ import { UpdateToast } from "@/components/update-toast";
 import { retireAssistant } from "@/assistant/retire-service";
 import { setSelectedAssistant } from "@/assistant/selection";
 import { CreateAssistantDialog } from "@/components/create-assistant-dialog";
-import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { RetireConfirmDialog } from "@/components/retire-confirm-dialog";
 import { toast } from "@vellumai/design-library/components/toast";
 
 const ShareFeedbackModal = lazy(() =>
@@ -109,6 +110,7 @@ export function RootLayout() {
   useFeatureFlagBusSync(assistantId, isAssistantActive);
   useNotificationIntentSync(assistantId);
   useDocumentEditorSync();
+  useBookmarksSync();
 
   // Keep the browser favicon in sync with the assistant's avatar across
   // every authenticated route (chat, settings, logs, etc.). Mounted here
@@ -156,7 +158,17 @@ export function RootLayout() {
     rePair: () => {
       const id = getSelectedAssistant()?.assistantId;
       if (id) {
-        void useAuthStore.getState().connectLocalAssistant(id);
+        // connectLocalAssistant rethrows (e.g. GuardianTokenError) so callers
+        // can offer recovery; route to the chooser, whose connect path owns
+        // the recovery dialog, instead of dead-ending on a silent rejection.
+        useAuthStore
+          .getState()
+          .connectLocalAssistant(id)
+          .catch((err: unknown) => {
+            console.error("rePair.connectLocalAssistant failed", err);
+            toast.error("Failed to connect to the assistant.");
+            void navigate(routes.selectAssistant);
+          });
       }
     },
     shareFeedback: () => setFeedbackOpen(true),
@@ -281,12 +293,8 @@ export function RootLayout() {
       {/* Destructive confirmation for the tray "Retire <assistant>…" command.
           Mirrors the settings RetireAssistant dialog so a retire triggered from
           the menu bar carries the same irreversible-action warning. */}
-      <ConfirmDialog
+      <RetireConfirmDialog
         open={retireId !== null}
-        title="Retire Assistant"
-        message="This will permanently retire this assistant and all of its data. You will need to go through the onboarding flow again to create a new one. This action cannot be undone."
-        confirmLabel="Retire"
-        destructive
         isPending={retirePending}
         onConfirm={handleConfirmRetire}
         onCancel={() => setRetireId(null)}

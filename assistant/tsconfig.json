@@ -19,5 +19,5 @@
     }
   },
   "include": ["src/**/*", "src/**/*.tsx", "examples/**/*.ts"],
-  "exclude": ["node_modules", "dist", "drizzle"]
+  "exclude": ["node_modules", "dist", "drizzle", "src/config/preloaded-apps"]
 }

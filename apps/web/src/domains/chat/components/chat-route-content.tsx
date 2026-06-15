@@ -19,7 +19,6 @@
 
 import { type Dispatch, type MutableRefObject, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo } from "react";
 
-import { useEscapeCancel } from "@/domains/chat/hooks/use-escape-cancel";
 import { useChatUIState } from "@/domains/chat/hooks/use-chat-ui-state";
 import { useTranscriptData } from "@/domains/chat/hooks/use-transcript-data";
 import { useChatEmptyState } from "@/domains/chat/hooks/use-chat-empty-state";
@@ -61,6 +60,7 @@ import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-m
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { useViewerStore } from "@/stores/viewer-store";
+import { cmdEnterToSend } from "@/utils/composer-settings";
 import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
 import { lifecycleService } from "@/assistant/lifecycle-service";
@@ -80,7 +80,6 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
-import { useVellumCommands } from "@/runtime/vellum-commands";
 
 // ---------------------------------------------------------------------------
 // Props — only values that cannot be owned locally
@@ -223,19 +222,6 @@ export function ChatMainPanel({
   const { conversations } = useConversationListQuery(assistantId, true);
 
   // -------------------------------------------------------------------------
-  // Global Escape cancel — focused app case (document keydown) and
-  // unfocused case (IPC command from the Electron escape monitor).
-  // -------------------------------------------------------------------------
-  useEscapeCancel(canStopGenerating, handleStopGenerating);
-  useVellumCommands({
-    cancelActiveAction: () => {
-      if (canStopGenerating) {
-        void handleStopGenerating();
-      }
-    },
-  });
-
-  // -------------------------------------------------------------------------
   // UI-scoped hooks
   // -------------------------------------------------------------------------
   const avatar = useAssistantAvatar(assistantId);
@@ -254,6 +240,7 @@ export function ChatMainPanel({
     handlePrimerContinue,
     handlePrimerCancel,
     handleRetryMicPermission,
+    handleOpenMicSettings,
   } = useVoiceInput({ assistantId, inputRef, setInput });
 
 
@@ -632,6 +619,7 @@ export function ChatMainPanel({
     emptyStatePlaceholder,
   } = useChatEmptyState({
     assistantId,
+    conversationId: activeConversationId,
     isEmptyConversation,
     avatar,
     mainView,
@@ -738,9 +726,12 @@ export function ChatMainPanel({
     onMaintenanceExited: handleMaintenanceExited,
   };
 
+  const cmdEnterMode = cmdEnterToSend.useValue();
+
   const chatBodyComposerProps = {
     input,
     setInput,
+    cmdEnterMode,
     placeholder: isEmptyConversation
       ? emptyStatePlaceholder
       : "What would you like to do?",
@@ -792,6 +783,7 @@ export function ChatMainPanel({
         voiceError={voiceError}
         onClearVoiceError={clearVoiceError}
         onRetryMicPermission={handleRetryMicPermission}
+        onOpenMicSettings={handleOpenMicSettings}
         onOpenTextInsertionSettings={handleOpenTextInsertionSettings}
         textStateNoticesSlot={textStateNoticesJsx}
       />

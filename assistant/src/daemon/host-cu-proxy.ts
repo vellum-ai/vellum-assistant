@@ -473,19 +473,22 @@ export class HostCuProxy {
     for (const requestId of this._ownedRequests) {
       const entry = pendingInteractions.resolve(requestId, "cancelled");
       if (!entry) continue;
+      const { conversationId } = entry;
       try {
-        broadcastMessage(
-          {
-            type: "host_cu_cancel",
-            requestId,
-            conversationId: entry.conversationId,
-            ...(entry.targetClientId != null
-              ? { targetClientId: entry.targetClientId }
-              : {}),
-          },
-          entry.conversationId,
-          { targetClientId: entry.targetClientId as string | undefined },
-        );
+        if (conversationId !== undefined) {
+          broadcastMessage(
+            {
+              type: "host_cu_cancel",
+              requestId,
+              conversationId,
+              ...(entry.targetClientId != null
+                ? { targetClientId: entry.targetClientId }
+                : {}),
+            },
+            conversationId,
+            { targetClientId: entry.targetClientId as string | undefined },
+          );
+        }
       } catch {
         // Best-effort cancel notification
       }

@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import type { AssistantEntry } from "./assistant-config.js";
-import { normalizeVersion, saveAssistantEntry } from "./assistant-config.js";
+import { saveAssistantEntry } from "./assistant-config.js";
 import { createBackup, pruneOldBackups, restoreBackup } from "./backup-ops.js";
 import { emitCliError } from "./cli-error.js";
 import { getOrCreateHostDeviceId } from "./device-id.js";
@@ -779,7 +779,6 @@ export async function performDockerRollback(
       previousContainerInfo: entry.containerInfo,
       previousDbMigrationVersion: preMigrationState.dbVersion,
       previousWorkspaceMigrationId: preMigrationState.lastWorkspaceMigrationId,
-      version: normalizeVersion(targetVersion),
       preUpgradeBackupPath: undefined,
     };
     saveAssistantEntry(updatedEntry);

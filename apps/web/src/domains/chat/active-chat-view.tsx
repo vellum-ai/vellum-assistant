@@ -10,13 +10,12 @@
 import {
   lazy,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 import { useParams, useSearchParams } from "react-router";
-
-import { useAuthStore } from "@/stores/auth-store";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAutoGreetGate } from "@/domains/chat/hooks/use-auto-greet-gate";
@@ -49,7 +48,7 @@ import { useConversationLoader } from "@/domains/chat/hooks/use-conversation-loa
 import { useOnboardingOrchestrator } from "@/domains/chat/hooks/use-onboarding-orchestrator";
 
 import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions";
-import { canUseLlmInspector } from "@/domains/chat/inspector/access";
+import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
 import { useMessageLifecycle } from "@/domains/chat/hooks/use-message-lifecycle";
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync";
@@ -57,8 +56,8 @@ import { useDeepLinkConsumer } from "@/domains/chat/hooks/use-deep-link-consumer
 
 import { useChatDebugRegistration } from "@/domains/chat/hooks/use-chat-debug-registration";
 import { useDeepLinkApp } from "@/domains/chat/hooks/use-deep-link-app";
+import { useScrollToMessageParam } from "@/domains/chat/hooks/use-scroll-to-message";
 import { lifecycleService } from "@/assistant/lifecycle-service";
-import { ConnectingToAssistant } from "@/domains/chat/components/connecting-to-assistant";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { Button } from "@vellumai/design-library/components/button";
 
@@ -87,9 +86,8 @@ import type { ChatMainPanelProps } from "@/domains/chat/components/chat-route-co
 // ---------------------------------------------------------------------------
 
 export function ActiveChatView() {
-  const authUser = useAuthStore.use.user();
-  const showLlmInspector = canUseLlmInspector(authUser);
-  const [searchParams] = useSearchParams();
+  const showLlmInspector = useCanUseLlmInspector();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { conversationId: urlConversationId } = useParams<{ conversationId?: string }>();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
@@ -295,6 +293,13 @@ export function ActiveChatView() {
     getPendingInitialMessage: () => peekPendingPreChatContext()?.initialMessage ?? undefined,
   });
 
+  useEffect(() => {
+    if (reachability.state.phase !== "failed") return;
+    useChatSessionStore.getState().setError({
+      message: "Connection lost. Please try again.",
+    });
+  }, [reachability.state.phase]);
+
   // Post-hatch "Connecting…" overlay lifecycle — pre-chat detector,
   // messages-arrived clear, safety timer, conversation-switch clear.
   const autoGreet = useAutoGreetGate(
@@ -335,6 +340,15 @@ export function ActiveChatView() {
     transcriptRef,
     uiContextRef,
     reconcileActiveConversation,
+  });
+
+  // Deep-link: ?message=<id> scrolls to and highlights that message (e.g. the
+  // "Open" button on a saved bookmark).
+  useScrollToMessageParam({
+    transcriptRef,
+    searchParams,
+    setSearchParams,
+    conversationId: activeConversationId,
   });
 
   // -------------------------------------------------------------------------
@@ -457,11 +471,6 @@ export function ActiveChatView() {
           />
         </LazyBoundary>
       ) : null}
-      <ConnectingToAssistant
-        state={reachability.state}
-        onRetry={() => reachability.probe({ showConnectingImmediately: true })}
-        onDismiss={reachability.reset}
-      />
 
       {assistantId && (isTokenDialogOpen || complexDeployApp) ? (
         <LazyBoundary>

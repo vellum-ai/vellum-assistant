@@ -458,7 +458,16 @@ BUN_BUNDLE_CACHE_DIR="$SCRIPT_DIR/.bun-bundle-cache/${BUN_VERSION}"
 # bundles and extracts it at runtime, but macOS rejects the dlopen because the
 # extracted binary's Team ID differs from the main process.  Externalising it
 # lets the lazy wrapper in avatar/resvg-lazy.ts handle the missing module.
-BUN_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*" --external "@resvg/resvg-js" --external "@resvg/resvg-js-darwin-arm64" --external "@resvg/resvg-js-darwin-x64")
+# react-devtools-core is an optional peer dep of Ink, only loaded when
+# process.env.DEV is truthy.  Ink's try/catch handles the missing module
+# gracefully, so there is no need to bundle it into the compiled binary.
+BUN_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*" --external "@resvg/resvg-js" --external "@resvg/resvg-js-darwin-arm64" --external "@resvg/resvg-js-darwin-x64" --external react-devtools-core)
+
+# drizzle-kit ≥0.31 bundles dynamic imports for every supported database driver
+# in its api.mjs.  The gateway only uses SQLite via drizzle-orm — these optional
+# driver packages are never called at runtime.  Mark them external so
+# bun --compile doesn't fail trying to resolve them.
+GATEWAY_EXTERNAL_FLAGS=(--external "@electric-sql/pglite" --external pg --external postgres --external "@vercel/postgres" --external "@neondatabase/serverless" --external mysql2 --external "mysql2/promise" --external "@planetscale/database" --external "@libsql/client" --external better-sqlite3 --external "@aws-sdk/client-rds-data")
 
 # ---------------------------------------------------------------------------
 # build_bun_binary — compile a TypeScript project to a native binary via Bun.
@@ -709,12 +718,14 @@ build_binaries() {
         "$SCRIPT_DIR/assistant-bin" "vellum-assistant" "${cli_flags[@]}" &
     pids+=($!)
 
+    local vellum_cli_flags=("${BUN_EXTERNAL_FLAGS[@]}" "${env_flags[@]}")
     SKIP_BUN_INSTALL=1 build_bun_binary "$CLI_SRC_DIR" "$CLI_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/cli-bin" "vellum-cli" "${env_flags[@]}" &
+        "$SCRIPT_DIR/cli-bin" "vellum-cli" "${vellum_cli_flags[@]}" &
     pids+=($!)
 
+    local gateway_flags=("${GATEWAY_EXTERNAL_FLAGS[@]}" "${env_flags[@]}")
     SKIP_BUN_INSTALL=1 build_bun_binary "$GATEWAY_SRC_DIR" "$GATEWAY_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/gateway-bin" "vellum-gateway" "${env_flags[@]}" &
+        "$SCRIPT_DIR/gateway-bin" "vellum-gateway" "${gateway_flags[@]}" &
     pids+=($!)
 
     SKIP_BUN_INSTALL=1 build_bun_binary "$CES_SRC_DIR" "$CES_SRC_DIR/src/main.ts" \
@@ -736,6 +747,8 @@ build_binaries() {
     rm -rf "$SCRIPT_DIR/daemon-bin/node_modules"
     rm -rf "$SCRIPT_DIR/daemon-bin/bundled-skills"
     cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" "$SCRIPT_DIR/daemon-bin/bundled-skills"
+    rm -rf "$SCRIPT_DIR/daemon-bin/preloaded-apps"
+    cp -R "$ASSISTANT_SRC_DIR/src/config/preloaded-apps" "$SCRIPT_DIR/daemon-bin/preloaded-apps"
     rm -rf "$SCRIPT_DIR/daemon-bin/first-party-skills"
     rsync -a \
         --exclude='node_modules/' \
@@ -1249,6 +1262,14 @@ if [ -d "$ASSISTANT_SRC_DIR/src/config/bundled-skills" ]; then
     cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" "$SCRIPT_DIR/daemon-bin/bundled-skills"
 fi
 
+# Always refresh preloaded app templates from source (same reasoning: template
+# assets aren't tracked by the daemon binary staleness check)
+if [ -d "$ASSISTANT_SRC_DIR/src/config/preloaded-apps" ]; then
+    mkdir -p "$SCRIPT_DIR/daemon-bin"
+    rm -rf "$SCRIPT_DIR/daemon-bin/preloaded-apps"
+    cp -R "$ASSISTANT_SRC_DIR/src/config/preloaded-apps" "$SCRIPT_DIR/daemon-bin/preloaded-apps"
+fi
+
 # Always refresh first-party catalog skills from the repo-level skills/ dir
 # so the daemon can install catalog entries without a running platform.
 if [ -d "$SKILLS_SRC_DIR" ] && [ -f "$SKILLS_SRC_DIR/catalog.json" ]; then
@@ -1327,7 +1348,7 @@ if [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$CLI_SRC_DIR/src" ] && command -v
 fi
 if [ "$CLI_BIN_NEEDS_BUILD" = true ]; then
     build_bun_binary "$CLI_SRC_DIR" "$CLI_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/cli-bin" "vellum-cli"
+        "$SCRIPT_DIR/cli-bin" "vellum-cli" "${BUN_EXTERNAL_FLAGS[@]}"
 fi
 
 # Also rebuild if CLI binary changed or newly added
@@ -1351,7 +1372,7 @@ if [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$GATEWAY_SRC_DIR/src" ] && comman
 fi
 if [ "$GATEWAY_BIN_NEEDS_BUILD" = true ]; then
     build_bun_binary "$GATEWAY_SRC_DIR" "$GATEWAY_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/gateway-bin" "vellum-gateway"
+        "$SCRIPT_DIR/gateway-bin" "vellum-gateway" "${GATEWAY_EXTERNAL_FLAGS[@]}"
 fi
 # Always refresh WASM assets (not embedded by bun --compile).
 # These must be copied even when the gateway binary is reused from a previous build.
@@ -1492,6 +1513,13 @@ fi
 if [ -d "$SCRIPT_DIR/daemon-bin/bundled-skills" ]; then
     rm -rf "$RESOURCES_DIR/bundled-skills"
     cp -R "$SCRIPT_DIR/daemon-bin/bundled-skills" "$RESOURCES_DIR/bundled-skills"
+fi
+
+# Always refresh preloaded app templates in app bundle (resolved via
+# resolveBundledDir → Contents/Resources/preloaded-apps by the daemon seeder)
+if [ -d "$SCRIPT_DIR/daemon-bin/preloaded-apps" ]; then
+    rm -rf "$RESOURCES_DIR/preloaded-apps"
+    cp -R "$SCRIPT_DIR/daemon-bin/preloaded-apps" "$RESOURCES_DIR/preloaded-apps"
 fi
 
 # Always refresh first-party catalog skills in the app bundle.
@@ -1729,6 +1757,8 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <string>Vellum needs Screen Recording access to see what's on your screen during computer use tasks.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Vellum needs microphone access to transcribe voice commands.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Vellum needs camera access to capture photos when you ask your assistant to use the camera.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Vellum uses speech recognition to convert voice commands into tasks.</string>
     <key>SUFeedURL</key>

@@ -272,6 +272,9 @@ export { migrateAddMemoryV3EverInjected } from "./277-add-memory-v3-ever-injecte
 export { migrateToolInvocationsTelemetryColumns } from "./278-tool-invocations-telemetry-columns.js";
 export { createSkillLoadedEventsTable } from "./279-create-skill-loaded-events.js";
 export { migrateConversationsSurfacedAt } from "./280-conversations-surfaced-at.js";
+export { migrateMemoryRetrospectiveRememberedLog } from "./281-memory-retrospective-remembered-log.js";
+export { migrateScheduleInferenceProfile } from "./282-schedule-inference-profile.js";
+export { migrateMemoryV3SelectionsMessageIdAndSections } from "./283-memory-v3-selections-message-id-and-sections.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

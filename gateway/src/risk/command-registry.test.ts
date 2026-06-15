@@ -598,13 +598,37 @@ describe("command-registry", () => {
       expect(getAssistantPath("inference session close").baseRisk).toBe("low");
       expect(getAssistantPath("inference session list").baseRisk).toBe("low");
       expect(getAssistantPath("schedules list").baseRisk).toBe("low");
+      expect(getAssistantPath("schedules get").baseRisk).toBe("low");
       expect(getAssistantPath("schedules runs").baseRisk).toBe("low");
       expect(getAssistantPath("schedules create").baseRisk).toBe("medium");
+      expect(getAssistantPath("schedules update").baseRisk).toBe("medium");
       expect(getAssistantPath("schedules enable").baseRisk).toBe("medium");
       expect(getAssistantPath("schedules disable").baseRisk).toBe("medium");
       expect(getAssistantPath("schedules cancel").baseRisk).toBe("medium");
       expect(getAssistantPath("schedules delete").baseRisk).toBe("medium");
       expect(getAssistantPath("schedules execute").baseRisk).toBe("high");
+      expect(getAssistantPath("plugins list").baseRisk).toBe("low");
+      expect(getAssistantPath("plugins inspect").baseRisk).toBe("low");
+      expect(getAssistantPath("plugins install").baseRisk).toBe("high");
+      expect(getAssistantPath("plugins upgrade").baseRisk).toBe("high");
+      expect(getAssistantPath("plugins uninstall").baseRisk).toBe("medium");
+    });
+
+    test("assistant schedules update escalates to high for script payloads", () => {
+      const updateSpec = getAssistantPath("schedules update");
+      expect(updateSpec.argRules).toBeDefined();
+
+      const scriptRule = updateSpec.argRules!.find((r) =>
+        r.flags?.includes("--script"),
+      );
+      expect(scriptRule).toBeDefined();
+      expect(scriptRule!.risk).toBe("high");
+
+      const modeRule = updateSpec.argRules!.find(
+        (r) => r.flags?.includes("--mode") && r.valuePattern === "^script$",
+      );
+      expect(modeRule).toBeDefined();
+      expect(modeRule!.risk).toBe("high");
     });
   });
 

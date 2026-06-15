@@ -6,6 +6,7 @@ import {
 } from "@/generated/daemon/sdk.gen";
 import { assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
 import { fetchConversationMessages } from "@/domains/chat/api/messages";
+import { supportsLlmContextSummaryView } from "@/lib/backwards-compat/llm-context-summary-view";
 
 import type {
   ConversationMessage,
@@ -31,7 +32,19 @@ import type {
  *   The page enters this mode when the URL carries `?messageId=…` —
  *   either from the per-message "Inspect this message" hover action,
  *   or from the in-page "filter to this message" control.
+ *
+ * On assistants supporting it (see `lib/backwards-compat/
+ * llm-context-summary-view.ts`), both modes request `view=summary`,
+ * which omits the heavy per-log request/response sections. The
+ * selected call's sections are then fetched lazily via
+ * `useLlmCallDetail` (`inspector-detail-api.ts`). Older assistants
+ * keep receiving the full list, which downstream consumers treat as
+ * already-loaded detail.
  */
+
+function summaryViewQuery(): { view?: "summary" } {
+  return supportsLlmContextSummaryView() ? { view: "summary" } : {};
+}
 
 export class LlmContextRequestError extends Error {
   status: number;
@@ -125,7 +138,7 @@ export function useConversationCallNumbering(
       if (!assistantId || !conversationId) return null;
       const { data, response } = await conversationsLlmcontextGet({
         path: { assistant_id: assistantId },
-        query: { conversationId },
+        query: { conversationId, ...summaryViewQuery() },
         signal,
         throwOnError: false,
       });
@@ -192,7 +205,7 @@ export async function fetchConversationLlmContext(
   // strictly more correct.
   const { data, error, response } = await conversationsLlmcontextGet({
     path: { assistant_id: assistantId },
-    query: { conversationId },
+    query: { conversationId, ...summaryViewQuery() },
     signal,
     throwOnError: false,
   });
@@ -239,6 +252,7 @@ export async function fetchMessageLlmContextOrThrow(
 ): Promise<LlmContextResponse> {
   const { data, error, response } = await messagesByIdLlmcontextGet({
     path: { assistant_id: assistantId, id: messageId },
+    query: summaryViewQuery(),
     signal,
     throwOnError: false,
   });

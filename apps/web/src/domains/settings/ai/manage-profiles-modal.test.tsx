@@ -7,9 +7,9 @@
  * NOT from the shared `ProfileEditorModal` — so the composer quick-add surface
  * can own its own toast without double-firing.
  *
- * We mock `use-daemon-config` (query + capturing mutation), the feature-flag
- * store, the connections query, and the design-library toast so we can drive a
- * provider-first create end to end and assert exactly one success toast fires.
+ * We mock the generated SDK functions, the feature-flag store, the connections
+ * query, and the design-library toast so we can drive a provider-first create
+ * end to end and assert exactly one success toast fires.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -18,7 +18,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
-import type { DaemonConfigPatch, ProfileEntry } from "@/domains/settings/ai/ai-types";
+import type { ProfileEntry } from "@/domains/settings/ai/ai-types";
 import type { ProviderConnection } from "@/domains/settings/ai/provider-connections-client";
 import * as daemonQueryGen from "@/generated/daemon/@tanstack/react-query.gen";
 
@@ -27,7 +27,7 @@ import * as daemonQueryGen from "@/generated/daemon/@tanstack/react-query.gen";
 // ---------------------------------------------------------------------------
 
 let toastSuccessCalls: string[] = [];
-let mutatePatches: DaemonConfigPatch[] = [];
+let configPatchCalled = false;
 let profilesState: Record<string, ProfileEntry> = {};
 
 mock.module("@vellumai/design-library/components/toast", () => ({
@@ -41,22 +41,30 @@ mock.module("@vellumai/design-library/components/toast", () => ({
   ToastContent: () => null,
 }));
 
-mock.module("@/domains/settings/ai/use-daemon-config", () => ({
-  useDaemonConfigQuery: () => ({
-    assistantId: "asst-1",
-    config: undefined,
-    profiles: profilesState,
-    profileOrder: Object.keys(profilesState),
-    orderedProfiles: [],
-    activeProfile: null,
-    callSites: {},
-  }),
-  useDaemonConfigMutation: () => ({
-    mutateAsync: (patch: DaemonConfigPatch) => {
-      mutatePatches.push(patch);
-      return Promise.resolve({ data: undefined, resolvedId: "asst-1" });
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  configGet: mock(async () => ({
+    data: {
+      llm: {
+        profiles: profilesState,
+        profileOrder: Object.keys(profilesState),
+        activeProfile: null,
+        callSites: {},
+      },
     },
-  }),
+  })),
+  configPatch: async () => {
+    configPatchCalled = true;
+    return {
+      data: {
+        llm: {
+          profiles: profilesState,
+          profileOrder: Object.keys(profilesState),
+          activeProfile: null,
+          callSites: {},
+        },
+      },
+    };
+  },
 }));
 
 // Feature-flag store: `.use.<flag>()` accessors return booleans.
@@ -89,6 +97,7 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   ],
 }));
 
+const { configGetQueryKey } = await import("@/generated/daemon/@tanstack/react-query.gen");
 const { ManageProfilesModal } = await import(
   "@/domains/settings/ai/manage-profiles-modal"
 );
@@ -99,7 +108,7 @@ const { ManageProfilesModal } = await import(
 
 function Wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: { queries: { retry: false, staleTime: 0 } },
   });
   // Seed the connections cache so the provider-first picker has options on
   // first render (the modal reads from this query).
@@ -107,6 +116,16 @@ function Wrapper({ children }: { children: ReactNode }) {
     [{ _id: "inferenceProviderconnectionsGet" }],
     { connections: [connection] },
   );
+  // Seed the config cache
+  const queryKey = configGetQueryKey({ path: { assistant_id: "asst-1" } });
+  client.setQueryData(queryKey, {
+    llm: {
+      profiles: profilesState,
+      profileOrder: Object.keys(profilesState),
+      activeProfile: null,
+      callSites: {},
+    },
+  });
   return createElement(QueryClientProvider, { client }, children);
 }
 
@@ -176,7 +195,7 @@ function selectModel(label: string): void {
 
 beforeEach(() => {
   toastSuccessCalls = [];
-  mutatePatches = [];
+  configPatchCalled = false;
   profilesState = {};
 });
 
@@ -218,7 +237,7 @@ describe("ManageProfilesModal — profile-create success toast (Settings surface
     // The config mutation ran and the Settings surface fired one toast using
     // the entered label.
     await waitFor(() => {
-      expect(mutatePatches.length).toBeGreaterThan(0);
+      expect(configPatchCalled).toBe(true);
     });
     await waitFor(() => {
       expect(toastSuccessCalls).toEqual(['Profile "My Profile" created']);

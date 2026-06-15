@@ -833,8 +833,10 @@ bun run dev                       # predev regenerates automatically
 Plugins (configured in `openapi-ts.config.ts`):
 - `@hey-api/client-fetch` — Fetch-based HTTP client, bundled inline
   in the generated output ([no runtime dep needed](https://github.com/hey-api/openapi-ts/pull/790))
-- `@tanstack/react-query` — generates `*Options()` helpers for
-  `useQuery` / `useMutation` / `useInfiniteQuery`
+- `@tanstack/react-query` — generates query factories (`xxxOptions()`),
+  mutation hooks (`useXxxMutation()`), mutation factories
+  (`xxxMutation()`), query keys (`xxxQueryKey()`), and typed cache
+  helpers (`setXxxQueryData()`)
 - `@hey-api/typescript` — generates TypeScript types from schemas
   (included by default, does not need explicit config)
 
@@ -842,14 +844,60 @@ References:
 - [HeyAPI — Configuration](https://heyapi.dev/openapi-ts/configuration)
 - [HeyAPI — TanStack Query plugin](https://heyapi.dev/openapi-ts/plugins/tanstack-query)
 
+### Generated artifacts and when to use each
+
+The TanStack Query plugin generates several layers per endpoint:
+
+| Generated artifact | Example | Use when |
+|---|---|---|
+| **Query factory** (`xxxOptions`) | `assistantsListOptions()` | Queries — spread into `useQuery()` with any TQ options (`enabled`, `select`, `staleTime`, etc.) |
+| **Mutation hook** (`useXxxMutation`) | `useAssistantsDoctorSessionsCreateMutation()` | Mutations — accepts all TQ mutation options (`onSuccess`, `onError`, `onMutate`, `onSettled`) |
+| **Mutation factory** (`xxxMutation`) | `assistantsDoctorSessionsCreateMutation()` | Outside React — `queryClient.executeMutation()`, or when you need the raw options object |
+| **Cache helper** (`setXxxQueryData`) | `setAssistantsListQueryData()` | Typed optimistic writes to the query cache |
+| **Query key** (`xxxQueryKey`) | `assistantsListQueryKey()` | Cache invalidation, `queryClient.invalidateQueries()` |
+
+**Queries use the factory pattern.** The generated `useXxxQuery()`
+hooks only accept SDK parameters (`path`, `query`, `body`) — they do
+**not** accept TanStack Query options like `enabled`, `select`, or
+`staleTime`. Since almost every query in the codebase needs at least
+`enabled` (for org-readiness gating, conditional fetching, etc.), use
+the factory + `useQuery()` pattern:
+
+```ts
+// Queries — spread factory into useQuery() so you can pass TQ options
+const { data } = useQuery({
+  ...assistantsListOptions({ query: { hosting: "platform" } }),
+  enabled: isOrgReady,
+});
+
+// Mutations — generated hooks work, they accept TQ callbacks
+const mutation = useAssistantsDoctorSessionsCreateMutation({
+  onSuccess(data) { /* ... */ },
+});
+
+// Outside React — factory directly
+await queryClient.prefetchQuery(assistantsListOptions());
+
+// Optimistic writes — typed cache helper
+setAssistantsListQueryData(queryClient, undefined, (old) => /* ... */);
+```
+
+This is TanStack Query's [recommended
+approach](https://tanstack.com/query/latest/docs/framework/react/guides/query-options)
+— the `queryOptions()` factory defines `queryKey` + `queryFn`,
+consumers add TQ options at the call site. It is a [known
+limitation](https://github.com/hey-api/openapi-ts/pull/3528) in
+HeyAPI's TanStack Query plugin that the generated mutation hooks
+accept TQ options via a spread, but the generated query hooks do not.
+
 ### Prefer generated clients over hand-written fetch
 
-For backend API routes, use the generated HeyAPI hooks (`*Options()`
-helpers with `useQuery` / `useMutation`) over hand-written `fetch`
-wrappers. Do not create new direct `fetch()` calls with hardcoded
-backend prefixes unless the generated client cannot support the use case
-(e.g. SSE/streaming endpoints that need custom `EventSource` handling).
-If bypassing, add a comment explaining why.
+For backend API routes, use the generated HeyAPI hooks over
+hand-written `fetch` wrappers. Do not create new direct `fetch()`
+calls with hardcoded backend prefixes unless the generated client
+cannot support the use case (e.g. SSE/streaming endpoints that need
+custom `EventSource` handling). If bypassing, add a comment explaining
+why.
 
 ---
 
@@ -1210,6 +1258,30 @@ the `Vellum-Organization-Id` header and uses bearer auth instead.
   (the `true` flag replaces the entire state instead of merging).
 
   Reference: [Zustand — Testing](https://zustand.docs.pmnd.rs/guides/testing)
+
+### Storybook
+
+Stories are tests, not just visual demos. They verify that a component
+renders correctly given the data it actually receives in production.
+
+- **Use the component's prop types, not ad-hoc shapes.** Each story
+  should construct props that match the component's typed interface.
+  If the component accepts `Surface`, construct a valid `Surface` —
+  the type system enforces correctness.
+- **Data must match production format.** Story data should reflect what
+  the backend actually produces. If the backend has a bug (e.g.
+  warnings rendering on one line), fix the backend — don't patch the
+  story data to compensate. Backend builder correctness is verified by
+  backend unit tests; stories verify the component renders that data
+  correctly.
+- **Keep helpers thin.** A story helper that constructs the prop object
+  (e.g. filling in `surfaceId`, `surfaceType`, `actions`) is fine as
+  long as it accepts the component's data shape directly. Don't create
+  helpers that transform a different input format into the prop shape —
+  that adds a layer of indirection that hides what the component
+  actually receives.
+
+Reference: [Storybook — Writing stories](https://storybook.js.org/docs/writing-stories)
 
 ---
 

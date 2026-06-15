@@ -120,6 +120,53 @@ describe("groupContentBlocks", () => {
   test("empty blocks yield no groups", () => {
     expect(groupContentBlocks([])).toEqual([]);
   });
+
+  test("splitInlineThinking extracts <thinking> tags from text into activity groups", () => {
+    /**
+     * Models that emit reasoning as inline `<thinking>` text (rather than
+     * native thinking blocks) get the same thought-process rendering: the tag
+     * body becomes a thinking activity and the remaining text stays a text
+     * group, matching macOS's inline tag parsing.
+     */
+
+    // GIVEN a text block carrying an inline thinking tag plus a native run
+    const blocks: ConversationContentBlock[] = [
+      { type: "tool_use", toolCall: toolCall({ id: "call-a" }) },
+      { type: "text", text: "<thinking>weigh options</thinking>final answer" },
+    ];
+
+    // WHEN grouped with splitInlineThinking
+    // THEN the extracted thinking merges into the open activity run and the
+    // remaining text closes it
+    expect(groupContentBlocks(blocks, { splitInlineThinking: true })).toEqual([
+      {
+        type: "activity",
+        items: [
+          { type: "tool_use", toolCall: toolCall({ id: "call-a" }) },
+          {
+            type: "thinking",
+            thinking: "weigh options",
+            startedAt: undefined,
+            completedAt: undefined,
+          },
+        ],
+      },
+      { type: "text", text: "final answer" },
+    ]);
+  });
+
+  test("inline thinking tags pass through verbatim without splitInlineThinking", () => {
+    /**
+     * User messages must render typed tags verbatim, so the split is opt-in
+     * per message role at the call site.
+     */
+    const blocks: ConversationContentBlock[] = [
+      { type: "text", text: "<thinking>typed by a user</thinking>hi" },
+    ];
+    expect(groupContentBlocks(blocks)).toEqual([
+      { type: "text", text: "<thinking>typed by a user</thinking>hi" },
+    ]);
+  });
 });
 
 describe("isSubagentSpawnCall", () => {

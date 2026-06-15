@@ -15,6 +15,19 @@ import { completeSubmittedSurface } from "@/domains/chat/utils/send-message-util
 import { submitSurfaceAction } from "@/domains/chat/api/surfaces";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
+const DECISION_REASON_LABELS: Record<string, string> = {
+  already_resolved: "Already resolved",
+  expired: "Request expired",
+  identity_mismatch: "Not authorized",
+  not_found: "Request not found",
+  resolver_failed: "Action failed",
+};
+
+function formatDecisionReason(reason?: string): string {
+  if (!reason) return "Not applied";
+  return DECISION_REASON_LABELS[reason] ?? "Not applied";
+}
+
 /**
  * Submit a user action on a rendered surface (e.g. form submit, button click).
  * Validates the surface exists, sends the action to the daemon, marks the
@@ -39,7 +52,7 @@ export async function handleSurfaceAction(
     return;
   }
 
-  let result: { ok: boolean };
+  let result: Awaited<ReturnType<typeof submitSurfaceAction>>;
   try {
     result = await submitSurfaceAction(
       ctx.assistantId,
@@ -58,9 +71,21 @@ export async function handleSurfaceAction(
     return;
   }
 
-  useTurnStore.getState().requestSend();
+  // Guardian decision actions (apr:*) are processed synchronously at the
+  // HTTP handler level — no conversation turn is started, so no SSE events
+  // will arrive to complete the turn. Only request a send for actions that
+  // trigger daemon-side conversation processing.
+  const isGuardianDecision = typeof result.applied === "boolean";
+  if (!isGuardianDecision) {
+    useTurnStore.getState().requestSend();
+  }
+
+  const completionText =
+    isGuardianDecision && result.applied === false
+      ? formatDecisionReason(result.reason)
+      : result.replyText;
 
   useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) =>
-    completeSubmittedSurface(prev, surfaceId, actionId),
+    completeSubmittedSurface(prev, surfaceId, actionId, completionText),
   );
 }

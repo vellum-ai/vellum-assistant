@@ -35,15 +35,14 @@ mock.module("@/hooks/use-network-status", () => ({
 }));
 
 mock.module("@/hooks/use-connectivity-state", () => ({
-  useConnectivityState: () => connectivityStateMock,
+  useConnectivityState: () => ({
+    connectivityState: connectivityStateMock,
+    retryConnectivity: () => {},
+  }),
 }));
 
 mock.module("@/runtime/is-electron", () => ({
   isElectron: () => isElectronMock,
-}));
-
-mock.module("@/runtime/connectivity", () => ({
-  retryConnectivity: () => {},
 }));
 
 mock.module("react-router", () => ({

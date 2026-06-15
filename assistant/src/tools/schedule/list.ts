@@ -71,6 +71,7 @@ export async function executeScheduleList(
       `  Enabled: ${job.enabled}`,
       `  Quiet: ${job.quiet}`,
       `  Reuse conversation: ${job.reuseConversation}`,
+      `  Inference profile: ${job.inferenceProfile ?? "default (mainAgent)"}`,
       `  Message: ${job.message}`,
     );
 

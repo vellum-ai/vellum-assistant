@@ -312,6 +312,27 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     expect(optionLabels).toEqual(["+ Create new provider"]);
   });
 
+  test("a provider unknown to the catalog shows an explicit empty-model state", () => {
+    // "acme-llm" isn't in the static web catalog — `getModelsForProvider`
+    // returns [] for unknown ids — reproducing the drift scenario where a
+    // connection exists for a provider this app version doesn't know about.
+    renderCreate([makeConnection("acme-llm-personal", "acme-llm")]);
+
+    selectProvider("acme-llm");
+
+    // The Model dropdown trigger explains the empty list instead of showing
+    // a bare "Select a model" placeholder over zero options...
+    const triggerLabels = dropdownTriggers().map((t) => t.textContent?.trim());
+    expect(triggerLabels).toContain("No models available");
+    expect(triggerLabels).not.toContain("Select a model");
+
+    // ...and the hint below spells out why and what to do about it.
+    expect(document.body.textContent).toContain(
+      "No models are available for this provider in this app version. " +
+        "Update the app, or use an OpenAI-compatible connection to enter a custom model.",
+    );
+  });
+
   test("+ Create new provider mounts ProviderCreateForm; successful create selects it and Save enables after a model", async () => {
     renderCreate([]);
 

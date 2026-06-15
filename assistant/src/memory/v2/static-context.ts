@@ -38,8 +38,17 @@ const MEMORY_V2_STATIC_BLOCKS: readonly MemoryV2StaticBlock[] = [
  * Build the v2 static memory block, gated on `config.memory.enabled` and
  * `config.memory.v2.enabled`. Empty/missing files are skipped; returns `null`
  * when either gate is off or every file is empty.
+ *
+ * `excludeBuffer` drops the `## Buffer` section. The consolidation run sets
+ * it: the agent's contract there is the `memory/buffer.md` FILE — it reads,
+ * routes, and rewrites it through file tools — so injecting a static snapshot
+ * of the same content would duplicate the entire (potentially unbounded)
+ * backlog into the turn's context and go stale the moment the agent edits
+ * the file.
  */
-export function readMemoryV2StaticContent(): string | null {
+export function readMemoryV2StaticContent(
+  options: { excludeBuffer?: boolean } = {},
+): string | null {
   let config;
   try {
     config = loadConfig();
@@ -52,6 +61,9 @@ export function readMemoryV2StaticContent(): string | null {
 
   const sections: string[] = [];
   for (const { heading, file } of MEMORY_V2_STATIC_BLOCKS) {
+    if (options.excludeBuffer === true && file === "memory/buffer.md") {
+      continue;
+    }
     const content = readPromptFile(getWorkspacePromptPath(file));
     if (!content) continue;
     sections.push(`${heading}\n\n${content}`);

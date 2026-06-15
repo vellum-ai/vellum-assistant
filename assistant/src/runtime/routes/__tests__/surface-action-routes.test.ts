@@ -72,6 +72,17 @@ mock.module("../../../memory/raw-query.js", () => ({
   },
 }));
 
+// Mock guardian-action-service to cut off its deep transitive dependency chain.
+// The apr:* routing is tested in guardian-routing-invariants.test.ts; this file
+// focuses on the surface→conversation rehydration path.
+mock.module("../../guardian-action-service.js", () => ({
+  processGuardianDecision: async () => ({ ok: true, applied: true }),
+}));
+
+mock.module("../channel-route-shared.js", () => ({
+  parseCallbackData: () => null,
+}));
+
 // Defer route import until after mocks are installed.
 const { ROUTES } = await import("../surface-action-routes.js");
 const { NotFoundError } = await import("../errors.js");

@@ -75,6 +75,29 @@ iptables -t nat -F OUTPUT
 iptables -t nat -A OUTPUT -p tcp --dport 443 -m owner --uid-owner "$MITM_UID" -j RETURN
 iptables -t nat -A OUTPUT -p tcp --dport 443 -j REDIRECT --to-port "$MITM_PORT"
 
+# ---- re-evaluate any pre-existing flows against the new NAT policy.
+#
+# Defensive backstop. NAT OUTPUT REDIRECT only rewrites the first packet
+# of a NEW conntrack flow, and the filter chain accepts already-open flows
+# via the ESTABLISHED,RELATED rule above — so any TCP connection that
+# predates these rules would egress straight to the provider, never
+# traversing mitmproxy, and its tokens/cost would go unrecorded. When the
+# jail owns the network namespace and tenants are born into it, no such
+# flow can exist; this flush guarantees correctness even if a tenant
+# somehow opens a connection before the rules are fully in place.
+#
+# Flushing conntrack forces every existing flow to be re-evaluated: the
+# next packet on a reused connection is treated as NEW, hits the REDIRECT,
+# and the client transparently reconnects through mitmproxy. conntrack is
+# network-namespace scoped, so this only affects this namespace's own
+# flows, and it runs before `mitmdump` is exec'd so the proxy has no
+# upstream connections to disturb. Best-effort: a flush failure must not
+# take down the jail (recording degrades to the pre-existing behaviour
+# rather than breaking egress entirely).
+conntrack -F >/dev/null 2>&1 \
+  && echo "recording-jail: flushed pre-jail conntrack flows" >&2 \
+  || echo "recording-jail: conntrack flush unavailable (pre-jail flows may bypass)" >&2
+
 # Sanity: confirm a working rule listing went out so a misconfig is
 # easy to spot in the sidecar logs.
 echo "recording-jail: iptables installed; mitmproxy uid=$MITM_UID port=$MITM_PORT" >&2

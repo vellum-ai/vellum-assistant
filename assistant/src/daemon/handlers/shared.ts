@@ -13,6 +13,7 @@ import type { SecretPromptResult } from "../../permissions/secret-prompter.js";
 import { isPlaceholderSentinelText } from "../../providers/placeholder-sentinels.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../../runtime/auth/types.js";
+import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { unwrapExternalContentForDisplay } from "../../security/untrusted-content.js";
 import { getLogger } from "../../util/logger.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
@@ -27,15 +28,6 @@ export { log };
 export const CONFIG_RELOAD_DEBOUNCE_MS = 300;
 
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
-
-// Module-level map for non-conversation secret prompts (e.g. publish_page)
-const pendingStandaloneSecrets = new Map<
-  string,
-  {
-    resolve: (result: SecretPromptResult) => void;
-    timer: ReturnType<typeof setTimeout>;
-  }
->();
 
 /**
  * A single tool call rendered into a history row. Alias of the canonical
@@ -166,6 +158,13 @@ export interface ConversationCreateOptions {
    * `resolveCallSiteConfig` instead of the global default.
    */
   callSite?: LLMCallSite;
+  /**
+   * Optional ad-hoc inference-profile override (`llm.profiles` key) applied
+   * to every LLM call the turn issues. Background callers with a pinned
+   * profile (e.g. schedules) pass it here so the agent loop layers the
+   * profile via `SendMessageOptions.config.overrideProfile`.
+   */
+  overrideProfile?: string;
   /**
    * Slack inbound metadata captured at the channel ingress boundary. When
    * present (and the turn channel resolves to Slack), persistence writes a
@@ -697,9 +696,15 @@ export function renderHistoryContent(
 }
 
 /**
- * Send a `secret_request` to the client and wait for the response,
- * outside of a conversation context (e.g. from IPC routes like
- * credentials/prompt).
+ * Send a `secret_request` to the client and wait for the response, outside of a
+ * conversation context (e.g. from IPC routes like credentials/prompt).
+ *
+ * Lifecycle state (resolver, timer) is registered in pendingInteractions — the
+ * same tracker the in-conversation SecretPrompter uses — so `POST /v1/secret`
+ * resolves the prompt generically. When a `conversationId` is supplied (the CLI
+ * `credentials prompt` command forwards `__CONVERSATION_ID`), the broadcast is
+ * scoped to that conversation so clients deliver it; otherwise it is
+ * conversation-less.
  */
 export function requestSecretStandalone(params: {
   service: string;
@@ -710,15 +715,21 @@ export function requestSecretStandalone(params: {
   purpose?: string;
   allowedTools?: string[];
   allowedDomains?: string[];
+  conversationId?: string;
 }): Promise<SecretPromptResult> {
   const requestId = uuid();
   const config = getConfig();
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
-      pendingStandaloneSecrets.delete(requestId);
+      pendingInteractions.resolve(requestId, "cancelled");
       resolve({ value: null, delivery: "store" });
     }, config.timeouts.permissionTimeoutSec * 1000);
-    pendingStandaloneSecrets.set(requestId, { resolve, timer });
+    pendingInteractions.register(requestId, {
+      conversationId: params.conversationId,
+      kind: "secret",
+      rpcResolve: resolve as (value: unknown) => void,
+      timer,
+    });
     broadcastMessage({
       type: "secret_request",
       requestId,
@@ -727,6 +738,7 @@ export function requestSecretStandalone(params: {
       label: params.label,
       description: params.description,
       placeholder: params.placeholder,
+      conversationId: params.conversationId,
       purpose: params.purpose,
       allowedTools: params.allowedTools,
       allowedDomains: params.allowedDomains,

@@ -9,7 +9,9 @@ import { join } from "node:path";
 import { getLogger } from "../../util/logger.js";
 import type { WorkspaceMigration } from "./types.js";
 
-const log = getLogger("workspace-migration-056-release-notes-inference-profile-reordering");
+const log = getLogger(
+  "workspace-migration-056-release-notes-inference-profile-reordering",
+);
 
 const MIGRATION_ID = "056-release-notes-inference-profile-reordering";
 const MARKER = `<!-- release-note-id:${MIGRATION_ID} -->`;
@@ -25,7 +27,8 @@ profile dropdown, chat profile picker, and per-call-site overrides.
 export const releaseNotesInferenceProfileReorderingMigration: WorkspaceMigration =
   {
     id: MIGRATION_ID,
-    description: "Append release notes for inference profile reordering to UPDATES.md",
+    description:
+      "Append release notes for inference profile reordering to UPDATES.md",
 
     run(workspaceDir: string): void {
       const updatesPath = join(workspaceDir, "UPDATES.md");

@@ -41,7 +41,7 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => undefined,
   mergeDefaultWorkspaceConfig: (config: unknown) => config,
   API_KEY_PROVIDERS: [] as const,
-  _appendQuarantineBulletin: () => undefined,
+  _writeQuarantineNotice: () => undefined,
 }));
 
 mock.module("../daemon/conversation-skill-tools.js", () => ({

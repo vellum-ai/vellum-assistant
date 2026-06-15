@@ -30,5 +30,18 @@ export type AssistantState =
   | { kind: "initializing" }
   | { kind: "cleaning_up" }
   | { kind: "self_hosted"; health?: LocalAssistantHealth }
-  | { kind: "active"; isLocal: boolean; maintenanceMode?: MaintenanceModeInfo; reachable?: boolean; health?: LocalAssistantHealth }
-  | { kind: "error"; message: string };
+  | {
+      kind: "active";
+      isLocal: boolean;
+      maintenanceMode?: MaintenanceModeInfo;
+      reachable?: boolean;
+      health?: LocalAssistantHealth;
+    }
+  /**
+   * `transient: true` marks a transport-shaped failure (device offline,
+   * network flapping after sleep/wake) rather than a server-reported
+   * error. The lifecycle service auto-retries these with backoff and
+   * on network-online signals; the chat page renders them with
+   * reconnecting copy instead of a terminal error.
+   */
+  | { kind: "error"; message: string; transient?: boolean };

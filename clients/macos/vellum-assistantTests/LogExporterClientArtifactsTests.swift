@@ -29,6 +29,130 @@ struct LogExporterClientArtifactsTests {
         }
     }
 
+    // MARK: - Workspace Config Sanitization
+
+    @Test
+    func sanitizeWorkspaceConfigRedactsAcpAgentEnvValues() throws {
+        let config: [String: Any] = [
+            "acp": [
+                "agents": [
+                    "codex": [
+                        "command": "codex",
+                        "args": ["acp"],
+                        "env": [
+                            "OPENAI_API_KEY": "openai-v",
+                            "EMPTY_VAR": ""
+                        ]
+                    ]
+                ]
+            ],
+            "apiKeys": [
+                "anthropic": "ant-v"
+            ],
+            "model": "some-model"
+        ]
+
+        let sanitized = LogExporter.sanitizeWorkspaceConfig(config)
+
+        guard let acp = sanitized["acp"] as? [String: Any],
+              let agents = acp["agents"] as? [String: [String: Any]],
+              let codex = agents["codex"],
+              let env = codex["env"] as? [String: Any] else {
+            Issue.record("Expected sanitized acp.agents.codex.env")
+            return
+        }
+
+        // Env keys are preserved, values become presence flags
+        #expect(env["OPENAI_API_KEY"] as? String == "(set)")
+        #expect(env["EMPTY_VAR"] as? String == "(empty)")
+
+        // Non-sensitive agent fields round-trip unchanged
+        #expect(codex["command"] as? String == "codex")
+        #expect(codex["args"] as? [String] == ["acp"])
+
+        // Already-covered path (apiKeys) is still redacted
+        guard let apiKeys = sanitized["apiKeys"] as? [String: Any] else {
+            Issue.record("Expected sanitized apiKeys")
+            return
+        }
+        #expect(apiKeys["anthropic"] as? String == "(set)")
+
+        // Untouched sections round-trip unchanged
+        #expect(sanitized["model"] as? String == "some-model")
+
+        // No plaintext secrets anywhere in the serialized output
+        let data = try JSONSerialization.data(withJSONObject: sanitized)
+        let json = String(decoding: data, as: UTF8.self)
+        #expect(!json.contains("openai-v"))
+        #expect(!json.contains("ant-v"))
+    }
+
+    @Test
+    func sanitizeWorkspaceConfigPassesThroughAgentsWithoutEnv() throws {
+        let config: [String: Any] = [
+            "model": "some-model",
+            "acp": [
+                "agents": [
+                    "codex": [
+                        "command": "codex"
+                    ]
+                ]
+            ]
+        ]
+
+        let sanitized = LogExporter.sanitizeWorkspaceConfig(config)
+
+        // Agents without env blocks pass through unchanged
+        guard let acp = sanitized["acp"] as? [String: Any],
+              let agents = acp["agents"] as? [String: [String: Any]],
+              let codex = agents["codex"] else {
+            Issue.record("Expected acp.agents.codex to round-trip")
+            return
+        }
+        #expect(codex["command"] as? String == "codex")
+        #expect(codex["env"] == nil)
+        #expect(sanitized["model"] as? String == "some-model")
+    }
+
+    @Test
+    func sanitizeWorkspaceConfigRedactsWellFormedAgentsDespiteMalformedSibling() throws {
+        let config: [String: Any] = [
+            "acp": [
+                "agents": [
+                    "broken": "not-a-dictionary",
+                    "codex": [
+                        "command": "codex",
+                        "env": [
+                            "OPENAI_API_KEY": "openai-v"
+                        ]
+                    ]
+                ]
+            ]
+        ]
+
+        let sanitized = LogExporter.sanitizeWorkspaceConfig(config)
+
+        guard let acp = sanitized["acp"] as? [String: Any],
+              let agents = acp["agents"] as? [String: Any],
+              let codex = agents["codex"] as? [String: Any],
+              let env = codex["env"] as? [String: Any] else {
+            Issue.record("Expected sanitized acp.agents.codex.env")
+            return
+        }
+
+        // The well-formed agent's env is still redacted despite the malformed sibling
+        #expect(env["OPENAI_API_KEY"] as? String == "(set)")
+        #expect(codex["command"] as? String == "codex")
+
+        // The malformed entry passes through unchanged
+        #expect(agents["broken"] as? String == "not-a-dictionary")
+
+        // No plaintext secrets anywhere in the serialized output
+        let data = try JSONSerialization.data(withJSONObject: sanitized)
+        let json = String(decoding: data, as: UTF8.self)
+        #expect(!json.contains("openai-v"))
+    }
+
     // MARK: - All Artifacts Present
 
     @Test
@@ -39,7 +163,7 @@ struct LogExporterClientArtifactsTests {
                     "assistantId": "assistant-123",
                     "runtimeUrl": "http://127.0.0.1:7830",
                     "bearerToken": "bearer-token",
-                    "guardianBootstrapSecret": "bootstrap-secret-value",
+                    "guardianBootstrapSecret": "gbs-v",
                     "cloud": "local"
                 ]
             ]
@@ -61,7 +185,7 @@ struct LogExporterClientArtifactsTests {
 
         let data = try JSONSerialization.data(withJSONObject: sanitized)
         let json = String(decoding: data, as: UTF8.self)
-        #expect(!json.contains("bootstrap-secret-value"))
+        #expect(!json.contains("gbs-v"))
         #expect(!json.contains("bearer-token"))
     }
 

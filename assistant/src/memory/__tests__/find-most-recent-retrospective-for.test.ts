@@ -66,7 +66,10 @@ describe("findMostRecentRetrospectiveFor", () => {
     const conv = createConversation("conv");
     const retro = createRetro(conv.id, 1_000);
 
-    expect(findMostRecentRetrospectiveFor(conv.id)).toEqual({ id: retro.id });
+    expect(findMostRecentRetrospectiveFor(conv.id)).toEqual({
+      id: retro.id,
+      forkParentConversationId: conv.id,
+    });
   });
 
   test("returns the most recently created retrospective when multiple exist at the same level", () => {
@@ -75,7 +78,10 @@ describe("findMostRecentRetrospectiveFor", () => {
     const newer = createRetro(conv.id, 2_000);
     createRetro(conv.id, 500);
 
-    expect(findMostRecentRetrospectiveFor(conv.id)).toEqual({ id: newer.id });
+    expect(findMostRecentRetrospectiveFor(conv.id)).toEqual({
+      id: newer.id,
+      forkParentConversationId: conv.id,
+    });
   });
 
   test("walks up the fork chain when the current conversation has no retros", () => {
@@ -87,6 +93,8 @@ describe("findMostRecentRetrospectiveFor", () => {
 
     expect(findMostRecentRetrospectiveFor(fork.id)).toEqual({
       id: parentRetro.id,
+      // Owned by the PARENT — callers must not GC it on the fork's behalf.
+      forkParentConversationId: parent.id,
     });
   });
 
@@ -100,6 +108,7 @@ describe("findMostRecentRetrospectiveFor", () => {
 
     expect(findMostRecentRetrospectiveFor(fork.id)).toEqual({
       id: forkRetro.id,
+      forkParentConversationId: fork.id,
     });
   });
 
@@ -115,6 +124,7 @@ describe("findMostRecentRetrospectiveFor", () => {
 
     expect(findMostRecentRetrospectiveFor(fork.id)).toEqual({
       id: grandparentRetro.id,
+      forkParentConversationId: grandparent.id,
     });
   });
 

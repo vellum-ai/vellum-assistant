@@ -4,7 +4,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
-import { canUseLlmInspector } from "@/domains/chat/inspector/access";
+import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
 import {
     useConversationCallNumbering,
     useConversationMessageList,
@@ -15,11 +15,21 @@ import {
     buildInspectorExportZipBlob,
 } from "@/domains/chat/inspector/inspector-export";
 import {
+    llmCallDetailQueryOptions,
+    useLlmCallDetail,
+} from "@/domains/chat/inspector/inspector-detail-api";
+import {
     llmLogPayloadQueryOptions,
     type LlmLogPayload,
 } from "@/domains/chat/inspector/inspector-payload-api";
 import { normalizeContentBlocks } from "@/domains/chat/api/messages";
-import { useAuthStore, useIsSessionInitializing } from "@/stores/auth-store";
+import {
+    supportsLlmContextSummaryView,
+    useSupportsLlmContextSummaryView,
+} from "@/lib/backwards-compat/llm-context-summary-view";
+import { isElectron } from "@/runtime/is-electron";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useIsSessionInitializing } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import type {
   ConversationMessage,
@@ -60,7 +70,12 @@ import { SkillsTab } from "./components/tabs/skills-tab";
  * is absent or no longer points to a known log.
  */
 export function InspectPage(): ReactNode {
-  const user = useAuthStore.use.user();
+  const canInspect = useCanUseLlmInspector();
+  // The developer-nav flag reads as registry-default `false` until the
+  // `/feature-flags` response lands, so flag-gated sessions (e.g. local
+  // gateway) would flash the denial on deep links. Treat the pre-hydration
+  // window as loading instead.
+  const flagsHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
   const authLoading = useIsSessionInitializing();
   // React Router's :conversationId segment is the source of truth; the
   // route definition guarantees it's present, but useParams still types
@@ -69,14 +84,15 @@ export function InspectPage(): ReactNode {
   const [searchParams] = useSearchParams();
   const messageId = searchParams.get("messageId");
 
-  if (authLoading) {
+  if (authLoading || (!canInspect && !flagsHydrated)) {
     return <CenteredMessage tone="muted">Loading…</CenteredMessage>;
   }
 
-  if (!canUseLlmInspector(user)) {
+  if (!canInspect) {
     return (
       <CenteredMessage tone="muted">
-        Inspector is available to Vellum developers only.
+        Inspector is available to Vellum staff, or when the
+        settings-developer-nav developer flag is enabled.
       </CenteredMessage>
     );
   }
@@ -99,6 +115,7 @@ interface InspectorProps {
 
 function Inspector({ conversationId, messageId }: InspectorProps): ReactNode {
   const assistantId = useActiveAssistantId();
+  const electron = isElectron();
   const {
     data,
     isLoading: isLoadingContext,
@@ -153,8 +170,18 @@ function Inspector({ conversationId, messageId }: InspectorProps): ReactNode {
     [conversationId, messageId],
   );
 
+  // On the Electron macOS shell the window runs with a hidden title bar, so a
+  // global `WindowDragRegion` drag strip and the traffic lights occupy the top
+  // of the renderer. This standalone route has no inline title bar to claim that
+  // band (only chat does), so — like `SidebarShell` — reserve top space to clear
+  // the controls. Without it the header's back button sits under the drag strip
+  // and its clicks are swallowed by window dragging. Off Electron the layout is
+  // unchanged.
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div
+      className="flex h-full min-h-0 flex-col"
+      style={electron ? { paddingTop: "2.75rem" } : undefined}
+    >
       <Header
         assistantId={assistantId}
         conversationId={conversationId}
@@ -232,7 +259,16 @@ function Header({
           return queryClient.fetchQuery(options);
         }),
       );
-      const blob = await buildInspectorExportZipBlob(context, payloads);
+      const blob = await buildInspectorExportZipBlob(
+        context,
+        payloads,
+        (logId) =>
+          supportsLlmContextSummaryView()
+            ? queryClient.fetchQuery(
+                llmCallDetailQueryOptions(assistantId, logId),
+              )
+            : Promise.resolve(null),
+      );
       const { saveFile } = await import("@/runtime/native-file");
       await saveFile(
         blob,
@@ -555,6 +591,42 @@ function Loaded({
 }: LoadedProps): ReactNode {
   const [tab, setTab] = useState<InspectorTab>("overview");
 
+  // On assistants with summary-view support, the list omits per-log
+  // sections, so the selected call's request/response sections are
+  // loaded lazily here and merged into the entry. Older assistants
+  // return sections inline and the list entry is used as-is.
+  const supportsSummaryView = useSupportsLlmContextSummaryView();
+  const selectedLogHasSections = Boolean(
+    selectedLog && (selectedLog.requestSections || selectedLog.responseSections),
+  );
+  const shouldFetchDetail = supportsSummaryView && !selectedLogHasSections;
+  const {
+    data: detail,
+    isPending: isDetailPending,
+    isError: isDetailError,
+  } = useLlmCallDetail(
+    shouldFetchDetail ? assistantId : undefined,
+    selectedLogId,
+  );
+  const selectedEntry = useMemo<LLMRequestLogEntry | null>(() => {
+    if (!selectedLog) return null;
+    if (!shouldFetchDetail || !detail) return selectedLog;
+    return {
+      ...selectedLog,
+      requestSections: detail.requestSections,
+      responseSections: detail.responseSections,
+    };
+  }, [selectedLog, shouldFetchDetail, detail]);
+  const detailState: DetailState = !shouldFetchDetail
+    ? "loaded"
+    : isDetailError
+      ? "error"
+      : detail
+        ? "loaded"
+        : isDetailPending
+          ? "loading"
+          : "loaded";
+
   return (
     <>
       <aside
@@ -586,10 +658,11 @@ function Loaded({
         </div>
         <TabBar selected={tab} onSelect={setTab} />
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-          {selectedLog ? (
+          {selectedEntry ? (
             <TabContent
               tab={tab}
-              entry={selectedLog}
+              entry={selectedEntry}
+              detailState={detailState}
               logs={logs}
               buildCallHref={buildCallHref}
               assistantId={assistantId}
@@ -610,9 +683,12 @@ function Loaded({
   );
 }
 
+type DetailState = "loading" | "loaded" | "error";
+
 interface TabContentProps {
   tab: InspectorTab;
   entry: LLMRequestLogEntry;
+  detailState: DetailState;
   logs: LLMRequestLogEntry[];
   buildCallHref: (logId: string) => string;
   assistantId: string | undefined;
@@ -624,6 +700,7 @@ interface TabContentProps {
 function TabContent({
   tab,
   entry,
+  detailState,
   logs,
   buildCallHref,
   assistantId,
@@ -640,8 +717,14 @@ function TabContent({
         />
       );
     case "prompt":
+      if (detailState !== "loaded") {
+        return <DetailPlaceholder state={detailState} />;
+      }
       return <PromptTab entry={entry} />;
     case "response":
+      if (detailState !== "loaded") {
+        return <DetailPlaceholder state={detailState} />;
+      }
       return <ResponseTab entry={entry} />;
     case "raw":
       return <RawTab entry={entry} assistantId={assistantId} />;
@@ -656,8 +739,19 @@ function TabContent({
     case "skills":
       return <SkillsTab logs={logs} buildCallHref={buildCallHref} />;
     case "memory":
-      return <MemoryTab context={context} />;
+      return <MemoryTab context={context} assistantId={assistantId} />;
   }
+}
+
+function DetailPlaceholder({ state }: { state: DetailState }): ReactNode {
+  if (state === "error") {
+    return (
+      <CenteredMessage>
+        Failed to load this call’s normalized context.
+      </CenteredMessage>
+    );
+  }
+  return <CenteredMessage tone="muted">Loading…</CenteredMessage>;
 }
 
 interface CenteredMessageProps {

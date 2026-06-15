@@ -158,7 +158,13 @@ const executionDetail: ReportRunDetail = {
     totalCostUsd: 0.001,
   },
   assistantEvents: [
-    { message: { type: "assistant_text_delta", text: "hello" } },
+    {
+      message: {
+        type: "assistant_text_delta",
+        text: "Remembered <b>the date</b>",
+      },
+      emittedAt: "2026-05-15T12:00:01.000Z",
+    },
   ],
   ingestAssistantEvents: [],
   simulatorMessages: [{ content: "hello" }],
@@ -265,10 +271,10 @@ describe("report html", () => {
       },
     });
     // The Memory-formation section ships ingest events; the Container-logs
-    // section (question-turn) still ships the original "hello" event. Both
-    // strings appear, neither leaks across.
+    // section (question-turn) still ships the original question-turn event.
+    // Both strings appear, neither leaks across.
     expect(html).toContain("indexing-session-1");
-    expect(html).toContain("hello");
+    expect(html).toContain("Remembered");
     expect(html).not.toContain("No memory-formation events recorded.");
   });
 
@@ -310,7 +316,9 @@ describe("report html", () => {
       kind: "execution",
       run: executionDetail,
     });
-    expect(executionHtml).toContain(">100.00%</div>");
+    // The execution page renders the aggregate score in the Score tab pill
+    // and each metric's score in the report card — both as percentages.
+    expect(executionHtml).toContain(">100.00%</span>");
   });
 
   test("metrics with unit: 'raw' opt out of percent rendering", () => {
@@ -383,6 +391,134 @@ describe("report html", () => {
     expect(html).not.toContain("Cost unavailable");
   });
 
+  test("execution page Logs pill shows the total log size, not a count", () => {
+    // GIVEN a run with a subprocess log of known size
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        subprocessLogs: [
+          { name: "subprocess-hatch.log", content: "x".repeat(2048) },
+        ],
+      },
+    });
+
+    // THEN the Logs pill reports a byte size (KB), never a bare block count
+    const logsPill = html.slice(html.indexOf(">Logs<"));
+    expect(logsPill).toContain("KB");
+  });
+
+  test("execution page renders a per-request cost breakdown with per-row cost", () => {
+    // GIVEN two priced Anthropic requests of different sizes
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        usage: {
+          requests: [
+            {
+              provider: "anthropic",
+              model: "claude-haiku-4-5",
+              input_tokens: 1000,
+              output_tokens: 1000,
+            },
+            {
+              provider: "anthropic",
+              model: "claude-sonnet-4-6",
+              input_tokens: 1_000_000,
+              output_tokens: 1_000_000,
+            },
+          ],
+          costStatus: "ok",
+        },
+      },
+    });
+
+    // THEN the breakdown lists each model and its individually-priced cost
+    expect(html).toContain("Per-request breakdown");
+    expect(html).toContain("claude-haiku-4-5");
+    expect(html).toContain("claude-sonnet-4-6");
+    // sonnet-4-6 at 1M in + 1M out = $3 + $15 = $18.000000
+    expect(html).toContain("$18.000000");
+  });
+
+  test("per-request breakdown is ordered newest-first with timestamps and chronological indices", () => {
+    // GIVEN two requests recorded five seconds apart, stored in chronological
+    // (oldest-first) order as the recorder appends them
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        usage: {
+          requests: [
+            {
+              provider: "anthropic",
+              model: "model-oldest",
+              input_tokens: 10,
+              output_tokens: 10,
+              recorded_at: "2026-06-13T10:00:00Z",
+            },
+            {
+              provider: "anthropic",
+              model: "model-newest",
+              input_tokens: 20,
+              output_tokens: 20,
+              recorded_at: "2026-06-13T10:00:05Z",
+            },
+          ],
+          costStatus: "ok",
+        },
+      },
+    });
+
+    // THEN the table carries a Time column
+    expect(html).toContain("<th>Time</th>");
+    // AND both recorded times render as compact UTC time-of-day
+    expect(html).toContain("10:00:05Z");
+    expect(html).toContain("10:00:00Z");
+    // AND the newest request is rendered above the oldest
+    expect(html.indexOf("model-newest")).toBeLessThan(
+      html.indexOf("model-oldest"),
+    );
+    // AND each row keeps its chronological index, so the newest (top) row
+    // carries the higher index — the `#` column counts down top-to-bottom
+    expect(html.indexOf("<td>1</td>")).toBeLessThan(html.indexOf("<td>0</td>"));
+  });
+
+  test("execution page inlines captured request/response payloads, noting truncation", () => {
+    // GIVEN a request whose response payload was truncated by the recorder
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        usage: {
+          requests: [
+            {
+              provider: "anthropic",
+              model: "claude-haiku-4-5",
+              input_tokens: 10,
+              output_tokens: 10,
+              request_body: '{"messages":[]}',
+              request_body_bytes: 15,
+              request_body_truncated: false,
+              response_body: "STREAM-CHUNK-PREFIX",
+              response_body_bytes: 100000,
+              response_body_truncated: true,
+            },
+          ],
+          costStatus: "ok",
+        },
+      },
+    });
+
+    // THEN both payloads render and the truncated one notes the full size
+    expect(html).toContain("Request &amp; response payloads");
+    // React escapes double quotes in text content (&quot;).
+    expect(html).toContain("{&quot;messages&quot;:[]}");
+    expect(html).toContain("STREAM-CHUNK-PREFIX");
+    expect(html).toContain("showing first");
+  });
+
   // -- no-silent-stuck UI surfaces -------------------------------------------
 
   test("index page renders a Delete-all form only when there are sessions", () => {
@@ -422,6 +558,95 @@ describe("report html", () => {
       expect(html).not.toMatch(/\sonClick=/i);
       expect(html).not.toMatch(/\sonSubmit=/i);
     }
+  });
+
+  test("a dynamic_page surface renders as a sandboxed iframe, not raw JSON", () => {
+    // GIVEN an assistant stream that shows a dynamic_page surface whose html
+    // touches localStorage during init (as generated apps commonly do)
+    const pageHtml =
+      "<!DOCTYPE html><html><head><title>Calc</title></head><body>" +
+      '<script>localStorage.setItem("k", "v")</script>' +
+      '<div id="app">Calculator</div></body></html>';
+
+    // WHEN we render the execution page
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        transcript: [
+          {
+            role: "simulator",
+            content: "build me a calculator",
+            emittedAt: "2026-05-15T12:00:00.000Z",
+          },
+        ],
+        assistantEvents: [
+          {
+            message: {
+              type: "ui_surface_show",
+              surfaceType: "dynamic_page",
+              title: "Calculator",
+              data: { html: pageHtml, height: 520 },
+            },
+            emittedAt: "2026-05-15T12:00:01.000Z",
+          },
+        ],
+      },
+    });
+
+    // THEN the surface renders in an iframe sandboxed without same-origin, so
+    // its scripts run but can't reach the report's origin, cookies, or storage
+    expect(html).toMatch(/<iframe\b/i);
+    expect(html).toContain('sandbox="allow-scripts"');
+    expect(html).not.toContain("allow-same-origin");
+    // AND the page html rides in the (HTML-escaped) srcDoc attribute, so no
+    // live <script> leaks into the report document itself
+    expect(html).toMatch(/srcdoc=/i);
+    expect(html).not.toMatch(/<script\b/i);
+    // AND a storage polyfill is injected so sandboxed pages that touch
+    // localStorage during init still render (sessionStorage appears only here)
+    expect(html).toContain("sessionStorage");
+    // AND a no-op window.vellum bridge is injected so app-backed pages that
+    // call the host APIs during init don't throw in the offline report
+    expect(html).toContain("window.vellum");
+    expect(html).toContain("sendAction");
+    // AND the numeric height hint sizes the frame
+    expect(html).toContain("520px");
+    // AND the raw payload stays available under a collapsible
+    expect(html).toContain("Surface data");
+  });
+
+  test("non-dynamic_page surfaces still render their payload as JSON", () => {
+    // GIVEN an assistant stream that shows a non-dynamic_page surface
+    // WHEN we render the execution page
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        transcript: [
+          {
+            role: "simulator",
+            content: "hi",
+            emittedAt: "2026-05-15T12:00:00.000Z",
+          },
+        ],
+        assistantEvents: [
+          {
+            message: {
+              type: "ui_surface_show",
+              surfaceType: "card",
+              title: "Limit reached",
+              data: { body: "Continue?" },
+            },
+            emittedAt: "2026-05-15T12:00:01.000Z",
+          },
+        ],
+      },
+    });
+
+    // THEN the card surface keeps the JSON fallback rather than an iframe
+    expect(html).not.toMatch(/<iframe\b/i);
+    expect(html).toContain("Continue?");
   });
 
   test("execution page inlines docker forensics in the same block shape as subprocess logs", () => {

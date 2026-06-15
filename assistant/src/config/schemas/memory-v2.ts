@@ -207,6 +207,19 @@ export const MemoryV2ConfigSchema = z
       .describe(
         "Size-based trigger for consolidation. When `memory/buffer.md` reaches this many non-empty lines, consolidation runs even if the time-based interval hasn't elapsed. Defaults to 100. Set to `null` to disable the size trigger and rely solely on `consolidation_interval_hours`.",
       ),
+    consolidation_max_entries_per_run: z
+      .number({
+        error: "memory.v2.consolidation_max_entries_per_run must be a number",
+      })
+      .int("memory.v2.consolidation_max_entries_per_run must be an integer")
+      .positive(
+        "memory.v2.consolidation_max_entries_per_run must be a positive integer",
+      )
+      .nullable()
+      .default(150)
+      .describe(
+        "Upper bound on buffer entries one consolidation run may process. When the buffer holds more, the run's cutoff is moved back to the first over-cap entry's timestamp so the overflow is deferred to a follow-up pass (the `consolidation_max_buffer_lines` size trigger re-fires while the remainder stays over threshold). Bounds the context a single agentic run must read after a backlog. Set to `null` to always process the full buffer.",
+      ),
     max_page_chars: z
       .number({ error: "memory.v2.max_page_chars must be a number" })
       .int("memory.v2.max_page_chars must be an integer")

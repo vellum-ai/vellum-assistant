@@ -1,6 +1,6 @@
 // @ts-check
 
-const env = process.env.VELLUM_ENVIRONMENT || "production";
+const env = process.env.VELLUM_ENVIRONMENT || "local";
 const bucketEnv = env === "production" ? "prod" : env;
 const targetArch = process.env.ELECTRON_TARGET_ARCH || "arm64";
 
@@ -65,6 +65,8 @@ module.exports = {
       CFBundleIconName: "AppIcon",
       NSMicrophoneUsageDescription:
         "Vellum uses the microphone to record voice input for chat.",
+      NSCameraUsageDescription:
+        "Vellum uses the camera to capture photos when you ask your assistant to use the camera.",
       NSSpeechRecognitionUsageDescription:
         "Vellum uses speech recognition to transcribe dictated voice input.",
       NSAppleEventsUsageDescription:

@@ -1,7 +1,7 @@
 /**
  * Reachability retry burst-limiter.
  *
- * When the reachability probe flips to `"ready"` or `"retrying"`, we
+ * When the reachability probe flips to `"ready"`, we
  * want the bus to bounce its SSE connection so the conversation-scoped
  * reconcile pass runs. But we don't want to ask for that bounce
  * forever — three retries inside a 10-second window is enough; past
@@ -23,10 +23,6 @@
  *     via `onReady()` so the composer stops showing "thinking", clears
  *     the visible error via `onClearError()`, and publishes
  *     `reachability.retry-requested` on the bus.
- *   - on success (within budget, `"retrying"` phase): same except no
- *     turn reset / error clear — the user can still see the
- *     in-progress state. Also calls `onReset()` so the probe stops
- *     re-triggering this handler until the next "ready" flip.
  *   - on exhaustion (3 retries inside the window): calls
  *     `onExhausted({ message })` so the caller can surface the error
  *     state, then `onReset()` so the reachability probe stops
@@ -45,7 +41,7 @@ export interface ReachabilityBurstLimiterDeps {
   onClearError: () => void;
   /** Called on exhaustion to surface the connection-lost error. */
   onExhausted: (error: { message: string }) => void;
-  /** Called on exhaustion AND on `"retrying"` success to reset the reachability probe state. */
+  /** Called on exhaustion to reset the reachability probe state. */
   onReset: () => void;
   /** Injected clock for deterministic tests; defaults to `Date.now`. */
   now?: () => number;
@@ -54,8 +50,8 @@ export interface ReachabilityBurstLimiterDeps {
 export interface ReachabilityBurstLimiter {
   /**
    * Drive the limiter from a reachability phase. Caller invokes this
-   * from a `useEffect` keyed on the phase value; phases other than
-   * `"ready"` / `"retrying"` are no-ops.
+   * from a `useEffect` keyed on the phase value; all phases other than
+   * `"ready"` are no-ops.
    */
   handleReachabilityPhase(phase: string): void;
 }
@@ -69,7 +65,7 @@ export function createReachabilityBurstLimiter(
 
   return {
     handleReachabilityPhase(phase) {
-      if (phase !== "ready" && phase !== "retrying") return;
+      if (phase !== "ready") return;
 
       const nowMs = now();
       if (nowMs - burstStartedAt > STREAM_RETRY_BURST_WINDOW_MS) {
@@ -84,14 +80,9 @@ export function createReachabilityBurstLimiter(
         return;
       }
 
-      if (phase === "ready") {
-        deps.onReady();
-        deps.onClearError();
-      }
+      deps.onReady();
+      deps.onClearError();
       publish("reachability.retry-requested", {});
-      if (phase === "retrying") {
-        deps.onReset();
-      }
     },
   };
 }

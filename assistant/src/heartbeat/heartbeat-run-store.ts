@@ -1,4 +1,4 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { desc, eq, lt, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../memory/db-connection.js";
@@ -272,12 +272,18 @@ export function countRecentConsecutiveRuns(maxToCheck: number): number {
 
 /**
  * List heartbeat runs ordered by `scheduledFor` descending.
+ * When `before` is set, only runs with `scheduledFor` strictly older than it
+ * are returned (cursor for paginating into history).
  */
-export function listHeartbeatRuns(limit = 20): HeartbeatRunRecord[] {
+export function listHeartbeatRuns(
+  limit = 20,
+  before?: number,
+): HeartbeatRunRecord[] {
   const db = getDb();
   const rows = db
     .select()
     .from(heartbeatRuns)
+    .where(before != null ? lt(heartbeatRuns.scheduledFor, before) : undefined)
     .orderBy(desc(heartbeatRuns.scheduledFor))
     .limit(limit)
     .all();

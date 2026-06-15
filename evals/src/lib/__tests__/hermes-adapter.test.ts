@@ -3,14 +3,19 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "bun:test";
 
-import type { AgentEvent } from "../adapter";
 import {
   HermesAgent,
   DEFAULT_HERMES_IMAGE,
   EXEC_PATH,
-  normalizeHermesEventStream,
+  HERMES_CA_TRUST_ENV_FLAGS,
+  HERMES_TRANSCRIPT_EVENT_TYPE,
   selectProviderEnvFlags,
+  selectProviderWarmupFeatures,
+  selectInferenceSelection,
+  inferenceEnvFlags,
+  synthesizeHermesTurnEvent,
 } from "../adapters/hermes";
+import { AgentEventCollector } from "../runner/event-collector";
 import {
   HERMES_EVAL_SESSION_SOURCE,
   HERMES_STATE_DB_PATH,
@@ -33,7 +38,10 @@ function lines(values: string[]): AsyncIterable<string> {
 class FakeProcess implements SpawnedProcess {
   pid = 456;
   killed = false;
-  stdout = lines(['{"message":{"type":"assistant_text_delta","text":"hi"}}\n']);
+  // Hermes turns are single-shot: there is no live event subprocess to
+  // spawn, so nothing consumes this stream. Kept only to satisfy the
+  // CommandRunner interface for the unrelated egress-jail plumbing.
+  stdout = lines([]);
   stderr = lines([]);
 
   async wait(): Promise<number> {
@@ -64,10 +72,22 @@ class FakeRunner implements CommandRunner {
     // assertSuccess sees a clean exit and the seed helper's stdout
     // assertions stay realistic.
     const isSeed = args[0] === "exec" && args.includes("python3");
-    const stdout = isSeed
-      ? '{"session_id": "evals_timeline-recall_eval-hermes-seed", "messages": 2}\n'
-      : "ok";
-    return { exitCode: 0, stdout, stderr: "" };
+    if (isSeed) {
+      return {
+        exitCode: 0,
+        stdout:
+          '{"session_id": "evals_timeline-recall_eval-hermes-seed", "messages": 2}\n',
+        stderr: "",
+      };
+    }
+    // A `hermes -z "<prompt>"` send prints only the final assistant text.
+    // Echo the prompt (with a trailing newline the real CLI appends) so
+    // turn-event synthesis and trailing-whitespace trimming are exercised.
+    const zIdx = args.indexOf("-z");
+    if (zIdx !== -1) {
+      return { exitCode: 0, stdout: `reply: ${args[zIdx + 1]}\n`, stderr: "" };
+    }
+    return { exitCode: 0, stdout: "ok", stderr: "" };
   }
 
   spawn(command: string, args: string[]): SpawnedProcess {
@@ -119,16 +139,24 @@ describe("HermesAgent", () => {
       "eval-hermes-1-hermes",
       "--label",
       "evals.vellum.ai/species=hermes",
+      "-e",
+      "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt",
+      "-e",
+      "SSL_CERT_DIR=/etc/ssl/certs",
+      "-e",
+      "HERMES_DISABLE_LAZY_INSTALLS=1",
       DEFAULT_HERMES_IMAGE,
       "gateway",
       "run",
     ]);
-    // Recording sidecar now includes build + run (detached) instead of rm + run (--rm)
+    // The jail attaches to the already-running Hermes container's netns
+    // (Hermes owns the namespace; it warmed up provider SDKs from PyPI
+    // before the jail closed). Pre-clean then build then run.
     expect(calls[2]).toEqual([
       "docker",
       "rm",
       "-f",
-      "eval-hermes-1-hermes-egress-jail",
+      "eval-hermes-1-egress-jail",
     ]);
     // Build command
     expect(calls[3][0]).toBe("docker");
@@ -141,7 +169,7 @@ describe("HermesAgent", () => {
       "run",
       "-d",
       "--name",
-      "eval-hermes-1-hermes-egress-jail",
+      "eval-hermes-1-egress-jail",
       "--network",
     ]);
     expect(calls[4]).toContain("container:eval-hermes-1-hermes");
@@ -162,27 +190,35 @@ describe("HermesAgent", () => {
     ]);
     expect(runner.spawns).toEqual([]);
 
-    const events = [];
-    for await (const event of agent.events()) events.push(event);
-    expect(runner.spawns).toEqual([
-      {
-        command: "docker",
-        args: [
-          "exec",
-          "--env",
-          `PATH=${EXEC_PATH}`,
-          "eval-hermes-1-hermes",
-          "hermes",
-          "events",
-          "--conversation-key",
-          "evals:timeline-recall:eval-hermes-1",
-          "--json",
-        ],
-      },
-    ]);
+    // Driving a turn: `send` runs one `hermes -z` and the synthesized
+    // transcript event surfaces on the `events()` stream — no live event
+    // subprocess is ever spawned.
+    const collector = new AgentEventCollector(
+      agent.events()[Symbol.asyncIterator](),
+    );
+    await agent.send({ content: "hello hermes" });
+    const events = await collector.collectUntilQuiet({ quietMs: 5, maxMs: 50 });
+    expect(runner.spawns).toEqual([]);
     expect(events).toEqual([
-      { message: { type: "assistant_text_delta", text: "hi" } },
+      { message: { type: "message_chunk", chunk: "reply: hello hermes" } },
     ]);
+
+    // The send invoked `hermes -z "<prompt>"` as the unprivileged gateway
+    // user so memory writes stay gateway-owned.
+    expect(runner.runs.at(-1)).toMatchObject({
+      command: "docker",
+      args: [
+        "exec",
+        "--user",
+        "hermes",
+        "--env",
+        `PATH=${EXEC_PATH}`,
+        "eval-hermes-1-hermes",
+        "hermes",
+        "-z",
+        "hello hermes",
+      ],
+    });
   });
 
   test("honors a custom docker image, daemon args, and in-container CLI command", async () => {
@@ -213,13 +249,13 @@ describe("HermesAgent", () => {
     expect(calls.at(-1)).toEqual([
       "docker",
       "exec",
+      "--user",
+      "hermes",
       "--env",
       `PATH=${EXEC_PATH}`,
       "eval-hermes-custom-hermes",
       "hermesctl",
-      "message",
-      "--conversation-key",
-      "evals:timeline-recall:eval-hermes-custom",
+      "-z",
       "hello hermes",
     ]);
   });
@@ -306,13 +342,13 @@ describe("HermesAgent", () => {
       "evals_timeline-recall_eval-hermes-seed",
     );
 
-    // No `hermes message ...` was issued — seeding does not invoke the
-    // model.
+    // No `hermes -z ...` was issued — seeding writes history directly and
+    // never invokes the model.
     const sendCalls = runner.runs.filter(
       (r) =>
         r.command === "docker" &&
         r.args.includes("exec") &&
-        r.args.includes("message"),
+        r.args.includes("-z"),
     );
     expect(sendCalls).toEqual([]);
   });
@@ -399,23 +435,27 @@ describe("HermesAgent", () => {
     await agent.send({ content: "hello" });
     await agent.shutdown();
 
+    // The send is one `hermes -z` exec; shutdown then removes the
+    // attached jail (a netns tenant of the Hermes container, so it must
+    // go first) and then the Hermes container that owns the namespace.
+    // No event subprocess is spawned to kill.
     expect(runner.runs.map((r) => [r.command, ...r.args]).slice(-3)).toEqual([
       [
         "docker",
         "exec",
+        "--user",
+        "hermes",
         "--env",
         `PATH=${EXEC_PATH}`,
         "eval-hermes-2-hermes",
         "hermes",
-        "message",
-        "--conversation-key",
-        "evals:timeline-recall:eval-hermes-2",
+        "-z",
         "hello",
       ],
-      ["docker", "rm", "-f", "eval-hermes-2-hermes-egress-jail"],
+      ["docker", "rm", "-f", "eval-hermes-2-egress-jail"],
       ["docker", "rm", "-f", "eval-hermes-2-hermes"],
     ]);
-    expect(runner.process.killed).toBe(true);
+    expect(runner.spawns).toEqual([]);
   });
 
   test("does not retire the container if hatch fails before container creation succeeds", async () => {
@@ -463,6 +503,12 @@ describe("HermesAgent", () => {
         "image-missing-hermes",
         "--label",
         "evals.vellum.ai/species=hermes",
+        "-e",
+        "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt",
+        "-e",
+        "SSL_CERT_DIR=/etc/ssl/certs",
+        "-e",
+        "HERMES_DISABLE_LAZY_INSTALLS=1",
         DEFAULT_HERMES_IMAGE,
         "gateway",
         "run",
@@ -528,6 +574,252 @@ describe("HermesAgent", () => {
     expect(dockerRun.args.slice(imageIdx + 1)).toEqual(["gateway", "run"]);
   });
 
+  test("points Hermes's Python TLS stack at the jail-augmented system CA bundle", async () => {
+    // GIVEN a Hermes agent (Python httpx trusts certifi, not the system store
+    // the egress jail writes the mitmproxy CA into).
+    const runner = new FakeRunner();
+    const agent = new HermesAgent({
+      runner,
+      profile,
+      testId: "timeline-recall",
+      runId: "eval-hermes-ca",
+      processEnv: { ANTHROPIC_API_KEY: "anthropic-test-value" },
+    });
+
+    // WHEN it hatches the daemon container.
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+
+    // THEN the daemon `docker run` sets SSL_CERT_FILE/SSL_CERT_DIR so httpx
+    // loads the jail-augmented system bundle (public CAs + mitmproxy CA)
+    // instead of certifi, and the flags sit before the image so they apply
+    // to the container (and every inheriting `docker exec` turn).
+    const dockerRun = runner.runs.find(
+      (r) =>
+        r.command === "docker" && r.args[0] === "run" && r.args[1] === "-d",
+    )!;
+    const flat = dockerRun.args.join(" ");
+    expect(flat).toContain(HERMES_CA_TRUST_ENV_FLAGS.join(" "));
+    expect(flat).toContain("SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt");
+    const lastCaEnvIdx = dockerRun.args.lastIndexOf(
+      "SSL_CERT_DIR=/etc/ssl/certs",
+    );
+    expect(dockerRun.args.indexOf(DEFAULT_HERMES_IMAGE)).toBeGreaterThan(
+      lastCaEnvIdx,
+    );
+  });
+
+  test("warms up the lazy Anthropic SDK before the jail, and disables lazy installs on the daemon", async () => {
+    // GIVEN a Hermes agent keyed on ANTHROPIC_API_KEY (the native Anthropic
+    // SDK is a Hermes lazy-install, not baked into the image).
+    const runner = new FakeRunner();
+    const agent = new HermesAgent({
+      runner,
+      profile,
+      testId: "timeline-recall",
+      runId: "eval-hermes-warmup",
+      processEnv: { ANTHROPIC_API_KEY: "anthropic-test-value" },
+    });
+
+    // WHEN it hatches.
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+
+    const calls = runner.runs.map((r) => [r.command, ...r.args]);
+    const runIdx = calls.findIndex(
+      (c) => c[0] === "docker" && c[1] === "run" && c[2] === "-d",
+    );
+    const warmupIdx = calls.findIndex((c) =>
+      c.some((a) => a.includes("from tools.lazy_deps import ensure")),
+    );
+    const jailApplyIdx = calls.findIndex(
+      (c) => c[0] === "docker" && c[1] === "build",
+    );
+
+    // THEN the daemon `docker run` disables Hermes's runtime lazy installs
+    // so a jailed turn can't hang on a blocked PyPI fetch.
+    expect(calls[runIdx]).toContain("HERMES_DISABLE_LAZY_INSTALLS=1");
+
+    // AND a warm-up exec pre-installs the provider SDK via Hermes's own
+    // installer, as the unprivileged `hermes` user, with lazy installs
+    // re-enabled for just that exec — and it runs after the container
+    // starts but BEFORE the egress jail closes the network.
+    expect(warmupIdx).toBeGreaterThan(runIdx);
+    expect(jailApplyIdx).toBeGreaterThan(warmupIdx);
+    expect(calls[warmupIdx]).toEqual([
+      "docker",
+      "exec",
+      "--user",
+      "hermes",
+      "--env",
+      `PATH=${EXEC_PATH}`,
+      "--env",
+      "PYTHONPATH=/opt/hermes",
+      "--env",
+      "HERMES_DISABLE_LAZY_INSTALLS=0",
+      "eval-hermes-warmup-hermes",
+      "/opt/hermes/.venv/bin/python3",
+      "-c",
+      'from tools.lazy_deps import ensure; ensure("provider.anthropic")',
+    ]);
+  });
+
+  test("skips provider warm-up when no lazy-shipped provider key is forwarded", async () => {
+    // GIVEN a Hermes agent with only OPENAI_API_KEY (the OpenAI SDK ships
+    // pre-installed, so nothing needs warming).
+    const runner = new FakeRunner();
+    const agent = new HermesAgent({
+      runner,
+      profile,
+      testId: "timeline-recall",
+      runId: "eval-hermes-no-warmup",
+      processEnv: { OPENAI_API_KEY: "openai-test-value" },
+    });
+
+    // WHEN it hatches.
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+
+    // THEN no lazy-install warm-up exec is issued, but the daemon still
+    // disables runtime lazy installs.
+    const calls = runner.runs.map((r) => [r.command, ...r.args]);
+    expect(
+      calls.some((c) =>
+        c.some((a) => a.includes("from tools.lazy_deps import ensure")),
+      ),
+    ).toBe(false);
+    const dockerRun = calls.find(
+      (c) => c[0] === "docker" && c[1] === "run" && c[2] === "-d",
+    )!;
+    expect(dockerRun).toContain("HERMES_DISABLE_LAZY_INSTALLS=1");
+  });
+
+  test("pins the inference provider + model to the forwarded key's native backend", async () => {
+    // GIVEN a Hermes agent keyed on ANTHROPIC_API_KEY. Hermes's provider
+    // auto-resolution ignores that key and would fall back to openrouter (a
+    // blocked host under the egress jail).
+    const runner = new FakeRunner();
+    const agent = new HermesAgent({
+      runner,
+      profile,
+      testId: "timeline-recall",
+      runId: "eval-hermes-pin",
+      processEnv: { ANTHROPIC_API_KEY: "anthropic-test-value" },
+    });
+
+    // WHEN it hatches.
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+
+    // THEN the daemon `docker run` pins provider + model to the native
+    // Anthropic backend (an allowlisted host), so no turn probes openrouter,
+    // and both flags sit before the image so they apply to every `hermes -z`.
+    const dockerRun = runner.runs.find(
+      (r) =>
+        r.command === "docker" && r.args[0] === "run" && r.args[1] === "-d",
+    )!;
+    const flat = dockerRun.args.join(" ");
+    expect(flat).toContain("HERMES_INFERENCE_PROVIDER=anthropic");
+    expect(flat).toContain("HERMES_INFERENCE_MODEL=claude-sonnet-4-6");
+    const lastInferenceIdx = dockerRun.args.lastIndexOf(
+      "HERMES_INFERENCE_MODEL=claude-sonnet-4-6",
+    );
+    expect(dockerRun.args.indexOf(DEFAULT_HERMES_IMAGE)).toBeGreaterThan(
+      lastInferenceIdx,
+    );
+  });
+
+  test("omits the inference pin when no recognized provider key is forwarded", async () => {
+    // GIVEN a Hermes agent with no forwarded provider key.
+    const runner = new FakeRunner();
+    const agent = new HermesAgent({
+      runner,
+      profile,
+      testId: "timeline-recall",
+      runId: "eval-hermes-no-pin",
+      processEnv: {},
+    });
+
+    // WHEN it hatches.
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+
+    // THEN no HERMES_INFERENCE_* flags are set — Hermes keeps its own
+    // configured defaults rather than being forced onto a provider with no
+    // matching key.
+    const dockerRun = runner.runs.find(
+      (r) =>
+        r.command === "docker" && r.args[0] === "run" && r.args[1] === "-d",
+    )!;
+    expect(dockerRun.args.join(" ")).not.toContain("HERMES_INFERENCE_");
+  });
+
+  test("selectInferenceSelection picks the first forwarded key in priority order", () => {
+    // Anthropic wins when present, even alongside other keys.
+    expect(
+      selectInferenceSelection({
+        ANTHROPIC_API_KEY: "present",
+        GEMINI_API_KEY: "present",
+      }),
+    ).toEqual({ provider: "anthropic", model: "claude-sonnet-4-6" });
+
+    // Falls through to the next forwarded provider when Anthropic is absent.
+    expect(selectInferenceSelection({ GEMINI_API_KEY: "present" })).toEqual({
+      provider: "gemini",
+      model: "gemini-2.5-pro",
+    });
+    expect(selectInferenceSelection({ GOOGLE_API_KEY: "present" })).toEqual({
+      provider: "gemini",
+      model: "gemini-2.5-pro",
+    });
+
+    // OPENAI_API_KEY has no native API-key backend in the pinned Hermes
+    // image (only the OAuth-based openai-codex provider), so it is not
+    // pinnable — selection falls through and Hermes resolves normally.
+    expect(
+      selectInferenceSelection({ OPENAI_API_KEY: "present" }),
+    ).toBeUndefined();
+
+    // No recognized key → undefined (Hermes keeps its defaults).
+    expect(selectInferenceSelection({})).toBeUndefined();
+    expect(selectInferenceSelection({ ANTHROPIC_API_KEY: "" })).toBeUndefined();
+
+    // inferenceEnvFlags renders both flags together, or nothing.
+    expect(
+      inferenceEnvFlags({ provider: "anthropic", model: "claude-sonnet-4-6" }),
+    ).toEqual([
+      "-e",
+      "HERMES_INFERENCE_PROVIDER=anthropic",
+      "-e",
+      "HERMES_INFERENCE_MODEL=claude-sonnet-4-6",
+    ]);
+    expect(inferenceEnvFlags(undefined)).toEqual([]);
+  });
+
+  test("selectProviderWarmupFeatures maps only lazy-shipped provider keys to features", () => {
+    // Anthropic is the one lazy provider SDK; OpenAI/Google ship preinstalled.
+    expect(
+      selectProviderWarmupFeatures({
+        ANTHROPIC_API_KEY: "present",
+        OPENAI_API_KEY: "present",
+        GEMINI_API_KEY: "present",
+      }),
+    ).toEqual(["provider.anthropic"]);
+
+    // Absent/empty Anthropic key → nothing to warm.
+    expect(selectProviderWarmupFeatures({ ANTHROPIC_API_KEY: "" })).toEqual([]);
+    expect(selectProviderWarmupFeatures({ OPENAI_API_KEY: "present" })).toEqual(
+      [],
+    );
+
+    // Custom allow-list that excludes Anthropic → no warm-up even if set.
+    expect(
+      selectProviderWarmupFeatures({ ANTHROPIC_API_KEY: "present" }, [
+        "OPENAI_API_KEY",
+      ]),
+    ).toEqual([]);
+  });
+
   test("selectProviderEnvFlags emits -e flags only for present, allow-listed vars", () => {
     expect(
       selectProviderEnvFlags({
@@ -552,89 +844,86 @@ describe("HermesAgent", () => {
   });
 });
 
-async function collectHermesEvents(
-  src: AsyncIterable<AgentEvent>,
-): Promise<AgentEvent[]> {
-  const out: AgentEvent[] = [];
-  for await (const event of src) out.push(event);
-  return out;
-}
+describe("synthesizeHermesTurnEvent", () => {
+  test("maps one-shot stdout to a single message_chunk transcript event", () => {
+    expect(synthesizeHermesTurnEvent("the answer is March 14")).toEqual({
+      message: {
+        type: HERMES_TRANSCRIPT_EVENT_TYPE,
+        chunk: "the answer is March 14",
+      },
+    });
+  });
 
-function hermesEventSource(events: AgentEvent[]): AsyncIterable<AgentEvent> {
-  return (async function* () {
-    for (const event of events) yield event;
-  })();
-}
+  test("trims the trailing newline the CLI appends without touching inner text", () => {
+    expect(
+      synthesizeHermesTurnEvent("line one\nline two\n\n").message.chunk,
+    ).toBe("line one\nline two");
+  });
 
-describe("normalizeHermesEventStream", () => {
-  test("passes through message_chunk events unchanged (the Hermes transcript event)", async () => {
-    const out = await collectHermesEvents(
-      normalizeHermesEventStream(
-        hermesEventSource([
-          { message: { type: "message_chunk", chunk: "hi from hermes" } },
-          { message: { type: "message_chunk", chunk: " more text" } },
-        ]),
-      ),
+  test("still produces an event for an empty answer so the turn isn't read as a dead stream", () => {
+    expect(synthesizeHermesTurnEvent("").message.chunk).toBe("");
+  });
+});
+
+describe("HermesAgent single-shot event synthesis", () => {
+  test("each send pushes exactly one turn event onto a reused subscription (multi-turn)", async () => {
+    // GIVEN a hatched agent with a single events() subscription, mirroring
+    // the simulator runner which subscribes once and drains per turn.
+    const runner = new FakeRunner();
+    const agent = new HermesAgent({
+      runner,
+      profile,
+      testId: "timeline-recall",
+      runId: "eval-hermes-multiturn",
+      processEnv: {},
+    });
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+    const collector = new AgentEventCollector(
+      agent.events()[Symbol.asyncIterator](),
     );
-    expect(out).toEqual([
-      { message: { type: "message_chunk", chunk: "hi from hermes" } },
-      { message: { type: "message_chunk", chunk: " more text" } },
+
+    // WHEN two turns are sent through the same subscription.
+    await agent.send({ content: "first" });
+    const turn1 = await collector.collectUntilQuiet({ quietMs: 5, maxMs: 50 });
+    await agent.send({ content: "second" });
+    const turn2 = await collector.collectUntilQuiet({ quietMs: 5, maxMs: 50 });
+
+    // THEN each turn surfaces exactly its own one-shot answer — the
+    // subscription stays live across turns and never bleeds turn 1 into
+    // turn 2.
+    expect(turn1).toEqual([
+      { message: { type: "message_chunk", chunk: "reply: first" } },
     ]);
-  });
-
-  test("passes through assistant_text_delta events unchanged (forward-compat with Vellum-style names)", async () => {
-    const out = await collectHermesEvents(
-      normalizeHermesEventStream(
-        hermesEventSource([
-          { message: { type: "assistant_text_delta", text: "hello" } },
-        ]),
-      ),
-    );
-    expect(out).toEqual([
-      { message: { type: "assistant_text_delta", text: "hello" } },
+    expect(turn2).toEqual([
+      { message: { type: "message_chunk", chunk: "reply: second" } },
     ]);
+
+    // AND every turn is a `hermes -z` one-shot — no live event subprocess.
+    const sends = runner.runs.filter((r) => r.args.includes("-z"));
+    expect(sends).toHaveLength(2);
+    expect(runner.spawns).toEqual([]);
   });
 
-  test("strips text on user_message_echo events", async () => {
-    // Same echo-guard contract as Vellum. If a Hermes build ever
-    // broadcasts a user-echo with `text`, the runner must not read it
-    // as transcript.
-    const out = await collectHermesEvents(
-      normalizeHermesEventStream(
-        hermesEventSource([
-          {
-            message: {
-              type: "user_message_echo",
-              text: "user's outbound text",
-            },
-          },
-        ]),
-      ),
-    );
-    expect(out).toHaveLength(1);
-    expect(out[0]?.message.type).toBe("user_message_echo");
-    expect(out[0]?.message.text).toBeUndefined();
-    expect(out[0]?.message.chunk).toBeUndefined();
-  });
+  test("a parked subscription unblocks at shutdown instead of hanging", async () => {
+    // GIVEN a subscription with no buffered events (no send yet).
+    const runner = new FakeRunner();
+    const agent = new HermesAgent({
+      runner,
+      profile,
+      testId: "timeline-recall",
+      runId: "eval-hermes-drain-eof",
+      processEnv: {},
+    });
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+    const iterator = agent.events()[Symbol.asyncIterator]();
+    const pending = iterator.next();
 
-  test("strips text/chunk on tool, thinking, error, complete events but preserves them on the stream", async () => {
-    const out = await collectHermesEvents(
-      normalizeHermesEventStream(
-        hermesEventSource([
-          { message: { type: "tool_use_start", toolName: "shell" } },
-          { message: { type: "tool_output_chunk", chunk: "file.txt" } },
-          { message: { type: "assistant_thinking_delta", thinking: "hmm" } },
-          { message: { type: "error", message: "boom" } },
-          { message: { type: "message_complete" } },
-        ]),
-      ),
-    );
-    expect(out).toHaveLength(5);
-    for (const event of out) {
-      expect(event.message.text).toBeUndefined();
-      expect(event.message.chunk).toBeUndefined();
-    }
-    expect(out[0]?.message.toolName).toBe("shell");
-    expect(out[2]?.message.thinking).toBe("hmm");
+    // WHEN the agent shuts down while a consumer is parked on next().
+    await agent.shutdown();
+
+    // THEN the parked consumer resolves as done rather than hanging.
+    await expect(pending).resolves.toEqual({ value: undefined, done: true });
   });
 });

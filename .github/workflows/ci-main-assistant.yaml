@@ -10,6 +10,10 @@ on:
       - 'packages/**'
       - 'skills/meet-join/contracts/**'
       - 'meta/feature-flags/**'
+      # The daemon LLM catalog parity test reads these files, so hand edits to
+      # either catalog JSON must run the assistant tests too.
+      - 'meta/llm-provider-catalog.json'
+      - 'clients/shared/Resources/llm-provider-catalog.json'
       - '.github/workflows/ci-main-assistant.yaml'
       - '.github/actions/install-shared-packages/**'
 

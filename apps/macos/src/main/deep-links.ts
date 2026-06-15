@@ -6,7 +6,6 @@ import { resolveEnvironmentName } from "@vellumai/local-mode";
 
 import { handle, on } from "./ipc";
 import { ensureVisible as ensureMainWindowVisible } from "./main-window";
-import { handleAuthCallback } from "./native-auth";
 
 /**
  * Inbound deep links — `vellum://` and `vellum-assistant://` URL
@@ -49,15 +48,6 @@ import { handleAuthCallback } from "./native-auth";
  *   - https://www.electronjs.org/docs/latest/api/app#event-will-finish-launching
  *   - https://www.electronjs.org/docs/latest/api/app#appsetasdefaultprotocolclientprotocol-path-args
  */
-
-/**
- * Superset of the shared `DeepLink` — adds `authCallback`, which is
- * intercepted in main before reaching the bridge and therefore absent
- * from the contract's renderer-visible union.
- */
-export type MainDeepLink =
-  | DeepLink
-  | { kind: "authCallback"; state: string; code?: string; error?: string };
 
 export type { DeepLink };
 
@@ -107,7 +97,7 @@ const ACCEPTED_SCHEMES = resolveAcceptedSchemes(currentEnv);
  *   - Malformed URL (unparseable, percent-encoding throws) →
  *     `kind: "unknown"`.
  */
-export const parseVellumUrl = (input: string): MainDeepLink => {
+export const parseVellumUrl = (input: string): DeepLink => {
   let url: URL;
   try {
     url = new URL(input);
@@ -126,11 +116,9 @@ export const parseVellumUrl = (input: string): MainDeepLink => {
     return { kind: "unknown", url: input };
   }
   if (url.host === "auth" && url.pathname.startsWith("/callback")) {
-    const state = url.searchParams.get("state");
-    if (!state) return { kind: "unknown", url: input };
-    const code = url.searchParams.get("code") ?? undefined;
-    const error = url.searchParams.get("error") ?? undefined;
-    return { kind: "authCallback", state, code, error };
+    // The deprecated `/accounts/native/*` flow returns its auth code here.
+    // Strip the sensitive code from the query so it doesn't get captured downstream.
+    return { kind: "unknown", url: `${url.protocol}//${url.host}${url.pathname}` };
   }
   return { kind: "unknown", url: input };
 };
@@ -200,20 +188,7 @@ const broadcast = (link: DeepLink): void => {
  * on an already-visible main window.
  */
 export const handleDeepLink = (input: string): void => {
-  const parsed = parseVellumUrl(input);
-
-  // Auth callbacks are a main-process concern — the renderer doesn't
-  // need to see them. Route directly to the native-auth module and
-  // bring the window forward so the user sees the result.
-  if (parsed.kind === "authCallback") {
-    void handleAuthCallback(parsed.state, parsed.code, parsed.error);
-    if (app.isReady()) void ensureMainWindowVisible();
-    return;
-  }
-
-  // After filtering out authCallback, the remaining variants satisfy
-  // the renderer-visible DeepLink union.
-  const link: DeepLink = parsed;
+  const link = parseVellumUrl(input);
 
   if (subscribers.size === 0) pending.push(link);
   broadcast(link);

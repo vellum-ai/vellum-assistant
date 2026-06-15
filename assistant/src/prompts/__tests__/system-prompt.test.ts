@@ -6,7 +6,7 @@
  * user-message injection that replaced it.
  */
 
-import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -70,6 +70,105 @@ describe("buildSystemPrompt — tool routing guidance", () => {
     const result = buildSystemPrompt({});
     expect(result).not.toContain("## Clarifying questions");
     expect(result).not.toContain("ask_question");
+  });
+});
+
+describe("buildSystemPrompt — persona override", () => {
+  const DEFAULT_SENTINEL = "Sentinel: default persona body.";
+  const ALICE_SENTINEL = "Sentinel: alice persona body.";
+  const TELEGRAM_SENTINEL = "Sentinel: telegram channel persona body.";
+
+  beforeEach(() => {
+    mkdirSync(join(TEST_DIR, "users"), { recursive: true });
+    mkdirSync(join(TEST_DIR, "channels"), { recursive: true });
+    writeFileSync(join(TEST_DIR, "users", "default.md"), DEFAULT_SENTINEL);
+    writeFileSync(join(TEST_DIR, "users", "alice.md"), ALICE_SENTINEL);
+    writeFileSync(join(TEST_DIR, "channels", "telegram.md"), TELEGRAM_SENTINEL);
+  });
+
+  test("personaOverride renders the given user + channel persona sections", () => {
+    const result = buildSystemPrompt({
+      personaOverride: { userSlug: "alice", channelSlug: "telegram" },
+    });
+
+    expect(result).toContain(ALICE_SENTINEL);
+    expect(result).toContain(TELEGRAM_SENTINEL);
+    expect(result).not.toContain(DEFAULT_SENTINEL);
+  });
+
+  test("no override → trust-context-derived resolution (default persona, vellum channel)", () => {
+    // No trust context and no resolvable guardian contact in this test env,
+    // so the user persona falls back to users/default.md and the channel
+    // section resolves channels/vellum.md (absent → omitted).
+    const result = buildSystemPrompt({});
+
+    expect(result).toContain(DEFAULT_SENTINEL);
+    expect(result).not.toContain(ALICE_SENTINEL);
+    expect(result).not.toContain(TELEGRAM_SENTINEL);
+  });
+
+  test("partial override: userSlug alone leaves channel resolution untouched", () => {
+    const result = buildSystemPrompt({
+      personaOverride: { userSlug: "alice" },
+    });
+
+    expect(result).toContain(ALICE_SENTINEL);
+    expect(result).not.toContain(TELEGRAM_SENTINEL);
+  });
+
+  test("override userSlug with no matching file falls back to users/default.md", () => {
+    const result = buildSystemPrompt({
+      personaOverride: { userSlug: "missing-user" },
+    });
+
+    expect(result).toContain(DEFAULT_SENTINEL);
+  });
+});
+
+describe("buildSystemPrompt — hasNoClient pin", () => {
+  // Marker unique to the `{{^hasNoClient}}` branch of 05-access-preference:
+  // host fallbacks only render when a client is connected.
+  const WITH_CLIENT_MARKER = "`host_bash` with CLIs";
+
+  beforeEach(() => {
+    mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  test("hasNoClient renders divergent access-preference text", () => {
+    expect(buildSystemPrompt({ hasNoClient: false })).toContain(
+      WITH_CLIENT_MARKER,
+    );
+    expect(buildSystemPrompt({ hasNoClient: true })).not.toContain(
+      WITH_CLIENT_MARKER,
+    );
+  });
+
+  test("personaOverride.hasNoClient pins the flag over the conversation-derived option", () => {
+    // Fork-retrospective case: the fork is hydrated clientless
+    // (hasNoClient: true) but pins the source's live-turn value (false) so
+    // the prompt byte-matches the source's cached prefix.
+    expect(
+      buildSystemPrompt({
+        hasNoClient: true,
+        personaOverride: { hasNoClient: false },
+      }),
+    ).toContain(WITH_CLIENT_MARKER);
+    // And the pin wins in the other direction too.
+    expect(
+      buildSystemPrompt({
+        hasNoClient: false,
+        personaOverride: { hasNoClient: true },
+      }),
+    ).not.toContain(WITH_CLIENT_MARKER);
+  });
+
+  test("a personaOverride without the pin leaves the conversation-derived flag untouched", () => {
+    expect(
+      buildSystemPrompt({ hasNoClient: true, personaOverride: {} }),
+    ).not.toContain(WITH_CLIENT_MARKER);
+    expect(
+      buildSystemPrompt({ hasNoClient: false, personaOverride: {} }),
+    ).toContain(WITH_CLIENT_MARKER);
   });
 });
 

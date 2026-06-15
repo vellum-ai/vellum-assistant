@@ -23,6 +23,7 @@ import {
 } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 import { cleanupBootstrapFiles } from "./bootstrap-cleanup.js";
+import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
 import { resolveGuardianPersona, resolveUserSlug } from "./persona-resolver.js";
 import { renderWorkspaceSections } from "./sections.js";
 import { isTemplateContent } from "./template-detection.js";
@@ -303,6 +304,33 @@ export function applyBootstrapTemplate(
   }
 }
 
+/**
+ * Explicit prompt-build override for builds that run outside the
+ * inbound-turn pipeline (agent wakes). Each field, when present, takes
+ * precedence over the corresponding derivation in {@link buildSystemPrompt}.
+ * Prompt-build selection only — trust class and approval semantics are
+ * unaffected.
+ */
+export interface SystemPromptPersonaOverride {
+  /** Renders `users/<slug>.md` as the user persona section. */
+  userSlug?: string;
+  /** Renders `channels/<slug>.md` as the channel persona section. */
+  channelSlug?: string;
+  /**
+   * Pins the `hasNoClient` flag for the prompt build, taking precedence over
+   * the top-level `BuildSystemPromptOptions.hasNoClient` (which mirrors the
+   * conversation's live client state). The `05-access-preference` section
+   * renders different text under the flag — early in the prompt, so a
+   * mismatch breaks byte-parity with a cached prefix even when persona and
+   * profile match. Used by fork-based memory retrospectives: the fork is
+   * hydrated clientless (`hasNoClient = true`) while the source's live turns
+   * ran under the source's own client state (`false` for interactive
+   * interfaces, `true` for channel-routed sources) — the pin carries that
+   * live-turn value.
+   */
+  hasNoClient?: boolean;
+}
+
 export interface BuildSystemPromptOptions {
   hasNoClient?: boolean;
   excludeBootstrap?: boolean;
@@ -310,6 +338,15 @@ export interface BuildSystemPromptOptions {
   trustContext?: TrustContext;
   channelCapabilities?: ChannelCapabilities;
   onboardingContext?: OnboardingContext;
+  /**
+   * Explicit persona/channel slugs, taking precedence over the
+   * trust-context-derived `userSlug` and capabilities-derived `channelSlug`.
+   * Used by fork-based memory retrospectives so the fork's prompt renders the
+   * SOURCE conversation's persona sections (review quality + byte-parity with
+   * the source's cached system-prompt prefix) even though the wake itself
+   * carries an internal guardian trust context with no requester identity.
+   */
+  personaOverride?: SystemPromptPersonaOverride;
   /**
    * Conversation this prompt is being built for. Optional because several
    * callers build a prompt outside a conversation (e.g. home greeting,
@@ -343,8 +380,20 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // `users/<slug>.md → users/default.md` fallback lives in the
   // section's `workspacePath` array.  `channelSlug` is the channel
   // identifier from `channelCapabilities`, defaulting to "vellum".
-  const userSlug = resolveUserSlug(options?.trustContext) ?? "default";
-  const channelSlug = options?.channelCapabilities?.channel ?? "vellum";
+  // An explicit `personaOverride` slug wins over either derivation.
+  const userSlug =
+    options?.personaOverride?.userSlug ??
+    resolveUserSlug(options?.trustContext) ??
+    "default";
+  const channelSlug =
+    options?.personaOverride?.channelSlug ??
+    options?.channelCapabilities?.channel ??
+    "vellum";
+  // The override's `hasNoClient` pin wins over the conversation-derived
+  // top-level option (see the interface doc); placed after the `...options`
+  // spread below so it overrides the spread-in value.
+  const hasNoClient =
+    options?.personaOverride?.hasNoClient ?? options?.hasNoClient;
 
   // Section render context.  Workspace section frontmatter `enabled:`
   // predicates, `{{key}}` / `{{#flag}}...{{/flag}}` body interpolation,
@@ -357,6 +406,7 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // no explicit normalization needed; `...options` is enough.
   const ctx = {
     ...options,
+    hasNoClient,
     isContainerized: getIsContainerized(),
     workspaceDir: getWorkspaceDir(),
     userSlug,
@@ -366,10 +416,17 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // Every system-prompt block flows through the bundled section
   // pipeline — including runtime-computed entries like
   // `14-connected-services` whose body is derived from live OAuth
-  // caches.  The whole prompt is treated as a single cached block by
-  // the Anthropic provider; per-provider details live in each
-  // provider's client.
-  return renderWorkspaceSections(ctx).join("\n\n");
+  // caches.  Sections render grouped into cache blocks (split at the
+  // section carrying a cache-breakpoint declaration — by default
+  // `11-channel-persona`); the blocks are joined with the
+  // `SYSTEM_PROMPT_CACHE_BOUNDARY` marker, which the Anthropic provider
+  // splits into independently cached system blocks and other providers
+  // strip.  Empty blocks are dropped so the marker never dangles at
+  // either end of the prompt.
+  return renderWorkspaceSections(ctx)
+    .map((block) => block.join("\n\n"))
+    .filter((block) => block.length > 0)
+    .join(SYSTEM_PROMPT_CACHE_BOUNDARY);
 }
 
 // Re-export from shared util so existing importers don't break.

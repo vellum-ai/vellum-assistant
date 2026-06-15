@@ -2,20 +2,20 @@ import { useMemo, useRef, useState } from "react";
 
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-import type { CallSiteOverrideDraft, DaemonConfigPatch, ProfileEntry, ProfileStatus, ProfileWithName } from "@/domains/settings/ai/ai-types";
+import type { CallSiteOverrideDraft, DaemonConfigPatch, ProfileEntry, ProfilePatchEntry, ProfileStatus, ProfileWithName } from "@/domains/settings/ai/ai-types";
+import { buildOrderedProfiles } from "@/domains/settings/ai/ai-utils";
 import type { BlockedDeleteState } from "@/domains/settings/ai/manage-profiles-blocked-delete-modal";
 import { BlockedDeleteModal } from "@/domains/settings/ai/manage-profiles-blocked-delete-modal";
 import { ProfileListItem } from "@/domains/settings/ai/manage-profiles-list-item";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
-import { gateAutoProfile } from "@/domains/settings/ai/profile-pickers";
-import { useDaemonConfigMutation, useDaemonConfigQuery } from "@/domains/settings/ai/use-daemon-config";
-import { inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import { gateAutoProfile } from "@/assistant/profile-pickers";
+import { configGetOptions, configGetSetQueryData, inferenceProviderconnectionsGetOptions, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,14 +36,27 @@ export function ManageProfilesModal({
   assistantId,
   onClose,
 }: ManageProfilesModalProps) {
-  const {
-    profiles,
-    profileOrder,
-    orderedProfiles,
-    activeProfile,
-    callSites,
-  } = useDaemonConfigQuery();
-  const configMutation = useDaemonConfigMutation();
+  const queryClient = useQueryClient();
+
+  const { data: config } = useQuery({
+    ...configGetOptions({ path: { assistant_id: assistantId } }),
+    staleTime: 30_000,
+  });
+
+  const profiles = useMemo(() => config?.llm?.profiles ?? {}, [config?.llm?.profiles]);
+  const profileOrder = useMemo(() => config?.llm?.profileOrder ?? [], [config?.llm?.profileOrder]);
+  const activeProfile = config?.llm?.activeProfile ?? null;
+  const callSites = config?.llm?.callSites ?? {};
+  const orderedProfiles = useMemo(
+    () => buildOrderedProfiles(profiles, profileOrder),
+    [profiles, profileOrder],
+  );
+
+  const configMutation = useConfigPatchMutation({
+    onSuccess: (data) => {
+      configGetSetQueryData(queryClient, { path: { assistant_id: assistantId } }, data);
+    },
+  });
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<ProfileWithName | null>(null);
@@ -61,7 +74,7 @@ export function ManageProfilesModal({
 
   async function handleEditorSave(
     name: string,
-    entry: ProfileEntry,
+    entry: ProfilePatchEntry,
     options?: { mode?: "merge" | "replace" },
   ) {
     const mode = options?.mode ?? "replace";
@@ -72,14 +85,14 @@ export function ManageProfilesModal({
     // `{label, status}`) layers on top of the existing record without
     // wiping seed-owned fields.
     if (mode === "merge" && !isNew) {
-      await configMutation.mutateAsync({ llm: { profiles: { [name]: entry } } });
+      await configMutation.mutateAsync({ path: { assistant_id: assistantId }, body: { llm: { profiles: { [name]: entry } } } });
       setEditorOpen(false);
       setEditingProfile(null);
       return;
     }
 
     const llmPatch: {
-      profiles: Record<string, ProfileEntry>;
+      profiles: Record<string, ProfilePatchEntry>;
       profileOrder?: string[];
     } = { profiles: { [name]: entry } };
     if (isNew) {
@@ -95,21 +108,21 @@ export function ManageProfilesModal({
     // semantics would silently preserve old values for omitted keys.
     if (!isNew) {
       const oldEntry = profiles[name];
-      await configMutation.mutateAsync({ llm: { profiles: { [name]: null } } });
+      await configMutation.mutateAsync({ path: { assistant_id: assistantId }, body: { llm: { profiles: { [name]: null } } } });
       try {
-        await configMutation.mutateAsync({ llm: llmPatch });
+        await configMutation.mutateAsync({ path: { assistant_id: assistantId }, body: { llm: llmPatch } });
       } catch (recreateErr) {
         captureError(recreateErr, { context: "settings-ai-profile-edit-recreate" });
         // Best-effort rollback: restore old entry so the profile isn't lost
         if (oldEntry != null) {
-          await configMutation.mutateAsync({ llm: { profiles: { [name]: oldEntry } } }).catch(() => {
+          await configMutation.mutateAsync({ path: { assistant_id: assistantId }, body: { llm: { profiles: { [name]: oldEntry } } } }).catch(() => {
             /* rollback failed — original error still propagates */
           });
         }
         throw recreateErr;
       }
     } else {
-      await configMutation.mutateAsync({ llm: llmPatch });
+      await configMutation.mutateAsync({ path: { assistant_id: assistantId }, body: { llm: llmPatch } });
     }
 
     // Fire the profile-create success toast from the SETTINGS surface only.
@@ -134,6 +147,7 @@ export function ManageProfilesModal({
       >
         {isOpen ? (
           <ManageProfilesModalInner
+            assistantId={assistantId}
             profiles={profiles}
             profileOrder={profileOrder}
             orderedProfiles={orderedProfiles}
@@ -180,6 +194,7 @@ export function ManageProfilesModal({
 // ---------------------------------------------------------------------------
 
 interface ManageProfilesModalInnerProps {
+  assistantId: string;
   profiles: Record<string, ProfileEntry>;
   profileOrder: string[];
   orderedProfiles: ProfileWithName[];
@@ -191,6 +206,7 @@ interface ManageProfilesModalInnerProps {
 }
 
 function ManageProfilesModalInner({
+  assistantId,
   profiles,
   profileOrder,
   orderedProfiles,
@@ -200,7 +216,12 @@ function ManageProfilesModalInner({
   onEditClick,
   onNewClick,
 }: ManageProfilesModalInnerProps) {
-  const configMutation = useDaemonConfigMutation();
+  const queryClient = useQueryClient();
+  const configMutation = useConfigPatchMutation({
+    onSuccess: (data) => {
+      configGetSetQueryData(queryClient, { path: { assistant_id: assistantId } }, data);
+    },
+  });
 
   const [deleteErrors, setDeleteErrors] = useState<Record<string, string>>({});
   const [deleting, setDeleting] = useState<Record<string, boolean>>({});
@@ -247,7 +268,8 @@ function ManageProfilesModalInner({
 
     try {
       await configMutation.mutateAsync({
-        llm: { profiles: { [profile.name]: { status: wireStatus } } },
+        path: { assistant_id: assistantId },
+        body: { llm: { profiles: { [profile.name]: { status: wireStatus } } } },
       });
       return true;
     } catch (error) {
@@ -275,7 +297,8 @@ function ManageProfilesModalInner({
     try {
       const newOrder = profileOrder.filter((n) => n !== name);
       await configMutation.mutateAsync({
-        llm: { profiles: { [name]: null }, profileOrder: newOrder },
+        path: { assistant_id: assistantId },
+        body: { llm: { profiles: { [name]: null }, profileOrder: newOrder } },
       });
     } catch (error) {
       captureError(error, { context: "settings-ai-profile-delete" });
@@ -331,7 +354,7 @@ function ManageProfilesModalInner({
 
     if (Object.keys(llmPatch).length > 0) {
       try {
-        await configMutation.mutateAsync({ llm: llmPatch });
+        await configMutation.mutateAsync({ path: { assistant_id: assistantId }, body: { llm: llmPatch } });
       } catch (error) {
         captureError(error, { context: "settings-ai-profile-reassign-delete" });
         setBlockedDeleteError("Failed to reassign references. Please try again.");
@@ -364,7 +387,7 @@ function ManageProfilesModalInner({
     ];
 
     try {
-      await configMutation.mutateAsync({ llm: { profileOrder: newOrder } });
+      await configMutation.mutateAsync({ path: { assistant_id: assistantId }, body: { llm: { profileOrder: newOrder } } });
     } catch (error) {
       captureError(error, { context: "settings-ai-profile-reorder" });
       setReorderError("Failed to reorder profiles. Please try again.");

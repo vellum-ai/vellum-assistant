@@ -6,7 +6,7 @@ import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
 // ---------------------------------------------------------------------------
 
 export interface SocialProvider {
-  /** The allauth provider ID (e.g. "workos-oidc"). */
+  /** The allauth provider ID (e.g. "workos"). */
   id: string;
   /** Display label for the button. */
   label: string;
@@ -17,15 +17,14 @@ export type ProviderIntent = "login" | "signup";
 
 /** Providers we currently surface in the UI. */
 export const SOCIAL_PROVIDERS: SocialProvider[] = [
-  { id: "workos-oidc", label: "Continue with WorkOS" },
+  { id: "workos", label: "Continue with WorkOS" },
 ];
 
 /**
- * Backend endpoint that wraps allauth's headless provider redirect and
- * adds per-request `intent` support. Implemented in
- * django/app/auth/provider_redirect.py.
+ * Stock redirect endpoint that delegates to specified provider.
  */
-export const PROVIDER_REDIRECT_PATH = "/accounts/oidc/redirect/";
+export const PROVIDER_REDIRECT_PATH =
+  "/_allauth/browser/v1/auth/provider/redirect";
 
 // ---------------------------------------------------------------------------
 // Provider redirect (synchronous form POST)
@@ -93,11 +92,8 @@ export function assertCsrfToken(
 /**
  * Kick off a provider redirect by submitting a hidden form.
  *
- * The backend endpoint at `PROVIDER_REDIRECT_PATH` wraps allauth's headless
- * `/_allauth/browser/v1/auth/provider/redirect` and adds per-request
- * `intent` support so signup flows can land on the WorkOS sign-up screen.
- * It expects an `application/x-www-form-urlencoded` POST that results in a
- * full-page redirect — it can't be done via XHR.
+ * The endpoint at `PROVIDER_REDIRECT_PATH` expects an `application/x-www-form-urlencoded`
+ * POST that results in a full-page redirect. It can't be done via XHR.
  */
 export async function startProviderRedirect(
   providerId: string,

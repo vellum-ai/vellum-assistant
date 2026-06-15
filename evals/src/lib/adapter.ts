@@ -17,6 +17,8 @@ export interface AgentEvent {
     input?: Record<string, unknown>;
     result?: string;
     isError?: boolean;
+    riskLevel?: string;
+    riskReason?: string;
     content?: string;
     message?: string;
     chunk?: string;
@@ -59,6 +61,21 @@ export interface ConfirmationDecision {
   decision: "allow" | "deny";
 }
 
+/**
+ * Extract the `requestId` from a pending tool-confirmation event, or
+ * `undefined` if the event isn't a `confirmation_request`. A hatched
+ * assistant runs headless with no interactive approver, so any tool the
+ * agent reaches for above the auto-approve risk threshold stalls on such
+ * an event until something answers it.
+ */
+export function confirmationRequestId(event: AgentEvent): string | undefined {
+  if (event.message.type !== "confirmation_request") return undefined;
+  const requestId = event.message.requestId;
+  return typeof requestId === "string" && requestId.length > 0
+    ? requestId
+    : undefined;
+}
+
 export interface BaseAgent {
   readonly id: string;
   readonly conversationKey: string;
@@ -66,6 +83,15 @@ export interface BaseAgent {
   send(message: AgentMessage): Promise<void>;
   runSetupCommand(command: TestSetupCommand): Promise<void>;
   events(): AsyncIterable<AgentEvent>;
+  /**
+   * Whether `event` is the species' turn-completion signal — the event
+   * the agent emits when it has finished responding to the most recent
+   * `send`. The runner's event collector waits for this signal instead
+   * of inferring turn boundaries from stream silence, so a turn with a
+   * long silent phase (memory retrieval, extended thinking, slow tools)
+   * is never cut off mid-flight.
+   */
+  isTurnComplete(event: AgentEvent): boolean;
   readUsageRecords?(): Promise<Array<Record<string, unknown>>>;
   shutdown(): Promise<void>;
   /**

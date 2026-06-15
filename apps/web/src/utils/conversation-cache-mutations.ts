@@ -11,7 +11,9 @@
 
 import type { QueryClient } from "@tanstack/react-query";
 
-import type { GroupsGetResponse } from "@/generated/daemon/types.gen";
+import type { GroupsGetData } from "@/generated/daemon/types.gen";
+import { groupsGetSetQueryData } from "@/generated/daemon/@tanstack/react-query.gen";
+import type { Options } from "@/generated/daemon/sdk.gen";
 import type { Conversation, ConversationGroup } from "@/types/conversation-types";
 import {
   isBackgroundConversation,
@@ -25,10 +27,20 @@ import {
   updateScheduledConversationsCache,
 } from "@/utils/conversation-cache";
 import {
-  CONVERSATION_NOT_FOUND,
+  backgroundConversationsQueryKey,
+  conversationsQueryKey,
+  scheduledConversationsQueryKey,
+} from "@/lib/sync/query-tags";
+import {
+  type ConversationListPage,
+  listBackgroundConversationsFirstPage,
+  listConversationsFirstPage,
+  listScheduledConversationsFirstPage,
+} from "@/utils/conversation-list-fetchers";
+import {
+  ConversationNotFoundError,
   fetchConversationDetail,
 } from "@/utils/fetch-conversation-detail";
-import { conversationGroupsQueryKey } from "@/lib/sync/query-tags";
 
 // ---------------------------------------------------------------------------
 // Conversation cache helpers
@@ -159,9 +171,9 @@ export function surfaceConversationInCaches(
  *   `serializeConversationSummary`).
  * - Row absent from cache but server returns a payload: append; the
  *   row will sort into place on the next list refetch.
- * - Server returns 404 (`CONVERSATION_NOT_FOUND`): remove the row from
- *   the cache. Mirrors how `deleteConversation` cleans up after a local
- *   deletion.
+ * - Server returns 404 ({@link ConversationNotFoundError}): remove the
+ *   row from the cache. Mirrors how `deleteConversation` cleans up
+ *   after a local deletion.
  * - Network / other errors: rethrown to the caller so the SSE consumer
  *   can log/sentry-capture without silently dropping the signal.
  */
@@ -171,10 +183,16 @@ export async function refreshConversationRow(
   conversationId: string,
 ): Promise<void> {
   if (!assistantId) return;
-  const result = await fetchConversationDetail(assistantId, conversationId);
-  if (result === CONVERSATION_NOT_FOUND) {
-    removeConversation(queryClient, assistantId, conversationId);
-    return;
+
+  let result: Conversation;
+  try {
+    result = await fetchConversationDetail(queryClient, assistantId, conversationId);
+  } catch (err) {
+    if (err instanceof ConversationNotFoundError) {
+      removeConversation(queryClient, assistantId, conversationId);
+      return;
+    }
+    throw err;
   }
 
   // Replace the row in whichever cache already holds it. Only when it lives
@@ -218,6 +236,91 @@ export async function refreshConversationRow(
   ]);
 }
 
+/**
+ * Reconcile one fetched first page into a cached newest-first list.
+ *
+ * - `hasMore === false`: the page is the complete list — replace the cache.
+ * - Otherwise the fresh rows win, and cached rows absent from the page
+ *   survive only when they sort strictly below the page's window (older
+ *   than the oldest non-pinned fresh row). A cached row whose timestamp
+ *   falls inside the window but is missing from the page no longer lives
+ *   there (deleted or archived), so it is dropped. Pinned rows are
+ *   excluded from the cutoff because the daemon appends every pinned
+ *   conversation to page 1 regardless of age — an ancient pinned row
+ *   would otherwise collapse the cutoff and drop live rows.
+ * - Client-local draft rows always survive; the server doesn't know them.
+ *
+ * The fresh window leads the result; surviving rows keep their existing
+ * relative order.
+ *
+ * @internal Exported for testing.
+ */
+export function mergeListFirstPage(
+  prev: Conversation[],
+  page: ConversationListPage,
+): Conversation[] {
+  if (!page.hasMore) return page.conversations;
+  const nonPinned = page.conversations.filter((c) => c.isPinned !== true);
+  if (nonPinned.length === 0) return prev;
+  const cutoff = Math.min(...nonPinned.map((c) => c.lastMessageAt ?? 0));
+  const freshIds = new Set(page.conversations.map((c) => c.conversationId));
+  const kept = prev.filter(
+    (c) =>
+      !freshIds.has(c.conversationId) &&
+      (c.draft === true || (c.lastMessageAt ?? 0) < cutoff),
+  );
+  return [...page.conversations, ...kept];
+}
+
+const LIST_WINDOW_BUCKETS = [
+  { queryKey: conversationsQueryKey, fetchFirstPage: listConversationsFirstPage },
+  {
+    queryKey: backgroundConversationsQueryKey,
+    fetchFirstPage: listBackgroundConversationsFirstPage,
+  },
+  {
+    queryKey: scheduledConversationsQueryKey,
+    fetchFirstPage: listScheduledConversationsFirstPage,
+  },
+] as const;
+
+/**
+ * Refresh the top window of every populated conversation-list cache with a
+ * single first-page GET per bucket, merging via {@link mergeListFirstPage}.
+ *
+ * Drives the `conversationsList` sync-tag and SSE-reconnect handlers in
+ * `use-conversation-sync.ts`. The full list query drains every page
+ * (hundreds of sequential GETs at thousands of conversations), so
+ * invalidating it on each sync signal exhausts the daemon's per-client
+ * rate-limit budget during active turns; refreshing just the visible
+ * window keeps the cost at one request per bucket per signal.
+ *
+ * Buckets that were never fetched (collapsed sidebar sections) are
+ * skipped — their queries fetch on first expand anyway. Fetch errors are
+ * rethrown so the caller can log/capture without silently dropping the
+ * signal.
+ */
+export async function refreshConversationListWindows(
+  queryClient: QueryClient,
+  assistantId: string | null,
+): Promise<void> {
+  if (!assistantId) return;
+  await Promise.all(
+    LIST_WINDOW_BUCKETS.map(async (bucket) => {
+      const queryKey = bucket.queryKey(assistantId);
+      if (queryClient.getQueryData<Conversation[]>(queryKey) === undefined) {
+        return;
+      }
+      const page = await bucket.fetchFirstPage(assistantId);
+      queryClient.setQueryData<Conversation[]>(
+        queryKey,
+        (prev: Conversation[] | undefined) =>
+          prev === undefined ? undefined : mergeListFirstPage(prev, page),
+      );
+    }),
+  );
+}
+
 export function resolveDraftKey(
   queryClient: QueryClient,
   assistantId: string | null,
@@ -244,15 +347,13 @@ function updateGroupsCache(
   assistantId: string | null,
   updater: (groups: ConversationGroup[]) => ConversationGroup[],
 ): void {
-  queryClient.setQueryData<GroupsGetResponse>(
-    conversationGroupsQueryKey(assistantId),
-    (prev) => {
-      const list = prev?.groups ?? [];
-      const next = updater(list);
-      if (next === list) return prev;
-      return { ...prev, groups: next };
-    },
-  );
+  const opts: Options<GroupsGetData> = { path: { assistant_id: assistantId ?? "" } };
+  groupsGetSetQueryData(queryClient, opts, (prev) => {
+    const list = prev?.groups ?? [];
+    const next = updater(list);
+    if (next === list) return prev;
+    return { ...prev, groups: next };
+  });
 }
 
 export function appendGroup(

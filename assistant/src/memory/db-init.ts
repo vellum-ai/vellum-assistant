@@ -136,11 +136,13 @@ import {
   migrateMemoryGraphImageRefs,
   migrateMemoryItemSupersession,
   migrateMemoryRecallLogsQueryContext,
+  migrateMemoryRetrospectiveRememberedLog,
   migrateMemoryRetrospectiveState,
   migrateMemoryV2ActivationLogs,
   migrateMemoryV2InjectionEvents,
   migrateMemoryV3AutoEdges,
   migrateMemoryV3Coactivation,
+  migrateMemoryV3SelectionsMessageIdAndSections,
   migrateMessageBookmarks,
   migrateMessagesClientMessageId,
   migrateMessagesConversationCreatedAtIndex,
@@ -190,6 +192,7 @@ import {
   migrateRenameVerificationTable,
   migrateRenameVoiceToPhone,
   migrateScheduleDescription,
+  migrateScheduleInferenceProfile,
   migrateScheduleOneShotRouting,
   migrateScheduleQuietFlag,
   migrateScheduleRetryPolicy,
@@ -498,6 +501,9 @@ export function initializeDb(): void {
     migrateToolInvocationsTelemetryColumns,
     createSkillLoadedEventsTable,
     migrateConversationsSurfacedAt,
+    migrateMemoryRetrospectiveRememberedLog,
+    migrateScheduleInferenceProfile,
+    migrateMemoryV3SelectionsMessageIdAndSections,
   ];
 
   // Run each migration step, catching and logging individual failures so one

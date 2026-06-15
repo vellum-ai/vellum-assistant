@@ -7,7 +7,8 @@
  * double typed as `Conversation` (`makeWakeConversation`) that stubs only the
  * handful of members the wake touches — `getMessages`, `messages.push`,
  * `isProcessing`/`setProcessing`, `setTrustContext`, `setSubagentAllowedTools`,
- * `drainQueue`, and a scripted `agentLoop.run()`.
+ * `drainQueue`, `maybeCompact`, `contextWindowManager.estimateInputTokens`,
+ * and a scripted `agentLoop.run()`.
  *
  * The wake's side effects flow through the daemon boundary, so the
  * instrumentation is captured at that boundary: event emission and the
@@ -49,6 +50,12 @@ interface WakeConversationProbe {
     requestId?: string;
     trust?: unknown;
     allowedTools?: string[];
+    /**
+     * `conversation.wakePersonaOverride` as observed at run start — the
+     * field the conversation's resolveSystemPrompt callback reads when
+     * building the wake's system prompt.
+     */
+    personaOverride?: unknown;
     order: number;
   }>;
   /** Every `setProcessing` value, in call order. */
@@ -76,8 +83,27 @@ interface WakeConversationProbe {
   allowedToolSnapshots: Array<string[] | undefined>;
   /** `setTrustContext` calls, with the value and a monotonic order tag. */
   setTrustContextCalls: Array<{ ctx: unknown; order: number }>;
+  /**
+   * Every assignment to `conversation.wakePersonaOverride`, in order. A
+   * wake that applies an override records `[override, undefined]` — the
+   * trailing `undefined` proves the wake restored the field before
+   * releasing the conversation.
+   */
+  personaOverrideSets: unknown[];
   /** Number of persisted tail messages at the moment each frame emitted. */
   persistedAtEachEmit: number[];
+  /**
+   * `conversation.maybeCompact()` invocations (the wake's pre-run
+   * auto-compaction gate), tagged with the same monotonic order counter as
+   * `runCalls` so tests can prove the gate ran before the agent loop.
+   */
+  maybeCompactOrders: number[];
+  /**
+   * The sizing argument passed to each `conversation.maybeCompact()` call —
+   * the wake threads its resolved callSite/profile so the gate's threshold
+   * sizes against the wake's window instead of mainAgent's.
+   */
+  maybeCompactSizings: unknown[];
 }
 
 const wakeConvRegistry = new Map<string, WakeConversationProbe>();
@@ -89,8 +115,15 @@ const wakeConvRegistry = new Map<string, WakeConversationProbe>();
 // `persistWakeTailMessage` (createdAt for the disk-view sync). `addMessage`
 // is the persistence boundary the wake's tail persistence flows through —
 // it records into the originating conversation's probe.
+// Overridable per test (e.g. to simulate a throwing DB read); reset in
+// beforeEach.
+let mockGetConversationOverrideProfile: (
+  conversationId: string,
+) => string | undefined = () => undefined;
+
 mock.module("../../memory/conversation-crud.js", () => ({
-  getConversationOverrideProfile: () => undefined,
+  getConversationOverrideProfile: (conversationId: string) =>
+    mockGetConversationOverrideProfile(conversationId),
   getConversation: () => ({
     archivedAt: null,
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -173,7 +206,7 @@ mock.module("../../config/loader.js", () => ({
   getNestedValue: () => undefined,
   setNestedValue: () => {},
   API_KEY_PROVIDERS: [],
-  _appendQuarantineBulletin: () => {},
+  _writeQuarantineNotice: () => {},
   invalidateConfigCache: () => {},
 }));
 
@@ -209,6 +242,7 @@ const recordRequestLogCalls: Array<{
   responsePayload: string;
   messageId?: string;
   provider?: string;
+  callSite?: string;
 }> = [];
 mock.module("../../memory/llm-request-log-store.js", () => ({
   recordRequestLog: (
@@ -217,6 +251,7 @@ mock.module("../../memory/llm-request-log-store.js", () => ({
     responsePayload: string,
     messageId?: string,
     provider?: string,
+    callSite?: string,
   ) => {
     recordRequestLogCalls.push({
       conversationId,
@@ -224,6 +259,7 @@ mock.module("../../memory/llm-request-log-store.js", () => ({
       responsePayload,
       messageId,
       provider,
+      callSite,
     });
     return "log-id-test";
   },
@@ -236,7 +272,7 @@ import type {
   AgentLoopRunResult,
 } from "../../agent/loop.js";
 import type { Conversation } from "../../daemon/conversation.js";
-import type { Message } from "../../providers/types.js";
+import { ContextOverflowError, type Message } from "../../providers/types.js";
 import {
   __resetWakeChainForTests,
   wakeAgentForOpportunity,
@@ -276,6 +312,13 @@ function makeWakeConversation(options: {
   initialAllowedTools?: Set<string>;
   /** Replaces the default scripted `agentLoop.run` body entirely. */
   runImpl?: ScriptedRun;
+  /**
+   * Token estimate returned by the double's
+   * `contextWindowManager.estimateInputTokens` (consumed by the wake's
+   * over-window pre-flight on compaction-suppressed wakes). Defaults to 0
+   * (always under the mocked 200k window).
+   */
+  estimatedInputTokens?: number;
 }): WakeConversation {
   const conversationId = options.conversationId ?? "conv-test";
   const probe: WakeConversationProbe = {
@@ -290,13 +333,17 @@ function makeWakeConversation(options: {
     processingDuringDrain: [],
     allowedToolSnapshots: [],
     setTrustContextCalls: [],
+    personaOverrideSets: [],
     persistedAtEachEmit: [],
+    maybeCompactOrders: [],
+    maybeCompactSizings: [],
   };
   wakeConvRegistry.set(conversationId, probe);
 
   let processing = options.isProcessing ?? false;
   let order = 0;
   let activeAllowedTools = options.initialAllowedTools;
+  let wakePersonaOverride: unknown;
   const snapshotAllowedTools = (): string[] | undefined =>
     activeAllowedTools ? [...activeAllowedTools].sort() : undefined;
 
@@ -359,6 +406,13 @@ function makeWakeConversation(options: {
         `tools:${snapshotAllowedTools()?.join(",") ?? "all"}`,
       );
     },
+    get wakePersonaOverride() {
+      return wakePersonaOverride;
+    },
+    set wakePersonaOverride(value: unknown) {
+      wakePersonaOverride = value;
+      probe.personaOverrideSets.push(value);
+    },
     agentLoop: {
       run: async (options: AgentLoopRunOptions) => {
         const { messages: input, onEvent } = options;
@@ -367,6 +421,7 @@ function makeWakeConversation(options: {
           requestId: options.requestId,
           trust: options.trust,
           allowedTools: snapshotAllowedTools(),
+          personaOverride: wakePersonaOverride,
           order: order++,
         });
         return runBody(input, onEvent, options);
@@ -383,6 +438,19 @@ function makeWakeConversation(options: {
     setTrustContext: (ctx: unknown) => {
       probe.setTrustContextCalls.push({ ctx, order: order++ });
     },
+    // Pre-run auto-compaction gate. The double only records the call (and
+    // the sizing argument) — compaction side effects are exercised in the
+    // Conversation tests.
+    maybeCompact: async (sizing?: unknown) => {
+      probe.maybeCompactOrders.push(order++);
+      probe.maybeCompactSizings.push(sizing);
+      probe.callSequence.push("maybeCompact");
+      return null;
+    },
+    // Consumed by the wake's over-window pre-flight (suppressed wakes only).
+    contextWindowManager: {
+      estimateInputTokens: () => options.estimatedInputTokens ?? 0,
+    },
     getTurnChannelContext: () => null,
     getTurnInterfaceContext: () => null,
     trustContext: undefined,
@@ -398,6 +466,7 @@ beforeEach(() => {
   recordRequestLogCalls.length = 0;
   mockGetOrCreateConversationCalls.length = 0;
   mockResolverTarget = null;
+  mockGetConversationOverrideProfile = () => undefined;
   mockDiskPressureStatus = {
     enabled: false,
     state: "disabled",
@@ -553,6 +622,116 @@ describe("wakeAgentForOpportunity", () => {
     });
   });
 
+  test("personaOverride is applied to the conversation for the run and restored after", async () => {
+    const conversation = makeWakeConversation({
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "reviewed." }],
+      },
+    });
+    const override = { userSlug: "alice", channelSlug: "telegram" };
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "retrospective pass",
+        source: "memory-retrospective",
+        trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
+        personaOverride: override,
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result.invoked).toBe(true);
+    // The override was live on the conversation when the loop ran — the
+    // resolveSystemPrompt callback reads this field at prompt-build time.
+    expect(conversation.runCalls[0]!.personaOverride).toEqual(override);
+    // Applied exactly once and cleared before the wake released the
+    // conversation, so a queued user turn can't build under it.
+    expect(conversation.personaOverrideSets).toEqual([override, undefined]);
+  });
+
+  test("personaOverride is cleared even when the agent loop throws", async () => {
+    const conversation = makeWakeConversation({
+      runImpl: async () => {
+        throw new Error("loop exploded");
+      },
+    });
+    const override = { userSlug: "alice" };
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "retrospective pass",
+        source: "memory-retrospective",
+        personaOverride: override,
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    expect(conversation.personaOverrideSets).toEqual([override, undefined]);
+  });
+
+  test("a throwing profile read never strands the persona override on the conversation", async () => {
+    // The override-profile lookup (and the config/window reads next to it)
+    // run BEFORE the try/finally that clears the wake's persona override. If
+    // the override were assigned before those reads, a throw there would
+    // strand it on the cached Conversation and corrupt every later prompt
+    // build. The wake must assign the override only after the reads succeed.
+    const conversation = makeWakeConversation({
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "never reached" }],
+      },
+    });
+    mockGetConversationOverrideProfile = () => {
+      throw new Error("profile read failed");
+    };
+
+    await expect(
+      wakeAgentForOpportunity(
+        {
+          conversationId: conversation.conversationId,
+          hint: "retrospective pass",
+          source: "memory-retrospective",
+          personaOverride: { userSlug: "alice" },
+        },
+        { resolveTarget: async () => conversation },
+      ),
+    ).rejects.toThrow("profile read failed");
+
+    // The override was never assigned (not assigned-then-cleared) and the
+    // conversation field is clean for the next turn's prompt build.
+    expect(conversation.personaOverrideSets).toEqual([]);
+    expect(conversation.wakePersonaOverride).toBeUndefined();
+    // The processing flag was never stranded either — the reads run before
+    // setProcessing(true).
+    expect(conversation.processingToggles).toEqual([]);
+    expect(conversation.runCalls).toHaveLength(0);
+  });
+
+  test("no personaOverride → the conversation's persona field is never touched", async () => {
+    const conversation = makeWakeConversation({
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "hello" }],
+      },
+    });
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "plain wake",
+        source: "background-tool",
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(conversation.runCalls[0]!.personaOverride).toBeUndefined();
+    expect(conversation.personaOverrideSets).toEqual([]);
+  });
+
   test("silent no-op when agent produces no tool calls and no text", async () => {
     const conversation = makeWakeConversation({
       baseline: [
@@ -645,6 +824,99 @@ describe("wakeAgentForOpportunity", () => {
     expect(restoreIndex).toBeGreaterThan(-1);
     expect(restoreIndex).toBeLessThan(processingFalseIndex);
     expect(processingFalseIndex).toBeLessThan(drainIndex);
+  });
+
+  test("applies toolGateMode: 'execution' alongside the allowlist and restores it after the wake", async () => {
+    let gateModeDuringRun: string | undefined;
+    const conversation = makeWakeConversation({
+      runImpl: async (input) => {
+        gateModeDuringRun = conversation.subagentToolGateMode;
+        return runResult([
+          ...input,
+          { role: "assistant", content: [{ type: "text", text: "Saved." }] },
+        ]);
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "review for memories",
+        source: "memory-retrospective",
+        allowedTools: ["remember"],
+        toolGateMode: "execution",
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    // The gate mode is live on the conversation for the duration of the run
+    // (the tool resolver and executor closures read it there)...
+    expect(gateModeDuringRun).toBe("execution");
+    expect(conversation.runCalls[0]!.allowedTools).toEqual(["remember"]);
+    // ...and restored alongside the allowlist after the wake.
+    expect(conversation.subagentToolGateMode).toBeUndefined();
+  });
+
+  test("applies toolContextPin alongside the allowlist and restores it after the wake", async () => {
+    let pinDuringRun: unknown;
+    const conversation = makeWakeConversation({
+      runImpl: async (input) => {
+        pinDuringRun = conversation.toolContextPin;
+        return runResult([
+          ...input,
+          { role: "assistant", content: [{ type: "text", text: "Saved." }] },
+        ]);
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "review for memories",
+        source: "memory-retrospective",
+        allowedTools: ["remember"],
+        toolGateMode: "execution",
+        toolContextPin: { hasNoClient: false, transportInterface: "macos" },
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    // The pin is live on the conversation for the duration of the run (the
+    // tool resolver reads it there for wire-definition parity)...
+    expect(pinDuringRun).toEqual({
+      hasNoClient: false,
+      transportInterface: "macos",
+    });
+    // ...and restored alongside the allowlist + gate mode after the wake.
+    expect(conversation.toolContextPin).toBeUndefined();
+  });
+
+  test("defaults to the wire gate mode when toolGateMode is absent", async () => {
+    let gateModeDuringRun: string | undefined;
+    const conversation = makeWakeConversation({
+      runImpl: async (input) => {
+        gateModeDuringRun = conversation.subagentToolGateMode;
+        return runResult([
+          ...input,
+          { role: "assistant", content: [{ type: "text", text: "Saved." }] },
+        ]);
+      },
+    });
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "review for memories",
+        source: "memory-retrospective",
+        allowedTools: ["remember"],
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(gateModeDuringRun).toBe("wire");
+    expect(conversation.subagentToolGateMode).toBeUndefined();
   });
 
   test("restores allowed tools before drain when the wake is a silent no-op", async () => {
@@ -837,7 +1109,7 @@ describe("wakeAgentForOpportunity", () => {
   });
 
   test("applies caller-supplied trustContext to the target before the agent loop runs", async () => {
-    // Background system jobs (memory consolidation, update-bulletin) need
+    // Background system jobs (e.g. memory consolidation) need
     // guardian trust to clear the side-effect approval gate. The wake must
     // call setTrustContext BEFORE agentLoop.run so the per-turn snapshot
     // captures the elevated trust.
@@ -1233,11 +1505,13 @@ describe("wakeAgentForOpportunity", () => {
         { resolveTarget: async () => conversation },
       );
 
-      // Full call sequence: processing toggled true → 3 pushes →
-      // 3 persists → processing toggled false → drain. Specifically,
-      // every push and every persist must precede the single drain.
+      // Full call sequence: processing toggled true → compaction gate →
+      // 3 pushes → 3 persists → processing toggled false → drain.
+      // Specifically, every push and every persist must precede the
+      // single drain.
       expect(conversation.callSequence).toEqual([
         "processing:true",
+        "maybeCompact",
         "push",
         "push",
         "push",
@@ -1294,9 +1568,11 @@ describe("wakeAgentForOpportunity", () => {
       expect(conversation.emittedEvents).toHaveLength(0);
 
       // But drain still ran exactly once, after processing flipped to
-      // false. Sequence: toggle true → toggle false → drain.
+      // false. Sequence: toggle true → compaction gate → toggle false →
+      // drain.
       expect(conversation.callSequence).toEqual([
         "processing:true",
+        "maybeCompact",
         "processing:false",
         "drain",
       ]);
@@ -1578,7 +1854,46 @@ describe("wakeAgentForOpportunity", () => {
       conversationId: conversation.conversationId,
       provider: "test-provider",
       messageId: undefined,
+      callSite: "mainAgent",
     });
+  });
+
+  test("wake with an explicit callSite records logs under that call site", async () => {
+    const usageEvent: AgentEvent = {
+      type: "usage",
+      inputTokens: 100,
+      outputTokens: 5,
+      model: "test-model",
+      actualProvider: "test-provider",
+      providerDurationMs: 10,
+      rawRequest: { request: "retrospective wake" },
+      rawResponse: { response: "real reply" },
+    };
+    const conversation = makeWakeConversation({
+      baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      scriptedEvents: [usageEvent],
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "real reply" }],
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "do reply",
+        source: "unit-test",
+        callSite: "memoryRetrospective",
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    expect(recordRequestLogCalls).toHaveLength(1);
+    // Regression guard: persistLog used to hardcode "mainAgent", which
+    // mislabeled retrospective/consolidation wake rows in llm_request_logs
+    // and polluted call-site filtering during prompt diagnostics.
+    expect(recordRequestLogCalls[0]?.callSite).toBe("memoryRetrospective");
   });
 
   test("non-serializable usage payload does not abort the wake", async () => {
@@ -1773,5 +2088,312 @@ describe("wakeAgentForOpportunity", () => {
         expect(conversation.surfaceBroadcasts).toHaveLength(0);
       },
     );
+  });
+
+  describe("suppressAutoCompaction + over-window policy", () => {
+    const reply: Message = {
+      role: "assistant",
+      content: [{ type: "text", text: "done" }],
+    };
+
+    test("default wake runs the pre-run compaction gate before the agent loop", async () => {
+      const conversation = makeWakeConversation({
+        scriptedAssistant: reply,
+      });
+
+      const result = await wakeAgentForOpportunity(
+        {
+          conversationId: conversation.conversationId,
+          hint: "do work",
+          source: "unit-test",
+        },
+        { resolveTarget: async () => conversation },
+      );
+
+      expect(result.invoked).toBe(true);
+      expect(conversation.maybeCompactOrders).toHaveLength(1);
+      expect(conversation.runCalls).toHaveLength(1);
+      // The gate fired strictly before agentLoop.run (shared order counter).
+      expect(conversation.maybeCompactOrders[0]!).toBeLessThan(
+        conversation.runCalls[0]!.order,
+      );
+      // And under the processing marker, so a racing user send queues
+      // instead of starting a concurrent turn during the summary call.
+      expect(conversation.callSequence.indexOf("maybeCompact")).toBeGreaterThan(
+        conversation.callSequence.indexOf("processing:true"),
+      );
+    });
+
+    test("suppressAutoCompaction: true skips the compaction gate on an otherwise identical wake", async () => {
+      const conversation = makeWakeConversation({
+        scriptedAssistant: reply,
+      });
+
+      const result = await wakeAgentForOpportunity(
+        {
+          conversationId: conversation.conversationId,
+          hint: "do work",
+          source: "unit-test",
+          suppressAutoCompaction: true,
+        },
+        { resolveTarget: async () => conversation },
+      );
+
+      expect(result.invoked).toBe(true);
+      expect(conversation.maybeCompactOrders).toHaveLength(0);
+      expect(conversation.runCalls).toHaveLength(1);
+    });
+
+    test("over-window suppressed wake fails fast without invoking the loop or compacting", async () => {
+      const conversation = makeWakeConversation({
+        scriptedAssistant: reply,
+        // Mocked resolveEffectiveContextWindow yields maxInputTokens 200k.
+        estimatedInputTokens: 250_000,
+      });
+
+      const result = await wakeAgentForOpportunity(
+        {
+          conversationId: conversation.conversationId,
+          hint: "do work",
+          source: "unit-test",
+          suppressAutoCompaction: true,
+        },
+        { resolveTarget: async () => conversation },
+      );
+
+      expect(result).toEqual({
+        invoked: false,
+        producedToolCalls: false,
+        reason: "context_overflow",
+      });
+      expect(conversation.runCalls).toHaveLength(0);
+      expect(conversation.maybeCompactOrders).toHaveLength(0);
+      // The processing marker is released and the queue drained despite the
+      // early failure.
+      expect(conversation.processingToggles).toEqual([true, false]);
+      expect(conversation.isProcessing()).toBe(false);
+      expect(conversation.drainQueueCalls).toBe(1);
+    });
+
+    test("identical over-window wake without suppression compacts and runs instead of failing", async () => {
+      const conversation = makeWakeConversation({
+        scriptedAssistant: reply,
+        estimatedInputTokens: 250_000,
+      });
+
+      const result = await wakeAgentForOpportunity(
+        {
+          conversationId: conversation.conversationId,
+          hint: "do work",
+          source: "unit-test",
+        },
+        { resolveTarget: async () => conversation },
+      );
+
+      expect(result.invoked).toBe(true);
+      expect(conversation.maybeCompactOrders).toHaveLength(1);
+      expect(conversation.runCalls).toHaveLength(1);
+    });
+
+    test("suppressed wake maps a provider context-overflow rejection to a failed result", async () => {
+      // The estimator under-counted (pre-flight passed) but the provider
+      // still rejected the call as over-window. The loop swallows provider
+      // errors into a graceful no-output stop, which without the mapping
+      // would read as a successful silent no-op.
+      const conversation = makeWakeConversation({
+        estimatedInputTokens: 0,
+        runImpl: async (input, onEvent) => {
+          await onEvent({
+            type: "error",
+            error: new ContextOverflowError(
+              "prompt is too long: 250000 tokens > 200000 maximum",
+              "test-provider",
+            ),
+          });
+          return runResult([...input]);
+        },
+      });
+
+      const result = await wakeAgentForOpportunity(
+        {
+          conversationId: conversation.conversationId,
+          hint: "do work",
+          source: "unit-test",
+          suppressAutoCompaction: true,
+        },
+        { resolveTarget: async () => conversation },
+      );
+
+      expect(result).toEqual({
+        invoked: false,
+        producedToolCalls: false,
+        reason: "context_overflow",
+      });
+      // Cleanup still ran.
+      expect(conversation.processingToggles).toEqual([true, false]);
+      expect(conversation.drainQueueCalls).toBe(1);
+    });
+
+    test("suppressed wake maps a REWRAPPED (untyped) provider overflow error to a failed result", async () => {
+      // Managed-proxy/adapter paths rewrap provider overflow rejections into
+      // plain Errors, defeating the typed `instanceof` check. The wake's
+      // capture must fall back to the message-level heuristic — otherwise
+      // the overflow reads as a successful silent no-op and the
+      // fork-retrospective job advances `lastProcessedMessageId` past a
+      // slice that was never reviewed.
+      const conversation = makeWakeConversation({
+        estimatedInputTokens: 0,
+        runImpl: async (input, onEvent) => {
+          await onEvent({
+            type: "error",
+            error: new Error(
+              "Provider API error (400): prompt is too long: 250000 tokens > 200000 maximum",
+            ),
+          });
+          return runResult([...input]);
+        },
+      });
+
+      const result = await wakeAgentForOpportunity(
+        {
+          conversationId: conversation.conversationId,
+          hint: "do work",
+          source: "unit-test",
+          suppressAutoCompaction: true,
+        },
+        { resolveTarget: async () => conversation },
+      );
+
+      expect(result).toEqual({
+        invoked: false,
+        producedToolCalls: false,
+        reason: "context_overflow",
+      });
+    });
+
+    test("suppressed wake maps a rewrapped overflow THROW to a failed result", async () => {
+      const conversation = makeWakeConversation({
+        estimatedInputTokens: 0,
+        runImpl: async () => {
+          throw new Error("too many input tokens: 250000 > 200000");
+        },
+      });
+
+      const result = await wakeAgentForOpportunity(
+        {
+          conversationId: conversation.conversationId,
+          hint: "do work",
+          source: "unit-test",
+          suppressAutoCompaction: true,
+        },
+        { resolveTarget: async () => conversation },
+      );
+
+      expect(result).toEqual({
+        invoked: false,
+        producedToolCalls: false,
+        reason: "context_overflow",
+      });
+      // Cleanup still ran.
+      expect(conversation.processingToggles).toEqual([true, false]);
+      expect(conversation.drainQueueCalls).toBe(1);
+    });
+
+    test("suppressed wake treats an unrelated rewrapped error as a generic no-op, not an overflow", async () => {
+      const conversation = makeWakeConversation({
+        estimatedInputTokens: 0,
+        runImpl: async () => {
+          throw new Error("socket hang up");
+        },
+      });
+
+      const result = await wakeAgentForOpportunity(
+        {
+          conversationId: conversation.conversationId,
+          hint: "do work",
+          source: "unit-test",
+          suppressAutoCompaction: true,
+        },
+        { resolveTarget: async () => conversation },
+      );
+
+      expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    });
+
+    test("the compaction gate is sized with the wake's call site and forced profile", async () => {
+      const conversation = makeWakeConversation({
+        scriptedAssistant: reply,
+      });
+
+      await wakeAgentForOpportunity(
+        {
+          conversationId: conversation.conversationId,
+          hint: "do work",
+          source: "memory-retrospective",
+          callSite: "memoryRetrospective",
+          forceOverrideProfile: "forced",
+        },
+        { resolveTarget: async () => conversation },
+      );
+
+      // The wake threads its own resolution inputs so the gate's threshold
+      // sizes against the wake's window instead of mainAgent's.
+      expect(conversation.maybeCompactSizings).toEqual([
+        {
+          callSite: "memoryRetrospective",
+          overrideProfile: "forced",
+          forceOverrideProfile: true,
+        },
+      ]);
+    });
+
+    test("a default wake sizes the compaction gate against mainAgent with no forced profile", async () => {
+      const conversation = makeWakeConversation({
+        scriptedAssistant: reply,
+      });
+
+      await wakeAgentForOpportunity(
+        {
+          conversationId: conversation.conversationId,
+          hint: "do work",
+          source: "unit-test",
+        },
+        { resolveTarget: async () => conversation },
+      );
+
+      expect(conversation.maybeCompactSizings).toEqual([
+        {
+          callSite: "mainAgent",
+          overrideProfile: undefined,
+          forceOverrideProfile: false,
+        },
+      ]);
+    });
+
+    test("non-suppressed wake treats a provider context-overflow rejection as a silent no-op (existing behavior)", async () => {
+      const conversation = makeWakeConversation({
+        runImpl: async (input, onEvent) => {
+          await onEvent({
+            type: "error",
+            error: new ContextOverflowError(
+              "prompt is too long: 250000 tokens > 200000 maximum",
+              "test-provider",
+            ),
+          });
+          return runResult([...input]);
+        },
+      });
+
+      const result = await wakeAgentForOpportunity(
+        {
+          conversationId: conversation.conversationId,
+          hint: "do work",
+          source: "unit-test",
+        },
+        { resolveTarget: async () => conversation },
+      );
+
+      expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    });
   });
 });

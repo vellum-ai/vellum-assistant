@@ -35,7 +35,6 @@ import {
 } from "../credential-execution/startup-timeout.js";
 import { FilingService } from "../filing/filing-service.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
-import { startHomeContentRefresh } from "../home/home-content-refresh.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import {
@@ -480,10 +479,6 @@ export async function runDaemon(): Promise<void> {
         );
       });
 
-      // Pre-warm LLM-generated home page content (greeting + suggestion
-      // prompts) so the GET handler never triggers LLM calls.
-      startHomeContentRefresh();
-
       // Backfill injection templates on Slack bot token credentials so the
       // credential proxy can inject Authorization headers. Safe on every startup.
       try {
@@ -780,20 +775,6 @@ export async function runDaemon(): Promise<void> {
     startDiskPressureGuardForLifecycle();
     startOrphanReaper();
 
-    // Kick off the update bulletin background job AFTER `server.start()`
-    // resolves. The conversation store must be initialized before wake
-    // calls can resolve targets.
-    //
-    // Kept fire-and-forget (`void import(...).then(...).catch(...)`) so the
-    // daemon never blocks startup on it.
-    if (dbReady) {
-      void import("../prompts/update-bulletin-job.js")
-        .then((m) => m.runUpdateBulletinJobIfNeeded())
-        .catch((err) =>
-          log.warn({ err }, "Update bulletin job failed — continuing startup"),
-        );
-    }
-
     // Mutable refs for Qdrant and memory worker so background
     // init can assign them and the shutdown handler always sees the latest value.
     const bgRefs: {
@@ -986,6 +967,9 @@ export async function runDaemon(): Promise<void> {
                     }
                   : {}),
                 ...(options.taskRunId ? { taskRunId: options.taskRunId } : {}),
+                ...(options.overrideProfile
+                  ? { overrideProfile: options.overrideProfile }
+                  : {}),
               }
             : undefined,
         );
@@ -1269,6 +1253,13 @@ export async function runDaemon(): Promise<void> {
     } catch (err) {
       log.warn({ err }, "Assistant symlink installation failed — continuing");
     }
+
+    // Seed preloaded apps (personal landing page) in background (non-blocking).
+    void import("../memory/preloaded-apps.js")
+      .then(({ seedPreloadedApps }) => seedPreloadedApps(config))
+      .catch((err) =>
+        log.warn({ err }, "Preloaded app seeding failed — continuing"),
+      );
 
     // Download embedding runtime in background (non-blocking).
     // If download fails, local embeddings gracefully fall back to cloud backends.

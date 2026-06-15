@@ -2441,7 +2441,11 @@ jobs:
           GATEWAY_SRC_DIR="../../gateway"
           CES_SRC_DIR="../../credential-executor"
 
+          CLI_EXTERNAL_FLAGS=(--external react-devtools-core)
           DAEMON_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*")
+          # drizzle-kit ≥0.31 bundles dynamic imports for every supported DB driver;
+          # the gateway only uses SQLite — mark the rest external.
+          GATEWAY_EXTERNAL_FLAGS=(--external "@electric-sql/pglite" --external pg --external postgres --external "@vercel/postgres" --external "@neondatabase/serverless" --external mysql2 --external "mysql2/promise" --external "@planetscale/database" --external "@libsql/client" --external better-sqlite3 --external "@aws-sdk/client-rds-data")
           DAEMON_FLAGS=("${DAEMON_EXTERNAL_FLAGS[@]}")
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}"
           if [ -n "$DISPLAY_VERSION" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
@@ -2465,6 +2469,8 @@ jobs:
           rm -rf daemon-bin/node_modules
           rm -rf daemon-bin/bundled-skills
           cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" daemon-bin/bundled-skills
+          rm -rf daemon-bin/preloaded-apps
+          cp -R "$ASSISTANT_SRC_DIR/src/config/preloaded-apps" daemon-bin/preloaded-apps
           rm -rf daemon-bin/templates
           cp -R "$ASSISTANT_SRC_DIR/src/prompts/templates" daemon-bin/templates
           rm -rf daemon-bin/brain-graph
@@ -2480,14 +2486,14 @@ jobs:
           # CLI
           (cd "$CLI_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
           mkdir -p cli-bin
-          bun build --compile "${ENV_DEFINE[@]}" --target=bun-darwin-x64 \
+          bun build --compile "${CLI_EXTERNAL_FLAGS[@]}" "${ENV_DEFINE[@]}" --target=bun-darwin-x64 \
             "$CLI_SRC_DIR/src/index.ts" --outfile cli-bin/vellum-cli
           chmod +x cli-bin/vellum-cli
 
           # Gateway
           (cd "$GATEWAY_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
           mkdir -p gateway-bin
-          bun build --compile "${ENV_DEFINE[@]}" --target=bun-darwin-x64 \
+          bun build --compile "${GATEWAY_EXTERNAL_FLAGS[@]}" "${ENV_DEFINE[@]}" --target=bun-darwin-x64 \
             "$GATEWAY_SRC_DIR/src/index.ts" --outfile gateway-bin/vellum-gateway
           chmod +x gateway-bin/vellum-gateway
           cp "$GATEWAY_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" gateway-bin/
@@ -2808,9 +2814,8 @@ jobs:
 
       - name: Build and package Electron app
         env:
-          VELLUM_ENVIRONMENT: ${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
           CSC_NAME: Developer ID Application
-        run: bun run pack
+        run: bun run pack --environment "${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}"
 
       - name: Rename DMG for release
         id: dmg
@@ -2896,14 +2901,8 @@ jobs:
           xcrun stapler validate "${{ steps.dmg.outputs.dmg_path }}"
           echo "Electron notarization ticket stapled and validated"
 
-      - name: Upload Electron DMG artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: apps/macos/dist/${{ matrix.dmg_name }}
-          if-no-files-found: error
-          retention-days: 7
-
+      # Update artifacts upload before the DMG so a DMG artifact never exists
+      # without its update feed (a DMG shipped without one strands auto-update).
       - name: Upload Electron update artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -2912,7 +2911,15 @@ jobs:
             apps/macos/dist/*-mac.yml
             apps/macos/dist/*.zip
             apps/macos/dist/*.zip.blockmap
-          if-no-files-found: warn
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload Electron DMG artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: apps/macos/dist/${{ matrix.dmg_name }}
+          if-no-files-found: error
           retention-days: 7
 
       - name: Cleanup keychain and keys
@@ -2929,7 +2936,9 @@ jobs:
 
   upload-electron-updates:
     needs: [extract-version, build-electron]
-    if: ${{ needs.build-electron.result == 'success' }}
+    # always() disables the implicit success(), which would always skip this
+    # job: one of build-electron's needs (publish-meta-prod/-staging) is skipped.
+    if: ${{ always() && !cancelled() && needs.build-electron.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: ${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
@@ -2937,23 +2946,35 @@ jobs:
       contents: read
       id-token: write
     steps:
+      # build-electron is continue-on-error, so a failed leg still reports
+      # result == 'success' to needs — its artifacts may simply not exist.
+      # Missing arches are skipped (Electron is non-blocking); an arch that is
+      # present but incomplete fails the job, which blocks the release gate.
       - name: Download arm64 update artifacts
+        continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: macos-electron-update-arm64
           path: electron-artifacts/arm64
 
       - name: Download x64 update artifacts
+        continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: macos-electron-update-x64
           path: electron-artifacts/x64
 
       - name: Validate update artifacts
+        id: validate
         run: |
-          MISSING=0
+          HAS_ARTIFACTS=false
           for ARCH in arm64 x64; do
             DIR="electron-artifacts/${ARCH}"
+            if [ ! -d "$DIR" ]; then
+              echo "::warning::No update artifacts for ${ARCH} (Electron build leg failed); skipping"
+              continue
+            fi
+            MISSING=0
             if [ ! -f "$(find "$DIR" -name '*-mac.yml' -type f 2>/dev/null | grep -m1 .)" ]; then
               echo "::error::Missing update manifest (*-mac.yml) for ${ARCH}"
               MISSING=1
@@ -2962,16 +2983,20 @@ jobs:
               echo "::error::Missing ZIP for ${ARCH}"
               MISSING=1
             fi
+            [ "$MISSING" -eq 0 ] || exit 1
+            HAS_ARTIFACTS=true
           done
-          [ "$MISSING" -eq 0 ] || exit 1
+          echo "has_artifacts=$HAS_ARTIFACTS" >> "$GITHUB_OUTPUT"
 
       - name: Authenticate to GCP
+        if: ${{ steps.validate.outputs.has_artifacts == 'true' }}
         uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
 
       - name: Upload Electron update artifacts to GCS
+        if: ${{ steps.validate.outputs.has_artifacts == 'true' }}
         run: |
           ENVIRONMENT=${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
           BUCKET=${{ needs.extract-version.outputs.is_staging == 'true' && 'vellum-ai-staging-releases' || 'vellum-ai-prod-releases' }}

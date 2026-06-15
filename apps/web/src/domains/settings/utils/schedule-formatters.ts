@@ -60,6 +60,27 @@ export function formatInterval(ms: number): string {
   return `Every ${minutes} min`;
 }
 
+/**
+ * Flatten infinite-query run pages into a single newest-first list,
+ * deduping by run id (a row can repeat across a page boundary when new
+ * runs land between page fetches).
+ */
+export function flattenRunPages(
+  pages: { runs: ScheduleRun[] }[] | undefined,
+): ScheduleRun[] | undefined {
+  if (!pages) return undefined;
+  const seen = new Set<string>();
+  const runs: ScheduleRun[] = [];
+  for (const page of pages) {
+    for (const run of page.runs) {
+      if (seen.has(run.id)) continue;
+      seen.add(run.id);
+      runs.push(run);
+    }
+  }
+  return runs;
+}
+
 // ---------------------------------------------------------------------------
 // Schedule / run predicates
 // ---------------------------------------------------------------------------
@@ -107,6 +128,7 @@ export function hasRunText(value: string | null | undefined): value is string {
 export const SYSTEM_TASK_URL_IDS = {
   heartbeat: "system-heartbeat",
   consolidation: "system-consolidation",
+  retrospective: "system-memory-retrospective",
 } as const satisfies Record<SystemTaskKind, string>;
 
 export const SYSTEM_TASK_STATS_RUN_LIMIT = 100;
@@ -119,6 +141,8 @@ export function systemTaskKindFromUrlId(
       return "heartbeat";
     case SYSTEM_TASK_URL_IDS.consolidation:
       return "consolidation";
+    case SYSTEM_TASK_URL_IDS.retrospective:
+      return "retrospective";
     default:
       return null;
   }
@@ -142,6 +166,13 @@ export function consolidationSubtitle(
 ): string {
   return formatInterval(config.intervalMs);
 }
+
+/**
+ * Retrospectives are event-driven (per-conversation triggers after activity),
+ * not interval-scheduled — so the cadence line describes the trigger instead
+ * of formatting `intervalMs`.
+ */
+export const RETROSPECTIVE_SUBTITLE = "After conversation activity";
 
 // ---------------------------------------------------------------------------
 // Constants

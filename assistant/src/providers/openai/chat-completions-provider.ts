@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 
+import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError } from "../../util/errors.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
@@ -17,6 +18,7 @@ import {
   ContextOverflowError,
   extractOverflowTokensFromMessage,
 } from "../types.js";
+import { wrapUnparseableToolArgs } from "../unparseable-tool-args.js";
 
 /**
  * Detect OpenAI-compatible context-overflow signals on an `OpenAI.APIError`.
@@ -634,7 +636,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
         try {
           input = JSON.parse(tc.args);
         } catch {
-          input = { _raw: tc.args };
+          input = wrapUnparseableToolArgs(tc.args);
         }
         content.push({
           type: "tool_use",
@@ -797,7 +799,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
     if (systemPrompt) {
       result.push({
         role: "system",
-        content: systemPrompt,
+        content: systemPrompt.replaceAll(SYSTEM_PROMPT_CACHE_BOUNDARY, "\n\n"),
       });
     }
 

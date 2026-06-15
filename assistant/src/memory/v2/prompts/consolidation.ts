@@ -571,6 +571,7 @@ Bullets where a list is genuinely a list.
 - **\`links\`** are directed see-also references, each annotated: \`"target-slug — why"\`. The annotation is for future-you deciding whether to follow it. Directed means listing B here pulls B toward A's readers — it does not link back.
 - **\`tags\`** are flat labels for the cluster(s) this touches. Index pages also carry \`kind: index\`.
 - **No \`summary:\` field.** The lead is the summary. Writing a good lead IS writing the retrieval surface.
+- **\`current:\`** — optional ONE-LINE live state of the page's subject: open items, deadlines, what's owed or pending, with an as-of date in the text (\`current: "bridge check owed before thursday's dry-run (as of jun 10)"\`). Retrieval renders it on the card, so status-shaped questions ("what's on my plate", "what's pending") can find the page. Maintain it like state, not prose: update it when the state moves, DELETE the field the moment nothing is live — a stale \`current:\` is worse than none. Most pages never carry one. \`threads.md\` remains the cross-page commitments list; \`current:\` is per-page state, not a second threads file.
 
 ## The card budget (the economic principle)
 

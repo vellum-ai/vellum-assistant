@@ -42,7 +42,7 @@ export interface TrustContext {
 
 /**
  * Trust context used by internal background jobs (memory consolidation,
- * update bulletin, scheduled tasks) when invoking the agent loop without
+ * scheduled tasks) when invoking the agent loop without
  * an inbound actor identity. The assistant is the guardian over its own
  * internal state, so self-maintenance flows clear the side-effect
  * approval gate. Inbound message conversations resolve trust per-actor

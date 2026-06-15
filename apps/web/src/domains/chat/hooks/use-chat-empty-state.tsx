@@ -26,6 +26,8 @@ import type { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 
 export interface UseChatEmptyStateParams {
   assistantId: string | null;
+  /** Active empty conversation id — a change regenerates the greeting. */
+  conversationId: string | null | undefined;
   isEmptyConversation: boolean;
   avatar: ReturnType<typeof useAssistantAvatar>;
   /** Current main view from viewer-store. */
@@ -50,6 +52,7 @@ export interface ChatEmptyStateResult {
 
 export function useChatEmptyState({
   assistantId,
+  conversationId,
   isEmptyConversation,
   avatar,
   mainView,
@@ -61,7 +64,12 @@ export function useChatEmptyState({
   const { components: avatarComponents, traits: avatarTraits, customImageUrl: avatarImageUrl } = avatar;
 
   const emptyStatePlaceholder = useMemo(() => pickRandomPlaceholder(), []);
-  const emptyStateGreeting = useEmptyStateGreeting(assistantId);
+  const { greeting: emptyStateGreeting, isGenerating: greetingIsGenerating } =
+    useEmptyStateGreeting({
+      assistantId,
+      conversationId,
+      enabled: isEmptyConversation,
+    });
 
   // Gate the daemon fetch by `isEmptyConversation` so non-empty chats
   // stop polling for data that's never rendered.
@@ -87,6 +95,7 @@ export function useChatEmptyState({
         />
       ) : null,
     greeting: editingApp ? buildEditAppGreeting(editingApp) : emptyStateGreeting,
+    isGenerating: editingApp ? false : greetingIsGenerating,
   };
 
   const emptyStateStarters = editingApp

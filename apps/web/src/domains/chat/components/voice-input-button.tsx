@@ -21,6 +21,7 @@ import {
 } from "@/runtime/native-dictation-partials";
 import {
     postSttTranscribe,
+    prefersMacosNativeStt,
     type SttFailureReason,
 } from "@/domains/chat/voice/stt-api";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
@@ -553,6 +554,10 @@ export const VoiceInputButton = forwardRef<
     cancelledStartRef.current = false;
     discardedRef.current = false;
     const sessionId = ++sessionIdRef.current;
+    // Honor the explicit "macOS Native Dictation" provider choice for the
+    // whole session: no daemon stream, no batch upload — the helper's
+    // recognizer (already running for every session) is the authority.
+    const nativeSttForced = prefersMacosNativeStt();
 
     if (onBeforeStart) {
       let proceed: boolean;
@@ -749,7 +754,7 @@ export const VoiceInputButton = forwardRef<
         let text = "";
         let daemonFailure: SttFailureReason | null = null;
         try {
-          if (audioBlob && assistantId) {
+          if (audioBlob && assistantId && !nativeSttForced) {
             if (typeof navigator !== "undefined" && navigator.onLine === false) {
               // Provably offline — don't burn the provider timeout to learn
               // what we already know.
@@ -801,7 +806,7 @@ export const VoiceInputButton = forwardRef<
 
         // Character counts only — transcript content must never be logged.
         console.info(
-          `dictation: finalize batchChars=${text.length} blobChars=${blobText.length} nativeChars=${nativeText.length} streamChars=${streamText.length} webChars=${fallbackText.length} failure=${daemonFailure ?? "none"}`,
+          `dictation: finalize batchChars=${text.length} blobChars=${blobText.length} nativeChars=${nativeText.length} streamChars=${streamText.length} webChars=${fallbackText.length} failure=${daemonFailure ?? "none"} forcedNative=${nativeSttForced}`,
         );
 
         if (!text && blobText) {
@@ -837,6 +842,15 @@ export const VoiceInputButton = forwardRef<
             const code = errorCodeForReason(daemonFailure);
             onError?.(code);
             vsFail(code);
+            return;
+          } else if (nativeSttForced && audioBlob) {
+            // Audio was captured but the forced-native recognizer produced
+            // nothing — most likely macOS Dictation (and its on-device
+            // model) isn't enabled. Surface that instead of resetting
+            // silently; there is no daemon failure to report here.
+            addDictationSessionBreadcrumb("error", durationMs, 0);
+            onError?.("native-stt-no-transcript");
+            vsFail("native-stt-no-transcript");
             return;
           } else {
             addDictationSessionBreadcrumb("empty", durationMs, 0);
@@ -889,15 +903,19 @@ export const VoiceInputButton = forwardRef<
 
     // Recording is live — open the daemon streaming session for interim
     // transcripts. Null / later failure means no live partials from that
-    // source; the recorder above is untouched either way.
+    // source; the recorder above is untouched either way. A forced-native
+    // session never opens the stream: the helper recognizer below is its
+    // only transcript source.
     stopDictationStream();
     stopNativePartials();
-    dictationStreamRef.current = startDictationStream({
-      onPartial: (text) => {
-        streamTranscriptRef.current = text;
-        publishInterim(text);
-      },
-    });
+    if (!nativeSttForced) {
+      dictationStreamRef.current = startDictationStream({
+        onPartial: (text) => {
+          streamTranscriptRef.current = text;
+          publishInterim(text);
+        },
+      });
+    }
 
     startNativePartials();
   }, [

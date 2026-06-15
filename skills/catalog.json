@@ -236,7 +236,7 @@
           ]
         }
       },
-      "updatedAt": "2026-06-10T17:57:08.000Z"
+      "updatedAt": "2026-06-10T20:12:38.000Z"
     },
     {
       "id": "geo-writing",
@@ -308,7 +308,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-09T15:42:03.000Z"
+      "updatedAt": "2026-06-13T00:44:45.000Z"
     },
     {
       "id": "headless-claude-code",
@@ -475,7 +475,7 @@
         }
       },
       "compatibility": "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Auth flow differs by environment.",
-      "updatedAt": "2026-06-09T15:08:32.000Z"
+      "updatedAt": "2026-06-12T18:05:36.000Z"
     },
     {
       "id": "meet-join",
@@ -490,7 +490,7 @@
           "feature-flag": "meet"
         }
       },
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-06-12T18:05:36.000Z"
     },
     {
       "id": "meme-generator",
@@ -530,7 +530,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-06-12T18:05:36.000Z"
     },
     {
       "id": "notion",
@@ -720,24 +720,33 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-04T15:23:46.000Z"
+      "updatedAt": "2026-06-12T18:05:36.000Z"
     },
     {
       "id": "slack-app-setup",
       "name": "slack-app-setup",
-      "description": "Connect a Slack app to the Vellum Assistant via Socket Mode with one-click app creation and identity verification",
+      "description": "Connect a Slack app to the Vellum Assistant via Socket Mode. Use whenever the user wants to set up Slack for their assistant, connect a workspace, or get the assistant talking in Slack — the skill generates a one-click manifest URL so they only have to name, save, and copy two tokens.",
       "metadata": {
         "emoji": "💬",
         "vellum": {
           "category": "messaging",
           "display-name": "Slack App Setup",
           "includes": [
-            "guardian-verify-setup"
+            "guardian-verify-setup",
+            "slack"
+          ],
+          "activation-hints": [
+            "set up Slack",
+            "connect Slack",
+            "add a Slack workspace",
+            "get you on Slack",
+            "install you in Slack",
+            "create a Slack bot"
           ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-06-13T00:39:49.000Z"
     },
     {
       "id": "start-the-day",
@@ -1138,7 +1147,7 @@
           "emoji": "📺"
         }
       },
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-06-12T18:05:36.000Z"
     },
     {
       "id": "watcher",

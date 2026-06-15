@@ -42,9 +42,9 @@ export function getWorkspaceSystemPromptDir(): string {
 
 /**
  * Render static sections in id-sort order, then dynamic sections in id-sort
- * order, returning the trimmed body of each enabled section. Discovery walks
- * the bundled registry plus any `.md` files in the workspace override dir,
- * and takes the union of ids.
+ * order, returning the trimmed bodies of enabled sections grouped into
+ * cache blocks. Discovery walks the bundled registry plus any `.md` files
+ * in the workspace override dir, and takes the union of ids.
  *
  * Resolution per id:
  *   - workspace `.md` file present → use workspace body (override)
@@ -69,19 +69,42 @@ export function getWorkspaceSystemPromptDir(): string {
  * of only `_`-comments).  This is the supported "disable a bundled
  * default" path.
  *
+ * Cache blocks: a section may declare a cache breakpoint (bundled
+ * `cacheBreakpoint` field, or frontmatter `cache_breakpoint: true` on a
+ * workspace file).  The breakpoint ends the current block *after* that
+ * section's position in the id ordering — the split happens even when the
+ * declaring section itself gates off, so a disabled section doesn't
+ * silently merge the blocks around it.  Only the first breakpoint is
+ * honored (the provider-side cache budget allows exactly two system
+ * blocks); extras are logged and ignored.
+ *
  * The numeric prefix on each id is load-bearing inside its render phase; pick
  * a number that places the section where it should appear in the final prompt.
  */
-export function renderWorkspaceSections(ctx: SectionRenderContext): string[] {
+export function renderWorkspaceSections(ctx: SectionRenderContext): string[][] {
   const workspaceDir = getWorkspaceSystemPromptDir();
   const ids = collectSectionIds(workspaceDir);
 
-  const out: string[] = [];
+  const blocks: string[][] = [[]];
+  let breakpointPlaced = false;
   for (const id of ids) {
-    const rendered = renderSection(id, ctx, workspaceDir);
-    if (rendered) out.push(rendered);
+    const section = resolveSection(id, ctx, workspaceDir);
+    if (section === null) continue;
+    const rendered = renderResolvedSection(section, ctx);
+    if (rendered) blocks[blocks.length - 1].push(rendered);
+    if (section.cacheBreakpoint) {
+      if (breakpointPlaced) {
+        log.warn(
+          { id },
+          "Multiple cache_breakpoint declarations; only the first is honored",
+        );
+      } else {
+        breakpointPlaced = true;
+        blocks.push([]);
+      }
+    }
   }
-  return out;
+  return blocks;
 }
 
 function collectSectionIds(workspaceDir: string): string[] {
@@ -118,6 +141,7 @@ function isDynamicSectionId(id: string): boolean {
 interface ResolvedSection {
   enabled: string | boolean | undefined;
   body: string;
+  cacheBreakpoint: boolean;
   transform?: BundledSection["transform"];
 }
 
@@ -145,8 +169,15 @@ function resolveSection(
     // written their own `prompts/system/<id>.md` they've taken full
     // control of the body shape, and re-running the bundled transform
     // (e.g. unmodified-template detection on IDENTITY.md) would
-    // misclassify their override.
-    return { enabled: fields["enabled"] as string | boolean | undefined, body };
+    // misclassify their override.  The same applies to cache-breakpoint
+    // placement: the override's frontmatter is the sole source of truth,
+    // so an override without `cache_breakpoint` clears a bundled
+    // declaration.
+    return {
+      enabled: fields["enabled"] as string | boolean | undefined,
+      body,
+      cacheBreakpoint: fields["cache_breakpoint"] === true,
+    };
   }
   const bundled = BUNDLED_SYSTEM_SECTIONS.find((s) => s.id === id);
   if (!bundled) return null;
@@ -179,12 +210,18 @@ function resolveSection(
         log.warn({ err, filePath, id }, "Failed to read section workspacePath");
       }
     }
-    return { enabled: bundled.enabled, body, transform: bundled.transform };
+    return {
+      enabled: bundled.enabled,
+      body,
+      cacheBreakpoint: bundled.cacheBreakpoint === true,
+      transform: bundled.transform,
+    };
   }
 
   return {
     enabled: bundled.enabled,
     body: bundled.body,
+    cacheBreakpoint: bundled.cacheBreakpoint === true,
     transform: bundled.transform,
   };
 }
@@ -207,14 +244,10 @@ function interpolateWorkspacePath(
   });
 }
 
-function renderSection(
-  id: string,
+function renderResolvedSection(
+  section: ResolvedSection,
   ctx: SectionRenderContext,
-  workspaceDir: string,
 ): string | null {
-  const section = resolveSection(id, ctx, workspaceDir);
-  if (section === null) return null;
-
   if (!isEnabled(section.enabled, ctx)) return null;
 
   let body = section.body;

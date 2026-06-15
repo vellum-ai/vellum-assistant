@@ -1,10 +1,11 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Loader2, Pencil, XCircle } from "lucide-react";
 import { useState } from "react";
 
 import {
     assistantsOauthConnectionsListQueryKey,
-    assistantsOauthDisconnectByConnectionCreateMutation,
+    assistantsOauthConnectionsListSetQueryData,
+    useAssistantsOauthDisconnectByConnectionCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { OAuthConnection } from "@/generated/api/types.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -62,15 +63,16 @@ export function IntegrationRow({
     path: { assistant_id: assistantId },
   });
 
-  const disconnectOAuth = useMutation({
-    ...assistantsOauthDisconnectByConnectionCreateMutation(),
+  const connectionsOpts = { path: { assistant_id: assistantId } };
+
+  const disconnectOAuth = useAssistantsOauthDisconnectByConnectionCreateMutation({
     onSuccess(_data, variables) {
       toast.success(`${displayName} account disconnected.`);
       const connectionId = variables.path.connection_id;
-      queryClient.setQueryData(
-        connectionsQueryKey,
-        (old: OAuthConnection[] | undefined) =>
-          old?.filter((c) => c.id !== connectionId),
+      assistantsOauthConnectionsListSetQueryData(
+        queryClient,
+        connectionsOpts,
+        (old) => old?.filter((c) => c.id !== connectionId),
       );
       queryClient.invalidateQueries({ queryKey: connectionsQueryKey });
     },

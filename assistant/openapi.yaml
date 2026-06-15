@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.8.11
+  version: 0.8.12
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -4208,6 +4208,501 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  llm:
+                    type: object
+                    properties:
+                      default:
+                        type: object
+                        properties:
+                          provider:
+                            type: string
+                            enum:
+                              - anthropic
+                              - openai
+                              - gemini
+                              - ollama
+                              - fireworks
+                              - openrouter
+                              - openai-compatible
+                              - minimax
+                          model:
+                            type: string
+                            minLength: 1
+                          maxTokens:
+                            type: integer
+                            exclusiveMinimum: 0
+                            maximum: 9007199254740991
+                          effort:
+                            type: string
+                            enum:
+                              - none
+                              - low
+                              - medium
+                              - high
+                              - xhigh
+                              - max
+                          speed:
+                            type: string
+                            enum:
+                              - standard
+                              - fast
+                          verbosity:
+                            type: string
+                            enum:
+                              - low
+                              - medium
+                              - high
+                          temperature:
+                            anyOf:
+                              - type: number
+                                minimum: 0
+                                maximum: 2
+                              - type: "null"
+                          thinking:
+                            type: object
+                            properties:
+                              enabled:
+                                type: boolean
+                              streamThinking:
+                                type: boolean
+                              level:
+                                type: string
+                                enum:
+                                  - minimal
+                                  - low
+                                  - medium
+                                  - high
+                            additionalProperties: false
+                          contextWindow:
+                            type: object
+                            properties:
+                              enabled:
+                                type: boolean
+                              maxInputTokens:
+                                type: integer
+                                exclusiveMinimum: 0
+                                maximum: 9007199254740991
+                              targetBudgetRatio:
+                                type: number
+                                exclusiveMinimum: 0
+                                maximum: 1
+                              compactThreshold:
+                                type: number
+                                exclusiveMinimum: 0
+                                maximum: 1
+                              summaryBudgetRatio:
+                                type: number
+                                exclusiveMinimum: 0
+                                maximum: 1
+                              overflowRecovery:
+                                type: object
+                                properties:
+                                  enabled:
+                                    type: boolean
+                                  safetyMarginRatio:
+                                    type: number
+                                    exclusiveMinimum: 0
+                                    exclusiveMaximum: 1
+                                  maxAttempts:
+                                    type: integer
+                                    exclusiveMinimum: 0
+                                    maximum: 9007199254740991
+                                  interactiveLatestTurnCompression:
+                                    type: string
+                                    enum:
+                                      - truncate
+                                      - summarize
+                                      - drop
+                                  nonInteractiveLatestTurnCompression:
+                                    type: string
+                                    enum:
+                                      - truncate
+                                      - summarize
+                                      - drop
+                                additionalProperties: false
+                            additionalProperties: false
+                          openrouter:
+                            type: object
+                            properties:
+                              only:
+                                type: array
+                                items:
+                                  type: string
+                                  minLength: 1
+                            additionalProperties: false
+                          logitBias:
+                            type: string
+                            enum:
+                              - suppress-cjk
+                          disableCache:
+                            type: boolean
+                          provider_connection:
+                            type: string
+                        additionalProperties: false
+                      profiles:
+                        type: object
+                        propertyNames:
+                          type: string
+                        additionalProperties:
+                          type: object
+                          properties:
+                            provider:
+                              type: string
+                              enum:
+                                - anthropic
+                                - openai
+                                - gemini
+                                - ollama
+                                - fireworks
+                                - openrouter
+                                - openai-compatible
+                                - minimax
+                            model:
+                              type: string
+                              minLength: 1
+                            maxTokens:
+                              type: integer
+                              exclusiveMinimum: 0
+                              maximum: 9007199254740991
+                            effort:
+                              type: string
+                              enum:
+                                - none
+                                - low
+                                - medium
+                                - high
+                                - xhigh
+                                - max
+                            speed:
+                              type: string
+                              enum:
+                                - standard
+                                - fast
+                            verbosity:
+                              type: string
+                              enum:
+                                - low
+                                - medium
+                                - high
+                            temperature:
+                              anyOf:
+                                - type: number
+                                  minimum: 0
+                                  maximum: 2
+                                - type: "null"
+                            thinking:
+                              type: object
+                              properties:
+                                enabled:
+                                  type: boolean
+                                streamThinking:
+                                  type: boolean
+                                level:
+                                  type: string
+                                  enum:
+                                    - minimal
+                                    - low
+                                    - medium
+                                    - high
+                              additionalProperties: false
+                            contextWindow:
+                              type: object
+                              properties:
+                                enabled:
+                                  type: boolean
+                                maxInputTokens:
+                                  type: integer
+                                  exclusiveMinimum: 0
+                                  maximum: 9007199254740991
+                                targetBudgetRatio:
+                                  type: number
+                                  exclusiveMinimum: 0
+                                  maximum: 1
+                                compactThreshold:
+                                  type: number
+                                  exclusiveMinimum: 0
+                                  maximum: 1
+                                summaryBudgetRatio:
+                                  type: number
+                                  exclusiveMinimum: 0
+                                  maximum: 1
+                                overflowRecovery:
+                                  type: object
+                                  properties:
+                                    enabled:
+                                      type: boolean
+                                    safetyMarginRatio:
+                                      type: number
+                                      exclusiveMinimum: 0
+                                      exclusiveMaximum: 1
+                                    maxAttempts:
+                                      type: integer
+                                      exclusiveMinimum: 0
+                                      maximum: 9007199254740991
+                                    interactiveLatestTurnCompression:
+                                      type: string
+                                      enum:
+                                        - truncate
+                                        - summarize
+                                        - drop
+                                    nonInteractiveLatestTurnCompression:
+                                      type: string
+                                      enum:
+                                        - truncate
+                                        - summarize
+                                        - drop
+                                  additionalProperties: false
+                              additionalProperties: false
+                            openrouter:
+                              type: object
+                              properties:
+                                only:
+                                  type: array
+                                  items:
+                                    type: string
+                                    minLength: 1
+                              additionalProperties: false
+                            logitBias:
+                              type: string
+                              enum:
+                                - suppress-cjk
+                            disableCache:
+                              type: boolean
+                            source:
+                              type: string
+                              enum:
+                                - managed
+                                - user
+                            label:
+                              anyOf:
+                                - type: string
+                                  minLength: 1
+                                - type: "null"
+                            description:
+                              type: string
+                            provider_connection:
+                              type: string
+                              minLength: 1
+                            status:
+                              anyOf:
+                                - type: string
+                                  enum:
+                                    - active
+                                    - disabled
+                                - type: "null"
+                            mix:
+                              minItems: 2
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  profile:
+                                    type: string
+                                    minLength: 1
+                                  weight:
+                                    type: number
+                                    exclusiveMinimum: 0
+                                required:
+                                  - profile
+                                  - weight
+                                additionalProperties: false
+                            supportsVision:
+                              type: boolean
+                          additionalProperties: {}
+                      profileOrder:
+                        type: array
+                        items:
+                          type: string
+                      activeProfile:
+                        type: string
+                      callSites:
+                        type: object
+                        propertyNames:
+                          type: string
+                        additionalProperties:
+                          anyOf:
+                            - type: object
+                              properties:
+                                provider:
+                                  type: string
+                                  enum:
+                                    - anthropic
+                                    - openai
+                                    - gemini
+                                    - ollama
+                                    - fireworks
+                                    - openrouter
+                                    - openai-compatible
+                                    - minimax
+                                model:
+                                  type: string
+                                  minLength: 1
+                                maxTokens:
+                                  type: integer
+                                  exclusiveMinimum: 0
+                                  maximum: 9007199254740991
+                                effort:
+                                  type: string
+                                  enum:
+                                    - none
+                                    - low
+                                    - medium
+                                    - high
+                                    - xhigh
+                                    - max
+                                speed:
+                                  type: string
+                                  enum:
+                                    - standard
+                                    - fast
+                                verbosity:
+                                  type: string
+                                  enum:
+                                    - low
+                                    - medium
+                                    - high
+                                temperature:
+                                  anyOf:
+                                    - type: number
+                                      minimum: 0
+                                      maximum: 2
+                                    - type: "null"
+                                thinking:
+                                  type: object
+                                  properties:
+                                    enabled:
+                                      type: boolean
+                                    streamThinking:
+                                      type: boolean
+                                    level:
+                                      type: string
+                                      enum:
+                                        - minimal
+                                        - low
+                                        - medium
+                                        - high
+                                  additionalProperties: false
+                                contextWindow:
+                                  type: object
+                                  properties:
+                                    enabled:
+                                      type: boolean
+                                    maxInputTokens:
+                                      type: integer
+                                      exclusiveMinimum: 0
+                                      maximum: 9007199254740991
+                                    targetBudgetRatio:
+                                      type: number
+                                      exclusiveMinimum: 0
+                                      maximum: 1
+                                    compactThreshold:
+                                      type: number
+                                      exclusiveMinimum: 0
+                                      maximum: 1
+                                    summaryBudgetRatio:
+                                      type: number
+                                      exclusiveMinimum: 0
+                                      maximum: 1
+                                    overflowRecovery:
+                                      type: object
+                                      properties:
+                                        enabled:
+                                          type: boolean
+                                        safetyMarginRatio:
+                                          type: number
+                                          exclusiveMinimum: 0
+                                          exclusiveMaximum: 1
+                                        maxAttempts:
+                                          type: integer
+                                          exclusiveMinimum: 0
+                                          maximum: 9007199254740991
+                                        interactiveLatestTurnCompression:
+                                          type: string
+                                          enum:
+                                            - truncate
+                                            - summarize
+                                            - drop
+                                        nonInteractiveLatestTurnCompression:
+                                          type: string
+                                          enum:
+                                            - truncate
+                                            - summarize
+                                            - drop
+                                      additionalProperties: false
+                                  additionalProperties: false
+                                openrouter:
+                                  type: object
+                                  properties:
+                                    only:
+                                      type: array
+                                      items:
+                                        type: string
+                                        minLength: 1
+                                  additionalProperties: false
+                                logitBias:
+                                  type: string
+                                  enum:
+                                    - suppress-cjk
+                                disableCache:
+                                  type: boolean
+                                profile:
+                                  type: string
+                              additionalProperties: false
+                            - type: "null"
+                      profileSession:
+                        type: object
+                        properties:
+                          defaultTtlSeconds:
+                            type: number
+                          maxTtlSeconds:
+                            type: number
+                        additionalProperties: false
+                      pricingOverrides:
+                        type: array
+                        items: {}
+                    additionalProperties: {}
+                  memory:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      v2:
+                        type: object
+                        properties:
+                          enabled:
+                            type: boolean
+                        additionalProperties: {}
+                    additionalProperties: {}
+                  services:
+                    type: object
+                    properties:
+                      web-search:
+                        type: object
+                        properties:
+                          mode:
+                            type: string
+                          provider:
+                            type: string
+                        additionalProperties: {}
+                      image-generation:
+                        type: object
+                        properties:
+                          mode:
+                            type: string
+                        additionalProperties: {}
+                      inference:
+                        type: object
+                        properties:
+                          mode:
+                            type: string
+                        additionalProperties: {}
+                    additionalProperties: {}
+                additionalProperties: {}
     patch:
       operationId: config_patch
       summary: Patch config
@@ -4222,19 +4717,1091 @@ paths:
               schema:
                 type: object
                 properties:
-                  ok:
-                    type: boolean
-                required:
-                  - ok
-                additionalProperties: false
+                  llm:
+                    type: object
+                    properties:
+                      default:
+                        type: object
+                        properties:
+                          provider:
+                            type: string
+                            enum:
+                              - anthropic
+                              - openai
+                              - gemini
+                              - ollama
+                              - fireworks
+                              - openrouter
+                              - openai-compatible
+                              - minimax
+                          model:
+                            type: string
+                            minLength: 1
+                          maxTokens:
+                            type: integer
+                            exclusiveMinimum: 0
+                            maximum: 9007199254740991
+                          effort:
+                            type: string
+                            enum:
+                              - none
+                              - low
+                              - medium
+                              - high
+                              - xhigh
+                              - max
+                          speed:
+                            type: string
+                            enum:
+                              - standard
+                              - fast
+                          verbosity:
+                            type: string
+                            enum:
+                              - low
+                              - medium
+                              - high
+                          temperature:
+                            anyOf:
+                              - type: number
+                                minimum: 0
+                                maximum: 2
+                              - type: "null"
+                          thinking:
+                            type: object
+                            properties:
+                              enabled:
+                                type: boolean
+                              streamThinking:
+                                type: boolean
+                              level:
+                                type: string
+                                enum:
+                                  - minimal
+                                  - low
+                                  - medium
+                                  - high
+                            additionalProperties: false
+                          contextWindow:
+                            type: object
+                            properties:
+                              enabled:
+                                type: boolean
+                              maxInputTokens:
+                                type: integer
+                                exclusiveMinimum: 0
+                                maximum: 9007199254740991
+                              targetBudgetRatio:
+                                type: number
+                                exclusiveMinimum: 0
+                                maximum: 1
+                              compactThreshold:
+                                type: number
+                                exclusiveMinimum: 0
+                                maximum: 1
+                              summaryBudgetRatio:
+                                type: number
+                                exclusiveMinimum: 0
+                                maximum: 1
+                              overflowRecovery:
+                                type: object
+                                properties:
+                                  enabled:
+                                    type: boolean
+                                  safetyMarginRatio:
+                                    type: number
+                                    exclusiveMinimum: 0
+                                    exclusiveMaximum: 1
+                                  maxAttempts:
+                                    type: integer
+                                    exclusiveMinimum: 0
+                                    maximum: 9007199254740991
+                                  interactiveLatestTurnCompression:
+                                    type: string
+                                    enum:
+                                      - truncate
+                                      - summarize
+                                      - drop
+                                  nonInteractiveLatestTurnCompression:
+                                    type: string
+                                    enum:
+                                      - truncate
+                                      - summarize
+                                      - drop
+                                additionalProperties: false
+                            additionalProperties: false
+                          openrouter:
+                            type: object
+                            properties:
+                              only:
+                                type: array
+                                items:
+                                  type: string
+                                  minLength: 1
+                            additionalProperties: false
+                          logitBias:
+                            type: string
+                            enum:
+                              - suppress-cjk
+                          disableCache:
+                            type: boolean
+                          provider_connection:
+                            type: string
+                        additionalProperties: false
+                      profiles:
+                        type: object
+                        propertyNames:
+                          type: string
+                        additionalProperties:
+                          type: object
+                          properties:
+                            provider:
+                              type: string
+                              enum:
+                                - anthropic
+                                - openai
+                                - gemini
+                                - ollama
+                                - fireworks
+                                - openrouter
+                                - openai-compatible
+                                - minimax
+                            model:
+                              type: string
+                              minLength: 1
+                            maxTokens:
+                              type: integer
+                              exclusiveMinimum: 0
+                              maximum: 9007199254740991
+                            effort:
+                              type: string
+                              enum:
+                                - none
+                                - low
+                                - medium
+                                - high
+                                - xhigh
+                                - max
+                            speed:
+                              type: string
+                              enum:
+                                - standard
+                                - fast
+                            verbosity:
+                              type: string
+                              enum:
+                                - low
+                                - medium
+                                - high
+                            temperature:
+                              anyOf:
+                                - type: number
+                                  minimum: 0
+                                  maximum: 2
+                                - type: "null"
+                            thinking:
+                              type: object
+                              properties:
+                                enabled:
+                                  type: boolean
+                                streamThinking:
+                                  type: boolean
+                                level:
+                                  type: string
+                                  enum:
+                                    - minimal
+                                    - low
+                                    - medium
+                                    - high
+                              additionalProperties: false
+                            contextWindow:
+                              type: object
+                              properties:
+                                enabled:
+                                  type: boolean
+                                maxInputTokens:
+                                  type: integer
+                                  exclusiveMinimum: 0
+                                  maximum: 9007199254740991
+                                targetBudgetRatio:
+                                  type: number
+                                  exclusiveMinimum: 0
+                                  maximum: 1
+                                compactThreshold:
+                                  type: number
+                                  exclusiveMinimum: 0
+                                  maximum: 1
+                                summaryBudgetRatio:
+                                  type: number
+                                  exclusiveMinimum: 0
+                                  maximum: 1
+                                overflowRecovery:
+                                  type: object
+                                  properties:
+                                    enabled:
+                                      type: boolean
+                                    safetyMarginRatio:
+                                      type: number
+                                      exclusiveMinimum: 0
+                                      exclusiveMaximum: 1
+                                    maxAttempts:
+                                      type: integer
+                                      exclusiveMinimum: 0
+                                      maximum: 9007199254740991
+                                    interactiveLatestTurnCompression:
+                                      type: string
+                                      enum:
+                                        - truncate
+                                        - summarize
+                                        - drop
+                                    nonInteractiveLatestTurnCompression:
+                                      type: string
+                                      enum:
+                                        - truncate
+                                        - summarize
+                                        - drop
+                                  additionalProperties: false
+                              additionalProperties: false
+                            openrouter:
+                              type: object
+                              properties:
+                                only:
+                                  type: array
+                                  items:
+                                    type: string
+                                    minLength: 1
+                              additionalProperties: false
+                            logitBias:
+                              type: string
+                              enum:
+                                - suppress-cjk
+                            disableCache:
+                              type: boolean
+                            source:
+                              type: string
+                              enum:
+                                - managed
+                                - user
+                            label:
+                              anyOf:
+                                - type: string
+                                  minLength: 1
+                                - type: "null"
+                            description:
+                              type: string
+                            provider_connection:
+                              type: string
+                              minLength: 1
+                            status:
+                              anyOf:
+                                - type: string
+                                  enum:
+                                    - active
+                                    - disabled
+                                - type: "null"
+                            mix:
+                              minItems: 2
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  profile:
+                                    type: string
+                                    minLength: 1
+                                  weight:
+                                    type: number
+                                    exclusiveMinimum: 0
+                                required:
+                                  - profile
+                                  - weight
+                                additionalProperties: false
+                            supportsVision:
+                              type: boolean
+                          additionalProperties: {}
+                      profileOrder:
+                        type: array
+                        items:
+                          type: string
+                      activeProfile:
+                        type: string
+                      callSites:
+                        type: object
+                        propertyNames:
+                          type: string
+                        additionalProperties:
+                          anyOf:
+                            - type: object
+                              properties:
+                                provider:
+                                  type: string
+                                  enum:
+                                    - anthropic
+                                    - openai
+                                    - gemini
+                                    - ollama
+                                    - fireworks
+                                    - openrouter
+                                    - openai-compatible
+                                    - minimax
+                                model:
+                                  type: string
+                                  minLength: 1
+                                maxTokens:
+                                  type: integer
+                                  exclusiveMinimum: 0
+                                  maximum: 9007199254740991
+                                effort:
+                                  type: string
+                                  enum:
+                                    - none
+                                    - low
+                                    - medium
+                                    - high
+                                    - xhigh
+                                    - max
+                                speed:
+                                  type: string
+                                  enum:
+                                    - standard
+                                    - fast
+                                verbosity:
+                                  type: string
+                                  enum:
+                                    - low
+                                    - medium
+                                    - high
+                                temperature:
+                                  anyOf:
+                                    - type: number
+                                      minimum: 0
+                                      maximum: 2
+                                    - type: "null"
+                                thinking:
+                                  type: object
+                                  properties:
+                                    enabled:
+                                      type: boolean
+                                    streamThinking:
+                                      type: boolean
+                                    level:
+                                      type: string
+                                      enum:
+                                        - minimal
+                                        - low
+                                        - medium
+                                        - high
+                                  additionalProperties: false
+                                contextWindow:
+                                  type: object
+                                  properties:
+                                    enabled:
+                                      type: boolean
+                                    maxInputTokens:
+                                      type: integer
+                                      exclusiveMinimum: 0
+                                      maximum: 9007199254740991
+                                    targetBudgetRatio:
+                                      type: number
+                                      exclusiveMinimum: 0
+                                      maximum: 1
+                                    compactThreshold:
+                                      type: number
+                                      exclusiveMinimum: 0
+                                      maximum: 1
+                                    summaryBudgetRatio:
+                                      type: number
+                                      exclusiveMinimum: 0
+                                      maximum: 1
+                                    overflowRecovery:
+                                      type: object
+                                      properties:
+                                        enabled:
+                                          type: boolean
+                                        safetyMarginRatio:
+                                          type: number
+                                          exclusiveMinimum: 0
+                                          exclusiveMaximum: 1
+                                        maxAttempts:
+                                          type: integer
+                                          exclusiveMinimum: 0
+                                          maximum: 9007199254740991
+                                        interactiveLatestTurnCompression:
+                                          type: string
+                                          enum:
+                                            - truncate
+                                            - summarize
+                                            - drop
+                                        nonInteractiveLatestTurnCompression:
+                                          type: string
+                                          enum:
+                                            - truncate
+                                            - summarize
+                                            - drop
+                                      additionalProperties: false
+                                  additionalProperties: false
+                                openrouter:
+                                  type: object
+                                  properties:
+                                    only:
+                                      type: array
+                                      items:
+                                        type: string
+                                        minLength: 1
+                                  additionalProperties: false
+                                logitBias:
+                                  type: string
+                                  enum:
+                                    - suppress-cjk
+                                disableCache:
+                                  type: boolean
+                                profile:
+                                  type: string
+                              additionalProperties: false
+                            - type: "null"
+                      profileSession:
+                        type: object
+                        properties:
+                          defaultTtlSeconds:
+                            type: number
+                          maxTtlSeconds:
+                            type: number
+                        additionalProperties: false
+                      pricingOverrides:
+                        type: array
+                        items: {}
+                    additionalProperties: {}
+                  memory:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      v2:
+                        type: object
+                        properties:
+                          enabled:
+                            type: boolean
+                        additionalProperties: {}
+                    additionalProperties: {}
+                  services:
+                    type: object
+                    properties:
+                      web-search:
+                        type: object
+                        properties:
+                          mode:
+                            type: string
+                          provider:
+                            type: string
+                        additionalProperties: {}
+                      image-generation:
+                        type: object
+                        properties:
+                          mode:
+                            type: string
+                        additionalProperties: {}
+                      inference:
+                        type: object
+                        properties:
+                          mode:
+                            type: string
+                        additionalProperties: {}
+                    additionalProperties: {}
+                additionalProperties: {}
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              propertyNames:
-                type: string
+              properties:
+                llm:
+                  type: object
+                  properties:
+                    default:
+                      anyOf:
+                        - type: object
+                          properties:
+                            provider:
+                              anyOf:
+                                - type: string
+                                  enum:
+                                    - anthropic
+                                    - openai
+                                    - gemini
+                                    - ollama
+                                    - fireworks
+                                    - openrouter
+                                    - openai-compatible
+                                    - minimax
+                                - type: "null"
+                            model:
+                              anyOf:
+                                - type: string
+                                  minLength: 1
+                                - type: "null"
+                            maxTokens:
+                              anyOf:
+                                - type: integer
+                                  exclusiveMinimum: 0
+                                  maximum: 9007199254740991
+                                - type: "null"
+                            effort:
+                              anyOf:
+                                - type: string
+                                  enum:
+                                    - none
+                                    - low
+                                    - medium
+                                    - high
+                                    - xhigh
+                                    - max
+                                - type: "null"
+                            speed:
+                              anyOf:
+                                - type: string
+                                  enum:
+                                    - standard
+                                    - fast
+                                - type: "null"
+                            verbosity:
+                              anyOf:
+                                - type: string
+                                  enum:
+                                    - low
+                                    - medium
+                                    - high
+                                - type: "null"
+                            temperature:
+                              anyOf:
+                                - anyOf:
+                                    - type: number
+                                      minimum: 0
+                                      maximum: 2
+                                    - type: "null"
+                                - type: "null"
+                            thinking:
+                              anyOf:
+                                - type: object
+                                  properties:
+                                    enabled:
+                                      type: boolean
+                                    streamThinking:
+                                      type: boolean
+                                    level:
+                                      type: string
+                                      enum:
+                                        - minimal
+                                        - low
+                                        - medium
+                                        - high
+                                  additionalProperties: false
+                                - type: "null"
+                            contextWindow:
+                              anyOf:
+                                - type: object
+                                  properties:
+                                    enabled:
+                                      type: boolean
+                                    maxInputTokens:
+                                      type: integer
+                                      exclusiveMinimum: 0
+                                      maximum: 9007199254740991
+                                    targetBudgetRatio:
+                                      type: number
+                                      exclusiveMinimum: 0
+                                      maximum: 1
+                                    compactThreshold:
+                                      type: number
+                                      exclusiveMinimum: 0
+                                      maximum: 1
+                                    summaryBudgetRatio:
+                                      type: number
+                                      exclusiveMinimum: 0
+                                      maximum: 1
+                                    overflowRecovery:
+                                      type: object
+                                      properties:
+                                        enabled:
+                                          type: boolean
+                                        safetyMarginRatio:
+                                          type: number
+                                          exclusiveMinimum: 0
+                                          exclusiveMaximum: 1
+                                        maxAttempts:
+                                          type: integer
+                                          exclusiveMinimum: 0
+                                          maximum: 9007199254740991
+                                        interactiveLatestTurnCompression:
+                                          type: string
+                                          enum:
+                                            - truncate
+                                            - summarize
+                                            - drop
+                                        nonInteractiveLatestTurnCompression:
+                                          type: string
+                                          enum:
+                                            - truncate
+                                            - summarize
+                                            - drop
+                                      additionalProperties: false
+                                  additionalProperties: false
+                                - type: "null"
+                            openrouter:
+                              anyOf:
+                                - type: object
+                                  properties:
+                                    only:
+                                      type: array
+                                      items:
+                                        type: string
+                                        minLength: 1
+                                  additionalProperties: false
+                                - type: "null"
+                            logitBias:
+                              anyOf:
+                                - type: string
+                                  enum:
+                                    - suppress-cjk
+                                - type: "null"
+                            disableCache:
+                              anyOf:
+                                - type: boolean
+                                - type: "null"
+                            provider_connection:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                          additionalProperties: {}
+                        - type: "null"
+                    profiles:
+                      type: object
+                      propertyNames:
+                        type: string
+                      additionalProperties:
+                        anyOf:
+                          - type: object
+                            properties:
+                              provider:
+                                anyOf:
+                                  - type: string
+                                    enum:
+                                      - anthropic
+                                      - openai
+                                      - gemini
+                                      - ollama
+                                      - fireworks
+                                      - openrouter
+                                      - openai-compatible
+                                      - minimax
+                                  - type: "null"
+                              model:
+                                anyOf:
+                                  - type: string
+                                    minLength: 1
+                                  - type: "null"
+                              maxTokens:
+                                anyOf:
+                                  - type: integer
+                                    exclusiveMinimum: 0
+                                    maximum: 9007199254740991
+                                  - type: "null"
+                              effort:
+                                anyOf:
+                                  - type: string
+                                    enum:
+                                      - none
+                                      - low
+                                      - medium
+                                      - high
+                                      - xhigh
+                                      - max
+                                  - type: "null"
+                              speed:
+                                anyOf:
+                                  - type: string
+                                    enum:
+                                      - standard
+                                      - fast
+                                  - type: "null"
+                              verbosity:
+                                anyOf:
+                                  - type: string
+                                    enum:
+                                      - low
+                                      - medium
+                                      - high
+                                  - type: "null"
+                              temperature:
+                                anyOf:
+                                  - anyOf:
+                                      - type: number
+                                        minimum: 0
+                                        maximum: 2
+                                      - type: "null"
+                                  - type: "null"
+                              thinking:
+                                anyOf:
+                                  - type: object
+                                    properties:
+                                      enabled:
+                                        type: boolean
+                                      streamThinking:
+                                        type: boolean
+                                      level:
+                                        type: string
+                                        enum:
+                                          - minimal
+                                          - low
+                                          - medium
+                                          - high
+                                    additionalProperties: false
+                                  - type: "null"
+                              contextWindow:
+                                anyOf:
+                                  - type: object
+                                    properties:
+                                      enabled:
+                                        type: boolean
+                                      maxInputTokens:
+                                        type: integer
+                                        exclusiveMinimum: 0
+                                        maximum: 9007199254740991
+                                      targetBudgetRatio:
+                                        type: number
+                                        exclusiveMinimum: 0
+                                        maximum: 1
+                                      compactThreshold:
+                                        type: number
+                                        exclusiveMinimum: 0
+                                        maximum: 1
+                                      summaryBudgetRatio:
+                                        type: number
+                                        exclusiveMinimum: 0
+                                        maximum: 1
+                                      overflowRecovery:
+                                        type: object
+                                        properties:
+                                          enabled:
+                                            type: boolean
+                                          safetyMarginRatio:
+                                            type: number
+                                            exclusiveMinimum: 0
+                                            exclusiveMaximum: 1
+                                          maxAttempts:
+                                            type: integer
+                                            exclusiveMinimum: 0
+                                            maximum: 9007199254740991
+                                          interactiveLatestTurnCompression:
+                                            type: string
+                                            enum:
+                                              - truncate
+                                              - summarize
+                                              - drop
+                                          nonInteractiveLatestTurnCompression:
+                                            type: string
+                                            enum:
+                                              - truncate
+                                              - summarize
+                                              - drop
+                                        additionalProperties: false
+                                    additionalProperties: false
+                                  - type: "null"
+                              openrouter:
+                                anyOf:
+                                  - type: object
+                                    properties:
+                                      only:
+                                        type: array
+                                        items:
+                                          type: string
+                                          minLength: 1
+                                    additionalProperties: false
+                                  - type: "null"
+                              logitBias:
+                                anyOf:
+                                  - type: string
+                                    enum:
+                                      - suppress-cjk
+                                  - type: "null"
+                              disableCache:
+                                anyOf:
+                                  - type: boolean
+                                  - type: "null"
+                              source:
+                                anyOf:
+                                  - type: string
+                                    enum:
+                                      - managed
+                                      - user
+                                  - type: "null"
+                              label:
+                                anyOf:
+                                  - anyOf:
+                                      - type: string
+                                        minLength: 1
+                                      - type: "null"
+                                  - type: "null"
+                              description:
+                                anyOf:
+                                  - type: string
+                                  - type: "null"
+                              provider_connection:
+                                anyOf:
+                                  - type: string
+                                    minLength: 1
+                                  - type: "null"
+                              status:
+                                anyOf:
+                                  - anyOf:
+                                      - type: string
+                                        enum:
+                                          - active
+                                          - disabled
+                                      - type: "null"
+                                  - type: "null"
+                              mix:
+                                anyOf:
+                                  - minItems: 2
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        profile:
+                                          type: string
+                                          minLength: 1
+                                        weight:
+                                          type: number
+                                          exclusiveMinimum: 0
+                                      required:
+                                        - profile
+                                        - weight
+                                      additionalProperties: false
+                                  - type: "null"
+                            additionalProperties: {}
+                          - type: "null"
+                    profileOrder:
+                      type: array
+                      items:
+                        type: string
+                    activeProfile:
+                      anyOf:
+                        - type: string
+                        - type: "null"
+                    callSites:
+                      type: object
+                      propertyNames:
+                        type: string
+                      additionalProperties:
+                        anyOf:
+                          - type: object
+                            properties:
+                              provider:
+                                anyOf:
+                                  - type: string
+                                    enum:
+                                      - anthropic
+                                      - openai
+                                      - gemini
+                                      - ollama
+                                      - fireworks
+                                      - openrouter
+                                      - openai-compatible
+                                      - minimax
+                                  - type: "null"
+                              model:
+                                anyOf:
+                                  - type: string
+                                    minLength: 1
+                                  - type: "null"
+                              maxTokens:
+                                anyOf:
+                                  - type: integer
+                                    exclusiveMinimum: 0
+                                    maximum: 9007199254740991
+                                  - type: "null"
+                              effort:
+                                anyOf:
+                                  - type: string
+                                    enum:
+                                      - none
+                                      - low
+                                      - medium
+                                      - high
+                                      - xhigh
+                                      - max
+                                  - type: "null"
+                              speed:
+                                anyOf:
+                                  - type: string
+                                    enum:
+                                      - standard
+                                      - fast
+                                  - type: "null"
+                              verbosity:
+                                anyOf:
+                                  - type: string
+                                    enum:
+                                      - low
+                                      - medium
+                                      - high
+                                  - type: "null"
+                              temperature:
+                                anyOf:
+                                  - anyOf:
+                                      - type: number
+                                        minimum: 0
+                                        maximum: 2
+                                      - type: "null"
+                                  - type: "null"
+                              thinking:
+                                anyOf:
+                                  - type: object
+                                    properties:
+                                      enabled:
+                                        type: boolean
+                                      streamThinking:
+                                        type: boolean
+                                      level:
+                                        type: string
+                                        enum:
+                                          - minimal
+                                          - low
+                                          - medium
+                                          - high
+                                    additionalProperties: false
+                                  - type: "null"
+                              contextWindow:
+                                anyOf:
+                                  - type: object
+                                    properties:
+                                      enabled:
+                                        type: boolean
+                                      maxInputTokens:
+                                        type: integer
+                                        exclusiveMinimum: 0
+                                        maximum: 9007199254740991
+                                      targetBudgetRatio:
+                                        type: number
+                                        exclusiveMinimum: 0
+                                        maximum: 1
+                                      compactThreshold:
+                                        type: number
+                                        exclusiveMinimum: 0
+                                        maximum: 1
+                                      summaryBudgetRatio:
+                                        type: number
+                                        exclusiveMinimum: 0
+                                        maximum: 1
+                                      overflowRecovery:
+                                        type: object
+                                        properties:
+                                          enabled:
+                                            type: boolean
+                                          safetyMarginRatio:
+                                            type: number
+                                            exclusiveMinimum: 0
+                                            exclusiveMaximum: 1
+                                          maxAttempts:
+                                            type: integer
+                                            exclusiveMinimum: 0
+                                            maximum: 9007199254740991
+                                          interactiveLatestTurnCompression:
+                                            type: string
+                                            enum:
+                                              - truncate
+                                              - summarize
+                                              - drop
+                                          nonInteractiveLatestTurnCompression:
+                                            type: string
+                                            enum:
+                                              - truncate
+                                              - summarize
+                                              - drop
+                                        additionalProperties: false
+                                    additionalProperties: false
+                                  - type: "null"
+                              openrouter:
+                                anyOf:
+                                  - type: object
+                                    properties:
+                                      only:
+                                        type: array
+                                        items:
+                                          type: string
+                                          minLength: 1
+                                    additionalProperties: false
+                                  - type: "null"
+                              logitBias:
+                                anyOf:
+                                  - type: string
+                                    enum:
+                                      - suppress-cjk
+                                  - type: "null"
+                              disableCache:
+                                anyOf:
+                                  - type: boolean
+                                  - type: "null"
+                              profile:
+                                anyOf:
+                                  - type: string
+                                  - type: "null"
+                            additionalProperties: {}
+                          - type: "null"
+                    profileSession:
+                      anyOf:
+                        - type: object
+                          properties:
+                            defaultTtlSeconds:
+                              type: number
+                            maxTtlSeconds:
+                              type: number
+                          additionalProperties: false
+                        - type: "null"
+                  additionalProperties: {}
+                memory:
+                  anyOf:
+                    - type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                        v2:
+                          type: object
+                          properties:
+                            enabled:
+                              type: boolean
+                          additionalProperties: {}
+                      additionalProperties: {}
+                    - type: "null"
+                services:
+                  type: object
+                  properties:
+                    web-search:
+                      anyOf:
+                        - type: object
+                          properties:
+                            mode:
+                              type: string
+                            provider:
+                              type: string
+                          additionalProperties: {}
+                        - type: "null"
+                    image-generation:
+                      anyOf:
+                        - type: object
+                          properties:
+                            mode:
+                              type: string
+                          additionalProperties: {}
+                        - type: "null"
+                    inference:
+                      anyOf:
+                        - type: object
+                          properties:
+                            mode:
+                              type: string
+                          additionalProperties: {}
+                        - type: "null"
+                  additionalProperties: {}
               additionalProperties: {}
   /v1/config/allowlist/validate:
     get:
@@ -4660,8 +6227,14 @@ paths:
                         - createdAt
                       additionalProperties: false
                     description: Consolidation run records
+                  nextCursor:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description: Cursor for fetching older runs (pass as `before`); null when no older runs exist
                 required:
                   - runs
+                  - nextCursor
                 additionalProperties: false
       parameters:
         - name: limit
@@ -4670,6 +6243,12 @@ paths:
           schema:
             type: integer
           description: Max runs to return (default 20, max 100)
+        - name: before
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: "Cursor for older runs: pass the previous page's `nextCursor` to return runs strictly older than it."
   /v1/contact-channels/{contactChannelId}:
     patch:
       operationId: contactchannels_by_contactChannelId_patch
@@ -8350,6 +9929,14 @@ paths:
                                   type: string
                                 pinned:
                                   type: boolean
+                                sectionOrdinal:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                sectionHeading:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
                               required:
                                 - slug
                                 - source
@@ -8384,6 +9971,15 @@ paths:
           schema:
             type: string
           description: Internal conversation identifier.
+        - name: view
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - full
+              - summary
+          description: Response shape. 'summary' omits per-log request/response sections; defaults to 'full'.
   /v1/conversations/rename:
     post:
       operationId: conversations_rename_post
@@ -8973,6 +10569,8 @@ paths:
                       - hostPattern
                       - injectionType
                     additionalProperties: false
+                conversationId:
+                  type: string
               required:
                 - service
                 - field
@@ -11847,8 +13445,14 @@ paths:
                         - createdAt
                       additionalProperties: false
                     description: Heartbeat run records
+                  nextCursor:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description: Cursor for fetching older runs (pass as `before`); null when no older runs exist
                 required:
                   - runs
+                  - nextCursor
                 additionalProperties: false
       parameters:
         - name: limit
@@ -11857,6 +13461,12 @@ paths:
           schema:
             type: integer
           description: Max runs to return (default 20, max 100)
+        - name: before
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: "Cursor for older runs: pass the previous page's `nextCursor` to return runs strictly older than it."
   /v1/home/feed:
     get:
       operationId: home_feed_get
@@ -15282,6 +16892,191 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/llm-request-logs/{id}/context:
+    get:
+      operationId: llmrequestlogs_by_id_context_get
+      summary: Get normalized context for a single LLM request log
+      description: Return the normalized summary and request/response sections for a specific log entry.
+      tags:
+        - messages
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  createdAt:
+                    type: number
+                  requestPayload:
+                    type: "null"
+                  responsePayload:
+                    type: "null"
+                  provider:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  summary:
+                    anyOf:
+                      - type: object
+                        properties:
+                          provider:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          model:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          status:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          inputTokens:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          outputTokens:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          cacheCreationInputTokens:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          cacheReadInputTokens:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          stopReason:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          requestMessageCount:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          requestToolCount:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          responseMessageCount:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          responseToolCallCount:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          responsePreview:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          toolCallNames:
+                            anyOf:
+                              - type: array
+                                items:
+                                  type: string
+                              - type: "null"
+                          estimatedCostUsd:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          durationMs:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                        additionalProperties: false
+                      - type: "null"
+                  requestSections:
+                    anyOf:
+                      - type: array
+                        items:
+                          type: object
+                          properties:
+                            kind:
+                              type: string
+                            label:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            role:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            text:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            toolName:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            data: {}
+                            language:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                          required:
+                            - kind
+                          additionalProperties: false
+                      - type: "null"
+                  responseSections:
+                    anyOf:
+                      - type: array
+                        items:
+                          type: object
+                          properties:
+                            kind:
+                              type: string
+                            label:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            role:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            text:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            toolName:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            data: {}
+                            language:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                          required:
+                            - kind
+                          additionalProperties: false
+                      - type: "null"
+                  agentLoopExitReason:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  callSite:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - id
+                  - createdAt
+                  - requestPayload
+                  - responsePayload
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/llm-request-logs/{id}/payload:
     get:
       operationId: llmrequestlogs_by_id_payload_get
@@ -17567,6 +19362,14 @@ paths:
                                   type: string
                                 pinned:
                                   type: boolean
+                                sectionOrdinal:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                sectionHeading:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
                               required:
                                 - slug
                                 - source
@@ -17594,6 +19397,15 @@ paths:
           required: true
           schema:
             type: string
+        - name: view
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - full
+              - summary
+          description: Response shape. 'summary' omits per-log request/response sections; defaults to 'full'.
   /v1/messages/{messageId}/tts:
     post:
       operationId: messages_by_messageId_tts_post
@@ -19110,7 +20922,6 @@ paths:
                           type: string
                       required:
                         - requestId
-                        - conversationId
                         - kind
                       additionalProperties: false
                     description: All pending interactions (returned when no filters given)
@@ -19613,6 +21424,340 @@ paths:
           schema:
             type: string
           description: Optional git ref to read catalog metadata / README at. Defaults to the CLI's `DEFAULT_PLUGIN_REF`.
+  /v1/plugins/{name}/inspect:
+    get:
+      operationId: plugins_by_name_inspect_get
+      summary: Inspect a plugin's install drift
+      description:
+        'Compare the locally installed copy of a plugin against the marketplace''s current pinned commit and report
+        whether an upgrade is available. Returns a six-way `status` (`up-to-date`, `update-available`, `not-installed`,
+        `not-in-marketplace`, `unknown-provenance`, `remote-unavailable`) plus the local provenance (installed commit,
+        version, source, and any local edits vs the install-time fingerprint) and the remote pin. An unreachable
+        marketplace for an installed plugin is not fatal — it returns 200 with `status: "remote-unavailable"`. A name
+        that is neither installed nor in the catalog returns 404. Powers the web upgrade affordance; mirrors the CLI''s
+        `assistant plugins inspect <name>` and `GET /v1/skills/:id/inspect`.'
+      tags:
+        - plugins
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    description: Install name. Matches `assistant plugins install <name>`.
+                  installed:
+                    type: boolean
+                    description: Whether a copy is materialized under `<workspaceDir>/plugins/`.
+                  status:
+                    type: string
+                    enum:
+                      - up-to-date
+                      - update-available
+                      - not-installed
+                      - not-in-marketplace
+                      - unknown-provenance
+                      - remote-unavailable
+                    description: Drift classification between the installed copy and the marketplace pin.
+                  local:
+                    anyOf:
+                      - type: object
+                        properties:
+                          target:
+                            type: string
+                            description: Absolute path to the installed plugin directory.
+                          commit:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                            description: Resolved commit the copy was installed at; null when no provenance was recorded.
+                          committedAt:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                            description:
+                              ISO-8601 committer timestamp (UTC) of the installed commit — the human-readable version; null for installs
+                              predating commit-timestamp capture. Distinct from `installedAt`.
+                          version:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                            description: Installed `package.json#version`.
+                          description:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                            description: Installed `package.json#description`.
+                          installedAt:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                            description: ISO-8601 install timestamp from the sidecar; null when absent.
+                          source:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  kind:
+                                    type: string
+                                    description: Source kind. Only `github` is written today.
+                                  owner:
+                                    type: string
+                                  repo:
+                                    type: string
+                                  path:
+                                    description: Repo-relative directory holding the plugin root; absent = repo root.
+                                    type: string
+                                  ref:
+                                    type: string
+                                    description: Ref the install resolved through (the pinned commit SHA for marketplace installs).
+                                required:
+                                  - kind
+                                  - owner
+                                  - repo
+                                  - ref
+                                additionalProperties: false
+                                description: Source coordinates recorded in the install-time provenance sidecar.
+                              - type: "null"
+                            description: Source recorded at install time; null when no sidecar exists.
+                          localChanges:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  modified:
+                                    type: array
+                                    items:
+                                      type: string
+                                    description: Tracked files whose content changed since install.
+                                  added:
+                                    type: array
+                                    items:
+                                      type: string
+                                    description: Files present on disk but absent from the install baseline.
+                                  removed:
+                                    type: array
+                                    items:
+                                      type: string
+                                    description: Files recorded at install but missing from the on-disk copy.
+                                  clean:
+                                    type: boolean
+                                    description: True when no files were added, removed, or modified.
+                                required:
+                                  - modified
+                                  - added
+                                  - removed
+                                  - clean
+                                additionalProperties: false
+                                description: Local-edit comparison of the on-disk tree against the install-time fingerprint.
+                              - type: "null"
+                            description:
+                              Local-edit state vs the install-time fingerprint; null when no baseline was recorded (older/manual
+                              install).
+                          issues:
+                            type: array
+                            items:
+                              type: string
+                            description: Non-fatal issues with the installed copy (e.g. malformed `package.json`).
+                        required:
+                          - target
+                          - commit
+                          - committedAt
+                          - version
+                          - description
+                          - installedAt
+                          - source
+                          - localChanges
+                          - issues
+                        additionalProperties: false
+                        description: The locally installed copy of the plugin.
+                      - type: "null"
+                    description: Locally installed copy; null when the plugin is not installed.
+                  remote:
+                    anyOf:
+                      - type: object
+                        properties:
+                          repo:
+                            type: string
+                            description: "`owner/repo` of the external plugin repository."
+                          path:
+                            type: string
+                            description: Repo-relative directory holding the plugin root; `""` = repo root.
+                          commit:
+                            type: string
+                            description: Pinned commit SHA the marketplace currently resolves installs to.
+                          committedAt:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                            description:
+                              ISO-8601 committer timestamp (UTC) of the pinned commit, resolved from GitHub; null when the commit
+                              metadata could not be fetched.
+                          description:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          homepage:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          license:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          category:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          marketplaceRef:
+                            type: string
+                            description: Ref of the canonical repo the marketplace manifest was read from.
+                        required:
+                          - repo
+                          - path
+                          - commit
+                          - committedAt
+                          - description
+                          - homepage
+                          - license
+                          - category
+                          - marketplaceRef
+                        additionalProperties: false
+                        description: The marketplace's current pin and advertised metadata.
+                      - type: "null"
+                    description: Marketplace pin + metadata; null when no entry claims the name or it was unreachable.
+                  remoteError:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: Marketplace fetch error message, when the catalog could not be read.
+                required:
+                  - name
+                  - installed
+                  - status
+                  - local
+                  - remote
+                  - remoteError
+                additionalProperties: false
+        "400":
+          description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
+        "404":
+          description: No installed copy and no catalog entry claims the given name.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/plugins/{name}/upgrade:
+    post:
+      operationId: plugins_by_name_upgrade_post
+      summary: Upgrade a plugin to the marketplace pin
+      description:
+        'Move an installed plugin to the marketplace''s current pinned commit, re-materializing it under
+        `<workspaceDir>/plugins/<name>/`. Always resolves against the curated marketplace pin (no caller-supplied ref),
+        mirroring `plugins install`''s curation boundary. A no-op (`outcome: "already-up-to-date"`) when the installed
+        commit already equals the pin; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching
+        the install. Installs lacking provenance are re-pinned to the current SHA. The assistant must be restarted to
+        load the upgraded code. This does not gate on local edits — callers should consult `GET
+        /v1/plugins/:name/inspect` (`local.localChanges`) first and confirm before overwriting. Mirrors the CLI''s
+        `assistant plugins upgrade <name>`.'
+      tags:
+        - plugins
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    description: Install name that was (or would be) upgraded.
+                  outcome:
+                    type: string
+                    enum:
+                      - upgraded
+                      - already-up-to-date
+                      - would-upgrade
+                    description:
+                      "`upgraded` moved the install to the pin; `already-up-to-date` was a no-op; `would-upgrade` is a dry-run
+                      that found drift."
+                  fromCommit:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: Installed commit before the upgrade; null when no provenance was recorded.
+                  fromTimestamp:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: ISO-8601 committer timestamp (UTC) of `fromCommit` — the version moved from; null when not recorded.
+                  toCommit:
+                    type: string
+                    description: Marketplace-pinned commit the install was (or would be) moved to.
+                  toTimestamp:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description:
+                      ISO-8601 committer timestamp (UTC) of `toCommit` — the version moved to; null when it could not be
+                      resolved.
+                  target:
+                    type: string
+                    description: Absolute path to the installed plugin directory on the host.
+                  fileCount:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description: Files materialized by the upgrade; null for a no-op or dry run.
+                  dryRun:
+                    type: boolean
+                    description: Whether this was a dry run (no changes made).
+                  provenanceWasUnknown:
+                    type: boolean
+                    description:
+                      Whether the install lacked resolvable provenance before the upgrade; such installs are re-pinned to record
+                      it going forward.
+                required:
+                  - name
+                  - outcome
+                  - fromCommit
+                  - fromTimestamp
+                  - toCommit
+                  - toTimestamp
+                  - target
+                  - fileCount
+                  - dryRun
+                  - provenanceWasUnknown
+                additionalProperties: false
+        "400":
+          description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
+        "404":
+          description: No copy of the plugin is installed, or its source resolves to nothing.
+        "409":
+          description: The install exists but has no marketplace entry to advance to.
+        "503":
+          description: The plugin source (GitHub) was temporarily unavailable; the upgrade is retryable.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dryRun:
+                  description: Report what would change without modifying the install. Defaults to false.
+                  type: boolean
+              additionalProperties: false
   /v1/plugins/install:
     post:
       operationId: plugins_install_post
@@ -20324,6 +22469,174 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/retrospective/config:
+    get:
+      operationId: retrospective_config_get
+      summary: Get memory retrospective config
+      description:
+        Return the memory retrospective configuration. Retrospectives are event-driven background passes triggered
+        per conversation after activity (time/message thresholds, pre-compaction) — there is no global schedule, so
+        `nextRunAt` is always null and no run-now endpoint exists. `intervalMs` is the per-conversation time threshold
+        (`memory.retrospective.timeThresholdMs`), `lastRunAt` is the `createdAt` of the most recent retrospective
+        conversation across both legacy and fork sources, and `available` gates on `memory.enabled` (not
+        `memory.v2.enabled`).
+      tags:
+        - retrospective
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  available:
+                    type: boolean
+                  enabled:
+                    type: boolean
+                  intervalMs:
+                    type: number
+                  nextRunAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  lastRunAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  success:
+                    type: boolean
+                required:
+                  - available
+                  - enabled
+                  - intervalMs
+                  - nextRunAt
+                  - lastRunAt
+                  - success
+                additionalProperties: false
+  /v1/retrospective/runs:
+    get:
+      operationId: retrospective_runs_get
+      summary: List memory retrospective runs
+      description:
+        "Return recent memory retrospective conversations as run records, merged across both sources
+        (`memory-retrospective` → kind `legacy`, `memory-retrospective-fork` → kind `fork`) and sorted newest first.
+        Each retrospective dispatch creates exactly one background conversation; that conversation IS the run. Shape
+        mirrors `consolidation/runs` (synthetic `id`/`scheduledFor`/`startedAt` from the conversation row,
+        `finishedAt`/`status` from assistant-message presence, `skipReason`/`error` always null) plus `kind` and `title`
+        (fork runs are titled '<source title> (Retrospective)', which identifies what was reviewed). For fork runs,
+        copied source messages keep their original timestamps, so only assistant messages at or after the fork's
+        creation count as agent output. NOTE: superseded runs are garbage-collected by default
+        (`memory.retrospective.keepSupersededRuns: false` deletes the prior run when a newer one succeeds), so this
+        lists what currently exists — typically the most recent run per source conversation unless the operator retains
+        history."
+      tags:
+        - retrospective
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        scheduledFor:
+                          type: number
+                        startedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        finishedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        durationMs:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        status:
+                          type: string
+                          enum:
+                            - ok
+                            - running
+                        skipReason:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        error:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        conversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        conversationExists:
+                          type: boolean
+                        conversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        estimatedCostUsd:
+                          type: number
+                        createdAt:
+                          type: number
+                        kind:
+                          type: string
+                          enum:
+                            - legacy
+                            - fork
+                        title:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                      required:
+                        - id
+                        - scheduledFor
+                        - startedAt
+                        - finishedAt
+                        - durationMs
+                        - status
+                        - skipReason
+                        - error
+                        - conversationId
+                        - conversationExists
+                        - conversationArchivedAt
+                        - estimatedCostUsd
+                        - createdAt
+                        - kind
+                        - title
+                      additionalProperties: false
+                    description: Retrospective run records
+                  nextCursor:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description: Cursor for fetching older runs (pass as `before`); null when no older runs exist
+                required:
+                  - runs
+                  - nextCursor
+                additionalProperties: false
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Max runs to return (default 20, max 100)
+        - name: before
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: "Cursor for older runs: pass the previous page's `nextCursor` to return runs strictly older than it."
   /v1/sanity/connect:
     post:
       operationId: sanity_connect_post
@@ -20436,6 +22749,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -20495,6 +22812,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -20586,6 +22904,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -20645,6 +22967,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -20691,6 +23014,13 @@ paths:
                 mode:
                   type: string
                   description: Currently must be 'execute'
+                inferenceProfile:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                  description:
+                    Inference profile (llm.profiles key) the schedule's runs use. Omitted or null = default, i.e. the mainAgent
+                    call-site model selection.
               required:
                 - name
                 - expression
@@ -20765,6 +23095,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -20824,6 +23158,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -20839,6 +23174,158 @@ paths:
                     description: Updated schedule list
                 required:
                   - schedules
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+    get:
+      operationId: schedules_by_id_get
+      summary: Get schedule
+      description: Return a single schedule by ID.
+      tags:
+        - schedules
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schedule:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      name:
+                        type: string
+                      enabled:
+                        type: boolean
+                      syntax:
+                        type: string
+                        enum:
+                          - cron
+                          - rrule
+                      expression:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      cronExpression:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      timezone:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      message:
+                        type: string
+                      script:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      nextRunAt:
+                        type: number
+                      lastRunAt:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      lastStatus:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      retryCount:
+                        type: number
+                      maxRetries:
+                        type: number
+                      retryBackoffMs:
+                        type: number
+                      timeoutMs:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      inferenceProfile:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      createdFromConversationId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      createdFromConversationExists:
+                        type: boolean
+                      createdFromConversationArchivedAt:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      description:
+                        type: string
+                      cadenceDescription:
+                        type: string
+                      mode:
+                        type: string
+                        enum:
+                          - notify
+                          - execute
+                          - script
+                          - wake
+                      status:
+                        type: string
+                        enum:
+                          - active
+                          - firing
+                          - fired
+                          - cancelled
+                      routingIntent:
+                        type: string
+                        enum:
+                          - single_channel
+                          - multi_channel
+                          - all_channels
+                      reuseConversation:
+                        type: boolean
+                      wakeConversationId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      isOneShot:
+                        type: boolean
+                    required:
+                      - id
+                      - name
+                      - enabled
+                      - syntax
+                      - expression
+                      - cronExpression
+                      - timezone
+                      - message
+                      - script
+                      - nextRunAt
+                      - lastRunAt
+                      - lastStatus
+                      - retryCount
+                      - maxRetries
+                      - retryBackoffMs
+                      - timeoutMs
+                      - inferenceProfile
+                      - createdFromConversationId
+                      - createdFromConversationExists
+                      - createdFromConversationArchivedAt
+                      - description
+                      - cadenceDescription
+                      - mode
+                      - status
+                      - routingIntent
+                      - reuseConversation
+                      - wakeConversationId
+                      - isOneShot
+                    additionalProperties: false
+                    description: Schedule object
+                required:
+                  - schedule
                 additionalProperties: false
       parameters:
         - name: id
@@ -20914,6 +23401,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -20973,6 +23464,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -21038,6 +23530,13 @@ paths:
                     - type: number
                     - type: "null"
                   description: Script-mode execution timeout in ms; null = use default
+                inferenceProfile:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                  description:
+                    Inference profile (llm.profiles key) the schedule's runs use; null clears it back to the default mainAgent
+                    call-site model selection
               additionalProperties: false
   /v1/schedules/{id}/cancel:
     post:
@@ -21108,6 +23607,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -21167,6 +23670,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -21258,6 +23762,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -21317,6 +23825,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -21413,8 +23922,14 @@ paths:
                         - createdAt
                       additionalProperties: false
                     description: Schedule run objects
+                  nextCursor:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description: Cursor for fetching older runs (pass as `before`); null when no older runs exist
                 required:
                   - runs
+                  - nextCursor
                 additionalProperties: false
       parameters:
         - name: id
@@ -21428,6 +23943,12 @@ paths:
           schema:
             type: integer
           description: Max runs to return (default 10, max 100)
+        - name: before
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: "Cursor for older runs: pass the previous page's `nextCursor` to return runs strictly older than it."
   /v1/schedules/{id}/toggle:
     post:
       operationId: schedules_by_id_toggle_post
@@ -21497,6 +24018,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -21556,6 +24081,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -24087,6 +26613,151 @@ paths:
                 - appId
                 - channelId
               additionalProperties: false
+  /v1/sounds/available:
+    get:
+      operationId: sounds_available_get
+      summary: List available sound files
+      description: Return audio files in data/sounds/ that can be assigned to sound events.
+      tags:
+        - sounds
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sounds:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        label:
+                          type: string
+                        filename:
+                          type: string
+                      required:
+                        - label
+                        - filename
+                      additionalProperties: false
+                required:
+                  - sounds
+                additionalProperties: false
+  /v1/sounds/config:
+    get:
+      operationId: sounds_config_get
+      summary: Get sounds configuration
+      description: Return the sounds configuration from data/sounds/config.json, normalised with defaults.
+      tags:
+        - sounds
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  globalEnabled:
+                    type: boolean
+                  volume:
+                    type: number
+                  events:
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                        sounds:
+                          type: array
+                          items:
+                            type: string
+                      required:
+                        - enabled
+                        - sounds
+                      additionalProperties: false
+                required:
+                  - globalEnabled
+                  - volume
+                  - events
+                additionalProperties: false
+    put:
+      operationId: sounds_config_put
+      summary: Update sounds configuration
+      description: Replace the sounds configuration in data/sounds/config.json.
+      tags:
+        - sounds
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  globalEnabled:
+                    type: boolean
+                  volume:
+                    type: number
+                  events:
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                        sounds:
+                          type: array
+                          items:
+                            type: string
+                      required:
+                        - enabled
+                        - sounds
+                      additionalProperties: false
+                required:
+                  - globalEnabled
+                  - volume
+                  - events
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                globalEnabled:
+                  type: boolean
+                volume:
+                  type: number
+                events:
+                  type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      sounds:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - enabled
+                      - sounds
+                    additionalProperties: false
+              required:
+                - globalEnabled
+                - volume
+                - events
+              additionalProperties: false
   /v1/stt/providers:
     get:
       operationId: stt_providers_get
@@ -24488,6 +27159,19 @@ paths:
                   conversationId:
                     type: string
                     description: Id of a newly launched conversation when the action dispatched one. Omitted otherwise.
+                  applied:
+                    type: boolean
+                    description:
+                      Whether the action was applied. Present only for guardian decision actions (apr:*). False when the request
+                      was already resolved, expired, or the actor lacks permission.
+                  reason:
+                    type: string
+                    description: Explanation when applied is false (e.g. 'already_resolved', 'expired', 'principal_mismatch').
+                  replyText:
+                    type: string
+                    description:
+                      Guardian-facing reply from the resolver (e.g. verification code for access-request approvals). Present only
+                      when applied is true and the resolver produced a reply.
                 required:
                   - ok
                 additionalProperties: false

@@ -15,6 +15,7 @@ import {
   resolveUser,
   refreshChannelCache,
   loadCache,
+  CHANNEL_CACHE_PATH,
 } from "./lib/cache.js";
 import type { SlackChannelCache } from "./lib/cache.js";
 
@@ -53,9 +54,7 @@ async function main(): Promise<void> {
       if (flags.refresh === true) {
         cache = await refreshChannelCache();
       } else {
-        cache = loadCache<SlackChannelCache>(
-          `${process.env.HOME}/.vellum/workspace/data/slack-skill/channels.json`,
-        );
+        cache = loadCache<SlackChannelCache>(CHANNEL_CACHE_PATH);
         if (!cache) {
           cache = await refreshChannelCache();
         }

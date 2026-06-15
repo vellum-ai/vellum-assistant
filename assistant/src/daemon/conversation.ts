@@ -51,6 +51,7 @@ import {
   resolveOverrideProfile,
   setConversationHistoryStrippedAt,
 } from "../memory/conversation-crud.js";
+import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory/memory-marker.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
@@ -75,6 +76,7 @@ import { filterPrunedCardSections } from "../plugins/defaults/memory-v3-shadow/p
 import {
   applyBootstrapTemplate,
   buildSystemPrompt,
+  type SystemPromptPersonaOverride,
 } from "../prompts/system-prompt.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
@@ -145,7 +147,11 @@ import {
   handleSurfaceUndo as handleSurfaceUndoImpl,
   type SurfaceActionResult,
 } from "./conversation-surfaces.js";
-import type { ToolSetupContext } from "./conversation-tool-setup.js";
+import type {
+  SubagentToolGateMode,
+  ToolSetupContext,
+  WakeToolContextPin,
+} from "./conversation-tool-setup.js";
 import {
   createResolveToolsCallback,
   createToolExecutor,
@@ -174,6 +180,26 @@ export interface CleanResult {
   estimatedInputTokens: number;
   maxInputTokens: number;
   preservedMessages: number;
+}
+
+/**
+ * Optional context-window sizing inputs for {@link Conversation.maybeCompact}.
+ *
+ * The auto-threshold gate sizes its window against `mainAgent` by default,
+ * but an agent wake can run under a different call site (and a forced
+ * override profile) that resolves a SMALLER effective window — sized against
+ * `mainAgent`, such a wake passes the gate un-compacted and then overflows at
+ * the provider. Wakes thread their already-resolved inputs here so the gate's
+ * threshold matches the window the wake's calls actually get. Sizing only:
+ * the compaction execution (summary call profile) is unchanged.
+ */
+export interface CompactionSizing {
+  /** Call site the upcoming run resolves its context window against. */
+  callSite: LLMCallSite;
+  /** Inference profile the run resolves under, if any. */
+  overrideProfile?: string;
+  /** Float `overrideProfile` above the call-site layers (resolver escape hatch). */
+  forceOverrideProfile?: boolean;
 }
 
 export { findLastUndoableUserMessageIndex } from "./conversation-history.js";
@@ -219,6 +245,21 @@ export class Conversation {
   /** @internal */ toolsDisabledDepth = 0;
   /** @internal */ preactivatedSkillIds?: string[];
   /** @internal */ subagentAllowedTools?: Set<string>;
+  /**
+   * How {@link subagentAllowedTools} is enforced — see
+   * {@link SubagentToolGateMode}. Set and restored alongside the allowlist
+   * by `scopeWakeAllowedTools`.
+   * @internal
+   */
+  subagentToolGateMode?: SubagentToolGateMode;
+  /**
+   * Client-context pin for execution-gate-mode wakes — see
+   * {@link WakeToolContextPin}. Set and restored alongside the allowlist by
+   * `scopeWakeAllowedTools`; read only by tool-DEFINITION resolution
+   * (`isToolActiveForContext`), never by executor or host-proxy paths.
+   * @internal
+   */
+  toolContextPin?: WakeToolContextPin;
   /** @internal */ coreToolNames: Set<string>;
   /** @internal */ readonly skillProjectionState = new Map<string, string>();
   /** @internal */ readonly skillProjectionCache: SkillProjectionCache = {};
@@ -294,6 +335,18 @@ export class Conversation {
    */
   currentTurnInboundActorContext?: InboundActorContext | null;
   /** @internal */ currentTurnChannelCapabilities?: ChannelCapabilities;
+  /**
+   * Explicit persona/channel slugs for the system-prompt build, set (and
+   * cleared) by `wakeAgentForOpportunity` around a wake's agent-loop run.
+   * Wakes bypass the orchestrator's turn-start snapshots above, so without
+   * this their prompt is built from whatever snapshot the conversation
+   * already holds (for a freshly hydrated conversation: the no-trust-context
+   * persona derivation) regardless of which actor/channel the conversation
+   * belongs to. Takes precedence over the trust-context derivation when set.
+   * Persona selection only — never read for trust/approval decisions.
+   * @internal
+   */
+  wakePersonaOverride?: SystemPromptPersonaOverride;
   /** @internal */ currentTurnOverrideProfile?: string;
   /** @internal */ toolRoutedProfile?: string;
   /** @internal */ authContext?: AuthContext;
@@ -593,6 +646,7 @@ export class Conversation {
               hasNoClient: this.hasNoClient,
               trustContext: this.currentTurnTrustContext,
               channelCapabilities: this.currentTurnChannelCapabilities,
+              personaOverride: this.wakePersonaOverride,
               onboardingContext: this.getOnboardingContext(),
               conversationId: this.conversationId,
             }),
@@ -638,6 +692,14 @@ export class Conversation {
       toolExecutor: toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,
       resolveSystemPrompt: resolveSystemPromptCallback,
+      resolveConversationDir: () => {
+        const conv = getConversation(this.conversationId);
+        if (!conv) return null;
+        return getResolvedConversationDirPath(
+          this.conversationId,
+          conv.createdAt,
+        );
+      },
     });
     createContextWindowManager({
       provider,
@@ -720,6 +782,7 @@ export class Conversation {
           hasNoClient: this.hasNoClient,
           trustContext: this.currentTurnTrustContext,
           channelCapabilities: this.currentTurnChannelCapabilities,
+          personaOverride: this.wakePersonaOverride,
           onboardingContext: this.getOnboardingContext(),
           conversationId: this.conversationId,
         });
@@ -1494,17 +1557,65 @@ export class Conversation {
   }
 
   async forceCompact(): Promise<ContextWindowResult> {
+    return this.runCompaction(true);
+  }
+
+  /**
+   * Auto-threshold compaction gate. Runs the same durable compaction
+   * pipeline as {@link forceCompact} (summary call, circuit-breaker
+   * accounting, Slack provenance, in-memory + DB commit) but honors the
+   * `compaction.autoThreshold` check — an under-threshold history is a
+   * cheap no-op — and the compaction circuit breaker, returning `null`
+   * without estimating anything while the breaker is open. Used by the
+   * agent-wake path (`runtime/agent-wake.ts`), which bypasses the daemon
+   * orchestrator's in-loop budget gate and needs an equivalent turn-start
+   * compaction before snapshotting its run input.
+   *
+   * `sizing` lets a wake thread its own call-site/profile resolution into
+   * the gate's context-window sizing — see {@link CompactionSizing}. Absent,
+   * the gate sizes against `mainAgent` (the live-turn behavior).
+   */
+  async maybeCompact(
+    sizing?: CompactionSizing,
+  ): Promise<ContextWindowResult | null> {
+    if (await this.agentLoop.compactionCircuit.isOpen()) {
+      return null;
+    }
+    return this.runCompaction(false, sizing);
+  }
+
+  /**
+   * Shared compaction pipeline behind {@link forceCompact} and
+   * {@link maybeCompact}. `force` skips the auto-threshold check inside the
+   * context-window manager (user-initiated `/compact`); without it the
+   * manager no-ops below the threshold.
+   */
+  private async runCompaction(
+    force: boolean,
+    sizing?: CompactionSizing,
+  ): Promise<ContextWindowResult> {
     const overrideProfile = resolveOverrideProfile(this) ?? null;
     const config = getConfig();
+    // Threshold/window sizing. The default (`mainAgent` + the conversation's
+    // own pinned profile) matches live turns; caller-supplied `sizing` makes
+    // the gate's threshold reflect the window the caller's run will actually
+    // resolve. Sizing only — the summary call below still runs under the
+    // conversation's own profile.
+    const sizingCallSite = sizing?.callSite ?? "mainAgent";
+    const sizingOverrideProfile = sizing
+      ? sizing.overrideProfile
+      : (overrideProfile ?? undefined);
     const effectiveContextWindow = resolveEffectiveContextWindow({
       llm: config.llm,
-      callSite: "mainAgent",
-      overrideProfile: overrideProfile ?? undefined,
+      callSite: sizingCallSite,
+      overrideProfile: sizingOverrideProfile,
+      forceOverrideProfile: sizing?.forceOverrideProfile,
     });
     this.contextWindowManager.updateConfig(
       contextWindowConfigFromEffective(
-        resolveCallSiteConfig("mainAgent", config.llm, {
-          overrideProfile: overrideProfile ?? undefined,
+        resolveCallSiteConfig(sizingCallSite, config.llm, {
+          overrideProfile: sizingOverrideProfile,
+          forceOverrideProfile: sizing?.forceOverrideProfile,
         }).contextWindow,
         effectiveContextWindow,
       ),
@@ -1529,15 +1640,17 @@ export class Conversation {
       conversationId: this.conversationId,
       messages: messagesToCompact,
       signal: this.abortController?.signal ?? undefined,
-      force: true,
+      force,
       overrideProfile,
       actorTrustClass: this.trustContext?.trustClass,
     });
-    // Track circuit-breaker state for user-initiated `/compact` and other
-    // forced paths so a successful forced compaction clears a stuck counter
-    // and a run of forced failures still trips the breaker. `summaryFailed`
-    // is `undefined` on early-return paths (no eligible messages, disabled,
-    // etc.) — skip those so they don't silently reset the counter.
+    // Track circuit-breaker state for every compaction that ran a summary
+    // call — user-initiated `/compact`, other forced paths, and the wake's
+    // auto gate — so a success clears a stuck counter and a run of failures
+    // still trips the breaker. `summaryFailed` is `undefined` on
+    // early-return paths (no eligible messages, disabled, below the auto
+    // threshold, etc.) — skip those so they don't silently reset the
+    // counter.
     if (result.summaryFailed !== undefined) {
       await this.agentLoop.compactionCircuit.recordOutcome(
         result.summaryFailed,

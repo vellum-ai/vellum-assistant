@@ -692,6 +692,24 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       {
+        id: "accounts/fireworks/models/minimax-m3",
+        displayName: "MiniMax M3",
+        // The model supports 1M context, but Fireworks serves it with a
+        // 512K (524,288-token) window; advertise the served limit.
+        contextWindowTokens: 524288,
+        maxOutputTokens: 512000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        maxEffort: "high",
+        pricing: {
+          inputPer1mTokens: 0.3,
+          outputPer1mTokens: 1.2,
+          cacheReadPer1mTokens: 0.06,
+        },
+      },
+      {
         id: "accounts/fireworks/models/minimax-m2p7",
         displayName: "MiniMax M2.7",
         contextWindowTokens: 196608,
@@ -1241,6 +1259,16 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       linkLabel: "Open MiniMax Dashboard",
     },
     models: [
+      {
+        id: "MiniMax-M3",
+        displayName: "MiniMax M3",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 512000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+      },
       {
         id: "MiniMax-M2.7",
         displayName: "MiniMax M2.7",

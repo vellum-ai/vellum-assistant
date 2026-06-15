@@ -34,6 +34,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { migrateAddMemoryV3Selections } from "../../../../memory/migrations/268-add-memory-v3-selections.js";
+import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../memory/migrations/283-memory-v3-selections-message-id-and-sections.js";
 import * as schema from "../../../../memory/schema.js";
 import type { PageIndexEntry } from "../../../../memory/v2/page-index.js";
 import type {
@@ -105,6 +106,7 @@ function makeDb() {
   testSqlite.exec("PRAGMA journal_mode=WAL");
   const db = drizzle(testSqlite, { schema });
   migrateAddMemoryV3Selections(db);
+  migrateMemoryV3SelectionsMessageIdAndSections(db);
   return db;
 }
 mock.module("../../../../memory/db-connection.js", () => ({
@@ -237,7 +239,7 @@ function candidateSlugs(messages: Message[]): Slug[] {
       );
       if (finder) {
         for (const line of finder[1].split("\n")) {
-          const m = /^\[(\d+)\] (\S+)(?: — |$)/.exec(line);
+          const m = /^\[(\d+)\] (?:\([^)]*\) )?(\S+)(?: — |$)/.exec(line);
           if (m) entries.push({ id: Number(m[1]), slug: m[2]! });
         }
       }
@@ -310,6 +312,7 @@ async function runTurn(
     edgeGraph: deps.lanes.edgeGraph,
     coreSlugs: deps.core ?? [],
     hotSlugs: deps.hot ?? [],
+    freshSlugs: [],
     // Mirrors lane init: every stable-prefix slug gets a pre-rendered card.
     prefixCards: new Map(
       stableSlugs.map((slug) => [slug, renderCard(slug, RAW[slug] ?? "")]),
@@ -476,9 +479,12 @@ describe("memory-v3 shadow integration — selection-log readout", () => {
       bySource: {
         core: 0,
         hot: 0,
+        fresh: 0,
         needle: 0,
         dense: 0,
         edge: 0,
+        reply: 0,
+        learned: 0,
       },
       turns: 0,
       distinctSlugs: 0,

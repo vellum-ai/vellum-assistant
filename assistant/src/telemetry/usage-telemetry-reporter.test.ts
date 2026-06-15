@@ -183,7 +183,7 @@ initializeDb();
 
 let eventIdCounter = 0;
 
-// The reporter consumes `UnreportedUsageEvent` (UsageEvent + the two
+// The reporter consumes `UnreportedUsageEvent` (UsageEvent + the
 // JOIN-computed fields `conversationType` and `turnIndex`). Build that
 // shape directly so the mock matches `queryUnreportedUsageEvents`'
 // return type exactly.
@@ -218,6 +218,7 @@ function makeUsageEvent(
     assistantVersion: "test-app-version",
     conversationType: "standard",
     turnIndex: 1,
+    llmCallCount: 1,
     ...overrides,
   };
 }
@@ -507,6 +508,7 @@ describe("UsageTelemetryReporter", () => {
       callSite: "compactionAgent",
       inferenceProfile: "quality-optimized",
       inferenceProfileSource: "conversation",
+      llmCallCount: 3,
       createdAt: 1700000099000,
     });
     mockQueryUnreportedUsageEvents.mockReturnValue([event]);
@@ -538,6 +540,7 @@ describe("UsageTelemetryReporter", () => {
     expect(e.output_tokens).toBe(100);
     expect(e.cache_creation_input_tokens).toBe(20);
     expect(e.cache_read_input_tokens).toBe(15);
+    expect(e.llm_call_count).toBe(3);
     expect(e.actor).toBe("context_compactor");
     expect(e.llm_call_site).toBe("compactionAgent");
     expect(e.inference_profile).toBe("quality-optimized");
@@ -599,6 +602,7 @@ describe("UsageTelemetryReporter", () => {
       callSite: null,
       inferenceProfile: null,
       inferenceProfileSource: null,
+      llmCallCount: null,
     });
     mockQueryUnreportedUsageEvents.mockReturnValue([event]);
     mockFetch.mockImplementation(() =>
@@ -617,6 +621,7 @@ describe("UsageTelemetryReporter", () => {
       llm_call_site: null,
       inference_profile: null,
       inference_profile_source: null,
+      llm_call_count: null,
     });
   });
 

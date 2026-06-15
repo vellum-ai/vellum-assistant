@@ -10,6 +10,7 @@ import {
 } from "@vellumai/ipc-contract";
 
 import { handle, on } from "./ipc";
+import log from "./logger";
 
 /**
  * Assistant connection status driving the menu-bar (Tray) indicator.
@@ -178,6 +179,7 @@ const broadcastConnectivity = (): void => {
 
 export const setConnectivity = (state: ConnectivityState): void => {
   if (state === currentConnectivity) return;
+  log.info(`[connectivity] ${currentConnectivity} → ${state}`);
   currentConnectivity = state;
   broadcastConnectivity();
   for (const listener of connectivityListeners) listener(state);
@@ -214,7 +216,7 @@ export const onConnectivityChange = (
 
 let connectivityInstalled = false;
 export const installConnectivityIpc = (
-  onRetry?: () => void,
+  onRetry?: () => void | Promise<void>,
 ): void => {
   if (connectivityInstalled) return;
   connectivityInstalled = true;
@@ -229,8 +231,16 @@ export const installConnectivityIpc = (
     },
   );
 
-  on("vellum:connectivity:retry", z.tuple([]), () => {
-    onRetry?.();
+  // A manual retry must be able to recover a renderer whose banner has
+  // desynced from main: a single missed `:state` broadcast leaves main
+  // "online" and the renderer degraded, and the change-gated broadcast in
+  // `setConnectivity` would then never resend. Run the probe to completion,
+  // rebroadcast unconditionally, and return the fresh state so the renderer
+  // can apply it without depending on broadcast delivery at all.
+  handle("vellum:connectivity:retry", z.tuple([]), async () => {
+    await onRetry?.();
+    broadcastConnectivity();
+    return currentConnectivity;
   });
 };
 

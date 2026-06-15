@@ -197,7 +197,7 @@ export async function runWorkspaceMigrations(
  * workspace migrations while the assistant is running may cause file conflicts,
  * stale caches, or data corruption.
  *
- * @param workspaceDir  The workspace directory path (e.g., `~/.vellum/workspace`).
+ * @param workspaceDir  The workspace directory path (e.g., `$VELLUM_WORKSPACE_DIR`).
  * @param migrations  The full ordered array of workspace migrations (from `WORKSPACE_MIGRATIONS`).
  * @param targetMigrationId  The migration ID to roll back to (exclusive — all
  *   migrations after this one are reversed).

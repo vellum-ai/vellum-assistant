@@ -11,6 +11,7 @@ import {
   estimateToolsTokens,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
+import { spoolAndStubOversizedToolResults } from "../context/tool-result-spool.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { parseActualTokensFromError } from "../daemon/parse-actual-tokens-from-error.js";
 import type { TrustContext } from "../daemon/trust-context.js";
@@ -58,6 +59,28 @@ const MID_LOOP_YIELD_THRESHOLD_RATIO = 0.85;
 /** In-context message count above which the budget gate raises the safety-margin floor. */
 const LONG_HISTORY_MESSAGE_THRESHOLD = 50;
 const LONG_HISTORY_SAFETY_MARGIN_FLOOR = 0.15;
+
+/**
+ * Minimum token regrowth, measured from the post-compaction watermark, before
+ * the budget gate will compact again. A compaction pass that just ran already
+ * proved how far the history can shrink; if the estimate has not climbed at
+ * least this far past that watermark, another pass cannot free more than it
+ * already did and would only thrash (the production failure mode: each pass
+ * lands a hair under the trigger, one tick pushes it back over, repeat).
+ *
+ * Sized as `max(2048, 2% of maxInputTokens)` so it scales with the window but
+ * never collapses to a trivial value on small budgets. Overflow-driven
+ * compaction bypasses this guard entirely — a provider-confirmed overflow must
+ * always be allowed to compact.
+ */
+const MIN_REGROWTH_FLOOR_TOKENS = 2048;
+const MIN_REGROWTH_WINDOW_RATIO = 0.02;
+function minRegrowthTokens(maxInputTokens: number): number {
+  return Math.max(
+    MIN_REGROWTH_FLOOR_TOKENS,
+    Math.floor(maxInputTokens * MIN_REGROWTH_WINDOW_RATIO),
+  );
+}
 
 export interface AgentLoopConfig {
   maxTokens: number;
@@ -492,6 +515,16 @@ export interface AgentLoopRunOptions {
    * call-site named profile. Missing profile names silently fall through.
    */
   overrideProfile?: string;
+  /**
+   * Float the override profile above the call-site layers (named site
+   * profile + call-site override) for non-main-agent call sites — the
+   * resolver's `forceOverrideProfile` escape hatch. Threaded onto each
+   * send's `SendMessageOptions.config` alongside `overrideProfile`. Used by
+   * wakes that must run a background call site under a specific
+   * conversation's inference profile (e.g. fork-based memory
+   * retrospectives).
+   */
+  forceOverrideProfile?: boolean;
   resolveOverrideProfile?: () => string | undefined;
   /**
    * Resolves the orchestrator's effective context window for this turn: the
@@ -595,6 +628,16 @@ export interface AgentLoopConstructorOptions {
    * post-compaction re-injection resolve the live conversation through.
    */
   conversationId: string;
+  /**
+   * Resolve the conversation's on-disk directory, used to spool oversized
+   * tool results to `.tool-results/` and swap the inline copy for the
+   * post-turn pass's stub at result time — before the result joins history,
+   * so the provider-bound prefix stays append-only for prompt caching.
+   * Returns `null` while the directory cannot be resolved (e.g. the
+   * conversation row is not yet persisted); the loop then skips the
+   * result-time pass and the post-turn truncation covers the turn instead.
+   */
+  resolveConversationDir?: () => string | null;
 }
 
 export class AgentLoop {
@@ -616,6 +659,9 @@ export class AgentLoop {
    */
   private readonly conversationId: string;
 
+  /** See {@link AgentLoopConstructorOptions.resolveConversationDir}. */
+  private readonly resolveConversationDir: (() => string | null) | null;
+
   /**
    * Loop-held compaction circuit breaker. The loop has a 1:1 lifetime with its
    * conversation, so it is the source of truth for the cross-turn failure
@@ -635,6 +681,7 @@ export class AgentLoop {
       resolveTools,
       resolveSystemPrompt,
       conversationId,
+      resolveConversationDir,
     } = options;
     this.provider = provider;
     this.systemPrompt = systemPrompt;
@@ -644,6 +691,7 @@ export class AgentLoop {
     this.resolveSystemPrompt = resolveSystemPrompt ?? null;
     this.toolExecutor = toolExecutor ?? null;
     this.conversationId = conversationId;
+    this.resolveConversationDir = resolveConversationDir ?? null;
     this.compactionCircuit = new CompactionCircuit(this.conversationId);
   }
 
@@ -840,6 +888,7 @@ export class AgentLoop {
       callSite,
       trust,
       overrideProfile,
+      forceOverrideProfile = false,
       resolveOverrideProfile,
       resolveContextWindow,
       compactInPlace = false,
@@ -883,7 +932,42 @@ export class AgentLoop {
     // `context_too_large`) instead of looping.
     let overflowLadderExhausted = false;
     let overflowAutoCompressApplied = false;
+    // Per-turn suppression for floor-dominated proactive-compaction thrash.
+    // Set when a proactive (non-overflow) pass completes WITHOUT clearing the
+    // mid-loop gate (the manager returned `exhausted` — it could not get below
+    // its success threshold). During a tool-heavy turn each tool round grows the
+    // PROTECTED in-flight region past the regrowth guard's re-arm delta, but
+    // that region is exactly what compaction cannot touch, so every subsequent
+    // gate check would fire another futile full-context pass. Once set, the
+    // budget gate skips proactive compaction for the rest of THIS turn; it
+    // clears when a later proactive pass succeeds (non-exhausted). Overflow-
+    // driven compaction always bypasses it — a provider-confirmed overflow must
+    // always compact.
+    //
+    // Lifetime is exactly one turn: this is a `run()`-local (like
+    // `budgetGateArmed` / `pendingOverflowSignal` / `overflowLadderExhausted`),
+    // not an instance field. The AgentLoop instance is constructed once per
+    // Conversation and `run()` is invoked once per turn (a checkpoint handoff
+    // breaks out of the loop and the queued message resumes in a fresh `run()`),
+    // so a `run()`-local resets implicitly at every turn start — no manual reset
+    // point is needed, and suppression can never leak across turns the way an
+    // instance field would. (The regrowth watermark, by contrast, lives on the
+    // cross-turn `compactionCircuit` precisely because it must persist.)
+    let proactiveCompactionFutileThisTurn = false;
     const rlog = log.child({ requestId });
+
+    // Conversation directory for the result-time tool-result spool/stub pass.
+    // Resolved once per run; `null` disables the pass for this run and the
+    // post-turn truncation covers the turn instead.
+    let conversationDir: string | null = null;
+    try {
+      conversationDir = this.resolveConversationDir?.() ?? null;
+    } catch (err) {
+      rlog.warn(
+        { err },
+        "Resolving conversation dir for tool-result spooling failed (non-fatal)",
+      );
+    }
 
     // Resolve the inference-profile override that applies right now. The
     // optional resolver lets a turn observe a confirmed mid-turn profile switch
@@ -1023,7 +1107,47 @@ export class AgentLoop {
               overflowDriven ||
               !isFirstCallGate ||
               !(await this.compactionCircuit.isOpen());
-            if (shouldCompact && compactionAllowed) {
+            // Regrowth hysteresis: a proactive pass that just ran proved how
+            // far this history can shrink. If the estimate has not climbed at
+            // least `minRegrowth` past that watermark, another pass cannot free
+            // more and would only thrash — skip it and let the provider call
+            // proceed (overflow recovery remains the safety net). Overflow-
+            // driven compaction always bypasses the guard.
+            const watermark = this.compactionCircuit.lastPostCompactionEstimate;
+            const minRegrowth = minRegrowthTokens(maxInputTokens);
+            const regrowthGuardSkip =
+              !overflowDriven &&
+              watermark !== null &&
+              estimated - watermark < minRegrowth;
+            // Floor-dominated thrash guard: a proactive pass earlier this turn
+            // already exhausted the compactor (couldn't clear the gate because
+            // the over-budget region is the protected in-flight turn). The
+            // regrowth guard cannot catch this — each tool round's growth lands
+            // in that protected region and re-arms the regrowth delta — so this
+            // per-turn latch is what stops the repeated futile passes. Overflow-
+            // driven compaction bypasses it.
+            const proactiveFutileSkip =
+              !overflowDriven && proactiveCompactionFutileThisTurn;
+            if (
+              shouldCompact &&
+              compactionAllowed &&
+              (regrowthGuardSkip || proactiveFutileSkip)
+            ) {
+              rlog.info(
+                {
+                  turn: toolUseTurns,
+                  estimated,
+                  postCompactionWatermark: watermark,
+                  minRegrowth,
+                  reason: proactiveFutileSkip
+                    ? "proactive_compaction_exhausted_this_turn"
+                    : "history_not_regrown",
+                },
+                proactiveFutileSkip
+                  ? "Skipping compaction: a proactive pass already exhausted the compactor this turn — the over-budget region is the protected in-flight turn, so re-compacting would free nothing"
+                  : "Skipping compaction: history has not regrown past the post-compaction watermark — re-compacting would not free more",
+              );
+            } else if (shouldCompact && compactionAllowed) {
               rlog.info(
                 {
                   turn: toolUseTurns,
@@ -1049,6 +1173,11 @@ export class AgentLoop {
                 // The compacted, re-injected array is the new base; output
                 // produced after this point is what the wrapper persists.
                 newMessagesStart = history.length;
+                // Record the post-compaction estimate so the regrowth guard can
+                // tell, on a later gate crossing, whether the history has grown
+                // enough to be worth compacting again.
+                this.compactionCircuit.lastPostCompactionEstimate =
+                  this.estimateTokens(history);
               }
               if (overflowDriven) {
                 // Carry the ladder's terminal state to the catch: if the
@@ -1056,6 +1185,12 @@ export class AgentLoop {
                 // ends instead of looping.
                 overflowLadderExhausted = attempt.exhausted;
                 overflowAutoCompressApplied = attempt.autoCompressApplied;
+              } else {
+                // Proactive (non-overflow) pass. If it exhausted the compactor
+                // without clearing the gate, latch suppression so later gate
+                // checks this turn skip the futile re-pass; a pass that DID
+                // clear the gate (non-exhausted) releases the latch.
+                proactiveCompactionFutileThisTurn = attempt.exhausted;
               }
             }
           }
@@ -1166,6 +1301,9 @@ export class AgentLoop {
         const effectiveOverrideProfile = resolveEffectiveOverrideProfile();
         if (effectiveOverrideProfile) {
           providerConfig.overrideProfile = effectiveOverrideProfile;
+          if (forceOverrideProfile) {
+            providerConfig.forceOverrideProfile = true;
+          }
         }
 
         // Rate-limit consecutive LLM calls to prevent spin when tools return instantly
@@ -1511,14 +1649,37 @@ export class AgentLoop {
           );
           // Run the hook on the truncated reply so output-filter plugins still
           // see it, and so a turn that streamed nothing live gets its final
-          // emit (without this the client would see nothing). The retry decision
-          // is ignored here: a max-tokens stop is terminal.
-          const { finalized: safeAssistantMessage } =
-            await finalizeAssistantMessage({
-              role: "assistant",
-              content: safeContent,
-            });
+          // emit (without this the client would see nothing). A recovery hook
+          // (max-tokens-continue) may set `decision: "continue"` to resume the
+          // truncated turn: it leaves `messages` as the next history (the
+          // truncated turn followed by a continuation nudge), so unlike the
+          // no-tool retry below the partial output is kept, not discarded.
+          // Otherwise the stop is terminal and the continuation card surfaces.
+          const {
+            finalized: safeAssistantMessage,
+            decision: maxTokensDecision,
+            messages: maxTokensMessages,
+          } = await finalizeAssistantMessage({
+            role: "assistant",
+            content: safeContent,
+          });
           emitFinalAssistantText(safeAssistantMessage.content);
+          if (
+            maxTokensDecision === "continue" &&
+            postModelCallContinues < MAX_POST_MODEL_CALL_CONTINUES
+          ) {
+            postModelCallContinues++;
+            rlog.warn(
+              { turn: toolUseTurns, retry: postModelCallContinues },
+              "max-tokens stop — auto-continuing the truncated turn",
+            );
+            await onEvent({
+              type: "message_complete",
+              message: safeAssistantMessage,
+            });
+            history = maxTokensMessages;
+            continue;
+          }
           history.push(safeAssistantMessage);
           await onEvent({
             type: "max_tokens_reached",
@@ -1723,11 +1884,39 @@ export class AgentLoop {
           }),
         );
 
+        // Spool oversized results to `.tool-results/` and swap the inline
+        // copy for the post-turn pass's stub now — on the raw blocks, before
+        // the post-tool-use hooks, event emission, and history append. Running
+        // ahead of the hooks means the spooled file holds the tool's full
+        // output rather than the truncate plugin's tail-dropped copy, and the
+        // hooks then see the stub. Stubbing before the first send keeps the
+        // provider-bound history strictly append-only (rewriting an earlier
+        // message between calls would invalidate the prompt-cache prefix on
+        // every iteration).
+        if (conversationDir) {
+          const toolNameByUseId = new Map(
+            toolUseBlocks.map((tu) => [tu.id, tu.name]),
+          );
+          try {
+            spoolAndStubOversizedToolResults(rawResultBlocks, {
+              conversationDir,
+              toolNameById: (id) => toolNameByUseId.get(id),
+            });
+          } catch (err) {
+            rlog.warn(
+              { err, turn: toolUseTurns },
+              "Spooling oversized tool results to disk failed (non-fatal)",
+            );
+          }
+        }
+
         // Run the `post-tool-use` hook once per tool result, after the tool
         // returns and before the result joins the provider-bound history.
         // The default tool-result-truncate plugin tail-drops oversized output
-        // to fit the context window; user hooks can swap in a smarter strategy
-        // (e.g. a summariser) or observe results for side effects.
+        // to fit the context window (spool-stubbed results are already tiny;
+        // spool-exempt ones still rely on it); user hooks can swap in a
+        // smarter strategy (e.g. a summariser) or observe results for side
+        // effects.
         const contextWindowTokens =
           resolveContextWindow?.().maxInputTokens ??
           this.config.maxInputTokens ??

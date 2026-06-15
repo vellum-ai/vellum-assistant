@@ -3,7 +3,7 @@
  * based on the selected provider and model.
  */
 
-import { getModelsForProvider } from "@/assistant/llm-model-catalog";
+import { getModelsForProvider, type LlmCatalogModel } from "@/assistant/llm-model-catalog";
 
 export interface ProfileParamVisibility {
   maxTokens: boolean;
@@ -38,6 +38,17 @@ function isOpenRouterAnthropicModel(modelId: string): boolean {
 }
 
 /**
+ * Case-insensitive exact-id catalog lookup. `resolveProfileParamVisibility`
+ * lowercases the model id for its prefix/substring heuristics, but catalog
+ * ids can be mixed-case (e.g. minimax's "MiniMax-M3"), so an exact `===`
+ * find would never match those entries.
+ */
+function findCatalogModel(provider: string, modelId: string): LlmCatalogModel | undefined {
+  const id = modelId.toLowerCase();
+  return getModelsForProvider(provider).find((m) => m.id.toLowerCase() === id);
+}
+
+/**
  * Models flagged `adaptiveThinkingOnly` in the catalog always reason with
  * adaptive (always-on) thinking and reject an explicit "disable thinking"
  * request, so the enable/disable toggle must not be shown — effort stays
@@ -45,10 +56,7 @@ function isOpenRouterAnthropicModel(modelId: string): boolean {
  * `assistant/src/providers/model-catalog.ts`.
  */
 function isAdaptiveThinkingOnlyModel(provider: string, modelId: string): boolean {
-  return (
-    getModelsForProvider(provider).find((m) => m.id === modelId)
-      ?.adaptiveThinkingOnly === true
-  );
+  return findCatalogModel(provider, modelId)?.adaptiveThinkingOnly === true;
 }
 
 function knownOpenRouterReasoningModel(modelId: string): boolean {
@@ -79,14 +87,27 @@ function isGeminiProModel(modelId: string): boolean {
  * omit "minimal". The daemon clamps anything below a model's floor, so this is
  * a UX nicety rather than a correctness guarantee.
  */
-export function geminiThinkingLevels(modelId: string): readonly string[] {
+export type GeminiThinkingLevel = (typeof GEMINI_THINKING_LEVELS_FULL)[number];
+
+const GEMINI_THINKING_LEVELS_SET: ReadonlySet<string> = new Set(GEMINI_THINKING_LEVELS_FULL);
+
+export function isGeminiThinkingLevel(v: unknown): v is GeminiThinkingLevel {
+  return typeof v === "string" && GEMINI_THINKING_LEVELS_SET.has(v);
+}
+
+export function geminiThinkingLevels(modelId: string): readonly GeminiThinkingLevel[] {
   return isGeminiProModel(modelId.toLowerCase())
     ? GEMINI_THINKING_LEVELS_PRO
     : GEMINI_THINKING_LEVELS_FULL;
 }
 
-function modelSupportsThinking(provider: string, modelId: string): boolean {
-  const entry = getModelsForProvider(provider).find((m) => m.id === modelId);
+/**
+ * Whether a model supports extended thinking, preferring the catalog's
+ * `supportsThinking` flag over per-provider heuristics. `provider` must be a
+ * lowercase provider id. Exported for tests.
+ */
+export function modelSupportsThinking(provider: string, modelId: string): boolean {
+  const entry = findCatalogModel(provider, modelId);
   if (entry?.supportsThinking !== undefined) return entry.supportsThinking;
 
   if (provider === "anthropic") return true;

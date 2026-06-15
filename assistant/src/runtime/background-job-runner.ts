@@ -3,7 +3,7 @@
  *
  * `runBackgroundJob()` consolidates the bootstrap → processMessage → timeout
  * pattern that every background producer (heartbeat, filing, scheduler, memory
- * consolidation, watcher, update-bulletin, subagent, sequence) has been
+ * consolidation, watcher, subagent, sequence) has been
  * open-coding. Wrapping it here lets us:
  *
  *  - apply a single timeout policy
@@ -67,6 +67,12 @@ export interface RunBackgroundJobOptions {
   trustContext: TrustContext;
   /** LLM call-site identifier — drives provider/model/effort/etc. resolution. */
   callSite: LLMCallSite;
+  /**
+   * Optional ad-hoc inference-profile override (`llm.profiles` key) applied
+   * to every LLM call the job's turn issues. Used by schedules with a pinned
+   * profile; omitted = the call site's default resolution.
+   */
+  overrideProfile?: string;
   /** Hard timeout for `processMessage` in milliseconds. */
   timeoutMs: number;
   /**
@@ -182,7 +188,7 @@ export async function runBackgroundJob(
   // failed" rows visible in the sidebar the moment a real user hatches the
   // assistant — see `pre-first-message-gate.ts` for the rationale.
   //
-  // Service-level callers (heartbeat, update-bulletin) are expected to gate
+  // Service-level callers (e.g. heartbeat) are expected to gate
   // earlier and never reach this point; reaching the gate here means a
   // caller either forgot to gate or deliberately opted in via
   // `allowPreFirstUserMessage`. We log at `info` (not `warn`) because the
@@ -267,6 +273,9 @@ export async function runBackgroundJob(
     const work = processMessage(conversation.id, opts.prompt, {
       trustContext: opts.trustContext,
       callSite: opts.callSite,
+      ...(opts.overrideProfile
+        ? { overrideProfile: opts.overrideProfile }
+        : {}),
     });
     // Absorb late rejections: if the timeout wins the race, `work` keeps
     // running and may eventually reject — swallow so it doesn't surface as

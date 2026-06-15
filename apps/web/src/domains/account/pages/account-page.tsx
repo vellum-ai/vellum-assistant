@@ -90,7 +90,7 @@ export function AccountPage() {
             await logout();
             hardNavigate(routes.account.login);
           }}
-          className="cursor-pointer bg-transparent text-sm font-normal text-stone-400 transition-colors hover:text-stone-300"
+          className="cursor-pointer bg-transparent text-sm font-normal text-[var(--content-secondary)] transition-colors hover:text-[var(--content-default)]"
         >
           Sign out
         </button>

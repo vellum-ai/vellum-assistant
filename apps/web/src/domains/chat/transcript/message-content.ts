@@ -16,6 +16,10 @@ import type {
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { Surface } from "@/domains/chat/types/types";
+import {
+  containsInlineThinkingTag,
+  parseInlineThinkingTags,
+} from "@/domains/chat/utils/parse-inline-thinking";
 
 /**
  * One item inside a blocks-driven `activity` run, reusing the server block
@@ -57,6 +61,42 @@ function hasToolCallId(
   return typeof toolCall.id === "string" && toolCall.id.length > 0;
 }
 
+export interface GroupContentBlocksOptions {
+  /**
+   * Split inline `<thinking>`/`<think>` tags out of text blocks into
+   * synthesized thinking blocks before grouping, so tag-emitted reasoning
+   * renders through the same activity path as native thinking blocks
+   * (matching macOS). Pass for assistant messages only — user-typed tags must
+   * render verbatim.
+   */
+  splitInlineThinking?: boolean;
+}
+
+/**
+ * Expand text blocks containing inline `<thinking>`/`<think>` tags into
+ * interleaved thinking + text blocks. Returns the input array untouched when
+ * no text block carries a tag (the common case).
+ */
+function splitInlineThinkingBlocks(
+  blocks: ConversationContentBlock[],
+): ConversationContentBlock[] {
+  if (
+    !blocks.some((b) => b.type === "text" && containsInlineThinkingTag(b.text))
+  ) {
+    return blocks;
+  }
+  return blocks.flatMap((block): ConversationContentBlock[] => {
+    const segments =
+      block.type === "text" ? parseInlineThinkingTags(block.text) : null;
+    if (!segments) return [block];
+    return segments.map((seg) =>
+      seg.type === "thinking"
+        ? { type: "thinking", thinking: seg.thinking }
+        : { type: "text", text: seg.text },
+    );
+  });
+}
+
 /**
  * Group a message's unified `contentBlocks` into merged activity runs for the
  * render path. A contiguous run of `thinking` + `tool_use`
@@ -71,7 +111,12 @@ function hasToolCallId(
  */
 export function groupContentBlocks(
   blocks: ConversationContentBlock[],
+  options?: GroupContentBlocksOptions,
 ): ContentBlockGroup[] {
+  const walked = options?.splitInlineThinking
+    ? splitInlineThinkingBlocks(blocks)
+    : blocks;
+
   const groups: ContentBlockGroup[] = [];
   let current: { type: "activity"; items: ContentBlockActivityItem[] } | null =
     null;
@@ -84,7 +129,7 @@ export function groupContentBlocks(
     return current;
   };
 
-  for (const block of blocks) {
+  for (const block of walked) {
     if (block.type === "thinking") {
       const activity = openActivity();
       const lastItem = activity.items[activity.items.length - 1];
