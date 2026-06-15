@@ -156,9 +156,16 @@ function buildRequesterIdBlock(
   );
   if (!safeExternalId) return undefined;
 
-  const displayedName =
-    nonEmpty(p.actorDisplayName) ?? nonEmpty(p.senderIdentifier);
-  const displayedUsername = nonEmpty(p.actorUsername);
+  const displayedName = nonEmpty(
+    p.actorDisplayName
+      ? sanitizeIdentityField(p.actorDisplayName)
+      : p.senderIdentifier
+        ? sanitizeIdentityField(p.senderIdentifier)
+        : undefined,
+  );
+  const displayedUsername = nonEmpty(
+    p.actorUsername ? sanitizeIdentityField(p.actorUsername) : undefined,
+  );
   if (
     safeExternalId === displayedName ||
     safeExternalId === displayedUsername
@@ -267,7 +274,10 @@ function buildToolApprovalCardBlocks(
 
   const card: Record<string, unknown> = {
     type: "card",
-    title: { type: "plain_text", text: "Tool Approval" },
+    title: {
+      type: "plain_text",
+      text: details ? "Tool Approval" : "Approval Request",
+    },
     body: { type: "mrkdwn", text: truncate(messageText, 200) },
     actions: buildCardActions(approval),
   };
