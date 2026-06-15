@@ -17,12 +17,10 @@ import {
 import { providerSupportsPlatformAuth } from "@/assistant/llm-model-catalog";
 import { ChatgptOAuthSection } from "@/domains/settings/ai/chatgpt-oauth-section";
 import { deriveProviderDefaults } from "@/domains/settings/ai/profile-prefill";
+import type { Auth, ConnectionProvider, ProviderConnection } from "@/generated/daemon/types.gen";
 import {
     PROVIDER_DISPLAY_NAMES,
-    type Auth,
-    type ConnectionProvider,
     type CreateConnectionInput,
-    type ProviderConnection,
 } from "@/domains/settings/ai/provider-connections-client";
 import { ProviderEditorApiKeySection } from "@/domains/settings/ai/provider-editor-api-key-section";
 import {

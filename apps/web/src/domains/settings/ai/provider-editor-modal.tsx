@@ -15,11 +15,9 @@ import {
 
 import { providerSupportsPlatformAuth } from "@/assistant/llm-model-catalog";
 import { ChatgptOAuthSection } from "@/domains/settings/ai/chatgpt-oauth-section";
+import type { Auth, ConnectionProvider, ProviderConnection } from "@/generated/daemon/types.gen";
 import {
-    type Auth,
-    type ConnectionProvider,
     PROVIDER_DISPLAY_NAMES,
-    type ProviderConnection,
     type UpdateConnectionInput,
 } from "@/domains/settings/ai/provider-connections-client";
 import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";

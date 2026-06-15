@@ -13,10 +13,8 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { inferenceProviderconnectionsByNameDelete } from "@/generated/daemon/sdk.gen";
 
-import {
-    PROVIDER_DISPLAY_NAMES,
-    type ProviderConnection,
-} from "@/domains/settings/ai/provider-connections-client";
+import type { ProviderConnection } from "@/generated/daemon/types.gen";
+import { PROVIDER_DISPLAY_NAMES } from "@/domains/settings/ai/provider-connections-client";
 import { ProviderEditorContent } from "@/domains/settings/ai/provider-editor-modal";
 // ---------------------------------------------------------------------------
 // Helpers
