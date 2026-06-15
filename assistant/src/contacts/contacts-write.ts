@@ -6,8 +6,6 @@
  * identity and access-control state.
  */
 
-import type { ChannelId } from "../channels/types.js";
-import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { emitContactChange } from "./contact-events.js";
 import {
   findContactChannel,
@@ -67,12 +65,7 @@ export function upsertContactChannel(params: {
   let address: string;
 
   if (params.externalUserId) {
-    const canonical =
-      canonicalizeInboundIdentity(
-        params.sourceChannel as ChannelId,
-        params.externalUserId,
-      ) ?? params.externalUserId;
-    address = canonical;
+    address = params.externalUserId;
   } else if (params.externalChatId) {
     address = params.externalChatId;
   } else {
