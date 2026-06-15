@@ -67,7 +67,7 @@ function makeContact(
         id: channelId,
         contactId: "contact-test",
         type: "phone",
-        address: PHONE.toLowerCase(),
+        address: PHONE,
         externalUserId,
         externalChatId: null,
         isPrimary: true,
@@ -127,7 +127,7 @@ describe("resolveActorTrust — address fallback", () => {
     });
 
     expect(result.memberRecord?.channel.status).toBe("active");
-    expect(result.memberRecord?.channel.address).toBe(PHONE.toLowerCase());
+    expect(result.memberRecord?.channel.address).toBe(PHONE);
   });
 
   test("returns null memberRecord when neither lookup finds the number", () => {

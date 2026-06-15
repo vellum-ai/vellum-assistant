@@ -8,10 +8,7 @@
 
 import { z } from "zod";
 
-import {
-  assistantDbQuery,
-  assistantDbRun,
-} from "../db/assistant-db-proxy.js";
+import { assistantDbQuery, assistantDbRun } from "../db/assistant-db-proxy.js";
 import { ContactStore } from "../db/contact-store.js";
 import { getLogger } from "../logger.js";
 import type { IpcRoute } from "./server.js";
@@ -86,7 +83,7 @@ export const contactRoutes: IpcRoute[] = [
       const { channelType, address, role, displayName } =
         CreateContactParamsSchema.parse(params);
 
-      const normalizedAddress = address.toLowerCase().trim();
+      const normalizedAddress = address.trim();
       const effectiveDisplayName = displayName ?? normalizedAddress;
       // Map prompt roles to valid ContactRole values ("guardian" | "contact").
       const effectiveRole: string =
@@ -142,7 +139,13 @@ export const contactRoutes: IpcRoute[] = [
       }
 
       log.info(
-        { channelType, address: normalizedAddress, contactId, channelId, role: effectiveRole },
+        {
+          channelType,
+          address: normalizedAddress,
+          contactId,
+          channelId,
+          role: effectiveRole,
+        },
         "create_contact: created new contact + channel",
       );
 

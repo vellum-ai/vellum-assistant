@@ -61,7 +61,7 @@ export class ContactStore {
       .where(
         and(
           eq(contactChannels.type, channelType),
-          eq(contactChannels.address, externalUserId.toLowerCase()),
+          eq(contactChannels.address, externalUserId),
         ),
       )
       .limit(1)
@@ -93,7 +93,7 @@ export class ContactStore {
         and(
           eq(contactChannels.type, "phone"),
           ne(contactChannels.status, "revoked"),
-          eq(contactChannels.address, phoneNumber.toLowerCase()),
+          eq(contactChannels.address, phoneNumber),
         ),
       )
       .limit(1)
@@ -434,14 +434,13 @@ export class ContactStore {
     // fields are not part of this method's input surface.
     if (!contactId && params.channels?.length) {
       for (const ch of params.channels) {
-        const address = ch.address.toLowerCase();
         const match = this.db
           .select({ contactId: contactChannels.contactId })
           .from(contactChannels)
           .where(
             and(
               eq(contactChannels.type, ch.type),
-              eq(contactChannels.address, address),
+              eq(contactChannels.address, ch.address),
             ),
           )
           .get();
@@ -545,8 +544,6 @@ export class ContactStore {
     now: number,
   ): void {
     for (const ch of channels) {
-      const address = ch.address.toLowerCase();
-
       const existing = this.db
         .select()
         .from(contactChannels)
@@ -554,7 +551,7 @@ export class ContactStore {
           and(
             eq(contactChannels.contactId, contactId),
             eq(contactChannels.type, ch.type),
-            eq(contactChannels.address, address),
+            eq(contactChannels.address, ch.address),
           ),
         )
         .get();
@@ -594,7 +591,7 @@ export class ContactStore {
         .where(
           and(
             eq(contactChannels.type, ch.type),
-            eq(contactChannels.address, address),
+            eq(contactChannels.address, ch.address),
           ),
         )
         .get();
@@ -607,7 +604,7 @@ export class ContactStore {
           id: crypto.randomUUID(),
           contactId,
           type: ch.type,
-          address,
+          address: ch.address,
           isPrimary: ch.isPrimary ?? false,
           externalUserId: ch.externalUserId ?? null,
           externalChatId: ch.externalChatId ?? null,
@@ -722,11 +719,9 @@ export class ContactStore {
 
     // Sync channels to the assistant DB.
     for (const ch of params.channels ?? []) {
-      const address = ch.address.toLowerCase();
-
       const existingCh = await assistantDbQuery<{ id: string; status: string }>(
         "SELECT id, status FROM contact_channels WHERE contact_id = ? AND type = ? AND address = ?",
-        [contactId, ch.type, address],
+        [contactId, ch.type, ch.address],
       );
 
       if (existingCh.length) {
@@ -760,7 +755,7 @@ export class ContactStore {
         // Skip if an address conflict exists on a different contact.
         const conflict = await assistantDbQuery<{ id: string }>(
           "SELECT id FROM contact_channels WHERE type = ? AND address = ?",
-          [ch.type, address],
+          [ch.type, ch.address],
         );
         if (conflict.length) continue;
 
@@ -774,7 +769,7 @@ export class ContactStore {
             crypto.randomUUID(),
             contactId,
             ch.type,
-            address,
+            ch.address,
             ch.isPrimary ? 1 : 0,
             ch.externalUserId ?? null,
             ch.externalChatId ?? null,

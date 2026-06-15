@@ -25,8 +25,8 @@ const log = getLogger("guardian-channel-create");
 
 const GuardianChannelRequestSchema = z.object({
   type: z.string().trim().toLowerCase(),
-  address: z.string().trim().toLowerCase(),
-  externalUserId: z.string().trim().toLowerCase(),
+  address: z.string().trim(),
+  externalUserId: z.string().trim(),
   status: z.literal("active"),
 });
 
@@ -43,7 +43,9 @@ interface GuardianRow {
  * Find the existing guardian contact (any channel). Returns null if no
  * guardian has been verified yet or if the guardian has no principal_id.
  */
-async function findGuardian(): Promise<(GuardianRow & { principal_id: string }) | null> {
+async function findGuardian(): Promise<
+  (GuardianRow & { principal_id: string }) | null
+> {
   const rows = await assistantDbQuery<GuardianRow>(
     `SELECT id, principal_id FROM contacts WHERE role = 'guardian' LIMIT 1`,
   );
@@ -84,9 +86,7 @@ export function createGuardianChannelHandler() {
 
     const guardian = await findGuardian();
     if (!guardian) {
-      log.warn(
-        "No guardian contact exists — cannot create guardian channel",
-      );
+      log.warn("No guardian contact exists — cannot create guardian channel");
       return Response.json(
         {
           error:
@@ -114,10 +114,7 @@ export function createGuardianChannelHandler() {
         verifiedVia: "platform_auto_register",
       });
     } catch (err) {
-      log.error(
-        { err },
-        "Failed to create guardian channel binding",
-      );
+      log.error({ err }, "Failed to create guardian channel binding");
       return Response.json(
         { error: "Failed to create guardian channel" },
         { status: 500 },

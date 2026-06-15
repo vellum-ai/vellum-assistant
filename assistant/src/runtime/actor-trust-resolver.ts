@@ -186,9 +186,7 @@ export function resolveActorTrust(
       guardianDeliveryChatId: guardianChannel.externalChatId,
     };
     guardianPrincipalId = guardianContact.principalId ?? undefined;
-    isGuardian =
-      guardianChannel.address?.toLowerCase() ===
-      canonicalSenderId.toLowerCase();
+    isGuardian = guardianChannel.address === canonicalSenderId;
   }
 
   log.debug(
@@ -207,9 +205,7 @@ export function resolveActorTrust(
     canonicalSenderId,
   );
   const byAddressChannel = byAddress?.channels.find(
-    (ch) =>
-      ch.type === input.sourceChannel &&
-      ch.address?.toLowerCase() === canonicalSenderId.toLowerCase(),
+    (ch) => ch.type === input.sourceChannel && ch.address === canonicalSenderId,
   );
   if (byAddress && byAddressChannel) {
     memberRecord = { contact: byAddress, channel: byAddressChannel };
@@ -228,8 +224,7 @@ export function resolveActorTrust(
   // Only use member metadata when the record's channel identity matches the
   // current sender to avoid misidentification in group chats.
   const memberMatchesSender =
-    memberRecord?.channel.address?.toLowerCase() ===
-    canonicalSenderId.toLowerCase();
+    memberRecord?.channel.address === canonicalSenderId;
 
   const memberDisplayName =
     memberMatchesSender &&

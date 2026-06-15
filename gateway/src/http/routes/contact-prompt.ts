@@ -45,27 +45,41 @@ interface ContactPromptSubmitBody {
 // Handler
 // ---------------------------------------------------------------------------
 
-export async function handleContactPromptSubmit(req: Request): Promise<Response> {
+export async function handleContactPromptSubmit(
+  req: Request,
+): Promise<Response> {
   let body: ContactPromptSubmitBody;
   try {
     body = (await req.json()) as ContactPromptSubmitBody;
   } catch {
-    return Response.json({ accepted: false, error: "Invalid JSON body" }, { status: 400 });
+    return Response.json(
+      { accepted: false, error: "Invalid JSON body" },
+      { status: 400 },
+    );
   }
 
   const { requestId, address, channelType, role, displayName } = body;
 
   if (!requestId || typeof requestId !== "string") {
-    return Response.json({ accepted: false, error: "requestId is required" }, { status: 400 });
+    return Response.json(
+      { accepted: false, error: "requestId is required" },
+      { status: 400 },
+    );
   }
   if (!address || typeof address !== "string") {
-    return Response.json({ accepted: false, error: "address is required" }, { status: 400 });
+    return Response.json(
+      { accepted: false, error: "address is required" },
+      { status: 400 },
+    );
   }
   if (!channelType || typeof channelType !== "string") {
-    return Response.json({ accepted: false, error: "channelType is required" }, { status: 400 });
+    return Response.json(
+      { accepted: false, error: "channelType is required" },
+      { status: 400 },
+    );
   }
 
-  const normalizedAddress = address.toLowerCase().trim();
+  const normalizedAddress = address.trim();
   const effectiveDisplayName = displayName ?? normalizedAddress;
   // Map prompt roles to valid ContactRole values ("guardian" | "contact").
   const effectiveRole: string = role === "guardian" ? "guardian" : "contact";
@@ -107,11 +121,20 @@ export async function handleContactPromptSubmit(req: Request): Promise<Response>
         try {
           getGatewayDb()
             .insert(gwContacts)
-            .values({ id: contactId, displayName: effectiveDisplayName, role: "guardian", createdAt: now, updatedAt: now })
+            .values({
+              id: contactId,
+              displayName: effectiveDisplayName,
+              role: "guardian",
+              createdAt: now,
+              updatedAt: now,
+            })
             .onConflictDoNothing()
             .run();
         } catch (gwErr) {
-          log.warn({ err: gwErr }, "contact-prompt-submit: gateway DB guardian contact INSERT dual-write failed");
+          log.warn(
+            { err: gwErr },
+            "contact-prompt-submit: gateway DB guardian contact INSERT dual-write failed",
+          );
         }
       }
     } else {
@@ -133,11 +156,20 @@ export async function handleContactPromptSubmit(req: Request): Promise<Response>
         try {
           getGatewayDb()
             .insert(gwContacts)
-            .values({ id: contactId, displayName: effectiveDisplayName, role: effectiveRole, createdAt: now, updatedAt: now })
+            .values({
+              id: contactId,
+              displayName: effectiveDisplayName,
+              role: effectiveRole,
+              createdAt: now,
+              updatedAt: now,
+            })
             .onConflictDoNothing()
             .run();
         } catch (gwErr) {
-          log.warn({ err: gwErr }, "contact-prompt-submit: gateway DB contact INSERT dual-write failed");
+          log.warn(
+            { err: gwErr },
+            "contact-prompt-submit: gateway DB contact INSERT dual-write failed",
+          );
         }
       }
     }
@@ -150,12 +182,18 @@ export async function handleContactPromptSubmit(req: Request): Promise<Response>
     // is a conflict the caller must resolve — return 409.  Otherwise create a
     // new channel bound to the resolved contact.
     // -----------------------------------------------------------------------
-    const existingChannel = await assistantDbQuery<{ id: string; contactId: string }>(
+    const existingChannel = await assistantDbQuery<{
+      id: string;
+      contactId: string;
+    }>(
       `SELECT id, contact_id AS contactId FROM contact_channels WHERE type = ? AND address = ? LIMIT 1`,
       [channelType, normalizedAddress],
     );
 
-    if (existingChannel.length > 0 && existingChannel[0].contactId === contactId) {
+    if (
+      existingChannel.length > 0 &&
+      existingChannel[0].contactId === contactId
+    ) {
       channelId = existingChannel[0].id;
       log.info(
         { channelType, address: normalizedAddress, contactId, channelId },
@@ -165,7 +203,12 @@ export async function handleContactPromptSubmit(req: Request): Promise<Response>
       // Channel exists but belongs to a different contact.  The caller must
       // clean up the stale binding before a guardian channel can be created.
       log.warn(
-        { channelType, address: normalizedAddress, contactId, existingContactId: existingChannel[0].contactId },
+        {
+          channelType,
+          address: normalizedAddress,
+          contactId,
+          existingContactId: existingChannel[0].contactId,
+        },
         "contact-prompt-submit: channel already assigned to another contact",
       );
       await notifyDaemonResolveError(
@@ -173,7 +216,10 @@ export async function handleContactPromptSubmit(req: Request): Promise<Response>
         "Channel already assigned to another contact",
       );
       return Response.json(
-        { accepted: false, error: "Channel already assigned to another contact" },
+        {
+          accepted: false,
+          error: "Channel already assigned to another contact",
+        },
         { status: 409 },
       );
     } else {
@@ -203,7 +249,10 @@ export async function handleContactPromptSubmit(req: Request): Promise<Response>
             .onConflictDoNothing()
             .run();
         } catch (gwErr) {
-          log.warn({ err: gwErr }, "contact-prompt-submit: gateway DB channel INSERT dual-write failed");
+          log.warn(
+            { err: gwErr },
+            "contact-prompt-submit: gateway DB channel INSERT dual-write failed",
+          );
         }
       } catch (channelErr) {
         // Compensating delete — only remove the contact if we created it here.
@@ -212,14 +261,19 @@ export async function handleContactPromptSubmit(req: Request): Promise<Response>
           "contact-prompt-submit: channel INSERT failed, rolling back contact",
         );
         if (createdNewContact) {
-          await assistantDbRun("DELETE FROM contacts WHERE id = ?", [contactId]);
+          await assistantDbRun("DELETE FROM contacts WHERE id = ?", [
+            contactId,
+          ]);
           try {
             getGatewayDb()
               .delete(gwContacts)
               .where(eq(gwContacts.id, contactId))
               .run();
           } catch (gwErr) {
-            log.warn({ err: gwErr }, "contact-prompt-submit: gateway DB contact rollback DELETE dual-write failed");
+            log.warn(
+              { err: gwErr },
+              "contact-prompt-submit: gateway DB contact rollback DELETE dual-write failed",
+            );
           }
         }
 
@@ -242,13 +296,22 @@ export async function handleContactPromptSubmit(req: Request): Promise<Response>
   } catch (err) {
     log.error({ err, requestId }, "contact-prompt-submit: DB error");
     await notifyDaemonResolveError(requestId, "Database error");
-    return Response.json({ accepted: false, error: "Database error" }, { status: 500 });
+    return Response.json(
+      { accepted: false, error: "Database error" },
+      { status: 500 },
+    );
   }
 
   // Notify daemon to unblock the waiting contacts/prompt IPC call.
   try {
     const ipcResult = await ipcCallAssistant("resolve_contact_prompt", {
-      body: { requestId, contactId, channelId, channelType, address: normalizedAddress },
+      body: {
+        requestId,
+        contactId,
+        channelId,
+        channelType,
+        address: normalizedAddress,
+      },
     });
     if ((ipcResult as { resolved?: boolean }).resolved === false) {
       log.warn(

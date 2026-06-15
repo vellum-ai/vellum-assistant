@@ -27,7 +27,7 @@ import { canonicalizeInboundIdentity } from "./identity.js";
 const log = getLogger("verification-contacts");
 
 function contactChannelAddress(canonicalUserId: string): string {
-  return canonicalUserId.toLowerCase();
+  return canonicalUserId;
 }
 
 // ---------------------------------------------------------------------------
@@ -64,7 +64,7 @@ export async function findContactChannelByExternalUserId(
             cc.status
      FROM contact_channels cc
      JOIN contacts c ON c.id = cc.contact_id
-     WHERE cc.type = ? AND LOWER(cc.address) = LOWER(?)
+     WHERE cc.type = ? AND cc.address = ?
      LIMIT 1`,
     [channelType, externalUserId],
   );
@@ -109,7 +109,7 @@ export async function upsertVerifiedContactChannel(params: {
   }>(
     `SELECT cc.id AS channelId, cc.contact_id AS contactId, cc.status AS channelStatus
      FROM contact_channels cc
-     WHERE cc.type = ? AND LOWER(cc.address) = LOWER(?)
+     WHERE cc.type = ? AND cc.address = ?
      ORDER BY
        CASE cc.status
          WHEN 'active' THEN 0
@@ -281,7 +281,7 @@ export async function upsertContactChannel(params: {
   }>(
     `SELECT cc.id AS channelId, cc.contact_id AS contactId, cc.status AS channelStatus
      FROM contact_channels cc
-     WHERE cc.type = ? AND LOWER(cc.address) = LOWER(?)
+     WHERE cc.type = ? AND cc.address = ?
      ORDER BY
        CASE cc.status
          WHEN 'active' THEN 0

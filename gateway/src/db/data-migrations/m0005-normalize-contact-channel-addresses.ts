@@ -1,18 +1,13 @@
 /**
- * One-time migration: normalize all contact_channels.address values to
- * lowercase and deduplicate case-insensitive collisions.
+ * One-time migration: deduplicate historical case collisions in the
+ * gateway's contact_channels table.
  *
- * Slack channels may have uppercase addresses (e.g. 'U12345ABC') — address
- * is the canonical identity column for all channel types. All lookups query
- * by lowercased address, so uppercase values cause lookup misses.
+ * Historical writes lowercased addresses inconsistently — some paths stored
+ * 'U12345' and others stored 'u12345' for the same identity. This migration
+ * resolves collisions by keeping the best row per (type, address) group
+ * (case-insensitive match for dedup only).
  *
- * Steps:
- *  1. Deduplicate by (type, LOWER(address)) — keeps the best row per group
- *     using status rank (blocked > revoked > active > unverified) then recency.
- *  2. Lowercase all remaining address values.
- *
- * Idempotent: on a DB where all addresses are already lowercase, both steps
- * are no-ops.
+ * Idempotent: on a DB with no case collisions, the DELETE is a no-op.
  */
 
 import { Database } from "bun:sqlite";
@@ -22,7 +17,7 @@ import { getGatewayDb } from "../connection.js";
 
 import type { MigrationResult } from "./index.js";
 
-const log = getLogger("m0005-normalize-addresses");
+const log = getLogger("m0005-dedup-addresses");
 
 function getRawGatewayDb(): Database {
   return (getGatewayDb() as unknown as { $client: Database }).$client;
@@ -31,14 +26,14 @@ function getRawGatewayDb(): Database {
 export function up(): MigrationResult {
   const db = getRawGatewayDb();
 
-  // Step 1: Deduplicate by (type, LOWER(address)).
+  // Deduplicate historical case collisions.
   db.exec(/*sql*/ `
     DELETE FROM contact_channels
     WHERE id NOT IN (
       SELECT id FROM (
         SELECT id,
                ROW_NUMBER() OVER (
-                 PARTITION BY type, LOWER(address)
+                 PARTITION BY type, address COLLATE NOCASE
                  ORDER BY
                    CASE status
                      WHEN 'blocked' THEN 0
@@ -55,16 +50,10 @@ export function up(): MigrationResult {
     )
   `);
 
-  // Step 2: Normalize all addresses to lowercase.
-  db.exec(
-    /*sql*/ `UPDATE contact_channels SET address = LOWER(address) WHERE address != LOWER(address)`,
-  );
-
-  log.info("Normalized contact_channels addresses to lowercase");
+  log.info("Deduplicated contact_channels by (type, address) case-insensitive");
   return "done";
 }
 
 export function down(): MigrationResult {
-  // No-op: lowercased addresses are the correct state going forward.
   return "done";
 }

@@ -144,7 +144,7 @@ export async function findGuardianForChannelActor(
      INNER JOIN contact_channels cc ON cc.contact_id = c.id
      WHERE c.role = 'guardian'
        AND cc.type = ?
-       AND LOWER(cc.address) = LOWER(?)
+       AND cc.address = ?
        AND cc.status = 'active'
      LIMIT 1`,
     [channelType, externalUserId],
@@ -213,7 +213,7 @@ export async function createGuardianBinding(
        FROM contact_channels cc
        WHERE cc.type = ?
          AND cc.status != 'blocked'
-         AND LOWER(cc.address) = LOWER(?)
+         AND cc.address = ?
        ORDER BY
          CASE WHEN cc.contact_id = ? THEN 0 ELSE 1 END,
          CASE cc.status
@@ -255,11 +255,10 @@ export async function createGuardianBinding(
     }
 
     if (claimableChannels[0] || existingChannels[0]) {
-      // Remove case-insensitive duplicates that would conflict with the
-      // lowercased address we're about to write.
+      // Remove duplicate channels with the same address (defensive).
       await assistantDbRun(
         `DELETE FROM contact_channels
-         WHERE type = ? AND LOWER(address) = LOWER(?) AND id != ? AND status != 'blocked'`,
+         WHERE type = ? AND address = ? AND id != ? AND status != 'blocked'`,
         [params.channel, params.externalUserId, channelId],
       );
 
@@ -273,7 +272,7 @@ export async function createGuardianBinding(
          WHERE id = ?`,
         [
           contactId,
-          params.externalUserId.toLowerCase(),
+          params.externalUserId,
           params.externalUserId,
           params.deliveryChatId,
           now,
@@ -292,7 +291,7 @@ export async function createGuardianBinding(
           channelId,
           contactId,
           params.channel,
-          params.externalUserId.toLowerCase(),
+          params.externalUserId,
           params.externalUserId,
           params.deliveryChatId,
           now,
@@ -341,7 +340,7 @@ export async function createGuardianBinding(
           id: channelId,
           contactId,
           type: params.channel,
-          address: params.externalUserId.toLowerCase(),
+          address: params.externalUserId,
           externalUserId: params.externalUserId,
           externalChatId: params.deliveryChatId,
           isPrimary: true,
@@ -356,7 +355,7 @@ export async function createGuardianBinding(
           target: gwContactChannels.id,
           set: {
             contactId,
-            address: params.externalUserId.toLowerCase(),
+            address: params.externalUserId,
             externalUserId: params.externalUserId,
             externalChatId: params.deliveryChatId,
             isPrimary: true,

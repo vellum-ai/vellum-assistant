@@ -127,7 +127,7 @@ function seedTestData(): void {
         id: "ch2",
         contactId: "c1",
         type: "slack",
-        address: "ufake00001",
+        address: "UFAKE00001",
         isPrimary: false,
         externalUserId: "UFAKE00001",
         externalChatId: "DFAKE00001",

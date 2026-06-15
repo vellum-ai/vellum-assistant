@@ -189,7 +189,7 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
 });
 
 describe("upsertContactChannel — channel address casing", () => {
-  test("lowercases Slack address while preserving original externalUserId", async () => {
+  test("preserves original Slack address casing", async () => {
     queryRows = [];
 
     await upsertContactChannel({
@@ -202,11 +202,11 @@ describe("upsertContactChannel — channel address casing", () => {
       c.sql.includes("INSERT OR IGNORE INTO contact_channels"),
     );
     expect(channelInsert).toBeTruthy();
-    // address (param[3]) is lowercased; externalUserId (param[4]) preserves original
-    expect(channelInsert!.params[3]).toBe("u123example");
+    // address and externalUserId both preserve original casing
+    expect(channelInsert!.params[3]).toBe("U123EXAMPLE");
     expect(channelInsert!.params[4]).toBe("U123EXAMPLE");
 
-    expect(queryCalls[0]!.sql).toContain("LOWER(cc.address) = LOWER(?)");
-    expect(queryCalls[0]!.params).toEqual(["slack", "u123example"]);
+    expect(queryCalls[0]!.sql).toContain("cc.address = ?");
+    expect(queryCalls[0]!.params).toEqual(["slack", "U123EXAMPLE"]);
   });
 });
