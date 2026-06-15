@@ -39,7 +39,7 @@ export function SidebarShell({
   const isMobile = useIsMobile();
 
   // Edge-swipe back gesture for mobile subpages.
-  const swipeContainerRef = useRef<HTMLElement | null>(null);
+  const swipeContainerRef = useRef<HTMLDivElement | null>(null);
   const mobileBackHref = isMenuRoute ? backHref : menuRoute;
   const handleSwipeBack = useCallback(() => {
     navigate(mobileBackHref);
@@ -92,6 +92,7 @@ export function SidebarShell({
 
   return (
     <div
+      ref={swipeContainerRef}
       className="flex h-full min-h-0 w-full flex-1 flex-col gap-4 p-4 sm:p-6 md:gap-0"
       style={{
         paddingTop: electron
@@ -150,7 +151,6 @@ export function SidebarShell({
           ) : null}
 
           <main
-            ref={swipeContainerRef}
             className={`min-w-0 min-h-0 flex-1 flex-col gap-4 overflow-y-auto pb-6 md:flex md:px-6 md:pt-0 ${
               isMenuRoute ? "hidden" : "flex"
             }`}
