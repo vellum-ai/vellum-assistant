@@ -716,11 +716,20 @@ function TabContent({
           conversationTotalEstimatedCostUsd={conversationTotalEstimatedCostUsd}
         />
       );
-    case "prompt":
+    case "prompt": {
       if (detailState !== "loaded") {
         return <DetailPlaceholder state={detailState} />;
       }
-      return <PromptTab entry={entry} />;
+      const entryIndex = logs.findIndex((log) => log.id === entry.id);
+      const previous = entryIndex > 0 ? logs[entryIndex - 1] : null;
+      return (
+        <PromptTab
+          entry={entry}
+          previous={previous}
+          assistantId={assistantId}
+        />
+      );
+    }
     case "response":
       if (detailState !== "loaded") {
         return <DetailPlaceholder state={detailState} />;

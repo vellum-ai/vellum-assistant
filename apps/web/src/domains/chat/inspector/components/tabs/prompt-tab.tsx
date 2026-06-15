@@ -1,6 +1,7 @@
 import { ChevronRight, Copy } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
+import { CacheDiffCard } from "@/domains/chat/inspector/components/cache-diff-card";
 import { CacheHealthCard } from "@/domains/chat/inspector/components/cache-health-card";
 import { ToolDefinitionsContent } from "@/domains/chat/inspector/components/tool-definitions-content";
 import { parseToolDefinitions } from "@/domains/chat/inspector/tool-definitions";
@@ -12,6 +13,8 @@ import { Button, Card, Collapsible } from "@vellumai/design-library";
 
 interface PromptTabProps {
   entry: LLMRequestLogEntry;
+  previous: LLMRequestLogEntry | null;
+  assistantId: string | undefined;
 }
 
 /**
@@ -23,9 +26,15 @@ interface PromptTabProps {
  * formatting applied. Structured payloads and tool output stay in a capped
  * scroll box (they can be huge); prompt text renders uncapped so the full
  * prompt is readable inline. Tool definitions render as an expandable
- * per-tool breakdown. The raw provider JSON lives on the Raw tab.
+ * per-tool breakdown. The raw provider JSON lives on the Raw tab. A
+ * cache-diff panel below the cache-health summary names the block that
+ * diverged from the previous turn's request.
  */
-export function PromptTab({ entry }: PromptTabProps): ReactNode {
+export function PromptTab({
+  entry,
+  previous,
+  assistantId,
+}: PromptTabProps): ReactNode {
   const sections = entry.requestSections ?? [];
   const sectionIds = sections.map((_, i) => `section-${i}`);
 
@@ -49,6 +58,12 @@ export function PromptTab({ entry }: PromptTabProps): ReactNode {
   return (
     <div className="flex flex-col gap-4 p-4">
       <CacheHealthCard summary={entry.summary} />
+
+      <CacheDiffCard
+        current={entry}
+        previous={previous}
+        assistantId={assistantId}
+      />
 
       <Card>
         <div className="flex items-start justify-between gap-4">
