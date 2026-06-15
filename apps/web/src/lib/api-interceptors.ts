@@ -33,6 +33,7 @@ import { client as platformClient } from "@/generated/api/client.gen";
 import { client as authClient } from "@/generated/auth/client.gen";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
+import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { ApiError, extractErrorMessage } from "@/utils/api-errors";
 import { isLocalMode, isPlatformDisabled } from "@/lib/local-mode";
 import {
@@ -260,6 +261,46 @@ export function daemonUnreachableInterceptor(response: Response): Response {
 }
 
 /**
+ * Daemon response interceptor for local gateway 401 recovery.
+ *
+ * When the local gateway rejects a request with 401 (stale or invalid
+ * token), clears the cached gateway tokens from localStorage and
+ * reloads the page so the app acquires a fresh token on startup.
+ *
+ * A sessionStorage cooldown prevents infinite reload loops when the
+ * gateway consistently rejects tokens (e.g. after a misconfiguration).
+ */
+const GW_401_RELOAD_KEY = "vellum:gw:401-reload-at";
+const GW_401_COOLDOWN_MS = 10_000;
+
+export function localGatewayAuthRecoveryInterceptor(response: Response): Response {
+  if (response.status !== 401) {
+    return response;
+  }
+  if (!isLocalMode()) {
+    return response;
+  }
+  if (!getSelfHostedIngressUrl()) {
+    return response;
+  }
+
+  try {
+    const lastReload = sessionStorage.getItem(GW_401_RELOAD_KEY);
+    if (lastReload && Date.now() - Number(lastReload) < GW_401_COOLDOWN_MS) {
+      return response;
+    }
+    sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now()));
+  } catch {
+    // sessionStorage unavailable
+  }
+
+  clearGatewayToken();
+  window.location.reload();
+
+  return response;
+}
+
+/**
  * Normalizes HeyAPI's raw thrown errors into {@link ApiError} instances
  * for `throwOnError: true` calls only.
  *
@@ -295,6 +336,7 @@ export function daemonErrorInterceptor(
 
 daemonClient.interceptors.request.use(daemonRequestInterceptor);
 daemonClient.interceptors.response.use(daemonUnreachableInterceptor);
+daemonClient.interceptors.response.use(localGatewayAuthRecoveryInterceptor);
 daemonClient.interceptors.error.use(daemonErrorInterceptor);
 
 // Force JSON body parsing for all three generated clients. The default
