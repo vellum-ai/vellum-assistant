@@ -103,6 +103,19 @@ function formatCostCents(value: number | undefined): string {
   return `$${value.toFixed(2)}`;
 }
 
+/** Wall-clock duration, e.g. `940ms`, `47s`, `2m 53s`, `1h 04m`. */
+function formatDuration(ms: number | undefined): string {
+  if (ms === undefined) return "—";
+  if (ms < 1000) return `${ms}ms`;
+  const totalSeconds = Math.round(ms / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${String(minutes % 60).padStart(2, "0")}m`;
+}
+
 /**
  * Parse an ISO `recorded_at` into epoch milliseconds, or `undefined` when the
  * field is missing or unparseable. Used to order the per-request breakdown by
@@ -356,15 +369,15 @@ pre.log { max-height: 480px; overflow: auto; padding: 16px; border-radius: 16px;
 .tabpanel { display: none; padding: 24px; border-radius: 24px; background: rgba(0,0,0,.18); border: 1px solid var(--border); }
 .tabpanel h2 { margin: 0 0 14px; font-size: 20px; letter-spacing: -.03em; }
 #exec-tab-score:checked ~ .tabpanels .panel-score,
-#exec-tab-turns:checked ~ .tabpanels .panel-turns,
+#exec-tab-responses:checked ~ .tabpanels .panel-responses,
 #exec-tab-cost:checked ~ .tabpanels .panel-cost,
 #exec-tab-logs:checked ~ .tabpanels .panel-logs { display: block; }
 #exec-tab-score:checked ~ .tablist label[for="exec-tab-score"],
-#exec-tab-turns:checked ~ .tablist label[for="exec-tab-turns"],
+#exec-tab-responses:checked ~ .tablist label[for="exec-tab-responses"],
 #exec-tab-cost:checked ~ .tablist label[for="exec-tab-cost"],
 #exec-tab-logs:checked ~ .tablist label[for="exec-tab-logs"] { border-color: rgba(139,92,246,.7); background: linear-gradient(180deg, rgba(139,92,246,.22), rgba(34,211,238,.08)); }
 #exec-tab-score:focus-visible ~ .tablist label[for="exec-tab-score"],
-#exec-tab-turns:focus-visible ~ .tablist label[for="exec-tab-turns"],
+#exec-tab-responses:focus-visible ~ .tablist label[for="exec-tab-responses"],
 #exec-tab-cost:focus-visible ~ .tablist label[for="exec-tab-cost"],
 #exec-tab-logs:focus-visible ~ .tablist label[for="exec-tab-logs"] { outline: 2px solid var(--accent2); outline-offset: 2px; }
 .log-group { margin-top: 24px; }
@@ -769,12 +782,12 @@ function ProfileSummaryRow({
       </td>
       <td>
         <a href={url} className="row-link muted">
-          {profile.metricCount}
+          {profile.assistantResponses}
         </a>
       </td>
       <td>
         <a href={url} className="row-link muted">
-          {profile.transcriptTurns}
+          {formatDuration(profile.runtimeMs)}
         </a>
       </td>
       <td>
@@ -783,69 +796,6 @@ function ProfileSummaryRow({
         </a>
       </td>
     </tr>
-  );
-}
-
-function MetricSummaryTable({
-  profiles,
-}: {
-  profiles: ReportTestInSession["profiles"];
-}) {
-  // Build a union of metric names across all profiles, ordered by first
-  // occurrence so output order stays stable run-to-run.
-  const order: string[] = [];
-  const seen = new Set<string>();
-  for (const profile of profiles) {
-    for (const metric of profile.metrics) {
-      if (!seen.has(metric.name)) {
-        seen.add(metric.name);
-        order.push(metric.name);
-      }
-    }
-  }
-
-  if (order.length === 0) {
-    return <p className="muted">No metrics recorded yet for this test.</p>;
-  }
-
-  return (
-    <table>
-      <thead>
-        <tr>
-          <th>Metric</th>
-          {profiles.map((profile) => (
-            <th key={profile.profileId}>{profile.profileId}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {order.map((name) => (
-          <tr key={name}>
-            <td>
-              <strong>{name}</strong>
-            </td>
-            {profiles.map((profile) => {
-              const metric = profile.metrics.find((m) => m.name === name);
-              if (!metric) {
-                return (
-                  <td key={profile.profileId} className="muted">
-                    —
-                  </td>
-                );
-              }
-              return (
-                <td
-                  key={profile.profileId}
-                  className={`score ${scoreClass(metric.score)}`}
-                >
-                  {formatScore(metric.score, metric.unit, 2)}
-                </td>
-              );
-            })}
-          </tr>
-        ))}
-      </tbody>
-    </table>
   );
 }
 
@@ -879,8 +829,8 @@ function TestInSessionPage({ test }: { test: ReportTestInSession }) {
               <th>Profile</th>
               <th>Status</th>
               <th>Score</th>
-              <th>Metrics</th>
-              <th>Turns</th>
+              <th>Responses</th>
+              <th>Runtime</th>
               <th>Cost</th>
             </tr>
           </thead>
@@ -895,15 +845,6 @@ function TestInSessionPage({ test }: { test: ReportTestInSession }) {
             ))}
           </tbody>
         </table>
-      </section>
-
-      <section className="section">
-        <h2>Metric breakdown</h2>
-        <p className="section-subtle">
-          Per-metric scores side by side across every profile that ran this
-          test.
-        </p>
-        <MetricSummaryTable profiles={test.profiles} />
       </section>
     </>
   );
@@ -1003,7 +944,7 @@ function ProfileTestRow({
       </td>
       <td>
         <a href={url} className="row-link muted">
-          {entry.transcriptTurns}
+          {entry.assistantResponses}
         </a>
       </td>
       <td>
@@ -1061,7 +1002,7 @@ function ProfileInSessionPage({
               <th>Status</th>
               <th>Score</th>
               <th>Metrics</th>
-              <th>Turns</th>
+              <th>Responses</th>
               <th>Cost</th>
             </tr>
           </thead>
@@ -1660,7 +1601,7 @@ function ExecutionTabs({ run }: { run: ReportRunDetail }) {
         className="tab-input"
         type="radio"
         name="exec-tab"
-        id="exec-tab-turns"
+        id="exec-tab-responses"
       />
       <input
         className="tab-input"
@@ -1681,9 +1622,9 @@ function ExecutionTabs({ run }: { run: ReportRunDetail }) {
             {formatAggregateScore(run.scoreTotal)}
           </span>
         </label>
-        <label className="tab-pill" htmlFor="exec-tab-turns">
-          <span className="tab-pill-label">Turns</span>
-          <span className="tab-pill-value">{run.transcriptTurns}</span>
+        <label className="tab-pill" htmlFor="exec-tab-responses">
+          <span className="tab-pill-label">Responses</span>
+          <span className="tab-pill-value">{run.assistantResponses}</span>
         </label>
         <label className="tab-pill" htmlFor="exec-tab-cost">
           <span className="tab-pill-label">Cost</span>
@@ -1706,7 +1647,7 @@ function ExecutionTabs({ run }: { run: ReportRunDetail }) {
           <MetricReportCard metrics={run.metrics} />
         </section>
 
-        <section className="tabpanel panel-turns">
+        <section className="tabpanel panel-responses">
           <h2>Transcript</h2>
           <p className="section-subtle">
             Simulator turns interleaved with the assistant&apos;s reply — text,

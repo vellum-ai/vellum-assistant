@@ -27,8 +27,11 @@ import {
 
 type ExportRecord =
   | {
+      // v2: the execution payload reports `assistantResponses` (folded
+      // assistant replies) + `runtimeMs`, replacing v1's `transcriptTurns`
+      // (raw per-delta transcript-entry count).
       type: "metadata";
-      schemaVersion: 1;
+      schemaVersion: 2;
       exportedAt: string;
       sessionId: string;
     }
@@ -48,7 +51,8 @@ type ExportRecord =
         scoreTotal: number;
         metricCount: number;
         metrics: unknown[];
-        transcriptTurns: number;
+        assistantResponses: number;
+        runtimeMs?: number;
         assistantEventCount: number;
         simulatorMessageCount: number;
         totalInputTokens?: number;
@@ -92,7 +96,7 @@ export function registerExportCommand(program: Command): void {
       const records: ExportRecord[] = [
         {
           type: "metadata",
-          schemaVersion: 1,
+          schemaVersion: 2,
           exportedAt: new Date().toISOString(),
           sessionId: opts.session,
         },
@@ -123,7 +127,8 @@ export function registerExportCommand(program: Command): void {
               scoreTotal: run.scoreTotal,
               metricCount: run.metricCount,
               metrics: run.metrics,
-              transcriptTurns: run.transcriptTurns,
+              assistantResponses: run.assistantResponses,
+              runtimeMs: run.runtimeMs,
               assistantEventCount: run.assistantEventCount,
               simulatorMessageCount: run.simulatorMessageCount,
               totalInputTokens: run.totalInputTokens,
