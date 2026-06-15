@@ -778,6 +778,63 @@ describe("createChatDebugApi.listPendingInteractions", () => {
     expect(second.isSubmittingConfirmation).toBe(true);
     expect(second.inlineConfirmationToolCallId).toBe("tc-42");
   });
+
+  test("redacts pending confirmation input values but keeps the arg keys", () => {
+    const api = createChatDebugApi(
+      makeRefs({
+        pendingInteractions: {
+          pendingConfirmation: {
+            requestId: "req-confirm-1",
+            toolName: "http_request",
+            input: {
+              url: "https://api.example.com",
+              api_key: "sk-live-secret-value",
+              headers: { Authorization: "Bearer sk-live-secret-value" },
+            },
+          },
+        },
+      }),
+    );
+    const snapshot = api.listPendingInteractions();
+    expect(snapshot.pendingConfirmation?.input).toEqual({
+      url: "[redacted]",
+      api_key: "[redacted]",
+      headers: "[redacted]",
+    });
+  });
+
+  test("redacting input does not mutate the source snapshot", () => {
+    const input = { api_key: "sk-live-secret-value" };
+    const captured: PendingInteractionsSnapshot = {
+      ...DEFAULT_PENDING_INTERACTIONS,
+      pendingConfirmation: { requestId: "req-confirm-1", input },
+    };
+    const api = createChatDebugApi(
+      makeRefs({ getPendingInteractionsSnapshot: () => captured }),
+    );
+    const snapshot = api.listPendingInteractions();
+    expect(captured.pendingConfirmation?.input).toBe(input);
+    expect(input).toEqual({ api_key: "sk-live-secret-value" });
+    expect(snapshot.pendingConfirmation?.input).not.toBe(input);
+  });
+
+  test("leaves a confirmation without input untouched", () => {
+    const api = createChatDebugApi(
+      makeRefs({
+        pendingInteractions: {
+          pendingConfirmation: {
+            requestId: "req-confirm-1",
+            title: "Run migration?",
+          },
+        },
+      }),
+    );
+    const snapshot = api.listPendingInteractions();
+    expect(snapshot.pendingConfirmation).toEqual({
+      requestId: "req-confirm-1",
+      title: "Run migration?",
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
