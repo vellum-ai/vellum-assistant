@@ -32,8 +32,11 @@ explicitly says it cannot find the spreadsheet or the answer.
 
 A restaurant P&L spreadsheet (`assets/restaurant-pnl.csv`) is staged into the
 agent's workspace before the conversation starts, via the test's `setup.ts`
-`stage-workspace-file` command. It spans 6 spend categories of various amounts,
-with Labor as the unambiguous largest.
+`stage-workspace-file` command. It is a transaction-level export — one row per
+expense (`Date`, `Description`, `Category`, `Amount (USD)`) — with 100+
+transactions across three months (Q1) and 6 spend categories. The assistant
+must aggregate spend by category to answer; Labor is the unambiguous largest
+total ($48k, well clear of the next category).
 
 ## Success criteria (scored by metrics)
 
