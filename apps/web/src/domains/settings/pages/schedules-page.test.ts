@@ -43,6 +43,48 @@ const fetchScheduleUsageSummaryMock = mock(
     _range: ScheduleUsageSummaryRange,
   ): Promise<ScheduleUsageSummary[]> => [],
 );
+const fetchUsageProfileMetadataMock = mock(
+  async (_assistantId: string) => ({
+    balanced: { id: "balanced", displayName: "Balanced" },
+    "cost-optimized": {
+      id: "cost-optimized",
+      displayName: "Cost optimized",
+    },
+  }),
+);
+const fetchUsageCallSiteCatalogMock = mock(async (_assistantId: string) => ({
+  domains: [],
+  callSites: [
+    {
+      id: "mainAgent",
+      displayName: "Main assistant",
+      description: "",
+      domain: "chat",
+      defaultProfile: "balanced",
+    },
+    {
+      id: "heartbeatAgent",
+      displayName: "Heartbeat",
+      description: "",
+      domain: "system",
+      defaultProfile: "cost-optimized",
+    },
+    {
+      id: "memoryV2Consolidation",
+      displayName: "Memory consolidation",
+      description: "",
+      domain: "system",
+      defaultProfile: "balanced",
+    },
+    {
+      id: "memoryRetrospective",
+      displayName: "Memory retrospective",
+      description: "",
+      domain: "system",
+      defaultProfile: "cost-optimized",
+    },
+  ],
+}));
 const fetchConsolidationRunsMock = mock(
   async (
     _assistantId: string,
@@ -128,6 +170,12 @@ mock.module("@/domains/settings/api/schedules", () => ({
   fetchScheduleRuns: fetchScheduleRunsMock,
   fetchScheduleUsageSummary: fetchScheduleUsageSummaryMock,
 }));
+mock.module("@/utils/profile-metadata", () => ({
+  fetchUsageProfileMetadata: fetchUsageProfileMetadataMock,
+}));
+mock.module("@/domains/settings/api/model-profile", () => ({
+  fetchScheduleCallSiteCatalog: fetchUsageCallSiteCatalogMock,
+}));
 
 const {
   scheduleUsageSummaryQueryOptions,
@@ -168,6 +216,8 @@ afterEach(() => {
   fetchRetrospectiveRunsMock.mockClear();
   fetchScheduleRunsMock.mockClear();
   fetchScheduleUsageSummaryMock.mockClear();
+  fetchUsageCallSiteCatalogMock.mockClear();
+  fetchUsageProfileMetadataMock.mockClear();
   nowSpy?.mockRestore();
   nowSpy = null;
 });
@@ -980,6 +1030,41 @@ describe("ScheduleDetailView", () => {
       ]),
     );
   });
+
+  test("shows the default model profile for schedules without a pinned profile", async () => {
+    renderWithQueryClient(
+      createElement(ScheduleDetailView, {
+        schedule: schedule({
+          id: "script-schedule-123",
+          name: "Local cleanup",
+          description: "Clean up local generated files",
+          cadenceDescription: "Daily",
+          mode: "script",
+          script: "bun run cleanup",
+          inferenceProfile: null,
+          enabled: true,
+          nextRunAt: 1_761_792_000_000,
+          lastRunAt: null,
+          lastStatus: null,
+        }),
+        assistantId: "assistant-1",
+        onBack: () => {},
+        onDeleted: () => {},
+        onUpdated: () => {},
+      }),
+    );
+
+    expect(screen.getByText("Model profile")).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByText("Default (Balanced)")).toBeTruthy(),
+    );
+
+    await waitFor(() =>
+      expect(fetchScheduleRunsMock.mock.calls).toEqual([
+        ["assistant-1", "script-schedule-123", RUNS_PAGE_SIZE, undefined],
+      ]),
+    );
+  });
 });
 
 describe("SystemTaskRow", () => {
@@ -1094,6 +1179,10 @@ describe("system task toggles", () => {
     );
 
     expect(document.body.textContent).toContain("Disabled");
+    expect(screen.getByText("Model profile")).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByText("Default (Cost optimized)")).toBeTruthy(),
+    );
     // Disabling only pauses automatic runs — manual runs stay available.
     expect(
       (screen.getByRole("button", { name: /Run now/i }) as HTMLButtonElement)

@@ -8,6 +8,10 @@ import {
   fetchRetrospectiveRuns,
   SCHEDULE_RUNS_PAGE_SIZE,
 } from "@/domains/settings/api/schedules";
+import {
+  ModelProfileRow,
+  type ScheduleModelProfileCallSite,
+} from "@/domains/settings/components/model-profile-row";
 import { RecentRunsCard } from "@/domains/settings/components/recent-runs-card";
 import {
   flattenRunPages,
@@ -19,6 +23,15 @@ import { Tag } from "@vellumai/design-library/components/tag";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import type { SystemTaskKind } from "@/domains/settings/types/schedules";
+
+const SYSTEM_TASK_PROFILE_CALL_SITES: Record<
+  SystemTaskKind,
+  ScheduleModelProfileCallSite
+> = {
+  heartbeat: "heartbeatAgent",
+  consolidation: "memoryV2Consolidation",
+  retrospective: "memoryRetrospective",
+};
 
 interface SystemTaskDetailViewProps {
   kind: SystemTaskKind;
@@ -145,6 +158,11 @@ export function SystemTaskDetailView({
         }
       >
         <div className="space-y-2 text-body-medium-lighter">
+          <ModelProfileRow
+            assistantId={assistantId}
+            defaultCallSite={SYSTEM_TASK_PROFILE_CALL_SITES[kind]}
+            fallbackLabel="Default (system task model)"
+          />
           <div className="flex items-center justify-between">
             <span className="text-[var(--content-secondary)]">Status</span>
             <span className="flex items-center gap-2">

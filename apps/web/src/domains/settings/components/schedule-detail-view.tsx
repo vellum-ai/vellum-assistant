@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
   BarChart3,
@@ -18,6 +18,7 @@ import {
   SCHEDULE_RUNS_PAGE_SIZE,
   updateSchedule,
 } from "@/domains/settings/api/schedules";
+import { ModelProfileRow } from "@/domains/settings/components/model-profile-row";
 import { RecentRunsCard } from "@/domains/settings/components/recent-runs-card";
 import { StatusDot } from "@/domains/settings/components/schedule-shared-ui";
 import {
@@ -31,7 +32,6 @@ import {
 } from "@/domains/settings/utils/schedule-formatters";
 import { captureError } from "@/lib/sentry/capture-error";
 import { assistantScheduleRunsQueryKey } from "@/lib/sync/query-tags";
-import { fetchUsageProfileMetadata } from "@/utils/profile-metadata";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
@@ -220,20 +220,6 @@ export function ScheduleDetailView({
   const sourceConversationId =
     getOpenableScheduleSourceConversationId(schedule);
 
-  // Resolve the pinned profile's display name from llm.profiles metadata;
-  // fall back to the raw profile key while loading or if the profile was
-  // deleted from the config after the schedule pinned it.
-  const { data: profileMetadata } = useQuery({
-    queryKey: ["usage-profile-metadata", assistantId],
-    queryFn: () => fetchUsageProfileMetadata(assistantId),
-    enabled: schedule.inferenceProfile != null,
-    staleTime: 60_000,
-  });
-  const profileLabel = schedule.inferenceProfile
-    ? (profileMetadata?.[schedule.inferenceProfile]?.displayName ??
-      schedule.inferenceProfile)
-    : "Default (assistant's main model)";
-
   return (
     <div className="space-y-4">
       <button
@@ -321,15 +307,11 @@ export function ScheduleDetailView({
               </span>
             </div>
           ) : null}
-          {(schedule.mode === "execute" ||
-            schedule.inferenceProfile != null) && (
-            <div className="flex items-center justify-between gap-4">
-              <span className="text-[var(--content-secondary)]">
-                Model profile
-              </span>
-              <span className="min-w-0 text-right">{profileLabel}</span>
-            </div>
-          )}
+          <ModelProfileRow
+            assistantId={assistantId}
+            pinnedProfile={schedule.inferenceProfile}
+            defaultCallSite="mainAgent"
+          />
           <div className="flex items-center justify-between">
             <span className="text-[var(--content-secondary)]">Status</span>
             <span>{schedule.enabled ? "Enabled" : "Disabled"}</span>
