@@ -422,16 +422,19 @@ export function ChatMainPanel({
     messages.length === 0 &&
     !(assistantState.kind === "active" && assistantState.maintenanceMode?.enabled);
 
+  const showDoctorAction =
+    assistantState.kind === "active" && !assistantState.isLocal;
+
   const genericChatError = shouldShowGenericChatErrorNotice(error) && error
     ? {
         message: error.message,
-        actions: (
+        actions: showDoctorAction ? (
           <Button asChild variant="outlined" size="compact">
             <Link to={`${routes.settings.debug}?tab=doctor`}>
               Go to Doctor
             </Link>
           </Button>
-        ),
+        ) : undefined,
       }
     : null;
 
