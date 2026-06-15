@@ -10,6 +10,7 @@ import {
   MISSING_VALUE,
 } from "@/domains/chat/inspector/inspector-formatters";
 import {
+  CALL_SITE_COMPACTION_AGENT,
   CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
   type LLMRequestLogEntry,
 } from "@vellumai/assistant-api";
@@ -108,6 +109,7 @@ function CallRow({
   onSelect,
 }: CallRowProps): ReactNode {
   const isSynthetic = isSyntheticAgentErrorMessage(entry);
+  const isCompaction = isCompactionAgentCall(entry);
   const subtitle = buildCallSubtitle(entry) ?? "Unrecognized call";
   const estimatedCost = formatCost(entry.summary?.estimatedCostUsd ?? null);
 
@@ -153,6 +155,17 @@ function CallRow({
             <>Call {callNumber}</>
           )}
         </span>
+        {isCompaction ? (
+          <span
+            className="rounded-[4px] px-1.5 py-0.5 text-label-default"
+            style={{
+              background: "var(--system-info-weak)",
+              color: "var(--system-info-strong)",
+            }}
+          >
+            Compaction
+          </span>
+        ) : null}
         {isLatest ? (
           <span
             className="rounded-[4px] px-1.5 py-0.5 text-label-default"
@@ -199,6 +212,16 @@ function CallRow({
 
 function isSyntheticAgentErrorMessage(entry: LLMRequestLogEntry): boolean {
   return entry.callSite === CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE;
+}
+
+/**
+ * Compaction summarizer calls are captured as ordinary `llm_request_log`
+ * rows, so they appear in the rail alongside main-agent calls. The
+ * "Compaction" pill tags them so the summarizer isn't mistaken for a
+ * normal agent turn.
+ */
+function isCompactionAgentCall(entry: LLMRequestLogEntry): boolean {
+  return entry.callSite === CALL_SITE_COMPACTION_AGENT;
 }
 
 /**

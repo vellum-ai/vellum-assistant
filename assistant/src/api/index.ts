@@ -53,7 +53,10 @@ import { UsageProgressEventSchema } from "./events/usage-progress.js";
 import { UsageUpdateEventSchema } from "./events/usage-update.js";
 import { UserMessageEchoEventSchema } from "./events/user-message-echo.js";
 
-export { CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE } from "./constants/call-sites.js";
+export {
+  CALL_SITE_COMPACTION_AGENT,
+  CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
+} from "./constants/call-sites.js";
 export { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "./constants/tool-execution.js";
 export {
   type AssistantActivityAnchor,
