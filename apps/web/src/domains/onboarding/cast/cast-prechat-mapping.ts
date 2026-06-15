@@ -26,6 +26,13 @@ export interface CastSelections {
   jobs: string[];
   reachTools: string[];
   priorAssistant?: string;
+  /**
+   * The name the user gave their chosen cast assistant. Threaded into the
+   * context's `assistantName` so the auto-sent onboarding payload carries it —
+   * the daemon persists `IDENTITY.md` only when `onboarding.assistantName` is
+   * present, so without this the chosen cast name would never be written.
+   */
+  assistantName?: string;
 }
 
 /**
@@ -57,7 +64,7 @@ export function buildCastPreChatContext(
     selectedPriorAssistants: sel.priorAssistant
       ? new Set([sel.priorAssistant])
       : new Set(),
-    assistantName: "",
+    assistantName: sel.assistantName ?? "",
     selfIntroGreetingEnabled: false,
     googleConnected: false,
     googleScopes: [],

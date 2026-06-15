@@ -9,16 +9,21 @@
  * screen per phase through the screen-slot contract in `screens/screen-slot.ts`.
  *
  * PR 5h wires the six real screens (login / preamble / starter / dialogue /
- * style / done) in against the contract, replacing the PR 5a stubs. The
- * completion path stays the prototype's existing `navigate` stub — the
- * `PreChatOnboardingContext` handoff + background hatch land in a later PR.
+ * style / done) in against the contract, replacing the PR 5a stubs.
+ *
+ * PR 6 replaces the prototype's `navigate` stub with the real handoff: the
+ * assistant is background-hatched on entry to the login/role step (maximizing
+ * overlap with the time the user spends in the flow), and on completion the
+ * flow awaits hatch readiness, builds a `PreChatOnboardingContext` from the
+ * collected selections, stashes it for the chat surface, and navigates — the
+ * same finish sequence as `pages/pre-chat-flow.tsx`. The chat surface
+ * auto-sends the research directive (the context's `initialMessage`) and
+ * attaches the context as the `onboarding` payload on that same first send.
  */
 
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router";
 import { AnimatePresence } from "motion/react";
 
-import { routes } from "@/utils/routes";
 import type { JobKey, RatherKey } from "@/domains/onboarding/cast/cast-content";
 import type { StyleProfile } from "@/domains/onboarding/cast/cast-templates";
 import type { CastCharacter } from "@/domains/onboarding/cast/cast-roster";
@@ -34,7 +39,41 @@ import type {
   MemoryEntry,
   StarterResume,
 } from "@/domains/onboarding/cast/screens/screen-slot";
+import {
+  buildCastPreChatContext,
+  type CastSelections,
+} from "@/domains/onboarding/cast/cast-prechat-mapping";
+import { deriveTaskSuggestions } from "@/domains/onboarding/cast/cast-task-derivation";
+import { useBackgroundHatch } from "@/domains/onboarding/cast/use-background-hatch";
+import {
+  setPendingAssistantName,
+  setPendingPreChatContext,
+} from "@/domains/onboarding/prechat";
+import { DEFAULT_GROUP_ID } from "@/domains/onboarding/prechat-names";
+import { lifecycleService } from "@/assistant/lifecycle-service";
+import { setSelectedAssistant } from "@/assistant/selection";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { useNavigate } from "react-router";
+import { routes } from "@/utils/routes";
 import "@/domains/onboarding/cast/cast.css";
+
+/**
+ * Map the cast dialogue "tone" choice onto a personality tone group id
+ * understood by {@link PreChatOnboardingContext} ("grounded" | "warm" |
+ * "energetic" | "poetic"). The cast flow only collects a binary
+ * fast/deep axis, so this is a deliberate, lossy projection:
+ *   - `"fast"` (concise, direct) → `"energetic"`
+ *   - `"deep"` (thorough, detailed) → `"grounded"`
+ *   - `null` (skipped) → `DEFAULT_GROUP_ID` ("grounded")
+ *
+ * TODO(PR 7): confirm this mapping with design — it's a placeholder pick
+ * pending the tone/tasks reconciliation pass.
+ */
+function castToneToGroupId(tone: "fast" | "deep" | null): string {
+  if (tone === "fast") return "energetic";
+  if (tone === "deep") return "grounded";
+  return DEFAULT_GROUP_ID;
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -97,10 +136,29 @@ const win = () => ({
 // renders one screen per phase through the screen-slot contract.
 // ---------------------------------------------------------------------------
 
-function InteractiveCastFlow({ onComplete }: { onComplete: (data: CastCompletionData) => void }) {
+function InteractiveCastFlow({
+  onComplete,
+  onLoginPhase,
+}: {
+  onComplete: (data: CastCompletionData) => void;
+  /** Fired once when the flow first enters the login/role phase. */
+  onLoginPhase: () => void;
+}) {
   const panelRef = useRef<HTMLDivElement>(null);
 
   const [phase, setPhase] = useState<CastPhase>("login");
+
+  // Kick off the background hatch on entry to the login/role step — the first
+  // phase where the user supplies their occupation, so the hatch overlaps the
+  // rest of the flow. Ref-guarded so it fires at most once regardless of
+  // re-renders/keystrokes while the login screen is mounted.
+  const loginHatchFiredRef = useRef(false);
+  useEffect(() => {
+    if (phase !== "login" || loginHatchFiredRef.current) return;
+    loginHatchFiredRef.current = true;
+    onLoginPhase();
+  }, [phase, onLoginPhase]);
+
   const [userFirstName, setUserFirstName] = useState("");
   const [userLastName, setUserLastName] = useState("");
   // `userRole` is the field the later handoff maps to `occupation`.
@@ -341,21 +399,155 @@ function InteractiveCastFlow({ onComplete }: { onComplete: (data: CastCompletion
 
 // ---------------------------------------------------------------------------
 // CastOnboardingFlow — top-level orchestrator entry (was `InteractiveSetup`).
-// Wraps the flow in the themed cast stage and routes completion. The completion
-// handler stays a navigate-to-home stub until PR 6 swaps in the
-// PreChatOnboardingContext handoff + background hatch.
+// Wraps the flow in the themed cast stage and owns the completion handoff:
+// background-hatch on login-step entry, then on completion await readiness,
+// build the PreChatOnboardingContext, stash it, and finish like
+// `pages/pre-chat-flow.tsx`. The chat surface auto-sends the research directive
+// (the context's `initialMessage`) with the context attached as the
+// `onboarding` payload — no extra send wiring here.
 // ---------------------------------------------------------------------------
 
-export function CastOnboardingFlow() {
-  const navigate = useNavigate();
+/** Build the handoff context from the flow's collected completion data. */
+function buildHandoffFromCompletion(
+  data: CastCompletionData,
+): { context: ReturnType<typeof buildCastPreChatContext>; assistantName: string } {
+  const selections: CastSelections = {
+    firstName: data.firstName || undefined,
+    lastName: data.lastName || undefined,
+    role: data.role || undefined,
+    tone: castToneToGroupId(data.tone),
+    reachTools: data.connectedTools,
+    // The dedicated `job` phase is gone, so tasks come from the designated
+    // source — `deriveTaskSuggestions`, fed by the connected-tools memory.
+    jobs: deriveTaskSuggestions(
+      data.connectedTools.length > 0
+        ? [["reach", `Connected: ${data.connectedTools.join(", ")}`]]
+        : [],
+    ),
+    // `priorAssistant` is not collected by the cast flow yet.
+    priorAssistant: undefined,
+    // The chosen cast name rides the context (not just the optimistic
+    // pending-name key) so the onboarding payload carries `assistantName` and
+    // the daemon persists it to IDENTITY.md after the first message.
+    assistantName: data.name || undefined,
+  };
+  return {
+    context: buildCastPreChatContext(selections),
+    assistantName: data.name,
+  };
+}
 
-  function handleComplete(_data: CastCompletionData) {
-    navigate(routes.home);
+/**
+ * Inner flow body that owns one background-hatch instance. `useBackgroundHatch`
+ * is ref-guarded with no reset, so a terminal failure is recovered by
+ * remounting this component (the parent bumps `attempt`), which provisions a
+ * fresh hatch. The completion data is lifted to the parent so it survives the
+ * remount and the retry can replay the handoff without re-walking the flow.
+ */
+function CastFlowBody({
+  completedData,
+  onCompleted,
+  onHandoffError,
+}: {
+  completedData: CastCompletionData | null;
+  onCompleted: (data: CastCompletionData) => void;
+  onHandoffError: (message: string) => void;
+}) {
+  const navigate = useNavigate();
+  const { start, awaitReady } = useBackgroundHatch();
+  const handoffStartedRef = useRef(false);
+
+  async function runHandoff(data: CastCompletionData): Promise<void> {
+    let assistantId: string;
+    try {
+      // Wait for the background hatch to report healthy before handing off.
+      assistantId = await awaitReady();
+    } catch (err) {
+      onHandoffError(
+        err instanceof Error
+          ? err.message
+          : "Failed to start your assistant. Please try again.",
+      );
+      return;
+    }
+
+    const { context, assistantName } = buildHandoffFromCompletion(data);
+    setPendingPreChatContext(context);
+    setPendingAssistantName(assistantName);
+
+    // Mirror `pages/pre-chat-flow.tsx`'s finish: select the hatched assistant,
+    // mark the chat surface as expecting the first message, refresh lifecycle,
+    // then navigate to chat. The chat surface auto-sends `initialMessage`
+    // (the research directive) with the context attached.
+    //
+    // In a multi-assistant session a *different* assistant may already be the
+    // platform selection. Make the hatched assistant the selection (so the
+    // persisted selection + lockfile converge on it) AND pin the lifecycle
+    // refresh to the hatched id, so `checkAssistant` fetches/projects the
+    // hatched assistant rather than re-fetching the prior selection and
+    // overwriting `activeAssistantId` back to it — otherwise the onboarding
+    // payload would be sent to the wrong assistant.
+    useResolvedAssistantsStore.getState().setActiveAssistantId(assistantId);
+    await setSelectedAssistant(assistantId);
+    lifecycleService.markExpectingFirstMessage();
+    await lifecycleService.checkAssistant(assistantId);
+    void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
+  }
+
+  // On a (re)mount that already has completion data — i.e. a retry — provision a
+  // fresh hatch (the user is past the login step, so nothing else triggers it)
+  // and replay the handoff. Ref-guarded so it fires once per mount.
+  useEffect(() => {
+    if (!completedData || handoffStartedRef.current) return;
+    handoffStartedRef.current = true;
+    start();
+    void runHandoff(completedData);
+    // runHandoff/start are stable for the lifetime of this mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [completedData]);
+
+  function handleComplete(data: CastCompletionData) {
+    if (handoffStartedRef.current) return;
+    handoffStartedRef.current = true;
+    onCompleted(data);
+    void runHandoff(data);
+  }
+
+  return (
+    <InteractiveCastFlow onComplete={handleComplete} onLoginPhase={start} />
+  );
+}
+
+export function CastOnboardingFlow() {
+  // Captured completion data survives a retry remount; bumping `attempt`
+  // remounts `CastFlowBody` to provision a fresh hatch after a terminal failure.
+  const [completedData, setCompletedData] = useState<CastCompletionData | null>(
+    null,
+  );
+  const [handoffError, setHandoffError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+
+  function retryHandoff() {
+    setHandoffError(null);
+    setAttempt((n) => n + 1);
   }
 
   return (
     <div className="cast-stage" data-theme="dark">
-      <InteractiveCastFlow onComplete={handleComplete} />
+      <CastFlowBody
+        key={attempt}
+        completedData={completedData}
+        onCompleted={setCompletedData}
+        onHandoffError={setHandoffError}
+      />
+      {handoffError !== null && (
+        <div className="cast-handoff-error" role="alert">
+          <p>{handoffError}</p>
+          <button type="button" onClick={retryHandoff}>
+            Try again
+          </button>
+        </div>
+      )}
     </div>
   );
 }
