@@ -19146,6 +19146,96 @@ paths:
           description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
         "404":
           description: No installed copy and no catalog entry claims the given name.
+  /v1/plugins/{name}/diff:
+    get:
+      operationId: plugins_by_name_diff_get
+      summary: Diff a plugin against its install commit
+      description:
+        Show a unified diff of local edits to an installed plugin against the exact commit it was installed at
+        (recorded in its `install-meta.json`), re-materialized through the install pipeline so an install-time adapter
+        transform never reads as a local change. Returns the baseline `commit`, a `clean` flag, and a `files` array of
+        `{ path, status, diff, binary }` for each modified/added/removed file. The baseline is the install commit, not
+        the marketplace pin — comparing against the current pin is `POST /v1/plugins/:name/upgrade` with `dryRun`. A
+        name with no installed copy returns 404; an install that recorded no commit returns 409; an unreachable source
+        returns 503. Mirrors the CLI's `assistant plugins diff <name>`.
+      tags:
+        - plugins
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    description: Install name. Matches `assistant plugins install <name>`.
+                  target:
+                    type: string
+                    description: Absolute path to the installed plugin directory on the host.
+                  commit:
+                    type: string
+                    description: Commit the baseline was re-materialized from (the recorded install SHA).
+                  committedAt:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: ISO-8601 committer timestamp (UTC) of `commit`; null when not recorded.
+                  clean:
+                    type: boolean
+                    description: True when the on-disk tree exactly matches the re-materialized baseline.
+                  files:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                          description: POSIX-relative path within the plugin root.
+                        status:
+                          type: string
+                          enum:
+                            - modified
+                            - added
+                            - removed
+                          description: Whether the file was edited, newly added, or deleted since install.
+                        diff:
+                          type: string
+                          description: Unified diff (`--- a/… / +++ b/…`) of the file. A short `Binary files differ` marker for binary files.
+                        binary:
+                          type: boolean
+                          description: True when either side was detected as binary (NUL byte present).
+                      required:
+                        - path
+                        - status
+                        - diff
+                        - binary
+                      additionalProperties: false
+                      description: Unified diff of a single drifted file.
+                    description: One entry per drifted file, sorted by path. Empty when `clean`.
+                required:
+                  - name
+                  - target
+                  - commit
+                  - committedAt
+                  - clean
+                  - files
+                additionalProperties: false
+        "400":
+          description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
+        "404":
+          description: No copy of the plugin is installed, or its recorded commit resolves to nothing.
+        "409":
+          description: The install recorded no commit to re-materialize a baseline from.
+        "503":
+          description: The plugin source (GitHub) was temporarily unavailable; the diff is retryable.
   /v1/plugins/{name}/inspect:
     get:
       operationId: plugins_by_name_inspect_get
