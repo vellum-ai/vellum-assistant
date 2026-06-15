@@ -5,7 +5,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { getSqliteFrom } from "../../db-connection.js";
 import * as schema from "../../schema.js";
-import { migrateContactChannelsUniqueExtUser } from "../287-contact-channels-unique-ext-user.js";
+import { migrateContactChannelsUniqueExtUser } from "../289-contact-channels-unique-ext-user.js";
 
 interface IndexRow {
   name: string;

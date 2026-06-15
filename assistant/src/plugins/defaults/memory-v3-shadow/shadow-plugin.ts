@@ -55,6 +55,7 @@ import { computeHotSet } from "./hot-set.js";
 import { computeLearnedEdgeGraph } from "./learned-edges.js";
 import type { OrchestrateResult } from "./orchestrate.js";
 import { orchestrate } from "./orchestrate.js";
+import { MemoryV3RetrievalUnavailableError } from "./pool-select.js";
 import { ensureSectionCollection } from "./section-dense-store.js";
 import type { SectionNeedle } from "./section-needle.js";
 import { buildSectionNeedle } from "./section-needle.js";
@@ -576,6 +577,16 @@ export async function observeTurn(
     writeSelections(conversationId, turnIndex, rows);
     return result;
   } catch (err) {
+    // An INFRASTRUCTURE failure (the selector lost its provider — e.g. a
+    // transient CES credential blip) must NOT be silently swallowed: re-throw
+    // so the LIVE injector hard-fails the turn (a clean, retryable failure)
+    // rather than shipping it with no `<memory>` block. The shadow/observation
+    // callers (the injector in shadow mode, runShadowObservation) catch this
+    // and swallow it, so observation never fails a turn. Other (non-infra)
+    // errors stay non-fatal and degrade to no v3 block, as before.
+    if (err instanceof MemoryV3RetrievalUnavailableError) {
+      throw err;
+    }
     log.warn(
       { err: err instanceof Error ? err.message : String(err), conversationId },
       "memory-v3 orchestration failed (non-fatal)",
@@ -599,5 +610,11 @@ export async function runShadowObservation(
   const config = getConfig();
   if (config.memory.enabled === false) return;
   if (!isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config)) return;
-  await observeTurn(conversationId, turnIndex);
+  try {
+    await observeTurn(conversationId, turnIndex);
+  } catch {
+    // Shadow observation is fire-and-forget and must NEVER fail a turn.
+    // `observeTurn` now re-throws infra failures so the LIVE injector can
+    // hard-fail on them; here (observation only) we swallow them.
+  }
 }

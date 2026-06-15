@@ -1,0 +1,142 @@
+/* Cast — shared shell: stage/panel, avatars, focus/proof overlay, back button,
+ * setup-shell vignette.
+ *
+ * Chrome (text, surfaces, borders, radii, spacing) uses the Vellum design tokens
+ * from @vellumai/design-library/tokens.css. The Cast stage sets a switchable
+ * `data-theme` (light/dark/velvet) so the chrome matches the app in any theme.
+ * The panel/overlay vignette fades toward `--cast-shroud`, derived from the theme
+ * surface so it's a deep cave on dark and a gentle dim on light. */
+
+.cast-stage {
+  /* `--cast-shroud` is the "unlit" color the panel/overlay vignette fades toward —
+     derived from the theme's own surface so it's a deep cave on dark and a
+     gentle dim on light. `--cast-dim` controls how far it sinks toward black. */
+  --cast-dim: 62%;
+  --cast-shroud: color-mix(in srgb, var(--surface-base), #000 var(--cast-dim));
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-base);
+  color: var(--content-default);
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* Full-window stage. Owns the ONE consistent backdrop for the whole flow: the
+   dark-green editorial vignette sits here (the common ancestor wrapping every
+   phase — login, the SetupShell phases, the customize overlay, style, done) so
+   the backdrop never flips green↔black as phases enter/leave the shell.
+   (bespoke: the cast green is brighter than --system-positive-*, no token.) */
+.cast-panel {
+  position: relative;
+  width: 100vw;
+  height: 100dvh;
+  overflow: hidden;
+  background: radial-gradient(ellipse at 50% 30%, #162b16 0%, #0f1f0f 40%, #091509 100%);
+  color: var(--content-default);
+}
+
+.cast-panel__title {
+  margin: 0;
+  font-family: var(--font-serif), serif;
+  font-size: clamp(2rem, 1rem + 2.4vw, 3rem);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+.cast-panel__subtitle {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--content-secondary);
+}
+
+/* Instrument Serif — local font for editorial headings */
+@font-face {
+  font-family: "Instrument Serif";
+  src: url("/fonts/InstrumentSerif-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+.cast-hover {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+}
+
+
+.cast-avatar {
+  width: 100%;
+  height: 100%;
+}
+.cast-avatar svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+
+/* ---- Beats 2–4: focus / hero ---- */
+
+.cast-focus,
+.cast-beat {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+}
+
+/* constant gentle drift so the focused character is never frozen between
+   autonomous reactions */
+.cast-focus-alive {
+  display: block;
+  width: 100%;
+  height: 100%;
+  animation: cast-drift 4.2s ease-in-out infinite;
+}
+
+/* ---- Persistent shell for preamble → starter → dialogue ---- */
+
+.cast-setup-shell {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  /* No backdrop here: the green vignette now lives on `.cast-panel` so it stays
+     consistent across every phase. SetupShell keeps only its structural chrome
+     (logo/topbar/grid-art), drawn by its children over the shared panel green. */
+  background: transparent;
+}
+
+/* ---- bottom controls ---- */
+
+.cast-back {
+  position: absolute;
+  left: 32px;
+  top: 36px;
+  appearance: none;
+  border: none;
+  background: var(--surface-hover);
+  color: var(--content-secondary);
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  z-index: 5;
+}
+.cast-back:hover {
+  background: var(--surface-active);
+}
+
+/* Proof stage reuses the full-bleed `.cast-focus` overlay (see Beats 2–4 above)
+   as a centered column for its absolutely-positioned hero + props. */
+.cast-focus {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}

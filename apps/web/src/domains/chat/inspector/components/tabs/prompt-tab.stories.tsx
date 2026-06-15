@@ -17,6 +17,44 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
 });
 
+function marker(ttl: string) {
+  return { type: "ephemeral", ttl };
+}
+
+function textBlock(value: string, cacheControl?: { type: string; ttl: string }) {
+  return {
+    type: "text",
+    text: value,
+    ...(cacheControl ? { cache_control: cacheControl } : {}),
+  };
+}
+
+/**
+ * Seeds the raw request payload the breakpoint-map card fetches on demand,
+ * so the bottom card renders its segment map instead of a network error.
+ */
+function seedPayload(id: string, system: string, user: string): void {
+  queryClient.setQueryData(
+    ["assistants", "assistant-1", "llm-request-logs", id, "payload"],
+    {
+      id,
+      requestPayload: {
+        model: "claude-sonnet-4",
+        tools: toolDefinitions.map((tool, index) =>
+          index === toolDefinitions.length - 1
+            ? { ...tool, cache_control: marker("1h") }
+            : tool,
+        ),
+        system: [textBlock(system, marker("1h"))],
+        messages: [
+          { role: "user", content: [textBlock(user, marker("5m"))] },
+        ],
+      },
+      responsePayload: null,
+    },
+  );
+}
+
 const meta: Meta<typeof PromptTab> = {
   title: "Chat/Inspector/PromptTab",
   component: PromptTab,
@@ -169,6 +207,13 @@ const previousHealthyTurn: LLMRequestLogEntry = {
     { kind: "user", label: "User", role: "user", text: USER_TURN },
   ],
 };
+
+seedPayload(
+  fullMissEntry.id,
+  `${SYSTEM_PROMPT}\n\n${MEMORY_SECTION}`,
+  USER_TURN,
+);
+seedPayload(healthyEntry.id, SYSTEM_PROMPT, USER_TURN);
 
 /**
  * Anthropic full bust matching the reported symptom: the cache-health banner

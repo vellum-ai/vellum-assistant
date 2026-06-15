@@ -1,0 +1,19 @@
+/* Cast — scoped token layer.
+ *
+ * Holds the genuinely-bespoke cast values that have no design-token equivalent.
+ * Chrome (text, surfaces, borders, radii, spacing) uses the Vellum design tokens
+ * (@vellumai/design-library/tokens.css) directly in the per-area sheets; only the
+ * bespoke cast brand green is centralized here as a `--cast-green*` namespace. */
+
+.cast-stage {
+  /* Bespoke cast brand green — brighter than --system-positive-* (no token
+     equivalent); centralized here so the cast sheets share one source of truth.
+     The login/about classes are also rendered by the account-domain sign-up
+     screens, which mount outside `.cast-stage`; those rules use the literal as a
+     `var(--cast-green, …)` fallback so the color is identical in both contexts.
+     The cursor-spotlight "shroud" (--cast-shroud / --cast-dim) is derived at
+     runtime from the theme surface and lives on `.cast-stage` in shell.css. */
+  --cast-green: #46c178;
+  --cast-green-strong: #3ad17a; /* hover */
+  --cast-green-ink: #0b1f12; /* text/icon on a green fill */
+}

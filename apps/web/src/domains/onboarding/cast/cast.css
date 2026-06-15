@@ -1,0 +1,19 @@
+/* Cast — activation-surface prototype styles (barrel).
+ *
+ * The monolithic stylesheet was split into per-area sheets under ./styles/ to
+ * make the per-screen design-system conversion conflict-free. This file just
+ * re-exports them; it carries no rules of its own.
+ *
+ * Load order: tokens first (scoped --cast-* layer), then keyframes, the shared
+ * shell, and finally each screen's sheet. */
+
+@import "./styles/cast-tokens.css";
+@import "./styles/cast-animations.css";
+@import "./styles/shell.css";
+@import "./styles/login.css";
+@import "./styles/preamble.css";
+@import "./styles/starter.css";
+@import "./styles/dialogue.css";
+@import "./styles/style.css";
+@import "./styles/done.css";
+@import "./styles/proof.css";

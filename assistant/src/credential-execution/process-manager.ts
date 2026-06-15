@@ -327,6 +327,8 @@ function createStdioTransport(proc: Subprocess): CesTransport {
     const decoder = new TextDecoder();
 
     void (async () => {
+      let endReason: "eof" | "error" = "eof";
+      let readError: unknown;
       try {
         while (true) {
           const { value, done } = await reader.read();
@@ -344,17 +346,49 @@ function createStdioTransport(proc: Subprocess): CesTransport {
             }
           }
         }
-      } catch {
-        // Process ended
+      } catch (err) {
+        endReason = "error";
+        readError = err;
       } finally {
+        // Preserve existing semantics: the transport reports dead the moment
+        // the stdout stream ends, regardless of why.
         alive = false;
+
+        // DIAGNOSTIC (observation only). The reconnection path (secure-keys.ts)
+        // bounces CES whenever isAlive() goes false. This classifies WHY the
+        // transport died: a real process exit, or a stdout stream that
+        // ended/errored while the process is STILL RUNNING — the spurious case
+        // that needlessly restarts a healthy CES. Let `proc.exited` settle one
+        // tick so a near-simultaneous real exit isn't misread as spurious, then
+        // snapshot the exit code (`null` = still running).
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const exitCode = proc.exitCode;
+        if (exitCode === null) {
+          log.warn(
+            {
+              pid: proc.pid,
+              endReason,
+              err: readError instanceof Error ? readError.message : readError,
+            },
+            "CES stdio transport: stdout stream ended while the process is still alive (spurious transport death)",
+          );
+        } else {
+          log.debug(
+            { pid: proc.pid, endReason, exitCode },
+            "CES stdio transport: stdout stream ended after process exit",
+          );
+        }
       }
     })();
   }
 
   // Track process exit
-  proc.exited.then(() => {
+  void proc.exited.then((exitCode) => {
     alive = false;
+    log.info(
+      { pid: proc.pid, exitCode },
+      "CES stdio transport: process exited",
+    );
   });
 
   return {

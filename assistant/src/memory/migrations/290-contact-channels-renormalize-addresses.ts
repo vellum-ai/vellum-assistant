@@ -1,7 +1,7 @@
 import { getLogger } from "../../util/logger.js";
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 
-const log = getLogger("migration-288");
+const log = getLogger("migration-290");
 
 /**
  * Restores original platform-provided casing into address from external_user_id.

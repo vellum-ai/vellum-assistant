@@ -8,7 +8,10 @@ import type {
   BaseAgent,
 } from "../adapter";
 import type { Profile } from "../profile";
-import type { TestSetupCommand } from "../setup-command";
+import type {
+  SeededConversationMessage,
+  TestSetupCommand,
+} from "../setup-command";
 import { runArtifacts } from "../metrics";
 import {
   applyDockerEgressJail,
@@ -66,16 +69,19 @@ import { assertSafeWorkspacePath } from "./workspace-path";
  * user message and `events` synthesizes a single `message_chunk` transcript
  * event from that stdout — there is no live event subprocess to drain.
  *
- * **Cross-turn statefulness comes from Hermes's memory subsystem, not a
- * resumed session.** Each `-z` invocation is a fresh, stateless session;
- * `-z` ignores `--resume` entirely. Continuity instead flows through the
- * memory files under `/opt/data/memories/` (e.g. `USER.md`), which every
- * Hermes session auto-loads at start and auto-commits to at the end. The
- * adapter therefore does NOT track or chain session ids between turns —
- * memory is the system of record. (Known limitation: DB-injected seed rows
- * are not auto-indexed into memory, so a seeded prior conversation is not
- * reliably recalled unless the agent autonomously searches history. Tracked
- * as a follow-up; not addressed here.)
+ * **Within-conversation continuity is replayed into each prompt.** Every
+ * `hermes -z` invocation is a fresh, stateless session: it ignores
+ * `--resume`/`--continue` and forks a new session that loads none of the
+ * prior turns. To present one coherent conversation across a test's turns,
+ * the adapter accumulates the turns it has exchanged and prepends them to
+ * each `-z` prompt (see `buildHermesTurnPrompt`), so turn N sees turns
+ * 1..N-1. This is the adapter normalizing Hermes's one-shot model onto the
+ * shared multi-turn `send`/`events` contract; it does not depend on any
+ * Hermes session id, which the adapter therefore never tracks.
+ *
+ * Hermes's memory subsystem (files under `/opt/data/memories/`, auto-loaded
+ * each shot) is a separate, longer-horizon channel for cross-session recall,
+ * not the within-conversation transcript.
  *
  * The docker image, the daemon command, and the in-container CLI command
  * are constructor-overrideable via `dockerImage`, `daemonArgs`, and
@@ -83,19 +89,19 @@ import { assertSafeWorkspacePath } from "./workspace-path";
  *
  * **Conversation seeding is implemented via direct SQLite injection** into
  * the Hermes state DB at `/opt/data/state.db` (post-hatch, while the
- * gateway is running). The previous version of this adapter shelled out
- * to a fake `hermes conversations new --content-file <path>` command;
- * real Hermes has no non-interactive history-import path — `hermes
- * sessions` is read-only (list / browse / export / delete / prune /
- * stats / rename), the gateway is stateless, and `hermes -r <id>`
- * resumes interactively. So `runSetupCommand({ type:
+ * gateway is running). Seeding models a *separate prior session* (e.g. the
+ * timeline-recall memory test), distinct from the live conversation the
+ * adapter replays per turn. Real Hermes has no non-interactive
+ * history-import path — `hermes sessions` is read-only (list / browse /
+ * export / delete / prune / stats / rename), the gateway is stateless, and
+ * `hermes -r <id>` resumes interactively. So `runSetupCommand({ type:
  * "seed-conversation", ... })` opens `state.db` with Python's stdlib
  * sqlite3 via `docker exec -i ... python3 -` and writes one `sessions`
  * row + N `messages` rows in a single BEGIN IMMEDIATE transaction. The
- * FTS5 indexes are auto-populated by upstream triggers, so search
- * inside Hermes keeps working over seeded history. After seeding,
- * `conversationKey` is updated to the new session id so subsequent
- * `send` / `events` calls target it.
+ * FTS5 indexes are auto-populated by upstream triggers, so search inside
+ * Hermes keeps working over seeded history. (Known limitation: DB-injected
+ * seed rows are not auto-indexed into memory, so a seeded prior conversation
+ * is recalled only if the agent autonomously searches history.)
  *
  * @see ./hermes-seed.ts  Seed helper + schema notes.
  */
@@ -392,6 +398,41 @@ export function synthesizeHermesTurnEvent(oneshotStdout: string): AgentEvent {
 }
 
 /**
+ * Render the `hermes -z` prompt for a turn, threading prior turns through.
+ *
+ * A one-shot loads none of the conversation, so the only way to make turn N
+ * aware of turns 1..N-1 is to put them in the prompt. The first turn (no
+ * prior turns) sends the raw message so a single-turn test reads naturally;
+ * later turns get the transcript as context followed by the new message and
+ * an instruction to reply only to it.
+ *
+ * Exported for unit tests.
+ */
+export function buildHermesTurnPrompt(
+  priorTurns: ReadonlyArray<SeededConversationMessage>,
+  userMessage: string,
+): string {
+  if (priorTurns.length === 0) return userMessage;
+  const transcript = priorTurns
+    .map(
+      (turn) =>
+        `${turn.role === "user" ? "User" : "Assistant"}: ${turn.content}`,
+    )
+    .join("\n");
+  return [
+    "You are continuing an ongoing conversation with the user.",
+    "Conversation so far:",
+    "",
+    transcript,
+    "",
+    "The user's new message:",
+    userMessage,
+    "",
+    "Reply to the user's new message, using the conversation above as context. Respond only with your reply — do not prefix it with a role label or restate the transcript.",
+  ].join("\n");
+}
+
+/**
  * Single-consumer async queue bridging the request/response `send` to the
  * streaming `events()` contract the runner expects. `send` runs one
  * `hermes -z` to completion and `push`es the synthesized turn event; the
@@ -467,6 +508,8 @@ export class HermesAgent implements BaseAgent {
   private jail?: DockerEgressJail;
   private hatched = false;
   private stopped = false;
+  /** Live conversation turns, replayed into each one-shot prompt for continuity. */
+  private readonly liveTurns: SeededConversationMessage[] = [];
 
   constructor(opts: HermesAgentOptions) {
     this.profile = opts.profile;
@@ -621,6 +664,10 @@ export class HermesAgent implements BaseAgent {
    * Run one user turn as a single-shot `hermes -z "<prompt>"` and push the
    * synthesized transcript event onto the active `events()` sink.
    *
+   * The prompt threads prior live turns (see `buildHermesTurnPrompt`) so the
+   * stateless one-shot sees the conversation so far; the new user message and
+   * the model's answer are then appended to `liveTurns` for the next turn.
+   *
    * The one-shot runs the full agentic loop to completion and prints only
    * the final assistant text to stdout, so unlike a streaming `send` this
    * call blocks for the whole turn and the response is fully known when it
@@ -632,6 +679,7 @@ export class HermesAgent implements BaseAgent {
    */
   async send(message: AgentMessage): Promise<void> {
     this.assertHatched();
+    const prompt = buildHermesTurnPrompt(this.liveTurns, message.content);
     const result = await this.runner.run(
       "docker",
       [
@@ -645,7 +693,7 @@ export class HermesAgent implements BaseAgent {
         this.containerName,
         this.cliCommand,
         "-z",
-        message.content,
+        prompt,
       ],
       {
         logPath: join(runArtifacts(this.id).runDir, "subprocess-send.log"),
@@ -653,8 +701,11 @@ export class HermesAgent implements BaseAgent {
       },
     );
     assertSuccess(result, `send message to ${this.id}`);
+    const answer = result.stdout ?? "";
+    this.liveTurns.push({ role: "user", content: message.content });
+    this.liveTurns.push({ role: "assistant", content: answer });
     (this.eventSink ??= new HermesEventQueue()).push(
-      synthesizeHermesTurnEvent(result.stdout ?? ""),
+      synthesizeHermesTurnEvent(answer),
     );
   }
 

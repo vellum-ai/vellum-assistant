@@ -5,7 +5,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { getSqliteFrom } from "../../db-connection.js";
 import * as schema from "../../schema.js";
-import { migrateContactChannelsRenormalizeAddresses } from "../288-contact-channels-renormalize-addresses.js";
+import { migrateContactChannelsRenormalizeAddresses } from "../290-contact-channels-renormalize-addresses.js";
 
 interface ChannelRow {
   id: string;

@@ -6,8 +6,10 @@ import {
   ASSISTANT_FLAG_DEFAULTS,
   ASSISTANT_STRING_FLAG_DEFAULTS,
   getEnvFlagOverridesForScope,
+  getFlagDefinition,
   storeKeyToFlagKey,
 } from "@/lib/feature-flags/feature-flag-catalog";
+import { toast } from "@vellumai/design-library/components/toast";
 
 /**
  * Internal store fields that are NOT feature flag values. Surfaces that
@@ -126,31 +128,37 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
             }
             return { [key]: confirmedValue };
           });
+          toast.error(
+            `Couldn't update "${getFlagDefinition(key)?.label ?? key}" — change reverted.`,
+          );
         };
         const flagKey = storeKeyToFlagKey(key);
-        if (assistantId && flagKey) {
-          pendingFlagRequestIds[key] = requestId;
-          void client
-            .patch({
-              url: `/v1/assistants/${assistantId}/feature-flags/${flagKey}`,
-              body: { enabled: value },
-              throwOnError: false,
-            } as Parameters<typeof client.patch>[0])
-            .then((result) => {
-              const response = (result as { response?: Response }).response;
-              if (response?.ok) {
-                confirmedAssistantFlagValues[key] = value;
-                if (pendingFlagRequestIds[key] === requestId) {
-                  delete pendingFlagRequestIds[key];
-                }
-              } else {
-                revertIfLatestRejectedRequest();
-              }
-            })
-            .catch(revertIfLatestRejectedRequest);
-        } else {
-          confirmedAssistantFlagValues[key] = value;
+        // Assistant-scoped flags persist via the gateway. Without an assistant
+        // id there is nowhere to write, so this is a true no-op: never apply an
+        // optimistic value or fake a "confirmed" one the daemon will never
+        // receive — that local-only write is what masked the silent failure.
+        if (!assistantId || !flagKey) {
+          return;
         }
+        pendingFlagRequestIds[key] = requestId;
+        void client
+          .patch({
+            url: `/v1/assistants/${assistantId}/feature-flags/${flagKey}`,
+            body: { enabled: value },
+            throwOnError: false,
+          } as Parameters<typeof client.patch>[0])
+          .then((result) => {
+            const response = (result as { response?: Response }).response;
+            if (response?.ok) {
+              confirmedAssistantFlagValues[key] = value;
+              if (pendingFlagRequestIds[key] === requestId) {
+                delete pendingFlagRequestIds[key];
+              }
+            } else {
+              revertIfLatestRejectedRequest();
+            }
+          })
+          .catch(revertIfLatestRejectedRequest);
 
         set({ [key]: envOverrides.bool[key] ?? value });
       },
@@ -188,31 +196,35 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
             }
             return { stringFlags: { ...prev.stringFlags, [key]: confirmedValue } };
           });
+          toast.error(
+            `Couldn't update "${getFlagDefinition(key)?.label ?? key}" — change reverted.`,
+          );
         };
         const flagKey = storeKeyToFlagKey(key);
-        if (assistantId && flagKey) {
-          pendingFlagRequestIds[key] = requestId;
-          void client
-            .patch({
-              url: `/v1/assistants/${assistantId}/feature-flags/${flagKey}`,
-              body: { enabled: value },
-              throwOnError: false,
-            } as Parameters<typeof client.patch>[0])
-            .then((result) => {
-              const response = (result as { response?: Response }).response;
-              if (response?.ok) {
-                confirmedAssistantStringFlagValues[key] = value;
-                if (pendingFlagRequestIds[key] === requestId) {
-                  delete pendingFlagRequestIds[key];
-                }
-              } else {
-                revertIfLatestRejectedRequest();
-              }
-            })
-            .catch(revertIfLatestRejectedRequest);
-        } else {
-          confirmedAssistantStringFlagValues[key] = value;
+        // See `setFlag`: a missing assistant id is a true no-op for
+        // assistant-scoped flags rather than a local-only write.
+        if (!assistantId || !flagKey) {
+          return;
         }
+        pendingFlagRequestIds[key] = requestId;
+        void client
+          .patch({
+            url: `/v1/assistants/${assistantId}/feature-flags/${flagKey}`,
+            body: { enabled: value },
+            throwOnError: false,
+          } as Parameters<typeof client.patch>[0])
+          .then((result) => {
+            const response = (result as { response?: Response }).response;
+            if (response?.ok) {
+              confirmedAssistantStringFlagValues[key] = value;
+              if (pendingFlagRequestIds[key] === requestId) {
+                delete pendingFlagRequestIds[key];
+              }
+            } else {
+              revertIfLatestRejectedRequest();
+            }
+          })
+          .catch(revertIfLatestRejectedRequest);
 
         setStr((prev) => ({
           stringFlags: { ...prev.stringFlags, [key]: envOverrides.str[key] ?? value },
