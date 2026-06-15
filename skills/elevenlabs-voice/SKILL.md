@@ -65,8 +65,8 @@ For advanced voice selection (browsing the full library, custom/cloned voices), 
 
 To collect the API key securely:
 
-```
-credential_store action="prompt" service="elevenlabs" field="api_key"
+```bash
+assistant credentials prompt --service elevenlabs --field api_key --label "ElevenLabs API Key"
 ```
 
 ## Advanced Voice Selection (with API key)

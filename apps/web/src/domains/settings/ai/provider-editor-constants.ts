@@ -1,10 +1,10 @@
-import type { ConnectionProvider } from "@/domains/settings/ai/provider-connections-client";
+import type { Auth, ConnectionProvider } from "@/generated/daemon/types.gen";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type AuthType = "api_key" | "platform" | "none" | "oauth_subscription";
+export type AuthType = Auth["type"];
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -33,6 +33,7 @@ export const AUTH_TYPE_DISPLAY_NAMES: Record<AuthType, string> = {
   platform: "Platform (managed proxy)",
   none: "None (local / no auth)",
   oauth_subscription: "ChatGPT Subscription",
+  service_account: "Service Account",
 };
 
 // ---------------------------------------------------------------------------

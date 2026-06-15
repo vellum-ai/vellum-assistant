@@ -7,21 +7,16 @@ import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-import { useStoredCredentialPresence } from "@/domains/settings/ai/use-stored-credential-presence";
+import { credentialPresenceQueryKey, useStoredCredentialPresence } from "@/domains/settings/ai/use-stored-credential-presence";
+import { secretsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
     inferenceProviderconnectionsByNamePatch,
     secretsPost,
 } from "@/generated/daemon/sdk.gen";
 
-import { providerSupportsPlatformAuth } from "@/assistant/llm-model-catalog";
+import { providerSupportsPlatformAuth, PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import { ChatgptOAuthSection } from "@/domains/settings/ai/chatgpt-oauth-section";
-import {
-    type Auth,
-    type ConnectionProvider,
-    PROVIDER_DISPLAY_NAMES,
-    type ProviderConnection,
-    type UpdateConnectionInput,
-} from "@/domains/settings/ai/provider-connections-client";
+import type { Auth, ConnectionProvider, InferenceProviderconnectionsByNamePatchData, ProviderConnection } from "@/generated/daemon/types.gen";
 import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import { ProviderEditorApiKeySection } from "@/domains/settings/ai/provider-editor-api-key-section";
 import {
@@ -103,7 +98,7 @@ export function ProviderEditorContent({
   );
   const [authType, setAuthType] = useState<AuthType>(() => {
     if (!connection) return "platform";
-    return connection.auth.type as AuthType;
+    return connection.auth.type;
   });
   const [credential, setCredential] = useState(() => {
     if (connection?.auth.type === "api_key") return connection.auth.credential;
@@ -142,13 +137,11 @@ export function ProviderEditorContent({
   const {
     hasStoredCredential,
     isLoading: isLoadingCredential,
-    queryKey: credentialPresenceKey,
   } = useStoredCredentialPresence({
     assistantId,
     credentialKind: "credential",
     credentialName: parsedCredRef ? `${parsedCredRef.service}:${parsedCredRef.field}` : "",
     enabled: needsCredentialCheck,
-    errorContext: "settings-provider-editor-credential-presence",
   });
 
   // --- Available credentials list ---
@@ -158,7 +151,6 @@ export function ProviderEditorContent({
 
   const {
     credentials: availableCredentials,
-    queryKey: credentialsListKey,
   } = useProviderCredentialsList({
     assistantId,
     enabled: needsCredentialsList,
@@ -177,7 +169,7 @@ export function ProviderEditorContent({
     setLabel(connection?.label ?? "");
     setName(connection?.name ?? "");
     setProvider(effectiveProvider);
-    setAuthType(connection ? (connection.auth.type as AuthType) : "platform");
+    setAuthType(connection ? connection.auth.type : "platform");
     if (connection?.auth.type === "api_key") {
       setCredential(connection.auth.credential);
     } else if (!connection) {
@@ -253,8 +245,15 @@ export function ProviderEditorContent({
             });
             // Optimistically mark credential as present and invalidate
             // the credentials list so TQ caches stay in sync.
-            queryClient.setQueryData(credentialPresenceKey, true);
-            void queryClient.invalidateQueries({ queryKey: credentialsListKey });
+            const presenceKey = credentialPresenceQueryKey(
+              assistantId,
+              "credential",
+              parsed ? `${parsed.service}:${parsed.field}` : "",
+            );
+            queryClient.setQueryData(presenceKey, true);
+            void queryClient.invalidateQueries({
+              queryKey: secretsGetQueryKey({ path: { assistant_id: assistantId } }),
+            });
           } catch {
             setError("Failed to save API key. Please try again.");
             return;
@@ -275,6 +274,13 @@ export function ProviderEditorContent({
           setError("Use the \"Sign in with ChatGPT\" button to connect your subscription.");
           return;
         }
+      } else if (authType === "service_account") {
+        if (connection?.auth.type === "service_account") {
+          auth = connection.auth;
+        } else {
+          setError("Service account connections cannot be created through this form.");
+          return;
+        }
       } else if (authType === "none") {
         auth = { type: "none" };
       } else {
@@ -286,7 +292,7 @@ export function ProviderEditorContent({
       // Edit / managed-edit only — create mode is handled by
       // ProviderCreateForm (see the early return above), which owns the
       // POST path. This component never reaches handleSave in create mode.
-      const input: UpdateConnectionInput = {
+      const input: InferenceProviderconnectionsByNamePatchData["body"] = {
         auth,
         label: labelValue,
         ...(isOpenAICompatible && {
@@ -412,7 +418,7 @@ export function ProviderEditorContent({
           <Dropdown
             aria-label="Provider"
             value={provider}
-            onChange={(v) => setProvider(v as ConnectionProvider)}
+            onChange={setProvider}
             disabled
             options={connectionProviderOptions.map((p) => ({
               value: p,
@@ -467,7 +473,7 @@ export function ProviderEditorContent({
             aria-label="Auth type"
             value={authType}
             onChange={(v) => {
-              setAuthType(v as AuthType);
+              setAuthType(v);
               setError(null);
             }}
             disabled={isAuthLocked || provider === "ollama"}

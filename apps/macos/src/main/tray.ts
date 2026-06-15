@@ -305,8 +305,17 @@ const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
       icon: menuIcon(MENU_ICON_REFRESHCW),
       enabled: !onboarding,
       click: () => {
-        app.relaunch();
-        app.quit();
+        // Deferred to the next event-loop iteration so the call executes
+        // after the NSMenu tracking loop has unwound. macOS tray menus
+        // run a nested run loop (popUpContextMenu blocks the JS thread);
+        // calling app.quit() synchronously inside that loop silently
+        // fails because the quit sequence's events are swallowed by the
+        // still-active menu loop. The adjacent "Quit" item works because
+        // Electron's built-in `role: "quit"` defers natively.
+        setTimeout(() => {
+          app.relaunch();
+          app.quit();
+        }, 0);
       },
     },
     {

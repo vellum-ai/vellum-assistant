@@ -12,7 +12,9 @@
 import { v4 as uuid } from "uuid";
 
 import { getConversation } from "../memory/conversation-crud.js";
+import type { ApprovalUIMetadata } from "../runtime/channel-approval-types.js";
 import { getLogger } from "../util/logger.js";
+import { buildAccessRequestContractText } from "./access-request-copy.js";
 import { isGuardianSensitiveEvent } from "./adapters/macos.js";
 import { pairDeliveryWithConversation } from "./conversation-pairing.js";
 import { composeFallbackCopy } from "./copy-composer.js";
@@ -22,6 +24,11 @@ import {
   updateDeliveryStatus,
 } from "./deliveries-store.js";
 import { resolveDestinations } from "./destination-resolver.js";
+import {
+  parseGuardianQuestionPayload,
+  resolveGuardianInstructionModeFromPayload,
+} from "./guardian-question-mode.js";
+import { nonEmpty } from "./notification-utils.js";
 import type { NotificationSignal } from "./signal.js";
 import type {
   ChannelAdapter,
@@ -34,6 +41,71 @@ import type {
 } from "./types.js";
 
 const log = getLogger("notif-broadcaster");
+
+const APPROVAL_ACTIONS: ApprovalUIMetadata["actions"] = [
+  { id: "approve_once", label: "Approve once" },
+  { id: "reject", label: "Reject" },
+];
+
+/**
+ * Resolve structured approval context from a notification signal.
+ * Returns `undefined` when the signal does not represent an approval flow.
+ */
+function resolveApprovalContext(
+  signal: NotificationSignal,
+): ApprovalUIMetadata | undefined {
+  const payload = signal.contextPayload;
+  if (!payload) return undefined;
+
+  if (signal.sourceEventName === "ingress.access_request") {
+    const requestId = nonEmpty(
+      typeof payload.requestId === "string" ? payload.requestId : undefined,
+    );
+    if (!requestId) return undefined;
+    return {
+      requestId,
+      actions: APPROVAL_ACTIONS,
+      plainTextFallback: buildAccessRequestContractText(payload),
+    };
+  }
+
+  if (signal.sourceEventName === "guardian.question") {
+    const parsed = parseGuardianQuestionPayload(payload);
+    if (!parsed) return undefined;
+    const { mode } = resolveGuardianInstructionModeFromPayload(parsed);
+    if (mode !== "approval") return undefined;
+    const requestId = nonEmpty(parsed.requestId);
+    if (!requestId) return undefined;
+
+    // Extract tool context so channel adapters can render structured
+    // approval cards without re-parsing contextPayload.
+    let toolName: string | undefined;
+    if (
+      parsed.requestKind === "tool_approval" ||
+      parsed.requestKind === "tool_grant_request"
+    ) {
+      toolName = nonEmpty(parsed.toolName);
+    } else if (parsed.requestKind === "pending_question") {
+      toolName = nonEmpty(parsed.toolName);
+    }
+
+    return {
+      requestId,
+      actions: APPROVAL_ACTIONS,
+      plainTextFallback: `Reply "${parsed.requestCode?.toUpperCase() ?? requestId} approve" or "${parsed.requestCode?.toUpperCase() ?? requestId} reject"`,
+      permissionDetails: toolName
+        ? {
+            toolName,
+            riskLevel: "medium",
+            toolInput: {},
+            requesterIdentifier: nonEmpty(parsed.requesterIdentifier),
+          }
+        : undefined,
+    };
+  }
+
+  return undefined;
+}
 
 /** Callback invoked immediately when a vellum notification conversation is created. */
 export interface ConversationCreatedInfo {
@@ -108,6 +180,7 @@ export class NotificationBroadcaster {
       Record<NotificationChannel, RenderedChannelCopy>
     > | null = null;
 
+    const approvalContext = resolveApprovalContext(signal);
     const results: NotificationDeliveryResult[] = [];
 
     for (const channel of orderedChannels) {
@@ -337,6 +410,7 @@ export class NotificationBroadcaster {
         deepLinkTarget,
         contextPayload: signal.contextPayload,
         urgency: signal.attentionHints.urgency,
+        approvalContext,
       };
 
       // Compute conversation decision audit fields for the delivery record

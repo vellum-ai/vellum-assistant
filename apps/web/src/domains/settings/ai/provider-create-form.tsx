@@ -8,22 +8,17 @@ import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-import { useStoredCredentialPresence } from "@/domains/settings/ai/use-stored-credential-presence";
+import { credentialPresenceQueryKey, useStoredCredentialPresence } from "@/domains/settings/ai/use-stored-credential-presence";
+import { secretsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
     inferenceProviderconnectionsPost,
     secretsPost,
 } from "@/generated/daemon/sdk.gen";
 
-import { providerSupportsPlatformAuth } from "@/assistant/llm-model-catalog";
+import { providerSupportsPlatformAuth, PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import { ChatgptOAuthSection } from "@/domains/settings/ai/chatgpt-oauth-section";
 import { deriveProviderDefaults } from "@/domains/settings/ai/profile-prefill";
-import {
-    PROVIDER_DISPLAY_NAMES,
-    type Auth,
-    type ConnectionProvider,
-    type CreateConnectionInput,
-    type ProviderConnection,
-} from "@/domains/settings/ai/provider-connections-client";
+import type { Auth, ConnectionProvider, InferenceProviderconnectionsPostData, ProviderConnection } from "@/generated/daemon/types.gen";
 import { ProviderEditorApiKeySection } from "@/domains/settings/ai/provider-editor-api-key-section";
 import {
     AUTH_TYPE_DISPLAY_NAMES,
@@ -128,19 +123,16 @@ export function ProviderCreateForm({
   const {
     hasStoredCredential,
     isLoading: isLoadingCredential,
-    queryKey: credentialPresenceKey,
   } = useStoredCredentialPresence({
     assistantId,
     credentialKind: "credential",
     credentialName: parsedCredRef ? `${parsedCredRef.service}:${parsedCredRef.field}` : "",
     enabled: needsCredentialCheck,
-    errorContext: "settings-provider-create-credential-presence",
   });
 
   // --- Available credentials list ---
   const {
     credentials: availableCredentials,
-    queryKey: credentialsListKey,
   } = useProviderCredentialsList({
     assistantId,
     enabled: true,
@@ -189,8 +181,15 @@ export function ProviderCreateForm({
             });
             // Optimistically mark credential as present and invalidate
             // the credentials list so TQ caches stay in sync.
-            queryClient.setQueryData(credentialPresenceKey, true);
-            void queryClient.invalidateQueries({ queryKey: credentialsListKey });
+            const presenceKey = credentialPresenceQueryKey(
+              assistantId,
+              "credential",
+              parsed ? `${parsed.service}:${parsed.field}` : "",
+            );
+            queryClient.setQueryData(presenceKey, true);
+            void queryClient.invalidateQueries({
+              queryKey: secretsGetQueryKey({ path: { assistant_id: assistantId } }),
+            });
           } catch {
             setError("Failed to save API key. Please try again.");
             return;
@@ -210,13 +209,16 @@ export function ProviderCreateForm({
         return;
       } else if (authType === "none") {
         auth = { type: "none" };
+      } else if (authType === "service_account") {
+        setError("Service account connections cannot be created through this form.");
+        return;
       } else {
         auth = { type: "platform" };
       }
 
       const labelValue = label.trim() || null;
 
-      const input: CreateConnectionInput = {
+      const input: InferenceProviderconnectionsPostData["body"] = {
         name: name.trim(),
         provider,
         auth,
@@ -319,8 +321,7 @@ export function ProviderCreateForm({
         <Dropdown
           aria-label="Provider"
           value={provider}
-          onChange={(v) => {
-            const newProvider = v as ConnectionProvider;
+          onChange={(newProvider) => {
             setProvider(newProvider);
             // Re-seed Name + Key from the newly selected provider type, but
             // only while the user hasn't manually edited either field (dirty
@@ -412,7 +413,7 @@ export function ProviderCreateForm({
           aria-label="Auth type"
           value={authType}
           onChange={(v) => {
-            setAuthType(v as AuthType);
+            setAuthType(v);
             setError(null);
           }}
           disabled={provider === "ollama"}

@@ -159,6 +159,25 @@ function Inspector({ conversationId, messageId }: InspectorProps): ReactNode {
     [logs, selectedLogId],
   );
 
+  // The call immediately preceding the selected one in conversation
+  // order — the anchor the Prompt tab's cache diff compares against.
+  // In message mode `logs` holds only the selected turn's calls, so the
+  // conversation-wide list is the correct ordering; falling back to it
+  // keeps the first call of a scoped turn diffing against the prior
+  // turn instead of a same-turn sibling (or nothing at all).
+  const previousLog = useMemo<LLMRequestLogEntry | null>(() => {
+    if (!selectedLogId) return null;
+    const ordered =
+      messageId && conversationLogs?.length ? conversationLogs : logs;
+    const index = ordered.findIndex((log) => log.id === selectedLogId);
+    if (index > 0) return ordered[index - 1] ?? null;
+    if (index === -1 && ordered !== logs) {
+      const scopedIndex = logs.findIndex((log) => log.id === selectedLogId);
+      return scopedIndex > 0 ? (logs[scopedIndex - 1] ?? null) : null;
+    }
+    return null;
+  }, [selectedLogId, messageId, conversationLogs, logs]);
+
   const buildCallHref = useMemo(
     () =>
       (logId: string): string => {
@@ -202,6 +221,7 @@ function Inspector({ conversationId, messageId }: InspectorProps): ReactNode {
         ) : (
           <Loaded
             logs={logs}
+            previousLog={previousLog}
             context={data}
             selectedLog={selectedLog}
             selectedLogId={selectedLogId}
@@ -568,6 +588,7 @@ function findTurnPosition(
 
 interface LoadedProps {
   logs: LLMRequestLogEntry[];
+  previousLog: LLMRequestLogEntry | null;
   context: LlmContextResponse | undefined;
   selectedLog: LLMRequestLogEntry | null;
   selectedLogId: string | undefined;
@@ -580,6 +601,7 @@ interface LoadedProps {
 
 function Loaded({
   logs,
+  previousLog,
   context,
   selectedLog,
   selectedLogId,
@@ -662,6 +684,7 @@ function Loaded({
             <TabContent
               tab={tab}
               entry={selectedEntry}
+              previousLog={previousLog}
               detailState={detailState}
               logs={logs}
               buildCallHref={buildCallHref}
@@ -688,6 +711,7 @@ type DetailState = "loading" | "loaded" | "error";
 interface TabContentProps {
   tab: InspectorTab;
   entry: LLMRequestLogEntry;
+  previousLog: LLMRequestLogEntry | null;
   detailState: DetailState;
   logs: LLMRequestLogEntry[];
   buildCallHref: (logId: string) => string;
@@ -700,6 +724,7 @@ interface TabContentProps {
 function TabContent({
   tab,
   entry,
+  previousLog,
   detailState,
   logs,
   buildCallHref,
@@ -716,11 +741,18 @@ function TabContent({
           conversationTotalEstimatedCostUsd={conversationTotalEstimatedCostUsd}
         />
       );
-    case "prompt":
+    case "prompt": {
       if (detailState !== "loaded") {
         return <DetailPlaceholder state={detailState} />;
       }
-      return <PromptTab entry={entry} />;
+      return (
+        <PromptTab
+          entry={entry}
+          previous={previousLog}
+          assistantId={assistantId}
+        />
+      );
+    }
     case "response":
       if (detailState !== "loaded") {
         return <DetailPlaceholder state={detailState} />;

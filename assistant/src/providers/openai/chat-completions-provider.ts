@@ -18,7 +18,14 @@ import {
   ContextOverflowError,
   extractOverflowTokensFromMessage,
 } from "../types.js";
-import { wrapUnparseableToolArgs } from "../unparseable-tool-args.js";
+import {
+  isUnparseableToolArgs,
+  wrapUnparseableToolArgs,
+} from "../unparseable-tool-args.js";
+import {
+  coerceObjectParamsToJsonString,
+  decodeCoercedObjectArgs,
+} from "./coerce-object-args.js";
 
 /**
  * Detect OpenAI-compatible context-overflow signals on an `OpenAI.APIError`.
@@ -199,6 +206,12 @@ export interface OpenAIChatCompletionsProviderOptions {
    *  content or tool_calls must be set`. See {@link
    *  EMPTY_ASSISTANT_TURN_PLACEHOLDER}. */
   backfillEmptyAssistantContent?: boolean;
+  /** Present object-typed tool params to the model as JSON-string params and
+   *  decode them back to objects on the response. Works around models whose
+   *  function-call serialization collapses nested objects to `{}` (observed
+   *  with minimax-m3 on Fireworks). Off by default; scalars/arrays unaffected.
+   *  See {@link coerceObjectParamsToJsonString}. */
+  coerceObjectArgsToJsonString?: boolean;
 }
 
 /** Wire-level reasoning_effort values. The OpenAI SDK type doesn't include
@@ -312,6 +325,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
     | "reasoning_content"
     | undefined;
   private backfillEmptyAssistantContent: boolean;
+  private coerceObjectArgsToJsonString: boolean;
 
   constructor(
     apiKey: string,
@@ -337,6 +351,8 @@ export class OpenAIChatCompletionsProvider implements Provider {
     this.assistantReasoningField = options.assistantReasoningField;
     this.backfillEmptyAssistantContent =
       options.backfillEmptyAssistantContent ?? false;
+    this.coerceObjectArgsToJsonString =
+      options.coerceObjectArgsToJsonString ?? false;
   }
 
   async sendMessage(
@@ -354,6 +370,11 @@ export class OpenAIChatCompletionsProvider implements Provider {
     const usageAttributionHeaders = configObj?.usageAttributionHeaders as
       | Record<string, string>
       | undefined;
+
+    // Per-tool keys whose object schemas were rewritten to JSON strings for the
+    // wire, to be decoded back on the response. Empty unless
+    // `coerceObjectArgsToJsonString` is enabled.
+    const coercedObjectKeys = new Map<string, string[]>();
 
     try {
       const openaiMessages = this.toOpenAIMessages(messages, systemPrompt);
@@ -398,14 +419,24 @@ export class OpenAIChatCompletionsProvider implements Provider {
       }
 
       if (tools && tools.length > 0) {
-        params.tools = tools.map((t) => ({
-          type: "function" as const,
-          function: {
-            name: t.name,
-            description: t.description,
-            parameters: t.input_schema as OpenAI.FunctionParameters,
-          },
-        }));
+        params.tools = tools.map((t) => {
+          let parameters = t.input_schema as OpenAI.FunctionParameters;
+          if (this.coerceObjectArgsToJsonString) {
+            const coerced = coerceObjectParamsToJsonString(t.input_schema);
+            parameters = coerced.parameters as OpenAI.FunctionParameters;
+            if (coerced.objectKeys.length > 0) {
+              coercedObjectKeys.set(t.name, coerced.objectKeys);
+            }
+          }
+          return {
+            type: "function" as const,
+            function: {
+              name: t.name,
+              description: t.description,
+              parameters,
+            },
+          };
+        });
 
         // Honor a caller-supplied tool_choice (e.g. `{ type: "none" }` to force
         // a text-only answer, or `{ type: "tool", name }` for a forced call).
@@ -637,6 +668,13 @@ export class OpenAIChatCompletionsProvider implements Provider {
           input = JSON.parse(tc.args);
         } catch {
           input = wrapUnparseableToolArgs(tc.args);
+        }
+        const objectKeys = coercedObjectKeys.get(tc.name);
+        if (objectKeys && !isUnparseableToolArgs(input)) {
+          const decoded = decodeCoercedObjectArgs(input, objectKeys);
+          input = decoded.failedKey
+            ? wrapUnparseableToolArgs(tc.args)
+            : decoded.input;
         }
         content.push({
           type: "tool_use",

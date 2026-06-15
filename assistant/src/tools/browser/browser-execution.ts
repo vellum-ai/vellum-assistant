@@ -669,11 +669,10 @@ export async function executeBrowserNavigate(
   const newTab = input.new_tab === true;
   if (newTab && cdp.kind === "extension") {
     try {
-      const result = await cdp.send<{ tabId?: number | string; clientId?: string }>(
-        "Vellum.createTab",
-        {},
-        context.signal,
-      );
+      const result = await cdp.send<{
+        tabId?: number | string;
+        clientId?: string;
+      }>("Vellum.createTab", {}, context.signal);
       const tabId =
         typeof result?.tabId === "number"
           ? String(result.tabId)
@@ -720,8 +719,7 @@ export async function executeBrowserNavigate(
       // We're early-returning before the main try/finally block below,
       // so we must dispose the cdp client manually to avoid leaking it.
       clearPinnedTab(context.conversationId);
-      const message =
-        err instanceof Error ? err.message : String(err);
+      const message = err instanceof Error ? err.message : String(err);
       log.warn(
         { conversationId: context.conversationId, err },
         "Vellum.createTab failed; aborting --new-tab navigate",
@@ -1075,7 +1073,7 @@ export async function executeBrowserNavigate(
                 "1. Take a snapshot to find the sign-in form elements",
               );
               lines.push(
-                "2. Use credential fill to enter email/password from credential_store",
+                "2. Use credential fill to enter email/password from the credential vault",
               );
               lines.push(
                 "3. For email verification codes, use ui_show with a form to request the code mid-turn",
@@ -1102,7 +1100,7 @@ export async function executeBrowserNavigate(
           lines.push("Handle this by interacting with the login form:");
           lines.push("1. Take a snapshot to find the sign-in form elements");
           lines.push(
-            "2. Use credential fill to enter email/password from credential_store",
+            "2. Use credential fill to enter email/password from the credential vault",
           );
           lines.push(
             "3. For email verification codes, use ui_show with a form to request the code mid-turn",
@@ -2175,13 +2173,13 @@ export async function executeBrowserFillCredential(
         reason.includes("no stored value")
       ) {
         return {
-          content: `No credential stored for ${service}/${field}. Use credential_store to save it first.`,
+          content: `No credential stored for ${service}/${field}. Use \`assistant credentials set\` to save it first.`,
           isError: true,
         };
       }
       if (reason.includes("not allowed to use credential")) {
         return {
-          content: `Policy denied: ${reason} Update the credential's allowed_tools via credential_store if this tool should have access.`,
+          content: `Policy denied: ${reason} Update the credential's allowed_tools via \`assistant credentials set\` if this tool should have access.`,
           isError: true,
         };
       }

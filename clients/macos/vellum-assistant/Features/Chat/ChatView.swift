@@ -113,18 +113,9 @@ struct ChatView: View {
     @State private var dragEndLocalMonitor: Any?
     @State private var dragEndGlobalMonitor: Any?
 
-    // MARK: - Discord Community Nudge
+    // Community nudges (Discord/GitHub) are suppressed on this deprecated
+    // build — the always-on `DeprecatedAppBanner` owns the chat banner surface.
     @Environment(\.openURL) private var openURL
-    @AppStorage(DiscordNudge.joinedKey) private var discordJoined: Bool = false
-    @AppStorage(DiscordNudge.bannerDismissedKey) private var discordBannerDismissed: Bool = false
-    @AppStorage(GitHubNudge.starredKey) private var githubStarred: Bool = false
-
-    private var shouldShowDiscordBanner: Bool {
-        !discordJoined
-            && !discordBannerDismissed
-            && githubStarred
-            && (conversationManager?.listStore.hasMultipleConversations ?? false)
-    }
 
     // MARK: - In-Chat Search (Cmd+F)
     @State private var isSearchActive = false
@@ -544,21 +535,17 @@ struct ChatView: View {
                 .animation(nil, value: queuedMessages.isEmpty)
             }
 
-            if shouldShowDiscordBanner {
-                centeredChatColumn(width: bannerWidth) {
-                    DiscordCommunityBanner(
-                        onJoin: {
-                            discordJoined = true
-                            openURL(AppURLs.discordInviteURL)
-                        },
-                        onDismiss: {
-                            discordBannerDismissed = true
-                        }
-                    )
-                }
-                .padding(.bottom, -VSpacing.sm)
-                .animation(nil, value: queuedMessages.isEmpty)
+            // Always-on deprecation notice. Rendered last so it sits closest to
+            // the composer, and intentionally has no gate or dismiss action.
+            centeredChatColumn(width: bannerWidth) {
+                DeprecatedAppBanner(
+                    onDownload: {
+                        openURL(AppURLs.downloadsURL)
+                    }
+                )
             }
+            .padding(.bottom, -VSpacing.sm)
+            .animation(nil, value: queuedMessages.isEmpty)
         }
     }
 

@@ -9,6 +9,8 @@ import {
   isNull,
   lt,
   lte,
+  ne,
+  or,
   sql,
 } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
@@ -411,6 +413,43 @@ function selectUnlinkedLogsInRange(
     )
     .orderBy(llmRequestLogs.createdAt)
     .all();
+}
+
+/**
+ * Return the `createdAt` of the most recent **non-`compactionAgent`** LLM
+ * call in the conversation that ran strictly before `beforeCreatedAt`, or
+ * `null` when no such call exists (the selected call is the first real
+ * call in the conversation).
+ *
+ * Drives the call-scoped floor for the Inspector's Compaction tab. A
+ * compaction is attributed to the next real call that runs after it, so
+ * the trail for a given call is the set of compactions that landed
+ * strictly between the previous real call and the selected call. NULL
+ * `callSite` rows (pre-migration-264) are treated as real calls — only
+ * `compactionAgent` rows are excluded.
+ */
+export function getPreviousNonCompactionCallCreatedAt(
+  conversationId: string,
+  beforeCreatedAt: number,
+): number | null {
+  const db = getDb();
+  const row = db
+    .select({ createdAt: llmRequestLogs.createdAt })
+    .from(llmRequestLogs)
+    .where(
+      and(
+        eq(llmRequestLogs.conversationId, conversationId),
+        lt(llmRequestLogs.createdAt, beforeCreatedAt),
+        or(
+          isNull(llmRequestLogs.callSite),
+          ne(llmRequestLogs.callSite, "compactionAgent"),
+        ),
+      ),
+    )
+    .orderBy(desc(llmRequestLogs.createdAt), desc(llmRequestLogs.id))
+    .limit(1)
+    .get();
+  return row?.createdAt ?? null;
 }
 
 /**

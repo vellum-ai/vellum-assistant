@@ -95,7 +95,10 @@ describe("evals server routing", () => {
     const res = await handleRequest(req(`/sessions/${sessionId}/tests/t1`));
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain("Metric breakdown");
+    expect(html).toContain("Profiles");
+    expect(html).toContain("Responses");
+    expect(html).toContain("Runtime");
+    expect(html).not.toContain("Metric breakdown");
     expect(html).toContain(
       `href="/sessions/${sessionId}/tests/t1/profiles/p1"`,
     );

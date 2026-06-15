@@ -20,7 +20,7 @@ describe("model intents", () => {
       "claude-haiku-4-5-20251001",
     );
     expect(resolveModelIntent("anthropic", "quality-optimized")).toBe(
-      "claude-fable-5",
+      "claude-opus-4-8",
     );
     expect(resolveModelIntent("anthropic", "vision-optimized")).toBe(
       "claude-opus-4-6",

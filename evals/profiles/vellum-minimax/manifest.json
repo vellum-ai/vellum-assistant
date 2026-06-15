@@ -1,0 +1,9 @@
+{
+  "species": "vellum",
+  "description": "Vellum Assistant with its active inference profile pointed at MiniMax M3 (served by Fireworks on US infrastructure) instead of the default Anthropic model. Measures how the stock agent's personal-intelligence behavior holds up on a strong open-weight model.",
+  "setup": [
+    "assistant config set llm.profiles.minimax.provider fireworks",
+    "assistant config set llm.profiles.minimax.model accounts/fireworks/models/minimax-m3",
+    "assistant config set llm.activeProfile minimax"
+  ]
+}

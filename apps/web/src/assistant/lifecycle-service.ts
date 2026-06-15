@@ -119,6 +119,19 @@ class AssistantLifecycleService {
    */
   private healthHeartbeatToken = 0;
   /**
+   * Tracks the assistant being actively probed. Non-null when a probe
+   * loop is running (timer pending OR tick in-flight). Prevents
+   * re-entry: the probe's own 502 response fires the unreachable-bus
+   * which calls `triggerReachabilityProbe` again — without this guard
+   * each re-entry creates an orphaned timer that can never be
+   * cancelled, doubling probe traffic on every cycle and consuming CPU.
+   *
+   * Storing the assistantId (rather than a bare boolean) allows a
+   * switch to a different assistant to cancel the stale loop and start
+   * a fresh one.
+   */
+  private probeLoopAssistantId: string | null = null;
+  /**
    * Auto-retry for transient (transport-shaped) error states —
    * armed by `transition` on entering such a state, cleared on
    * leaving it. The attempt counter drives the backoff schedule and
@@ -178,6 +191,8 @@ class AssistantLifecycleService {
       useResolvedAssistantsStore.getState().setActiveAssistantId(null);
     }
     this.setOperationalStatusAssistantId(null);
+    this.cancelProbeTimer();
+    this.probeLoopAssistantId = null;
     if (this.state.kind !== "loading") {
       this.transition({ kind: "loading" });
     }
@@ -232,7 +247,19 @@ class AssistantLifecycleService {
   // Imperative actions — called from event handlers / consumers
   // ---------------------------------------------------------------------------
 
-  async checkAssistant(): Promise<void> {
+  /**
+   * Force a fresh assistant-status fetch and project it.
+   *
+   * `assistantIdOverride` pins this one refresh to a specific assistant
+   * instead of the multi-assistant selection carried in
+   * `inputs.selectedPlatformAssistantId`. The onboarding handoff uses it so a
+   * just-hatched assistant is the one fetched and projected — otherwise, in a
+   * multi-assistant session where a *different* assistant is already selected,
+   * the refresh would re-fetch that selection and `projectActive` would
+   * overwrite the active id back to it, sending the onboarding payload to the
+   * wrong assistant.
+   */
+  async checkAssistant(assistantIdOverride?: string): Promise<void> {
     if (!this.ready) return;
     if (isGatewayAuthMode()) {
       this.applyGatewayAuthShortCircuit();
@@ -250,7 +277,8 @@ class AssistantLifecycleService {
       // network so a 10s-old cached 404 or initializing result
       // doesn't silently replay. Poll-driven projections go through
       // `applyServerResult` to avoid the read-back loop.
-      const selectedId = this.inputs.selectedPlatformAssistantId ?? null;
+      const selectedId =
+        assistantIdOverride ?? this.inputs.selectedPlatformAssistantId ?? null;
       let result = await this.inputs.queryClient.fetchQuery({
         queryKey: assistantQueryKey(selectedId),
         queryFn: () => getAssistant(selectedId ?? undefined),
@@ -603,15 +631,32 @@ class AssistantLifecycleService {
   }
 
   private startProbeLoop(assistantId: string): void {
+    if (this.probeLoopAssistantId === assistantId) return;
     this.cancelProbeTimer();
+    this.probeLoopAssistantId = assistantId;
     const startedAt = Date.now();
+    const exit = () => {
+      this.probeLoopAssistantId = null;
+    };
     const tick = async () => {
-      if (this.state.kind !== "active" || this.state.reachable === true) return;
-      if (Date.now() - startedAt > PROBE_RETRY_LIMIT_MS) return;
+      if (this.state.kind !== "active" || this.state.reachable === true) {
+        exit();
+        return;
+      }
+      if (Date.now() - startedAt > PROBE_RETRY_LIMIT_MS) {
+        exit();
+        return;
+      }
       await this.probeReachability(assistantId);
       const s = this.state;
-      if (s.kind !== "active" || s.reachable === true) return;
-      if (Date.now() - startedAt > PROBE_RETRY_LIMIT_MS) return;
+      if (s.kind !== "active" || s.reachable === true) {
+        exit();
+        return;
+      }
+      if (Date.now() - startedAt > PROBE_RETRY_LIMIT_MS) {
+        exit();
+        return;
+      }
       this.probeTimer = setTimeout(() => void tick(), PROBE_RETRY_DELAY_MS);
     };
     this.probeTimer = setTimeout(() => void tick(), PROBE_RETRY_DELAY_MS);
@@ -695,6 +740,7 @@ class AssistantLifecycleService {
     }
     this.cancelProbeTimer();
     this.cancelHealthHeartbeat();
+    this.probeLoopAssistantId = null;
     this.clearErrorRetry(true);
     this.state = { kind: "loading" };
     this.generation = 0;

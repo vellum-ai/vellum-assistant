@@ -104,6 +104,7 @@ describe("postChatMessage onboarding payload", () => {
       tasks: ["code-building", "writing"],
       tone: "friendly",
       userName: "Ada",
+      occupation: "Software Engineer",
       assistantName: "Vel",
     });
     // Profile seeding is fire-and-forget — flush the microtask queue so
@@ -116,6 +117,7 @@ describe("postChatMessage onboarding payload", () => {
       tasks: ["builds code, apps, or tools", "writes docs, emails, or content"],
       tone: "friendly",
       userName: "Ada",
+      occupation: "Software Engineer",
       assistantName: "Vel",
     });
 
@@ -127,6 +129,7 @@ describe("postChatMessage onboarding payload", () => {
     for (const write of writes) {
       expect(write.content).toContain("## Onboarding Context");
       expect(write.content).toContain("- **Preferred name:** Ada");
+      expect(write.content).toContain("- **Role:** Software Engineer");
       expect(write.content).toContain(
         "- **Common work:** builds code, apps, or tools; writes docs, emails, or content",
       );

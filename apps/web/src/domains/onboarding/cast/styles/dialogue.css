@@ -1,0 +1,158 @@
+/* Cast — VN dialogue scene: bespoke Visual Novel choreography.
+ *
+ * Screen chrome (header, choice cards, advance affordance, dialogue text) is now
+ * built from design-library primitives + tokens + Tailwind in dialogue-screen.tsx.
+ * This sheet carries only the bespoke VN choreography that has no design-system
+ * equivalent: the typewriter cursor/advance blink, the glass choice-card art, the
+ * handoff loading dots, and the centered scene layout.
+ *
+ * NOTE: the shared `.cast-vn*` base classes below (used by the preamble screen and
+ * the shell help-ghost) live here as their canonical home from the PR-1 cast.css
+ * split; they are cross-screen choreography primitives, not dialogue-only chrome.
+ */
+
+/* ---- Shared VN text overlay (preamble + dialogue) ---- */
+
+.cast-vn {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  padding: 32px;
+}
+.cast-vn__cursor {
+  display: inline;
+  animation: cast-blink 0.6s steps(2) infinite;
+  color: var(--content-tertiary);
+  font-weight: 300;
+}
+.cast-vn__advance {
+  display: inline-block;
+  margin-top: 16px;
+  font-size: 14px;
+  font-weight: 620;
+  color: var(--content-secondary);
+  animation: cast-blink 1.2s ease-in-out infinite;
+  appearance: none;
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 0;
+}
+.cast-vn__ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-active);
+}
+.cast-vn__ghost-q {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--content-tertiary);
+}
+
+/* ---- VN dialogue scene layout (centered, top-anchored) ---- */
+.cast-vn--top {
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+}
+.cast-vn__top {
+  max-width: 460px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* ---- Dialogue scene chrome — bespoke art over the design-library primitives ---- */
+
+/* Speaker name: bespoke Instrument Serif display face, no token equivalent. */
+.cast-dialogue__speaker {
+  font-family: "Instrument Serif", var(--font-serif), serif;
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 1.25;
+  color: #fff;
+}
+
+/* Dialogue body: lighter weight + roomier leading than the body token. */
+.cast-dialogue__text {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 300;
+  line-height: 1.6;
+  color: var(--content-default);
+}
+
+/* Glass choice card — overrides the design-library Button chrome with the
+   bespoke VN frosted card (tone + reach pickers). The two-class selectors give
+   this art higher specificity than the Button's single-class utilities so the
+   frosted-glass look reliably wins regardless of stylesheet order. */
+.cast-vn .cast-dialogue__choice {
+  min-height: 132px;
+  padding: 20px;
+  height: auto;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  white-space: normal;
+  --vbtn-fg: var(--content-default);
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.cast-vn .cast-dialogue__choice:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.cast-vn .cast-dialogue__choice--selected {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+/* Connected pill on a wired-up reach card. */
+.cast-dialogue__connected-tag {
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: var(--radius-xl);
+  padding: 3px 8px;
+  color: var(--content-default);
+  background: color-mix(in srgb, var(--content-default) 10%, transparent);
+}
+
+/* ---- Handoff loading states ---- */
+.cast-vn__loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 24px 0 8px;
+  min-height: 72px;
+}
+.cast-vn__loading-indicator {
+  display: flex;
+  gap: 6px;
+}
+.cast-vn__loading-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--content-secondary);
+  animation: cast-loading-pulse 1.2s ease-in-out infinite;
+}
+.cast-vn__loading-dot:nth-child(2) { animation-delay: 0.2s; }
+.cast-vn__loading-dot:nth-child(3) { animation-delay: 0.4s; }
+.cast-dialogue__loading-text {
+  margin: 0;
+  font-size: 14px;
+  color: var(--content-secondary);
+}

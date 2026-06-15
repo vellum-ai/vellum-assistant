@@ -8,6 +8,7 @@ import type {
   AgentMessage,
   BaseAgent,
   ConfirmationDecision,
+  ResolvedAppPage,
   WorkspaceFileWrite,
 } from "../adapter";
 import type { Profile } from "../profile";
@@ -28,6 +29,8 @@ import {
   type SpawnedProcess,
 } from "../runtime/command-runner";
 import { parseNdjson } from "../runtime/ndjson";
+import { assertSafeWorkspacePath } from "./workspace-path";
+import { inlineAppDist } from "./vellum-app-page";
 
 export interface VellumAgentOptions {
   profile: Profile;
@@ -213,6 +216,16 @@ function parseConversationKey(output: string): string | null {
 const CONTAINER_WORKSPACE_DIR = "/workspace";
 
 /**
+ * Directory inside the assistant container where the app builder writes
+ * compiled sandbox apps: `<dirName>/dist/index.html` plus sibling
+ * `main.js` / `main.css`. Derived from the daemon's app-store layout
+ * (`getAppsDir()` = `<workspace>/data/apps` in `assistant/src/memory/`),
+ * pinned here because adapters do NOT import from `assistant/` (see
+ * `evals/AGENTS.md`); if the daemon's layout moves, this moves with it.
+ */
+const CONTAINER_APPS_DIR = `${CONTAINER_WORKSPACE_DIR}/data/apps`;
+
+/**
  * Internal port the gateway reverse-proxy listens on inside the container,
  * pinned to `GATEWAY_INTERNAL_PORT` in `cli/src/lib/environments/paths.ts`.
  * When the egress jail owns the network namespace it — not the assistant —
@@ -223,31 +236,6 @@ const CONTAINER_WORKSPACE_DIR = "/workspace";
  * intentional; if the CLI default moves, this moves with it.
  */
 const GATEWAY_CONTAINER_PORT = 7830;
-
-/**
- * Validate a workspace-relative path before staging a file. Rejects
- * absolute paths (would escape the workspace root) and any segment
- * equal to `..` (path-traversal escape). Empty paths are rejected so
- * a typo can't write at the workspace root with an unnamed file.
- */
-function assertSafeWorkspacePath(relPath: string): void {
-  if (relPath.length === 0) {
-    throw new Error("workspace path must be non-empty");
-  }
-  if (relPath.startsWith("/")) {
-    throw new Error(
-      `workspace path must be workspace-relative, got absolute path: ${relPath}`,
-    );
-  }
-  const segments = relPath.split("/");
-  for (const segment of segments) {
-    if (segment === "..") {
-      throw new Error(
-        `workspace path must not escape the workspace root: ${relPath}`,
-      );
-    }
-  }
-}
 
 export class VellumAgent implements BaseAgent {
   readonly id: string;
@@ -263,6 +251,7 @@ export class VellumAgent implements BaseAgent {
   private jail?: DockerEgressJail;
   private hatched = false;
   private stopped = false;
+  private baselineAppDistDirs = new Set<string>();
 
   constructor(opts: VellumAgentOptions) {
     this.profile = opts.profile;
@@ -432,6 +421,12 @@ export class VellumAgent implements BaseAgent {
       }
 
       this.hatched = true;
+
+      // Record the apps that already exist before the evaluated turn runs
+      // (e.g. startup-seeded preloaded apps like the personal landing page,
+      // which the daemon compiles in the background at boot). resolveAppPage()
+      // excludes these so it only ever returns an app the turn itself built.
+      this.baselineAppDistDirs = new Set(await this.listAppDistDirs());
     } catch (err) {
       // Capture container forensics BEFORE any teardown — once
       // containers are removed, `docker inspect` and `docker logs`
@@ -582,6 +577,13 @@ export class VellumAgent implements BaseAgent {
         }
         break;
       }
+      case "stage-workspace-file": {
+        await this.writeWorkspaceFile({
+          path: command.path,
+          content: command.content,
+        });
+        break;
+      }
     }
   }
 
@@ -716,6 +718,87 @@ export class VellumAgent implements BaseAgent {
 
   async readUsageRecords(): Promise<Array<Record<string, unknown>>> {
     return this.jail?.readUsageRecords() ?? [];
+  }
+
+  /**
+   * Resolve the most recently built sandbox app into a single
+   * self-contained HTML page the runner can load in a headless browser.
+   *
+   * The app builder compiles apps to `dist/index.html` plus sibling
+   * `main.js` / `main.css` under `${CONTAINER_APPS_DIR}/<dirName>/`. We
+   * read those files straight off the container's stdout (no `docker cp`
+   * round-trip) and inline the assets so the result renders from
+   * `page.setContent(html)` alone — the daemon performs the equivalent
+   * inlining when it delivers an app over SSE.
+   *
+   * Returns `undefined` when the agent built no app this run, so the
+   * runner skips the app-interaction phase.
+   */
+  async resolveAppPage(): Promise<ResolvedAppPage | undefined> {
+    this.assertHatched();
+    const distDir = await this.findNewestAppDistDir();
+    if (distDir === undefined) return undefined;
+    const indexHtml = await this.readContainerTextFile(`${distDir}/index.html`);
+    if (indexHtml === undefined) return undefined;
+    const mainJs = await this.readContainerTextFile(`${distDir}/main.js`);
+    const mainCss = await this.readContainerTextFile(`${distDir}/main.css`);
+    return { html: inlineAppDist({ indexHtml, mainJs, mainCss }) };
+  }
+
+  /**
+   * Find the `dist` directory of the newest app the evaluated turn built,
+   * or `undefined` when the turn built none. Apps that already existed at
+   * hatch (the `baselineAppDistDirs` snapshot — e.g. startup-seeded
+   * preloaded apps) are excluded, so a turn that builds nothing never
+   * resolves to a pre-existing page. `listAppDistDirs` is newest-first by
+   * mtime, so the first non-baseline entry is the freshest turn-built app.
+   */
+  private async findNewestAppDistDir(): Promise<string | undefined> {
+    const distDirs = await this.listAppDistDirs();
+    return distDirs.find((dir) => !this.baselineAppDistDirs.has(dir));
+  }
+
+  /**
+   * List every compiled app's `dist` directory, newest first by
+   * `dist/index.html` mtime. Each returned path is the dist dir (the path
+   * up to the `index.html`'s last `/`). The glob is quoted so the shell —
+   * not this process — expands it inside the container, and `2>/dev/null`
+   * swallows the "no matches" stderr so the command still exits 0 with
+   * empty stdout.
+   */
+  private async listAppDistDirs(): Promise<string[]> {
+    const result = await this.runner.run("docker", [
+      "exec",
+      this.assistantContainerName,
+      "sh",
+      "-lc",
+      `ls -1t ${CONTAINER_APPS_DIR}/*/dist/index.html 2>/dev/null`,
+    ]);
+    return result.stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line !== "")
+      .map((indexPath) => indexPath.slice(0, indexPath.lastIndexOf("/")));
+  }
+
+  /**
+   * Read a UTF-8 text file out of the assistant container via
+   * `docker exec cat`, or `undefined` when it doesn't exist. Used for
+   * the optional `main.js` / `main.css` assets, so a non-zero exit
+   * (missing file) is a normal "asset absent" signal rather than an
+   * error — hence the exit-code check instead of `assertSuccess`.
+   */
+  private async readContainerTextFile(
+    containerPath: string,
+  ): Promise<string | undefined> {
+    const result = await this.runner.run("docker", [
+      "exec",
+      this.assistantContainerName,
+      "cat",
+      containerPath,
+    ]);
+    if (result.exitCode !== 0) return undefined;
+    return result.stdout;
   }
 
   async shutdown(): Promise<void> {

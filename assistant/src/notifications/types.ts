@@ -7,6 +7,7 @@
 
 import type { ChannelPolicies } from "../channels/config.js";
 import type { ChannelId } from "../channels/types.js";
+import type { ApprovalUIMetadata } from "../runtime/channel-approval-types.js";
 import type { AttentionHints } from "./signal.js";
 
 /**
@@ -95,6 +96,13 @@ export interface ChannelDeliveryPayload {
    * pairing side effects).
    */
   urgency: AttentionHints["urgency"];
+  /**
+   * Structured approval context for notifications that require guardian
+   * action buttons (approve/reject). Built centrally by the broadcaster
+   * so adapters can render channel-native approval UI without re-parsing
+   * `contextPayload`.
+   */
+  approvalContext?: ApprovalUIMetadata;
 }
 
 /**

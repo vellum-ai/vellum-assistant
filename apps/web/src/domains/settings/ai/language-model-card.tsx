@@ -11,8 +11,8 @@ import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-import { ByoServiceCard, SaveButton } from "@/domains/settings/ai/ai-shared-ui";
-import { buildOrderedProfiles } from "@/domains/settings/ai/ai-utils";
+import { ByoServiceCard, SaveButton } from "@/domains/settings/ai/shared-ui";
+import { buildOrderedProfiles } from "@/domains/settings/ai/utils";
 import { CallSiteOverridesModal } from "@/domains/settings/ai/call-site-overrides-modal";
 import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal";
 import { ManageProvidersModal } from "@/domains/settings/ai/manage-providers-modal";
@@ -22,6 +22,7 @@ import {
     profilePickerLabel,
     visibleProfilesForPicker,
 } from "@/assistant/profile-pickers";
+import { useStickyProfiles } from "@/assistant/use-sticky-profiles";
 import { configGetOptions, configGetSetQueryData, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
 import { useQuery } from "@tanstack/react-query";
@@ -37,12 +38,13 @@ export function LanguageModelCard() {
 
   const activeProfile = config?.llm?.activeProfile ?? null;
   const callSites = config?.llm?.callSites ?? {};
+  // Retain the last non-empty profile list so a transient empty config payload
+  // can't blank the Default Profile dropdown until the next good fetch — managed
+  // profiles are always seeded, so an empty map is never a steady state.
+  const { profiles, profileOrder } = useStickyProfiles(config?.llm, assistantId);
   const orderedProfiles = useMemo(
-    () => buildOrderedProfiles(
-      config?.llm?.profiles ?? {},
-      config?.llm?.profileOrder ?? [],
-    ),
-    [config?.llm?.profiles, config?.llm?.profileOrder],
+    () => buildOrderedProfiles(profiles, profileOrder),
+    [profiles, profileOrder],
   );
 
   const configMutation = useConfigPatchMutation({

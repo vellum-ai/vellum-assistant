@@ -233,6 +233,27 @@ declare -a SAFE_LINE_PATTERNS=(
     # Must match the full `kind: "secret" ... secret: "refName"` span so the
     # strip-and-recheck pass doesn't leave a partial match.
     "kind:[[:space:]]*['\"]secret['\"].*secret:[[:space:]]*['\"][a-zA-Z][a-zA-Z0-9]*['\"]"
+    # Documentation/example OAuth scripts that reference a secret indirectly: the
+    # value is a shell/env variable ($CLIENT_SECRET) or a SCREAMING_SNAKE
+    # placeholder identifier (CLIENT_SECRET), not a literal credential. Covers
+    # curl `-d "...&client_secret=$CLIENT_SECRET"`, Python `'client_secret':
+    # CLIENT_SECRET`, and similar. The value must be `[$]?` + an UPPER_SNAKE
+    # token with at least one underscore — real credentials are quoted
+    # mixed/lowercase high-entropy strings, so this never masks one (an
+    # unquoted lowercase value or a digit-only AWS-style key has no underscore
+    # group and is still flagged). Case-sensitive on the value to keep it tight.
+    # The value is anchored to a trailing delimiter (quote, whitespace, & , ; )
+    # } or end-of-line) so the placeholder must be the *whole* value. A real
+    # secret that merely begins with an UPPER_SNAKE prefix (e.g. the curl string
+    # `...&client_secret=PROD_KEYabc123"`) is therefore not prefix-matched, so
+    # the strip-and-recheck pass can't drop the `client_secret=` keyword and let
+    # the lowercase remainder through.
+    "['\"]?[A-Za-z0-9_]*[Ss][Ee][Cc][Rr][Ee][Tt]['\"]?[[:space:]]*[:=][[:space:]]*[$]?[A-Z][A-Z0-9]*(_[A-Z0-9]+)+(['\"&,;)}[:space:]]|\$)"
+    # Same intent for an assignment whose value is a *quoted* SCREAMING_SNAKE
+    # placeholder (e.g. `CLIENT_SECRET = 'YOUR_CLIENT_SECRET'`). The quoted value
+    # must be an UPPER_SNAKE token with an underscore group; a quoted real secret
+    # (lowercase/mixed) does not match and stays flagged.
+    "[A-Za-z0-9_]*[Ss][Ee][Cc][Rr][Ee][Tt][[:space:]]*=[[:space:]]*['\"][A-Z][A-Z0-9]*(_[A-Z0-9]+)+['\"]"
 )
 
 matches_safe_line_pattern() {
@@ -360,6 +381,29 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_GHA_SECRETS_LINE='          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}'
     SAFE_GHA_SECRETS_COMMENT_LINE='          client_secret: ${{ secrets.CLIENT_SECRET }} # rotated monthly'
     UNSAFE_GHA_SECRETS_FALLBACK='          client_secret: ${{ secrets.CLIENT_SECRET || "SuperSecretFallback12345" }}'
+
+    # Documentation/example OAuth scripts that reference a secret via a shell/env
+    # variable or a SCREAMING_SNAKE placeholder (false positives to whitelist).
+    SAFE_ENV_VAR_SECRET='  -d "grant_type=refresh_token&client_id=$CLIENT_ID&client_secret=$CLIENT_SECRET"'
+    SAFE_PLACEHOLDER_VALUE_SECRET='  -d "grant_type=refresh_token&client_id=CLIENT_ID&client_secret=CLIENT_SECRET"'
+    SAFE_PY_DICT_VAR_SECRET="                    'client_secret': CLIENT_SECRET,"
+    SAFE_ASSIGN_PLACEHOLDER_SECRET="CLIENT_SECRET = 'YOUR_CLIENT_SECRET'"
+    # Same shapes carrying a real literal value — must NOT be whitelisted.
+    # (Bare unquoted identifier-shaped values like `=sk_live_abc` are already
+    # treated as variable references by an existing pattern; these use shapes
+    # that are not identifier-like — hyphenated, quoted lowercase, quoted
+    # mixed-case — to verify the new patterns don't mask a literal credential.)
+    UNSAFE_ENV_VAR_REAL_SECRET='client_secret=sk-live-1234567890abcdef'
+    UNSAFE_QUOTED_REAL_SECRET="client_secret = 'sk_live_1234567890abcdef'"
+    UNSAFE_QUOTED_MIXED_SECRET='client_secret: "Ab12Cd34Ef56Gh78Ij90"'
+    # Real secret embedded in a curl string whose value merely *begins* with an
+    # UPPER_SNAKE prefix and continues with lowercase/digit entropy. The trailing
+    # `"` keeps the existing variable-reference allowlist from matching, so this
+    # exercises the SCREAMING_SNAKE allowlist directly: without the value's
+    # trailing-delimiter anchor the prefix would match, the strip-and-recheck
+    # pass would drop the `client_secret=` keyword, and the remainder would slip
+    # through. Must stay flagged.
+    UNSAFE_SNAKE_PREFIX_SECRET='  -d "grant_type=client_credentials&client_secret=PROD_KEYa1b2c3d4e5f6g7h8"'
 
     # TS/JS: camelCase property identifiers (false positives to avoid)
     SAFE_TS_TYPEOF_LINE='    oauth2ClientSecret: typeof record.oauth2ClientSecret === '\''string'\'' ? record.oauth2ClientSecret : undefined,'
@@ -789,6 +833,38 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_safe_line_pattern "$UNSAFE_SWIFT_CODING_KEY_CREDENTIAL"; then
         echo -e "${RED}Self-test failed:${NC} Swift CodingKeys enum case with sensitive name (credential) was incorrectly whitelisted"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_ENV_VAR_SECRET" && ! matches_safe_line_pattern "$SAFE_ENV_VAR_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} OAuth example referencing client_secret via \$ENV var false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_PLACEHOLDER_VALUE_SECRET" && ! matches_safe_line_pattern "$SAFE_PLACEHOLDER_VALUE_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} OAuth example referencing client_secret via SCREAMING_SNAKE placeholder false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_PY_DICT_VAR_SECRET" && ! matches_safe_line_pattern "$SAFE_PY_DICT_VAR_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} Python dict client_secret bound to a placeholder variable false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_ASSIGN_PLACEHOLDER_SECRET" && ! matches_safe_line_pattern "$SAFE_ASSIGN_PLACEHOLDER_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} CLIENT_SECRET assigned a quoted SCREAMING_SNAKE placeholder false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$UNSAFE_ENV_VAR_REAL_SECRET" && matches_safe_line_pattern "$UNSAFE_ENV_VAR_REAL_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} unquoted lowercase real client_secret value was incorrectly whitelisted"
+        exit 1
+    fi
+    if matches_secret_pattern "$UNSAFE_QUOTED_REAL_SECRET" && matches_safe_line_pattern "$UNSAFE_QUOTED_REAL_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} quoted lowercase real client_secret value was incorrectly whitelisted"
+        exit 1
+    fi
+    if matches_secret_pattern "$UNSAFE_QUOTED_MIXED_SECRET" && matches_safe_line_pattern "$UNSAFE_QUOTED_MIXED_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} quoted mixed-case real client_secret value was incorrectly whitelisted"
+        exit 1
+    fi
+    if matches_secret_pattern "$UNSAFE_SNAKE_PREFIX_SECRET" && matches_safe_line_pattern "$UNSAFE_SNAKE_PREFIX_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} real client_secret value with an UPPER_SNAKE prefix was incorrectly whitelisted"
         exit 1
     fi
 

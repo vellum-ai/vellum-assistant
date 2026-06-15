@@ -35,6 +35,25 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("text-body-medium-default");
   });
 
+  test("ordered list beginning at a non-1 number preserves its start", () => {
+    // A terse "3." answer is parsed as a one-item ordered list starting at 3.
+    // Without forwarding `start`, the <ol> defaults to 1 and renders "1.".
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, { content: "3." }),
+    );
+
+    expect(html).toContain('<ol start="3"');
+  });
+
+  test("ordered list starting at 1 omits a redundant start attribute", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, { content: "1. first\n2. second" }),
+    );
+
+    expect(html).toContain("<ol");
+    expect(html).not.toContain("start=");
+  });
+
   test("tables render with the body-small typography token", () => {
     const html = renderToStaticMarkup(
       createElement(MarkdownMessage, {

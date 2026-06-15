@@ -59,13 +59,11 @@ Guide the user to the **Distribution** tab to paste the redirect URI and save.
 
 After receiving the Client ID, collect the secret securely:
 
-```
-credential_store prompt:
-  service: "notion"
-  field: "client_secret"
-  label: "Notion OAuth Client Secret"
-  description: "Copy the Client Secret from the Notion integration page and paste it here."
-  placeholder: "secret_..."
+```bash
+assistant credentials prompt --service notion --field client_secret \
+  --label "Notion OAuth Client Secret" \
+  --placeholder "secret_..." \
+  --description "Copy the Client Secret from the Notion integration page and paste it here."
 ```
 
 ### Step 4: Store Credentials and Authorize

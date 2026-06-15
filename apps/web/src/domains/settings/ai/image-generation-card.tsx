@@ -14,15 +14,12 @@ import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import type { ServiceMode } from "@/domains/settings/ai/ai-types";
-import {
-    AVAILABLE_IMAGE_GEN_MODELS,
-    IMAGE_GEN_MODEL_DISPLAY_NAMES,
-    LS_IMAGE_GEN_MODE,
-    LS_IMAGE_GEN_MODEL,
-} from "@/domains/settings/ai/ai-types";
+import { LS_IMAGE_GEN_MODE, LS_IMAGE_GEN_MODEL } from "@/domains/settings/ai/local-storage-keys";
+import { AVAILABLE_IMAGE_GEN_MODELS, IMAGE_GEN_MODEL_DISPLAY_NAMES } from "@/domains/settings/ai/provider-catalogs";
+import { parseServiceMode } from "@/domains/settings/ai/utils";
+import type { ServiceMode } from "@/generated/daemon/types.gen";
 
-import { ResetButton, SaveButton, ServiceCard } from "@/domains/settings/ai/ai-shared-ui";
+import { ResetButton, SaveButton, ServiceCard } from "@/domains/settings/ai/shared-ui";
 import { useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
 import { configGetOptions, configGetSetQueryData, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useQuery } from "@tanstack/react-query";
@@ -47,9 +44,13 @@ export function ImageGenerationCard() {
   // Server value derived from daemon config, falling back to localStorage.
   // Updates automatically when the cache refreshes.
   const serverImageGenMode = useMemo<ServiceMode>(() => {
-    if (!daemonConfig) return getLocalSetting(LS_IMAGE_GEN_MODE, "your-own") as ServiceMode;
-    const mode = daemonConfig.services?.["image-generation"]?.mode;
-    return (mode === "managed" || mode === "your-own" ? mode : getLocalSetting(LS_IMAGE_GEN_MODE, "your-own")) as ServiceMode;
+    if (!daemonConfig) {
+      return parseServiceMode(getLocalSetting(LS_IMAGE_GEN_MODE, "your-own"), "your-own");
+    }
+    return parseServiceMode(
+      daemonConfig.services?.["image-generation"]?.mode ?? getLocalSetting(LS_IMAGE_GEN_MODE, "your-own"),
+      "your-own",
+    );
   }, [daemonConfig]);
 
   const [imageGenMode, setDraftImageGenMode] = useDraftOverride(serverImageGenMode);

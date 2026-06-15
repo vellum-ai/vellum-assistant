@@ -1,5 +1,6 @@
 /**
- * Tests for the CallRail component's synthetic vs. real call rendering.
+ * Tests for the CallRail component's row rendering — synthetic, real,
+ * and compaction-summarizer calls.
  *
  * Strategy mirrors `inspect-page.test.tsx` and `compaction-tab.test.tsx`:
  * render to static markup (no DOM), mock `react-router`'s `Link` to a
@@ -142,5 +143,45 @@ describe("CallRail — synthetic vs real rows", () => {
     expect(html).toContain("Cost");
     expect(html).toContain("Unavailable");
     expect(html).not.toContain("var(--system-negative-strong)");
+  });
+});
+
+describe("CallRail — compaction rows", () => {
+  test("tags a compactionAgent call with a Compaction pill", () => {
+    /**
+     * The compaction summarizer is captured as an ordinary call row, so
+     * the rail tags it to set it apart from a main-agent call while
+     * still rendering its provider · model subtitle.
+     */
+    // GIVEN a compaction summarizer call (callSite "compactionAgent")
+    // WHEN the rail renders the row
+    const html = render([
+      makeRealEntry({
+        callSite: "compactionAgent",
+        summary: {
+          provider: "anthropic",
+          model: "claude-haiku-4-5",
+          estimatedCostUsd: 0.0001,
+        },
+      }),
+    ]);
+    // THEN it shows the Compaction pill alongside the provider · model subtitle
+    expect(html).toContain("Compaction");
+    expect(html).toContain("Anthropic");
+    expect(html).toContain("claude-haiku-4-5");
+    // A compaction call is a normal (non-error) call — no warning palette.
+    expect(html).not.toContain("var(--system-negative-strong)");
+  });
+
+  test("does not tag a main-agent call with a Compaction pill", () => {
+    /**
+     * Main-agent calls are the common case and must never pick up the
+     * compaction tag.
+     */
+    // GIVEN a main-agent call
+    // WHEN the rail renders the row
+    const html = render([makeRealEntry({ callSite: "mainAgent" })]);
+    // THEN no Compaction pill appears
+    expect(html).not.toContain("Compaction");
   });
 });

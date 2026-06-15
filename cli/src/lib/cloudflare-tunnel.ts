@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { GATEWAY_PORT } from "./constants.js";
+import { resolveTunnelTargetPort } from "./nginx-ingress.js";
 
 // ── Workspace config helpers (mirrors the pattern in ngrok.ts) ───────────────
 
@@ -112,7 +113,7 @@ export function waitForCloudflareTunnelUrl(
       reject(
         new Error(
           `cloudflared tunnel URL did not appear within ${timeoutMs / 1000}s. ` +
-            `Ensure cloudflared is working: try running 'cloudflared tunnel --url http://localhost:8080' manually.`,
+            `Ensure cloudflared is working: try running 'cloudflared tunnel --url http://localhost:7840' manually.`,
         ),
       );
     }, timeoutMs);
@@ -175,6 +176,8 @@ export interface RunCloudflareTunnelOptions {
   port?: number;
   /** Workspace directory for config read/write. Defaults to ~/.vellum/workspace. */
   workspaceDir?: string;
+  /** Prefer nginx ingress over the gateway port when it is running. */
+  preferNginxIngress?: boolean;
 }
 
 export async function runCloudflareTunnel(
@@ -197,8 +200,18 @@ export async function runCloudflareTunnel(
 
   console.log(`Using ${version}`);
 
-  const port = opts.port ?? GATEWAY_PORT;
   const workspaceDir = opts.workspaceDir ?? getDefaultWorkspaceDir();
+  const gatewayPort = opts.port ?? GATEWAY_PORT;
+  const { port, viaIngress } = resolveTunnelTargetPort(
+    workspaceDir,
+    gatewayPort,
+    { preferNginxIngress: opts.preferNginxIngress === true },
+  );
+  if (viaIngress) {
+    console.log(
+      `nginx ingress detected — tunneling to it on 127.0.0.1:${port}.`,
+    );
+  }
 
   console.log(`Starting cloudflared quick tunnel to localhost:${port}...`);
   console.log("No Cloudflare account required — quick tunnels are free.");

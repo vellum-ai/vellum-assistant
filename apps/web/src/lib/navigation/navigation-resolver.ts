@@ -15,6 +15,25 @@ export interface NavigationState {
   platformSession: PlatformSessionStatus;
   tosAccepted: boolean;
   aiDataConsent: boolean;
+  /**
+   * The `experiment-activation-flow-2026-06-03 = personal-page` ("cast") arm.
+   * The cast flow owns its own provisioning (it background-hatches itself from
+   * the pre-chat step), so a no-assistant cast user is routed to prechat rather
+   * than the standalone hatching screen. Defaults to `false` for every other
+   * arm (control / variant-a) and for local mode, leaving their routing intact.
+   */
+  isCastArm: boolean;
+  /**
+   * Whether the client feature-flag fetch has settled (success OR terminal
+   * error), so `isCastArm` can be trusted. On a cold load the synchronous
+   * nav-state is built before the flag store is populated, so the no-assistant
+   * redirect that depends on the cast arm must WAIT until this is `true` to
+   * avoid mis-routing a cast user to the legacy hatch screen. Resolves as soon
+   * as the fetch settles (even on error → falls through to the default route),
+   * so it never hangs. Defaults to `false` in local mode (the experiment never
+   * runs there, and the local no-assistant branch returns before the check).
+   */
+  activationArmSettled: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -255,6 +274,21 @@ function requireAssistant(state: NavigationState): NavigationDecision | null {
 
   if (!hasCompletedOnboarding(state)) {
     return { action: "redirect", to: routes.onboarding.privacy };
+  }
+  // This redirect depends on the cast arm, which is read from the client
+  // feature-flag store. On a cold load that store may not be populated yet, so
+  // wait until the activation flag has settled before routing — otherwise a
+  // cast user would be mis-routed to the legacy hatch screen. As soon as the
+  // fetch settles (success or terminal error) `activationArmSettled` flips
+  // true and we fall through to the branch below, so this never hangs.
+  if (!state.activationArmSettled) {
+    return { action: "wait" };
+  }
+  // The cast arm's pre-chat flow hatches its own assistant, so a consented
+  // cast user with no assistant belongs in prechat, not the standalone
+  // hatching screen. Every other arm keeps the hatching redirect.
+  if (state.isCastArm) {
+    return { action: "redirect", to: routes.onboarding.prechat };
   }
   return { action: "redirect", to: routes.onboarding.hatching };
 }

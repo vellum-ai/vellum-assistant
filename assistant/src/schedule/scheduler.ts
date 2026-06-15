@@ -3,6 +3,7 @@ import {
   diskPressureBackgroundSkipLogFields,
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
+import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { getConversation } from "../memory/conversation-crud.js";
 import { invalidateAssistantInferredItemsForConversation } from "../memory/task-memory-cleanup.js";
@@ -10,8 +11,10 @@ import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
 import { runBackgroundJob } from "../runtime/background-job-runner.js";
 import { runSequencesOnce } from "../sequence/engine.js";
+import { areCoreToolsInitialized } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 import { runWatchersOnce, type WatcherNotifier } from "../watcher/engine.js";
+import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { hasSetConstructs } from "./recurrence-engine.js";
 import { applyRetryDecision, decideRetry } from "./retry-policy.js";
 import { runScript, type ScriptResult } from "./run-script.js";
@@ -20,6 +23,7 @@ import {
   completeOneShot,
   completeScheduleRun,
   createScheduleRun,
+  deferClaimedSchedule,
   failOneShotPermanently,
   getLastScheduleConversationId,
   listSchedules,
@@ -429,6 +433,86 @@ export async function runScheduleDueWorkOnce(
           status: "error",
           error: errorMsg,
         });
+        handleExecutionFailure({ job, errorMsg, isOneShot });
+        failed = true;
+      }
+      mark(failed ? "failed" : "completed");
+      continue;
+    }
+
+    // ── Workflow mode (trigger a saved workflow by name) ────────────
+    if (job.mode === "workflow") {
+      if (!job.workflowName) {
+        log.warn(
+          { jobId: job.id, name: job.name },
+          "Workflow schedule has no workflowName — skipping",
+        );
+        mark("skipped");
+        continue;
+      }
+      // Boot race: the scheduler starts before initializeProvidersAndTools()
+      // registers the read-only baseline (file_read/web_fetch/etc.) that
+      // resolveCapabilities grants to every workflow run. Launching now would
+      // give the run an EMPTY baseline and degrade/fail it. Defer the claimed
+      // job back to due so it fires on a later tick once tools are registered
+      // (the window is just the few seconds of daemon boot). Non-workflow modes
+      // don't depend on the baseline, so only this branch gates.
+      if (!areCoreToolsInitialized()) {
+        log.info(
+          { jobId: job.id, name: job.name, workflowName: job.workflowName },
+          "Deferring workflow schedule until tools are registered",
+        );
+        deferClaimedSchedule(job.id);
+        mark("skipped");
+        continue;
+      }
+      const runId = createScheduleRun(job.id, `workflow:${job.id}`);
+      let failed = false;
+      try {
+        log.info(
+          {
+            jobId: job.id,
+            name: job.name,
+            workflowName: job.workflowName,
+            isOneShot,
+          },
+          "Triggering workflow schedule",
+        );
+        // V1 LIMITATION: scheduled workflows run with the read-only baseline
+        // manifest only (no tools / host functions / persona). The schedule
+        // record carries no capability manifest, so declaring side-effecting
+        // tools for scheduled runs is a future enhancement.
+        const { runId: workflowRunId } = getWorkflowRunManager().start({
+          name: job.workflowName,
+          args: job.workflowArgs ?? {},
+          // Where the completion summary is delivered (an agent wake). Prefer an
+          // explicit wake target, then fall back to the conversation that
+          // created the schedule — workflow schedules made via `schedule_create`
+          // store that as `createdFromConversationId` and leave
+          // `wakeConversationId` unset, so without this fallback their result
+          // would surface only to live SSE listeners / the DB, never delivered.
+          conversationId:
+            job.wakeConversationId ??
+            job.createdFromConversationId ??
+            undefined,
+          manifest: { tools: [], hostFunctions: [], persona: false },
+          trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
+        });
+        // `start` launches the run fire-and-forget and returns synchronously;
+        // a successful trigger is recorded as ok. Workflow completion/failure
+        // is surfaced out-of-band via workflow events and the completion wake.
+        completeScheduleRun(runId, {
+          status: "ok",
+          output: `workflow run ${workflowRunId} started`,
+        });
+        if (isOneShot) completeOneShot(job.id);
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        log.warn(
+          { err, jobId: job.id, name: job.name, isOneShot },
+          "Workflow schedule trigger failed",
+        );
+        completeScheduleRun(runId, { status: "error", error: errorMsg });
         handleExecutionFailure({ job, errorMsg, isOneShot });
         failed = true;
       }

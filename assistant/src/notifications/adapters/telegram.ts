@@ -2,19 +2,17 @@
  * Telegram channel adapter — delivers notifications to Telegram chats
  * by calling the Telegram Bot API directly.
  *
- * For access request notifications, inline keyboard buttons ("Approve once",
- * "Reject") are attached so the guardian can act without typing a command.
- * If the rich delivery fails, the adapter falls back to plain text with
- * typed-command instructions.
+ * When the delivery payload carries an `approvalContext` (built centrally
+ * by the broadcaster), inline keyboard buttons ("Approve once", "Reject")
+ * are attached. If the rich delivery fails, the adapter falls back to
+ * plain text with typed-command instructions.
  */
 
 import { sendTelegramReply } from "../../messaging/providers/telegram-bot/send.js";
-import type { ApprovalUIMetadata } from "../../runtime/channel-approval-types.js";
 import { ConfigError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
-import { buildAccessRequestContractText } from "../access-request-copy.js";
 import { isConversationSeedSane } from "../conversation-seed-composer.js";
-import { nonEmpty } from "../copy-composer.js";
+import { nonEmpty } from "../notification-utils.js";
 import type {
   ChannelAdapter,
   ChannelDeliveryPayload,
@@ -42,34 +40,6 @@ function resolveTelegramMessageText(payload: ChannelDeliveryPayload): string {
   return payload.sourceEventName.replace(/[._]/g, " ");
 }
 
-/**
- * Build an {@link ApprovalUIMetadata} for an access request so the delivery
- * renders inline keyboard buttons in the Telegram message.
- *
- * Returns `undefined` when the context payload is missing the required
- * `requestId`, in which case the caller should fall back to plain text.
- */
-function buildAccessRequestApproval(
-  contextPayload: Record<string, unknown>,
-): ApprovalUIMetadata | undefined {
-  const requestId =
-    typeof contextPayload.requestId === "string"
-      ? contextPayload.requestId
-      : undefined;
-  if (!requestId) return undefined;
-
-  const plainTextFallback = buildAccessRequestContractText(contextPayload);
-
-  return {
-    requestId,
-    actions: [
-      { id: "approve_once", label: "Approve once" },
-      { id: "reject", label: "Reject" },
-    ],
-    plainTextFallback,
-  };
-}
-
 export class TelegramAdapter implements ChannelAdapter {
   readonly channel: NotificationChannel = "telegram";
 
@@ -90,14 +60,7 @@ export class TelegramAdapter implements ChannelAdapter {
     }
 
     const messageText = resolveTelegramMessageText(payload);
-
-    const isAccessRequest =
-      payload.sourceEventName === "ingress.access_request" &&
-      payload.contextPayload != null;
-
-    const approval = isAccessRequest
-      ? buildAccessRequestApproval(payload.contextPayload!)
-      : undefined;
+    const approval = payload.approvalContext;
 
     try {
       if (approval) {
@@ -108,7 +71,7 @@ export class TelegramAdapter implements ChannelAdapter {
 
           log.info(
             { sourceEventName: payload.sourceEventName, chatId },
-            "Telegram access request notification delivered with inline buttons",
+            "Telegram approval notification delivered with inline buttons",
           );
 
           return { success: true };

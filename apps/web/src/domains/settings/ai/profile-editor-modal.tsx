@@ -10,11 +10,12 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Typography } from "@vellumai/design-library/components/typography";
 import { ChevronRight } from "lucide-react";
 
-import { getModelsForProvider } from "@/assistant/llm-model-catalog";
+import { getModelsForProvider, PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import { configGetOptions, inferenceProviderconnectionsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 
-import type { ProfileEntry, ProfilePatchEntry, ProfileStatus, ProfileWithName } from "@/domains/settings/ai/ai-types";
-import { INFERENCE_PROVIDER_DISPLAY_NAMES } from "@/domains/settings/ai/ai-types";
+import type { ProfileEntry, ProfilePatchEntry, ProfileStatus } from "@/generated/daemon/types.gen";
+
+import type { ProfileWithName } from "@/domains/settings/ai/utils";
 import {
     ProfileAdvancedParams,
     THINKING_LEVEL_INHERIT,
@@ -23,7 +24,7 @@ import { ProfileEditorProviderSection } from "@/domains/settings/ai/profile-edit
 import { type GeminiThinkingLevel, isGeminiThinkingLevel, resolveProfileParamVisibility } from "@/domains/settings/ai/profile-param-visibility";
 import { AUTO_PROFILE_NAME } from "@/assistant/profile-pickers";
 import { deriveProfileDefaults } from "@/domains/settings/ai/profile-prefill";
-import type { ConnectionProvider, ProviderConnection } from "@/domains/settings/ai/provider-connections-client";
+import type { ConnectionProvider, ProviderConnection } from "@/generated/daemon/types.gen";
 import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
 
@@ -680,7 +681,7 @@ function ProfileEditorModalInner({
         seen.add(c.provider);
         opts.push({
           value: c.provider,
-          label: INFERENCE_PROVIDER_DISPLAY_NAMES[c.provider] ?? c.provider,
+          label: PROVIDER_DISPLAY_NAMES[c.provider] ?? c.provider,
         });
       }
     }

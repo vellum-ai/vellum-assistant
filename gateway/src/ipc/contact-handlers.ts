@@ -8,10 +8,7 @@
 
 import { z } from "zod";
 
-import {
-  assistantDbQuery,
-  assistantDbRun,
-} from "../db/assistant-db-proxy.js";
+import { assistantDbQuery, assistantDbRun } from "../db/assistant-db-proxy.js";
 import { ContactStore } from "../db/contact-store.js";
 import { getLogger } from "../logger.js";
 import type { IpcRoute } from "./server.js";
@@ -142,7 +139,13 @@ export const contactRoutes: IpcRoute[] = [
       }
 
       log.info(
-        { channelType, address: normalizedAddress, contactId, channelId, role: effectiveRole },
+        {
+          channelType,
+          address: normalizedAddress,
+          contactId,
+          channelId,
+          role: effectiveRole,
+        },
         "create_contact: created new contact + channel",
       );
 

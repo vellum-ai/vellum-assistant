@@ -83,6 +83,32 @@ describe("onboarding funnel events", () => {
     expect(readOnboardingFunnelVariant()).toBe("pared_down");
   });
 
+  test("an explicit cast variant overrides a stale stored variant", () => {
+    // Simulate a user who saw the privacy screen under the legacy A/B split and
+    // had `pared_down` cached for the session.
+    resolveOnboardingFunnelVariant(ONBOARDING_FUNNEL_VARIANTS.paredDown);
+    expect(readOnboardingFunnelVariant()).toBe("pared_down");
+
+    // The cast arm passes its deterministic variant explicitly; the built event
+    // must report `cast`, never the stale stored `pared_down`.
+    const castDone = buildOnboardingFunnelEvent(
+      ONBOARDING_FUNNEL_STEPS.castDone,
+      {
+        userId: "user-123",
+        variant: ONBOARDING_FUNNEL_VARIANTS.cast,
+      },
+    );
+
+    expect(castDone).toMatchObject({
+      screen: "cast_done",
+      step_name: "cast_done",
+      step_index: 5,
+      ab_variant: "cast",
+    });
+    // The cast emit must not mutate the stored A/B variant either.
+    expect(readOnboardingFunnelVariant()).toBe("pared_down");
+  });
+
   test("uses control step indices for the existing funnel", () => {
     const tools = buildOnboardingFunnelEvent(
       ONBOARDING_FUNNEL_STEPS.controlTools,

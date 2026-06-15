@@ -6,14 +6,15 @@ import { describe, expect, test } from "bun:test";
 import {
   HermesAgent,
   DEFAULT_HERMES_IMAGE,
+  DERIVED_HERMES_IMAGE,
   EXEC_PATH,
   HERMES_CA_TRUST_ENV_FLAGS,
   HERMES_TRANSCRIPT_EVENT_TYPE,
   selectProviderEnvFlags,
-  selectProviderWarmupFeatures,
   selectInferenceSelection,
   inferenceEnvFlags,
   synthesizeHermesTurnEvent,
+  buildHermesTurnPrompt,
 } from "../adapters/hermes";
 import { AgentEventCollector } from "../runner/event-collector";
 import {
@@ -97,18 +98,38 @@ class FakeRunner implements CommandRunner {
 }
 
 const profile: Profile = {
-  id: "hermes-bare",
+  id: "hermes-default",
   manifest: {
     species: "hermes",
     setup: ["hermes plugins install simple-memory"],
   },
-  workspaceDir: "/profiles/hermes-bare/workspace",
+  workspaceDir: "/profiles/hermes-default/workspace",
 };
 
 async function preStageRecordingCa(runId: string): Promise<void> {
   const runDir = runArtifacts(runId).runDir;
   await mkdir(runDir, { recursive: true });
   await writeFile(join(runDir, "mitmproxy-ca-cert.pem"), "fake-ca-pem");
+}
+
+/**
+ * The `docker run` that starts the Hermes container. Owner-mode issues two
+ * `docker run -d` calls per hatch (the jail, then Hermes born into it), so
+ * match on the Hermes species label rather than the first `run -d`.
+ */
+function hermesDockerRun(runner: FakeRunner): {
+  command: string;
+  args: string[];
+  stdin?: string;
+} {
+  const run = runner.runs.find(
+    (r) =>
+      r.command === "docker" &&
+      r.args[0] === "run" &&
+      r.args.includes("evals.vellum.ai/species=hermes"),
+  );
+  if (!run) throw new Error("no Hermes `docker run` was recorded");
+  return run;
 }
 
 describe("HermesAgent", () => {
@@ -128,15 +149,54 @@ describe("HermesAgent", () => {
     expect(agent.id).toBe("eval-hermes-1");
     expect(agent.conversationKey).toBe("evals:timeline-recall:eval-hermes-1");
 
-    // Pre-flight rm -f + docker run (image + daemon args) + jail apply + setup exec.
     const calls = runner.runs.map((r) => [r.command, ...r.args]);
-    expect(calls[0]).toEqual(["docker", "rm", "-f", "eval-hermes-1-hermes"]);
-    expect(calls[1]).toEqual([
+
+    // 1. The derived image is built first, while the build still has open
+    //    egress, baking the lazy provider SDK from the pinned base.
+    expect(calls[0]).toEqual([
+      "docker",
+      "build",
+      "-t",
+      DERIVED_HERMES_IMAGE,
+      "--build-arg",
+      `HERMES_BASE=${DEFAULT_HERMES_IMAGE}`,
+      expect.stringContaining("hermes-image"),
+    ]);
+
+    // 2. The recording jail is created BEFORE the Hermes container so it
+    //    owns the namespace Hermes is born into. Pre-clean of the Hermes
+    //    container precedes its own `docker run`.
+    const jailRunIdx = calls.findIndex(
+      (c) =>
+        c[0] === "docker" &&
+        c[1] === "run" &&
+        c.includes("eval-hermes-1-egress-jail"),
+    );
+    const hermesRunIdx = calls.findIndex(
+      (c) =>
+        c[0] === "docker" &&
+        c[1] === "run" &&
+        c.includes("evals.vellum.ai/species=hermes"),
+    );
+    const hermesPreCleanIdx = calls.findIndex(
+      (c) =>
+        c[0] === "docker" &&
+        c[1] === "rm" &&
+        c.includes("eval-hermes-1-hermes"),
+    );
+    expect(jailRunIdx).toBeGreaterThan(0);
+    expect(hermesRunIdx).toBeGreaterThan(jailRunIdx);
+    expect(hermesPreCleanIdx).toBeLessThan(hermesRunIdx);
+
+    // 3. Hermes is born into the jail's netns and runs the derived image.
+    expect(calls[hermesRunIdx]).toEqual([
       "docker",
       "run",
       "-d",
       "--name",
       "eval-hermes-1-hermes",
+      "--network",
+      "container:eval-hermes-1-egress-jail",
       "--label",
       "evals.vellum.ai/species=hermes",
       "-e",
@@ -145,40 +205,35 @@ describe("HermesAgent", () => {
       "SSL_CERT_DIR=/etc/ssl/certs",
       "-e",
       "HERMES_DISABLE_LAZY_INSTALLS=1",
-      DEFAULT_HERMES_IMAGE,
+      DERIVED_HERMES_IMAGE,
       "gateway",
       "run",
     ]);
-    // The jail attaches to the already-running Hermes container's netns
-    // (Hermes owns the namespace; it warmed up provider SDKs from PyPI
-    // before the jail closed). Pre-clean then build then run.
-    expect(calls[2]).toEqual([
-      "docker",
-      "rm",
-      "-f",
-      "eval-hermes-1-egress-jail",
-    ]);
-    // Build command
-    expect(calls[3][0]).toBe("docker");
-    expect(calls[3][1]).toBe("build");
-    expect(calls[3][2]).toBe("-t");
-    expect(calls[3][3]).toBe("vellum-evals-recording-jail:local");
-    // Run command (detached with recording mount)
-    expect(calls[4].slice(0, 6)).toEqual([
-      "docker",
-      "run",
-      "-d",
-      "--name",
-      "eval-hermes-1-egress-jail",
-      "--network",
-    ]);
-    expect(calls[4]).toContain("container:eval-hermes-1-hermes");
-    expect(calls[4]).toContain("--cap-add");
-    expect(calls[4]).toContain("NET_ADMIN");
-    expect(calls[4]).toContain("evals.vellum.ai/egress-recording=1");
-    // Setup command (calls[5..6] are now CA install: docker cp + docker exec
-    // update-ca-certificates; setup shifts to calls[7])
-    expect(calls[7]).toEqual([
+
+    // 4. The interception CA is trusted (cp + update-ca-certificates) after
+    //    the container starts and before any turn.
+    const caCpIdx = calls.findIndex((c) => c[0] === "docker" && c[1] === "cp");
+    const caUpdateIdx = calls.findIndex((c) =>
+      c.includes("update-ca-certificates"),
+    );
+    expect(caCpIdx).toBeGreaterThan(hermesRunIdx);
+    expect(caUpdateIdx).toBeGreaterThan(caCpIdx);
+
+    // 5. The workspace dir is created (root, chowned to the gateway user).
+    const workspaceIdx = calls.findIndex(
+      (c) =>
+        c[0] === "docker" &&
+        c[1] === "exec" &&
+        c.some((a) => a.includes('mkdir -p "/workspace"')),
+    );
+    expect(workspaceIdx).toBeGreaterThan(caUpdateIdx);
+
+    // 6. The setup command runs last, once the CA + workspace are in place.
+    const setupIdx = calls.findIndex((c) =>
+      c.includes("hermes plugins install simple-memory"),
+    );
+    expect(setupIdx).toBeGreaterThan(workspaceIdx);
+    expect(calls[setupIdx]).toEqual([
       "docker",
       "exec",
       "--env",
@@ -204,7 +259,8 @@ describe("HermesAgent", () => {
     ]);
 
     // The send invoked `hermes -z "<prompt>"` as the unprivileged gateway
-    // user so memory writes stay gateway-owned.
+    // user so memory writes stay gateway-owned, and ran in `/workspace` so
+    // the agent's file tools resolve staged files by bare name.
     expect(runner.runs.at(-1)).toMatchObject({
       command: "docker",
       args: [
@@ -213,6 +269,8 @@ describe("HermesAgent", () => {
         "hermes",
         "--env",
         `PATH=${EXEC_PATH}`,
+        "--workdir",
+        "/workspace",
         "eval-hermes-1-hermes",
         "hermes",
         "-z",
@@ -239,9 +297,19 @@ describe("HermesAgent", () => {
     await agent.send({ content: "hello hermes" });
 
     const calls = runner.runs.map((r) => [r.command, ...r.args]);
-    // Image + custom daemonArgs land at the tail of the `docker run` invocation.
-    expect(calls[1].slice(-4)).toEqual([
-      "nousresearch/hermes-agent:v0.42",
+    // The custom image is the BASE the derived image is built from.
+    const buildCall = calls.find(
+      (c) =>
+        c[0] === "docker" &&
+        c[1] === "build" &&
+        c.includes(DERIVED_HERMES_IMAGE),
+    )!;
+    expect(buildCall).toContain("--build-arg");
+    expect(buildCall).toContain("HERMES_BASE=nousresearch/hermes-agent:v0.42");
+    // The derived image + custom daemonArgs land at the tail of the Hermes
+    // `docker run` invocation.
+    expect(hermesDockerRun(runner).args.slice(-4)).toEqual([
+      DERIVED_HERMES_IMAGE,
       "serve",
       "--port",
       "1234",
@@ -253,6 +321,8 @@ describe("HermesAgent", () => {
       "hermes",
       "--env",
       `PATH=${EXEC_PATH}`,
+      "--workdir",
+      "/workspace",
       "eval-hermes-custom-hermes",
       "hermesctl",
       "-z",
@@ -374,6 +444,82 @@ describe("HermesAgent", () => {
     expect(runner.runs).toEqual([]);
   });
 
+  test("hatch creates the workspace dir owned by the gateway user", async () => {
+    // GIVEN a freshly-hatched Hermes agent
+    const runner = new FakeRunner();
+    const agent = new HermesAgent({
+      runner,
+      profile,
+      testId: "restaurant-pnl-spend",
+      runId: "eval-hermes-ws",
+      processEnv: {},
+    });
+
+    // WHEN it hatches
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+
+    // THEN it mkdir's /workspace as root and chowns it to the hermes user
+    // so `send`'s --workdir resolves and staged files can be written there.
+    const mkdirWs = runner.runs.find(
+      (r) =>
+        r.args[0] === "exec" &&
+        r.args.includes("root") &&
+        r.args.some(
+          (a) => typeof a === "string" && a.includes('mkdir -p "/workspace"'),
+        ),
+    );
+    expect(mkdirWs).toBeDefined();
+    expect(mkdirWs?.args.at(-1)).toContain('chown hermes "/workspace"');
+  });
+
+  test("stage-workspace-file pipes the payload into /workspace as the hermes user", async () => {
+    // GIVEN a hatched Hermes agent
+    const runner = new FakeRunner();
+    const agent = new HermesAgent({
+      runner,
+      profile,
+      testId: "restaurant-pnl-spend",
+      runId: "eval-hermes-stage",
+      processEnv: {},
+    });
+
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+    const baseline = runner.runs.length;
+
+    // WHEN a file is staged into the workspace
+    await agent.runSetupCommand({
+      type: "stage-workspace-file",
+      path: "restaurant-pnl.csv",
+      content: "Category,Amount (USD)\nLabor,48200\n",
+    });
+    const newRuns = runner.runs.slice(baseline);
+
+    // THEN it mkdir's the parent as the hermes user, then `cp /dev/stdin`'s
+    // the payload (piped on stdin, never on the command line) to the target.
+    expect(newRuns[0].args).toEqual([
+      "exec",
+      "--user",
+      "hermes",
+      "eval-hermes-stage-hermes",
+      "mkdir",
+      "-p",
+      "/workspace",
+    ]);
+    expect(newRuns[1].args).toEqual([
+      "exec",
+      "-i",
+      "--user",
+      "hermes",
+      "eval-hermes-stage-hermes",
+      "cp",
+      "/dev/stdin",
+      "/workspace/restaurant-pnl.csv",
+    ]);
+    expect(newRuns[1].stdin).toBe("Category,Amount (USD)\nLabor,48200\n");
+  });
+
   test("seed-conversation surfaces the in-container error when state.db write fails", async () => {
     class BrokenSeedRunner extends FakeRunner {
       override async run(
@@ -435,42 +581,102 @@ describe("HermesAgent", () => {
     await agent.send({ content: "hello" });
     await agent.shutdown();
 
-    // The send is one `hermes -z` exec; shutdown then removes the
-    // attached jail (a netns tenant of the Hermes container, so it must
-    // go first) and then the Hermes container that owns the namespace.
+    // The send is one `hermes -z` exec; shutdown then tears down in
+    // owner-mode order — the Hermes tenant is removed BEFORE the jail that
+    // owns the namespace it joined (the owner must outlive its tenants).
     // No event subprocess is spawned to kill.
-    expect(runner.runs.map((r) => [r.command, ...r.args]).slice(-3)).toEqual([
-      [
-        "docker",
-        "exec",
-        "--user",
-        "hermes",
-        "--env",
-        `PATH=${EXEC_PATH}`,
-        "eval-hermes-2-hermes",
-        "hermes",
-        "-z",
-        "hello",
-      ],
-      ["docker", "rm", "-f", "eval-hermes-2-egress-jail"],
-      ["docker", "rm", "-f", "eval-hermes-2-hermes"],
+    const calls = runner.runs.map((r) => [r.command, ...r.args]);
+    expect(calls.at(-4)).toEqual([
+      "docker",
+      "exec",
+      "--user",
+      "hermes",
+      "--env",
+      `PATH=${EXEC_PATH}`,
+      "--workdir",
+      "/workspace",
+      "eval-hermes-2-hermes",
+      "hermes",
+      "-z",
+      "hello",
     ]);
+    const hermesRmIdx = calls.findIndex(
+      (c, i) =>
+        i >= calls.length - 3 &&
+        c[0] === "docker" &&
+        c[1] === "rm" &&
+        c.includes("eval-hermes-2-hermes"),
+    );
+    const jailRmIdx = calls.findIndex(
+      (c, i) =>
+        i >= calls.length - 3 &&
+        c[0] === "docker" &&
+        c[1] === "rm" &&
+        c.includes("eval-hermes-2-egress-jail"),
+    );
+    expect(hermesRmIdx).toBeGreaterThan(0);
+    expect(jailRmIdx).toBeGreaterThan(hermesRmIdx);
     expect(runner.spawns).toEqual([]);
   });
 
-  test("does not retire the container if hatch fails before container creation succeeds", async () => {
+  test("threads prior live turns into each one-shot prompt", async () => {
+    /**
+     * A `hermes -z` shot is stateless, so the adapter must replay the
+     * conversation so far into later prompts for turn N to see turns 1..N-1.
+     */
+    // GIVEN a hatched Hermes agent that has taken one turn
+    const runner = new FakeRunner();
+    const agent = new HermesAgent({
+      runner,
+      profile,
+      testId: "timeline-recall",
+      runId: "eval-hermes-thread",
+      processEnv: {},
+    });
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+    agent.events();
+    await agent.send({ content: "remember the codeword BANANA" });
+
+    // WHEN a second message is sent
+    await agent.send({ content: "what was the codeword?" });
+
+    // THEN the second `-z` prompt replays turn 1 (the FakeRunner echoes
+    // `reply: <prompt>`, so turn 1's answer is `reply: remember ...`) and
+    // carries the new message, while the first shot sent the raw message.
+    const zPrompts = runner.runs
+      .filter((r) => r.command === "docker" && r.args.includes("-z"))
+      .map((r) => r.args[r.args.indexOf("-z") + 1]);
+    expect(zPrompts).toHaveLength(2);
+    expect(zPrompts[0]).toBe("remember the codeword BANANA");
+    expect(zPrompts[1]).toContain("User: remember the codeword BANANA");
+    expect(zPrompts[1]).toContain(
+      "Assistant: reply: remember the codeword BANANA",
+    );
+    expect(zPrompts[1]).toContain("what was the codeword?");
+
+    await agent.shutdown();
+  });
+
+  test("tears down the jail but does not re-remove Hermes when its start fails", async () => {
     class FailingRunner extends FakeRunner {
       override async run(
         command: string,
         args: string[],
+        opts?: RunOptions,
       ): Promise<CommandResult> {
-        this.runs.push({ command, args });
-        if (command === "docker" && args[0] === "run" && args.includes("-d")) {
+        this.runs.push({ command, args, stdin: opts?.stdin });
+        // Fail the Hermes container start (the `docker run` carrying the
+        // species label); the jail start before it succeeds.
+        if (
+          command === "docker" &&
+          args[0] === "run" &&
+          args.includes("evals.vellum.ai/species=hermes")
+        ) {
           return {
             exitCode: 1,
             stdout: "",
-            stderr:
-              "Unable to find image 'nousresearch/hermes-agent:v2026.5.16'",
+            stderr: "Unable to find image 'vellum-evals-hermes:local'",
           };
         }
         return { exitCode: 0, stdout: "ok", stderr: "" };
@@ -486,42 +692,39 @@ describe("HermesAgent", () => {
       processEnv: {},
     });
 
+    await preStageRecordingCa(agent.id);
     await expect(agent.hatch()).rejects.toThrow(
-      "Unable to find image 'nousresearch/hermes-agent:v2026.5.16'",
+      "Unable to find image 'vellum-evals-hermes:local'",
     );
-    // Pre-flight rm -f always runs; then the failed `docker run -d` aborts
-    // hatch without firing a follow-up rm -f for the container that never
-    // existed.
+
     const calls = runner.runs.map((r) => [r.command, ...r.args]);
-    expect(calls).toEqual([
-      ["docker", "rm", "-f", "image-missing-hermes"],
-      [
-        "docker",
-        "run",
-        "-d",
-        "--name",
-        "image-missing-hermes",
-        "--label",
-        "evals.vellum.ai/species=hermes",
-        "-e",
-        "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt",
-        "-e",
-        "SSL_CERT_DIR=/etc/ssl/certs",
-        "-e",
-        "HERMES_DISABLE_LAZY_INSTALLS=1",
-        DEFAULT_HERMES_IMAGE,
-        "gateway",
-        "run",
-      ],
-    ]);
+    // The Hermes container never started (its `docker run` failed), so the
+    // only `rm -f` for it is the pre-clean — no spurious follow-up retire.
+    const hermesRms = calls.filter(
+      (c) =>
+        c[0] === "docker" &&
+        c[1] === "rm" &&
+        c.includes("image-missing-hermes"),
+    );
+    expect(hermesRms).toHaveLength(1);
+    // The jail (created first, owns the netns) is still torn down on the
+    // error path.
+    expect(
+      calls.some(
+        (c) =>
+          c[0] === "docker" &&
+          c[1] === "rm" &&
+          c.includes("image-missing-egress-jail"),
+      ),
+    ).toBe(true);
   });
 
   test("refuses to hatch a non-hermes profile", async () => {
     const runner = new FakeRunner();
     const wrongProfile: Profile = {
-      id: "vellum-bare",
+      id: "vellum-default",
       manifest: { species: "vellum" },
-      workspaceDir: "/profiles/vellum-bare/workspace",
+      workspaceDir: "/profiles/vellum-default/workspace",
     };
     const agent = new HermesAgent({
       runner,
@@ -554,10 +757,7 @@ describe("HermesAgent", () => {
     await preStageRecordingCa(agent.id);
     await agent.hatch();
 
-    const dockerRun = runner.runs.find(
-      (r) =>
-        r.command === "docker" && r.args[0] === "run" && r.args[1] === "-d",
-    )!;
+    const dockerRun = hermesDockerRun(runner);
     // `-e NAME` is emitted by name only (docker reads the value from its
     // own env, inherited from the eval process). Values must NOT appear on
     // the command line.
@@ -569,7 +769,7 @@ describe("HermesAgent", () => {
     expect(dockerRun.args.join(" ")).not.toContain("openai-test-value");
 
     // The image still sits between the env flags and the daemon args.
-    const imageIdx = dockerRun.args.indexOf(DEFAULT_HERMES_IMAGE);
+    const imageIdx = dockerRun.args.indexOf(DERIVED_HERMES_IMAGE);
     expect(imageIdx).toBeGreaterThan(dockerRun.args.lastIndexOf("-e"));
     expect(dockerRun.args.slice(imageIdx + 1)).toEqual(["gateway", "run"]);
   });
@@ -594,30 +794,28 @@ describe("HermesAgent", () => {
     // loads the jail-augmented system bundle (public CAs + mitmproxy CA)
     // instead of certifi, and the flags sit before the image so they apply
     // to the container (and every inheriting `docker exec` turn).
-    const dockerRun = runner.runs.find(
-      (r) =>
-        r.command === "docker" && r.args[0] === "run" && r.args[1] === "-d",
-    )!;
+    const dockerRun = hermesDockerRun(runner);
     const flat = dockerRun.args.join(" ");
     expect(flat).toContain(HERMES_CA_TRUST_ENV_FLAGS.join(" "));
     expect(flat).toContain("SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt");
     const lastCaEnvIdx = dockerRun.args.lastIndexOf(
       "SSL_CERT_DIR=/etc/ssl/certs",
     );
-    expect(dockerRun.args.indexOf(DEFAULT_HERMES_IMAGE)).toBeGreaterThan(
+    expect(dockerRun.args.indexOf(DERIVED_HERMES_IMAGE)).toBeGreaterThan(
       lastCaEnvIdx,
     );
   });
 
-  test("warms up the lazy Anthropic SDK before the jail, and disables lazy installs on the daemon", async () => {
+  test("bakes provider deps into the derived image instead of warming up at runtime", async () => {
     // GIVEN a Hermes agent keyed on ANTHROPIC_API_KEY (the native Anthropic
-    // SDK is a Hermes lazy-install, not baked into the image).
+    // SDK is a Hermes lazy-install that would otherwise hang under the
+    // fail-closed jail).
     const runner = new FakeRunner();
     const agent = new HermesAgent({
       runner,
       profile,
       testId: "timeline-recall",
-      runId: "eval-hermes-warmup",
+      runId: "eval-hermes-baked",
       processEnv: { ANTHROPIC_API_KEY: "anthropic-test-value" },
     });
 
@@ -626,45 +824,31 @@ describe("HermesAgent", () => {
     await agent.hatch();
 
     const calls = runner.runs.map((r) => [r.command, ...r.args]);
-    const runIdx = calls.findIndex(
-      (c) => c[0] === "docker" && c[1] === "run" && c[2] === "-d",
+    // THEN no runtime lazy-install warm-up exec is issued — the SDK is
+    // baked into the derived image at build time instead, so a jailed turn
+    // never reaches PyPI.
+    expect(
+      calls.some((c) =>
+        c.some((a) => a.includes("from tools.lazy_deps import ensure")),
+      ),
+    ).toBe(false);
+    // AND the derived image is built from the pinned base via --build-arg.
+    const buildCall = calls.find(
+      (c) =>
+        c[0] === "docker" &&
+        c[1] === "build" &&
+        c.includes(DERIVED_HERMES_IMAGE),
+    )!;
+    expect(buildCall).toContain("--build-arg");
+    expect(buildCall).toContain(`HERMES_BASE=${DEFAULT_HERMES_IMAGE}`);
+    // AND the daemon still disables runtime lazy installs as a backstop so an
+    // unbaked optional dep degrades gracefully rather than wedging the run.
+    expect(hermesDockerRun(runner).args).toContain(
+      "HERMES_DISABLE_LAZY_INSTALLS=1",
     );
-    const warmupIdx = calls.findIndex((c) =>
-      c.some((a) => a.includes("from tools.lazy_deps import ensure")),
-    );
-    const jailApplyIdx = calls.findIndex(
-      (c) => c[0] === "docker" && c[1] === "build",
-    );
-
-    // THEN the daemon `docker run` disables Hermes's runtime lazy installs
-    // so a jailed turn can't hang on a blocked PyPI fetch.
-    expect(calls[runIdx]).toContain("HERMES_DISABLE_LAZY_INSTALLS=1");
-
-    // AND a warm-up exec pre-installs the provider SDK via Hermes's own
-    // installer, as the unprivileged `hermes` user, with lazy installs
-    // re-enabled for just that exec — and it runs after the container
-    // starts but BEFORE the egress jail closes the network.
-    expect(warmupIdx).toBeGreaterThan(runIdx);
-    expect(jailApplyIdx).toBeGreaterThan(warmupIdx);
-    expect(calls[warmupIdx]).toEqual([
-      "docker",
-      "exec",
-      "--user",
-      "hermes",
-      "--env",
-      `PATH=${EXEC_PATH}`,
-      "--env",
-      "PYTHONPATH=/opt/hermes",
-      "--env",
-      "HERMES_DISABLE_LAZY_INSTALLS=0",
-      "eval-hermes-warmup-hermes",
-      "/opt/hermes/.venv/bin/python3",
-      "-c",
-      'from tools.lazy_deps import ensure; ensure("provider.anthropic")',
-    ]);
   });
 
-  test("skips provider warm-up when no lazy-shipped provider key is forwarded", async () => {
+  test("never issues a runtime warm-up exec regardless of forwarded provider key", async () => {
     // GIVEN a Hermes agent with only OPENAI_API_KEY (the OpenAI SDK ships
     // pre-installed, so nothing needs warming).
     const runner = new FakeRunner();
@@ -688,10 +872,9 @@ describe("HermesAgent", () => {
         c.some((a) => a.includes("from tools.lazy_deps import ensure")),
       ),
     ).toBe(false);
-    const dockerRun = calls.find(
-      (c) => c[0] === "docker" && c[1] === "run" && c[2] === "-d",
-    )!;
-    expect(dockerRun).toContain("HERMES_DISABLE_LAZY_INSTALLS=1");
+    expect(hermesDockerRun(runner).args).toContain(
+      "HERMES_DISABLE_LAZY_INSTALLS=1",
+    );
   });
 
   test("pins the inference provider + model to the forwarded key's native backend", async () => {
@@ -714,17 +897,14 @@ describe("HermesAgent", () => {
     // THEN the daemon `docker run` pins provider + model to the native
     // Anthropic backend (an allowlisted host), so no turn probes openrouter,
     // and both flags sit before the image so they apply to every `hermes -z`.
-    const dockerRun = runner.runs.find(
-      (r) =>
-        r.command === "docker" && r.args[0] === "run" && r.args[1] === "-d",
-    )!;
+    const dockerRun = hermesDockerRun(runner);
     const flat = dockerRun.args.join(" ");
     expect(flat).toContain("HERMES_INFERENCE_PROVIDER=anthropic");
     expect(flat).toContain("HERMES_INFERENCE_MODEL=claude-sonnet-4-6");
     const lastInferenceIdx = dockerRun.args.lastIndexOf(
       "HERMES_INFERENCE_MODEL=claude-sonnet-4-6",
     );
-    expect(dockerRun.args.indexOf(DEFAULT_HERMES_IMAGE)).toBeGreaterThan(
+    expect(dockerRun.args.indexOf(DERIVED_HERMES_IMAGE)).toBeGreaterThan(
       lastInferenceIdx,
     );
   });
@@ -747,11 +927,9 @@ describe("HermesAgent", () => {
     // THEN no HERMES_INFERENCE_* flags are set — Hermes keeps its own
     // configured defaults rather than being forced onto a provider with no
     // matching key.
-    const dockerRun = runner.runs.find(
-      (r) =>
-        r.command === "docker" && r.args[0] === "run" && r.args[1] === "-d",
-    )!;
-    expect(dockerRun.args.join(" ")).not.toContain("HERMES_INFERENCE_");
+    expect(hermesDockerRun(runner).args.join(" ")).not.toContain(
+      "HERMES_INFERENCE_",
+    );
   });
 
   test("selectInferenceSelection picks the first forwarded key in priority order", () => {
@@ -794,30 +972,6 @@ describe("HermesAgent", () => {
       "HERMES_INFERENCE_MODEL=claude-sonnet-4-6",
     ]);
     expect(inferenceEnvFlags(undefined)).toEqual([]);
-  });
-
-  test("selectProviderWarmupFeatures maps only lazy-shipped provider keys to features", () => {
-    // Anthropic is the one lazy provider SDK; OpenAI/Google ship preinstalled.
-    expect(
-      selectProviderWarmupFeatures({
-        ANTHROPIC_API_KEY: "present",
-        OPENAI_API_KEY: "present",
-        GEMINI_API_KEY: "present",
-      }),
-    ).toEqual(["provider.anthropic"]);
-
-    // Absent/empty Anthropic key → nothing to warm.
-    expect(selectProviderWarmupFeatures({ ANTHROPIC_API_KEY: "" })).toEqual([]);
-    expect(selectProviderWarmupFeatures({ OPENAI_API_KEY: "present" })).toEqual(
-      [],
-    );
-
-    // Custom allow-list that excludes Anthropic → no warm-up even if set.
-    expect(
-      selectProviderWarmupFeatures({ ANTHROPIC_API_KEY: "present" }, [
-        "OPENAI_API_KEY",
-      ]),
-    ).toEqual([]);
   });
 
   test("selectProviderEnvFlags emits -e flags only for present, allow-listed vars", () => {
@@ -889,15 +1043,17 @@ describe("HermesAgent single-shot event synthesis", () => {
     await agent.send({ content: "second" });
     const turn2 = await collector.collectUntilQuiet({ quietMs: 5, maxMs: 50 });
 
-    // THEN each turn surfaces exactly its own one-shot answer — the
-    // subscription stays live across turns and never bleeds turn 1 into
-    // turn 2.
+    // THEN each turn surfaces exactly one event for its own one-shot answer —
+    // the subscription stays live across turns and never bleeds turn 1's
+    // event into turn 2. Turn 1 (no prior turns) echoes the raw message;
+    // turn 2's prompt threads the conversation so far, so its answer reflects
+    // the new message rather than turn 1's standalone event.
     expect(turn1).toEqual([
       { message: { type: "message_chunk", chunk: "reply: first" } },
     ]);
-    expect(turn2).toEqual([
-      { message: { type: "message_chunk", chunk: "reply: second" } },
-    ]);
+    expect(turn2).toHaveLength(1);
+    expect(turn2[0].message.type).toBe("message_chunk");
+    expect(turn2[0].message.chunk).toContain("second");
 
     // AND every turn is a `hermes -z` one-shot — no live event subprocess.
     const sends = runner.runs.filter((r) => r.args.includes("-z"));
@@ -925,5 +1081,54 @@ describe("HermesAgent single-shot event synthesis", () => {
 
     // THEN the parked consumer resolves as done rather than hanging.
     await expect(pending).resolves.toEqual({ value: undefined, done: true });
+  });
+});
+
+describe("buildHermesTurnPrompt", () => {
+  test("sends the raw message on the first turn", () => {
+    /**
+     * A single-turn test should read as a plain question, not a wrapped
+     * transcript, so the first turn (no prior turns) passes the message
+     * straight through.
+     */
+    // GIVEN no prior turns
+    // WHEN building the prompt for the first message
+    const prompt = buildHermesTurnPrompt(
+      [],
+      "What was my largest spend category?",
+    );
+
+    // THEN the message is sent verbatim
+    expect(prompt).toBe("What was my largest spend category?");
+  });
+
+  test("replays prior turns as labeled context before the new message", () => {
+    /**
+     * Later turns must carry the conversation so far so the stateless shot
+     * can answer with context.
+     */
+    // GIVEN a one-exchange conversation so far
+    const priorTurns = [
+      { role: "user" as const, content: "I uploaded my P&L." },
+      {
+        role: "assistant" as const,
+        content: "Got it, I read restaurant-pnl.csv.",
+      },
+    ];
+
+    // WHEN building the prompt for the next message
+    const prompt = buildHermesTurnPrompt(
+      priorTurns,
+      "Which category was largest?",
+    );
+
+    // THEN the transcript is replayed with role labels and the new message follows
+    expect(prompt).toContain("User: I uploaded my P&L.");
+    expect(prompt).toContain("Assistant: Got it, I read restaurant-pnl.csv.");
+    expect(prompt).toContain("Which category was largest?");
+    // AND the prior turns precede the new message
+    expect(prompt.indexOf("I uploaded my P&L.")).toBeLessThan(
+      prompt.indexOf("Which category was largest?"),
+    );
   });
 });

@@ -16,6 +16,8 @@ const base: NavigationState = {
   platformSession: "present",
   tosAccepted: true,
   aiDataConsent: true,
+  isCastArm: false,
+  activationArmSettled: true,
 };
 
 function s(overrides: Partial<NavigationState>): NavigationState {
@@ -292,6 +294,93 @@ describe("resolveNavigation", () => {
         action: "redirect",
         to: "/assistant/onboarding/hatching",
       });
+    });
+
+    // -- cast arm (personal-page): owns its own provisioning -----------------
+
+    test("redirects consented cast-arm user without assistants to prechat, not hatching", () => {
+      expect(
+        guard(s({ hasAssistants: false, isCastArm: true })),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/prechat",
+      });
+    });
+
+    test("redirects cast-arm user without assistants to prechat from a deep path", () => {
+      expect(
+        guard(s({ hasAssistants: false, isCastArm: true }), "/assistant/home"),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/prechat",
+      });
+    });
+
+    test("cast-arm user without consent still goes to privacy first", () => {
+      expect(
+        guard(
+          s({
+            hasAssistants: false,
+            isCastArm: true,
+            tosAccepted: false,
+            aiDataConsent: false,
+          }),
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy" });
+    });
+
+    test("cast-arm flag does not change routing for a user who has an assistant", () => {
+      expect(guard(s({ isCastArm: true }))).toEqual(ALLOW);
+    });
+
+    // -- activation arm not yet settled: wait before the arm-dependent redirect
+
+    test("waits for a consented no-assistant platform user when the activation arm is unsettled", () => {
+      expect(
+        guard(s({ hasAssistants: false, activationArmSettled: false })),
+      ).toEqual(WAIT);
+    });
+
+    test("settled + cast arm redirects the no-assistant user to prechat", () => {
+      expect(
+        guard(s({ hasAssistants: false, isCastArm: true, activationArmSettled: true })),
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/prechat" });
+    });
+
+    test("settled + non-cast arm redirects the no-assistant user to hatching", () => {
+      expect(
+        guard(s({ hasAssistants: false, isCastArm: false, activationArmSettled: true })),
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/hatching" });
+    });
+
+    test("unsettled arm does NOT make a user with an assistant wait", () => {
+      expect(guard(s({ activationArmSettled: false }))).toEqual(ALLOW);
+    });
+
+    test("unsettled arm does NOT make a consented no-assistant local-mode user wait", () => {
+      expect(
+        guard(
+          s({
+            isLocalMode: true,
+            hasAssistants: false,
+            platformSession: "present",
+            activationArmSettled: false,
+          }),
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/hosting" });
+    });
+
+    test("unsettled arm still sends an unconsented no-assistant user to privacy first", () => {
+      expect(
+        guard(
+          s({
+            hasAssistants: false,
+            activationArmSettled: false,
+            tosAccepted: false,
+            aiDataConsent: false,
+          }),
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy" });
     });
   });
 

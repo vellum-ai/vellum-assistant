@@ -20,6 +20,33 @@ import {
 import type { AgentEvent, AgentMessage } from "./adapter";
 import type { ProfileManifest } from "./profile";
 import type { TranscriptTurn } from "./transcript";
+import { buildTranscriptView } from "./transcript-view";
+
+/**
+ * How many distinct assistant replies a run took — one per user↔assistant
+ * exchange, not per streamed chunk or LLM API call. The persisted transcript
+ * stores one entry per `assistant_text_delta`, so a single streamed answer is
+ * many raw turns; folding the event stream back into whole messages
+ * (`buildTranscriptView`) collapses those deltas so the count reflects
+ * exchanges the way a reader counts them.
+ */
+function countAssistantResponses(
+  transcript: TranscriptTurn[],
+  assistantEvents: AgentEvent[],
+): number {
+  return buildTranscriptView(transcript, assistantEvents).filter(
+    (item) => item.role === "assistant",
+  ).length;
+}
+
+/** Wall-clock run duration in ms, when both timestamps were recorded. */
+function runtimeMs(metadata: RunMetadata | undefined): number | undefined {
+  if (!metadata?.startedAt || !metadata?.completedAt) return undefined;
+  const start = Date.parse(metadata.startedAt);
+  const end = Date.parse(metadata.completedAt);
+  if (Number.isNaN(start) || Number.isNaN(end)) return undefined;
+  return Math.max(0, end - start);
+}
 
 /** Per-execution row used everywhere a single (profile, test) run is summarized. */
 export interface ReportRunSummary {
@@ -46,7 +73,10 @@ export interface ReportRunSummary {
   completedAt?: string;
   metricCount: number;
   scoreTotal: number;
-  transcriptTurns: number;
+  /** Number of distinct assistant replies (folded), not raw transcript deltas. */
+  assistantResponses: number;
+  /** Wall-clock duration in ms, when both run timestamps were recorded. */
+  runtimeMs?: number;
   assistantEventCount: number;
   simulatorMessageCount: number;
   totalInputTokens?: number;
@@ -211,7 +241,8 @@ export interface ReportProfileInSession {
     scoreTotal: number;
     metricCount: number;
     metrics: MetricResult[];
-    transcriptTurns: number;
+    assistantResponses: number;
+    runtimeMs?: number;
     totalCostUsd?: number;
   }>;
 }
@@ -228,7 +259,8 @@ export interface ReportTestInSession {
     scoreTotal: number;
     metricCount: number;
     metrics: MetricResult[];
-    transcriptTurns: number;
+    assistantResponses: number;
+    runtimeMs?: number;
     totalCostUsd?: number;
   }>;
 }
@@ -270,7 +302,11 @@ function summarize(input: {
     completedAt: input.metadata?.completedAt,
     metricCount: input.metrics.length,
     scoreTotal: scoreTotal(input.metrics),
-    transcriptTurns: input.transcript.length,
+    assistantResponses: countAssistantResponses(
+      input.transcript,
+      input.assistantEvents,
+    ),
+    runtimeMs: runtimeMs(input.metadata),
     assistantEventCount: input.assistantEvents.length,
     simulatorMessageCount: input.simulatorMessages.length,
     totalInputTokens: input.usage.totalInputTokens,
@@ -651,7 +687,8 @@ export async function readProfileInSession(
         scoreTotal: detail.scoreTotal,
         metricCount: detail.metricCount,
         metrics: detail.metrics,
-        transcriptTurns: detail.transcriptTurns,
+        assistantResponses: detail.assistantResponses,
+        runtimeMs: detail.runtimeMs,
         totalCostUsd: detail.totalCostUsd,
       }))
       .sort((a, b) => a.testId.localeCompare(b.testId)),
@@ -687,7 +724,8 @@ export async function readTestInSession(
         scoreTotal: detail.scoreTotal,
         metricCount: detail.metricCount,
         metrics: detail.metrics,
-        transcriptTurns: detail.transcriptTurns,
+        assistantResponses: detail.assistantResponses,
+        runtimeMs: detail.runtimeMs,
         totalCostUsd: detail.totalCostUsd,
       }))
       .sort((a, b) => a.profileId.localeCompare(b.profileId)),
