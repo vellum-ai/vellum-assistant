@@ -94,6 +94,10 @@ import {
   handleRevokeDevice,
 } from "./http/routes/devices.js";
 import { handlePair } from "./http/routes/pair.js";
+import {
+  handleCreateRemoteWebPairingCode,
+  handleRemoteWebPair,
+} from "./http/routes/remote-web-pairing.js";
 import { createSlackControlPlaneProxyHandler } from "./http/routes/slack-control-plane-proxy.js";
 import { createOAuthAppsProxyHandler } from "./http/routes/oauth-apps-proxy.js";
 import { createOAuthProvidersProxyHandler } from "./http/routes/oauth-providers-proxy.js";
@@ -829,6 +833,20 @@ async function main() {
       method: "POST",
       auth: "none",
       handler: (req, _params, getClientIp) => handlePair(req, getClientIp()),
+    },
+    {
+      path: "/v1/remote-web/pairing-code",
+      method: "POST",
+      auth: "custom",
+      handler: (req, _params, getClientIp) =>
+        handleCreateRemoteWebPairingCode(req, getClientIp()),
+    },
+    {
+      path: "/v1/remote-web/pair",
+      method: "POST",
+      auth: "custom",
+      handler: (req, _params, getClientIp) =>
+        handleRemoteWebPair(req, getClientIp()),
     },
     // ── Device management (localhost-only, auth: none; self-guards loopback) ──
     {

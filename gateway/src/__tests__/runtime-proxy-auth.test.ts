@@ -2,6 +2,7 @@ import { describe, test, expect, mock, afterEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 import { initSigningKey, mintToken } from "../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
+import { REMOTE_WEB_SESSION_COOKIE } from "../http/remote-web-session-cookie.js";
 
 type FetchFn = (
   input: string | URL | Request,
@@ -103,6 +104,21 @@ describe("runtime proxy auth enforcement", () => {
     const handler = createRuntimeProxyHandler(makeConfig());
     const req = new Request("http://localhost:7830/v1/health", {
       headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+  });
+
+  test("auth required: accepts valid remote web session cookie and proxies", async () => {
+    mockUpstream();
+    const handler = createRuntimeProxyHandler(makeConfig());
+    const req = new Request("http://localhost:7830/v1/health", {
+      headers: {
+        cookie: `${REMOTE_WEB_SESSION_COOKIE}=${encodeURIComponent(TOKEN)}`,
+      },
     });
     const res = await handler(req);
 

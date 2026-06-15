@@ -16,6 +16,7 @@ import type { GatewayConfig } from "../../config.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
 import { isLoopbackAddress } from "../../util/is-loopback-address.js";
+import { extractEdgeToken } from "../edge-token.js";
 import { tryIpcProxy } from "./ipc-runtime-proxy.js";
 
 const log = getLogger("runtime-proxy");
@@ -59,17 +60,15 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
     // client-facing auth setting.
     //
     let exchangeToken: string;
-    const authHeader = req.headers.get("authorization");
-
     if (config.runtimeProxyRequireAuth && req.method !== "OPTIONS") {
-      if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
+      const edgeJwt = extractEdgeToken(req);
+      if (!edgeJwt) {
         log.warn(
           { method: req.method, path: url.pathname },
           "Runtime proxy auth rejected: missing or malformed Authorization header",
         );
         return Response.json({ error: "Unauthorized" }, { status: 401 });
       }
-      const edgeJwt = authHeader.slice(7);
       const result = validateEdgeToken(edgeJwt);
       if (!result.ok) {
         log.warn(

@@ -13,6 +13,7 @@ import { credentialKey } from "../../credential-key.js";
 import { readCredential } from "../../credential-reader.js";
 import { getLogger } from "../../logger.js";
 import { isLoopbackPeer } from "../../util/is-loopback-address.js";
+import { extractEdgeToken, hasAuthorizationHeader } from "../edge-token.js";
 
 const log = getLogger("auth");
 
@@ -165,7 +166,7 @@ export function createAuthMiddleware(
       return requirePlatformUserHeader(req);
     }
     const hasAuthHeader = hasAuthorizationHeader(req);
-    const token = extractBearerToken(req);
+    const token = extractEdgeToken(req);
     if (token) {
       return validateEdgeBearer(req, token, server);
     }
@@ -190,7 +191,7 @@ export function createAuthMiddleware(
       return requirePlatformUserHeader(req);
     }
     const hasAuthHeader = hasAuthorizationHeader(req);
-    const token = extractBearerToken(req);
+    const token = extractEdgeToken(req);
     if (token) {
       return validateScopedEdgeBearer(req, token, scope, server);
     }
@@ -417,7 +418,7 @@ export function createAuthMiddleware(
     req: Request,
     server?: Server<unknown>,
   ): Promise<Response | null> {
-    const token = extractBearerToken(req);
+    const token = extractEdgeToken(req);
     if (!token) {
       if (
         allowLegacyLoopbackFallback(req, server, "edge-guardian", {
@@ -531,16 +532,3 @@ export function wrapWithAuthFailureTracking(
 // ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------
-
-/** Extract the raw token from a Bearer Authorization header, or null. */
-function extractBearerToken(req: Request): string | null {
-  const authHeader = req.headers.get("authorization");
-  if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
-    return null;
-  }
-  return authHeader.slice(7);
-}
-
-function hasAuthorizationHeader(req: Request): boolean {
-  return Boolean(req.headers.get("authorization")?.trim());
-}

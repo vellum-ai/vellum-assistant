@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 import { GATEWAY_PORT } from "./constants.js";
 import { loopbackSafeFetch } from "./loopback-fetch.js";
 import { resolveTunnelTargetPort } from "./nginx-ingress.js";
+import { printRemoteWebPairingInstructions } from "./remote-web-pairing.js";
 
 function getDefaultWorkspaceDir(): string {
   return (
@@ -357,6 +358,11 @@ export async function runNgrokTunnel(
     console.log(`Found existing ngrok tunnel: ${existingUrl}`);
     saveIngressUrl(workspaceDir, existingUrl);
     console.log("Ingress URL saved to config.");
+    await printRemoteWebPairingInstructions({
+      gatewayPort,
+      publicBaseUrl: existingUrl,
+      enabled: viaIngress,
+    });
     console.log("");
     console.log(
       "Tunnel is already running. Press Ctrl+C to detach (tunnel stays active).",
@@ -433,6 +439,11 @@ export async function runNgrokTunnel(
 
   saveIngressUrl(workspaceDir, publicUrl);
   console.log("Ingress URL saved to config.");
+  await printRemoteWebPairingInstructions({
+    gatewayPort,
+    publicBaseUrl: publicUrl,
+    enabled: viaIngress,
+  });
   console.log("");
   console.log("Press Ctrl+C to stop the tunnel and clear the ingress URL.");
 

@@ -8,6 +8,7 @@
 
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 import "../../__tests__/test-preload.js";
+import { REMOTE_WEB_SESSION_COOKIE } from "../remote-web-session-cookie.js";
 
 // ---------------------------------------------------------------------------
 // Mock implementations
@@ -312,6 +313,20 @@ describe("tryIpcProxy", () => {
     const result = await tryIpcProxy(req, config);
     expect(result!.status).toBe(200);
     expect(validateEdgeTokenMock).toHaveBeenCalledWith("good-token");
+  });
+
+  test("passes auth when remote web session cookie is valid", async () => {
+    const config = makeConfig({ runtimeProxyRequireAuth: true });
+    const req = makeRequest("/v1/health", {
+      headers: {
+        cookie: `${REMOTE_WEB_SESSION_COOKIE}=cookie-token`,
+      },
+    });
+
+    const result = await tryIpcProxy(req, config);
+
+    expect(result!.status).toBe(200);
+    expect(validateEdgeTokenMock).toHaveBeenCalledWith("cookie-token");
   });
 
   test("returns handler error status code from IpcHandlerError", async () => {

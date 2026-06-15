@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 
 import { GATEWAY_PORT } from "./constants.js";
 import { resolveTunnelTargetPort } from "./nginx-ingress.js";
+import { printRemoteWebPairingInstructions } from "./remote-web-pairing.js";
 
 // ── Workspace config helpers (mirrors the pattern in ngrok.ts) ───────────────
 
@@ -279,6 +280,11 @@ export async function runCloudflareTunnel(
 
   saveIngressUrl(workspaceDir, publicUrl);
   console.log("Ingress URL saved to config.");
+  await printRemoteWebPairingInstructions({
+    gatewayPort,
+    publicBaseUrl: publicUrl,
+    enabled: viaIngress,
+  });
   console.log("");
   console.log("Press Ctrl+C to stop the tunnel and clear the ingress URL.");
 

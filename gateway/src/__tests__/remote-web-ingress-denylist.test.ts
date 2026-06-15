@@ -86,4 +86,13 @@ describe("remote web ingress denylist", () => {
     expect(tokenRoute).toContain('auth: "custom"');
     assertDeniedBeforeV1Proxy("/auth/token");
   });
+
+  test("blocks local remote-web code creation while allowing code consumption", () => {
+    expect(gatewayIndexSource).toContain('path: "/v1/remote-web/pairing-code"');
+    expect(gatewayIndexSource).toContain('path: "/v1/remote-web/pair"');
+    assertDeniedBeforeV1Proxy("/v1/remote-web/pairing-code");
+
+    const consumeLocation = `location = /v1/remote-web/pair { return 404; }`;
+    expect(nginxIngressSource).not.toContain(consumeLocation);
+  });
 });

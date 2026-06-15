@@ -29,6 +29,7 @@ import {
   type RouteSchemaPolicy,
 } from "../../ipc/route-schema-cache.js";
 import { getLogger } from "../../logger.js";
+import { extractEdgeToken } from "../edge-token.js";
 
 const log = getLogger("ipc-runtime-proxy");
 
@@ -58,11 +59,10 @@ export async function tryIpcProxy(
   let claims: TokenClaims | undefined;
 
   if (config.runtimeProxyRequireAuth && req.method !== "OPTIONS") {
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
+    const edgeJwt = extractEdgeToken(req);
+    if (!edgeJwt) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const edgeJwt = authHeader.slice(7);
     const result = validateEdgeToken(edgeJwt);
     if (!result.ok) {
       log.warn(
