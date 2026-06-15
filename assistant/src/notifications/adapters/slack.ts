@@ -12,11 +12,13 @@ import {
   buildSlackMessagePermalink,
   isSlackDmConversation,
   parseAccessRequestPayload,
-  sanitizeIdentityField,
-  sanitizeMessagePreview,
 } from "../access-request-copy.js";
 import { isConversationSeedSane } from "../conversation-seed-composer.js";
-import { nonEmpty } from "../copy-composer.js";
+import {
+  nonEmpty,
+  sanitizeIdentityField,
+  sanitizeMessagePreview,
+} from "../notification-utils.js";
 import type {
   ChannelAdapter,
   ChannelDeliveryPayload,

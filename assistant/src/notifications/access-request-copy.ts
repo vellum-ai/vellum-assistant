@@ -6,18 +6,11 @@
  */
 
 import { buildApprovalCardBlocks } from "./approval-card-builder.js";
-
-// ── Local string utilities ──────────────────────────────────────────────────
-//
-// Tiny helpers duplicated from copy-composer to keep this module
-// dependency-free (avoiding a circular import with copy-composer, which
-// imports access-request helpers for its templates).
-
-function nonEmpty(value: string | undefined): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
+import {
+  nonEmpty,
+  sanitizeIdentityField,
+  sanitizeMessagePreview,
+} from "./notification-utils.js";
 
 // ── Typed payload reader ────────────────────────────────────────────────────
 //
@@ -113,26 +106,6 @@ export function buildSlackMessagePermalink(
   return `https://slack.com/archives/${conversationExternalId}/p${messageTs.replace(".", "")}`;
 }
 
-// ── Identity sanitization ───────────────────────────────────────────────────
-
-const IDENTITY_FIELD_MAX_LENGTH = 120;
-
-/**
- * Sanitize an untrusted identity field for inclusion in notification copy.
- *
- * - Strips control characters (U+0000–U+001F, U+007F–U+009F) and newlines.
- * - Clamps to IDENTITY_FIELD_MAX_LENGTH characters.
- * - Wraps in quotes to neutralize instruction-like payload text.
- */
-export function sanitizeIdentityField(value: string): string {
-  const stripped = value.replace(/[\x00-\x1f\x7f-\x9f\r\n]+/g, " ").trim();
-  const clamped =
-    stripped.length > IDENTITY_FIELD_MAX_LENGTH
-      ? stripped.slice(0, IDENTITY_FIELD_MAX_LENGTH) + "…"
-      : stripped;
-  return clamped;
-}
-
 /** Internal typed implementation — avoids re-parsing when called from
  *  buildAccessRequestContractText which has already parsed the payload. */
 function buildIdentityLineFromParsed(p: ParsedAccessRequestPayload): string {
@@ -187,26 +160,6 @@ export function buildAccessRequestIdentityLine(
   payload: Record<string, unknown>,
 ): string {
   return buildIdentityLineFromParsed(parseAccessRequestPayload(payload));
-}
-
-// ── Message preview ─────────────────────────────────────────────────────────
-
-export const MESSAGE_PREVIEW_MAX_LENGTH = 200;
-
-/**
- * Sanitize an untrusted message preview for inclusion in notification copy.
- *
- * Like {@link sanitizeIdentityField} but uses the higher
- * MESSAGE_PREVIEW_MAX_LENGTH limit (200 chars) instead of the identity
- * field limit (120 chars).
- */
-export function sanitizeMessagePreview(value: string): string {
-  const stripped = value.replace(/[\x00-\x1f\x7f-\x9f\r\n]+/g, " ").trim();
-  const clamped =
-    stripped.length > MESSAGE_PREVIEW_MAX_LENGTH
-      ? stripped.slice(0, MESSAGE_PREVIEW_MAX_LENGTH) + "…"
-      : stripped;
-  return clamped;
 }
 
 /**

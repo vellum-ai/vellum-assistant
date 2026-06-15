@@ -23,7 +23,7 @@ import {
   findByInviteCodeHash,
   findByInviteCodeHashAnyChannel,
 } from "../../../memory/invite-store.js";
-import { MESSAGE_PREVIEW_MAX_LENGTH } from "../../../notifications/access-request-copy.js";
+import { MESSAGE_PREVIEW_MAX_LENGTH } from "../../../notifications/notification-utils.js";
 import { resolveGuardianName } from "../../../prompts/user-reference.js";
 import { getLogger } from "../../../util/logger.js";
 import { truncate } from "../../../util/truncate.js";

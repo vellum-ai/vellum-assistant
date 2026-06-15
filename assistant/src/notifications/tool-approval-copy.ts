@@ -7,22 +7,12 @@
  * channel (web/macOS/iOS).
  */
 
-import { sanitizeIdentityField } from "./access-request-copy.js";
 import { buildApprovalCardBlocks } from "./approval-card-builder.js";
 import {
   buildGuardianRequestCodeInstruction,
   resolveGuardianQuestionInstructionMode,
 } from "./guardian-question-mode.js";
-
-// ── Local string utility ────────────────────────────────────────────────────
-// Duplicated from copy-composer to avoid a circular import
-// (copy-composer imports this module).
-
-function nonEmpty(value: string | undefined): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
+import { nonEmpty, sanitizeIdentityField } from "./notification-utils.js";
 
 // ── Typed payload reader ────────────────────────────────────────────────────
 
