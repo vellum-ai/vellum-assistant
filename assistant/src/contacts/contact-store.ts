@@ -1,12 +1,14 @@
 import { and, asc, desc, eq, isNotNull, like, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import type { ChannelId } from "../channels/types.js";
 import { getDb } from "../memory/db-connection.js";
 import {
   assistantContactMetadata,
   contactChannels,
   contacts,
 } from "../memory/schema.js";
+import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { emitContactChange } from "./contact-events.js";
 import type {
   AssistantContactMetadata,
@@ -217,6 +219,15 @@ export function upsertContact(params: {
   const db = getDb();
   const now = Date.now();
 
+  // Canonicalize all channel addresses up front so every downstream path
+  // (lookups, inserts, conflict checks) uses the canonical form.
+  const canonicalChannels = params.channels?.map((ch) => ({
+    ...ch,
+    address:
+      canonicalizeInboundIdentity(ch.type as ChannelId, ch.address) ??
+      ch.address,
+  }));
+
   let contactId = params.id;
 
   // If an ID is provided, check if the contact exists for update
@@ -244,10 +255,10 @@ export function upsertContact(params: {
         .where(eq(contacts.id, contactId))
         .run();
 
-      if (params.channels) {
+      if (canonicalChannels) {
         syncChannels(
           contactId,
-          params.channels,
+          canonicalChannels,
           now,
           params.reassignConflictingChannels,
         );
@@ -259,8 +270,8 @@ export function upsertContact(params: {
   }
 
   // Try to find by channel canonical identity to avoid duplicates
-  if (!contactId && params.channels && params.channels.length > 0) {
-    for (const ch of params.channels) {
+  if (!contactId && canonicalChannels && canonicalChannels.length > 0) {
+    for (const ch of canonicalChannels) {
       const existingChannel = findConflictingChannel(db, ch.type, ch.address);
 
       if (existingChannel) {
@@ -282,7 +293,7 @@ export function upsertContact(params: {
           .where(eq(contacts.id, contactId))
           .run();
 
-        syncChannels(contactId, params.channels, now);
+        syncChannels(contactId, canonicalChannels, now);
         emitContactChange();
         return { ...getContactInternal(contactId)!, created: false };
       }
@@ -326,10 +337,10 @@ export function upsertContact(params: {
     })
     .run();
 
-  if (params.channels) {
+  if (canonicalChannels) {
     syncChannels(
       contactId,
-      params.channels,
+      canonicalChannels,
       now,
       params.reassignConflictingChannels,
     );

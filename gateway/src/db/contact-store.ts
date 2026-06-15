@@ -395,6 +395,14 @@ export class ContactStore {
     let contactId = params.id;
     let created = false;
 
+    // Canonicalize all channel addresses up front so every downstream path
+    // (gateway DB, assistant DB dual-write, conflict checks) uses the
+    // canonical form.
+    const canonicalChannels = params.channels?.map((ch) => ({
+      ...ch,
+      address: canonicalizeInboundIdentity(ch.type, ch.address) ?? ch.address,
+    }));
+
     // ── 1. Look up by id ──────────────────────────────────────────────
     if (contactId) {
       const existing = this.db
@@ -433,17 +441,15 @@ export class ContactStore {
     // ── 2. Look up by channel address ─────────────────────────────────
     // Channel-match UPDATE preserves existing role/principalId — those
     // fields are not part of this method's input surface.
-    if (!contactId && params.channels?.length) {
-      for (const ch of params.channels) {
-        const canonical =
-          canonicalizeInboundIdentity(ch.type, ch.address) ?? ch.address;
+    if (!contactId && canonicalChannels?.length) {
+      for (const ch of canonicalChannels) {
         const match = this.db
           .select({ contactId: contactChannels.contactId })
           .from(contactChannels)
           .where(
             and(
               eq(contactChannels.type, ch.type),
-              eq(contactChannels.address, canonical),
+              eq(contactChannels.address, ch.address),
             ),
           )
           .get();
@@ -481,13 +487,21 @@ export class ContactStore {
     }
 
     // ── 4. Sync channels (gateway DB) ─────────────────────────────────
-    if (params.channels?.length) {
-      this.syncChannels(contactId, params.channels, now);
+    if (canonicalChannels?.length) {
+      this.syncChannels(contactId, canonicalChannels, now);
     }
 
     // ── 5. Dual-write to assistant DB (best-effort) ───────────────────
+    const canonicalParams = canonicalChannels
+      ? { ...params, channels: canonicalChannels }
+      : params;
     try {
-      await this.dualWriteContactToAssistantDb(contactId, params, now, created);
+      await this.dualWriteContactToAssistantDb(
+        contactId,
+        canonicalParams,
+        now,
+        created,
+      );
     } catch (err) {
       log.warn(
         { contactId, err },
@@ -547,9 +561,6 @@ export class ContactStore {
     now: number,
   ): void {
     for (const ch of channels) {
-      const address =
-        canonicalizeInboundIdentity(ch.type, ch.address) ?? ch.address;
-
       const existing = this.db
         .select()
         .from(contactChannels)
@@ -557,7 +568,7 @@ export class ContactStore {
           and(
             eq(contactChannels.contactId, contactId),
             eq(contactChannels.type, ch.type),
-            eq(contactChannels.address, address),
+            eq(contactChannels.address, ch.address),
           ),
         )
         .get();
@@ -597,7 +608,7 @@ export class ContactStore {
         .where(
           and(
             eq(contactChannels.type, ch.type),
-            eq(contactChannels.address, address),
+            eq(contactChannels.address, ch.address),
           ),
         )
         .get();
@@ -610,7 +621,7 @@ export class ContactStore {
           id: crypto.randomUUID(),
           contactId,
           type: ch.type,
-          address,
+          address: ch.address,
           isPrimary: ch.isPrimary ?? false,
           externalUserId: ch.externalUserId ?? null,
           externalChatId: ch.externalChatId ?? null,
