@@ -106,12 +106,21 @@ export function up(): MigrationResult {
   log.info("Removed cross-column collision blockers");
 
   // Restore original platform-provided casing from external_user_id.
+  // Email addresses stay lowercased (canonical per RFC 5321).
   // UPDATE OR IGNORE as safety net for any remaining edge cases.
   db.exec(/*sql*/ `
     UPDATE OR IGNORE contact_channels
     SET address = external_user_id
     WHERE external_user_id IS NOT NULL
       AND address != external_user_id
+      AND type != 'email'
+  `);
+  db.exec(/*sql*/ `
+    UPDATE OR IGNORE contact_channels
+    SET address = LOWER(external_user_id)
+    WHERE type = 'email'
+      AND external_user_id IS NOT NULL
+      AND address != LOWER(external_user_id)
   `);
 
   log.info("Restored original casing from external_user_id into address");

@@ -4,12 +4,9 @@ import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 const log = getLogger("migration-288");
 
 /**
- * Re-normalizes contact_channels addresses from external_user_id.
+ * Restores original platform-provided casing into address from external_user_id.
  *
- * Between migration 287 (which first normalized addresses) and this migration
- * (which lands with the lookup refactor), write paths may have re-lowercased
- * addresses. This idempotent pass restores original platform casing so that
- * the new exact-match lookups on address work correctly.
+ * Idempotent: rows where address already equals external_user_id are no-ops.
  */
 export function migrateContactChannelsRenormalizeAddresses(
   database: DrizzleDb,
@@ -25,23 +22,35 @@ export function migrateContactChannelsRenormalizeAddresses(
         FROM contact_channels AS blocker
         INNER JOIN contact_channels AS normalizer
           ON normalizer.type = blocker.type
-          AND normalizer.external_user_id = blocker.address
+          AND normalizer.external_user_id = blocker.address COLLATE NOCASE
           AND normalizer.address != normalizer.external_user_id
           AND normalizer.external_user_id IS NOT NULL
           AND normalizer.id != blocker.id
       )
   `);
 
-  const result = raw.run(/*sql*/ `
+  // Non-email channels: restore original platform casing from external_user_id.
+  const nonEmailResult = raw.run(/*sql*/ `
     UPDATE OR IGNORE contact_channels
     SET address = external_user_id
     WHERE external_user_id IS NOT NULL
       AND address != external_user_id
+      AND type != 'email'
   `);
 
-  if (result.changes > 0) {
+  // Email channels: ensure address is lowercased (canonical per RFC 5321).
+  const emailResult = raw.run(/*sql*/ `
+    UPDATE OR IGNORE contact_channels
+    SET address = LOWER(external_user_id)
+    WHERE type = 'email'
+      AND external_user_id IS NOT NULL
+      AND address != LOWER(external_user_id)
+  `);
+
+  const totalChanges = nonEmailResult.changes + emailResult.changes;
+  if (totalChanges > 0) {
     log.info(
-      { rowsUpdated: result.changes },
+      { rowsUpdated: totalChanges },
       "Re-normalized contact_channels addresses from external_user_id",
     );
   }
