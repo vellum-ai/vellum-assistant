@@ -22,6 +22,7 @@ import type {
   NotificationSignal,
   NotificationSourceEventName,
 } from "./signal.js";
+import { buildToolApprovalSeedContentBlocks } from "./tool-approval-copy.js";
 import type { NotificationChannel, RenderedChannelCopy } from "./types.js";
 
 type CopyTemplate = (payload: Record<string, unknown>) => RenderedChannelCopy;
@@ -86,11 +87,15 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     const isToolGrant = payload.requestKind === "tool_grant_request";
     const conversationSeedMessage = isToolGrant ? question : undefined;
 
+    const seedContentBlocks =
+      buildToolApprovalSeedContentBlocks(payload) ?? undefined;
+
     if (!requestCode) {
       return {
         title: "Guardian Question",
         body: question,
         conversationSeedMessage,
+        seedContentBlocks,
       };
     }
 
@@ -104,6 +109,7 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
       title: "Guardian Question",
       body: `${question}\n\n${instruction}`,
       conversationSeedMessage,
+      seedContentBlocks,
     };
   },
 
