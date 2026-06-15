@@ -343,7 +343,7 @@ export function QuestionPromptBody({
               fullWidth
               disabled={isSubmitting || hasFreeText}
               onClick={() => handleOptionClick(option.id)}
-              className="h-auto justify-start px-3 py-2 text-left"
+              className="h-auto justify-start whitespace-normal px-3 py-2 text-left"
               aria-label={`Option ${badgeNumber}: ${option.label}`}
             >
               <QuestionRowContents
