@@ -3107,6 +3107,25 @@ jobs:
           name: macos-build-electron-x64
           path: electron-artifacts-x64
 
+      # Also attach the Electron auto-update feed (zip + blockmap + manifest)
+      # to the Release for parity with Sparkle. electron-updater still pulls
+      # the feed from GCS; these copies are for visibility / manual installs.
+      - name: Download Electron update artifacts (arm64)
+        if: ${{ needs.upload-electron-updates.result == 'success' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        continue-on-error: true
+        with:
+          name: macos-electron-update-arm64
+          path: electron-update-artifacts/arm64
+
+      - name: Download Electron update artifacts (x64)
+        if: ${{ needs.upload-electron-updates.result == 'success' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        continue-on-error: true
+        with:
+          name: macos-electron-update-x64
+          path: electron-update-artifacts/x64
+
       - name: Create GitHub Releases
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -3140,6 +3159,21 @@ jobs:
             ELECTRON_X64_DMG=$(find electron-artifacts-x64 -name "vellum-assistant-electron-x64.dmg" -type f | grep -m1 .)
             [ -n "$ELECTRON_X64_DMG" ] && ASSETS+=("$ELECTRON_X64_DMG#vellum-assistant-electron-x64.dmg")
           fi
+
+          # Add the Electron auto-update feed (zip + blockmap + per-arch manifest).
+          # electron-builder names the manifest latest-mac.yml for BOTH arches, so
+          # rename per arch to avoid a collision in the Release's flat namespace.
+          # The zips/blockmaps already embed the arch in their names.
+          for ARCH in arm64 x64; do
+            UPDATE_DIR="electron-update-artifacts/${ARCH}"
+            [ -d "$UPDATE_DIR" ] || continue
+            UPDATE_ZIP=$(find "$UPDATE_DIR" -name "*-mac.zip" -type f | grep -m1 .)
+            [ -n "$UPDATE_ZIP" ] && ASSETS+=("$UPDATE_ZIP#$(basename "$UPDATE_ZIP")")
+            UPDATE_BLOCKMAP=$(find "$UPDATE_DIR" -name "*-mac.zip.blockmap" -type f | grep -m1 .)
+            [ -n "$UPDATE_BLOCKMAP" ] && ASSETS+=("$UPDATE_BLOCKMAP#$(basename "$UPDATE_BLOCKMAP")")
+            UPDATE_YML=$(find "$UPDATE_DIR" -name "*-mac.yml" -type f | grep -m1 .)
+            [ -n "$UPDATE_YML" ] && ASSETS+=("$UPDATE_YML#latest-mac-${ARCH}.yml")
+          done
 
           INSTALL_SH="cli/src/adapters/install.sh"
           [ -f "$INSTALL_SH" ] && ASSETS+=("$INSTALL_SH#install.sh")
