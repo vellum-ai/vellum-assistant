@@ -53,19 +53,28 @@ describe("restaurant-pnl-spend response-efficiency metric", () => {
       content: "Open the sheet.",
       emittedAt: "2026-01-01T00:00:00.000Z",
     });
-    await appendAssistantEvents(runId, [deltaEvent("On ", 1), deltaEvent("it.", 2)]);
+    await appendAssistantEvents(runId, [
+      deltaEvent("On ", 1),
+      deltaEvent("it.", 2),
+    ]);
     await appendTranscriptTurn(runId, {
       role: "simulator",
       content: "And the largest category?",
       emittedAt: "2026-01-01T00:00:03.000Z",
     });
-    await appendAssistantEvents(runId, [deltaEvent("Checking ", 4), deltaEvent("now.", 5)]);
+    await appendAssistantEvents(runId, [
+      deltaEvent("Checking ", 4),
+      deltaEvent("now.", 5),
+    ]);
     await appendTranscriptTurn(runId, {
       role: "simulator",
       content: "Well?",
       emittedAt: "2026-01-01T00:00:06.000Z",
     });
-    await appendAssistantEvents(runId, [deltaEvent("It was ", 7), deltaEvent("Labor.", 8)]);
+    await appendAssistantEvents(runId, [
+      deltaEvent("It was ", 7),
+      deltaEvent("Labor.", 8),
+    ]);
 
     // WHEN the metric scores the run
     const result = await scoreResponseEfficiency({ runId });
