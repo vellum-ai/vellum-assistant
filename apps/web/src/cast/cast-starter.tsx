@@ -1,13 +1,12 @@
 /**
  * Cast — starter selection (replaces the spotlight crowd as Beat 1).
  *
- * A Pokémon-starter-style line-up: the roster is the set of body shapes from
- * the avatar vocabulary (`BUNDLED_COMPONENTS.bodyShapes`) — the exact shapes
- * the Settings ▸ "Build a Character" modal offers. Picking one uses a shared
- * `layoutId` so the chosen avatar is *pulled out of the line-up* and morphs
- * into the customization card, where the *same* Body / Eyes / Color cycle
- * controls (and Randomize) the modal uses sit over a live preview. Continue
- * hands a fully-built character to the rest of the flow.
+ * Fighting-game-style character select: a large spotlight panel centered on
+ * screen shows the currently highlighted character (BlinkingAvatar, 280 px).
+ * A 3D carousel below the avatar lets users cycle through eye styles, and a
+ * floating thumbnail tray at the bottom selects the body shape. Clicking the
+ * spotlight opens the customization card (color / name). A shared `layoutId`
+ * morphs the spotlight avatar into the customization preview.
  */
 
 import { ChevronLeft, ChevronRight, Pencil } from "lucide-react";
@@ -33,8 +32,8 @@ export interface StarterResume {
 }
 
 const indexOfBody = (id: string) => Math.max(0, BODIES.findIndex((b) => b.id === id));
-const indexOfEye = (id: string) => Math.max(0, EYES.findIndex((e) => e.id === id));
-const indexOfColor = (id: string) => Math.max(0, COLORS.findIndex((c) => c.id === id));
+const _indexOfEye = (id: string) => Math.max(0, EYES.findIndex((e) => e.id === id));
+const _indexOfColor = (id: string) => Math.max(0, COLORS.findIndex((c) => c.id === id));
 
 const BODIES = COMPONENTS.bodyShapes;
 const EYES = COMPONENTS.eyeStyles;
@@ -100,6 +99,33 @@ const STARTER_COLOR_INDEX: number[] = (() => {
   return out;
 })();
 
+/**
+ * Pre-computed character combos — 16 total. First pass: one per body (10),
+ * each with a deterministically shuffled eye+color. Second pass: 6 more bodies
+ * with a different eye+color seed so every combo is visually distinct.
+ */
+const STARTER_COMBOS: { bodyIndex: number; eyeIndex: number; colorIndex: number }[] = (() => {
+  const out: { bodyIndex: number; eyeIndex: number; colorIndex: number }[] = [];
+  // First pass: all 10 bodies
+  for (let i = 0; i < BODIES.length; i++) {
+    out.push({
+      bodyIndex: i,
+      eyeIndex: hash(i * 7 + 3) % EYES.length,
+      colorIndex: STARTER_COLOR_INDEX[i],
+    });
+  }
+  // Second pass: 6 more with shifted eye + color so they look different
+  for (let j = 0; j < 6; j++) {
+    const bi = hash(j * 13 + 47) % BODIES.length;
+    out.push({
+      bodyIndex: bi,
+      eyeIndex: hash(j * 11 + 59) % EYES.length,
+      colorIndex: (STARTER_COLOR_INDEX[bi] + j + 2) % COLORS.length,
+    });
+  }
+  return out;
+})();
+
 function cycle(i: number, n: number, dir: 1 | -1): number {
   return (i + dir + n) % n;
 }
@@ -108,186 +134,209 @@ export function CastStarter({
   resume,
   onChoose,
   onCustomizing,
+  embedded,
 }: {
   resume?: StarterResume | null;
   onChoose: (character: CastCharacter, name: string) => void;
   onCustomizing?: (active: boolean) => void;
+  embedded?: boolean;
 }) {
-  // null → roster line-up; a body index → customizing that starter. `resume`
-  // (set when returning from a later beat) reopens straight into the card.
-  const [bodyIndex, setBodyIndex] = useState<number | null>(
-    resume ? indexOfBody(resume.bodyShape) : null,
-  );
-  const [eyeIndex, setEyeIndex] = useState(
-    resume ? indexOfEye(resume.eyeStyle) : DEFAULT_EYE_INDEX,
-  );
-  const [colorIndex, setColorIndex] = useState(
-    resume ? indexOfColor(resume.color) : 0,
+  // Which character is highlighted in the spotlight — random start unless resuming.
+  const [selectedIndex, setSelectedIndex] = useState(
+    () => resume ? indexOfBody(resume.bodyShape) : hash(Date.now()) % STARTER_COMBOS.length,
   );
   // The shape that was tapped, held stable for the whole customization so the
   // shared-layout morph (and its reverse, on Back) stays anchored to one card.
-  const [pickedId, setPickedId] = useState<string | null>(resume?.bodyShape ?? null);
-  // The assistant's name — editable right here in the card, defaulted from the
-  // shape's stock name on first pick and kept across body/eyes/color tweaks.
-  const [name, setName] = useState(resume?.name ?? "");
+  const [_pickedId, _setPickedId] = useState<string | null>(resume?.bodyShape ?? null);
+  // The assistant's name — editable on the select screen and in the card,
+  // defaulted from the shape's stock name and kept across body/eyes/color tweaks.
+  const defaultName = useCallback((i: number) => {
+    const combo = STARTER_COMBOS[i];
+    return buildCharacter(BODIES[combo.bodyIndex].id, EYES[combo.eyeIndex].id, COLORS[combo.colorIndex].id).name;
+  }, []);
+  const [name, setName] = useState(resume?.name ?? defaultName(selectedIndex));
 
-  const pickStarter = useCallback((i: number) => {
-    setBodyIndex(i);
-    setPickedId(BODIES[i].id);
-    setEyeIndex(DEFAULT_EYE_INDEX);
-    // Carry over the color shown on the tapped card so the preview matches it.
-    setColorIndex(STARTER_COLOR_INDEX[i]);
-    setName(buildCharacter(BODIES[i].id, EYES[DEFAULT_EYE_INDEX].id, COLORS[STARTER_COLOR_INDEX[i]].id).name);
+  // Sync name when cycling through the carousel.
+  const prevSelected = useRef(selectedIndex);
+  useEffect(() => {
+    if (prevSelected.current !== selectedIndex) {
+      prevSelected.current = selectedIndex;
+      setName(defaultName(selectedIndex));
+    }
+  }, [selectedIndex, defaultName]);
+
+  const _pickStarter = useCallback((i: number) => {
+    _setPickedId(BODIES[i].id);
     onCustomizing?.(true);
   }, [onCustomizing]);
 
-  const _handleRandomize = useCallback(() => {
-    // Walk each axis a deterministic, well-mixed step — no Math.random in Cast.
-    setBodyIndex((b) => ((b ?? 0) + 3) % BODIES.length);
-    setEyeIndex((e) => (e + 4) % EYES.length);
-    setColorIndex((c) => (c + 5) % COLORS.length);
-  }, []);
-
   const handleContinue = useCallback(() => {
-    if (bodyIndex === null) return;
+    const combo = STARTER_COMBOS[selectedIndex];
     const character = buildCharacter(
-      BODIES[bodyIndex].id,
-      EYES[eyeIndex].id,
-      COLORS[colorIndex].id,
+      BODIES[combo.bodyIndex].id,
+      EYES[combo.eyeIndex].id,
+      COLORS[combo.colorIndex].id,
     );
     onChoose(character, name.trim() || character.name);
-  }, [bodyIndex, eyeIndex, colorIndex, name, onChoose]);
+  }, [selectedIndex, name, onChoose]);
 
   // A counter that increments on every attribute change, used to trigger a pop.
   const changeCount = useRef(0);
-  const [popKey, setPopKey] = useState(0);
-  const prevBody = useRef(bodyIndex);
-  const prevEye = useRef(eyeIndex);
-  const prevColor = useRef(colorIndex);
+  const [_popKey, setPopKey] = useState(0);
+  const prevIdx = useRef(selectedIndex);
 
   useEffect(() => {
-    if (
-      prevBody.current !== bodyIndex ||
-      prevEye.current !== eyeIndex ||
-      prevColor.current !== colorIndex
-    ) {
+    if (prevIdx.current !== selectedIndex) {
       changeCount.current += 1;
       setPopKey(changeCount.current);
-      prevBody.current = bodyIndex;
-      prevEye.current = eyeIndex;
-      prevColor.current = colorIndex;
+      prevIdx.current = selectedIndex;
     }
-  }, [bodyIndex, eyeIndex, colorIndex]);
+  }, [selectedIndex]);
 
-  // The pedestal whose avatar has been lifted into the open card (empty slot).
-  const activePickId = bodyIndex !== null ? pickedId : null;
+  // Render full-character SVG thumbnails for the 3D carousel.
+  const comboPreviews = useMemo(
+    () => STARTER_COMBOS.map((combo) =>
+      composeSvg(COMPONENTS, BODIES[combo.bodyIndex].id, EYES[combo.eyeIndex].id, COLORS[combo.colorIndex].id, 141),
+    ),
+    [],
+  );
+  const carouselAngle = 360 / STARTER_COMBOS.length;
+  const carouselRadius = Math.round(158 / (2 * Math.tan(Math.PI / STARTER_COMBOS.length)));
 
-  return (
-    <div className="cast-starter">
-      {/* one LayoutGroup so the tapped avatar morphs between line-up and card */}
+  // Track continuous rotation so wrapping around feels like an infinite scroll
+  // instead of snapping backwards.
+  const [rotation, setRotation] = useState(-selectedIndex * carouselAngle);
+  const rotationSelectedRef = useRef(selectedIndex);
+
+  useEffect(() => {
+    const prev = rotationSelectedRef.current;
+    if (prev === selectedIndex) return;
+    const n = STARTER_COMBOS.length;
+    // Compute the shortest angular step (handles wrap-around)
+    let diff = selectedIndex - prev;
+    if (diff > n / 2) diff -= n;
+    if (diff < -n / 2) diff += n;
+    setRotation((r) => r - diff * carouselAngle);
+    rotationSelectedRef.current = selectedIndex;
+  }, [selectedIndex, carouselAngle]);
+
+  const starterCls = embedded ? "cast-starter cast-starter--embedded" : "cast-starter";
+  const selectCls = embedded ? "cast-select cast-select--embedded" : "cast-select";
+
+  const content = (
+    <div className={starterCls}>
+      {/* one LayoutGroup so the spotlight avatar morphs into the customization card */}
       <LayoutGroup>
-        {/* line-up stays mounted underneath — the card sits atop it */}
-        <div className="cast-starter__view">
-          <header className="cast-starter__header">
-            <h1 className="cast-panel__title">Choose your assistant</h1>
-            <p className="cast-panel__subtitle">You can always change this later.</p>
+        {/* centered spotlight with floating header + thumbnail tray */}
+        <div className={selectCls}>
+          <header className="cast-select__header">
+            <h1 className="cast-panel__title">Give me a face and a name</h1>
           </header>
 
-          <div className="cast-roster">
-            {BODIES.map((body, i) => (
-              <StarterCard
-                key={body.id}
-                index={i}
-                bodyId={body.id}
-                colorId={COLORS[STARTER_COLOR_INDEX[i]].id}
-                picked={activePickId === body.id}
-                onPick={pickStarter}
-              />
-            ))}
-          </div>
-        </div>
-
-        {bodyIndex !== null && (
-          <motion.div
-            style={{
-              position: "absolute",
-              inset: 0,
-              zIndex: 6,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              height: "100dvh",
-              padding: "0 20px",
-              background: "radial-gradient(120% 90% at 50% 0%, var(--surface-lift) 0%, var(--surface-base) 60%, var(--cast-shroud) 100%)",
-            }}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.3, ease: "easeOut" }}
-          >
-            <button
-              className="cast-back"
-              onClick={() => { setBodyIndex(null); onCustomizing?.(false); }}
-              aria-label="Back to the line-up"
-            >
-              ‹
-            </button>
-
-            <NameField value={name} onChange={setName} />
-
-            <div style={{ width: 140, height: 140, marginTop: 24, marginBottom: 56 }}>
-              <motion.div
-                key={popKey}
-                layoutId={pickedId ? `starter-${pickedId}` : undefined}
-                style={{ width: "100%", height: "100%" }}
-                initial={popKey > 0 ? { scale: 1.12 } : false}
-                animate={{ scale: 1 }}
-                transition={{ type: "spring", stiffness: 400, damping: 15 }}
+          <div className="cast-select__spotlight">
+            {/* 3D character carousel — scroll to select */}
+            <div role="presentation" className="cast-select__eye-carousel" onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                className="cast-select__eye-btn"
+                onClick={() => setSelectedIndex(cycle(selectedIndex, STARTER_COMBOS.length, -1))}
+                aria-label="Previous character"
               >
-                <BlinkingAvatar
-                  bodyShapeId={BODIES[bodyIndex].id}
-                  eyeStyleId={EYES[eyeIndex].id}
-                  colorId={COLORS[colorIndex].id}
-                  size={280}
-                />
-              </motion.div>
-            </div>
-
-            <div className="cast-thisthat">
-              <div className="cast-thisthat__row">
-                <CycleRow
-                  label="Eyes"
-                  value={EYES[eyeIndex].id}
-                  onPrev={() => setEyeIndex(cycle(eyeIndex, EYES.length, -1))}
-                  onNext={() => setEyeIndex(cycle(eyeIndex, EYES.length, 1))}
-                />
-                <CycleRow
-                  label="Color"
-                  value={COLORS[colorIndex].id}
-                  swatch={COLORS[colorIndex].hex}
-                  onPrev={() => setColorIndex(cycle(colorIndex, COLORS.length, -1))}
-                  onNext={() => setColorIndex(cycle(colorIndex, COLORS.length, 1))}
-                />
+                <ChevronLeft />
+              </button>
+              <div className="cast-select__eye-stage">
+                <div
+                  className="cast-select__eye-ring"
+                  style={{ transform: `rotateY(${rotation}deg)` }}
+                >
+                  {STARTER_COMBOS.map((combo, i) => (
+                    <button
+                      key={`${BODIES[combo.bodyIndex].id}-${i}`}
+                      type="button"
+                      className={`cast-select__eye-item${i === selectedIndex ? " cast-select__eye-item--active" : ""}`}
+                      style={{ transform: `rotateY(${i * carouselAngle}deg) translateZ(${carouselRadius}px)` }}
+                      onClick={() => setSelectedIndex(i)}
+                      aria-label={`${BODIES[combo.bodyIndex].id} character`}
+                    >
+                      {i === selectedIndex ? (
+                        <span
+                          key={`active-${selectedIndex}`}
+                          className="cast-select__eye-personality"
+                          data-anim={STARTER_HOVERS[i % STARTER_HOVERS.length]}
+                        >
+                          <BlinkingAvatar
+                            bodyShapeId={BODIES[combo.bodyIndex].id}
+                            eyeStyleId={EYES[combo.eyeIndex].id}
+                            colorId={COLORS[combo.colorIndex].id}
+                            size={141}
+                          />
+                        </span>
+                      ) : (
+                        <span dangerouslySetInnerHTML={{ __html: comboPreviews[i] }} />
+                      )}
+                    </button>
+                  ))}
+                </div>
               </div>
               <button
                 type="button"
-                className="cast-customize__continue"
-                style={{ width: "100%", marginTop: 14 }}
-                onClick={handleContinue}
+                className="cast-select__eye-btn"
+                onClick={() => setSelectedIndex(cycle(selectedIndex, STARTER_COMBOS.length, 1))}
+                aria-label="Next character"
               >
-                That's me →
+                <ChevronRight />
               </button>
             </div>
-          </motion.div>
-        )}
+
+            {/* spotlight glow beneath the carousel */}
+            <div className="cast-select__carousel-glow" />
+
+            <div role="presentation" className="cast-select__name" onClick={(e) => e.stopPropagation()}>
+              <input
+                className="cast-select__name-input"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                size={Math.max(1, name.length)}
+                aria-label="Assistant name"
+              />
+            </div>
+
+            <button
+              type="button"
+              className="cast-vn__advance"
+              onClick={handleContinue}
+            >
+              Next &#9660;
+            </button>
+          </div>
+
+        </div>
+
       </LayoutGroup>
     </div>
   );
+
+  if (embedded) {
+    return (
+      <motion.div
+        key="starter"
+        initial={{ opacity: 0, y: 40 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -40 }}
+        transition={{ duration: 0.4, ease: "easeOut" }}
+        style={{ width: "100%", height: "100%" }}
+      >
+        {content}
+      </motion.div>
+    );
+  }
+
+  return content;
 }
 
-/* ---------------- roster card ---------------- */
+/* ---------------- roster card (kept for reference) ---------------- */
 
-const StarterCard = memo(function StarterCard({
+const _StarterCard = memo(function StarterCard({
   index,
   bodyId,
   colorId,
@@ -329,8 +378,43 @@ const StarterCard = memo(function StarterCard({
   );
 });
 
+/* ---------------- thumbnail (compact grid item) ---------------- */
+
+const _Thumbnail = memo(function Thumbnail({
+  index,
+  bodyId,
+  colorId,
+  colorHex,
+  active,
+  onSelect,
+}: {
+  index: number;
+  bodyId: string;
+  colorId: string;
+  colorHex: string;
+  active: boolean;
+  onSelect: (index: number) => void;
+}) {
+  const svg = useMemo(
+    () => composeSvg(COMPONENTS, bodyId, EYES[DEFAULT_EYE_INDEX].id, colorId, 120),
+    [bodyId, colorId],
+  );
+  return (
+    <button
+      type="button"
+      className={`cast-select__thumb${active ? " cast-select__thumb--active" : ""}`}
+      style={{ color: colorHex }}
+      aria-label={`Select the ${bodyId} shape`}
+      onClick={() => onSelect(index)}
+    >
+      <span dangerouslySetInnerHTML={{ __html: svg }} />
+    </button>
+  );
+});
+
 /* ---------------- inline name editor ---------------- */
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function NameField({
   value,
   onChange,
@@ -374,7 +458,7 @@ function NameField({
 
 /* ---------------- cycle control (mirrors the avatar-modal control) ---------- */
 
-function CycleRow({
+function _CycleRow({
   label,
   value,
   swatch,
