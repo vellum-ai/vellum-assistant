@@ -206,7 +206,7 @@ describe("upsertContactChannel — channel address casing", () => {
     expect(channelInsert!.params[3]).toBe("U123EXAMPLE");
     expect(channelInsert!.params[4]).toBe("U123EXAMPLE");
 
-    expect(queryCalls[0]!.sql).toContain("cc.address = ?");
+    expect(queryCalls[0]!.sql).toContain("cc.address = ? COLLATE NOCASE");
     expect(queryCalls[0]!.params).toEqual(["slack", "U123EXAMPLE"]);
   });
 });

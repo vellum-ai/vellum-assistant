@@ -99,7 +99,7 @@ export const contactRoutes: IpcRoute[] = [
       }>(
         `SELECT cc.id AS channelId, cc.contact_id AS contactId
          FROM contact_channels cc
-         WHERE cc.type = ? AND cc.address = ?
+         WHERE cc.type = ? AND cc.address = ? COLLATE NOCASE
          LIMIT 1`,
         [channelType, normalizedAddress],
       );

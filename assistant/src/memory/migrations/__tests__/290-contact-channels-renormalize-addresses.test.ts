@@ -95,7 +95,7 @@ function insertChannel(
     );
 }
 
-describe("migration 288 — renormalize addresses", () => {
+describe("migration 290 — renormalize addresses", () => {
   test("restores Slack address casing from external_user_id", () => {
     const db = createTestDb();
     bootstrap(db);

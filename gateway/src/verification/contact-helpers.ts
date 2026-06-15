@@ -58,7 +58,7 @@ export async function findContactChannelByAddress(
             cc.status
      FROM contact_channels cc
      JOIN contacts c ON c.id = cc.contact_id
-     WHERE cc.type = ? AND cc.address = ?
+     WHERE cc.type = ? AND cc.address = ? COLLATE NOCASE
      LIMIT 1`,
     [channelType, address],
   );
@@ -102,7 +102,7 @@ export async function upsertVerifiedContactChannel(params: {
   }>(
     `SELECT cc.id AS channelId, cc.contact_id AS contactId, cc.status AS channelStatus
      FROM contact_channels cc
-     WHERE cc.type = ? AND cc.address = ?
+     WHERE cc.type = ? AND cc.address = ? COLLATE NOCASE
      ORDER BY
        CASE cc.status
          WHEN 'active' THEN 0
@@ -273,7 +273,7 @@ export async function upsertContactChannel(params: {
   }>(
     `SELECT cc.id AS channelId, cc.contact_id AS contactId, cc.status AS channelStatus
      FROM contact_channels cc
-     WHERE cc.type = ? AND cc.address = ?
+     WHERE cc.type = ? AND cc.address = ? COLLATE NOCASE
      ORDER BY
        CASE cc.status
          WHEN 'active' THEN 0

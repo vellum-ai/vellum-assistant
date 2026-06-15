@@ -144,7 +144,7 @@ export async function findGuardianForChannelActor(
      INNER JOIN contact_channels cc ON cc.contact_id = c.id
      WHERE c.role = 'guardian'
        AND cc.type = ?
-       AND cc.address = ?
+       AND cc.address = ? COLLATE NOCASE
        AND cc.status = 'active'
      LIMIT 1`,
     [channelType, externalUserId],
@@ -213,7 +213,7 @@ export async function createGuardianBinding(
        FROM contact_channels cc
        WHERE cc.type = ?
          AND cc.status != 'blocked'
-         AND cc.address = ?
+         AND cc.address = ? COLLATE NOCASE
        ORDER BY
          CASE WHEN cc.contact_id = ? THEN 0 ELSE 1 END,
          CASE cc.status
