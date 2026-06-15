@@ -3,6 +3,22 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="robots" content="noindex, nofollow" />
+  <script data-robots-allowlist>
+    (function() {
+      try {
+        var path = window.location.pathname;
+        if (path.length > 1 && path.endsWith("/")) {
+          path = path.slice(0, -1);
+        }
+        if (path === "/account/login") {
+          var robots = document.querySelector('meta[name="robots"]');
+          if (robots) robots.remove();
+        }
+      } catch {
+        // Robots metadata must never block app startup.
+      }
+    })();
+  </script>
   <!-- viewport-fit=cover is required for iOS WKWebView to expose env(safe-area-inset-*);
        without it the Capacitor shell renders under the notch / home indicator. -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
