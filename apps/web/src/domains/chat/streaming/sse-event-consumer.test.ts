@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
   __resetLocalSeqForTesting,
@@ -6,6 +6,7 @@ import {
 } from "@/lib/streaming/local-seq";
 import {
   __resetConversationGapForTesting,
+  clearConversationGap,
   hasConversationGap,
 } from "@/lib/streaming/conversation-gap";
 import type { AssistantEvent } from "@/types/event-types";
@@ -78,12 +79,42 @@ const makeDeps = (override: {
   };
 };
 
+// Captures gap-heal follow-up reconciles the consumer schedules via
+// setTimeout so tests drive them deterministically instead of waiting on
+// the real clock. Stubbing file-wide also stops the heal timer that other
+// gap tests leave armed from leaking into the real event loop.
+const scheduledTimers: Array<() => void> = [];
+const originalSetTimeout = globalThis.setTimeout;
+const originalClearTimeout = globalThis.clearTimeout;
+
+// Drain the microtask queue so a settled `reconcileActive()` promise runs
+// its `.then`/`.catch`/`.finally` continuations before assertions.
+const flushMicrotasks = async () => {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+};
+
 beforeEach(() => {
   mockStreamEpoch = 7;
   globalCursor = null;
   __resetLocalSeqForTesting();
   __resetConversationGapForTesting();
   recordDiagnosticMock.mockClear();
+  scheduledTimers.length = 0;
+  globalThis.setTimeout = ((callback: TimerHandler) => {
+    if (typeof callback === "function") {
+      scheduledTimers.push(callback as () => void);
+    }
+    return scheduledTimers.length as unknown as ReturnType<typeof setTimeout>;
+  }) as unknown as typeof setTimeout;
+  globalThis.clearTimeout = (() => {}) as unknown as typeof clearTimeout;
+});
+
+afterEach(() => {
+  globalThis.setTimeout = originalSetTimeout;
+  globalThis.clearTimeout = originalClearTimeout;
 });
 
 describe("sse-event-consumer — cross-conversation filter", () => {
@@ -647,6 +678,166 @@ describe("sse-event-consumer — seq-gap detection", () => {
     // replaced to the new (lower) seq.
     expect(reconcileActive).toHaveBeenCalledTimes(1);
     expect(globalCursor).toBe(6);
+  });
+});
+
+describe("sse-event-consumer — gap-heal follow-up", () => {
+  type Consumer = ReturnType<typeof createSseEventConsumer>;
+  const seed = (consumer: Consumer, conversationId: string) => {
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId,
+        seq: 5,
+        message: { type: "assistant_text_delta", text: "a" },
+      }),
+    );
+  };
+
+  const gap = (consumer: Consumer, conversationId: string) => {
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId,
+        seq: 10,
+        message: { type: "assistant_text_delta", text: "b" },
+      }),
+    );
+  };
+
+  test("keeps reconciling while the gap marker stays set, stopping once it clears", async () => {
+    /**
+     * A gap reconcile that lands a lagging snapshot (S < L) heals only
+     * partially: the merge drops the live tail above S and leaves the
+     * conversation marked holey, while the cursor advances past the hole so
+     * contiguous events never re-detect it. The consumer must chase the
+     * snapshot with spaced reconciles until it catches the live frontier and
+     * the merge clears the marker, otherwise the discarded tail is never
+     * recovered.
+     */
+    // GIVEN a reconcile whose snapshot lags (the marker stays set) until the
+    // third call simulates S >= L by clearing it
+    let reconcileCalls = 0;
+    const reconcileActive = mock(() => {
+      reconcileCalls += 1;
+      if (reconcileCalls >= 3) {
+        clearConversationGap("conv-1");
+      }
+      return Promise.resolve();
+    });
+    const { deps } = makeDeps({ reconcileActive });
+    const consumer = createSseEventConsumer(deps);
+    seed(consumer, "conv-1");
+
+    // WHEN a gap fires the initial reconcile and it resolves still lagging
+    gap(consumer, "conv-1");
+    await flushMicrotasks();
+
+    // THEN the marker is still set and a follow-up heal is armed
+    expect(reconcileCalls).toBe(1);
+    expect(hasConversationGap("conv-1")).toBe(true);
+    expect(scheduledTimers).toHaveLength(1);
+
+    // AND firing the heal reconciles again, still lagging, re-arming
+    scheduledTimers.shift()!();
+    await flushMicrotasks();
+    expect(reconcileCalls).toBe(2);
+    expect(hasConversationGap("conv-1")).toBe(true);
+    expect(scheduledTimers).toHaveLength(1);
+
+    // AND the next heal catches the snapshot up and clears the marker
+    scheduledTimers.shift()!();
+    await flushMicrotasks();
+    expect(reconcileCalls).toBe(3);
+    expect(hasConversationGap("conv-1")).toBe(false);
+    expect(scheduledTimers).toHaveLength(1);
+
+    // AND the final armed heal sees the cleared marker and stops the chain
+    scheduledTimers.shift()!();
+    await flushMicrotasks();
+    expect(reconcileCalls).toBe(3);
+    expect(scheduledTimers).toHaveLength(0);
+  });
+
+  test("schedules no follow-up when the gap reconcile already healed the transcript", async () => {
+    /**
+     * The common case: by the time the gap reconcile runs the turn has been
+     * persisted (S >= L), so the merge clears the marker on the first pass.
+     * No spaced retry is needed and none is armed.
+     */
+    // GIVEN a reconcile that heals immediately (snapshot caught up)
+    const reconcileActive = mock(() => {
+      clearConversationGap("conv-1");
+      return Promise.resolve();
+    });
+    const { deps } = makeDeps({ reconcileActive });
+    const consumer = createSseEventConsumer(deps);
+    seed(consumer, "conv-1");
+
+    // WHEN a gap fires the reconcile and it heals on the first pass
+    gap(consumer, "conv-1");
+    await flushMicrotasks();
+
+    // THEN the marker is clear and no follow-up heal is armed
+    expect(reconcileActive).toHaveBeenCalledTimes(1);
+    expect(hasConversationGap("conv-1")).toBe(false);
+    expect(scheduledTimers).toHaveLength(0);
+  });
+
+  test("stops chasing the heal once the active conversation changes", async () => {
+    /**
+     * `reconcileActive` only heals the active conversation, so a heal armed
+     * for a conversation the user has navigated away from is abandoned rather
+     * than reconciling the wrong conversation forever.
+     */
+    // GIVEN a reconcile that always lags (the marker never clears on its own)
+    const reconcileActive = mock(() => Promise.resolve());
+    const { deps, activeConversationIdRef } = makeDeps({ reconcileActive });
+    const consumer = createSseEventConsumer(deps);
+    seed(consumer, "conv-1");
+
+    // AND a gap on conv-1 arms a follow-up heal
+    gap(consumer, "conv-1");
+    await flushMicrotasks();
+    expect(scheduledTimers).toHaveLength(1);
+    const callsBeforeSwitch = reconcileActive.mock.calls.length;
+
+    // WHEN the user switches to another conversation before the heal fires
+    activeConversationIdRef.current = "conv-2";
+    scheduledTimers.shift()!();
+    await flushMicrotasks();
+
+    // THEN the heal abandons without reconciling or re-arming
+    expect(reconcileActive.mock.calls.length).toBe(callsBeforeSwitch);
+    expect(scheduledTimers).toHaveLength(0);
+  });
+
+  test("caps the heal chain at the attempt ceiling when the snapshot never catches up", async () => {
+    /**
+     * A watermark that never reaches the live frontier (e.g. events streamed
+     * but never persisted) must not reconcile forever. The chain is bounded
+     * to GAP_HEAL_MAX_ATTEMPTS follow-up reconciles after the initial gap
+     * reconcile, then stops on its own.
+     */
+    // GIVEN a reconcile that always lags, so the marker never clears
+    const reconcileActive = mock(() => Promise.resolve());
+    const { deps } = makeDeps({ reconcileActive });
+    const consumer = createSseEventConsumer(deps);
+    seed(consumer, "conv-1");
+
+    // WHEN a gap fires the reconcile and every armed heal is drained
+    gap(consumer, "conv-1");
+    await flushMicrotasks();
+    let safety = 0;
+    while (scheduledTimers.length > 0 && safety < 100) {
+      safety += 1;
+      scheduledTimers.shift()!();
+      await flushMicrotasks();
+    }
+
+    // THEN the chain stops after the initial gap reconcile plus a bounded
+    // number of heals (30), and leaves no timer armed
+    expect(reconcileActive).toHaveBeenCalledTimes(31);
+    expect(scheduledTimers).toHaveLength(0);
+    expect(hasConversationGap("conv-1")).toBe(true);
   });
 });
 

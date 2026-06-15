@@ -47,6 +47,12 @@
  *     latest seq (the events were dispatched, so the cursor belongs at the
  *     frontier; healing is owned by the gap marker, not the cursor); on
  *     failure it stays pinned so the next event retries.
+ *     When the reconcile lands a snapshot that still lags the live
+ *     frontier (`S < L`), the conversation stays marked holey and the
+ *     cursor has already advanced past the hole, so contiguous events
+ *     won't re-detect it. A spaced follow-up reconcile chases the
+ *     snapshot until it catches up and the marker clears (see
+ *     `scheduleGapHeal`).
  *   - On the normal (no-gap) path the cursor advances AFTER the
  *     handler returns. A thrown handler keeps the cursor pinned so the
  *     next event re-triggers the gap path.
@@ -73,7 +79,10 @@ import { useStreamStore } from "@/domains/chat/stream-store";
 import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { getLocalSeq, recordLocalSeq } from "@/lib/streaming/local-seq";
-import { markConversationGap } from "@/lib/streaming/conversation-gap";
+import {
+  hasConversationGap,
+  markConversationGap,
+} from "@/lib/streaming/conversation-gap";
 import {
   advanceReconnectCursor,
   getReconnectCursor,
@@ -112,6 +121,13 @@ export interface SseEventConsumer {
   handleSseEvent(envelope: ConsumableEnvelope): void;
 }
 
+// Cadence for chasing a lagging snapshot after a gap reconcile. Spaced
+// out so it's not a busy loop, and capped so a watermark that never
+// catches up (e.g. events streamed but never persisted) can't reconcile
+// forever.
+const GAP_HEAL_RETRY_DELAY_MS = 1_000;
+const GAP_HEAL_MAX_ATTEMPTS = 30;
+
 export function createSseEventConsumer(
   deps: SseEventConsumerDeps,
 ): SseEventConsumer {
@@ -128,6 +144,46 @@ export function createSseEventConsumer(
     const activeId = deps.activeConversationIdRef.current;
     if (activeId !== null) {
       markConversationGap(activeId);
+    }
+  };
+
+  // A gap reconcile that lands a lagging snapshot (`S < L`) heals the
+  // transcript only partially: the merge takes the snapshot
+  // authoritatively, but the live tail above `S` is dropped and the
+  // conversation stays marked holey. The cursor has already advanced past
+  // the hole, so subsequent contiguous events never re-detect it. Chase
+  // the snapshot with spaced reconciles until it catches the live frontier
+  // (`S >= L`) and the merge clears the marker, the user switches
+  // conversations (`reconcileActive` only heals the active one), or the
+  // attempt ceiling is reached.
+  let gapHealTimer: ReturnType<typeof setTimeout> | null = null;
+  const scheduleGapHeal = (conversationId: string, attempt: number) => {
+    if (gapHealTimer !== null || attempt > GAP_HEAL_MAX_ATTEMPTS) {
+      return;
+    }
+    gapHealTimer = setTimeout(() => {
+      gapHealTimer = null;
+      if (
+        conversationId !== deps.activeConversationIdRef.current ||
+        !hasConversationGap(conversationId)
+      ) {
+        return;
+      }
+      deps
+        .reconcileActive()
+        .catch(() => {})
+        .finally(() => {
+          scheduleGapHeal(conversationId, attempt + 1);
+        });
+    }, GAP_HEAL_RETRY_DELAY_MS);
+  };
+
+  // Re-arm a follow-up reconcile when the active conversation is still
+  // holey after a gap reconcile settles (the snapshot lagged `S < L`).
+  const chaseGapHealIfPending = () => {
+    const activeId = deps.activeConversationIdRef.current;
+    if (activeId !== null && hasConversationGap(activeId)) {
+      scheduleGapHeal(activeId, 1);
     }
   };
 
@@ -160,8 +216,15 @@ export function createSseEventConsumer(
           markActiveConversationGap();
           // Fire-and-forget: cursor is already replaced above (the old
           // seq space is meaningless after a restart). Swallow rejection
-          // to prevent unhandled-promise warnings.
-          deps.reconcileActive().catch(() => {});
+          // to prevent unhandled-promise warnings. Chase a lagging
+          // snapshot afterwards so the gap heals even without a running
+          // reconciliation loop.
+          deps
+            .reconcileActive()
+            .catch(() => {})
+            .finally(() => {
+              chaseGapHealIfPending();
+            });
         } else if (eventSeq > stored + 1) {
           recordDiagnostic("sse_seq_gap_detected", {
             conversationId: eventConversationId,
@@ -196,6 +259,7 @@ export function createSseEventConsumer(
               })
               .finally(() => {
                 reconcileInFlight = false;
+                chaseGapHealIfPending();
               });
           }
         }
