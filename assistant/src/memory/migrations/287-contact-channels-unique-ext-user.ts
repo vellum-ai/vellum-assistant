@@ -4,9 +4,8 @@ import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 const log = getLogger("migration-287");
 
 /**
- * Deduplicates historical case collisions in contact_channels, restores
- * original platform-provided casing, and drops the (type, external_user_id)
- * indexes.
+ * Deduplicates historical case collisions in contact_channels and restores
+ * original platform-provided casing.
  *
  * Historical writes lowercased addresses inconsistently — some paths stored
  * 'U12345' and others stored 'u12345' for the same identity. This migration
@@ -17,8 +16,6 @@ const log = getLogger("migration-287");
  * Steps:
  *  1. Deduplicate by (type, address) case-insensitively — keeps the best row.
  *  2. Normalize addresses — restore original casing from external_user_id.
- *  3. Drop the (type, external_user_id) indexes — external_user_id is
- *     redundant with address for every active channel type.
  */
 export function migrateContactChannelsUniqueExtUser(database: DrizzleDb): void {
   const raw = getSqliteFrom(database);
@@ -72,11 +69,4 @@ export function migrateContactChannelsUniqueExtUser(database: DrizzleDb): void {
       "Restored original casing from external_user_id into address",
     );
   }
-
-  // Step 3: Drop the (type, external_user_id) indexes — identity is
-  // enforced via the (type, address) unique constraint.
-  raw.run(
-    /*sql*/ `DROP INDEX IF EXISTS idx_contact_channels_type_ext_user_unique`,
-  );
-  raw.run(/*sql*/ `DROP INDEX IF EXISTS idx_contact_channels_type_ext_user`);
 }

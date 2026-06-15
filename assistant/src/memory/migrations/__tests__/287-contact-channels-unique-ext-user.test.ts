@@ -323,31 +323,24 @@ describe("migration 287 — dedup case collisions + drop ext_user indexes", () =
     expect(channels).toHaveLength(2);
   });
 
-  test("drops both old non-unique and unique indexes on external_user_id", () => {
+  test("preserves external_user_id index (dropped by follow-up migration)", () => {
     const db = createTestDb();
     const raw = getSqliteFrom(db);
     bootstrap(db);
 
-    // Pre-migration: old non-unique index exists
     const beforeIndexes = getIndexes(raw);
     const oldIdx = beforeIndexes.find(
       (i) => i.name === "idx_contact_channels_type_ext_user",
     );
     expect(oldIdx).toBeDefined();
-    expect(oldIdx!.unique).toBe(0);
 
     migrateContactChannelsUniqueExtUser(db);
 
     const afterIndexes = getIndexes(raw);
-    // Both indexes on external_user_id should be gone
+    // Index is preserved — lookups still use externalUserId until PR 2
     expect(
       afterIndexes.find((i) => i.name === "idx_contact_channels_type_ext_user"),
-    ).toBeUndefined();
-    expect(
-      afterIndexes.find(
-        (i) => i.name === "idx_contact_channels_type_ext_user_unique",
-      ),
-    ).toBeUndefined();
+    ).toBeDefined();
   });
 
   test("preserves existing case-sensitive UNIQUE(type, address) index", () => {
