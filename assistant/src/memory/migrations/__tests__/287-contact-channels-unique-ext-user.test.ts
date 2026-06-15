@@ -505,6 +505,45 @@ describe("migration 287 — dedup case collisions + drop ext_user indexes", () =
     expect(channels[0]!.address).toBe("old-handle");
   });
 
+  test("cross-column collision: case-insensitive match removes lowercased blocker", () => {
+    const db = createTestDb();
+    const raw = getSqliteFrom(db);
+    bootstrap(db);
+
+    insertContact(raw, "c1");
+    insertContact(raw, "c2");
+
+    // Row A: has external_user_id with original Slack casing
+    insertChannel(raw, {
+      id: "ch-normalizer",
+      contactId: "c1",
+      type: "slack",
+      address: "old-handle",
+      externalUserId: "U12345ABC",
+      status: "active",
+      updatedAt: 2000,
+    });
+
+    // Row B: occupies a lowercased variant of the target address (from old write paths)
+    insertChannel(raw, {
+      id: "ch-blocker",
+      contactId: "c2",
+      type: "slack",
+      address: "u12345abc",
+      externalUserId: null,
+      status: "unverified",
+      updatedAt: 1000,
+    });
+
+    migrateContactChannelsUniqueExtUser(db);
+
+    const channels = getAllChannels(raw);
+    // Blocker removed despite case difference — COLLATE NOCASE catches it
+    expect(channels).toHaveLength(1);
+    expect(channels[0]!.id).toBe("ch-normalizer");
+    expect(channels[0]!.address).toBe("old-handle");
+  });
+
   test("idempotent — safe to run twice", () => {
     const db = createTestDb();
     const raw = getSqliteFrom(db);
