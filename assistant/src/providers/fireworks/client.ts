@@ -24,6 +24,7 @@ export class FireworksProvider extends OpenAIChatCompletionsProvider {
     model: string,
     options: FireworksProviderOptions = {},
   ) {
+    const isMinimax = /minimax/i.test(model);
     super(apiKey, model, {
       baseURL: options.baseURL?.trim() || DEFAULT_FIREWORKS_BASE_URL,
       providerName: "fireworks",
@@ -35,9 +36,14 @@ export class FireworksProvider extends OpenAIChatCompletionsProvider {
       // {@link resolveMaxReasoningEffort}.
       maxReasoningEffort: "high",
       assistantReasoningField: "reasoning_content",
+      // MiniMax M3 reasons by default, but without reasoning_split it embeds the
+      // thinking in `content` (no <think> tags, no separate stream), so planning
+      // prose leaks into user-visible text. reasoning_split routes it to
+      // `reasoning_content`, which the base provider parses into thinking blocks.
+      ...(isMinimax ? { extraCreateParams: { reasoning_split: true } } : {}),
       // minimax-m3's function-call serialization collapses object-typed tool
       // args to `{}` on the wire; present them as JSON strings and decode back.
-      coerceObjectArgsToJsonString: /minimax/i.test(model),
+      coerceObjectArgsToJsonString: isMinimax,
     });
   }
 
