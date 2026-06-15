@@ -24,7 +24,7 @@ mock.module("@/runtime/native-dictation-partials", () => ({
 const { SpeechToTextCard } = await import(
   "@/domains/settings/ai/speech-to-text-card"
 );
-const { LS_STT_PROVIDER } = await import("@/domains/settings/ai/ai-types");
+const { LS_STT_PROVIDER } = await import("@/domains/settings/ai/ai-local-storage-keys");
 
 function openProviderDropdown(): void {
   const trigger = document.querySelector<HTMLButtonElement>(

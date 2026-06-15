@@ -28260,7 +28260,7 @@ components:
                 - type: object
                   properties:
                     mode:
-                      type: string
+                      $ref: "#/components/schemas/ServiceMode"
                     provider:
                       type: string
                   additionalProperties: {}
@@ -28270,7 +28270,7 @@ components:
                 - type: object
                   properties:
                     mode:
-                      type: string
+                      $ref: "#/components/schemas/ServiceMode"
                   additionalProperties: {}
                 - type: "null"
             inference:
@@ -28278,7 +28278,7 @@ components:
                 - type: object
                   properties:
                     mode:
-                      type: string
+                      $ref: "#/components/schemas/ServiceMode"
                   additionalProperties: {}
                 - type: "null"
           additionalProperties: {}
@@ -28294,6 +28294,11 @@ components:
         - openrouter
         - openai-compatible
         - minimax
+    ServiceMode:
+      type: string
+      enum:
+        - managed
+        - your-own
     ConnectionProvider:
       type: string
       enum:
@@ -28803,7 +28808,7 @@ components:
               type: object
               properties:
                 mode:
-                  type: string
+                  $ref: "#/components/schemas/ServiceMode"
                 provider:
                   type: string
               additionalProperties: {}
@@ -28811,13 +28816,13 @@ components:
               type: object
               properties:
                 mode:
-                  type: string
+                  $ref: "#/components/schemas/ServiceMode"
               additionalProperties: {}
             inference:
               type: object
               properties:
                 mode:
-                  type: string
+                  $ref: "#/components/schemas/ServiceMode"
               additionalProperties: {}
           additionalProperties: {}
       additionalProperties: {}

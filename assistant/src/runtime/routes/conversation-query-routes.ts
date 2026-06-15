@@ -39,6 +39,7 @@ import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
 import { LLMConfigFragment, ProfileEntry } from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
+import { ServiceModeSchema } from "../../config/schemas/services.js";
 import { getConfigWatcher } from "../../daemon/config-watcher.js";
 import {
   getEmbeddingConfigInfo,
@@ -524,17 +525,17 @@ const ConfigGetResponseSchema = z
       .object({
         "web-search": z
           .object({
-            mode: z.string().optional(),
+            mode: ServiceModeSchema.optional(),
             provider: z.string().optional(),
           })
           .passthrough()
           .optional(),
         "image-generation": z
-          .object({ mode: z.string().optional() })
+          .object({ mode: ServiceModeSchema.optional() })
           .passthrough()
           .optional(),
         inference: z
-          .object({ mode: z.string().optional() })
+          .object({ mode: ServiceModeSchema.optional() })
           .passthrough()
           .optional(),
       })
@@ -621,19 +622,19 @@ const ConfigPatchRequestSchema = z
       .object({
         "web-search": z
           .object({
-            mode: z.string().optional(),
+            mode: ServiceModeSchema.optional(),
             provider: z.string().optional(),
           })
           .passthrough()
           .nullable()
           .optional(),
         "image-generation": z
-          .object({ mode: z.string().optional() })
+          .object({ mode: ServiceModeSchema.optional() })
           .passthrough()
           .nullable()
           .optional(),
         inference: z
-          .object({ mode: z.string().optional() })
+          .object({ mode: ServiceModeSchema.optional() })
           .passthrough()
           .nullable()
           .optional(),

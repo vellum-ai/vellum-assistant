@@ -1,14 +1,29 @@
-import type { ConfigGetResponse, ConfigPatchData } from "@/generated/daemon/types.gen";
+/**
+ * Type aliases derived from generated daemon SDK types.
+ *
+ * These provide readable names for deeply-nested generated types that are
+ * used across the AI settings domain. Types that are already top-level
+ * named exports in `types.gen.ts` (e.g. `ServiceMode`, `Auth`,
+ * `ConnectionProvider`) should be imported directly from the generated
+ * module — not re-derived here.
+ *
+ * Static catalog data lives in `ai-provider-catalogs.ts`.
+ * localStorage keys live in `ai-local-storage-keys.ts`.
+ */
+
+import type { ConfigGetResponse, ConfigPatchData, ServiceMode } from "@/generated/daemon/types.gen";
 
 import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 
+// Re-export ServiceMode so existing consumers keep working via this module.
+export type { ServiceMode } from "@/generated/daemon/types.gen";
+
 // ---------------------------------------------------------------------------
-// Generated config response type aliases
+// Config response type aliases
 // ---------------------------------------------------------------------------
 
 /**
  * Full daemon config response from `GET /v1/config`.
- * Derived from the generated SDK type — do NOT hand-write this.
  */
 export type DaemonConfig = ConfigGetResponse;
 
@@ -27,7 +42,6 @@ export type MemoryConfig = NonNullable<ConfigGetResponse["memory"]>;
 
 /**
  * Typed body for daemon config PATCH requests.
- * Derived from the generated SDK type — do NOT hand-write this.
  */
 export type DaemonConfigPatch = ConfigPatchData["body"];
 
@@ -48,26 +62,10 @@ export type CallSiteOverrideDraft = NonNullable<
 >;
 
 // ---------------------------------------------------------------------------
-// Profile status
+// Derived types
 // ---------------------------------------------------------------------------
 
 export type ProfileStatus = NonNullable<ProfileEntry["status"]>;
-
-// ---------------------------------------------------------------------------
-// Provider constants
-// ---------------------------------------------------------------------------
-
-export const OPENAI_COMPATIBLE_PROVIDER = "openai-compatible";
-
-// ---------------------------------------------------------------------------
-// Service mode
-// ---------------------------------------------------------------------------
-
-export type ServiceMode = "managed" | "your-own";
-
-// ---------------------------------------------------------------------------
-// Derived types
-// ---------------------------------------------------------------------------
 
 export type ProfileWithName = { name: string } & ProfileEntry;
 
@@ -79,64 +77,10 @@ export interface InferenceTokenBudgetState {
 }
 
 // ---------------------------------------------------------------------------
-// Provider catalog types
+// Inference provider constants
 // ---------------------------------------------------------------------------
 
-export interface ProviderCredentialsGuide {
-  description: string;
-  url: string;
-  linkLabel: string;
-}
-
-export interface TTSProvider {
-  id: string;
-  displayName: string;
-  subtitle: string;
-  supportsVoiceSelection: boolean;
-  apiKeyPlaceholder: string;
-  credentialsGuide: ProviderCredentialsGuide;
-}
-
-export interface STTProvider {
-  id: string;
-  displayName: string;
-  subtitle: string;
-  /**
-   * Only offered when the renderer can reach the mac helper's
-   * `SFSpeechRecognizer` (the macOS Electron shell) — see
-   * `isNativeDictationSupported()` in `@/runtime/native-dictation-partials`.
-   */
-  requiresNativeDictation?: boolean;
-  /**
-   * Prerequisite the user must complete before the provider works. Shown
-   * below the provider dropdown in place of a credentials guide.
-   */
-  setupWarning?: string;
-  /** Absent for keyless providers (on-device recognition needs no API key). */
-  apiKeyPlaceholder?: string;
-  credentialsGuide?: ProviderCredentialsGuide;
-}
-
-export interface EmailByoProvider {
-  id: "mailgun" | "resend";
-  displayName: string;
-  setupSkill: string;
-  docsUrl: string;
-}
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-export const AVAILABLE_IMAGE_GEN_MODELS = [
-  "gemini-3.1-flash-image-preview",
-  "gemini-3-pro-image-preview",
-] as const;
-
-export const IMAGE_GEN_MODEL_DISPLAY_NAMES: Record<string, string> = {
-  "gemini-3.1-flash-image-preview": "Nano Banana 2",
-  "gemini-3-pro-image-preview": "Nano Banana Pro",
-};
+export const OPENAI_COMPATIBLE_PROVIDER = "openai-compatible";
 
 /**
  * Providers that have entries in the LLM model catalog and can be used in
@@ -161,142 +105,15 @@ export const TOKEN_SLIDER_STEP_TOKENS = 1_000;
 export const DEFAULT_CONTEXT_WINDOW_BUDGET_TOKENS = 200_000;
 
 // ---------------------------------------------------------------------------
-// TTS / STT provider catalogs
+// Service mode validation
 // ---------------------------------------------------------------------------
 
-export const TTS_PROVIDERS: readonly TTSProvider[] = [
-  {
-    id: "elevenlabs",
-    displayName: "ElevenLabs",
-    subtitle:
-      "High-quality voice synthesis for conversations and read-aloud. Requires an ElevenLabs API key.",
-    supportsVoiceSelection: true,
-    apiKeyPlaceholder: "sk_…",
-    credentialsGuide: {
-      description:
-        "Sign in to ElevenLabs, go to your Profile, and copy your API key.",
-      url: "https://elevenlabs.io/app/settings/api-keys",
-      linkLabel: "Open ElevenLabs API Keys",
-    },
-  },
-  {
-    id: "fish-audio",
-    displayName: "Fish Audio",
-    subtitle:
-      "Natural-sounding voice synthesis with custom voice cloning. Requires a Fish Audio API key and voice reference ID.",
-    supportsVoiceSelection: true,
-    apiKeyPlaceholder: "Enter your Fish Audio API key",
-    credentialsGuide: {
-      description:
-        "Sign in to Fish Audio, navigate to API Keys in your dashboard, and create a new key.",
-      url: "https://fish.audio/app/api-keys/",
-      linkLabel: "Open Fish Audio API Keys",
-    },
-  },
-  {
-    id: "deepgram",
-    displayName: "Deepgram",
-    subtitle:
-      "Fast, accurate text-to-speech synthesis. Uses the same API key as Deepgram speech-to-text.",
-    supportsVoiceSelection: false,
-    apiKeyPlaceholder: "Enter your Deepgram API key",
-    credentialsGuide: {
-      description:
-        "Sign in to Deepgram, navigate to your API Keys page, and create or copy an existing key. This is the same key used for speech-to-text.",
-      url: "https://console.deepgram.com/",
-      linkLabel: "Open Deepgram Console",
-    },
-  },
-  {
-    id: "xai",
-    displayName: "xAI",
-    subtitle:
-      "Text-to-speech from xAI with expressive voices (eve, ara, rex, sal, leo). Requires an xAI API key.",
-    supportsVoiceSelection: false,
-    apiKeyPlaceholder: "Enter your xAI API key",
-    credentialsGuide: {
-      description:
-        "Sign in to the xAI console, navigate to API Keys, and create a new key.",
-      url: "https://console.x.ai/",
-      linkLabel: "Open xAI Console",
-    },
-  },
-];
+const SERVICE_MODE_VALUES: ReadonlySet<string> = new Set<ServiceMode>(["managed", "your-own"]);
 
 /**
- * STT provider id for Apple's on-device recognition. Not a daemon provider:
- * when selected, dictation routes through the mac helper's recognizer and
- * never calls `/v1/stt/transcribe`. Duplicated as a literal in
- * `@/domains/chat/voice/stt-api.ts` (`prefersMacosNativeStt`) — cross-domain
- * constants stay duplicated there, like the `LS_STT_*` keys.
+ * Validates a raw string (e.g. from localStorage) as a `ServiceMode`.
+ * Returns `fallback` when the value is not a known mode.
  */
-export const MACOS_NATIVE_STT_PROVIDER_ID = "macos-native";
-
-export const STT_PROVIDERS: readonly STTProvider[] = [
-  {
-    id: "deepgram",
-    displayName: "Deepgram",
-    subtitle:
-      "Fast, accurate speech-to-text transcription. Uses the same API key as Deepgram text-to-speech.",
-    apiKeyPlaceholder: "Enter your Deepgram API key",
-    credentialsGuide: {
-      description:
-        "Sign in to Deepgram, navigate to your API Keys page, and create or copy an existing key. This is the same key used for text-to-speech.",
-      url: "https://console.deepgram.com/",
-      linkLabel: "Open Deepgram Console",
-    },
-  },
-  {
-    id: "openai",
-    displayName: "OpenAI",
-    subtitle: "OpenAI Whisper transcription. Requires an OpenAI API key.",
-    apiKeyPlaceholder: "sk-…",
-    credentialsGuide: {
-      description:
-        "Sign in to the OpenAI platform, navigate to API Keys, and create a new secret key.",
-      url: "https://platform.openai.com/api-keys",
-      linkLabel: "Open OpenAI API Keys",
-    },
-  },
-  {
-    id: MACOS_NATIVE_STT_PROVIDER_ID,
-    displayName: "macOS Native Dictation",
-    subtitle:
-      "Apple's on-device speech recognition, running locally through the macOS helper. Works offline and needs no API key.",
-    requiresNativeDictation: true,
-    setupWarning:
-      "Requires macOS Dictation to be turned on: open System Settings → Keyboard, then enable Dictation. macOS downloads the on-device speech model the first time Dictation is enabled — without it, voice input produces no transcript.",
-  },
-];
-
-export const EMAIL_BYO_PROVIDERS: readonly EmailByoProvider[] = [
-  {
-    id: "mailgun",
-    displayName: "Mailgun",
-    setupSkill: "mailgun-setup",
-    docsUrl: "https://www.mailgun.com/",
-  },
-  {
-    id: "resend",
-    displayName: "Resend",
-    setupSkill: "resend-setup",
-    docsUrl: "https://resend.com/",
-  },
-];
-
-// ---------------------------------------------------------------------------
-// Local-storage keys
-// ---------------------------------------------------------------------------
-
-export const LS_IMAGE_GEN_MODE = "vellum:ai:imageGenMode";
-export const LS_IMAGE_GEN_MODEL = "vellum:ai:imageGenModel";
-export const LS_WEB_SEARCH_MODE = "vellum:ai:webSearchMode";
-export const LS_WEB_SEARCH_PROVIDER = "vellum:ai:webSearchProvider";
-export const LS_EMAIL_MODE = "vellum:ai:emailMode";
-export const LS_EMAIL_BYO_PROVIDER = "vellum:ai:emailByoProvider";
-
-export const LS_TTS_PROVIDER = "vellum:voice:ttsProvider";
-export const LS_TTS_API_KEY_PREFIX = "vellum:voice:ttsApiKey:";
-export const LS_TTS_VOICE_ID_PREFIX = "vellum:voice:ttsVoiceId:";
-export const LS_STT_PROVIDER = "vellum:voice:sttProvider";
-export const LS_STT_API_KEY_PREFIX = "vellum:voice:sttApiKey:";
+export function parseServiceMode(raw: string, fallback: ServiceMode): ServiceMode {
+  return SERVICE_MODE_VALUES.has(raw) ? (raw as ServiceMode) : fallback;
+}

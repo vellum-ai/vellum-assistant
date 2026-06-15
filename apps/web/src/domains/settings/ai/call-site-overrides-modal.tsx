@@ -154,8 +154,8 @@ function CallSiteOverridesModalInner({
   // Derive the full draft map: persisted server values merged with any
   // user edits made this session. When the user hasn't touched a row,
   // it falls through to the persisted override (or empty).
-  const drafts = useMemo(() => {
-    if (!isSeeded) return {} as Record<string, CallSiteOverrideDraft | null>;
+  const drafts = useMemo((): Record<string, CallSiteOverrideDraft | null> => {
+    if (!isSeeded) return {};
     const merged: Record<string, CallSiteOverrideDraft | null> = {};
     for (const id of catalogCallSiteIds) {
       if (id in draftEdits) {
