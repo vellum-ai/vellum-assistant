@@ -22,6 +22,9 @@
  *   action that removes from `processingConversationIds`, so the two
  *   collections stay in sync.
  * - `attentionConversationIds` — conversations with pending interactions
+ * - `pendingDraftProfile` — model profile picked in the composer for a
+ *   not-yet-persisted draft chat, applied to the conversation its first
+ *   message mints (see `pendingDraftProfile` below)
  *
  * @see https://zustand.docs.pmnd.rs/guides/flux-inspired-practice
  * @see @/hooks/conversation-queries.ts for the server-state half
@@ -76,6 +79,19 @@ export interface ConversationListState {
   processingConversationIds: Set<string>;
   processingSnapshots: Map<string, number | undefined>;
   attentionConversationIds: Set<string>;
+  /**
+   * Model profile selected in the composer for a brand-new draft chat that has
+   * no server row yet, keyed by the draft's client-side conversation id. The
+   * first message forwards this as the minted conversation's `inferenceProfile`
+   * (see `use-send-message`) and then clears it.
+   *
+   * Scoping the selection here — instead of writing `llm.activeProfile` — keeps
+   * an in-chat model switch on a new chat from silently overwriting the global
+   * default profile (the value the Settings "default profile" control owns).
+   * Keyed by id so a stash left over from an abandoned draft never applies to a
+   * different conversation.
+   */
+  pendingDraftProfile: { conversationId: string; profile: string } | null;
 }
 
 export interface ConversationListActions {
@@ -112,6 +128,10 @@ export interface ConversationListActions {
   addAttentionConversationId: (conversationId: string) => void;
   removeAttentionConversationId: (conversationId: string) => void;
 
+  // --- Pending draft profile ---
+  setPendingDraftProfile: (conversationId: string, profile: string) => void;
+  clearPendingDraftProfile: () => void;
+
   // --- Compound ---
   graduateProcessingConversationId: (
     conversationId: string,
@@ -130,6 +150,7 @@ const INITIAL_STATE: ConversationListState = {
   processingConversationIds: new Set(),
   processingSnapshots: new Map(),
   attentionConversationIds: new Set(),
+  pendingDraftProfile: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -227,6 +248,18 @@ export const useConversationStore = createSelectors(
           conversationId,
         ),
       });
+    },
+
+    // --- Pending draft profile ---
+
+    setPendingDraftProfile: (conversationId, profile) => {
+      set({ pendingDraftProfile: { conversationId, profile } });
+    },
+
+    clearPendingDraftProfile: () => {
+      // No-op when already cleared so subscribers don't re-render needlessly.
+      if (get().pendingDraftProfile === null) return;
+      set({ pendingDraftProfile: null });
     },
 
     // --- Compound ---

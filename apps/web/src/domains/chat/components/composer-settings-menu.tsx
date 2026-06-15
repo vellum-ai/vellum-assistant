@@ -15,10 +15,7 @@ import {
     conversationsByIdGetOptions,
     conversationsByIdGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
-import {
-    configPatch,
-    conversationsByIdInferenceprofilePut,
-} from "@/generated/daemon/sdk.gen";
+import { conversationsByIdInferenceprofilePut } from "@/generated/daemon/sdk.gen";
 import type { ConfigGetResponse } from "@/generated/daemon/types.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
@@ -29,6 +26,7 @@ import {
     setGlobalThresholds,
 } from "@/lib/threshold-api";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useConversationStore } from "@/stores/conversation-store";
 import {
     THRESHOLD_PRESETS,
     overrideAction,
@@ -124,7 +122,24 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
 
   const [optimisticActiveProfile, setOptimisticActiveProfile] = useState<string | null>(null);
   const lastConfirmedProfileRef = useRef<string | null>(null);
-  const profileActiveKey = optimisticActiveProfile ?? serverEffectiveProfile;
+
+  // A brand-new draft chat has no server row, so the menu's `conversationId`
+  // prop is undefined while the draft's client-side id lives in the
+  // conversation store. If the user already picked a model for that draft, the
+  // selection is stashed there (not written to the global default) — reflect it
+  // so the checkmark survives a remount and matches what the first message will
+  // apply. See `pendingDraftProfile` in `conversation-store`.
+  const activeConversationId = useConversationStore.use.activeConversationId();
+  const pendingDraftProfile = useConversationStore.use.pendingDraftProfile();
+  const draftProfileSelection =
+    !conversationId &&
+    pendingDraftProfile !== null &&
+    pendingDraftProfile.conversationId === activeConversationId
+      ? pendingDraftProfile.profile
+      : null;
+
+  const profileActiveKey =
+    optimisticActiveProfile ?? draftProfileSelection ?? serverEffectiveProfile;
 
   // Reset optimistic state on conversation change — the old optimistic values
   // belong to a different conversation context. Uses useLayoutEffect so the
@@ -220,20 +235,35 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
       if (!configQuery.isSuccess) return false;
       const capturedConversationId = conversationIdRef.current;
       setOptimisticActiveProfile(name);
-      try {
-        if (capturedConversationId) {
-          await conversationsByIdInferenceprofilePut({
-            path: { assistant_id: assistantId, id: capturedConversationId },
-            body: { profile: name },
-            throwOnError: true,
-          });
-        } else {
-          await configPatch({
-            path: { assistant_id: assistantId },
-            body: { llm: { activeProfile: name } },
-            throwOnError: true,
-          });
+
+      // No server-side conversation yet — a brand-new draft chat. Stash the
+      // selection for the draft instead of overwriting the global default
+      // profile (the value the Settings "default profile" control owns);
+      // `use-send-message` applies it to the conversation the first message
+      // mints. No network call and no rollback — the optimistic/stashed value
+      // stands until the send resolves and the conversation's profile takes over.
+      if (!capturedConversationId) {
+        const draftConversationId =
+          useConversationStore.getState().activeConversationId;
+        if (draftConversationId) {
+          useConversationStore
+            .getState()
+            .setPendingDraftProfile(draftConversationId, name);
+          lastConfirmedProfileRef.current = name;
+          return true;
         }
+        // Nothing to attach the selection to (no draft id) — revert the
+        // optimistic checkmark rather than leave it stranded.
+        setOptimisticActiveProfile(lastConfirmedProfileRef.current);
+        return false;
+      }
+
+      try {
+        await conversationsByIdInferenceprofilePut({
+          path: { assistant_id: assistantId, id: capturedConversationId },
+          body: { profile: name },
+          throwOnError: true,
+        });
         if (conversationIdRef.current === capturedConversationId) {
           lastConfirmedProfileRef.current = name;
         }
@@ -245,13 +275,11 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
             current === name ? null : current,
           );
         });
-        if (capturedConversationId) {
-          void queryClient.invalidateQueries({
-            queryKey: conversationsByIdGetQueryKey({
-              path: { assistant_id: assistantId, id: capturedConversationId },
-            }),
-          });
-        }
+        void queryClient.invalidateQueries({
+          queryKey: conversationsByIdGetQueryKey({
+            path: { assistant_id: assistantId, id: capturedConversationId },
+          }),
+        });
         return true;
       } catch {
         if (conversationIdRef.current === capturedConversationId) {

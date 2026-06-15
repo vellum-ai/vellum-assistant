@@ -143,6 +143,9 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 }));
 
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
+// Real store (not mocked) — the component reads the draft conversation id and
+// the pending-profile stash from it.
+import { useConversationStore } from "@/stores/conversation-store";
 
 function renderMenu() {
   const queryClient = new QueryClient({
@@ -169,10 +172,12 @@ beforeEach(() => {
   conversationsByIdGetMock.mockClear();
   toastSuccess.mockClear();
   toastError.mockClear();
+  useConversationStore.getState().reset();
 });
 
 afterEach(() => {
   cleanup();
+  useConversationStore.getState().reset();
 });
 
 describe("Model Profile quick-add", () => {
@@ -346,5 +351,53 @@ describe("Profile selection after conversation change (LUM-2279)", () => {
 
     await waitFor(() => expect(inferenceprofilePut).toHaveBeenCalledTimes(1));
     expect((inferenceprofilePut.mock.calls[0]![0] as { body: { profile: string } }).body.profile).toBe("smart");
+  });
+});
+
+describe("Profile selection with no active conversation (new draft chat)", () => {
+  test("stashes the selection for the draft instead of overwriting the global default", async () => {
+    // Guard against a hanging/altered config impl leaking from a prior test.
+    configGetMock.mockImplementation(async () => ({
+      data: {
+        llm: {
+          profileOrder: ["smart"],
+          profiles: { smart: { label: "Smart" } },
+          activeProfile: "smart",
+        },
+      },
+    }));
+    // The composer is on a brand-new draft chat: a draft id lives in the store,
+    // but there is no server conversation yet (conversationId prop undefined).
+    useConversationStore.getState().setActiveConversationId("draft-xyz");
+
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      createElement(QueryClientProvider, { client: qc },
+        createElement(ComposerSettingsMenu, {
+          assistantId: "assistant-1",
+          conversationId: undefined,
+        })),
+    );
+
+    await waitFor(() => expect(screen.getByText("Smart")).toBeTruthy());
+
+    const smart = screen
+      .getAllByTestId("menu-item")
+      .find((b) => b.textContent?.includes("Smart"));
+    fireEvent.click(smart!);
+
+    // The selection is stashed on the draft, scoped to its client-side id...
+    await waitFor(() => {
+      expect(useConversationStore.getState().pendingDraftProfile).toEqual({
+        conversationId: "draft-xyz",
+        profile: "smart",
+      });
+    });
+    // ...and neither the global default profile nor a per-conversation override
+    // is written (no server conversation exists yet).
+    expect(configPatchMock).not.toHaveBeenCalled();
+    expect(inferenceprofilePut).not.toHaveBeenCalled();
   });
 });
