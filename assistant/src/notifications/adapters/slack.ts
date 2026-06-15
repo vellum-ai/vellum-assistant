@@ -293,7 +293,7 @@ function buildToolApprovalCardBlocks(
   if (needsOverflow) {
     blocks.push({
       type: "section",
-      text: { type: "mrkdwn", text: messageText },
+      text: { type: "mrkdwn", text: truncate(messageText, 3000) },
     });
   }
 
