@@ -224,6 +224,9 @@ const RIGHT_GRID: (string | null)[][] = [
   [null, null, "urchin"],
 ];
 
+// Bespoke backdrop art: the cast brand green (#46c178 = rgb(70, 193, 120)) at
+// very low alpha for ghosted outline characters + grid lines. No design-token
+// equivalent — these are intentional art values, kept literal for parity.
 const OUTLINE_COLOR = "rgba(70, 193, 120, 0.06)";
 const GRID_LINE_COLOR = "rgba(70, 193, 120, 0.03)";
 
@@ -336,7 +339,7 @@ export function SetupShell({ children }: { children: React.ReactNode }) {
         <span className="cast-preamble__setup-label">Setting up your assistant</span>
       </div>
       <PreambleBoxes />
-      <div className="cast-setup-shell__content">
+      <div className="relative flex flex-1 items-center justify-center">
         <AnimatePresence mode="wait">{children}</AnimatePresence>
       </div>
     </div>
