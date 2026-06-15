@@ -36,6 +36,7 @@ import {
   localGatewayAuthRecoveryInterceptor,
   platformFeaturesGate,
   requestInterceptor,
+  resetGw401RecoveryFlag,
 } from "@/lib/api-interceptors";
 import { ApiError } from "@/utils/api-errors";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
@@ -634,6 +635,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     setSelfHostedConnection({ url: GATEWAY_URL, token: "tok" });
     sessionStorage.removeItem(GW_401_RELOAD_KEY);
     clearGatewayTokenStorage();
+    resetGw401RecoveryFlag();
   });
 
   afterEach(() => {
@@ -645,6 +647,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     setSelfHostedConnection(null);
     sessionStorage.removeItem(GW_401_RELOAD_KEY);
     clearGatewayTokenStorage();
+    resetGw401RecoveryFlag();
   });
 
   test("clears gateway tokens and reloads on 401 from local gateway", () => {
@@ -802,5 +805,24 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
       configurable: true,
       value: originalGetItem,
     });
+  });
+
+  test("only fires once per page lifecycle even with concurrent 401s", () => {
+    /**
+     * Validates that when multiple in-flight requests all return 401
+     * concurrently, only the first triggers clear+reload — the rest
+     * are suppressed by the in-memory latch.
+     */
+
+    // GIVEN gateway tokens are stored
+    seedGatewayTokens();
+
+    // WHEN three concurrent 401s arrive from the gateway
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+
+    // THEN only one reload fires
+    expect(reloadCalls).toBe(1);
   });
 });

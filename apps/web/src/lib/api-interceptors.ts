@@ -273,8 +273,20 @@ export function daemonUnreachableInterceptor(response: Response): Response {
 const GW_401_RELOAD_KEY = "vellum:gw:401-reload-at";
 const GW_401_COOLDOWN_MS = 10_000;
 
+// In-memory latch: once recovery fires, all subsequent 401s in the same
+// page lifecycle are no-ops. Resets naturally on reload.
+let gw401RecoveryFired = false;
+
+/** @internal Exposed for test teardown only. */
+export function resetGw401RecoveryFlag(): void {
+  gw401RecoveryFired = false;
+}
+
 export function localGatewayAuthRecoveryInterceptor(response: Response): Response {
   if (response.status !== 401) {
+    return response;
+  }
+  if (gw401RecoveryFired) {
     return response;
   }
   if (!isLocalMode()) {
@@ -304,6 +316,7 @@ export function localGatewayAuthRecoveryInterceptor(response: Response): Respons
     return response;
   }
 
+  gw401RecoveryFired = true;
   clearGatewayToken();
   window.location.reload();
 
