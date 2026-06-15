@@ -85,10 +85,12 @@ export const ConnectionProviderSchema = z
 // Per-connection model entries (openai-compatible)
 // ---------------------------------------------------------------------------
 
-export const ConnectionModelSchema = z.object({
-  id: z.string().min(1),
-  displayName: z.string().min(1).optional(),
-});
+export const ConnectionModelSchema = z
+  .object({
+    id: z.string().min(1),
+    displayName: z.string().min(1).optional(),
+  })
+  .meta({ id: "ConnectionModel" });
 export type ConnectionModel = z.infer<typeof ConnectionModelSchema>;
 
 // ---------------------------------------------------------------------------

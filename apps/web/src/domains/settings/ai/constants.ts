@@ -1,5 +1,3 @@
-import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
-
 export const OPENAI_COMPATIBLE_PROVIDER = "openai-compatible";
 
 /**
@@ -17,8 +15,6 @@ export const INFERENCE_PROVIDERS = [
   "gemini",
   "minimax",
 ] as const;
-
-export const INFERENCE_PROVIDER_DISPLAY_NAMES = PROVIDER_DISPLAY_NAMES;
 
 export const TOKEN_SLIDER_MIN_TOKENS = 1_000;
 export const TOKEN_SLIDER_STEP_TOKENS = 1_000;

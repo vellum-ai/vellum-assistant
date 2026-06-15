@@ -28,7 +28,7 @@ import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { configGetOptions, configGetSetQueryData, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useQuery } from "@tanstack/react-query";
 import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
-import { useStoredCredentialPresence } from "@/domains/settings/ai/use-stored-credential-presence";
+import { credentialPresenceQueryKey, useStoredCredentialPresence } from "@/domains/settings/ai/use-stored-credential-presence";
 
 export function WebSearchCard() {
   const assistantId = useActiveAssistantId();
@@ -76,13 +76,12 @@ export function WebSearchCard() {
   const [webSearchApiKey, setWebSearchApiKey] = useState("");
 
   const requiresProviderCredential = WEB_SEARCH_BYOK_PROVIDER_IDS.has(webSearchProvider);
-  const { hasStoredCredential: webSearchHasStoredKey, queryKey: credentialQueryKey } =
+  const { hasStoredCredential: webSearchHasStoredKey } =
     useStoredCredentialPresence({
       assistantId,
       credentialKind: "api_key",
       credentialName: webSearchProvider,
       enabled: requiresProviderCredential,
-      errorContext: "settings-ai-web-search-read-credential",
     });
 
   // --- Derived state ---
@@ -142,8 +141,13 @@ export function WebSearchCard() {
         }
         // Optimistic update: mark key as stored immediately, then
         // background-refetch confirms server state.
-        queryClient.setQueryData(credentialQueryKey, true);
-        void queryClient.invalidateQueries({ queryKey: credentialQueryKey });
+        const presenceKey = credentialPresenceQueryKey(
+          assistantId,
+          "api_key",
+          webSearchProvider,
+        );
+        queryClient.setQueryData(presenceKey, true);
+        void queryClient.invalidateQueries({ queryKey: presenceKey });
         setWebSearchApiKey("");
       }
       toast.success("Web search settings saved.");
@@ -157,7 +161,6 @@ export function WebSearchCard() {
     provisionProviderKey,
     queryClient,
     assistantId,
-    credentialQueryKey,
     webSearchApiKey,
     webSearchMode,
     webSearchProvider,

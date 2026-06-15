@@ -5,12 +5,12 @@ import { Typography } from "@vellumai/design-library/components/typography";
 
 import {
     getModelsForProvider,
-    PROVIDER_DISPLAY_NAMES as INFERENCE_PROVIDER_DISPLAY_NAMES,
+    PROVIDER_DISPLAY_NAMES,
     MODELS_BY_PROVIDER,
 } from "@/assistant/llm-model-catalog";
 
 import { OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/constants";
-import type { ConnectionModel, ConnectionProvider, ProviderConnection } from "@/domains/settings/ai/provider-connections-client";
+import type { ConnectionModel, ConnectionProvider, ProviderConnection } from "@/generated/daemon/types.gen";
 
 const ALL_PROVIDERS = Object.keys(MODELS_BY_PROVIDER) as (keyof typeof MODELS_BY_PROVIDER)[];
 
@@ -241,7 +241,7 @@ export function ProfileEditorProviderSection({
             aria-labelledby="profile-editor-provider-label"
             options={providerOptionsSource.map((p) => ({
               value: p,
-              label: INFERENCE_PROVIDER_DISPLAY_NAMES[p] ?? p,
+              label: PROVIDER_DISPLAY_NAMES[p] ?? p,
             }))}
           />
           {providerOptionsSource.length === 0 && !isReadOnly ? (
@@ -274,7 +274,7 @@ export function ProfileEditorProviderSection({
                     {
                       value: "",
                       label: `Any ${
-                        INFERENCE_PROVIDER_DISPLAY_NAMES[provider] ?? provider
+                        PROVIDER_DISPLAY_NAMES[provider] ?? provider
                       } connection`,
                     },
                   ]
