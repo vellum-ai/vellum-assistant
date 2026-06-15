@@ -48,7 +48,8 @@ type ExportRecord =
         scoreTotal: number;
         metricCount: number;
         metrics: unknown[];
-        transcriptTurns: number;
+        assistantResponses: number;
+        runtimeMs?: number;
         assistantEventCount: number;
         simulatorMessageCount: number;
         totalInputTokens?: number;
@@ -123,7 +124,8 @@ export function registerExportCommand(program: Command): void {
               scoreTotal: run.scoreTotal,
               metricCount: run.metricCount,
               metrics: run.metrics,
-              transcriptTurns: run.transcriptTurns,
+              assistantResponses: run.assistantResponses,
+              runtimeMs: run.runtimeMs,
               assistantEventCount: run.assistantEventCount,
               simulatorMessageCount: run.simulatorMessageCount,
               totalInputTokens: run.totalInputTokens,

@@ -75,7 +75,8 @@ const testInSession: ReportTestInSession = {
       scoreTotal: 1,
       metricCount: 1,
       metrics: [{ name: "accuracy", score: 1 }],
-      transcriptTurns: 2,
+      assistantResponses: 1,
+      runtimeMs: 1000,
       totalCostUsd: 0.001,
     },
     {
@@ -85,7 +86,8 @@ const testInSession: ReportTestInSession = {
       scoreTotal: 0.5,
       metricCount: 1,
       metrics: [{ name: "accuracy", score: 0.5 }],
-      transcriptTurns: 2,
+      assistantResponses: 3,
+      runtimeMs: 173000,
       totalCostUsd: 0.0012,
     },
   ],
@@ -109,7 +111,8 @@ const profileInSession: ReportProfileInSession = {
       scoreTotal: 1,
       metricCount: 1,
       metrics: [{ name: "accuracy", score: 1 }],
-      transcriptTurns: 2,
+      assistantResponses: 1,
+      runtimeMs: 1000,
       totalCostUsd: 0.001,
     },
   ],
@@ -126,7 +129,8 @@ const executionDetail: ReportRunDetail = {
   completedAt: "2026-05-15T12:00:01.000Z",
   metricCount: 1,
   scoreTotal: 1,
-  transcriptTurns: 1,
+  assistantResponses: 1,
+  runtimeMs: 1000,
   assistantEventCount: 1,
   simulatorMessageCount: 1,
   totalInputTokens: 10,
@@ -233,14 +237,25 @@ describe("report html", () => {
     expect(html).toContain('href="/sessions/session-1"');
   });
 
-  test("test-in-session page renders profile rows and a metric breakdown", () => {
+  test("test-in-session page renders profile rows with response counts and runtime, and no metric breakdown", () => {
+    // WHEN the test comparison page renders the two profile rows
     const html = renderReportPage({ kind: "test", test: testInSession });
+
+    // THEN it shows the Profiles table linking to each profile's drill-in
     expect(html).toContain("Profiles");
-    expect(html).toContain("Metric breakdown");
     expect(html).toContain('href="/sessions/session-1/tests/t1/profiles/p1"');
     expect(html).toContain('href="/sessions/session-1/tests/t1/profiles/p2"');
-    expect(html).toContain("accuracy");
-    // Breadcrumbs back to session.
+
+    // AND it surfaces a Responses column (folded assistant replies) and a
+    // formatted Runtime column rather than raw transcript-entry counts
+    expect(html).toContain("Responses");
+    expect(html).toContain("Runtime");
+    expect(html).toContain("2m 53s");
+
+    // AND the standalone per-metric breakdown section is gone
+    expect(html).not.toContain("Metric breakdown");
+
+    // AND breadcrumbs link back to the session
     expect(html).toContain('href="/sessions/session-1"');
   });
 
