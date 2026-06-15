@@ -232,7 +232,7 @@ function handleWorkspaceTree({ queryParams }: RouteHandlerArgs) {
       return a.name.localeCompare(b.name);
     });
 
-    return { path: requestedPath, entries };
+    return { path: requestedPath, root: workspaceDir, entries };
   } catch {
     throw new NotFoundError("Directory not found");
   }
@@ -576,6 +576,11 @@ export const ROUTES: RouteDefinition[] = [
     ],
     responseBody: z.object({
       path: z.string(),
+      root: z
+        .string()
+        .describe(
+          "Absolute workspace root directory. Clients strip this prefix to map absolute paths (as written in chat) to workspace-relative entry paths.",
+        ),
       entries: z
         .array(workspaceTreeEntrySchema)
         .describe("Directory entry objects"),

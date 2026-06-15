@@ -107,6 +107,14 @@ export const routes = {
   plugin: (name: string) => dyn(r("/assistant/plugins"), name),
   skills: r("/assistant/skills"),
   workspace: r("/assistant/workspace"),
+  /**
+   * Workspace browser deep-linked to a workspace-relative entry path. An empty
+   * path resolves to the plain workspace landing view.
+   */
+  workspaceAt: (path: string) => {
+    const base = r("/assistant/workspace");
+    return path ? `${base}?path=${encodeURIComponent(path)}` : base;
+  },
   library: {
     root: r("/assistant/library"),
     app: (slug: string) => dyn(r("/assistant/library"), slug),

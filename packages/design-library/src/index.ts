@@ -167,6 +167,7 @@ export {
   MarkdownMessage,
   type MarkdownMessageProps,
   type MarkdownLinkComponent,
+  type MarkdownInlineCodeComponent,
 } from "./components/markdown-message";
 export {
   SideMenu,
