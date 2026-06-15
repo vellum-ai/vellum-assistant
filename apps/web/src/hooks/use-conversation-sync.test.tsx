@@ -363,7 +363,12 @@ describe("useConversationSync", () => {
       spy.mock.calls as unknown as Array<[unknown]>
     ).filter((call) => {
       const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
-      return arg?.queryKey?.[2] === "archived";
+      const key = arg?.queryKey?.[0] as Record<string, unknown> | undefined;
+      return (
+        key?._id === "conversationsGet" &&
+        (key?.query as Record<string, unknown> | undefined)?.archiveStatus ===
+          "archived"
+      );
     });
     expect(groupsCalls.length).toBe(1);
     expect(archivedCalls.length).toBe(1);

@@ -1,23 +1,38 @@
+import {
+  schedulesByIdRunsGetQueryKey,
+  schedulesGetQueryKey,
+  schedulesUsagesummaryGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import type { Options } from "@/generated/daemon/sdk.gen";
+import type {
+  SchedulesByIdRunsGetData,
+  SchedulesGetData,
+  SchedulesUsagesummaryGetData,
+} from "@/generated/daemon/types.gen";
+
 export function assistantSchedulesQueryKey(
   assistantId: string | null | undefined,
-) {
-  return ["schedules", assistantId] as const;
+): ReturnType<typeof schedulesGetQueryKey> {
+  return schedulesGetQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+  } as Options<SchedulesGetData>);
 }
 
 export function assistantScheduleRunsQueryKey(
   assistantId: string | null | undefined,
   scheduleId?: string | null,
-) {
-  return scheduleId
-    ? (["schedule-runs", assistantId, scheduleId] as const)
-    : (["schedule-runs", assistantId] as const);
+): ReturnType<typeof schedulesByIdRunsGetQueryKey> {
+  return schedulesByIdRunsGetQueryKey({
+    path: { assistant_id: assistantId ?? "", id: scheduleId ?? "" },
+  } as Options<SchedulesByIdRunsGetData>);
 }
 
 export function assistantScheduleUsageSummaryQueryKey(
   assistantId: string | null | undefined,
   tz?: string | null,
-) {
-  return tz
-    ? (["schedule-usage-summary", assistantId, tz] as const)
-    : (["schedule-usage-summary", assistantId] as const);
+): ReturnType<typeof schedulesUsagesummaryGetQueryKey> {
+  return schedulesUsagesummaryGetQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+    query: { tz: tz ?? undefined },
+  } as unknown as Options<SchedulesUsagesummaryGetData>);
 }

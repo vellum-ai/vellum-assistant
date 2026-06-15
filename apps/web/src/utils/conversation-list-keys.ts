@@ -1,64 +1,106 @@
 import {
+  conversationsGetQueryKey,
   groupsGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { Options } from "@/generated/daemon/sdk.gen";
-import type { GroupsGetData } from "@/generated/daemon/types.gen";
+import type {
+  ConversationsGetData,
+  GroupsGetData,
+} from "@/generated/daemon/types.gen";
 
 // ---------------------------------------------------------------------------
 // Conversation list query keys
 //
-// All conversation list caches share a common prefix:
-//   ["conversation-list", assistantId, ...discriminator]
+// All conversation list caches use the generated `conversationsGetQueryKey`
+// from the daemon SDK. TanStack Query's `partialMatchKey` recursively matches
+// object subsets, so a key without `query` params acts as a wildcard prefix:
 //
-// This enables TanStack Query's prefix matching to operate on ALL
-// conversation caches simultaneously (cancel, invalidate, snapshot, patch)
-// without maintaining a static registry. Adding a new cache type (e.g., a
-// new origin channel) automatically participates in cross-cache operations.
+//   invalidateQueries({ queryKey: conversationsGetQueryKey({ path: { assistant_id } }) })
+//
+// matches ALL conversation caches (foreground, background, scheduled, archived,
+// channel-scoped) for that assistant — no custom prefix scheme needed.
 //
 // References:
-// - https://tanstack.com/query/latest/docs/framework/react/guides/query-keys#query-keys-are-hashed-deterministically
-// - https://tanstack.com/query/latest/docs/framework/react/guides/filters#query-filters
+// - https://tanstack.com/query/latest/docs/framework/react/guides/query-keys
+// - https://tanstack.com/query/latest/docs/framework/react/guides/filters
 // ---------------------------------------------------------------------------
-
-export const CONVERSATION_LIST_PREFIX = "conversation-list" as const;
 
 /**
  * Prefix key matching ALL conversation list caches for the given assistant.
  * Use with queryClient.cancelQueries / invalidateQueries / getQueriesData
  * to operate on every cache without knowing which buckets exist.
  */
-export function conversationListPrefix(assistantId: string | null) {
-  return [CONVERSATION_LIST_PREFIX, assistantId ?? ""] as const;
+export function conversationListPrefix(
+  assistantId: string | null,
+): ReturnType<typeof conversationsGetQueryKey> {
+  return conversationsGetQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+  } as Options<ConversationsGetData>);
 }
 
-export function conversationsQueryKey(assistantId: string | null) {
-  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "foreground"] as const;
+export function conversationsQueryKey(
+  assistantId: string | null,
+): ReturnType<typeof conversationsGetQueryKey> {
+  return conversationsGetQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+  } as Options<ConversationsGetData>);
 }
 
-export function archivedConversationsQueryKey(assistantId: string | null) {
-  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "archived"] as const;
+export function archivedConversationsQueryKey(
+  assistantId: string | null,
+): ReturnType<typeof conversationsGetQueryKey> {
+  return conversationsGetQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+    query: { archiveStatus: "archived" },
+  } as Options<ConversationsGetData>);
 }
 
-export function backgroundConversationsQueryKey(assistantId: string | null) {
-  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "background"] as const;
+export function backgroundConversationsQueryKey(
+  assistantId: string | null,
+): ReturnType<typeof conversationsGetQueryKey> {
+  return conversationsGetQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+    query: { conversationType: "background" },
+  } as Options<ConversationsGetData>);
 }
 
-export function scheduledConversationsQueryKey(assistantId: string | null) {
-  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "scheduled"] as const;
+export function scheduledConversationsQueryKey(
+  assistantId: string | null,
+): ReturnType<typeof conversationsGetQueryKey> {
+  return conversationsGetQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+    query: { conversationType: "scheduled" },
+  } as Options<ConversationsGetData>);
 }
 
 /**
  * Prefix key matching all origin-channel conversation caches for the given
- * assistant. Matches every ["conversation-list", id, "channel", *] entry.
+ * assistant. With generated keys, this is identical to conversationListPrefix
+ * — partial matching on just path matches all variants including channel-scoped.
  */
-export function originChannelListPrefix(assistantId: string | null) {
-  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "channel"] as const;
+export function originChannelListPrefix(
+  assistantId: string | null,
+): ReturnType<typeof conversationsGetQueryKey> {
+  return conversationsGetQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+  } as Options<ConversationsGetData>);
 }
 
 /**
- * Build the generated query key for conversation groups. Exported so that
- * invalidation call sites (sync stream, loader, group actions) can target
- * the same cache entry that useConversationGroupsQuery populates.
+ * Build the query key for a specific origin-channel conversation list.
+ */
+export function originChannelQueryKey(
+  assistantId: string | null,
+  channel: string,
+): ReturnType<typeof conversationsGetQueryKey> {
+  return conversationsGetQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+    query: { originChannel: channel },
+  } as unknown as Options<ConversationsGetData>);
+}
+
+/**
+ * Build the generated query key for conversation groups.
  */
 export function conversationGroupsQueryKey(
   assistantId: string | null,

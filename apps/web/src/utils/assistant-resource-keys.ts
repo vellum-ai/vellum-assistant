@@ -1,11 +1,15 @@
 import {
   configGetQueryKey,
+  identityGetQueryKey,
+  identityIntroGetQueryKey,
   soundsAvailableGetQueryKey,
   soundsConfigGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { Options } from "@/generated/daemon/sdk.gen";
 import type {
   ConfigGetData,
+  IdentityGetData,
+  IdentityIntroGetData,
   SoundsAvailableGetData,
   SoundsConfigGetData,
 } from "@/generated/daemon/types.gen";
@@ -39,16 +43,18 @@ export function assistantSoundsAvailableQueryKey(
   } as Options<SoundsAvailableGetData>);
 }
 
-export const ASSISTANT_IDENTITY_QUERY_KEY = "assistant-identity" as const;
-
-export function assistantIdentityQueryKey(assistantId: string | null) {
-  return [ASSISTANT_IDENTITY_QUERY_KEY, assistantId ?? ""] as const;
+export function assistantIdentityQueryKey(
+  assistantId: string | null,
+): ReturnType<typeof identityGetQueryKey> {
+  return identityGetQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+  } as Options<IdentityGetData>);
 }
-
-export const ASSISTANT_IDENTITY_INTRO_QUERY_KEY = "identity-intro" as const;
 
 export function assistantIdentityIntroQueryKey(
   assistantId: string | null | undefined,
-) {
-  return [ASSISTANT_IDENTITY_INTRO_QUERY_KEY, assistantId ?? ""] as const;
+): ReturnType<typeof identityIntroGetQueryKey> {
+  return identityIntroGetQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+  } as Options<IdentityIntroGetData>);
 }
