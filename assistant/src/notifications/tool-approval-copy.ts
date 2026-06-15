@@ -59,19 +59,21 @@ function parseToolApprovalPayload(
  * message. Produces a `ui_surface` card block with Approve/Reject buttons
  * plus a plain-text fallback block.
  *
- * Returns `null` when the payload does not represent a tool approval or tool
- * grant request (i.e. `requestKind` is not `tool_approval` or
- * `tool_grant_request`).
+ * Returns `null` when the payload does not represent a tool approval. Covers
+ * `tool_approval`, `tool_grant_request`, and `pending_question` with a
+ * `toolName` (voice/call tool approvals persisted as pending questions).
  */
 export function buildToolApprovalSeedContentBlocks(
   payload: Record<string, unknown>,
 ): unknown[] | null {
   const p = parseToolApprovalPayload(payload);
 
-  if (
-    p.requestKind !== "tool_approval" &&
-    p.requestKind !== "tool_grant_request"
-  ) {
+  const isToolApproval =
+    p.requestKind === "tool_approval" ||
+    p.requestKind === "tool_grant_request" ||
+    (p.requestKind === "pending_question" && !!nonEmpty(p.toolName));
+
+  if (!isToolApproval) {
     return null;
   }
 

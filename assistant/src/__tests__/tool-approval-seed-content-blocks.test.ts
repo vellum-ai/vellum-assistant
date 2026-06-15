@@ -24,6 +24,16 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     requesterIdentifier: "Alice",
   };
 
+  const voiceToolApprovalPayload: Record<string, unknown> = {
+    requestId: "req-voice-101",
+    requestCode: "VOICE1",
+    requestKind: "pending_question",
+    toolName: "bash",
+    questionText: 'Bob wants to use "bash": echo hello',
+    sourceChannel: "phone",
+    requesterIdentifier: "Bob",
+  };
+
   test("returns null for non-tool-approval request kinds", () => {
     expect(
       buildToolApprovalSeedContentBlocks({ requestKind: "pending_question" }),
@@ -32,6 +42,27 @@ describe("buildToolApprovalSeedContentBlocks", () => {
       buildToolApprovalSeedContentBlocks({ requestKind: "access_request" }),
     ).toBeNull();
     expect(buildToolApprovalSeedContentBlocks({})).toBeNull();
+  });
+
+  test("produces blocks for pending_question with toolName (voice tool approval)", () => {
+    const blocks = buildToolApprovalSeedContentBlocks(
+      voiceToolApprovalPayload,
+    )!;
+    expect(blocks).toHaveLength(2);
+    expect((blocks[0] as Record<string, unknown>).type).toBe("ui_surface");
+    const surface = blocks[0] as Record<string, unknown>;
+    expect(surface.surfaceType).toBe("card");
+    expect(surface.surfaceId).toBe("tool-approval-req-voice-101");
+    const data = surface.data as Record<string, unknown>;
+    expect(data.subtitle).toBe("Requesting approval to run this tool");
+    const metadata = data.metadata as Array<{ label: string; value: string }>;
+    expect(metadata).toContainEqual({ label: "Tool", value: "bash" });
+    expect(metadata).toContainEqual({ label: "Source", value: "phone" });
+  });
+
+  test("returns null for pending_question without toolName", () => {
+    const payload = { ...voiceToolApprovalPayload, toolName: undefined };
+    expect(buildToolApprovalSeedContentBlocks(payload)).toBeNull();
   });
 
   test("produces a ui_surface block and a text fallback block for tool_approval", () => {
