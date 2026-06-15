@@ -656,6 +656,47 @@ describe("runLeaf — persona path", () => {
     );
     expect(lastResolveOpts?.overrideProfile).toBeUndefined();
   });
+
+  test("persona leaf skips the memory pipeline for an untrusted actor", async () => {
+    // The personal-memory trust gate (isPersonalMemoryAllowed) blocks a remote
+    // untrusted (non-guardian) actor: the persona leaf still gets the identity
+    // system prompt, but NO private memory is retrieved — mirroring the main
+    // turn's `resolveTrustClass(...) === "guardian"` gate before prepareMemory.
+    // Force the HTTP-auth dev bypass off so trustClass actually decides.
+    const savedAuth = process.env.DISABLE_HTTP_AUTH;
+    delete process.env.DISABLE_HTTP_AUTH;
+    try {
+      testConfig = {
+        llm: { profiles: TEST_PROFILES, activeProfile: "balanced" },
+        memory: { enabled: true },
+      };
+      const schema = z.object({ a: z.string() });
+      responseQueue = [personaResponse];
+
+      await runLeaf({
+        prompt: "Draft a reply.",
+        schema,
+        persona: true,
+        // Remote, non-guardian actor → gate blocks personal memory.
+        trustContext: { sourceChannel: "slack", trustClass: "unknown" },
+      });
+
+      // Identity is still assembled (the assistant's stable identity is not
+      // private user content)…
+      expect(buildSystemPrompt).toHaveBeenCalledTimes(1);
+      expect(lastSendCall?.options.systemPrompt).toBe(PERSONA_IDENTITY_PROMPT);
+      // …but the memory pipeline never ran, so no private memory was injected.
+      expect(graphMemoryInstances).toBe(0);
+      expect(prepareMemoryCalls).toBe(0);
+      const messages = lastSendCall?.messages as Array<{
+        content: Array<{ type: string; text?: string }>;
+      }>;
+      expect(messages[0]?.content[0]?.text).not.toBe(MEMORY_BLOCK_TEXT);
+    } finally {
+      if (savedAuth === undefined) delete process.env.DISABLE_HTTP_AUTH;
+      else process.env.DISABLE_HTTP_AUTH = savedAuth;
+    }
+  });
 });
 
 afterAll(() => {

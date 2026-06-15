@@ -44,7 +44,10 @@ import { z } from "zod";
 import { type AgentEvent, AgentLoop } from "../agent/loop.js";
 import { getConfig } from "../config/loader.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import {
+  isPersonalMemoryAllowed,
+  type TrustContext,
+} from "../daemon/trust-context.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import {
@@ -116,11 +119,23 @@ async function resolveLeafContext(
  * synthetic id (it registers itself in the live-by-conversation map, so it is
  * disposed in `finally` to avoid leaking the handle). Best-effort: a retrieval
  * failure leaves the messages unchanged rather than failing the leaf.
+ *
+ * Gated by the personal-memory trust check — THE canonical gate
+ * ({@link isPersonalMemoryAllowed}, which folds in `resolveTrustClass` and the
+ * HTTP-auth-disabled dev bypass). A persona leaf retrieves the same private
+ * user content (`<memory>` graph) a main-agent turn does, so it honors the same
+ * gate the normal turn applies before `prepareMemory`
+ * (`userPromptSubmitMemoryRetrieval`): an untrusted (non-guardian) requester's
+ * persona leaf still gets the assistant's identity system prompt but NO personal
+ * memory. Without this, a workflow launched by an untrusted actor whose manifest
+ * grants `persona` could exfiltrate private memory in its output.
  */
 async function injectPersonaMemory(
   opts: RunLeafOptions,
   messages: Message[],
 ): Promise<Message[]> {
+  if (!isPersonalMemoryAllowed(opts.trustContext)) return messages;
+
   const config = getConfig();
   if (config.memory?.enabled === false) return messages;
 
