@@ -4,18 +4,11 @@
  * Ported from the cast-activation prototype's inline `LoginScreen`. Conforms to
  * `LoginScreenProps` from `screen-slot.ts`.
  *
- * INTEGRATION NOTE (PR 5h):
- * The shared `LoginScreenProps.onContinue(firstName)` only surfaces the first
- * name, but this screen also collects `lastName` and `role`. `role` becomes the
- * downstream occupation in the PreChatOnboardingContext handoff. To avoid
- * touching the shared contract from this isolated PR, the identity payload is
- * exposed via the OPTIONAL `onIdentity` prop declared locally below. The
- * integration PR should:
- *   1. Promote `onIdentity` (or just `role` + `lastName`) into the shared
- *      `LoginScreenProps` in `screen-slot.ts`.
- *   2. Capture `role` into orchestrator state for the occupation handoff.
- * Until then `onIdentity` is wired by the orchestrator stub if present, and the
- * screen degrades gracefully (calls `onContinue` + `onAdvance` regardless).
+ * The screen collects `firstName`, `lastName`, and `role`. `onContinue` surfaces
+ * only the first name (the shared base); the full payload — including `role`,
+ * which the `PreChatOnboardingContext` handoff maps to the downstream occupation
+ * — is surfaced via the contract's `onIdentity`. The screen degrades gracefully
+ * when `onIdentity` is absent (calls `onContinue` + `onAdvance` regardless).
  */
 
 import { useState } from "react";
@@ -25,25 +18,15 @@ import { AppleLogo } from "@/components/icons/apple-logo";
 import { GoogleLogo } from "@/components/icons/google-logo";
 import { publicAsset } from "@/utils/public-asset";
 import { RotatingWord } from "@/domains/onboarding/cast/cast-shell";
-import type { LoginScreenProps } from "@/domains/onboarding/cast/screens/screen-slot";
+import type {
+  LoginIdentity,
+  LoginScreenProps,
+} from "@/domains/onboarding/cast/screens/screen-slot";
 import "@/domains/onboarding/cast/cast.css";
 
-/** The full identity payload this screen collects (superset of `onContinue`). */
-export interface LoginIdentity {
-  firstName: string;
-  lastName: string;
-  role: string;
-}
+export type { LoginIdentity };
 
-/**
- * Local extension of the shared contract: `onIdentity` carries the name + role
- * payload to the orchestrator. See the INTEGRATION NOTE at the top of the file.
- */
-type Props = LoginScreenProps & {
-  onIdentity?: (identity: LoginIdentity) => void;
-};
-
-export function LoginScreen({ onAdvance, onContinue, onIdentity }: Props) {
+export function LoginScreen({ onAdvance, onContinue, onIdentity }: LoginScreenProps) {
   const [loggedIn, setLoggedIn] = useState(false);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");

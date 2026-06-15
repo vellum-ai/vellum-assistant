@@ -109,7 +109,20 @@ export function CastStyle({
         </button>
       )}
 
-      <BlinkingAvatar character={character} />
+      {/* `.cast-avatar` is width/height:100%, so it must live in a hero-box-sized
+          wrapper or it fills the whole stage. Size it from `heroBox`. */}
+      <div
+        className="cast-style__hero"
+        style={{
+          position: "absolute",
+          left: heroBox.left,
+          top: heroBox.top,
+          width: heroBox.size,
+          height: heroBox.size,
+        }}
+      >
+        <BlinkingAvatar character={character} />
+      </div>
 
       <div className="cast-thisthat">
         <AnimatePresence mode="wait">
