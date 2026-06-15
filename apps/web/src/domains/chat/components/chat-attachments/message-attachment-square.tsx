@@ -127,7 +127,7 @@ export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
       >
         {displayName}
       </Typography>
-      <div className="flex max-w-[64px] items-center gap-0.5">
+      <div className="flex w-[64px] items-center justify-between">
         <Typography
           variant="label-small-default"
           className="truncate text-[var(--content-disabled)]"
