@@ -14,6 +14,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import { cn } from "@vellumai/design-library";
 
 import { BlinkingAvatar } from "@/domains/onboarding/cast/cast-shell";
 import type { StyleProfile } from "@/domains/onboarding/cast/cast-templates";
@@ -124,9 +125,8 @@ export function CastStyle({
       {/* `.cast-avatar` is width/height:100%, so it must live in a hero-box-sized
           wrapper or it fills the whole stage. Size it from `heroBox`. */}
       <div
-        className="cast-style__hero"
+        className="absolute"
         style={{
-          position: "absolute",
           left: heroBox.left,
           top: heroBox.top,
           width: heroBox.size,
@@ -140,7 +140,7 @@ export function CastStyle({
         <AnimatePresence mode="wait">
           <motion.div
             key={roundIdx}
-            className="cast-thisthat__group"
+            className="flex w-full flex-col items-center gap-[var(--app-spacing-lg)]"
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
@@ -148,7 +148,9 @@ export function CastStyle({
           >
             {/* the character asks — the cards are the user's reply */}
             <p className="cast-thisthat__title">
-              <span className="cast-thisthat__asker">{name} asks</span>
+              <span className="mb-[6px] block text-[11px] uppercase tracking-[0.06em] text-[var(--content-tertiary)] [font-family:var(--font-sans),system-ui,sans-serif] [font-weight:560]">
+                {name} asks
+              </span>
               {round.title}
             </p>
             <div className="cast-thisthat__row">
@@ -179,9 +181,15 @@ export function CastStyle({
           </motion.div>
         </AnimatePresence>
 
-        <div className="cast-thisthat__dots">
+        <div className="flex gap-[var(--app-spacing-sm)]">
           {ROUNDS.map((_, i) => (
-            <span key={i} className={`cast-dot${i === roundIdx ? " is-on" : ""}`} />
+            <span
+              key={i}
+              className={cn(
+                "h-[7px] w-[7px] rounded-[var(--radius-pill)] bg-[var(--border-element)] transition-[background,transform] duration-200",
+                i === roundIdx && "scale-125 bg-[var(--content-default)]",
+              )}
+            />
           ))}
         </div>
       </div>

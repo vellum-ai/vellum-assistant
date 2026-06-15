@@ -1,4 +1,12 @@
-/* Cast — style (this/that), two-panel beats, tiles/cards, memory list. Split from cast.css (PR 1, verbatim move). */
+/* Cast — style (this/that), two-panel beats, tiles/cards, memory list. Split from cast.css (PR 1, verbatim move).
+ *
+ * The this/that style screen (cast-style.tsx) was converted to tokens + Tailwind;
+ * its layout/indicator/asker rules now live inline on the components. What remains
+ * for that screen is the bespoke serif round-title (.cast-thisthat__title) plus the
+ * shared .cast-thisthat / .cast-thisthat__row / .cast-vs primitives (also consumed
+ * by cast-starter + dialogue-screen, so left in place). Unrelated orphans
+ * (brain/celebration/memory-list/two-panel/tiles/card) are handled by a later
+ * cleanup PR. */
 
 /* ---- Beats 3 & 4: prompt + choice tiles + card ---- */
 
@@ -148,13 +156,6 @@
   gap: 22px;
 }
 
-.cast-thisthat__group {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--app-spacing-lg);
-}
 /* the dude's question, in its voice — the cards are the user's reply */
 .cast-thisthat__title {
   margin: 0;
@@ -165,16 +166,6 @@
   letter-spacing: -0.01em;
   color: var(--content-default);
   text-shadow: 0 2px 12px color-mix(in srgb, var(--cast-shroud) 70%, transparent);
-}
-.cast-thisthat__asker {
-  display: block;
-  margin-bottom: 6px;
-  font-family: var(--font-sans), system-ui, sans-serif;
-  font-size: 11px;
-  font-weight: 560;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--content-tertiary);
 }
 .cast-thisthat__sub {
   display: block;
@@ -481,22 +472,6 @@
   animation: cast-cursor-blink 0.6s steps(1) infinite;
   color: var(--content-tertiary);
 }
-.cast-thisthat__dots {
-  display: flex;
-  gap: var(--app-spacing-sm);
-}
-.cast-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: var(--radius-pill);
-  background: var(--border-element);
-  transition: background 200ms ease, transform 200ms ease;
-}
-.cast-dot.is-on {
-  background: var(--content-default);
-  transform: scale(1.25);
-}
-
 /* ---- Beats 3–6: two-panel (options | live conversation) ---- */
 
 .cast-twopanel {
