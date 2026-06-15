@@ -18,6 +18,13 @@ const dyn = (parent: string, id: string): string => `${parent}/${id}`;
 const LOCAL_ADMIN_ORIGIN = "http://localhost:3000";
 const LOGS_USAGE_PATH = r("/assistant/logs/usage");
 
+/**
+ * Search param the chat transcript reads on load to scroll to and highlight a
+ * specific message (e.g. the "Open" button on a saved bookmark). Shared by the
+ * link producer (settings) and the consumer (chat).
+ */
+export const SCROLL_TO_MESSAGE_PARAM = "message";
+
 export const routes = {
   assistant: r("/assistant"),
   /**
@@ -43,6 +50,10 @@ export const routes = {
   quickInput: r("/assistant/quick-input"),
   conversations: r("/assistant/conversations"),
   conversation: (key: string) => dyn(r("/assistant/conversations"), key),
+  /** Conversation URL that asks the transcript to scroll to + highlight a
+   *  specific message on load. */
+  conversationAtMessage: (conversationId: string, messageId: string) =>
+    `${dyn(r("/assistant/conversations"), conversationId)}?${SCROLL_TO_MESSAGE_PARAM}=${encodeURIComponent(messageId)}`,
   /**
    * LLM-context inspector for a single conversation. The conversation id
    * lives in the URL path so the link is sharable and the page can route
@@ -123,6 +134,7 @@ export const routes = {
     devices: r("/assistant/settings/devices"),
     privacy: r("/assistant/settings/privacy"),
     archive: r("/assistant/settings/archive"),
+    bookmarks: r("/assistant/settings/bookmarks"),
     billing: r("/assistant/settings/billing"),
     community: r("/assistant/settings/community"),
     debug: r("/assistant/settings/debug"),

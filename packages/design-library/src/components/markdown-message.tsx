@@ -163,6 +163,86 @@ export type MarkdownLinkComponent = (
   props: Pick<AnchorHTMLAttributes<HTMLAnchorElement>, "href" | "children">,
 ) => ReactNode;
 
+/**
+ * Browser-default `<em>` italic synthesizes an oblique skew on every glyph in
+ * the run — including color-emoji glyphs — so `*🥺*` renders a slanted emoji.
+ * We wrap emoji grapheme runs in a `font-style: normal` span so they render
+ * upright while the surrounding emphasized text stays italic.
+ *
+ * Emoji detection mirrors the macOS app's `Character.rendersAsEmoji`
+ * (clients/macos/.../MarkdownSegmentView.swift) so web and native agree on what
+ * counts as an emoji: U+FE0F (VS16) forces emoji presentation; U+FE0E (VS15)
+ * forces text presentation; otherwise the Unicode `Emoji_Presentation` property
+ * decides. This keeps digits / `#` / `*` (bare Emoji but text-presentation) and
+ * VS15 sequences italic.
+ */
+const EMOJI_PRESENTATION = /\p{Emoji_Presentation}/u;
+const PICTOGRAPHIC = /\p{Extended_Pictographic}/u; // fast-path gate only
+const VS16 = "️"; // variation selector forcing emoji presentation
+const VS15 = "︎"; // variation selector forcing text presentation
+
+function graphemeRendersAsEmoji(grapheme: string): boolean {
+  if (grapheme.includes(VS16)) return true;
+  if (grapheme.includes(VS15)) return false;
+  return EMOJI_PRESENTATION.test(grapheme);
+}
+
+// Module-level singleton. Grapheme segmentation keeps multi-scalar emoji intact
+// (ZWJ sequences, skin-tone modifiers, flags, keycaps). Guarded for any runtime
+// that lacks Intl.Segmenter — there we leave the text untouched.
+const graphemeSegmenter =
+  typeof Intl !== "undefined" && "Segmenter" in Intl
+    ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+    : null;
+
+/**
+ * Split `text` into runs, wrapping emoji runs in a `font-style: normal` span so
+ * they render upright inside an italic ancestor. Returns the bare string when
+ * there is nothing to un-italicize (the overwhelmingly common case).
+ */
+function splitEmojiRuns(text: string): ReactNode {
+  // Bail fast when there is no emoji-ish codepoint. The VS16 check catches
+  // sequences whose base char isn't Extended_Pictographic (e.g. keycaps `1️⃣`).
+  if (!PICTOGRAPHIC.test(text) && !text.includes(VS16)) return text;
+  if (!graphemeSegmenter) return text;
+
+  const runs: ReactNode[] = [];
+  let buffer = "";
+  let bufferIsEmoji = false;
+  let key = 0;
+  const flush = () => {
+    if (!buffer) return;
+    runs.push(
+      bufferIsEmoji ? (
+        <span key={key++} style={{ fontStyle: "normal" }}>
+          {buffer}
+        </span>
+      ) : (
+        buffer
+      ),
+    );
+    buffer = "";
+  };
+  for (const { segment } of graphemeSegmenter.segment(text)) {
+    const isEmoji = graphemeRendersAsEmoji(segment);
+    if (buffer && isEmoji !== bufferIsEmoji) flush();
+    bufferIsEmoji = isEmoji;
+    buffer += segment;
+  }
+  flush();
+  // A single text run means no emoji were found — return the plain string so the
+  // output is byte-identical to having no override.
+  return runs.length === 1 && typeof runs[0] === "string" ? runs[0] : runs;
+}
+
+/** Apply emoji-upright wrapping to `<em>` children (a string, or mixed array). */
+function renderUprightEmoji(children: ReactNode): ReactNode {
+  if (typeof children === "string") return splitEmojiRuns(children);
+  return Children.map(children, (child) =>
+    typeof child === "string" ? splitEmojiRuns(child) : child,
+  );
+}
+
 function buildMarkdownComponents(
   LinkComponent: MarkdownLinkComponent,
 ): Components {
@@ -235,6 +315,9 @@ function buildMarkdownComponents(
       );
     },
     pre: ({ children }) => <CodeBlockWrapper>{children}</CodeBlockWrapper>,
+    // No styling change vs. the browser default `<em>`, except emoji inside the
+    // emphasis render upright instead of skewed (see splitEmojiRuns).
+    em: ({ children }) => <em>{renderUprightEmoji(children)}</em>,
     blockquote: ({ children }) => (
       <blockquote className="mb-2 border-l-2 border-stone-300 pl-3 italic text-stone-600 last:mb-0 dark:border-stone-600 dark:text-stone-400">
         {children}

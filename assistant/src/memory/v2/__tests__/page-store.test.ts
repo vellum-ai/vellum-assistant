@@ -293,7 +293,11 @@ describe("writePage + readPage round-trip", () => {
     expect(read!.body).toBe(body);
   });
 
-  test("readPage throws on unknown frontmatter keys instead of silently dropping them", async () => {
+  test("readPage tolerates unknown frontmatter keys and passes them through", async () => {
+    // The schema is `.passthrough()`, not `.strict()`: migrated/converted
+    // corpora carry leaked source-page fields the article model doesn't define.
+    // Unknown keys must pass through and stay on disk (loss-proof) rather than
+    // throwing and silently dropping the page from the index.
     const slug = "extra-keys";
     const raw =
       "---\nedges: []\nref_files: []\nunknown_field: oops\n---\nbody\n";
@@ -303,7 +307,14 @@ describe("writePage + readPage round-trip", () => {
       "utf-8",
     );
 
-    await expect(readPage(workspaceDir, slug)).rejects.toThrow();
+    const read = await readPage(workspaceDir, slug);
+    expect(read).not.toBeNull();
+    expect(read!.frontmatter.edges).toEqual([]);
+    // Unknown key survives the round-trip instead of being rejected or stripped.
+    expect((read!.frontmatter as Record<string, unknown>).unknown_field).toBe(
+      "oops",
+    );
+    expect(read!.body).toBe("body\n");
   });
 
   test("writePage overwrites an existing page", async () => {

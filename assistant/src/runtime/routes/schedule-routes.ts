@@ -7,6 +7,8 @@
 
 import { z } from "zod";
 
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
+import { getConfig } from "../../config/loader.js";
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../daemon/trust-context.js";
 import { bootstrapConversation } from "../../memory/conversation-bootstrap.js";
@@ -38,10 +40,17 @@ import {
   updateSchedule,
 } from "../../schedule/schedule-store.js";
 import { getScheduleUsageSummaries } from "../../schedule/schedule-usage-store.js";
+import { areCoreToolsInitialized } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
+import { getWorkflowRunManager } from "../../workflows/run-manager.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { parseEpochMillisRange } from "./epoch-millis-range.js";
-import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import {
+  BadRequestError,
+  InternalError,
+  NotFoundError,
+  ServiceUnavailableError,
+} from "./errors.js";
 import {
   paginateRuns,
   parseRunsBeforeCursor,
@@ -80,11 +89,12 @@ const scheduleSchema = z.object({
   createdFromConversationArchivedAt: z.number().nullable(),
   description: z.string(),
   cadenceDescription: z.string(),
-  mode: z.enum(["notify", "execute", "script", "wake"]),
+  mode: z.enum(["notify", "execute", "script", "wake", "workflow"]),
   status: z.enum(["active", "firing", "fired", "cancelled"]),
   routingIntent: z.enum(["single_channel", "multi_channel", "all_channels"]),
   reuseConversation: z.boolean(),
   wakeConversationId: z.string().nullable(),
+  workflowName: z.string().nullable(),
   isOneShot: z.boolean(),
 });
 
@@ -201,6 +211,7 @@ function serializeSchedule(
     routingIntent: j.routingIntent,
     reuseConversation: j.reuseConversation,
     wakeConversationId: j.wakeConversationId,
+    workflowName: j.workflowName,
     isOneShot: isOneShotForDisplay(j),
   };
 }
@@ -259,16 +270,23 @@ function handleCreateSchedule(body: Record<string, unknown>) {
 
   if (!name) throw new BadRequestError("name is required");
   if (!expression) throw new BadRequestError("expression is required");
-  if (!message) throw new BadRequestError("message is required");
+  // Workflow-mode runs trigger a saved workflow by name and ignore `job.message`
+  // entirely (see the workflow branch below), so only require a message for the
+  // execute path. Requiring it for workflow mode would force API/UI callers to
+  // pass an unused dummy string.
+  if (mode !== "workflow" && !message) {
+    throw new BadRequestError("message is required");
+  }
   if (description === "") {
     throw new BadRequestError("description is required");
   }
 
-  // The settings UI only exposes execute mode for now. Other modes
-  // remain reachable via the schedule_create LLM tool.
-  if (mode !== "execute") {
+  // The settings UI only exposes execute mode; `workflow` mode is reachable
+  // here (flag-gated) and via the schedule_create LLM tool. All other modes
+  // remain tool-only.
+  if (mode !== "execute" && mode !== "workflow") {
     throw new BadRequestError(
-      "Only 'execute' mode is supported by this endpoint",
+      "Only 'execute' and 'workflow' modes are supported by this endpoint",
     );
   }
 
@@ -277,6 +295,39 @@ function handleCreateSchedule(body: Record<string, unknown>) {
     throw new BadRequestError(
       "expression could not be parsed as cron or rrule",
     );
+  }
+
+  if (mode === "workflow") {
+    assertWorkflowsEnabled();
+    const workflowName =
+      typeof body.workflowName === "string" ? body.workflowName.trim() : "";
+    if (!workflowName) {
+      throw new BadRequestError(
+        "workflowName is required for workflow-mode schedules",
+      );
+    }
+    try {
+      const job = createSchedule({
+        name,
+        description,
+        message,
+        mode: "workflow",
+        workflowName,
+        workflowArgs: body.workflowArgs,
+        enabled,
+        timezone,
+        expression: normalized.expression,
+        syntax: normalized.syntax,
+      });
+      log.info(
+        { id: job.id, name: job.name, workflowName },
+        "Workflow schedule created",
+      );
+    } catch (err) {
+      if (err instanceof Error) throw new BadRequestError(err.message);
+      throw err;
+    }
+    return handleListSchedules({});
   }
 
   try {
@@ -297,6 +348,17 @@ function handleCreateSchedule(body: Record<string, unknown>) {
     throw err;
   }
   return handleListSchedules({});
+}
+
+/**
+ * Reject workflow-mode schedule operations when the `workflows` feature flag
+ * is off. Scheduled workflow runs would fail at trigger time (the run manager
+ * hard-fails with WorkflowsDisabledError), so we fail fast at the route.
+ */
+function assertWorkflowsEnabled(): void {
+  if (!isAssistantFeatureFlagEnabled("workflows", getConfig())) {
+    throw new BadRequestError("Workflows are not enabled.");
+  }
 }
 
 function handleToggleSchedule(id: string, body: Record<string, unknown>) {
@@ -331,7 +393,13 @@ function handleCancelSchedule(id: string) {
   return handleListSchedules({});
 }
 
-const VALID_MODES = ["notify", "execute", "script", "wake"] as const;
+const VALID_MODES = [
+  "notify",
+  "execute",
+  "script",
+  "wake",
+  "workflow",
+] as const;
 const VALID_ROUTING_INTENTS = [
   "single_channel",
   "multi_channel",
@@ -358,6 +426,39 @@ function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
     );
   }
 
+  // Switching a schedule into workflow mode requires the workflows flag.
+  if (body.mode === "workflow") {
+    assertWorkflowsEnabled();
+  }
+
+  // Mirror the create-side validation: a schedule whose RESULTING mode is
+  // `workflow` must carry a non-empty `workflowName`. Without this, a PATCH can
+  // leave a workflow-mode schedule nameless — the scheduler then hits the
+  // `!job.workflowName` skip branch and a one-shot job claimed as `firing`
+  // never calls completeOneShot/retry, wedging it `firing` forever. We compute
+  // the post-update state (the body's value if present, else the persisted one)
+  // so both "switch to workflow without a name" and "clear the name on an
+  // already-workflow schedule" are rejected. Skip when the schedule does not
+  // exist — the updateSchedule call below surfaces that as NotFound.
+  const existing = getSchedule(id);
+  if (existing) {
+    const resultingMode =
+      "mode" in body ? (body.mode as string) : existing.mode;
+    if (resultingMode === "workflow") {
+      const resultingWorkflowName =
+        "workflowName" in body
+          ? typeof body.workflowName === "string"
+            ? body.workflowName.trim()
+            : ""
+          : (existing.workflowName ?? "");
+      if (!resultingWorkflowName) {
+        throw new BadRequestError(
+          "workflowName is required for workflow-mode schedules",
+        );
+      }
+    }
+  }
+
   const updates: Record<string, unknown> = {};
   for (const key of [
     "name",
@@ -370,6 +471,8 @@ function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
     "quiet",
     "reuseConversation",
     "wakeConversationId",
+    "workflowName",
+    "workflowArgs",
     "maxRetries",
     "retryBackoffMs",
     "timeoutMs",
@@ -602,7 +705,12 @@ export const ROUTES: RouteDefinition[] = [
         )
         .optional(),
       expression: z.string().describe("Cron or RRULE expression"),
-      message: z.string().describe("Message body to execute on each fire"),
+      message: z
+        .string()
+        .describe(
+          "Message body to execute on each fire. Required for execute mode; ignored for workflow mode (which triggers workflowName/workflowArgs).",
+        )
+        .optional(),
       timezone: z
         .string()
         .nullable()
@@ -612,7 +720,18 @@ export const ROUTES: RouteDefinition[] = [
         .boolean()
         .describe("Whether the schedule starts active (default true)")
         .optional(),
-      mode: z.string().describe("Currently must be 'execute'").optional(),
+      mode: z
+        .string()
+        .describe("'execute' (default) or 'workflow' (flag-gated)")
+        .optional(),
+      workflowName: z
+        .string()
+        .describe("Saved workflow to trigger (required for workflow mode)")
+        .optional(),
+      workflowArgs: z
+        .unknown()
+        .describe("Args passed to the workflow run (workflow mode)")
+        .optional(),
       inferenceProfile: z
         .string()
         .nullable()
@@ -704,7 +823,19 @@ export const ROUTES: RouteDefinition[] = [
         .nullable()
         .describe("Shell command for script mode")
         .optional(),
-      mode: z.string().describe("notify, execute, or script").optional(),
+      mode: z
+        .string()
+        .describe("notify, execute, script, wake, or workflow")
+        .optional(),
+      workflowName: z
+        .string()
+        .nullable()
+        .describe("Saved workflow to trigger (workflow mode)")
+        .optional(),
+      workflowArgs: z
+        .unknown()
+        .describe("Args passed to the workflow run (workflow mode)")
+        .optional(),
       routingIntent: z
         .string()
         .describe("single_channel, multi_channel, or all_channels")
@@ -801,6 +932,78 @@ async function handleRunScheduleNow(id: string) {
       log.warn(
         { err, jobId: schedule.id, name: schedule.name },
         "Manual script schedule execution failed",
+      );
+      completeScheduleRun(runId, { status: "error", error: errorMsg });
+    }
+    return handleListSchedules({});
+  }
+
+  // ── Workflow mode (trigger a saved workflow by name) ──────────────
+  // Mirrors the scheduler's automatic workflow-firing branch. Without this, a
+  // workflow-mode schedule manually triggered via `POST /schedules/:id/run`
+  // would fall through to the regular message path below and process
+  // `schedule.message` (usually empty — workflow-mode create no longer requires
+  // a message), running a no-op normal turn instead of the workflow.
+  if (schedule.mode === "workflow") {
+    // Fail fast at the route when the flag is off (the run manager would also
+    // hard-fail with WorkflowsDisabledError); matches create/update handling.
+    assertWorkflowsEnabled();
+    if (!schedule.workflowName) {
+      throw new BadRequestError("Workflow schedule has no workflowName");
+    }
+    // Boot race: resolveCapabilities grants the read-only baseline (file_read,
+    // web_search, …) from the tool registry, which initializeProvidersAndTools()
+    // populates during startup. The scheduler's automatic firing path DEFERS a
+    // workflow trigger to a later tick while `!areCoreToolsInitialized()` so a
+    // run never launches with an empty baseline. A manual "run now" has no later
+    // tick to defer to, so fail fast with a retryable 503 rather than launch a
+    // degraded run; the window is just the few seconds of assistant boot.
+    if (!areCoreToolsInitialized()) {
+      throw new ServiceUnavailableError(
+        "The assistant is still starting up and its tools are not ready yet. " +
+          "Try running this workflow again in a moment.",
+      );
+    }
+    const runId = createScheduleRun(schedule.id, `workflow:${schedule.id}`);
+    try {
+      log.info(
+        {
+          jobId: schedule.id,
+          name: schedule.name,
+          workflowName: schedule.workflowName,
+        },
+        "Triggering workflow schedule manually (run now)",
+      );
+      // V1 LIMITATION: scheduled workflows run with the read-only baseline
+      // manifest only (no tools / host functions / persona), exactly as the
+      // scheduler's automatic firing path does — the schedule record carries no
+      // capability manifest.
+      const { runId: workflowRunId } = getWorkflowRunManager().start({
+        name: schedule.workflowName,
+        args: schedule.workflowArgs ?? {},
+        // Deliver the completion summary to the schedule's wake target, falling
+        // back to the conversation that created it (workflow schedules made via
+        // `schedule_create` store `createdFromConversationId` and leave
+        // `wakeConversationId` unset) — mirrors the scheduler's firing path.
+        conversationId:
+          schedule.wakeConversationId ??
+          schedule.createdFromConversationId ??
+          undefined,
+        manifest: { tools: [], hostFunctions: [], persona: false },
+        trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
+      });
+      // `start` launches the run fire-and-forget and returns synchronously;
+      // a successful trigger is recorded as ok. Completion/failure is surfaced
+      // out-of-band via workflow events and the completion wake.
+      completeScheduleRun(runId, {
+        status: "ok",
+        output: `workflow run ${workflowRunId} started`,
+      });
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      log.warn(
+        { err, jobId: schedule.id, name: schedule.name },
+        "Manual workflow schedule execution failed",
       );
       completeScheduleRun(runId, { status: "error", error: errorMsg });
     }

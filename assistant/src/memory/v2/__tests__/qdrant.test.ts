@@ -377,6 +377,30 @@ describe("memory v2 qdrant — collection lifecycle", () => {
     expect(params.sparse_vectors.summary_sparse).toBeDefined();
   });
 
+  test("detects a wrong-dimension dense vector on an existing collection and recreates", async () => {
+    // All required named vectors PRESENT, but the dense channels are sized to a
+    // different embedding dimension than the configured 384 (e.g. a 768-dim
+    // collection from a prior embedding model). Every upsert would fail with
+    // HTTP 400 until the collection is recreated — the missing-vector check
+    // alone never catches this.
+    state.collectionExistsBeforeCreate = true;
+    state.getCollectionInfo = {
+      config: {
+        params: {
+          vectors: { dense: { size: 768 }, summary_dense: { size: 768 } },
+          sparse_vectors: { sparse: {}, summary_sparse: {} },
+        },
+      },
+    };
+
+    const result = await ensureConceptPageCollection();
+
+    expect(state.getCollectionCalls).toBe(1);
+    expect(state.deleteCollectionCalls).toEqual([MEMORY_V2_COLLECTION]);
+    expect(state.createCollectionCalls).toBe(1);
+    expect(result).toEqual({ migrated: true });
+  });
+
   test("leaves a fully migrated collection untouched", async () => {
     // Default `getCollectionInfo` is FULL_SCHEMA_INFO — already migrated.
     state.collectionExistsBeforeCreate = true;

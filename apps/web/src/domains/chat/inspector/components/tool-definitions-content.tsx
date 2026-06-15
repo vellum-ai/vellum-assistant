@@ -2,31 +2,26 @@ import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { ParsedToolDefinition } from "@/domains/chat/inspector/tool-definitions";
-import { Card, Collapsible, Tag } from "@vellumai/design-library";
+import { Collapsible, Tag } from "@vellumai/design-library";
 
-interface ToolDefinitionsCardProps {
+interface ToolDefinitionsContentProps {
   tools: ParsedToolDefinition[];
 }
 
 /**
- * First-class rendering of a request's tool definitions: a list of
- * tools by name, each expandable to show its description and input
- * schema as a structured property breakdown. The raw provider JSON
- * stays on the Raw tab.
+ * First-class rendering of a request's tool definitions: a short intro
+ * line plus a list of tools by name, each expandable to show its
+ * description and input schema as a structured property breakdown. Meant
+ * to be embedded inside a prompt section card. The raw provider JSON stays
+ * on the Raw tab.
  */
-export function ToolDefinitionsCard({
+export function ToolDefinitionsContent({
   tools,
-}: ToolDefinitionsCardProps): ReactNode {
+}: ToolDefinitionsContentProps): ReactNode {
   return (
-    <Card>
+    <div>
       <p
-        className="text-body-medium-default"
-        style={{ color: "var(--content-default)" }}
-      >
-        Available tools
-      </p>
-      <p
-        className="mt-1 text-body-medium-lighter"
+        className="text-body-medium-lighter"
         style={{ color: "var(--content-secondary)" }}
       >
         {tools.length} tool{tools.length === 1 ? "" : "s"} sent with this
@@ -41,7 +36,7 @@ export function ToolDefinitionsCard({
           <ToolRow key={`${tool.name}-${i}`} tool={tool} />
         ))}
       </Collapsible.Root>
-    </Card>
+    </div>
   );
 }
 
@@ -200,8 +195,7 @@ function SchemaProperty({
   const items = isRecord(schema.items) ? schema.items : null;
   const hasNestedObject =
     isRecord(schema.properties) && Object.keys(schema.properties).length > 0;
-  const nestedItems =
-    items && isRecord(items.properties) ? items : null;
+  const nestedItems = items && isRecord(items.properties) ? items : null;
 
   return (
     <li className="py-1">

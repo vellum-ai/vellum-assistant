@@ -8206,14 +8206,13 @@ paths:
   /v1/conversations/{id}/compaction:
     get:
       operationId: conversations_by_id_compaction_get
-      summary: Get the compaction trail leading up to an LLM call
+      summary: Get the compaction(s) attributed to an LLM call
       description:
-        Return the chronological list of compaction events that ran in the same agent turn as the call identified
-        by `callId`. Turn bounds are walked from the `messages` table (real user messages — tool-result user messages
-        are not boundaries). Served from the first-class compaction log when `compactionLogs.destination = "clickhouse"`
-        is configured, falling back to the legacy projection over `llm_request_logs` rows where `call_site =
-        "compactionAgent"`. When the conversation has no other messages around the selected call, every compaction
-        strictly before the call's `createdAt` is in scope. Drives the Inspector's Compaction tab.
+        Return the chronological list of compactions attributed to the call identified by `callId` — those that ran
+        strictly between the previous real (non-`compactionAgent`) LLM call and the selected call. Served from the
+        first-class compaction log when `compactionLogs.destination = "clickhouse"` is configured, falling back to the
+        legacy projection over `llm_request_logs` rows where `call_site = "compactionAgent"`. Usually empty or a single
+        compaction; the recovery cascade can fire several before one call lands. Drives the Inspector's Compaction tab.
       tags:
         - conversations
       responses:
@@ -8235,19 +8234,43 @@ paths:
                           type: string
                         createdAt:
                           type: number
-                        model:
+                        trigger:
                           anyOf:
                             - type: string
                             - type: "null"
-                        provider:
+                        compacted:
+                          anyOf:
+                            - type: boolean
+                            - type: "null"
+                        summaryFailed:
+                          anyOf:
+                            - type: boolean
+                            - type: "null"
+                        skipReason:
                           anyOf:
                             - type: string
                             - type: "null"
-                        inputTokens:
+                        contextTokensBefore:
                           anyOf:
                             - type: number
                             - type: "null"
-                        outputTokens:
+                        contextTokensAfter:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        messagesBefore:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        messagesAfter:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        compactedMessages:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        preservedTailMessages:
                           anyOf:
                             - type: number
                             - type: "null"
@@ -8255,34 +8278,40 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
-                        responsePreview:
+                        summaryModel:
                           anyOf:
                             - type: string
                             - type: "null"
-                        requestMessageCount:
+                        summaryInputTokens:
                           anyOf:
                             - type: number
                             - type: "null"
-                        stopReason:
+                        summaryOutputTokens:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        summaryText:
                           anyOf:
                             - type: string
-                            - type: "null"
-                        estimatedCostUsd:
-                          anyOf:
-                            - type: number
                             - type: "null"
                       required:
                         - id
                         - createdAt
-                        - model
-                        - provider
-                        - inputTokens
-                        - outputTokens
+                        - trigger
+                        - compacted
+                        - summaryFailed
+                        - skipReason
+                        - contextTokensBefore
+                        - contextTokensAfter
+                        - messagesBefore
+                        - messagesAfter
+                        - compactedMessages
+                        - preservedTailMessages
                         - durationMs
-                        - responsePreview
-                        - requestMessageCount
-                        - stopReason
-                        - estimatedCostUsd
+                        - summaryModel
+                        - summaryInputTokens
+                        - summaryOutputTokens
+                        - summaryText
                       additionalProperties: false
                 required:
                   - conversationId
@@ -8303,7 +8332,7 @@ paths:
           required: true
           schema:
             type: string
-          description: ID of the selected LLM call from the rail. Defines the chronological cutoff for the trail.
+          description: ID of the selected LLM call from the rail. Defines the chronological cutoff for the attributed compactions.
   /v1/conversations/{id}/inference-profile:
     put:
       operationId: conversations_by_id_inferenceprofile_put
@@ -9929,6 +9958,14 @@ paths:
                                   type: string
                                 pinned:
                                   type: boolean
+                                sectionOrdinal:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                sectionHeading:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
                               required:
                                 - slug
                                 - source
@@ -19354,6 +19391,14 @@ paths:
                                   type: string
                                 pinned:
                                   type: boolean
+                                sectionOrdinal:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                sectionHeading:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
                               required:
                                 - slug
                                 - source
@@ -22758,6 +22803,7 @@ paths:
                             - execute
                             - script
                             - wake
+                            - workflow
                         status:
                           type: string
                           enum:
@@ -22774,6 +22820,10 @@ paths:
                         reuseConversation:
                           type: boolean
                         wakeConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        workflowName:
                           anyOf:
                             - type: string
                             - type: "null"
@@ -22807,6 +22857,7 @@ paths:
                         - routingIntent
                         - reuseConversation
                         - wakeConversationId
+                        - workflowName
                         - isOneShot
                       additionalProperties: false
                     description: Schedule objects
@@ -22913,6 +22964,7 @@ paths:
                             - execute
                             - script
                             - wake
+                            - workflow
                         status:
                           type: string
                           enum:
@@ -22929,6 +22981,10 @@ paths:
                         reuseConversation:
                           type: boolean
                         wakeConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        workflowName:
                           anyOf:
                             - type: string
                             - type: "null"
@@ -22962,6 +23018,7 @@ paths:
                         - routingIntent
                         - reuseConversation
                         - wakeConversationId
+                        - workflowName
                         - isOneShot
                       additionalProperties: false
                     description: Updated schedule list
@@ -22986,7 +23043,9 @@ paths:
                   description: Cron or RRULE expression
                 message:
                   type: string
-                  description: Message body to execute on each fire
+                  description:
+                    Message body to execute on each fire. Required for execute mode; ignored for workflow mode (which triggers
+                    workflowName/workflowArgs).
                 timezone:
                   anyOf:
                     - type: string
@@ -22997,7 +23056,12 @@ paths:
                   description: Whether the schedule starts active (default true)
                 mode:
                   type: string
-                  description: Currently must be 'execute'
+                  description: "'execute' (default) or 'workflow' (flag-gated)"
+                workflowName:
+                  type: string
+                  description: Saved workflow to trigger (required for workflow mode)
+                workflowArgs:
+                  description: Args passed to the workflow run (workflow mode)
                 inferenceProfile:
                   anyOf:
                     - type: string
@@ -23008,7 +23072,6 @@ paths:
               required:
                 - name
                 - expression
-                - message
               additionalProperties: false
   /v1/schedules/{id}:
     delete:
@@ -23104,6 +23167,7 @@ paths:
                             - execute
                             - script
                             - wake
+                            - workflow
                         status:
                           type: string
                           enum:
@@ -23120,6 +23184,10 @@ paths:
                         reuseConversation:
                           type: boolean
                         wakeConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        workflowName:
                           anyOf:
                             - type: string
                             - type: "null"
@@ -23153,6 +23221,7 @@ paths:
                         - routingIntent
                         - reuseConversation
                         - wakeConversationId
+                        - workflowName
                         - isOneShot
                       additionalProperties: false
                     description: Updated schedule list
@@ -23256,6 +23325,7 @@ paths:
                           - execute
                           - script
                           - wake
+                          - workflow
                       status:
                         type: string
                         enum:
@@ -23272,6 +23342,10 @@ paths:
                       reuseConversation:
                         type: boolean
                       wakeConversationId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      workflowName:
                         anyOf:
                           - type: string
                           - type: "null"
@@ -23305,6 +23379,7 @@ paths:
                       - routingIntent
                       - reuseConversation
                       - wakeConversationId
+                      - workflowName
                       - isOneShot
                     additionalProperties: false
                     description: Schedule object
@@ -23410,6 +23485,7 @@ paths:
                             - execute
                             - script
                             - wake
+                            - workflow
                         status:
                           type: string
                           enum:
@@ -23426,6 +23502,10 @@ paths:
                         reuseConversation:
                           type: boolean
                         wakeConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        workflowName:
                           anyOf:
                             - type: string
                             - type: "null"
@@ -23459,6 +23539,7 @@ paths:
                         - routingIntent
                         - reuseConversation
                         - wakeConversationId
+                        - workflowName
                         - isOneShot
                       additionalProperties: false
                     description: Updated schedule list
@@ -23495,7 +23576,14 @@ paths:
                   description: Shell command for script mode
                 mode:
                   type: string
-                  description: notify, execute, or script
+                  description: notify, execute, script, wake, or workflow
+                workflowName:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                  description: Saved workflow to trigger (workflow mode)
+                workflowArgs:
+                  description: Args passed to the workflow run (workflow mode)
                 routingIntent:
                   type: string
                   description: single_channel, multi_channel, or all_channels
@@ -23616,6 +23704,7 @@ paths:
                             - execute
                             - script
                             - wake
+                            - workflow
                         status:
                           type: string
                           enum:
@@ -23632,6 +23721,10 @@ paths:
                         reuseConversation:
                           type: boolean
                         wakeConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        workflowName:
                           anyOf:
                             - type: string
                             - type: "null"
@@ -23665,6 +23758,7 @@ paths:
                         - routingIntent
                         - reuseConversation
                         - wakeConversationId
+                        - workflowName
                         - isOneShot
                       additionalProperties: false
                     description: Updated schedule list
@@ -23771,6 +23865,7 @@ paths:
                             - execute
                             - script
                             - wake
+                            - workflow
                         status:
                           type: string
                           enum:
@@ -23787,6 +23882,10 @@ paths:
                         reuseConversation:
                           type: boolean
                         wakeConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        workflowName:
                           anyOf:
                             - type: string
                             - type: "null"
@@ -23820,6 +23919,7 @@ paths:
                         - routingIntent
                         - reuseConversation
                         - wakeConversationId
+                        - workflowName
                         - isOneShot
                       additionalProperties: false
                     description: Updated schedule list
@@ -24027,6 +24127,7 @@ paths:
                             - execute
                             - script
                             - wake
+                            - workflow
                         status:
                           type: string
                           enum:
@@ -24043,6 +24144,10 @@ paths:
                         reuseConversation:
                           type: boolean
                         wakeConversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        workflowName:
                           anyOf:
                             - type: string
                             - type: "null"
@@ -24076,6 +24181,7 @@ paths:
                         - routingIntent
                         - reuseConversation
                         - wakeConversationId
+                        - workflowName
                         - isOneShot
                       additionalProperties: false
                     description: Updated schedule list
@@ -29294,6 +29400,283 @@ paths:
           description: Work item or associated task not found
         "409":
           description: Work item is already running or not runnable
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/workflows:
+    get:
+      operationId: workflows_get
+      summary: List saved workflows
+      description: Return the saved (named) workflows the assistant can run.
+      tags:
+        - workflows
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workflows:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        description:
+                          type: string
+                        path:
+                          type: string
+                      required:
+                        - name
+                        - description
+                        - path
+                      additionalProperties: false
+                    description: Saved workflow entries
+                required:
+                  - workflows
+                additionalProperties: false
+  /v1/workflows/runs:
+    get:
+      operationId: workflows_runs_get
+      summary: List workflow runs
+      description: Return recent workflow runs, newest first.
+      tags:
+        - workflows
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        scriptHash:
+                          type: string
+                        status:
+                          type: string
+                          enum:
+                            - running
+                            - completed
+                            - failed
+                            - aborted
+                            - cap_exceeded
+                            - interrupted
+                        conversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        agentsSpawned:
+                          type: number
+                        inputTokens:
+                          type: number
+                        outputTokens:
+                          type: number
+                        error:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        updatedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        finishedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                      required:
+                        - id
+                        - name
+                        - scriptHash
+                        - status
+                        - conversationId
+                        - agentsSpawned
+                        - inputTokens
+                        - outputTokens
+                        - error
+                        - createdAt
+                        - updatedAt
+                        - finishedAt
+                      additionalProperties: false
+                    description: Workflow run objects
+                required:
+                  - runs
+                additionalProperties: false
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Max runs to return (default 50, max 200)
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by run status (running, completed, failed, aborted, cap_exceeded, interrupted).
+  /v1/workflows/runs/{id}:
+    get:
+      operationId: workflows_runs_by_id_get
+      summary: Get workflow run
+      description: Return a single workflow run by ID.
+      tags:
+        - workflows
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  scriptHash:
+                    type: string
+                  status:
+                    type: string
+                    enum:
+                      - running
+                      - completed
+                      - failed
+                      - aborted
+                      - cap_exceeded
+                      - interrupted
+                  conversationId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  agentsSpawned:
+                    type: number
+                  inputTokens:
+                    type: number
+                  outputTokens:
+                    type: number
+                  error:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  createdAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  updatedAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  finishedAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                required:
+                  - id
+                  - name
+                  - scriptHash
+                  - status
+                  - conversationId
+                  - agentsSpawned
+                  - inputTokens
+                  - outputTokens
+                  - error
+                  - createdAt
+                  - updatedAt
+                  - finishedAt
+                additionalProperties: false
+        "404":
+          description: Run not found
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/workflows/runs/{id}/abort:
+    post:
+      operationId: workflows_runs_by_id_abort_post
+      summary: Abort workflow run
+      description: Signal an in-flight workflow run to abort.
+      tags:
+        - workflows
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  runId:
+                    type: string
+                required:
+                  - ok
+                  - runId
+                additionalProperties: false
+        "404":
+          description: Run not found
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/workflows/runs/{id}/resume:
+    post:
+      operationId: workflows_runs_by_id_resume_post
+      summary: Resume workflow run
+      description:
+        Resume an interrupted workflow run (one orphaned by an assistant restart), replaying its journaled prefix
+        and continuing from the first unfinished step.
+      tags:
+        - workflows
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  runId:
+                    type: string
+                required:
+                  - ok
+                  - runId
+                additionalProperties: false
+        "404":
+          description: Run not found
+        "409":
+          description: Run is not resumable (not interrupted)
+        "429":
+          description: Concurrent-run cap reached
       parameters:
         - name: id
           in: path

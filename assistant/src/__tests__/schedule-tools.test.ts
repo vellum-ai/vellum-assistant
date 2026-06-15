@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -23,6 +23,7 @@ import { executeScheduleDelete } from "../tools/schedule/delete.js";
 import { executeScheduleList } from "../tools/schedule/list.js";
 import { executeScheduleUpdate } from "../tools/schedule/update.js";
 import type { ToolContext } from "../tools/types.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 initializeDb();
 
@@ -405,6 +406,115 @@ describe("schedule_create with mode and routing", () => {
       .get() as { routing_intent: string; routing_hints_json: string };
     expect(row.routing_intent).toBe("single_channel");
     expect(JSON.parse(row.routing_hints_json)).toEqual({ channel: "slack" });
+  });
+});
+
+// ── schedule_create / schedule_update workflow mode ─────────────────
+
+describe("schedule tools — workflow mode", () => {
+  beforeEach(() => {
+    getRawDb().run("DELETE FROM cron_runs");
+    getRawDb().run("DELETE FROM cron_jobs");
+    setOverridesForTesting({ workflows: true });
+  });
+  afterAll(() => {
+    setOverridesForTesting({});
+  });
+
+  test("creates a workflow-mode schedule with workflow_name + workflow_args", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Morning triage",
+        expression: "0 8 * * *",
+        mode: "workflow",
+        workflow_name: "inbox-triage",
+        workflow_args: { limit: 50 },
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Mode: workflow");
+
+    const row = getRawDb()
+      .query(
+        "SELECT mode, workflow_name, workflow_args_json FROM cron_jobs LIMIT 1",
+      )
+      .get() as {
+      mode: string;
+      workflow_name: string;
+      workflow_args_json: string;
+    };
+    expect(row.mode).toBe("workflow");
+    expect(row.workflow_name).toBe("inbox-triage");
+    expect(JSON.parse(row.workflow_args_json)).toEqual({ limit: 50 });
+  });
+
+  test("rejects workflow mode without workflow_name", async () => {
+    const result = await executeScheduleCreate(
+      { name: "No wf name", expression: "0 8 * * *", mode: "workflow" },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("workflow_name is required");
+  });
+
+  test("rejects workflow mode when the workflows flag is off", async () => {
+    setOverridesForTesting({}); // flag off
+    const result = await executeScheduleCreate(
+      {
+        name: "Flag off",
+        expression: "0 8 * * *",
+        mode: "workflow",
+        workflow_name: "inbox-triage",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("workflows are not enabled");
+  });
+
+  test("update to workflow mode requires a workflow_name", async () => {
+    await executeScheduleCreate(
+      { name: "To workflow", expression: "0 9 * * *", message: "test" },
+      ctx,
+    );
+    const { id } = getRawDb()
+      .query("SELECT id FROM cron_jobs LIMIT 1")
+      .get() as { id: string };
+
+    const result = await executeScheduleUpdate(
+      { job_id: id, mode: "workflow" },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("workflow_name is required");
+  });
+
+  test("updates a schedule into workflow mode with a workflow_name", async () => {
+    await executeScheduleCreate(
+      { name: "To workflow ok", expression: "0 9 * * *", message: "test" },
+      ctx,
+    );
+    const { id } = getRawDb()
+      .query("SELECT id FROM cron_jobs LIMIT 1")
+      .get() as { id: string };
+
+    const result = await executeScheduleUpdate(
+      { job_id: id, mode: "workflow", workflow_name: "nightly-report" },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Mode: workflow");
+    const dbRow = getRawDb()
+      .query("SELECT mode, workflow_name FROM cron_jobs WHERE id = ?")
+      .get(id) as { mode: string; workflow_name: string };
+    expect(dbRow.mode).toBe("workflow");
+    expect(dbRow.workflow_name).toBe("nightly-report");
   });
 });
 

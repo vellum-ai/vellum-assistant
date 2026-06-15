@@ -1,7 +1,7 @@
 import { getLogger } from "../../util/logger.js";
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 
-const log = getLogger("migration-283");
+const log = getLogger("migration-287");
 
 /**
  * Normalizes contact_channels addresses to lowercase, deduplicates rows

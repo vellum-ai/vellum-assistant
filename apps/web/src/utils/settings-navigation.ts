@@ -11,6 +11,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   Archive,
   Bell,
+  Bookmark,
   Bug,
   CalendarClock,
   Code,
@@ -45,6 +46,7 @@ export const PANEL_IDS = [
   "privacy",
   "schedules",
   "archive",
+  "bookmarks",
   "billing",
   "community",
   "assistant-status",
@@ -87,6 +89,7 @@ export const SETTINGS_SIDEBAR: SidebarItem[] = [
   { id: "devices", label: "Self-Hosted Assistants", href: routes.settings.devices, icon: Laptop },
   { id: "privacy", label: "Permissions & Privacy", href: routes.settings.privacy, icon: ShieldCheck },
   { id: "archive", label: "Archive", href: routes.settings.archive, icon: Archive },
+  { id: "bookmarks", label: "Bookmarks", href: routes.settings.bookmarks, icon: Bookmark },
   { id: "billing", label: "Billing", href: routes.settings.billing, icon: CreditCard },
   { id: "community", label: "Community", href: routes.settings.community, icon: Users },
   { id: "assistant-debug", label: "Debug", href: routes.settings.debug, icon: Bug },
