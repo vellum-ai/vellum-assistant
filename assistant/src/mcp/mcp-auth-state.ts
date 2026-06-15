@@ -96,38 +96,26 @@ export function setMcpAuthError(
 }
 
 /**
- * Get the current state of an OAuth flow, or null if none exists.
+ * Get the current state of an OAuth flow, or null if none exists. Sweeps
+ * expired entries on every read so a long-polling CLI can never observe
+ * a stale flow past its TTL.
  */
 export function getMcpAuthState(serverId: string): McpAuthState | null {
-  clearExpiredMcpAuthStates();
-  return activeMcpAuthFlows.get(serverId) ?? null;
-}
-
-/**
- * Remove expired entries from the auth flow map.
- */
-export function clearExpiredMcpAuthStates(): void {
   const now = Date.now();
-  for (const [serverId, state] of activeMcpAuthFlows) {
+  for (const [id, state] of activeMcpAuthFlows) {
     if (state.status === "pending" && now > state.expiresAt) {
-      activeMcpAuthFlows.delete(serverId);
+      activeMcpAuthFlows.delete(id);
     } else if (
       state.status === "complete" &&
       now > state.completedAt + COMPLETION_GRACE_MS
     ) {
-      activeMcpAuthFlows.delete(serverId);
+      activeMcpAuthFlows.delete(id);
     } else if (
       state.status === "error" &&
       now > state.failedAt + COMPLETION_GRACE_MS
     ) {
-      activeMcpAuthFlows.delete(serverId);
+      activeMcpAuthFlows.delete(id);
     }
   }
-}
-
-/**
- * Test-only helper — clears all auth flow state for test isolation.
- */
-export function _clearAllMcpAuthStates(): void {
-  activeMcpAuthFlows.clear();
+  return activeMcpAuthFlows.get(serverId) ?? null;
 }
