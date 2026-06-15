@@ -72,6 +72,8 @@ mock.module("../../workflows/run-manager.js", () => ({
 const { getWorkflowToolsIfEnabled } = await import("../tool-manifest.js");
 const { runWorkflowTool } = await import("./run-workflow.js");
 const { manageWorkflowsTool } = await import("./manage-workflows.js");
+const { WORKFLOW_READONLY_BASELINE } =
+  await import("../../workflows/capabilities.js");
 
 // Minimal tool context — only the fields the workflow tools read.
 function makeContext(): Parameters<typeof runWorkflowTool.execute>[1] {
@@ -111,6 +113,20 @@ describe("workflow tool registration gating", () => {
   test("registers nothing when config is not yet loaded", () => {
     configThrows = true;
     expect(getWorkflowToolsIfEnabled()).toEqual([]);
+  });
+});
+
+describe("run_workflow capability contract", () => {
+  test("advertises the actual read-only baseline (no drift from the code)", () => {
+    // The description interpolates WORKFLOW_READONLY_BASELINE, so the contract
+    // the model reads always matches what resolveCapabilities actually grants.
+    // Guards against re-hardcoding a stale list (e.g. re-advertising web_fetch).
+    for (const name of WORKFLOW_READONLY_BASELINE) {
+      expect(runWorkflowTool.description).toContain(name);
+    }
+    // web_fetch is side-effecting, so it is NOT a default — the contract must
+    // present it as a tool to DECLARE, never as part of the baseline.
+    expect(WORKFLOW_READONLY_BASELINE).not.toContain("web_fetch");
   });
 });
 

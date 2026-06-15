@@ -18,7 +18,10 @@ import {
   FALLBACK_TURN_TRUST,
   type TrustContext,
 } from "../../daemon/trust-context.js";
-import { CapabilityManifestSchema } from "../../workflows/capabilities.js";
+import {
+  CapabilityManifestSchema,
+  WORKFLOW_READONLY_BASELINE,
+} from "../../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../../workflows/run-manager.js";
 import {
   RiskLevel,
@@ -62,8 +65,8 @@ LEAF OPTIONS (\`opts\` for \`agent\`/\`leaf\`):
 - \`persona\` — \`true\` makes the leaf speak AS the assistant (identity + memory) — use for output meant to be in her voice; DEFAULT is anonymous (use for impartial judging/extraction of input).
 
 CAPABILITIES (the \`capabilities\` argument — the SINGLE consent point for the whole run):
-- Leaves get a curated read-only baseline by default (file read/list, recall, web search/fetch).
-- To let leaves use SIDE-EFFECTING tools (writes, sends, shell, etc.), list them in \`capabilities.tools\`. Declaring ANY side-effecting tool (or host function) makes the LAUNCH prompt the user for approval ONCE — that single approval covers the whole run; there are no per-call prompts inside it. A read-only run (no declared tools) launches with no prompt. So declare the minimum you need.
+- Leaves get a curated read-only baseline by default: ${WORKFLOW_READONLY_BASELINE.join(", ")}. NOTE: \`web_fetch\` is NOT in the baseline (an outbound fetch is side-effecting — its URL can exfiltrate data), so if a leaf must fetch a URL, declare \`"web_fetch"\` in \`capabilities.tools\` (which makes the launch prompt for approval once, like any side-effecting tool).
+- To let leaves use SIDE-EFFECTING tools (writes, sends, shell, \`web_fetch\`, etc.), list them in \`capabilities.tools\`. Declaring ANY side-effecting tool (or host function) makes the LAUNCH prompt the user for approval ONCE — that single approval covers the whole run; there are no per-call prompts inside it. A read-only run (no declared tools) launches with no prompt. So declare the minimum you need.
 - \`capabilities.hostFunctions\` and \`capabilities.persona\` similarly grant host-function and persona access.
 
 Runs are autonomous but BOUNDED by an agent cap; you cannot exceed it. Spend is structurally capped. Side effects are consented to ONCE at launch (via the capability declaration above), not by per-call approval inside the run.
