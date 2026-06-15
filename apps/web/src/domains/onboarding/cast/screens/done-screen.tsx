@@ -32,8 +32,6 @@ import type { MemoryEntry, DoneScreenProps } from "@/domains/onboarding/cast/scr
 export function DoneScreen({
   character,
   box,
-  jobs,
-  rathers,
   style,
   ascended,
   assistantId,
@@ -45,8 +43,10 @@ export function DoneScreen({
     <CastProof
       character={character}
       box={box}
-      jobs={jobs}
-      rathers={rathers}
+      // The job/rather phases were collapsed, so the proof visual no longer
+      // varies by them — pass empty defaults to satisfy the proof view's shape.
+      jobs={[]}
+      rathers={[]}
       style={style}
       ascended={ascended}
       assistantId={assistantId}

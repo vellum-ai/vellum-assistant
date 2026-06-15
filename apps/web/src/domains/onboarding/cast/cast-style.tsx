@@ -12,7 +12,7 @@
  * (`heldProps`, reaction cues) are dropped here and the avatar is positioned via
  * the `heroBox` geometry the orchestrator already passes.
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 
 import { BlinkingAvatar } from "@/domains/onboarding/cast/cast-shell";
@@ -21,13 +21,6 @@ import type { CastCharacter } from "@/domains/onboarding/cast/cast-roster";
 import type { Rect } from "@/domains/onboarding/cast/cast-hero-types";
 
 type Side = "left" | "right";
-
-/**
- * Warm up style context on every tap. No-op stub for now — the real
- * implementation kicks off context assembly server-side; the call site is kept
- * so its future wiring stays intact.
- */
-function kickoffStyleContext(_round: number, _choice: string): void {}
 
 interface Round {
   field: keyof StyleProfile;
@@ -81,17 +74,28 @@ export function CastStyle({
 
   const round = ROUNDS[roundIdx];
 
+  // Track the pending auto-advance timer so a Back/unmount before it fires can't
+  // call `onDone` after unmount with stale choices.
+  const advanceTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    return () => {
+      if (advanceTimerRef.current !== null) {
+        window.clearTimeout(advanceTimerRef.current);
+      }
+    };
+  }, []);
+
   function choose(side: Side) {
     if (picked) return; // ignore taps mid-transition
     setPicked(side);
     const value = round[side].value;
     const next: StyleProfile = { ...style, [round.field]: value };
     setStyle(next);
-    kickoffStyleContext(roundIdx + 1, value);
     onChoose?.(value);
     onRoundPicked(next);
 
-    window.setTimeout(() => {
+    advanceTimerRef.current = window.setTimeout(() => {
+      advanceTimerRef.current = null;
       if (roundIdx === ROUNDS.length - 1) {
         onDone(next);
       } else {
@@ -101,10 +105,18 @@ export function CastStyle({
     }, 600);
   }
 
+  function handleBack() {
+    if (advanceTimerRef.current !== null) {
+      window.clearTimeout(advanceTimerRef.current);
+      advanceTimerRef.current = null;
+    }
+    onBack?.();
+  }
+
   return (
     <motion.div className="cast-beat" style={{ paddingTop: heroBox.top + heroBox.size + 30 }}>
       {onBack && (
-        <button className="cast-back" onClick={onBack} aria-label="Back">
+        <button className="cast-back" onClick={handleBack} aria-label="Back">
           ‹
         </button>
       )}

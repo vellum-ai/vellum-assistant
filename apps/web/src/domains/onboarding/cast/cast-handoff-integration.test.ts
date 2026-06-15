@@ -61,8 +61,6 @@ function castCompletion(
     name: "Vel",
     tone: "deep",
     connectedTools: ["linear", "slack"],
-    jobs: [],
-    rathers: [],
     style: {},
     credits: 0,
     ...overrides,
