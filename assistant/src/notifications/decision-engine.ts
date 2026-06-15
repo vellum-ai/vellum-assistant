@@ -50,6 +50,7 @@ import {
 } from "./guardian-question-mode.js";
 import { getPreferenceSummary } from "./preference-summary.js";
 import type { NotificationSignal, RoutingIntent } from "./signal.js";
+import { buildToolApprovalSeedContentBlocks } from "./tool-approval-copy.js";
 import type {
   ConversationAction,
   NotificationChannel,
@@ -604,6 +605,22 @@ function enforceGuardianRequestCode(
       requestCode,
       modeResolution.mode,
     );
+  }
+
+  // Inject seedContentBlocks for tool approval/grant requests on all paths
+  // (LLM, assistant_tool, fallback). The LLM path generates text-only copy;
+  // injecting here guarantees the Surface card renders regardless of decision source.
+  const toolApprovalBlocks = buildToolApprovalSeedContentBlocks(
+    signal.contextPayload,
+  );
+  if (toolApprovalBlocks) {
+    for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
+      const copy = nextCopy[channel];
+      if (!copy) continue;
+      if (!copy.seedContentBlocks) {
+        nextCopy[channel] = { ...copy, seedContentBlocks: toolApprovalBlocks };
+      }
+    }
   }
 
   return {
