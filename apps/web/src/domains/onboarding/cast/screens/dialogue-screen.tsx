@@ -9,10 +9,16 @@
  * does NOT use `cast-conversation` (that's the style two-panel demo's). Slack and
  * GitHub use integration SVGs rather than the prototype's dedicated icon
  * components, which don't exist in this onboarding domain.
+ *
+ * Chrome (header, dialogue text, tone/reach choice cards, advance affordance) is
+ * built from `@vellumai/design-library` primitives + design tokens + Tailwind.
+ * `dialogue.css` carries only the bespoke VN choreography (typewriter cursor,
+ * glass choice-card art, handoff loading dots/scene transitions).
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import { Button } from "@vellumai/design-library";
 
 import { BlinkingAvatar } from "@/domains/onboarding/cast/cast-shell";
 import type { CastCharacter } from "@/domains/onboarding/cast/cast-roster";
@@ -234,52 +240,56 @@ function VNDialogueFlow({
 
   return (
     <div className="cast-vn cast-vn--top">
-      {/* Back button */}
-      <button className="cast-back" onClick={(e) => { e.stopPropagation(); onBack(); }} aria-label="Back">
+      {/* Back button (shared shell chrome) */}
+      <button
+        className="cast-back"
+        onClick={(e) => { e.stopPropagation(); onBack(); }}
+        aria-label="Back"
+      >
         ‹
       </button>
 
       {/* Top-anchored dialogue area */}
       <div className="cast-vn__top">
         {/* Avatar + name header */}
-        <div className="cast-vn__header">
-          <div className="cast-vn__header-avatar">
+        <div className="mb-5 flex items-center gap-3">
+          <div className="size-20 flex-none">
             <BlinkingAvatar character={character} />
           </div>
-          <span className="cast-vn__speaker">{name}</span>
+          <span className="cast-dialogue__speaker">{name}</span>
         </div>
 
-        {/* Dialogue box */}
-        <div className="cast-vn__box">
-          <p className="cast-vn__text">
-            {text.slice(0, charCount)}
-            {!typed && <span className="cast-vn__cursor">|</span>}
-          </p>
-        </div>
+        {/* Dialogue text */}
+        <p className="cast-dialogue__text">
+          {text.slice(0, charCount)}
+          {!typed && <span className="cast-vn__cursor">|</span>}
+        </p>
 
         {/* Tone choices */}
         {step.kind === "tone" && typed && (
-          <div className="cast-vn__choices">
+          <div className="grid grid-cols-2 gap-3.5">
             {(["left", "right"] as const).map((side) => {
               const label = side === "left" ? "Get to the point" : "Explain everything";
               const isPicked = tonePick === side;
               const isUnpicked = tonePick !== null && !isPicked;
               return (
-                <motion.button
+                <motion.div
                   key={side}
-                  className={`cast-vs${isPicked ? " cast-vs--selected" : ""}`}
-                  onClick={(e) => { e.stopPropagation(); handleToneChoice(side); }}
-                  animate={
-                    isUnpicked
-                      ? { opacity: 0.4 }
-                      : { opacity: 1 }
-                  }
+                  className="flex"
+                  animate={{ opacity: isUnpicked ? 0.4 : 1 }}
                   transition={{ duration: 0.3, ease: "easeOut" }}
                   whileHover={tonePick ? undefined : { y: -6 }}
                   whileTap={tonePick ? undefined : { scale: 0.97 }}
                 >
-                  {label}
-                </motion.button>
+                  <Button
+                    variant="ghost"
+                    fullWidth
+                    className={`cast-dialogue__choice${isPicked ? " cast-dialogue__choice--selected" : ""}`}
+                    onClick={(e) => { e.stopPropagation(); handleToneChoice(side); }}
+                  >
+                    {label}
+                  </Button>
+                </motion.div>
               );
             })}
           </div>
@@ -288,41 +298,32 @@ function VNDialogueFlow({
         {/* Reach tool cards */}
         {step.kind === "reach" && typed && (
           <>
-            <div className="cast-vn__choices">
+            <div className="grid grid-cols-2 gap-3.5">
               {reachTools.map((tool) => {
                 const isConnected = reachConnected.has(tool.slug);
                 return (
-                  <motion.button
+                  <motion.div
                     key={tool.slug}
-                    className="cast-vs"
-                    onClick={(e) => !isConnected && handleReachConnect(tool.slug, e)}
+                    className="flex"
                     whileHover={isConnected ? undefined : { y: -6 }}
                     whileTap={isConnected ? undefined : { scale: 0.97 }}
-                    style={{
-                      flexDirection: "column",
-                      gap: 10,
-                      position: "relative",
-                      opacity: isConnected ? 0.85 : 1,
-                      cursor: isConnected ? "default" : "pointer",
-                    }}
                   >
-                    {toolIcon(tool)}
-                    {tool.label}
-                    {isConnected && (
-                      <span
-                        className="cast-brain-connected__tag"
-                        style={{
-                          color: "var(--content-default)",
-                          background: "color-mix(in srgb, var(--content-default) 10%, transparent)",
-                          position: "absolute",
-                          top: 8,
-                          right: 8,
-                        }}
-                      >
-                        Connected
-                      </span>
-                    )}
-                  </motion.button>
+                    <Button
+                      variant="ghost"
+                      fullWidth
+                      className="cast-dialogue__choice relative flex-col gap-2.5"
+                      style={{ opacity: isConnected ? 0.85 : 1, cursor: isConnected ? "default" : "pointer" }}
+                      onClick={(e) => !isConnected && handleReachConnect(tool.slug, e)}
+                    >
+                      {toolIcon(tool)}
+                      {tool.label}
+                      {isConnected && (
+                        <span className="cast-dialogue__connected-tag absolute right-2 top-2">
+                          Connected
+                        </span>
+                      )}
+                    </Button>
+                  </motion.div>
                 );
               })}
             </div>
@@ -345,16 +346,17 @@ function VNDialogueFlow({
               <span className="cast-vn__loading-dot" />
             </div>
             <AnimatePresence mode="wait">
-              <motion.p
+              <motion.div
                 key={loadingStepIdx}
-                className="cast-vn__loading-text"
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.25 }}
               >
-                {loadingSteps[loadingStepIdx]}
-              </motion.p>
+                <p className="cast-dialogue__loading-text">
+                  {loadingSteps[loadingStepIdx]}
+                </p>
+              </motion.div>
             </AnimatePresence>
           </div>
         )}

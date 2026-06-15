@@ -1,6 +1,17 @@
-/* Cast — VN dialogue / reach text overlays. Split from cast.css (PR 1, verbatim move). */
+/* Cast — VN dialogue scene: bespoke Visual Novel choreography.
+ *
+ * Screen chrome (header, choice cards, advance affordance, dialogue text) is now
+ * built from design-library primitives + tokens + Tailwind in dialogue-screen.tsx.
+ * This sheet carries only the bespoke VN choreography that has no design-system
+ * equivalent: the typewriter cursor/advance blink, the glass choice-card art, the
+ * handoff loading dots, and the centered scene layout.
+ *
+ * NOTE: the shared `.cast-vn*` base classes below (used by the preamble screen and
+ * the shell help-ghost) live here as their canonical home from the PR-1 cast.css
+ * split; they are cross-screen choreography primitives, not dialogue-only chrome.
+ */
 
-/* ---- Preamble / VN text overlay ---- */
+/* ---- Shared VN text overlay (preamble + dialogue) ---- */
 
 .cast-vn {
   position: absolute;
@@ -93,13 +104,7 @@
   color: var(--content-tertiary);
 }
 
-/* ---- Loading transition ---- */
-.cast-vn__loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 20px;
-}
+/* ---- Loading transition (shared spinner) ---- */
 .cast-vn__spinner {
   display: flex;
   gap: 6px;
@@ -108,7 +113,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #46c178;
+  background: #46c178; /* bespoke VN spinner accent — no token equivalent */
   animation: cast-bounce 1.2s ease-in-out infinite;
 }
 .cast-vn__spinner span:nth-child(2) {
@@ -117,7 +122,8 @@
 .cast-vn__spinner span:nth-child(3) {
   animation-delay: 0.3s;
 }
-/* ---- VN dialogue (centered) ---- */
+
+/* ---- VN dialogue scene layout (centered, top-anchored) ---- */
 .cast-vn--top {
   align-items: center;
   justify-content: center;
@@ -130,46 +136,65 @@
   flex-direction: column;
   gap: 18px;
 }
-.cast-vn__header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 20px;
-}
-.cast-vn__header-avatar {
-  width: 80px;
-  height: 80px;
-  flex: none;
-}
-.cast-vn__speaker {
+
+/* ---- Dialogue scene chrome — bespoke art over the design-library primitives ---- */
+
+/* Speaker name: bespoke Instrument Serif display face, no token equivalent. */
+.cast-dialogue__speaker {
   font-family: "Instrument Serif", var(--font-serif), serif;
   font-size: 24px;
   font-weight: 400;
+  line-height: 1.25;
   color: #fff;
 }
-.cast-vn__box {
-  padding: 0;
-}
-.cast-vn__choices {
-  display: flex;
-  gap: 14px;
-}
-.cast-vn__choices > * {
-  flex: 1;
-}
-.cast-vn__tasks {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.cast-vn__task {
-  padding: 14px 16px;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border-base);
-  background: var(--surface-hover);
-  font-size: 14px;
-  font-weight: 500;
+
+/* Dialogue body: lighter weight + roomier leading than the body token. */
+.cast-dialogue__text {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 300;
+  line-height: 1.6;
   color: var(--content-default);
+}
+
+/* Glass choice card — overrides the design-library Button chrome with the
+   bespoke VN frosted card (tone + reach pickers). The two-class selectors give
+   this art higher specificity than the Button's single-class utilities so the
+   frosted-glass look reliably wins regardless of stylesheet order. */
+.cast-vn .cast-dialogue__choice {
+  min-height: 132px;
+  padding: 20px;
+  height: auto;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  white-space: normal;
+  --vbtn-fg: var(--content-default);
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.cast-vn .cast-dialogue__choice:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.cast-vn .cast-dialogue__choice--selected {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+/* Connected pill on a wired-up reach card. */
+.cast-dialogue__connected-tag {
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: var(--radius-xl);
+  padding: 3px 8px;
+  color: var(--content-default);
+  background: color-mix(in srgb, var(--content-default) 10%, transparent);
 }
 
 /* ---- Handoff loading states ---- */
@@ -194,8 +219,8 @@
 }
 .cast-vn__loading-dot:nth-child(2) { animation-delay: 0.2s; }
 .cast-vn__loading-dot:nth-child(3) { animation-delay: 0.4s; }
-.cast-vn__loading-text {
+.cast-dialogue__loading-text {
+  margin: 0;
   font-size: 14px;
   color: var(--content-secondary);
-  margin: 0;
 }
