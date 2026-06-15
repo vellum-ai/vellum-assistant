@@ -48,7 +48,7 @@ export function makeCtx(
       onToolUseStart: mock(() => {}),
       onToolResult: mock(() => {}),
       onToolActivityMetadata: mock(() => {}),
-      onActivityThinking: mock(() => {}),
+      onDaemonActivity: mock(() => {}),
       showSurface: mock(() => {}),
       updateSurface: mock(() => {}),
       dismissSurface: mock(() => {}),

@@ -5,7 +5,7 @@
  * previously scattered across the component tree.
  */
 
-import { type TurnPhase, isSending, isThinking } from "@/domains/chat/turn-store";
+import { type TurnPhase, isSending } from "@/domains/chat/turn-store";
 
 // ---------------------------------------------------------------------------
 // UI context — values provided by the component that are NOT part of the
@@ -14,11 +14,17 @@ import { type TurnPhase, isSending, isThinking } from "@/domains/chat/turn-store
 
 export interface UIContext {
   hasStreamingAssistantMessage: boolean;
-  /** True when the live assistant message already carries reasoning/thinking
-   * content — i.e. an inline `SingleActivity` is showing it (and owning the
-   * streaming "Thinking" state). Gates off the standalone thinking-dots row so
-   * the two don't both render; the dots stay only for the pre-message window. */
-  hasStreamingAssistantThinking: boolean;
+  /** True when the live assistant row renders something the user can see —
+   * non-blank text, reasoning content (the inline `SingleActivity` owns the
+   * loading state then), a tool-call chip (including a streaming preview
+   * block), or a surface. This is the single handoff gate for the standalone
+   * thinking-dots row: the dots stay up for the entire window where the
+   * response area would otherwise be empty, and yield only once a visible
+   * element has actually replaced them. A live assistant bubble with no
+   * renderable content (e.g. created by an aux LLM call that produced no
+   * visible output) must NOT count — that was the "blank transcript while
+   * generating" bug. */
+  hasVisibleResponseContent: boolean;
   hasPendingSecret: boolean;
   hasPendingConfirmation: boolean;
   hasPendingQuestion: boolean;
@@ -40,22 +46,16 @@ export interface UIContext {
 /**
  * Whether the "Thinking..." indicator should be visible.
  *
- * Mirrors macOS TranscriptProjector.wouldShowThinking:
- *   isSending && (isThinking || !hasStreamingAssistantMessage) && !hasActiveToolCall
- *
- * Show the dots whenever the turn is actively processing, no assistant
- * text is streaming yet, and no tool call is in-flight. The fallback
- * `!hasStreamingAssistantMessage` keeps the dots visible even after the
- * phase moves past "thinking" (e.g. after a tool call completes before
- * any text arrives).
- *
- * Unlike macOS, this standalone row hands off to the inline
- * {@link SingleActivity} as soon as the live assistant message carries
- * reasoning content (`hasStreamingAssistantThinking`) — that link renders the
- * same three-dot "Thinking" loading state inline and is clickable to open the
- * streaming reasoning. So the dots row is scoped to the pre-reasoning window
- * (no assistant bubble yet, or a bubble that hasn't emitted reasoning) to avoid
- * two competing thinking indicators.
+ * Invariant: while a turn is in flight, the response area is never empty.
+ * The dots show for the entire window where nothing visible has rendered
+ * yet, and yield only to actual visible content
+ * (`hasVisibleResponseContent`) — streamed text, the inline reasoning
+ * `SingleActivity`, a tool-call chip (including a streaming preview block),
+ * or a surface. Gating on visible content rather than on bubble existence
+ * or phase choreography keeps the dots up across mid-turn hiccups — e.g.
+ * an aux LLM call's `message_complete` arriving while the real generation
+ * is still pending, which previously killed the dots and left the
+ * transcript blank for the rest of the model's time-to-first-token.
  *
  * Each potentially-competing UI surface has its own explicit gate:
  * pending secret/confirmation/question/contact prompts, and any
@@ -83,9 +83,7 @@ export function shouldShowThinkingIndicator(
     !ctx.hasPendingQuestion &&
     !ctx.hasPendingContactRequest &&
     !ctx.hasUncompletedVisibleSurface &&
-    (isThinking(phase) || restoredProcessing || !ctx.hasStreamingAssistantMessage) &&
-    // Inline SingleActivity owns the loading state once reasoning is present.
-    !ctx.hasStreamingAssistantThinking &&
+    !ctx.hasVisibleResponseContent &&
     activeToolCallCount === 0
   );
 }

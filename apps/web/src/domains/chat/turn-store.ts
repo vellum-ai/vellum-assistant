@@ -49,7 +49,7 @@ export interface TurnState {
   lastTerminalReason: TerminalReason;
   /** Daemon-provided label describing current agent activity (e.g.
    *  "Processing bash results", "Compacting context"). Populated by
-   *  `onActivityThinking` and cleared on terminal transitions. */
+   *  `onDaemonActivity` and cleared on terminal transitions. */
   statusText: string | null;
   /**
    * Per-tool-call structured activity metadata (e.g. web_search,
@@ -262,7 +262,10 @@ export interface TurnActions {
     toolUseId: string,
     metadata: ToolActivityMetadata,
   ) => void;
-  onActivityThinking: (statusText?: string) => void;
+  onDaemonActivity: (
+    phase: "thinking" | "streaming" | "tool_running",
+    statusText?: string,
+  ) => void;
   showSurface: (interactive?: boolean) => void;
   updateSurface: () => void;
   dismissSurface: () => void;
@@ -383,15 +386,26 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
 
   // ----- Daemon activity state -----
 
-  onActivityThinking: (statusText) => {
+  onDaemonActivity: (phase, statusText) => {
     const s = get();
-    // Server-driven thinking signal — the daemon reports that the agent
-    // is processing (e.g. after a tool_result, during context compaction,
-    // or after confirmation resolution). Transition back to "thinking"
-    // so the thinking indicator re-appears in the post-tool-call gap.
-    if (isStale(s)) return;
+    // Server-driven liveness signal — the daemon reports the agent is
+    // processing (thinking after a tool_result, streaming text, running or
+    // preparing a tool). Re-enter the matching sending phase so the
+    // in-flight affordances stay accurate.
+    //
+    // Deliberately NO isStale() discard: a non-idle activity state is
+    // authoritative evidence that a generation is running, including after
+    // this client wrongly ended the turn — an aux LLM call's
+    // message_complete/idle can arrive mid-turn and clobber phase to
+    // "idle", which used to kill the thinking indicator for the rest of
+    // the real generation. Out-of-order events are already dropped by the
+    // SSE handler's per-conversation activityVersion gate, and a genuine
+    // terminal emits a later idle (higher version) that restores "idle".
     if (s.phase === "awaiting_user_input") return;
-    set({ phase: "thinking", statusText: statusText ?? null });
+    set({
+      phase: phase === "thinking" ? "thinking" : "streaming",
+      statusText: statusText ?? null,
+    });
   },
 
   // ----- UI surfaces -----
@@ -672,7 +686,9 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
       };
 
     case "ACTIVITY_STATE_THINKING":
-      if (isStale(state)) return state;
+      // Parity with `onDaemonActivity`: no isStale() discard — a non-idle
+      // daemon activity state revives a wrongly-idled turn (see the action
+      // for the full rationale).
       if (state.phase === "awaiting_user_input") return state;
       return { ...state, phase: "thinking", statusText: event.statusText ?? null };
 
