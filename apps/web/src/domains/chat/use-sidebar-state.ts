@@ -215,21 +215,20 @@ export function useSidebarState({
       attentionIndex >= visibleRecentsCount
         ? attentionIndex + 1
         : visibleRecentsCount;
+    const isExpanded =
+      visibleRecentsCount > SIDEBAR_CONVERSATION_LIMIT &&
+      grouped.recents.length > SIDEBAR_CONVERSATION_LIMIT;
+    const hasMoreItems =
+      effectiveVisibleCount < grouped.recents.length || (hasNextPage ?? false);
     return {
       all: grouped.recents,
       items: grouped.recents.slice(0, effectiveVisibleCount),
       totalCount: grouped.recents.length,
-      showMore: effectiveVisibleCount < grouped.recents.length || (hasNextPage ?? false),
-      showLess:
-        visibleRecentsCount > SIDEBAR_CONVERSATION_LIMIT &&
-        grouped.recents.length > SIDEBAR_CONVERSATION_LIMIT,
+      showMore: !isExpanded && hasMoreItems,
+      showLess: isExpanded,
       onShowMore: () => {
-        const nextCount = Math.min(
-          grouped.recents.length + SIDEBAR_CONVERSATION_LIMIT,
-          Math.max(visibleRecentsCount, effectiveVisibleCount) + SIDEBAR_CONVERSATION_LIMIT,
-        );
-        setVisibleRecentsCount(nextCount);
-        if (nextCount >= grouped.recents.length && hasNextPage) {
+        setVisibleRecentsCount(grouped.recents.length);
+        if (hasNextPage) {
           fetchNextPage?.();
         }
       },
@@ -247,21 +246,16 @@ export function useSidebarState({
       attentionIndex >= visibleSlackCount
         ? attentionIndex + 1
         : visibleSlackCount;
+    const isExpanded =
+      visibleSlackCount > SIDEBAR_CONVERSATION_LIMIT &&
+      grouped.slack.length > SIDEBAR_CONVERSATION_LIMIT;
     return {
       all: grouped.slack,
       items: grouped.slack.slice(0, effectiveVisibleCount),
       totalCount: grouped.slack.length,
-      showMore: effectiveVisibleCount < grouped.slack.length,
-      showLess:
-        visibleSlackCount > SIDEBAR_CONVERSATION_LIMIT &&
-        grouped.slack.length > SIDEBAR_CONVERSATION_LIMIT,
-      onShowMore: () =>
-        setVisibleSlackCount((prev) =>
-          Math.min(
-            grouped.slack.length,
-            Math.max(prev, effectiveVisibleCount) + SIDEBAR_CONVERSATION_LIMIT,
-          ),
-        ),
+      showMore: !isExpanded && effectiveVisibleCount < grouped.slack.length,
+      showLess: isExpanded,
+      onShowMore: () => setVisibleSlackCount(grouped.slack.length),
       onShowLess: () => setVisibleSlackCount(SIDEBAR_CONVERSATION_LIMIT),
     };
   }, [grouped.slack, visibleSlackCount, attentionConversationIds]);

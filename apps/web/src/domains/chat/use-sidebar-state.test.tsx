@@ -46,7 +46,7 @@ afterEach(() => {
 });
 
 describe("useSidebarState pagination", () => {
-  test("reveals recents in page-size increments and can reset", () => {
+  test("toggles between collapsed (Show more) and expanded (Show less)", () => {
     const conversations = Array.from({ length: 12 }, (_, index) =>
       makeConversation(index),
     );
@@ -58,26 +58,21 @@ describe("useSidebarState pagination", () => {
       }),
     );
 
+    // Collapsed: shows default limit with "Show more"
     expect(result.current.recents.items).toHaveLength(
       SIDEBAR_CONVERSATION_LIMIT,
     );
     expect(result.current.recents.showMore).toBe(true);
     expect(result.current.recents.showLess).toBe(false);
 
-    act(() => result.current.recents.onShowMore());
-
-    expect(result.current.recents.items).toHaveLength(
-      SIDEBAR_CONVERSATION_LIMIT * 2,
-    );
-    expect(result.current.recents.showMore).toBe(true);
-    expect(result.current.recents.showLess).toBe(true);
-
+    // Expand: shows all items with "Show less"
     act(() => result.current.recents.onShowMore());
 
     expect(result.current.recents.items).toHaveLength(conversations.length);
     expect(result.current.recents.showMore).toBe(false);
     expect(result.current.recents.showLess).toBe(true);
 
+    // Collapse: back to default limit with "Show more"
     act(() => result.current.recents.onShowLess());
 
     expect(result.current.recents.items).toHaveLength(
@@ -87,7 +82,7 @@ describe("useSidebarState pagination", () => {
     expect(result.current.recents.showLess).toBe(false);
   });
 
-  test("uses the same incremental reveal behavior for Slack conversations", () => {
+  test("uses the same toggle behavior for Slack conversations", () => {
     const conversations = Array.from({ length: 12 }, (_, index) =>
       makeConversation(index, {
         originChannel: "slack",
@@ -101,18 +96,42 @@ describe("useSidebarState pagination", () => {
       }),
     );
 
+    // Collapsed
     expect(result.current.slack.items).toHaveLength(
       SIDEBAR_CONVERSATION_LIMIT,
     );
     expect(result.current.slack.showMore).toBe(true);
     expect(result.current.slack.showLess).toBe(false);
 
+    // Expanded
     act(() => result.current.slack.onShowMore());
 
-    expect(result.current.slack.items).toHaveLength(
-      SIDEBAR_CONVERSATION_LIMIT * 2,
-    );
-    expect(result.current.slack.showMore).toBe(true);
+    expect(result.current.slack.items).toHaveLength(conversations.length);
+    expect(result.current.slack.showMore).toBe(false);
     expect(result.current.slack.showLess).toBe(true);
+  });
+
+  test("Show more and Show less are never both visible", () => {
+    const conversations = Array.from({ length: 20 }, (_, index) =>
+      makeConversation(index),
+    );
+
+    const { result } = renderHook(() =>
+      useSidebarState({
+        assistantId: "asst-1",
+        conversations,
+      }),
+    );
+
+    // Collapsed state
+    expect(result.current.recents.showMore && result.current.recents.showLess).toBe(false);
+
+    // Expanded state
+    act(() => result.current.recents.onShowMore());
+    expect(result.current.recents.showMore && result.current.recents.showLess).toBe(false);
+
+    // Back to collapsed
+    act(() => result.current.recents.onShowLess());
+    expect(result.current.recents.showMore && result.current.recents.showLess).toBe(false);
   });
 });
