@@ -42,6 +42,10 @@ export const contactChannels = sqliteTable(
     createdAt: integer("created_at").notNull(),
   },
   (table) => [
+    index("idx_contact_channels_type_ext_user").on(
+      table.type,
+      table.externalUserId,
+    ),
     index("idx_contact_channels_type_ext_chat").on(
       table.type,
       table.externalChatId,
