@@ -55,6 +55,7 @@ import {
   migrateBackfillContactInteractionStats,
   migrateBackfillGuardianPrincipalId,
   migrateBackfillInlineAttachmentsToDisk,
+  migrateBackfillOriginChannelFromBindings,
   migrateBackfillProviderConnectionLabel,
   migrateBackfillUsageCacheAccounting,
   migrateCallSessionInviteMetadata,
@@ -512,6 +513,7 @@ export function initializeDb(): void {
     migrateScheduleWorkflowMode,
     migrateWorkflowRunTrust,
     migrateConversationOriginChannelIndex,
+    migrateBackfillOriginChannelFromBindings,
   ];
 
   // Run each migration step, catching and logging individual failures so one

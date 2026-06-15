@@ -279,6 +279,7 @@ export { migrateWorkflowRuns } from "./284-workflow-runs.js";
 export { migrateScheduleWorkflowMode } from "./285-schedule-workflow-mode.js";
 export { migrateWorkflowRunTrust } from "./286-workflow-run-trust.js";
 export { migrateConversationOriginChannelIndex } from "./287-conversation-origin-channel-index.js";
+export { migrateBackfillOriginChannelFromBindings } from "./288-backfill-origin-channel-from-bindings.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
