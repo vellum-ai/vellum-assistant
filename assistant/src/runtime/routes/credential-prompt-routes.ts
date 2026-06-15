@@ -37,6 +37,7 @@ const CredentialPromptParams = z.object({
   label: z.string().min(1),
   description: z.string().optional(),
   placeholder: z.string().optional(),
+  usageDescription: z.string().optional(),
   allowedDomains: z.array(z.string()).optional(),
   allowedTools: z.array(z.string()).optional(),
   injectionTemplates: z.array(InjectionTemplateSchema).optional(),
@@ -69,6 +70,7 @@ async function handleCredentialPrompt({ body = {} }: RouteHandlerArgs) {
     label: validated.label,
     description: validated.description,
     placeholder: validated.placeholder,
+    purpose: validated.usageDescription,
     allowedTools: validated.allowedTools,
     allowedDomains: validated.allowedDomains,
     conversationId: validated.conversationId,
@@ -91,6 +93,7 @@ async function handleCredentialPrompt({ body = {} }: RouteHandlerArgs) {
   upsertCredentialMetadata(validated.service, validated.field, {
     allowedTools: validated.allowedTools,
     allowedDomains: validated.allowedDomains,
+    usageDescription: validated.usageDescription,
     injectionTemplates: validated.injectionTemplates,
   });
   await syncManualTokenConnection(validated.service);
