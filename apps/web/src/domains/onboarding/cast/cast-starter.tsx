@@ -17,6 +17,8 @@
  * `size` prop is purely cosmetic and the rendered art is identical.
  */
 
+import { Button, Input } from "@vellumai/design-library";
+import { cn } from "@vellumai/design-library/utils/cn";
 import { ChevronLeft, ChevronRight, Pencil } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LayoutGroup, motion } from "motion/react";
@@ -204,37 +206,27 @@ export function CastStarter({
 
         {bodyIndex !== null && previewCharacter && (
           <motion.div
-            style={{
-              position: "absolute",
-              inset: 0,
-              zIndex: 6,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              height: "100dvh",
-              padding: "0 20px",
-              background: "radial-gradient(120% 90% at 50% 0%, var(--surface-lift) 0%, var(--surface-base) 60%, var(--cast-shroud) 100%)",
-            }}
+            className="absolute inset-0 z-[6] flex h-[100dvh] flex-col items-center justify-center px-5 [background:radial-gradient(120%_90%_at_50%_0%,var(--surface-lift)_0%,var(--surface-base)_60%,var(--cast-shroud)_100%)]"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.3, ease: "easeOut" }}
           >
-            <button
-              className="cast-back"
+            <Button
+              variant="ghost"
+              iconOnly={<ChevronLeft />}
+              expandOnMobile={false}
               onClick={() => { setBodyIndex(null); onCustomizing?.(false); }}
               aria-label="Back to the line-up"
-            >
-              ‹
-            </button>
+              className="absolute left-8 top-9 z-[5] rounded-full bg-[var(--surface-hover)] hover:bg-[var(--surface-active)]"
+            />
 
             <NameField value={name} onChange={setName} />
 
-            <div style={{ width: 140, height: 140, marginTop: 24, marginBottom: 56 }}>
+            <div className="mb-14 mt-6 h-[140px] w-[140px]">
               <motion.div
                 key={popKey}
                 layoutId={pickedId ? `starter-${pickedId}` : undefined}
-                style={{ width: "100%", height: "100%" }}
+                className="h-full w-full"
                 initial={popKey > 0 ? { scale: 1.12 } : false}
                 animate={{ scale: 1 }}
                 transition={{ type: "spring", stiffness: 400, damping: 15 }}
@@ -259,14 +251,14 @@ export function CastStarter({
                   onNext={() => setColorIndex(cycle(colorIndex, COLORS.length, 1))}
                 />
               </div>
-              <button
-                type="button"
-                className="cast-customize__continue"
-                style={{ width: "100%", marginTop: 14 }}
+              <Button
+                variant="ghost"
+                fullWidth
                 onClick={handleContinue}
+                className="mt-3.5 h-auto py-3 text-[15px] font-semibold text-[var(--content-secondary)] hover:text-[var(--content-default)]"
               >
-                That's me →
-              </button>
+                That&apos;s me &rarr;
+              </Button>
             </div>
           </motion.div>
         )}
@@ -332,10 +324,16 @@ function NameField({
 
   if (editing) {
     return (
-      <input
-        className="cast-customize__name-input"
+      <Input
         autoFocus
         defaultValue={value}
+        aria-label="Assistant name"
+        wrapperClassName="w-auto self-center"
+        className={cn(
+          "h-auto w-auto min-w-[80px] max-w-[200px] rounded-none border-0 border-b-2 bg-transparent",
+          "border-[var(--border-element)] px-2.5 py-1 text-center text-[22px] font-[660] tracking-[-0.01em]",
+          "text-[var(--content-default)] focus-visible:border-[var(--content-default)]",
+        )}
         onBlur={(e) => {
           const v = e.target.value.trim();
           if (v) onChange(v);
@@ -350,15 +348,17 @@ function NameField({
   }
 
   return (
-    <button
-      type="button"
-      className="cast-customize__name"
+    <Button
+      variant="ghost"
+      rightIcon={<Pencil className="h-[15px] w-[15px] opacity-50 transition-opacity group-hover/name:opacity-95" />}
       onClick={() => setEditing(true)}
       aria-label={`Rename ${value}`}
+      className="group/name h-auto self-center gap-2 px-1.5 py-0.5 text-[22px] font-[660] tracking-[-0.01em] text-[var(--content-default)] hover:bg-transparent"
     >
-      <span className="cast-customize__name-text">{value}</span>
-      <Pencil className="cast-customize__name-pencil" />
-    </button>
+      <span className="underline decoration-transparent decoration-2 underline-offset-4 transition-[text-decoration-color] group-hover/name:decoration-[var(--content-secondary)]">
+        {value}
+      </span>
+    </Button>
   );
 }
 
@@ -378,29 +378,35 @@ function CycleRow({
   onNext: () => void;
 }) {
   return (
-    <div className="cast-control">
-      <span className="cast-control__label">{label}</span>
-      <div className="cast-control__cycle">
-        <button
-          type="button"
-          className="cast-control__btn"
+    <div className="flex min-h-[132px] flex-1 flex-col items-center justify-center gap-2.5 rounded-[var(--radius-xl)] border border-[var(--border-base)] p-5">
+      <span className="text-center text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--content-tertiary)]">
+        {label}
+      </span>
+      <div className="flex items-center justify-center gap-2.5">
+        <Button
+          variant="ghost"
+          iconOnly={<ChevronLeft />}
+          expandOnMobile={false}
           onClick={onPrev}
           aria-label={`Previous ${label.toLowerCase()}`}
-        >
-          <ChevronLeft className="cast-control__chev" />
-        </button>
-        <span className="cast-control__value">
-          {swatch && <span className="cast-control__swatch" style={{ background: swatch }} />}
-          {!swatch && value}
+        />
+        <span className="inline-flex min-w-[96px] items-center justify-center gap-2 text-[22px] font-[640] capitalize text-[var(--content-default)]">
+          {swatch ? (
+            <span
+              className="h-[15px] w-[15px] rounded-full border border-[var(--border-element)]"
+              style={{ background: swatch }}
+            />
+          ) : (
+            value
+          )}
         </span>
-        <button
-          type="button"
-          className="cast-control__btn"
+        <Button
+          variant="ghost"
+          iconOnly={<ChevronRight />}
+          expandOnMobile={false}
           onClick={onNext}
           aria-label={`Next ${label.toLowerCase()}`}
-        >
-          <ChevronRight className="cast-control__chev" />
-        </button>
+        />
       </div>
     </div>
   );
