@@ -175,6 +175,95 @@ describe("extractWorkflowMeta", () => {
   });
 });
 
+describe("executeWorkflow — export stripping touches only real top-level decls", () => {
+  beforeEach(resetTables);
+
+  test("preserves `export` inside a multiline template-literal prompt", async () => {
+    const fake = makeFakeRunner();
+    // The leaf prompt is a TS snippet whose lines begin with `export ...`. The
+    // engine must NOT rewrite literal text — only genuine top-level decls — or a
+    // workflow asking a leaf to inspect/emit TypeScript gets a corrupted prompt.
+    const script = [
+      "const snippet = `Review this module:",
+      "export const config = { debug: true };",
+      "export function run() { return 1; }",
+      "`;",
+      "return agent(snippet);",
+    ].join("\n");
+    const res = await execute("wf-tmpl-export", script, fake.runner);
+    expect(res.status).toBe("completed");
+    expect(fake.prompts[0]).toBe(
+      "Review this module:\n" +
+        "export const config = { debug: true };\n" +
+        "export function run() { return 1; }\n",
+    );
+  });
+
+  test("still strips real top-level exports (script stays runnable)", async () => {
+    const fake = makeFakeRunner();
+    // A top-level `export const` would be a syntax error inside the sandbox's
+    // function-body wrapper; stripping it is what keeps the script runnable.
+    const res = await execute(
+      "wf-real-export",
+      `export const greeting = "hello";\nreturn agent(greeting);`,
+      fake.runner,
+    );
+    expect(res.status).toBe("completed");
+    expect(fake.prompts[0]).toBe("hello");
+  });
+
+  test("a regex literal containing a backtick does not derail stripping", async () => {
+    const fake = makeFakeRunner();
+    // A naive template-tracking transform would treat the backtick inside the
+    // regex as opening a template literal and fail to strip the next line's
+    // top-level export, breaking the script. The lexer skips regex bodies.
+    const res = await execute(
+      "wf-regex-tick",
+      "const re = /[`]/;\nexport const greeting = re.source;\nreturn agent(greeting);",
+      fake.runner,
+    );
+    expect(res.status).toBe("completed");
+    expect(fake.prompts[0]).toBe("[`]");
+  });
+
+  test("a line comment containing a backtick does not derail stripping", async () => {
+    const fake = makeFakeRunner();
+    const res = await execute(
+      "wf-linecomment-tick",
+      'const x = 1; // a ` backtick in a comment\nexport const greeting = "hi";\nreturn agent(greeting);',
+      fake.runner,
+    );
+    expect(res.status).toBe("completed");
+    expect(fake.prompts[0]).toBe("hi");
+  });
+
+  test("template `${}` interpolation returns to code so the next export strips", async () => {
+    const fake = makeFakeRunner();
+    const script = [
+      'const name = "world";',
+      "const msg = `hello ${name}!`;",
+      "export const out = msg;",
+      "return agent(out);",
+    ].join("\n");
+    const res = await execute("wf-interp-export", script, fake.runner);
+    expect(res.status).toBe("completed");
+    expect(fake.prompts[0]).toBe("hello world!");
+  });
+
+  test("preserves `export` inside a block comment embedded in a prompt", async () => {
+    const fake = makeFakeRunner();
+    const script = [
+      "const snippet = `/*",
+      "export const x = 1;",
+      "*/`;",
+      "return agent(snippet);",
+    ].join("\n");
+    const res = await execute("wf-blockcomment-export", script, fake.runner);
+    expect(res.status).toBe("completed");
+    expect(fake.prompts[0]).toBe("/*\nexport const x = 1;\n*/");
+  });
+});
+
 describe("executeWorkflow — fan-out & aggregation", () => {
   beforeEach(resetTables);
 

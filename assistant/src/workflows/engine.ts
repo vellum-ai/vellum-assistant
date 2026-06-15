@@ -263,18 +263,192 @@ const __toSpec = (v) => (__isSpec(v) ? v : leaf(v));
 `;
 
 /**
- * Strip leading `export` keywords from top-level declarations. The sandbox runs
- * the script inside a synchronous function body where a top-level `export` is a
- * syntax error; an authored `export const meta = ...` (and any other top-level
- * `export const/let/var/function/class`) must become a plain local. Only matches
- * `export` at the start of a line (after optional indentation), so the word
- * "export" inside a string or expression is untouched.
+ * Strip leading `export` keywords from top-level declarations WITHOUT touching
+ * `export` that appears inside string literals, template literals, or comments.
+ *
+ * The sandbox runs the script inside a synchronous function body where a
+ * top-level `export` is a syntax error, so an authored `export const meta = ...`
+ * (and any other top-level `export const/let/var/function/class`) must become a
+ * plain local. A naive line-anchored regex over the whole source would ALSO
+ * rewrite an `export const ...` line that lives inside a multiline template
+ * literal or block comment — e.g. a workflow that hands a leaf a TypeScript
+ * snippet to inspect or generate — silently corrupting the prompt/result (and
+ * perturbing resume call-hashes). {@link lineStartsInCode} tracks lexical state
+ * so the strip fires only on lines that genuinely begin in code.
  */
 function stripTopLevelExports(scriptSource: string): string {
-  return scriptSource.replace(
-    /^(\s*)export\s+(const|let|var|function|class|async\s+function)\b/gm,
-    "$1$2",
-  );
+  const lines = scriptSource.split("\n");
+  const inCode = lineStartsInCode(scriptSource, lines.length);
+  return lines
+    .map((line, i) =>
+      inCode[i]
+        ? line.replace(
+            /^(\s*)export\s+(const|let|var|function|class|async\s+function)\b/,
+            "$1$2",
+          )
+        : line,
+    )
+    .join("\n");
+}
+
+/**
+ * For each line of `source`, whether the line BEGINS in code context (vs inside
+ * a multiline template literal or block comment). A single forward scan tracks
+ * the lexical state that can carry across a newline: only template literals and
+ * block comments do. A single/double-quoted string terminates at an unescaped
+ * newline and a line comment ends at the newline, so a line always re-enters
+ * code after them unless a template/block-comment is still open.
+ *
+ * This is a focused lexer, not a full parser: it recognizes strings, template
+ * literals (incl. `${}` interpolation), line/block comments, and regex literals
+ * — enough that `export` inside literal text is never mistaken for a real
+ * declaration, and a `` ` ``/quote/`/*` inside a regex never flips the state.
+ */
+function lineStartsInCode(source: string, lineCount: number): boolean[] {
+  // result[0] is always true (a file begins in code); later entries are set as
+  // each newline is crossed.
+  const result: boolean[] = new Array<boolean>(lineCount).fill(true);
+
+  // Nesting stack: the base frame is code; a backtick pushes a template frame;
+  // a `${` inside a template pushes a code frame (interpolation). `braceDepth`
+  // on a code frame distinguishes an interpolation-closing `}` from a block `}`.
+  type Frame = { kind: "code"; braceDepth: number } | { kind: "template" };
+  const stack: Frame[] = [{ kind: "code", braceDepth: 0 }];
+  let inLineComment = false;
+  let inBlockComment = false;
+  let stringQuote: "'" | '"' | null = null;
+  // True when the previous char was an unconsumed backslash inside a string or
+  // template (escapes the next char, including a line-continuation newline).
+  let escaped = false;
+  // Last significant (non-space, non-comment) code char — disambiguates a `/`
+  // that starts a regex literal from one that means division.
+  let prevSignificant = "";
+  let line = 0;
+
+  const carryIsCode = (): boolean =>
+    !inBlockComment &&
+    stringQuote === null &&
+    stack[stack.length - 1]!.kind === "code";
+
+  for (let i = 0; i < source.length; i++) {
+    const c = source[i]!;
+    const next = source[i + 1];
+
+    if (c === "\n") {
+      // A string survives the newline only if it was line-continued (`\`); an
+      // otherwise-unterminated string is a syntax error the transpiler catches.
+      if (stringQuote !== null && !escaped) stringQuote = null;
+      inLineComment = false;
+      escaped = false;
+      line++;
+      if (line < lineCount) result[line] = carryIsCode();
+      continue;
+    }
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (inLineComment) continue;
+    if (inBlockComment) {
+      if (c === "*" && next === "/") {
+        inBlockComment = false;
+        i++;
+      }
+      continue;
+    }
+    if (stringQuote !== null) {
+      if (c === "\\") escaped = true;
+      else if (c === stringQuote) stringQuote = null;
+      continue;
+    }
+
+    const top = stack[stack.length - 1]!;
+    if (top.kind === "template") {
+      if (c === "\\") escaped = true;
+      else if (c === "`") stack.pop();
+      else if (c === "$" && next === "{") {
+        stack.push({ kind: "code", braceDepth: 0 });
+        i++;
+      }
+      continue;
+    }
+
+    // --- code frame ---
+    if (c === " " || c === "\t" || c === "\r") continue; // not significant
+    if (c === "/" && next === "/") {
+      inLineComment = true;
+      i++;
+      continue;
+    }
+    if (c === "/" && next === "*") {
+      inBlockComment = true;
+      i++;
+      continue;
+    }
+    if (c === "/" && regexAllowedAfter(prevSignificant)) {
+      // Skip the regex body so a `` ` ``, quote, or `/*` inside it cannot flip
+      // the lexer into a bogus string/template/comment that carries across
+      // lines. Regex literals cannot span a raw newline, so this is bounded.
+      i = skipRegexLiteral(source, i);
+      prevSignificant = "/"; // a regex is a value; `/`/`.` after it is division/member
+      continue;
+    }
+    if (c === "'" || c === '"') {
+      stringQuote = c;
+      prevSignificant = c;
+      continue;
+    }
+    if (c === "`") {
+      stack.push({ kind: "template" });
+      prevSignificant = "`";
+      continue;
+    }
+    if (c === "{") {
+      top.braceDepth++;
+    } else if (c === "}") {
+      if (top.braceDepth === 0 && stack.length > 1) stack.pop();
+      else if (top.braceDepth > 0) top.braceDepth--;
+    }
+    prevSignificant = c;
+  }
+
+  return result;
+}
+
+/**
+ * Whether a `/` following `prev` (the last significant code char) begins a
+ * regex literal rather than division. Regex is allowed at an expression
+ * position: the start of input, or after an operator/punctuator — not after an
+ * identifier char, closing bracket/paren, or `.`. A miss is harmless here (an
+ * undetected regex is scanned as plain code chars, which only matters if it
+ * contains a backtick or `/*`), so this conservative table suffices.
+ */
+function regexAllowedAfter(prev: string): boolean {
+  if (prev === "") return true;
+  return "(,=:[!&|?{};+-*/%^~<>".includes(prev);
+}
+
+/**
+ * Skip a regex literal whose opening `/` is at `source[start]`. Returns the
+ * index of the closing `/` (or the last char before a newline / EOF if the
+ * literal is malformed). Handles `\` escapes and `[...]` character classes,
+ * inside which `/` does not close the literal.
+ */
+function skipRegexLiteral(source: string, start: number): number {
+  let inClass = false;
+  for (let j = start + 1; j < source.length; j++) {
+    const c = source[j]!;
+    if (c === "\n") return j - 1; // regex can't span a newline; bail before it
+    if (c === "\\") {
+      j++;
+      continue;
+    }
+    if (c === "[") inClass = true;
+    else if (c === "]") inClass = false;
+    else if (c === "/" && !inClass) return j;
+  }
+  return source.length - 1;
 }
 
 function callHashOf(prompt: string, opts: LeafCallOptions): string {
