@@ -143,6 +143,10 @@ export function useAssistantOperationalStatus(assistantId: string | null) {
       if (!enabled) return false;
       const data = query.state.data;
       if (data === null) return DISABLED_STATUS_POLL_MS;
+      // The server returns a 30s interval for sleeping, but that's too
+      // slow to catch the brief "waking" phase when a wake is triggered.
+      // Poll at the active rate so the banner transitions promptly.
+      if (data?.state === "sleeping") return DEFAULT_STATUS_POLL_MS;
       return clampPollMs(data?.poll_after_ms);
     },
   });
