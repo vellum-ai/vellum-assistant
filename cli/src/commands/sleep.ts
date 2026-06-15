@@ -134,9 +134,18 @@ export async function sleep(): Promise<void> {
     }
   }
 
+  // Stop assistant — use a generous timeout. On SIGTERM the daemon runs a
+  // WAL checkpoint before exiting, which can take several seconds on a
+  // multi-GB database. The default 2s grace in stopProcess() would SIGKILL a
+  // healthy daemon mid-checkpoint, forcing a costly multi-minute WAL recovery
+  // on the next start. The timeout is only a SIGKILL ceiling — stopProcess
+  // returns as soon as the process exits, so this adds no delay in the common
+  // case and only applies when the daemon is genuinely wedged.
   const assistantStopped = await stopProcessByPidFile(
     assistantPidFile,
     "assistant",
+    undefined,
+    120_000,
   );
   if (!assistantStopped) {
     console.log("Assistant is not running.");

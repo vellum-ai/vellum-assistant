@@ -13,16 +13,18 @@ import { z } from "zod";
 // Provider enum
 // ---------------------------------------------------------------------------
 
-const LLMProvider = z.enum([
-  "anthropic",
-  "openai",
-  "gemini",
-  "ollama",
-  "fireworks",
-  "openrouter",
-  "openai-compatible",
-  "minimax",
-]);
+export const LLMProvider = z
+  .enum([
+    "anthropic",
+    "openai",
+    "gemini",
+    "ollama",
+    "fireworks",
+    "openrouter",
+    "openai-compatible",
+    "minimax",
+  ])
+  .meta({ id: "LLMProvider" });
 type LLMProvider = z.infer<typeof LLMProvider>;
 
 // ---------------------------------------------------------------------------
@@ -350,20 +352,22 @@ export type LLMConfigBase = z.infer<typeof LLMConfigBase>;
  * objects so callers can override individual leaves (e.g. `{ thinking:
  * { enabled: false } }`).
  */
-export const LLMConfigFragment = z.object({
-  provider: LLMProvider.optional(),
-  model: ModelSchema.optional(),
-  maxTokens: MaxTokensSchema.optional(),
-  effort: EffortEnum.optional(),
-  speed: SpeedEnum.optional(),
-  verbosity: VerbosityEnum.optional(),
-  temperature: TemperatureSchema.optional(),
-  thinking: ThinkingFragmentSchema.optional(),
-  contextWindow: ContextWindowDeepPartialSchema.optional(),
-  openrouter: OpenRouterDeepPartialSchema.optional(),
-  logitBias: LogitBiasPresetSchema.optional(),
-  disableCache: z.boolean().optional(),
-});
+export const LLMConfigFragment = z
+  .object({
+    provider: LLMProvider.optional(),
+    model: ModelSchema.optional(),
+    maxTokens: MaxTokensSchema.optional(),
+    effort: EffortEnum.optional(),
+    speed: SpeedEnum.optional(),
+    verbosity: VerbosityEnum.optional(),
+    temperature: TemperatureSchema.optional(),
+    thinking: ThinkingFragmentSchema.optional(),
+    contextWindow: ContextWindowDeepPartialSchema.optional(),
+    openrouter: OpenRouterDeepPartialSchema.optional(),
+    logitBias: LogitBiasPresetSchema.optional(),
+    disableCache: z.boolean().optional(),
+  })
+  .meta({ id: "LLMConfigFragment" });
 export type LLMConfigFragment = z.infer<typeof LLMConfigFragment>;
 
 export const ProfileStatusSchema = z.enum(["active", "disabled"]);
@@ -436,7 +440,7 @@ export const ProfileEntry = LLMConfigFragment.extend({
    * may accompany `mix`.
    */
   mix: MixSchema.optional(),
-});
+}).meta({ id: "ProfileEntry" });
 export type ProfileEntry = z.infer<typeof ProfileEntry>;
 
 /**

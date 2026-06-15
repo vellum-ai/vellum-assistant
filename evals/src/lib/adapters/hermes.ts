@@ -1,4 +1,5 @@
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import type {
   AgentEvent,
@@ -10,7 +11,8 @@ import type { Profile } from "../profile";
 import type { TestSetupCommand } from "../setup-command";
 import { runArtifacts } from "../metrics";
 import {
-  attachDockerEgressJail,
+  applyDockerEgressJail,
+  installRecordingCa,
   type DockerEgressJail,
 } from "../egress/docker-jail";
 import {
@@ -41,11 +43,16 @@ import { assertSafeWorkspacePath } from "./workspace-path";
  *   - `-e <PROVIDER_KEY>` flags forwarded from the eval process env. Hermes
  *     normally reads keys from `/opt/data/.env`; we run with an ephemeral
  *     `/opt/data` per run so direct `-e` is the only way to get keys in.
- *   - `attachDockerEgressJail` to constrain outbound traffic to the same
- *     model-provider allowlist Vellum runs against. Keeps cross-species
- *     cost comparisons honest. Hermes owns its own network namespace (it
- *     warms up provider SDKs from PyPI before the jail closes), so the
- *     jail attaches to it rather than owning the namespace.
+ *   - `applyDockerEgressJail` to constrain outbound traffic to the same
+ *     model-provider allowlist Vellum runs against, keeping cross-species
+ *     cost comparisons honest. The jail owns the network namespace and is
+ *     created first; Hermes is then born into it via
+ *     `--network container:<jail>`, so its gateway's first outbound TLS is
+ *     already behind the recording proxy and there is no pre-jail window
+ *     for an unrecorded connection to escape. The native Anthropic SDK
+ *     Hermes would otherwise install lazily from PyPI is baked into a
+ *     derived image at build time (see `hermes-image/Dockerfile`), so the
+ *     jailed runtime never needs to reach PyPI.
  *   - `docker exec --env PATH=...` for setup, send, and seed-conversation
  *     actions. The Hermes binary lives at `/opt/hermes/.venv/bin/hermes`;
  *     the official docs note it's NOT on PATH for `docker exec` sessions,
@@ -103,6 +110,23 @@ import { assertSafeWorkspacePath } from "./workspace-path";
  * so eval reruns are reproducible. Bump intentionally, not by accident.
  */
 export const DEFAULT_HERMES_IMAGE = "nousresearch/hermes-agent:v2026.5.16";
+/**
+ * Tag for the locally-built image derived from {@link DEFAULT_HERMES_IMAGE}.
+ * The derived image bakes Hermes's lazy-installed provider SDKs (see
+ * `hermes-image/Dockerfile`) so a container born inside the fail-closed
+ * egress jail is dependency-complete and never reaches PyPI at request
+ * time. Built on hatch from the base tag; content-cached by Docker.
+ */
+export const DERIVED_HERMES_IMAGE = "vellum-evals-hermes:local";
+
+function adapterDir(): string {
+  return dirname(fileURLToPath(import.meta.url));
+}
+
+/** Directory holding the derived Hermes image's Dockerfile + build context. */
+function hermesImageDockerfileDir(): string {
+  return resolve(adapterDir(), "hermes-image");
+}
 /** Default in-container CLI name. The binary at
  * `/opt/hermes/.venv/bin/hermes` is not on the `docker exec` PATH by
  * default — see `EXEC_PATH` below. */
@@ -210,45 +234,13 @@ export const HERMES_CA_TRUST_ENV_FLAGS = [
  * inherits it: a lazy install then fails fast as `FeatureUnavailable`
  * instead of hanging, so an unmet optional dep degrades gracefully rather
  * than wedging the whole run. Provider SDKs the run genuinely needs are
- * pre-installed before the jail closes — see `HERMES_PROVIDER_WARMUP_FEATURES`.
+ * baked into the derived image at build time (see `hermes-image/Dockerfile`),
+ * so this lock never blocks a provider Hermes actually uses.
  */
 export const HERMES_DISABLE_LAZY_INSTALLS_ENV_FLAGS = [
   "-e",
   "HERMES_DISABLE_LAZY_INSTALLS=1",
 ] as const;
-
-/**
- * Forwarded provider keys whose Hermes provider backend ships as a lazy
- * dependency (not baked into the base image), mapped to the
- * `lazy_deps.LAZY_DEPS` feature name we warm up while egress is still open.
- *
- * Only the native Anthropic SDK is lazy in `nousresearch/hermes-agent`;
- * the OpenAI SDK (used for OpenAI and the OpenAI-compatible Google path)
- * is pre-installed. So a forwarded `ANTHROPIC_API_KEY` is the one case
- * that needs warming — without it Hermes tries to install `anthropic` on
- * its first model call, after the jail has already blocked PyPI.
- */
-export const HERMES_PROVIDER_WARMUP_FEATURES: Readonly<Record<string, string>> =
-  {
-    ANTHROPIC_API_KEY: "provider.anthropic",
-  };
-
-/**
- * The lazy-install feature names to warm up before the jail closes, given
- * the set of provider keys this run forwards into the container. Mirrors
- * `selectProviderEnvFlags` so warm-up and forwarding stay in lockstep.
- */
-export function selectProviderWarmupFeatures(
-  env: Record<string, string | undefined>,
-  names: ReadonlyArray<string> = HERMES_PROVIDER_ENV_VARS,
-): string[] {
-  const features: string[] = [];
-  for (const name of names) {
-    const feature = HERMES_PROVIDER_WARMUP_FEATURES[name];
-    if (feature && env[name]) features.push(feature);
-  }
-  return features;
-}
 
 export interface HermesInferenceSelection {
   provider: string;
@@ -332,8 +324,10 @@ export interface HermesAgentOptions {
   testId: string;
   runId?: string;
   runner?: CommandRunner;
-  /** Docker image to run the Hermes agent from. */
+  /** Base Hermes image the derived (provider-SDK-baked) image is built from. */
   dockerImage?: string;
+  /** Tag for the locally-built derived image the container runs from. */
+  derivedImage?: string;
   /** Hermes CLI command name inside the container. */
   cliCommand?: string;
   /** Args passed after the image to start the container in daemon mode.
@@ -462,10 +456,10 @@ export class HermesAgent implements BaseAgent {
   private readonly profile: Profile;
   private readonly runner: CommandRunner;
   private readonly cliCommand: string;
-  private readonly dockerImage: string;
+  private readonly baseImage: string;
+  private readonly derivedImage: string;
   private readonly daemonArgs: ReadonlyArray<string>;
   private readonly providerEnvFlags: string[];
-  private readonly providerWarmupFeatures: string[];
   private readonly inferenceSelection: HermesInferenceSelection | undefined;
   private readonly testId: string;
   private readonly containerName: string;
@@ -479,13 +473,10 @@ export class HermesAgent implements BaseAgent {
     this.testId = opts.testId;
     this.runner = opts.runner ?? new NodeCommandRunner();
     this.cliCommand = opts.cliCommand ?? DEFAULT_HERMES_CLI;
-    this.dockerImage = opts.dockerImage ?? DEFAULT_HERMES_IMAGE;
+    this.baseImage = opts.dockerImage ?? DEFAULT_HERMES_IMAGE;
+    this.derivedImage = opts.derivedImage ?? DERIVED_HERMES_IMAGE;
     this.daemonArgs = opts.daemonArgs ?? DEFAULT_HERMES_DAEMON_ARGS;
     this.providerEnvFlags = selectProviderEnvFlags(
-      opts.processEnv ?? process.env,
-      opts.providerEnvNames,
-    );
-    this.providerWarmupFeatures = selectProviderWarmupFeatures(
       opts.processEnv ?? process.env,
       opts.providerEnvNames,
     );
@@ -509,11 +500,47 @@ export class HermesAgent implements BaseAgent {
 
     let containerStarted = false;
     try {
+      // Bake the derived image first. The build still has open egress, so
+      // Hermes's lazy provider SDKs resolve into the image here rather than
+      // hitting PyPI from inside the fail-closed jail at request time.
+      const build = await this.runner.run(
+        "docker",
+        [
+          "build",
+          "-t",
+          this.derivedImage,
+          "--build-arg",
+          `HERMES_BASE=${this.baseImage}`,
+          hermesImageDockerfileDir(),
+        ],
+        {
+          logPath: join(
+            runArtifacts(this.id).runDir,
+            "subprocess-build-image.log",
+          ),
+          logStep: "build-image",
+        },
+      );
+      assertSuccess(build, `build derived Hermes image ${this.derivedImage}`);
+
+      // The recording jail owns a fresh network namespace and is created
+      // first, with its iptables allowlist + NAT REDIRECT and the
+      // interception CA all in place before any tenant exists. Hermes is
+      // then born into that namespace (`--network container:<jail>`), so
+      // its gateway's very first outbound TLS is already behind the proxy
+      // — there is no pre-jail window for an unrecorded connection to
+      // escape. Because the jail owns the namespace, teardown removes the
+      // Hermes container before `jail.stop()` (the owner must outlive its
+      // tenants — Docker refuses to remove a container whose netns another
+      // still shares).
+      this.jail = await applyDockerEgressJail(this.runner, {
+        runId: this.id,
+        recordingDir: runArtifacts(this.id).runDir,
+      });
+
       // Detached `docker run` so the Hermes gateway stays up across
-      // send/events. The container idles waiting for CLI interactions;
-      // outbound model traffic only happens once the egress jail is in
-      // place because the gateway shouldn't reach out before it receives
-      // its first message.
+      // send/events. The container idles waiting for CLI interactions; the
+      // gateway opens no outbound model TLS until its first message.
       await this.runner
         .run("docker", ["rm", "-f", this.containerName])
         .catch(() => undefined);
@@ -524,13 +551,15 @@ export class HermesAgent implements BaseAgent {
           "-d",
           "--name",
           this.containerName,
+          "--network",
+          `container:${this.jail.netnsContainer}`,
           "--label",
           "evals.vellum.ai/species=hermes",
           ...this.providerEnvFlags,
           ...inferenceEnvFlags(this.inferenceSelection),
           ...HERMES_CA_TRUST_ENV_FLAGS,
           ...HERMES_DISABLE_LAZY_INSTALLS_ENV_FLAGS,
-          this.dockerImage,
+          this.derivedImage,
           ...this.daemonArgs,
         ],
         {
@@ -541,14 +570,17 @@ export class HermesAgent implements BaseAgent {
       assertSuccess(create, `start Hermes container for ${this.profile.id}`);
       containerStarted = true;
 
-      await this.ensureWorkspaceDir();
-      await this.warmUpProviderDeps();
+      // Patch the jail's interception CA into Hermes's trust store before
+      // its first model TLS. The gateway makes no outbound model call until
+      // its first message, so installing it here (before any turn) is in
+      // time; without it the intercepted handshake fails closed.
+      await installRecordingCa(
+        this.runner,
+        runArtifacts(this.id).runDir,
+        this.containerName,
+      );
 
-      this.jail = await attachDockerEgressJail(this.runner, {
-        runId: this.id,
-        containerName: this.containerName,
-        recordingDir: runArtifacts(this.id).runDir,
-      });
+      await this.ensureWorkspaceDir();
 
       for (const [idx, command] of setupCommands(this.profile).entries()) {
         const setup = await this.runner.run(
@@ -573,60 +605,15 @@ export class HermesAgent implements BaseAgent {
 
       this.hatched = true;
     } catch (err) {
-      await this.jail?.stop().catch(() => undefined);
+      // Owner-mode teardown order: remove the tenant before the namespace
+      // owner.
       if (containerStarted) {
         await this.runner
           .run("docker", ["rm", "-f", this.containerName])
           .catch(() => undefined);
       }
+      await this.jail?.stop().catch(() => undefined);
       throw err;
-    }
-  }
-
-  /**
-   * Install the provider SDKs this run needs before the egress jail closes.
-   *
-   * Hermes installs provider/tool backends lazily on first use via an
-   * in-venv install (`tools.lazy_deps.ensure`). The native Anthropic SDK is
-   * one such lazy dep, so a `hermes-default` run keyed on `ANTHROPIC_API_KEY`
-   * would otherwise reach for PyPI on its first model call — which the
-   * fail-closed jail blocks, hanging the turn until it times out. We invoke
-   * Hermes's own installer here, while egress is still open, so it resolves
-   * the version Hermes pins itself (no hardcoding) into the hermes-owned
-   * venv. We run as `--user hermes` (the same unprivileged user `send`
-   * uses) so the installed files are owned by the user that imports them,
-   * and override the daemon's `HERMES_DISABLE_LAZY_INSTALLS=1` for just
-   * this exec so the warm-up install is permitted while jailed turns stay
-   * locked down.
-   */
-  private async warmUpProviderDeps(): Promise<void> {
-    for (const feature of this.providerWarmupFeatures) {
-      const warm = await this.runner.run(
-        "docker",
-        [
-          "exec",
-          "--user",
-          "hermes",
-          "--env",
-          `PATH=${EXEC_PATH}`,
-          "--env",
-          "PYTHONPATH=/opt/hermes",
-          "--env",
-          "HERMES_DISABLE_LAZY_INSTALLS=0",
-          this.containerName,
-          "/opt/hermes/.venv/bin/python3",
-          "-c",
-          `from tools.lazy_deps import ensure; ensure(${JSON.stringify(feature)})`,
-        ],
-        {
-          logPath: join(
-            runArtifacts(this.id).runDir,
-            `subprocess-warmup-${feature.replace(/\W+/g, "-")}.log`,
-          ),
-          logStep: `warmup-${feature}`,
-        },
-      );
-      assertSuccess(warm, `warm up Hermes provider dependency '${feature}'`);
     }
   }
 
@@ -818,12 +805,15 @@ export class HermesAgent implements BaseAgent {
     if (this.stopped) return;
     this.stopped = true;
     this.eventSink?.close();
-    await this.jail?.stop().catch(() => undefined);
+    // Owner-mode teardown order: the jail owns the network namespace Hermes
+    // joined, so the tenant is removed before `jail.stop()` (Docker refuses
+    // to remove a container whose netns another container still shares).
     if (this.hatched) {
       await this.runner
         .run("docker", ["rm", "-f", this.containerName])
         .catch(() => undefined);
     }
+    await this.jail?.stop().catch(() => undefined);
   }
 
   private assertHatched(): void {
