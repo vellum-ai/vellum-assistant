@@ -31,7 +31,7 @@ function escapeLike(value: string): string {
 
 /**
  * Find the first contact_channels row whose (type, address) matches.
- * The UNIQUE(type, address) constraint (migration 105) guarantees at most one.
+ * Uses COLLATE NOCASE to find legacy lowercased rows (pre-migration 290).
  */
 function findConflictingChannel(
   db: ReturnType<typeof getDb>,
@@ -42,7 +42,10 @@ function findConflictingChannel(
     .select()
     .from(contactChannels)
     .where(
-      and(eq(contactChannels.type, type), eq(contactChannels.address, address)),
+      and(
+        eq(contactChannels.type, type),
+        sql`${contactChannels.address} = ${address} COLLATE NOCASE`,
+      ),
     )
     .get();
 }
@@ -365,6 +368,7 @@ function syncChannels(
 
   for (const ch of channels) {
     // Match by (type, address) — the canonical identity for all channel types.
+    // COLLATE NOCASE catches legacy rows that were lowercased by old write paths.
     const existing = db
       .select()
       .from(contactChannels)
@@ -372,7 +376,7 @@ function syncChannels(
         and(
           eq(contactChannels.contactId, contactId),
           eq(contactChannels.type, ch.type),
-          eq(contactChannels.address, ch.address),
+          sql`${contactChannels.address} = ${ch.address} COLLATE NOCASE`,
         ),
       )
       .get();
@@ -384,6 +388,8 @@ function syncChannels(
       const isBlocked = existing.status === "blocked";
 
       const updateSet: Record<string, unknown> = {};
+      // Self-heal legacy lowercased addresses to canonical form.
+      if (existing.address !== ch.address) updateSet.address = ch.address;
       if (ch.isPrimary !== undefined) updateSet.isPrimary = ch.isPrimary;
       if (ch.externalUserId !== undefined)
         updateSet.externalUserId = ch.externalUserId;
@@ -709,7 +715,8 @@ export function mergeContacts(
 
 /**
  * Find a contact by a specific channel address. Returns null if not found.
- * Canonicalizes the address before querying to match the write-path invariant.
+ * Canonicalizes the address before querying. Uses COLLATE NOCASE to match
+ * legacy lowercased rows that migration 290 couldn't restore.
  */
 export function findContactByAddress(
   type: string,
@@ -724,7 +731,7 @@ export function findContactByAddress(
     .where(
       and(
         eq(contactChannels.type, type),
-        eq(contactChannels.address, canonical),
+        sql`${contactChannels.address} = ${canonical} COLLATE NOCASE`,
       ),
     )
     .get();
@@ -783,7 +790,9 @@ export function findContactChannel(params: {
     const contact = findContactByAddress(params.channelType, canonical);
     if (contact) {
       const ch = contact.channels.find(
-        (c) => c.type === params.channelType && c.address === canonical,
+        (c) =>
+          c.type === params.channelType &&
+          c.address.toLowerCase() === canonical.toLowerCase(),
       );
       if (ch) return { contact, channel: ch };
     }
