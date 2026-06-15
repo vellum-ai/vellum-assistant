@@ -97,12 +97,12 @@ class FakeRunner implements CommandRunner {
 }
 
 const profile: Profile = {
-  id: "hermes-bare",
+  id: "hermes-default",
   manifest: {
     species: "hermes",
     setup: ["hermes plugins install simple-memory"],
   },
-  workspaceDir: "/profiles/hermes-bare/workspace",
+  workspaceDir: "/profiles/hermes-default/workspace",
 };
 
 async function preStageRecordingCa(runId: string): Promise<void> {
@@ -682,9 +682,9 @@ describe("HermesAgent", () => {
   test("refuses to hatch a non-hermes profile", async () => {
     const runner = new FakeRunner();
     const wrongProfile: Profile = {
-      id: "vellum-bare",
+      id: "vellum-default",
       manifest: { species: "vellum" },
-      workspaceDir: "/profiles/vellum-bare/workspace",
+      workspaceDir: "/profiles/vellum-default/workspace",
     };
     const agent = new HermesAgent({
       runner,

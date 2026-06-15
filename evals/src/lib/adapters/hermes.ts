@@ -264,8 +264,8 @@ export interface HermesInferenceSelection {
  * Pinning the provider to the forwarded key's native backend keeps every
  * call on an allowlisted host. Hermes requires a model alongside an explicit
  * provider, so we pin one too; the values are the current flagship for each
- * provider, matching the model the stock Vellum daemon uses, so vellum-bare
- * and hermes-bare compare on the same model.
+ * provider, matching the model the stock Vellum daemon uses, so vellum-default
+ * and hermes-default compare on the same model.
  *
  * Only keys with a native API-key backend in the pinned image are mapped.
  * `nousresearch/hermes-agent`'s `PROVIDER_REGISTRY` registers `anthropic`
