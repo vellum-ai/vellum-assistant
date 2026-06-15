@@ -144,13 +144,9 @@ export const TranscriptRow = memo(function TranscriptRow({
                 }}
               />
             ))}
-            {item.label ? (
-              <span className="ml-1 text-body-small-default text-[var(--content-secondary)]">
-                {item.label}
-              </span>
-            ) : (
-              <span className="sr-only">Thinking…</span>
-            )}
+            <span className="ml-1 text-body-small-default text-[var(--content-secondary)]">
+              {item.label ?? "Thinking…"}
+            </span>
           </div>
         </div>
       );
