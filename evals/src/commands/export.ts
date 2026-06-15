@@ -27,8 +27,11 @@ import {
 
 type ExportRecord =
   | {
+      // v2: the execution payload reports `assistantResponses` (folded
+      // assistant replies) + `runtimeMs`, replacing v1's `transcriptTurns`
+      // (raw per-delta transcript-entry count).
       type: "metadata";
-      schemaVersion: 1;
+      schemaVersion: 2;
       exportedAt: string;
       sessionId: string;
     }
@@ -93,7 +96,7 @@ export function registerExportCommand(program: Command): void {
       const records: ExportRecord[] = [
         {
           type: "metadata",
-          schemaVersion: 1,
+          schemaVersion: 2,
           exportedAt: new Date().toISOString(),
           sessionId: opts.session,
         },
