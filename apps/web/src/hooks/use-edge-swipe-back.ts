@@ -37,7 +37,7 @@ const CANCEL_ANIMATION_MS = 200;
 // ---------------------------------------------------------------------------
 
 export interface UseEdgeSwipeBackArgs {
-  /** Ref to the container element that receives touch events. */
+  /** Ref to the element that receives the translateX visual transform. */
   containerRef: RefObject<HTMLElement | null>;
   /** Callback fired when the swipe is committed. */
   onBack: () => void;
@@ -57,9 +57,9 @@ interface DragState {
 /**
  * Detects left-edge swipe gestures and triggers a back-navigation callback.
  *
- * Applies transforms directly to the container element for jank-free
- * animation (no React re-renders per frame). The element slides right
- * with the finger and snaps back on cancel or navigates on commit.
+ * Touch listeners are attached to `document` so the full viewport edge is
+ * reachable regardless of CSS padding on ancestor elements. The container
+ * ref is used only for applying the translateX visual transform.
  */
 export function useEdgeSwipeBack({
   containerRef,
@@ -108,6 +108,8 @@ export function useEdgeSwipeBack({
       }
     };
 
+    // Listen on document so touches at the viewport edge are captured even
+    // when the container is inset by parent padding.
     const handleTouchStart = (event: TouchEvent) => {
       if (dragRef.current) return;
       if (event.touches.length !== 1) return;
@@ -223,16 +225,16 @@ export function useEdgeSwipeBack({
       }
     };
 
-    el.addEventListener("touchstart", handleTouchStart, { passive: true });
-    el.addEventListener("touchmove", handleTouchMove, { passive: true });
-    el.addEventListener("touchend", handleTouchEnd, { passive: true });
-    el.addEventListener("touchcancel", handleTouchCancel, { passive: true });
+    document.addEventListener("touchstart", handleTouchStart, { passive: true });
+    document.addEventListener("touchmove", handleTouchMove, { passive: true });
+    document.addEventListener("touchend", handleTouchEnd, { passive: true });
+    document.addEventListener("touchcancel", handleTouchCancel, { passive: true });
 
     return () => {
-      el.removeEventListener("touchstart", handleTouchStart);
-      el.removeEventListener("touchmove", handleTouchMove);
-      el.removeEventListener("touchend", handleTouchEnd);
-      el.removeEventListener("touchcancel", handleTouchCancel);
+      document.removeEventListener("touchstart", handleTouchStart);
+      document.removeEventListener("touchmove", handleTouchMove);
+      document.removeEventListener("touchend", handleTouchEnd);
+      document.removeEventListener("touchcancel", handleTouchCancel);
       el.style.transition = "";
       el.style.transform = "";
       el.style.willChange = "";
