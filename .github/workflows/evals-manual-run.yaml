@@ -18,9 +18,9 @@ on:
   workflow_dispatch:
     inputs:
       profiles:
-        description: 'Comma-separated profile ids (e.g. vellum-bare or vellum-bare,vellum-simple-memory)'
+        description: 'Comma-separated profile ids (e.g. vellum-default or vellum-default,vellum-simple-memory)'
         required: true
-        default: 'vellum-bare'
+        default: 'vellum-default'
       tests:
         description: 'Comma-separated test ids (e.g. timeline-recall)'
         required: true

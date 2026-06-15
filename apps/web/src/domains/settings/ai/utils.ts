@@ -2,13 +2,40 @@ import type { LlmCatalogModel } from "@/assistant/llm-model-catalog";
 import {
   WEB_SEARCH_PROVIDER_KEY_STORAGE,
 } from "@/assistant/generated/web-search-provider-catalog.gen";
+import type { ProfileEntry, ServiceMode } from "@/generated/daemon/types.gen";
 
-import type {
-  InferenceTokenBudgetState,
-  ProfileEntry,
-  ProfileWithName,
-} from "@/domains/settings/ai/ai-types";
-import { TOKEN_SLIDER_MIN_TOKENS } from "@/domains/settings/ai/ai-types";
+import { TOKEN_SLIDER_MIN_TOKENS } from "@/domains/settings/ai/constants";
+
+// ---------------------------------------------------------------------------
+// Domain types
+// ---------------------------------------------------------------------------
+
+export type ProfileWithName = { name: string } & ProfileEntry;
+
+export interface InferenceTokenBudgetState {
+  maxOutputTokens: number;
+  maxOutputTouched: boolean;
+  contextWindowTokens: number;
+  contextWindowTouched: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Service mode validation
+// ---------------------------------------------------------------------------
+
+const SERVICE_MODE_VALUES: ReadonlySet<string> = new Set<ServiceMode>(["managed", "your-own"]);
+
+/**
+ * Validates a raw string (e.g. from localStorage) as a `ServiceMode`.
+ * Returns `fallback` when the value is not a known mode.
+ */
+export function parseServiceMode(raw: string, fallback: ServiceMode): ServiceMode {
+  return SERVICE_MODE_VALUES.has(raw) ? (raw as ServiceMode) : fallback;
+}
+
+// ---------------------------------------------------------------------------
+// Profile utilities
+// ---------------------------------------------------------------------------
 
 /**
  * Merges `profileOrder` with `profiles` to produce a stable ordered list.

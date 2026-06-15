@@ -18,7 +18,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
-import type { ProfileEntry } from "@/domains/settings/ai/ai-types";
+import type { ProfileEntry } from "@/generated/daemon/types.gen";
 import type { ProviderConnection } from "@/domains/settings/ai/provider-connections-client";
 import * as daemonQueryGen from "@/generated/daemon/@tanstack/react-query.gen";
 

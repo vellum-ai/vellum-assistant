@@ -7,51 +7,45 @@
  * channel (web/macOS/iOS).
  */
 
-import { sanitizeIdentityField } from "./access-request-copy.js";
 import { buildApprovalCardBlocks } from "./approval-card-builder.js";
 import {
   buildGuardianRequestCodeInstruction,
-  resolveGuardianQuestionInstructionMode,
+  type GuardianQuestionPayload,
+  type LenientToolApprovalPayload,
+  LenientToolApprovalPayloadSchema,
+  parseGuardianQuestionPayload,
+  resolveGuardianInstructionModeFromFields,
+  resolveGuardianInstructionModeFromPayload,
 } from "./guardian-question-mode.js";
+import { nonEmpty, sanitizeIdentityField } from "./notification-utils.js";
 
-// ── Local string utility ────────────────────────────────────────────────────
-// Duplicated from copy-composer to avoid a circular import
-// (copy-composer imports this module).
+// ── Approval detection ──────────────────────────────────────────────────────
 
-function nonEmpty(value: string | undefined): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
+/**
+ * Determine whether a typed guardian.question payload represents a tool
+ * approval (as opposed to a free-text answer). Uses the canonical mode
+ * resolver in `guardian-question-mode.ts` — the single source of truth
+ * for the requestKind → instructionMode mapping.
+ */
+function isToolApprovalPayload(payload: GuardianQuestionPayload): boolean {
+  const { mode } = resolveGuardianInstructionModeFromPayload(payload);
+  return mode === "approval" && payload.requestKind !== "access_request";
 }
 
-// ── Typed payload reader ────────────────────────────────────────────────────
-
-interface ParsedToolApprovalPayload {
-  requestId?: string;
-  requestCode?: string;
-  requestKind?: string;
-  toolName?: string;
-  questionText?: string;
-  sourceChannel?: string;
-  requesterIdentifier?: string;
-}
-
-function parseToolApprovalPayload(
-  payload: Record<string, unknown>,
-): ParsedToolApprovalPayload {
-  const s = (key: string): string | undefined => {
-    const v = payload[key];
-    return typeof v === "string" ? v : undefined;
-  };
-  return {
-    requestId: s("requestId"),
-    requestCode: s("requestCode"),
-    requestKind: s("requestKind"),
-    toolName: s("toolName"),
-    questionText: s("questionText"),
-    sourceChannel: s("sourceChannel"),
-    requesterIdentifier: s("requesterIdentifier"),
-  };
+/**
+ * Lenient approval detection for partially-constructed payloads that don't
+ * satisfy the strict discriminated union schema.
+ */
+function isLenientToolApproval(payload: LenientToolApprovalPayload): boolean {
+  const modeResolution = resolveGuardianInstructionModeFromFields(
+    payload.requestKind,
+    payload.toolName,
+  );
+  if (!modeResolution) return false;
+  return (
+    modeResolution.mode === "approval" &&
+    payload.requestKind !== "access_request"
+  );
 }
 
 // ── Seed content blocks (Surface-based rendering) ───────────────────────────
@@ -60,25 +54,43 @@ function parseToolApprovalPayload(
  * Build structured content blocks for a tool approval/grant notification seed
  * message. Returns `null` when the payload does not represent a tool approval.
  *
- * Covers `tool_approval`, `tool_grant_request`, and `pending_question` with a
- * `toolName` (voice/call tool approvals persisted as pending questions — see
- * `guardian-question-mode.ts` REQUEST_KIND_MODE_CONFIG).
+ * Accepts both strict `GuardianQuestionPayload` (Zod-validated) and raw
+ * `Record<string, unknown>` payloads. For raw payloads, attempts strict
+ * parsing first, then falls back to lenient field extraction so cards
+ * still render when optional fields are absent.
  */
 export function buildToolApprovalSeedContentBlocks(
+  payload: GuardianQuestionPayload,
+): unknown[] | null;
+export function buildToolApprovalSeedContentBlocks(
   payload: Record<string, unknown>,
+): unknown[] | null;
+export function buildToolApprovalSeedContentBlocks(
+  payload: GuardianQuestionPayload | Record<string, unknown>,
 ): unknown[] | null {
-  const p = parseToolApprovalPayload(payload);
-
-  const isToolApproval =
-    p.requestKind === "tool_approval" ||
-    p.requestKind === "tool_grant_request" ||
-    (p.requestKind === "pending_question" && !!nonEmpty(p.toolName));
-
-  if (!isToolApproval) {
-    return null;
+  // Try strict Zod parsing first (full discriminated union).
+  const strict = parseGuardianQuestionPayload(
+    payload as Record<string, unknown>,
+  );
+  if (strict) {
+    if (!isToolApprovalPayload(strict)) return null;
+    return buildCardFromFields(strict);
   }
 
-  const toolName = nonEmpty(p.toolName) ?? "unknown tool";
+  // Fall back to lenient parsing — requires only `requestKind`.
+  const lenient = LenientToolApprovalPayloadSchema.safeParse(payload);
+  if (!lenient.success) return null;
+  if (!isLenientToolApproval(lenient.data)) return null;
+  return buildCardFromFields(lenient.data);
+}
+
+// ── Card construction (shared between strict and lenient paths) ─────────────
+
+function buildCardFromFields(
+  p: GuardianQuestionPayload | LenientToolApprovalPayload,
+): unknown[] {
+  const toolName =
+    ("toolName" in p ? nonEmpty(p.toolName) : undefined) ?? "unknown tool";
   const rawRequester = nonEmpty(p.requesterIdentifier);
   const requester = rawRequester
     ? sanitizeIdentityField(rawRequester)
@@ -88,23 +100,29 @@ export function buildToolApprovalSeedContentBlocks(
 
   const metadata: Array<{ label: string; value: string }> = [];
   metadata.push({ label: "Tool", value: toolName });
-  if (p.sourceChannel) {
-    metadata.push({ label: "Source", value: p.sourceChannel });
+  const sourceChannel = nonEmpty(p.sourceChannel);
+  if (sourceChannel) {
+    metadata.push({ label: "Source", value: sourceChannel });
   }
 
   const body = p.questionText
     ? `> ${p.questionText}`
     : "No additional context available.";
 
-  // Build fallback text with request-code instructions for older clients.
+  // Fallback text with request-code instructions for older clients.
   const baseFallback =
     p.questionText ?? `${requester} is requesting approval to use ${toolName}`;
   let fallbackText = baseFallback;
-  if (p.requestCode) {
-    const modeResolution = resolveGuardianQuestionInstructionMode(payload);
+  const requestCode = nonEmpty(p.requestCode);
+  if (requestCode) {
+    const modeResolution = resolveGuardianInstructionModeFromFields(
+      p.requestKind,
+      "toolName" in p ? (p.toolName ?? undefined) : undefined,
+    );
+    const mode = modeResolution?.mode ?? "approval";
     const instruction = buildGuardianRequestCodeInstruction(
-      p.requestCode.trim().toUpperCase(),
-      modeResolution.mode,
+      requestCode.trim().toUpperCase(),
+      mode,
     );
     fallbackText = `${baseFallback}\n\n${instruction}`;
   }
@@ -118,7 +136,7 @@ export function buildToolApprovalSeedContentBlocks(
       : "Requesting approval to run this tool",
     body,
     metadata,
-    requestId: p.requestId,
+    requestId: nonEmpty(p.requestId),
     fallbackText,
   });
 }

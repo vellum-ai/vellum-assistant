@@ -12,12 +12,18 @@
 import {
   buildAccessRequestContractText,
   buildAccessRequestSeedContentBlocks,
-  sanitizeIdentityField,
 } from "./access-request-copy.js";
 import {
   buildGuardianRequestCodeInstruction,
+  parseGuardianQuestionPayload,
+  resolveGuardianInstructionModeFromPayload,
   resolveGuardianQuestionInstructionMode,
 } from "./guardian-question-mode.js";
+import {
+  nonEmpty,
+  readPayloadString,
+  sanitizeIdentityField,
+} from "./notification-utils.js";
 import type {
   NotificationSignal,
   NotificationSourceEventName,
@@ -30,26 +36,6 @@ type CopyTemplate = (payload: Record<string, unknown>) => RenderedChannelCopy;
 function str(value: unknown, fallback: string): string {
   if (typeof value === "string" && value.length > 0) return value;
   return fallback;
-}
-
-export function nonEmpty(value: string | undefined): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-/**
- * Safely read a string property from an unknown-typed payload object.
- * Returns `undefined` when the payload is falsy, not an object, or the
- * key does not hold a string value.
- */
-export function readPayloadString(
-  payload: unknown,
-  key: string,
-): string | undefined {
-  if (!payload || typeof payload !== "object") return undefined;
-  const value = (payload as Record<string, unknown>)[key];
-  return typeof value === "string" ? value : undefined;
 }
 
 /**
@@ -78,17 +64,27 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
       payload.questionText,
       "A guardian question needs your attention",
     );
-    const requestCode = nonEmpty(
-      typeof payload.requestCode === "string" ? payload.requestCode : undefined,
-    );
+
+    // Parse once with Zod and reuse the typed payload downstream.
+    const parsed = parseGuardianQuestionPayload(payload);
 
     // For tool_grant_request, the questionText already includes requester name + input summary.
     // Use it directly as the conversation seed to avoid LLM-generated filler.
-    const isToolGrant = payload.requestKind === "tool_grant_request";
+    const isToolGrant = parsed?.requestKind === "tool_grant_request";
     const conversationSeedMessage = isToolGrant ? question : undefined;
 
     const seedContentBlocks =
-      buildToolApprovalSeedContentBlocks(payload) ?? undefined;
+      (parsed
+        ? buildToolApprovalSeedContentBlocks(parsed)
+        : buildToolApprovalSeedContentBlocks(payload)) ?? undefined;
+
+    const requestCode = parsed
+      ? nonEmpty(parsed.requestCode)
+      : nonEmpty(
+          typeof payload.requestCode === "string"
+            ? payload.requestCode
+            : undefined,
+        );
 
     if (!requestCode) {
       return {
@@ -100,7 +96,9 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     }
 
     const normalizedCode = requestCode.toUpperCase();
-    const modeResolution = resolveGuardianQuestionInstructionMode(payload);
+    const modeResolution = parsed
+      ? resolveGuardianInstructionModeFromPayload(parsed)
+      : resolveGuardianQuestionInstructionMode(payload);
     const instruction = buildGuardianRequestCodeInstruction(
       normalizedCode,
       modeResolution.mode,

@@ -842,6 +842,43 @@ describe("credential_store tool", () => {
       expect(metadata!.allowedDomains).toEqual([]);
     });
 
+    test("store rotation without policy fields preserves the existing policy", async () => {
+      /**
+       * Re-storing (rotating) a credential without policy fields must keep the
+       * policy it was originally stored with, rather than resetting it to a
+       * deny-all empty policy.
+       */
+      // GIVEN a credential stored with an allowed-tools/-domains policy
+      await credentialStoreTool.execute(
+        {
+          action: "store",
+          service: "rotation-svc",
+          field: "token",
+          value: "v1",
+          allowed_tools: ["browser_fill_credential"],
+          allowed_domains: ["example.com"],
+        },
+        _ctx,
+      );
+
+      // WHEN it is re-stored with a new value but no policy fields
+      const result = await credentialStoreTool.execute(
+        {
+          action: "store",
+          service: "rotation-svc",
+          field: "token",
+          value: "v2",
+        },
+        _ctx,
+      );
+
+      // THEN the original policy is preserved
+      expect(result.isError).toBe(false);
+      const metadata = getCredentialMetadata("rotation-svc", "token");
+      expect(metadata!.allowedTools).toEqual(["browser_fill_credential"]);
+      expect(metadata!.allowedDomains).toEqual(["example.com"]);
+    });
+
     test("store rejects invalid policy input", async () => {
       const result = await credentialStoreTool.execute(
         {
