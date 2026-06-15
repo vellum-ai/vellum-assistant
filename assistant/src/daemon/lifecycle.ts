@@ -103,6 +103,7 @@ import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-t
 import { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
+import { repairQualityProfileModel } from "../workspace/quality-profile-model-repair.js";
 import {
   cleanupPidFile,
   cleanupPidFileIfOwner,
@@ -609,6 +610,24 @@ export async function runDaemon(): Promise<void> {
         log.warn(
           { err },
           "Post-overlay adaptive thinking repair failed — continuing startup",
+        );
+      }
+    }
+
+    // Workspace migration 103 moves the managed quality-optimized profile to
+    // Opus 4.8, but it runs before mergeDefaultWorkspaceConfig() and on a fresh
+    // platform hatch config.json may not exist yet — the migration no-ops and
+    // is checkpointed, while the overlay can write a Fable quality-optimized
+    // profile that seeding preserves by name. This idempotent repair re-applies
+    // the model fix after the overlay merge so it sticks regardless of ordering.
+    if (defaultConfigMerge.hadOverlay) {
+      try {
+        repairQualityProfileModel(getWorkspaceDir());
+        log.info("Post-overlay quality profile model repair complete");
+      } catch (err) {
+        log.warn(
+          { err },
+          "Post-overlay quality profile model repair failed — continuing startup",
         );
       }
     }

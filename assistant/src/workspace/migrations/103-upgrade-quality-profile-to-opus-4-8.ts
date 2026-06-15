@@ -19,6 +19,14 @@ import type { WorkspaceMigration } from "./types.js";
 // still on the previous quality-intent default is upgraded — matching by model
 // value also covers the OpenRouter-prefixed ids. A profile whose model the
 // user changed to anything else is left untouched.
+//
+// This migration runs before mergeDefaultWorkspaceConfig(), so on a fresh
+// platform hatch config.json may not exist yet and this no-ops while the later
+// overlay writes a Fable quality-optimized profile that seeding preserves by
+// name. lifecycle.ts re-applies the same fix after the overlay merge via
+// repairQualityProfileModel(). This migration keeps its own frozen copy of the
+// logic — migration files are self-contained snapshots and must not import the
+// shared repair module.
 
 const TARGET_PROFILES = ["quality-optimized"];
 
