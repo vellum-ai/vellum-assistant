@@ -189,6 +189,15 @@ describe("TelegramAdapter", () => {
         senderIdentifier: "Marina",
         sourceChannel: "telegram",
       },
+      approvalContext: {
+        requestId: "req-abc-123",
+        actions: [
+          { id: "approve_once", label: "Approve once" },
+          { id: "reject", label: "Reject" },
+        ],
+        plainTextFallback:
+          'Marina is requesting access to the assistant.\nReply "XYZW approve" to grant access or "XYZW reject" to deny.\nReply "open invite flow" to start Trusted Contacts invite flow.',
+      },
     });
 
     const result = await adapter.send(payload, makeDestination());
@@ -266,6 +275,15 @@ describe("TelegramAdapter", () => {
         requestCode: "XYZW",
         senderIdentifier: "Marina",
         sourceChannel: "telegram",
+      },
+      approvalContext: {
+        requestId: "req-abc-123",
+        actions: [
+          { id: "approve_once", label: "Approve once" },
+          { id: "reject", label: "Reject" },
+        ],
+        plainTextFallback:
+          'Marina is requesting access to the assistant.\nReply "XYZW approve" to grant access or "XYZW reject" to deny.\nReply "open invite flow" to start Trusted Contacts invite flow.',
       },
     });
 
