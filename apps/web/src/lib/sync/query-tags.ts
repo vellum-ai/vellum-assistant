@@ -69,18 +69,6 @@ export function originChannelListPrefix(assistantId: string | null) {
   return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "channel"] as const;
 }
 
-export function originChannelConversationsQueryKey(
-  assistantId: string | null,
-  channel: string,
-) {
-  return [
-    CONVERSATION_LIST_PREFIX,
-    assistantId ?? "",
-    "channel",
-    channel,
-  ] as const;
-}
-
 /**
  * Build the generated query key for conversation groups. Exported so that
  * invalidation call sites (sync stream, loader, group actions) can target
