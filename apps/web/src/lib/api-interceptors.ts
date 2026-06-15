@@ -280,7 +280,15 @@ export function localGatewayAuthRecoveryInterceptor(response: Response): Respons
   if (!isLocalMode()) {
     return response;
   }
-  if (!getSelfHostedIngressUrl()) {
+  const ingressUrl = getSelfHostedIngressUrl();
+  if (!ingressUrl) {
+    return response;
+  }
+
+  // Only recover from 401s that originated from the local gateway.
+  // Daemon requests that don't match ASSISTANT_PATH_RE are not rewritten
+  // and hit the platform instead — their 401s are handled elsewhere.
+  if (!response.url.startsWith(ingressUrl)) {
     return response;
   }
 
@@ -291,7 +299,9 @@ export function localGatewayAuthRecoveryInterceptor(response: Response): Respons
     }
     sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now()));
   } catch {
-    // sessionStorage unavailable
+    // sessionStorage unavailable — cannot enforce cooldown, skip reload
+    // to avoid infinite reload loops.
+    return response;
   }
 
   clearGatewayToken();
