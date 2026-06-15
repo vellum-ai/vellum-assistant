@@ -762,8 +762,8 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
      * 401 triggers another recovery attempt.
      */
 
-    // GIVEN a reload happened over 10 seconds ago
-    sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now() - 15_000));
+    // GIVEN a reload happened over 10 minutes ago
+    sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now() - 700_000));
     seedGatewayTokens();
 
     // WHEN the daemon receives a 401

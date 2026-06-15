@@ -271,7 +271,7 @@ export function daemonUnreachableInterceptor(response: Response): Response {
  * gateway consistently rejects tokens (e.g. after a misconfiguration).
  */
 const GW_401_RELOAD_KEY = "vellum:gw:401-reload-at";
-const GW_401_COOLDOWN_MS = 10_000;
+const GW_401_COOLDOWN_MS = 600_000;
 
 // In-memory latch: once recovery fires, all subsequent 401s in the same
 // page lifecycle are no-ops. Resets naturally on reload.
