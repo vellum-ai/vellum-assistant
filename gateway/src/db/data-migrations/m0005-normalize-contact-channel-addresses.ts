@@ -86,9 +86,28 @@ export function up(): MigrationResult {
     "Deduplicated contact_channels by (type, external_user_id) case-insensitive",
   );
 
-  // Restore original platform-provided casing from external_user_id.
+  // Remove rows that would block normalization due to cross-column collisions.
   db.exec(/*sql*/ `
-    UPDATE contact_channels
+    DELETE FROM contact_channels
+    WHERE external_user_id IS NULL
+      AND id IN (
+        SELECT blocker.id
+        FROM contact_channels AS blocker
+        INNER JOIN contact_channels AS normalizer
+          ON normalizer.type = blocker.type
+          AND normalizer.external_user_id = blocker.address
+          AND normalizer.address != normalizer.external_user_id
+          AND normalizer.external_user_id IS NOT NULL
+          AND normalizer.id != blocker.id
+      )
+  `);
+
+  log.info("Removed cross-column collision blockers");
+
+  // Restore original platform-provided casing from external_user_id.
+  // UPDATE OR IGNORE as safety net for any remaining edge cases.
+  db.exec(/*sql*/ `
+    UPDATE OR IGNORE contact_channels
     SET address = external_user_id
     WHERE external_user_id IS NOT NULL
       AND address != external_user_id

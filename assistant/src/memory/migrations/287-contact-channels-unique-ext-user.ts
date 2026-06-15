@@ -16,8 +16,10 @@ const log = getLogger("migration-287");
  * Steps:
  *  1. Deduplicate by (type, address) case-insensitively — keeps the best row.
  *  2. Deduplicate by (type, external_user_id) case-insensitively — prevents
- *     collisions when step 3 normalizes addresses from external_user_id.
- *  3. Normalize addresses — restore original casing from external_user_id.
+ *     collisions when step 4 normalizes addresses from external_user_id.
+ *  3. Remove cross-column collision blockers — rows with NULL external_user_id
+ *     whose address equals another row's external_user_id.
+ *  4. Normalize addresses — restore original casing from external_user_id.
  */
 export function migrateContactChannelsUniqueExtUser(database: DrizzleDb): void {
   const raw = getSqliteFrom(database);
@@ -91,11 +93,37 @@ export function migrateContactChannelsUniqueExtUser(database: DrizzleDb): void {
     );
   }
 
-  // Step 3: Restore original platform-provided casing. external_user_id
+  // Step 3: Remove rows that would block normalization due to cross-column
+  // collisions. A row with NULL external_user_id whose address equals another
+  // row's external_user_id prevents that row's normalization (UNIQUE violation).
+  const crossColResult = raw.run(/*sql*/ `
+    DELETE FROM contact_channels
+    WHERE external_user_id IS NULL
+      AND id IN (
+        SELECT blocker.id
+        FROM contact_channels AS blocker
+        INNER JOIN contact_channels AS normalizer
+          ON normalizer.type = blocker.type
+          AND normalizer.external_user_id = blocker.address
+          AND normalizer.address != normalizer.external_user_id
+          AND normalizer.external_user_id IS NOT NULL
+          AND normalizer.id != blocker.id
+      )
+  `);
+
+  if (crossColResult.changes > 0) {
+    log.info(
+      { rowsDeleted: crossColResult.changes },
+      "Removed cross-column collision blockers",
+    );
+  }
+
+  // Step 4: Restore original platform-provided casing. external_user_id
   // stores the exact value from the platform (e.g. "U12345ABC") while
-  // address may have been lowercased by old write paths.
+  // address may have been lowercased by old write paths. UPDATE OR IGNORE
+  // as a safety net for any remaining edge cases.
   const normalizeResult = raw.run(/*sql*/ `
-    UPDATE contact_channels
+    UPDATE OR IGNORE contact_channels
     SET address = external_user_id
     WHERE external_user_id IS NOT NULL
       AND address != external_user_id

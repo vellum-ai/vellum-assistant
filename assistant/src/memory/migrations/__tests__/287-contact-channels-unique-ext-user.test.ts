@@ -466,6 +466,45 @@ describe("migration 287 — dedup case collisions + drop ext_user indexes", () =
     expect(channels[0]!.address).toBe("U12345");
   });
 
+  test("cross-column collision: row with NULL ext_user_id blocks normalization", () => {
+    const db = createTestDb();
+    const raw = getSqliteFrom(db);
+    bootstrap(db);
+
+    insertContact(raw, "c1");
+    insertContact(raw, "c2");
+
+    // Row A: has external_user_id but stale lowercased address
+    insertChannel(raw, {
+      id: "ch-normalizer",
+      contactId: "c1",
+      type: "slack",
+      address: "old-handle",
+      externalUserId: "U12345",
+      status: "active",
+      updatedAt: 2000,
+    });
+
+    // Row B: occupies the target address with NULL external_user_id
+    insertChannel(raw, {
+      id: "ch-blocker",
+      contactId: "c2",
+      type: "slack",
+      address: "U12345",
+      externalUserId: null,
+      status: "unverified",
+      updatedAt: 1000,
+    });
+
+    migrateContactChannelsUniqueExtUser(db);
+
+    const channels = getAllChannels(raw);
+    // Blocker removed, normalizer updated to correct address
+    expect(channels).toHaveLength(1);
+    expect(channels[0]!.id).toBe("ch-normalizer");
+    expect(channels[0]!.address).toBe("U12345");
+  });
+
   test("idempotent — safe to run twice", () => {
     const db = createTestDb();
     const raw = getSqliteFrom(db);
