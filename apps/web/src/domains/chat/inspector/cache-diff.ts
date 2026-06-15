@@ -115,12 +115,19 @@ function sortKeysDeep(value: unknown): unknown {
   return value;
 }
 
-/** Stable content fingerprint for a single section. */
+/**
+ * Stable content fingerprint for a single section. Includes `toolName`
+ * because tool-call and tool-result sections can carry identical
+ * `text`/`data` while targeting different tools — without it a tool
+ * swap inside the cached prefix would hash identically and the diff
+ * would wrongly report the prefix as unchanged.
+ */
 function sectionSignature(section: LLMContextSection): string {
   return JSON.stringify({
     kind: section.kind,
     role: section.role ?? null,
     text: section.text ?? null,
+    toolName: section.toolName ?? null,
     data: sortKeysDeep(section.data),
   });
 }

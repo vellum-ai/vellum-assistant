@@ -1,6 +1,7 @@
 import { ChevronRight, Copy } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
+import { FileMarkdown } from "@/components/file-markdown";
 import { CacheDiffCard } from "@/domains/chat/inspector/components/cache-diff-card";
 import { CacheHealthCard } from "@/domains/chat/inspector/components/cache-health-card";
 import { ToolDefinitionsContent } from "@/domains/chat/inspector/components/tool-definitions-content";
@@ -18,16 +19,16 @@ interface PromptTabProps {
 }
 
 /**
- * Prompt tab: a cache-health summary pinned at the top, followed by each
- * normalized request section as a collapsible card. Sections start
- * expanded and can be folded individually or all at once so a reader can
- * skip past a long prompt to the cache breakdown. Section bodies render as
- * raw `<pre>` text so the prompt is shown exactly as sent — no Markdown
- * formatting applied. Structured payloads and tool output stay in a capped
- * scroll box (they can be huge); prompt text renders uncapped so the full
- * prompt is readable inline. Tool definitions render as an expandable
- * per-tool breakdown. The raw provider JSON lives on the Raw tab. A
- * cache-diff panel below the cache-health summary names the block that
+ * Prompt tab: each normalized request section renders as a collapsible
+ * card, with the cache-health summary and cache-diff panel below them at
+ * the bottom of the tab. Sections start expanded and can be folded
+ * individually or all at once so a reader can skip a long prompt and jump
+ * to the cache breakdown. Prose sections (system prompt, user and
+ * assistant messages) render as Markdown with literal `<tag>`-style
+ * delimiters preserved; structured payloads and tool output render as
+ * code-style `<pre>` text in a capped scroll box (they can be huge). Tool
+ * definitions render as an expandable per-tool breakdown. The raw provider
+ * JSON lives on the Raw tab. The cache-diff panel names the block that
  * diverged from the previous turn's request.
  */
 export function PromptTab({
@@ -57,14 +58,6 @@ export function PromptTab({
 
   return (
     <div className="flex flex-col gap-4 p-4">
-      <CacheHealthCard summary={entry.summary} />
-
-      <CacheDiffCard
-        current={entry}
-        previous={previous}
-        assistantId={assistantId}
-      />
-
       <Card>
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
@@ -115,6 +108,14 @@ export function PromptTab({
           ))}
         </Collapsible.Root>
       )}
+
+      <CacheHealthCard summary={entry.summary} />
+
+      <CacheDiffCard
+        current={entry}
+        previous={previous}
+        assistantId={assistantId}
+      />
     </div>
   );
 }
@@ -162,10 +163,13 @@ function PromptSectionItem({
   const formatLabel = toolDefs
     ? null
     : languageFormatLabel(section.language ?? null);
-  const { text, isStructured } = renderContent(section);
-  // Tool output and structured payloads can be huge, so cap their height
-  // into a scroll box; prompt text stays uncapped for inline reading.
-  const capHeight = isStructured || isToolResultKind(section.kind);
+  const text = renderContent(section);
+  // Sections backed by structured `data` (tool-call arguments, JSON payloads)
+  // and tool results are program output, not prose, and can be huge — render
+  // them as code-style text in a capped scroll box. Prose sections (system
+  // prompt, messages, reasoning) render as Markdown, uncapped for inline
+  // reading.
+  const renderAsCode = section.data != null || isToolResultKind(section.kind);
 
   return (
     <Collapsible.Item
@@ -221,17 +225,28 @@ function PromptSectionItem({
           <div className="px-4 pb-4">
             <ToolDefinitionsContent tools={toolDefs} />
           </div>
-        ) : (
+        ) : renderAsCode ? (
           <pre
             className="mx-4 mb-4 overflow-auto whitespace-pre-wrap break-words rounded-md p-3 text-body-small-default"
             style={{
               background: "var(--surface-base)",
               color: "var(--content-default)",
-              ...(capHeight ? { maxHeight: "320px" } : {}),
+              maxHeight: "320px",
             }}
           >
             {text}
           </pre>
+        ) : (
+          <div
+            className="min-w-0 break-words px-4 pb-4"
+            style={{ color: "var(--content-default)" }}
+          >
+            <FileMarkdown
+              content={text}
+              stripFrontmatter={false}
+              parseHtml={false}
+            />
+          </div>
         )}
       </Collapsible.Content>
     </Collapsible.Item>
@@ -279,22 +294,16 @@ function languageFormatLabel(language: string | null): string | null {
   }
 }
 
-function renderContent(section: LLMContextSection): {
-  text: string;
-  isStructured: boolean;
-} {
+function renderContent(section: LLMContextSection): string {
   if (section.text != null) {
-    return { text: section.text, isStructured: false };
+    return section.text;
   }
   if (section.data != null) {
     try {
-      return {
-        text: JSON.stringify(section.data, null, 2),
-        isStructured: true,
-      };
+      return JSON.stringify(section.data, null, 2);
     } catch {
-      return { text: String(section.data), isStructured: false };
+      return String(section.data);
     }
   }
-  return { text: "No content available.", isStructured: false };
+  return "No content available.";
 }
