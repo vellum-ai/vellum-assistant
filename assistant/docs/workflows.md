@@ -227,8 +227,14 @@ minus a forbidden set.
   authoring error, not a silent drop.
 - **Forbidden tools** can never be granted, even if declared (declaring one is a
   hard error): `subagent_spawn`, `run_workflow`, `manage_workflows`,
-  `manage_secure_command_tool`. These are recursion vectors or human-in-the-loop
-  install paths that must not be delegated to an unattended leaf.
+  `manage_secure_command_tool`, `run_authenticated_command`,
+  `make_authenticated_request`. The first four are recursion vectors or
+  human-in-the-loop install paths that must not be delegated to an unattended
+  leaf. The two CES tools can return `cesApprovalRequired`, which `ToolExecutor`
+  resolves by bridging an interactive approval and retrying with a grant; a leaf
+  executes `tool.execute()` directly (bypassing that post-processing), so it
+  would see the raw approval-required result as an error. They stay forbidden
+  until leaf invocations run the executor's post-processing.
 
 Side-effecting tools (`file_write`, sends, shell, …) and `persona` are **not** in
 the baseline; a run must declare them. Once declared, every leaf may use them with
