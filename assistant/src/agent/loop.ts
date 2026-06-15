@@ -1658,13 +1658,29 @@ export class AgentLoop {
           // no-tool retry below the partial output is kept, not discarded.
           // Otherwise the stop is terminal and the continuation card surfaces.
           const {
-            finalized: safeAssistantMessage,
+            finalized: rawSafeAssistantMessage,
             decision: maxTokensDecision,
             messages: maxTokensMessages,
           } = await finalizeAssistantMessage({
             role: "assistant",
             content: safeContent,
           });
+          // A truncated turn never executes tools — the model's own tool calls
+          // were stripped into `safeContent` above. The hook can still append a
+          // `tool_use` block while transforming the reply, but this branch
+          // short-circuits without an executor pass, so honoring it would
+          // persist a tool call with no matching `tool_result`. Drop hook-added
+          // tool calls here too: tool injection is supported only on the
+          // non-truncated path below, which runs the executor.
+          const safeAssistantMessage: Message = {
+            ...rawSafeAssistantMessage,
+            content: rawSafeAssistantMessage.content.filter(
+              (block) =>
+                block.type !== "tool_use" &&
+                block.type !== "server_tool_use" &&
+                block.type !== "web_search_tool_result",
+            ),
+          };
           emitFinalAssistantText(safeAssistantMessage.content);
           if (
             maxTokensDecision === "continue" &&

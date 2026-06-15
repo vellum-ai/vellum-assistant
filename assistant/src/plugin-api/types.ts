@@ -529,7 +529,9 @@ export interface PostModelCallContext {
    * and its result/surface is appended after any already-streamed text without
    * discarding it), or drop a `tool_use` block to suppress a call. The host
    * assigns an id to any appended `tool_use` block whose `id` is empty or
-   * collides. Empty on a provider rejection.
+   * collides. Empty on a provider rejection. Appended `tool_use` blocks are
+   * dropped on a truncated (max-tokens) turn, which short-circuits before the
+   * executor runs and so cannot pair a tool call with a result.
    */
   content: ContentBlock[];
   /**

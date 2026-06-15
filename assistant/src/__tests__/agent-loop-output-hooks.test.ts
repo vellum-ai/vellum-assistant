@@ -436,6 +436,64 @@ describe("agent loop output hooks", () => {
     expect(streamedText(events)).toBe("PARTIAL ANSWER");
   });
 
+  test("max_tokens turn: a hook-added tool_use is dropped, not executed or persisted", async () => {
+    // GIVEN a hook that appends a tool call while transforming a truncated
+    // reply. A max-tokens turn short-circuits before the executor runs, so the
+    // injected call must be dropped rather than persisted without a result.
+    const executed: string[] = [];
+    registerOutputHookPlugin({
+      postModelCall: (ctx) => {
+        ctx.content = [
+          ...ctx.content,
+          { type: "tool_use", id: "", name: "ui_show", input: {} },
+        ];
+      },
+    });
+    // AND a provider whose only reply is truncated at the token limit.
+    const truncated: ProviderResponse = {
+      content: [{ type: "text", text: "partial" }],
+      model: "mock-model",
+      usage: { inputTokens: 1, outputTokens: 1 },
+      stopReason: "max_tokens",
+    };
+    const { provider } = createMockProvider([truncated]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: [
+        {
+          name: "ui_show",
+          description: "",
+          input_schema: { type: "object", properties: {} },
+        },
+      ],
+      toolExecutor: async (name) => {
+        executed.push(name);
+        return { content: "shown", isError: false };
+      },
+    });
+    const events: AgentEvent[] = [];
+
+    // WHEN the loop runs
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the injected call never executed
+    expect(executed).toHaveLength(0);
+    expect(
+      events.some((e) => e.type === "tool_use" && e.name === "ui_show"),
+    ).toBe(false);
+    // AND the persisted truncated turn carries no tool call
+    expect(
+      lastAssistant(history).content.some((b) => b.type === "tool_use"),
+    ).toBe(false);
+  });
+
   test("deferred final text passes through sensitive-output substitution", async () => {
     // A tool returns a sensitive binding; the next assistant turn uses the
     // placeholder (the persisted message must keep it — model never sees real
