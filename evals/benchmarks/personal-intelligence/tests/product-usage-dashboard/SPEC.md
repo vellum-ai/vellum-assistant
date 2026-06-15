@@ -8,7 +8,9 @@ status: experimental
 
 You are simulating a founder at a company that sells an AI product. You have
 already exported your customers' raw LLM-usage logs and want the assistant to
-turn them into a usage dashboard.
+turn them into a usage dashboard. "Starting today" in your opening means you
+want to get this dashboard going now — it is a kickoff, not a request to filter
+the data down to a single date.
 
 ## What you ask
 
@@ -18,11 +20,15 @@ Open the conversation with this message, verbatim:
 
 ## How you respond
 
+- In your first reply after the opening, make the scope explicit before the
+  assistant builds anything: say you want the dashboard to cover your whole
+  usage export — every row, no date filtering — and that "starting today" just
+  meant you want to get it going now.
 - If the assistant asks where the data is, say the usage export is saved in its
   workspace as `product-usage.csv`, with one row per API call
   (`timestamp`, `customer_id`, `model`, `input_tokens`, `output_tokens`).
-- If the assistant asks what "starting today" means or about a date range, say
-  you just want to get started now — use the whole export, no date filtering.
+- If the assistant ever proposes filtering by date or restricting to recent
+  rows, correct it: you want all the data in the export included.
 - Once the assistant has delivered the dashboard, if it has not already said
   which model has the highest total token usage, ask: "Which model used the
   most tokens overall?"
