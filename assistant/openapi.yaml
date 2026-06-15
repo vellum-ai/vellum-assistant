@@ -5791,6 +5791,22 @@ paths:
           description:
             Filter by archive state. Defaults to "active" (non-archived rows only). Pass "archived" to list only
             archived rows (for the Archive page) or "all" to include both.
+        - name: originChannel
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - slack
+              - telegram
+              - whatsapp
+              - email
+              - a2a
+              - vellum
+              - phone
+          description:
+            Filter by origin channel. When provided, only conversations with this exact origin_channel value are
+            returned. Omit to include all channels.
       responses:
         "200":
           description: Successful response
