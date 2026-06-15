@@ -8,7 +8,9 @@ import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-import type { CallSiteOverrideDraft, DaemonConfigPatch, ProfileEntry, ProfilePatchEntry, ProfileStatus, ProfileWithName } from "@/domains/settings/ai/ai-types";
+import type { ConfigPatchRequest } from "@/generated/daemon/types.gen";
+
+import type { CallSiteOverrideDraft, ProfileEntry, ProfilePatchEntry, ProfileStatus, ProfileWithName } from "@/domains/settings/ai/ai-types";
 import { buildOrderedProfiles } from "@/domains/settings/ai/ai-utils";
 import type { BlockedDeleteState } from "@/domains/settings/ai/manage-profiles-blocked-delete-modal";
 import { BlockedDeleteModal } from "@/domains/settings/ai/manage-profiles-blocked-delete-modal";
@@ -338,7 +340,7 @@ function ManageProfilesModalInner({
     setBlockedDeleteSaving(true);
     setBlockedDeleteError(null);
 
-    const llmPatch: NonNullable<DaemonConfigPatch["llm"]> = {};
+    const llmPatch: NonNullable<ConfigPatchRequest["llm"]> = {};
 
     if (blockedDelete.isActive) {
       llmPatch.activeProfile = blockedDeleteReplacement;

@@ -370,7 +370,9 @@ export const LLMConfigFragment = z
   .meta({ id: "LLMConfigFragment" });
 export type LLMConfigFragment = z.infer<typeof LLMConfigFragment>;
 
-export const ProfileStatusSchema = z.enum(["active", "disabled"]);
+export const ProfileStatusSchema = z
+  .enum(["active", "disabled"])
+  .meta({ id: "ProfileStatus" });
 export type ProfileStatus = z.infer<typeof ProfileStatusSchema>;
 
 // ---------------------------------------------------------------------------

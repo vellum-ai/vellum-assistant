@@ -471,7 +471,22 @@ function readPlainObject(value: unknown): Record<string, unknown> | undefined {
 
 const WireProfileEntry = ProfileEntry.extend({
   supportsVision: z.boolean().optional(),
-}).passthrough();
+})
+  .passthrough()
+  .meta({ id: "WireProfileEntry" });
+
+/**
+ * Wire shape of the `memory` section in config responses. Passthrough
+ * preserves fields beyond `enabled` and `v2` so the client doesn't strip
+ * unrecognised memory config that newer daemons may add.
+ */
+const MemoryWireConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    v2: z.object({ enabled: z.boolean().optional() }).passthrough().optional(),
+  })
+  .passthrough()
+  .meta({ id: "MemoryConfig" });
 
 /**
  * Response schema for `GET /v1/config`.
@@ -511,16 +526,7 @@ const ConfigGetResponseSchema = z
       })
       .passthrough()
       .optional(),
-    memory: z
-      .object({
-        enabled: z.boolean().optional(),
-        v2: z
-          .object({ enabled: z.boolean().optional() })
-          .passthrough()
-          .optional(),
-      })
-      .passthrough()
-      .optional(),
+    memory: MemoryWireConfigSchema.optional(),
     services: z
       .object({
         "web-search": z
@@ -559,6 +565,25 @@ function nullablePartial(schema: z.ZodObject<z.ZodRawShape>) {
 }
 
 /**
+ * A single profile entry within a PATCH body. All fields are
+ * `.nullable().optional()`: `null` = delete via deep-merge, omitted =
+ * unchanged. Named so HeyAPI generates `ProfilePatchEntry` as a top-level
+ * export in the SDK.
+ */
+const ProfilePatchEntrySchema = nullablePartial(ProfileEntry)
+  .passthrough()
+  .meta({ id: "ProfilePatchEntry" });
+
+/**
+ * A single call-site override within a PATCH body.
+ */
+const CallSiteOverridePatchSchema = nullablePartial(
+  LLMConfigFragment.extend({ profile: z.string().optional() }),
+)
+  .passthrough()
+  .meta({ id: "CallSiteOverridePatch" });
+
+/**
  * Request body schema for `PATCH /v1/config`.
  *
  * Mirrors the response shape but every field is `.nullable().optional()`:
@@ -580,22 +605,12 @@ const ConfigPatchRequestSchema = z
           .nullable()
           .optional(),
         profiles: z
-          .record(
-            z.string(),
-            nullablePartial(ProfileEntry).passthrough().nullable(),
-          )
+          .record(z.string(), ProfilePatchEntrySchema.nullable())
           .optional(),
         profileOrder: z.array(z.string()).optional(),
         activeProfile: z.string().nullable().optional(),
         callSites: z
-          .record(
-            z.string(),
-            nullablePartial(
-              LLMConfigFragment.extend({ profile: z.string().optional() }),
-            )
-              .passthrough()
-              .nullable(),
-          )
+          .record(z.string(), CallSiteOverridePatchSchema.nullable())
           .optional(),
         profileSession: z
           .object({
@@ -607,17 +622,7 @@ const ConfigPatchRequestSchema = z
       })
       .passthrough()
       .optional(),
-    memory: z
-      .object({
-        enabled: z.boolean().optional(),
-        v2: z
-          .object({ enabled: z.boolean().optional() })
-          .passthrough()
-          .optional(),
-      })
-      .passthrough()
-      .nullable()
-      .optional(),
+    memory: MemoryWireConfigSchema.nullable().optional(),
     services: z
       .object({
         "web-search": z

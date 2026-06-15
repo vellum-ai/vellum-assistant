@@ -1,71 +1,45 @@
 /**
- * Type aliases derived from generated daemon SDK types.
+ * Domain-specific types, constants, and utilities for the AI settings UI.
  *
- * These provide readable names for deeply-nested generated types that are
- * used across the AI settings domain. Types that are already top-level
- * named exports in `types.gen.ts` (e.g. `ServiceMode`, `Auth`,
- * `ConnectionProvider`) should be imported directly from the generated
- * module — not re-derived here.
+ * Types that are direct named exports from the generated daemon SDK
+ * (`types.gen.ts`) are re-exported here under domain-appropriate aliases
+ * so consumers import from one place. Types that don't map to a daemon
+ * schema (e.g. `ProfileWithName`, `InferenceTokenBudgetState`) are defined
+ * here directly.
  *
  * Static catalog data lives in `ai-provider-catalogs.ts`.
  * localStorage keys live in `ai-local-storage-keys.ts`.
  */
 
-import type { ConfigGetResponse, ConfigPatchData, ServiceMode } from "@/generated/daemon/types.gen";
+import type { CallSiteOverridePatch, ServiceMode, WireProfileEntry } from "@/generated/daemon/types.gen";
 
 import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 
-// Re-export ServiceMode so existing consumers keep working via this module.
-export type { ServiceMode } from "@/generated/daemon/types.gen";
-
 // ---------------------------------------------------------------------------
-// Config response type aliases
+// Re-exports from generated daemon SDK
 // ---------------------------------------------------------------------------
 
-/**
- * Full daemon config response from `GET /v1/config`.
- */
-export type DaemonConfig = ConfigGetResponse;
+export type { MemoryConfig, ProfilePatchEntry, ProfileStatus, ServiceMode } from "@/generated/daemon/types.gen";
 
 /**
  * A single LLM profile entry from the daemon config response.
  * Includes the wire-only `supportsVision` flag resolved at response time.
+ * Aliased from `WireProfileEntry` — the daemon uses that name internally;
+ * the web client just calls it a profile entry.
  */
-export type ProfileEntry = NonNullable<
-  NonNullable<ConfigGetResponse["llm"]>["profiles"]
->[string];
-
-/**
- * Memory configuration section of the daemon config response.
- */
-export type MemoryConfig = NonNullable<ConfigGetResponse["memory"]>;
-
-/**
- * Typed body for daemon config PATCH requests.
- */
-export type DaemonConfigPatch = ConfigPatchData["body"];
-
-/**
- * A single profile entry within a PATCH request body.
- * All fields are nullable (null = delete via deep-merge) and optional
- * (omitted = unchanged).
- */
-export type ProfilePatchEntry = NonNullable<
-  NonNullable<NonNullable<DaemonConfigPatch["llm"]>["profiles"]>[string]
->;
+export type ProfileEntry = WireProfileEntry;
 
 /**
  * A single call-site override within a PATCH request body.
+ * Aliased from `CallSiteOverridePatch` — the daemon uses "Patch" naming;
+ * the settings UI calls it a "draft" because it represents an in-progress
+ * form value before submission.
  */
-export type CallSiteOverrideDraft = NonNullable<
-  NonNullable<NonNullable<DaemonConfigPatch["llm"]>["callSites"]>[string]
->;
+export type CallSiteOverrideDraft = CallSiteOverridePatch;
 
 // ---------------------------------------------------------------------------
-// Derived types
+// Domain-specific types
 // ---------------------------------------------------------------------------
-
-export type ProfileStatus = NonNullable<ProfileEntry["status"]>;
 
 export type ProfileWithName = { name: string } & ProfileEntry;
 
