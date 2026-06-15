@@ -256,6 +256,34 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
     return rows.map((r) => this.toLogRow(r));
   }
 
+  async getPreviousNonCompactionCallCreatedAt(
+    conversationId: string,
+    beforeCreatedAt: number,
+  ): Promise<number | null> {
+    const aid = await this.assistantId();
+    // `call_site != 'compactionAgent'` keeps the pre-migration-264 rows
+    // (stored as the empty-string default) in scope as real calls and
+    // excludes only the summarizer's own logs, matching the local
+    // store's `isNull(callSite) OR callSite != 'compactionAgent'`.
+    const sql = `SELECT
+        toUnixTimestamp64Milli(created_at) AS created_at
+      FROM ${this.tableRef()}
+      WHERE assistant_id = {assistant_id:String}
+        AND conversation_id = {conversation_id:String}
+        AND call_site != {call_site:String}
+        AND created_at < fromUnixTimestamp64Milli({before_created_at:Int64})
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1
+      FORMAT JSONEachRow`;
+    const rows = await this.exec<{ created_at: string }>(sql, {
+      assistant_id: aid,
+      conversation_id: conversationId,
+      call_site: "compactionAgent",
+      before_created_at: String(beforeCreatedAt),
+    });
+    return rows[0] ? Number(rows[0].created_at) : null;
+  }
+
   async getCompactionLogsBetween(
     conversationId: string,
     afterCreatedAt: number | null,

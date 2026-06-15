@@ -8206,14 +8206,13 @@ paths:
   /v1/conversations/{id}/compaction:
     get:
       operationId: conversations_by_id_compaction_get
-      summary: Get the compaction trail leading up to an LLM call
+      summary: Get the compaction(s) attributed to an LLM call
       description:
-        Return the chronological list of compaction events that ran in the same agent turn as the call identified
-        by `callId`. Turn bounds are walked from the `messages` table (real user messages — tool-result user messages
-        are not boundaries). Served from the first-class compaction log when `compactionLogs.destination = "clickhouse"`
-        is configured, falling back to the legacy projection over `llm_request_logs` rows where `call_site =
-        "compactionAgent"`. When the conversation has no other messages around the selected call, every compaction
-        strictly before the call's `createdAt` is in scope. Drives the Inspector's Compaction tab.
+        Return the chronological list of compactions attributed to the call identified by `callId` — those that ran
+        strictly between the previous real (non-`compactionAgent`) LLM call and the selected call. Served from the
+        first-class compaction log when `compactionLogs.destination = "clickhouse"` is configured, falling back to the
+        legacy projection over `llm_request_logs` rows where `call_site = "compactionAgent"`. Usually empty or a single
+        compaction; the recovery cascade can fire several before one call lands. Drives the Inspector's Compaction tab.
       tags:
         - conversations
       responses:
@@ -8235,19 +8234,43 @@ paths:
                           type: string
                         createdAt:
                           type: number
-                        model:
+                        trigger:
                           anyOf:
                             - type: string
                             - type: "null"
-                        provider:
+                        compacted:
+                          anyOf:
+                            - type: boolean
+                            - type: "null"
+                        summaryFailed:
+                          anyOf:
+                            - type: boolean
+                            - type: "null"
+                        skipReason:
                           anyOf:
                             - type: string
                             - type: "null"
-                        inputTokens:
+                        contextTokensBefore:
                           anyOf:
                             - type: number
                             - type: "null"
-                        outputTokens:
+                        contextTokensAfter:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        messagesBefore:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        messagesAfter:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        compactedMessages:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        preservedTailMessages:
                           anyOf:
                             - type: number
                             - type: "null"
@@ -8255,34 +8278,40 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
-                        responsePreview:
+                        summaryModel:
                           anyOf:
                             - type: string
                             - type: "null"
-                        requestMessageCount:
+                        summaryInputTokens:
                           anyOf:
                             - type: number
                             - type: "null"
-                        stopReason:
+                        summaryOutputTokens:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        summaryText:
                           anyOf:
                             - type: string
-                            - type: "null"
-                        estimatedCostUsd:
-                          anyOf:
-                            - type: number
                             - type: "null"
                       required:
                         - id
                         - createdAt
-                        - model
-                        - provider
-                        - inputTokens
-                        - outputTokens
+                        - trigger
+                        - compacted
+                        - summaryFailed
+                        - skipReason
+                        - contextTokensBefore
+                        - contextTokensAfter
+                        - messagesBefore
+                        - messagesAfter
+                        - compactedMessages
+                        - preservedTailMessages
                         - durationMs
-                        - responsePreview
-                        - requestMessageCount
-                        - stopReason
-                        - estimatedCostUsd
+                        - summaryModel
+                        - summaryInputTokens
+                        - summaryOutputTokens
+                        - summaryText
                       additionalProperties: false
                 required:
                   - conversationId
@@ -8303,7 +8332,7 @@ paths:
           required: true
           schema:
             type: string
-          description: ID of the selected LLM call from the rail. Defines the chronological cutoff for the trail.
+          description: ID of the selected LLM call from the rail. Defines the chronological cutoff for the attributed compactions.
   /v1/conversations/{id}/inference-profile:
     put:
       operationId: conversations_by_id_inferenceprofile_put
