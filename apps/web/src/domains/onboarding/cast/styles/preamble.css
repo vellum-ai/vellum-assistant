@@ -1,26 +1,29 @@
-/* Cast — preamble screen (grid backdrop + preamble VN bg). Split from cast.css (PR 1, verbatim move). */
+/* Cast — preamble screen: bespoke grid-art backdrop only.
+ *
+ * The preamble layout/typography now lives in `preamble-screen.tsx` as Tailwind
+ * + design tokens. What remains here is the irreducibly-bespoke setup-shell
+ * furniture rendered by `cast-shell.tsx` (SetupShell): the green character-grid
+ * art anchored to the bottom corners, its masked grid-lines, and the topbar.
+ * Grid stroke/outline colors are bespoke rgba literals set inline on the SVGs
+ * in `cast-shell.tsx` (no token equivalent for the faint ground-plane wash). */
 
-.cast-vn--preamble {
-  background: radial-gradient(ellipse at 50% 30%, #162b16 0%, #0f1f0f 40%, #091509 100%);
-}
 .cast-preamble__topbar {
   position: absolute;
-  top: 32px;
-  left: 80px;
-  transform: none;
+  top: var(--app-spacing-xxl);
+  left: 80px; /* bespoke: aligns the topbar with the grid gutter */
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--app-spacing-md);
   z-index: 5;
 }
 .cast-preamble__setup-label {
   font-size: 13px;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.45);
+  color: var(--content-tertiary);
   white-space: nowrap;
 }
 
-/* Preamble grid — cohesive grid anchored to bottom corners */
+/* Preamble grid — cohesive character-outline grid anchored to bottom corners. */
 .cast-preamble__boxes {
   position: absolute;
   inset: 0;
@@ -41,6 +44,7 @@
   position: absolute;
   inset: 0;
 }
+/* bespoke: dual-gradient mask fades the grid-lines toward the top + outer edge */
 .cast-preamble__lines--left {
   mask-image: linear-gradient(to bottom, transparent 0%, black 25%),
               linear-gradient(to left, transparent 0%, black 20%);
@@ -64,7 +68,7 @@
 }
 .cast-preamble__cell {
   position: absolute;
-  padding: 16px;
+  padding: var(--app-spacing-lg);
 }
 .cast-preamble__cell svg {
   display: block;
