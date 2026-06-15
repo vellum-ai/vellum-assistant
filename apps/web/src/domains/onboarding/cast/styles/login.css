@@ -14,10 +14,11 @@
  * intentionally retained even though login-screen.tsx no longer uses all of
  * them directly.
  *
- * The `#46c178 / #3ad17a / #0b1f12` greens are the bespoke cast brand accent
- * (shared verbatim across the cast sheets); they have no design-token
- * equivalent (`--system-positive-strong` is a different green), so they stay as
- * literals here for exact visual parity. */
+ * The brand greens are centralized as `--cast-green*` in cast-tokens.css (scoped
+ * to `.cast-stage`). Because these login/about classes are also rendered by the
+ * account-domain sign-up screens — which mount OUTSIDE `.cast-stage` — the rules
+ * below reference the tokens with the literal as a `var(--cast-green*, …)`
+ * fallback, so the color is identical whether or not the token is in scope. */
 
 
 /* ---- Login screen (two-column: form | visual) ---- */
@@ -83,7 +84,7 @@
 .cast-login__title em {
   display: block;
   font-style: normal;
-  color: #46c178; /* bespoke cast brand accent — see header note */
+  color: var(--cast-green, #46c178); /* see header note */
   white-space: nowrap;
 }
 .cast-login__subtitle {
@@ -273,8 +274,8 @@
   height: auto;
   padding: 13px 18px;
   border-radius: var(--radius-lg);
-  background: #46c178; /* bespoke cast brand accent — see header note */
-  color: #0b1f12; /* bespoke cast brand accent — see header note */
+  background: var(--cast-green, #46c178); /* see header note */
+  color: var(--cast-green-ink, #0b1f12); /* see header note */
   font-size: 15px;
   font-weight: 650;
   font-family: inherit;
@@ -282,14 +283,14 @@
   transition: background 160ms ease, transform 160ms ease;
 }
 .cast-about__continue:hover:not(:disabled) {
-  background: #3ad17a;
+  background: var(--cast-green-strong, #3ad17a);
   transform: translateY(-1px);
 }
 .cast-about__continue:disabled {
   /* Keep the faded brand green (the design-library primary Button would
      otherwise repaint the disabled state with --primary-disabled). */
-  background: #46c178; /* bespoke cast brand accent — see header note */
-  color: #0b1f12; /* bespoke cast brand accent — see header note */
+  background: var(--cast-green, #46c178); /* see header note */
+  color: var(--cast-green-ink, #0b1f12); /* see header note */
   opacity: 0.4;
   cursor: default;
 }
