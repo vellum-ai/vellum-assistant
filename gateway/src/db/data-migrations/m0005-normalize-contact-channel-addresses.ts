@@ -64,6 +64,14 @@ export function up(): MigrationResult {
   `);
 
   log.info("Restored original casing from external_user_id into address");
+
+  // Enforce uniqueness at the DB level (defense-in-depth).
+  db.exec(/*sql*/ `
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_channels_type_address_unique
+    ON contact_channels(type, address)
+  `);
+
+  log.info("Ensured UNIQUE(type, address) index exists");
   return "done";
 }
 
