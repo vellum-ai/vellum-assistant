@@ -2,8 +2,9 @@
  * Tests for the PromptTab section rendering. Renders to static markup
  * (no DOM), mirroring `compaction-tab.test.tsx`, and asserts that prose
  * sections (system prompt, user and assistant messages) render as Markdown
- * while structured payloads and tool results render as code-style `<pre>`
- * text. Literal `<tag>`-style prompt delimiters stay visible as text.
+ * while structured payloads, tool-call arguments, and tool results render as
+ * code-style `<pre>` text. Literal `<tag>`-style prompt delimiters stay
+ * visible as text.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -109,5 +110,25 @@ describe("PromptTab", () => {
 
     expect(html).not.toContain("<strong");
     expect(html).toContain("<pre");
+  });
+
+  test("renders tool-call arguments in a code-style pre block, not Markdown", () => {
+    // Tool-call sections carry a JSON preview in `text` alongside the
+    // structured `data` args. Markdown rendering would mangle JSON tokens
+    // (e.g. `**` becomes bold), so they must render as raw `<pre>`.
+    const html = render([
+      {
+        kind: "function_call",
+        label: "Request tool call (read_file)",
+        role: "assistant",
+        toolName: "read_file",
+        text: '{"path":"/tmp/a","note":"**keep raw**"}',
+        data: { path: "/tmp/a", note: "**keep raw**" },
+      },
+    ]);
+
+    expect(html).not.toContain("<strong");
+    expect(html).toContain("<pre");
+    expect(html).toContain("**keep raw**");
   });
 });

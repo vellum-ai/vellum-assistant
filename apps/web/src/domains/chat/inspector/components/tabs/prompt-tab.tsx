@@ -163,11 +163,13 @@ function PromptSectionItem({
   const formatLabel = toolDefs
     ? null
     : languageFormatLabel(section.language ?? null);
-  const { text, isStructured } = renderContent(section);
-  // Tool output and structured payloads are program output, not prose, and
-  // can be huge — render them as code-style text in a capped scroll box.
-  // Prose sections render as Markdown, uncapped for inline reading.
-  const renderAsCode = isStructured || isToolResultKind(section.kind);
+  const text = renderContent(section);
+  // Sections backed by structured `data` (tool-call arguments, JSON payloads)
+  // and tool results are program output, not prose, and can be huge — render
+  // them as code-style text in a capped scroll box. Prose sections (system
+  // prompt, messages, reasoning) render as Markdown, uncapped for inline
+  // reading.
+  const renderAsCode = section.data != null || isToolResultKind(section.kind);
 
   return (
     <Collapsible.Item
@@ -292,22 +294,16 @@ function languageFormatLabel(language: string | null): string | null {
   }
 }
 
-function renderContent(section: LLMContextSection): {
-  text: string;
-  isStructured: boolean;
-} {
+function renderContent(section: LLMContextSection): string {
   if (section.text != null) {
-    return { text: section.text, isStructured: false };
+    return section.text;
   }
   if (section.data != null) {
     try {
-      return {
-        text: JSON.stringify(section.data, null, 2),
-        isStructured: true,
-      };
+      return JSON.stringify(section.data, null, 2);
     } catch {
-      return { text: String(section.data), isStructured: false };
+      return String(section.data);
     }
   }
-  return { text: "No content available.", isStructured: false };
+  return "No content available.";
 }
