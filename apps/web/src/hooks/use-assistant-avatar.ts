@@ -9,11 +9,9 @@ import {
 } from "@/assistant/avatar-api";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { useSupportsAvatarStateManifest } from "@/lib/backwards-compat/avatar-state-manifest";
-export const AVATAR_QUERY_KEY_PREFIX = "assistantAvatar";
+import { avatarQueryKey } from "@/utils/avatar-query-key";
 
-export function avatarQueryKey(assistantId: string) {
-  return [AVATAR_QUERY_KEY_PREFIX, assistantId] as const;
-}
+export { avatarQueryKey, AVATAR_QUERY_KEY_PREFIX } from "@/utils/avatar-query-key";
 
 interface AvatarData {
   components: CharacterComponents | null;

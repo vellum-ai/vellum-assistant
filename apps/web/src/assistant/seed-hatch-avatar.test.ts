@@ -26,7 +26,7 @@ mock.module("@/assistant/avatar-api", () => ({
 mock.module("@/lib/sentry/capture-error", () => ({
   captureError: () => {},
 }));
-mock.module("@/lib/sync/query-tags", () => ({
+mock.module("@/utils/avatar-query-key", () => ({
   avatarQueryKey: (id: string) => ["avatar", id],
 }));
 

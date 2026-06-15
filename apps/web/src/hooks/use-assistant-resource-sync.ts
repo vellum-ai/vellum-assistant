@@ -31,7 +31,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { getClientId } from "@/lib/telemetry/client-identity";
-import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
+import { avatarQueryKey } from "@/utils/avatar-query-key";
 import {
   assistantDaemonConfigQueryKey,
   assistantIdentityQueryKey,

@@ -2,7 +2,7 @@ import type { QueryClient } from "@tanstack/react-query";
 
 import { fetchCharacterTraits, saveCharacterTraits } from "@/assistant/avatar-api";
 import { captureError } from "@/lib/sentry/capture-error";
-import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
+import { avatarQueryKey } from "@/utils/avatar-query-key";
 import type { CharacterTraits } from "@/types/avatar";
 
 /**

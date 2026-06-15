@@ -11,7 +11,7 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { AssistantEvent } from "@/types/event-types";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
-import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
+import { avatarQueryKey } from "@/utils/avatar-query-key";
 import {
   assistantDaemonConfigQueryKey,
   assistantIdentityQueryKey,
