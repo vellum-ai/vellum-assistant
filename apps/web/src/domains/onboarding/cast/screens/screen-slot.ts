@@ -36,10 +36,27 @@ export interface BaseScreenProps {
   onBack?: () => void;
 }
 
-/** `login` — collects the user's first name before any character exists. */
+/**
+ * The full identity payload the login screen collects (a superset of
+ * `onContinue`'s first name). `role` is mapped to the downstream occupation in
+ * the `PreChatOnboardingContext` handoff, so the orchestrator captures it now.
+ */
+export interface LoginIdentity {
+  firstName: string;
+  lastName: string;
+  role: string;
+}
+
+/** `login` — collects the user's first name (+ last name / role) before any character exists. */
 export interface LoginScreenProps extends BaseScreenProps {
   /** Receives the captured first name; the orchestrator then advances. */
   onContinue: (firstName: string) => void;
+  /**
+   * Receives the full identity payload (first/last name + role). The orchestrator
+   * captures `role` for the occupation handoff. Optional so non-identity callers
+   * (and tests) can wire only `onContinue`.
+   */
+  onIdentity?: (identity: LoginIdentity) => void;
 }
 
 /** `preamble` — story intro keyed off the user's first name. */

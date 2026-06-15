@@ -8,11 +8,10 @@
  * `CastPhase` state machine and every collected selection, and renders one step
  * screen per phase through the screen-slot contract in `screens/screen-slot.ts`.
  *
- * SCAFFOLDING (PR 5a): each phase renders a clearly-marked TEMPORARY inline stub
- * so the whole flow is navigable end-to-end. Sibling PRs 5b–5g drop the real
- * screens in against the contract. The completion path keeps the prototype's
- * existing `onComplete`/navigate stub — the `PreChatOnboardingContext` handoff +
- * background hatch land in a later PR (PR 6).
+ * PR 5h wires the six real screens (login / preamble / starter / dialogue /
+ * style / done) in against the contract, replacing the PR 5a stubs. The
+ * completion path stays the prototype's existing `navigate` stub — the
+ * `PreChatOnboardingContext` handoff + background hatch land in a later PR.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -22,19 +21,18 @@ import { AnimatePresence } from "motion/react";
 import { routes } from "@/utils/routes";
 import type { JobKey, RatherKey } from "@/domains/onboarding/cast/cast-content";
 import type { StyleProfile } from "@/domains/onboarding/cast/cast-templates";
-import { CAST, type CastCharacter } from "@/domains/onboarding/cast/cast-roster";
+import type { CastCharacter } from "@/domains/onboarding/cast/cast-roster";
 import type { Rect } from "@/domains/onboarding/cast/cast-hero-types";
 import { MemoryList, SetupShell } from "@/domains/onboarding/cast/cast-shell";
+import { LoginScreen } from "@/domains/onboarding/cast/screens/login-screen";
+import { PreambleScreen } from "@/domains/onboarding/cast/screens/preamble-screen";
+import { StarterScreen } from "@/domains/onboarding/cast/screens/starter-screen";
+import { DialogueScreen } from "@/domains/onboarding/cast/screens/dialogue-screen";
+import { StyleScreen } from "@/domains/onboarding/cast/screens/style-screen";
+import { DoneScreen } from "@/domains/onboarding/cast/screens/done-screen";
 import type {
-  BaseScreenProps,
-  DialogueScreenProps,
-  DoneScreenProps,
-  LoginScreenProps,
   MemoryEntry,
-  PreambleScreenProps,
   StarterResume,
-  StarterScreenProps,
-  StyleScreenProps,
 } from "@/domains/onboarding/cast/screens/screen-slot";
 import "@/domains/onboarding/cast/cast.css";
 
@@ -43,8 +41,15 @@ import "@/domains/onboarding/cast/cast.css";
 // ---------------------------------------------------------------------------
 
 interface CastCompletionData {
+  /** The user identity collected on the login screen. `role` → occupation. */
+  firstName: string;
+  lastName: string;
+  role: string;
   character: CastCharacter;
   name: string;
+  /** Dialogue-phase selections: communication tone + connected reach tools. */
+  tone: "fast" | "deep" | null;
+  connectedTools: string[];
   jobs: JobKey[];
   rathers: RatherKey[];
   style: StyleProfile;
@@ -88,136 +93,6 @@ const win = () => ({
 });
 
 // ---------------------------------------------------------------------------
-// TEMPORARY phase stubs (PR 5a).
-//
-// Each stub renders the phase name plus an Advance button wired to the
-// screen-slot contract so the orchestrator compiles and the flow is navigable
-// end-to-end. PRs 5b–5g replace each `StubScreen`-based component below with the
-// real screen, keeping the same props.
-// ---------------------------------------------------------------------------
-
-function StubScreen({
-  phase,
-  onAdvance,
-  onBack,
-  advanceLabel = "Advance →",
-  children,
-}: BaseScreenProps & {
-  phase: string;
-  advanceLabel?: string;
-  children?: React.ReactNode;
-}) {
-  return (
-    <div className="cast-stub" data-phase={phase}>
-      <span className="cast-stub__phase">{phase}</span>
-      {children}
-      <div className="cast-stub__actions">
-        {onBack && (
-          <button type="button" className="cast-stub__btn" onClick={onBack}>
-            ‹ Back
-          </button>
-        )}
-        <button type="button" className="cast-stub__btn cast-stub__btn--primary" onClick={onAdvance}>
-          {advanceLabel}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function LoginScreenStub({ onContinue, onAdvance }: LoginScreenProps) {
-  return (
-    <StubScreen
-      phase="login"
-      advanceLabel="Continue →"
-      onAdvance={() => {
-        onContinue("Anita");
-        onAdvance();
-      }}
-    >
-      <span className="cast-stub__hint">Sign in + tell us your name</span>
-    </StubScreen>
-  );
-}
-
-function PreambleScreenStub({ firstName, onAdvance, onBack }: PreambleScreenProps) {
-  return (
-    <StubScreen phase="preamble" onAdvance={onAdvance} onBack={onBack}>
-      <span className="cast-stub__hint">Nice to meet you, {firstName}</span>
-    </StubScreen>
-  );
-}
-
-function StarterScreenStub({ onChoose, onAdvance }: StarterScreenProps) {
-  return (
-    <StubScreen
-      phase="starter"
-      advanceLabel="Pick character →"
-      onAdvance={() => {
-        onChoose(PLACEHOLDER_CHARACTER, PLACEHOLDER_CHARACTER.name);
-        onAdvance();
-      }}
-    >
-      <span className="cast-stub__hint">Choose / customize your assistant</span>
-    </StubScreen>
-  );
-}
-
-function DialogueScreenStub({
-  name,
-  onTonePicked,
-  onReachPicked,
-  onComplete,
-  onBack,
-}: DialogueScreenProps) {
-  return (
-    <StubScreen
-      phase="dialogue"
-      advanceLabel="Run dialogue →"
-      onBack={onBack}
-      onAdvance={() => {
-        onTonePicked("fast");
-        onReachPicked([], 0);
-        onComplete();
-      }}
-    >
-      <span className="cast-stub__hint">Tone → reach → handoff for {name}</span>
-    </StubScreen>
-  );
-}
-
-function StyleScreenStub({ name, onRoundPicked, onDone, onBack }: StyleScreenProps) {
-  return (
-    <StubScreen
-      phase="style"
-      advanceLabel="Finish style →"
-      onBack={onBack}
-      onAdvance={() => {
-        const next: StyleProfile = { autonomy: "send_it" };
-        onRoundPicked(next);
-        onDone(next);
-      }}
-    >
-      <span className="cast-stub__hint">How should {name} work?</span>
-    </StubScreen>
-  );
-}
-
-function DoneScreenStub({ onEndpoint, onBack }: DoneScreenProps) {
-  return (
-    <StubScreen phase="done" advanceLabel="Let's go →" onBack={onBack} onAdvance={onEndpoint}>
-      <span className="cast-stub__hint">Proof + endpoint into the assistant</span>
-    </StubScreen>
-  );
-}
-
-/**
- * Placeholder character for the starter stub so downstream phases have a real
- * `CastCharacter` to render. The first generated roster entry is deterministic.
- */
-const PLACEHOLDER_CHARACTER: CastCharacter = CAST[0];
-
-// ---------------------------------------------------------------------------
 // InteractiveCastFlow — orchestrator. Owns the phase machine and selections;
 // renders one screen per phase through the screen-slot contract.
 // ---------------------------------------------------------------------------
@@ -227,6 +102,9 @@ function InteractiveCastFlow({ onComplete }: { onComplete: (data: CastCompletion
 
   const [phase, setPhase] = useState<CastPhase>("login");
   const [userFirstName, setUserFirstName] = useState("");
+  const [userLastName, setUserLastName] = useState("");
+  // `userRole` is the field the later handoff maps to `occupation`.
+  const [userRole, setUserRole] = useState("");
   const [selected, setSelected] = useState<CastCharacter | null>(null);
   const [names, setNames] = useState<Record<string, string>>({});
   const [customizing, setCustomizing] = useState(false);
@@ -244,6 +122,11 @@ function InteractiveCastFlow({ onComplete }: { onComplete: (data: CastCompletion
   const [jobs, setJobs] = useState<JobKey[]>([]);
   const [rathers, setRathers] = useState<RatherKey[]>([]);
   const [style, setStyle] = useState<StyleProfile>({});
+
+  // Dialogue-phase selections the later handoff PR reads alongside `userRole`,
+  // `selected`/`name`, and `style`: the picked tone and the connected reach tools.
+  const [tone, setTone] = useState<"fast" | "deep" | null>(null);
+  const [connectedTools, setConnectedTools] = useState<string[]>([]);
 
   // Memory list — accumulates across the tone/vibe/reach This/That phases.
   // Entries are [step, text] tuples keyed by step so re-picks overwrite.
@@ -290,6 +173,23 @@ function InteractiveCastFlow({ onComplete }: { onComplete: (data: CastCompletion
       }
     : null;
 
+  /** Build the completion payload for a chosen character from current state. */
+  function completionData(character: CastCharacter): CastCompletionData {
+    return {
+      firstName: userFirstName,
+      lastName: userLastName,
+      role: userRole,
+      character,
+      name,
+      tone,
+      connectedTools,
+      jobs,
+      rathers,
+      style,
+      credits: earnedCredits,
+    };
+  }
+
   function chooseStarter(char: CastCharacter, chosenName: string) {
     setSelected(char);
     setNames((prev) => ({ ...prev, [char.id]: chosenName }));
@@ -301,6 +201,8 @@ function InteractiveCastFlow({ onComplete }: { onComplete: (data: CastCompletion
     setJobs([]);
     setRathers([]);
     setStyle({});
+    setTone(null);
+    setConnectedTools([]);
     setMemories([]);
     setTypingStep(null);
     setBrainFileContent(null);
@@ -322,20 +224,24 @@ function InteractiveCastFlow({ onComplete }: { onComplete: (data: CastCompletion
   return (
     <div className="cast-panel" ref={panelRef}>
       {phase === "login" && (
-        <LoginScreenStub
+        <LoginScreen
           onAdvance={() => setPhase("preamble")}
           onContinue={(fn) => setUserFirstName(fn)}
+          onIdentity={({ lastName, role }) => {
+            setUserLastName(lastName);
+            setUserRole(role);
+          }}
         />
       )}
 
       {isShellPhase && (
         <SetupShell>
           {phase === "preamble" && (
-            <PreambleScreenStub firstName={userFirstName} onAdvance={() => setPhase("starter")} />
+            <PreambleScreen firstName={userFirstName} onAdvance={() => setPhase("starter")} />
           )}
 
           {phase === "starter" && (
-            <StarterScreenStub
+            <StarterScreen
               resume={resume}
               onChoose={chooseStarter}
               onCustomizing={setCustomizing}
@@ -346,33 +252,33 @@ function InteractiveCastFlow({ onComplete }: { onComplete: (data: CastCompletion
           )}
 
           {phase === "dialogue" && selected && (
-            <DialogueScreenStub
+            <DialogueScreen
               character={selected}
               name={name}
               userName={userFirstName}
               brainFileContent={brainFileContent}
               memories={memories}
               onAdvance={() =>
-                onComplete({ character: selected, name, jobs, rathers, style, credits: earnedCredits })
+                onComplete(completionData(selected))
               }
-              onTonePicked={(value) =>
+              onTonePicked={(value) => {
+                setTone(value);
                 recordMemory(
                   "tone",
                   value === "fast"
                     ? "Communication style: concise and direct"
                     : "Communication style: thorough and detailed",
-                )
-              }
+                );
+              }}
               onReachPicked={(connected, credits) => {
+                setConnectedTools(connected);
                 if (credits > 0) setEarnedCredits((prev) => prev + credits);
                 recordMemory(
                   "reach",
                   connected.length > 0 ? `Connected: ${connected.join(", ")}` : "Tools: skipped",
                 );
               }}
-              onComplete={() =>
-                onComplete({ character: selected, name, jobs, rathers, style, credits: earnedCredits })
-              }
+              onComplete={() => setPhase("style")}
               onBack={reopenCustomize}
             />
           )}
@@ -392,7 +298,7 @@ function InteractiveCastFlow({ onComplete }: { onComplete: (data: CastCompletion
       </AnimatePresence>
 
       {phase === "style" && selected && (
-        <StyleScreenStub
+        <StyleScreen
           character={selected}
           name={name}
           heroBox={leftPanelBox}
@@ -400,7 +306,7 @@ function InteractiveCastFlow({ onComplete }: { onComplete: (data: CastCompletion
           ascended={false}
           onAdvance={() => setPhase("done")}
           onChoose={() => {
-            /* style demo turn — wired by PR 5f */
+            /* style demo turn — no orchestrator state to capture here */
           }}
           onRoundPicked={onStyleRound}
           onDone={onStyleDone}
@@ -409,7 +315,7 @@ function InteractiveCastFlow({ onComplete }: { onComplete: (data: CastCompletion
       )}
 
       {phase === "done" && selected && (
-        <DoneScreenStub
+        <DoneScreen
           character={selected}
           box={{ ...leftPanelBox, top: leftPanelBox.top + Math.round(leftPanelBox.size * 0.7) }}
           jobs={jobs}
@@ -418,13 +324,13 @@ function InteractiveCastFlow({ onComplete }: { onComplete: (data: CastCompletion
           ascended={false}
           assistantId={null}
           onAdvance={() =>
-            onComplete({ character: selected, name, jobs, rathers, style, credits: earnedCredits })
+            onComplete(completionData(selected))
           }
           onAction={() => {
-            /* proof action — wired by PR 5g */
+            /* proof action — no orchestrator state to capture here */
           }}
           onEndpoint={() =>
-            onComplete({ character: selected, name, jobs, rathers, style, credits: earnedCredits })
+            onComplete(completionData(selected))
           }
           onBack={() => setPhase("style")}
         />
