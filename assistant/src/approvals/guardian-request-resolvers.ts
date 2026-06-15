@@ -373,7 +373,7 @@ const accessRequestResolver: GuardianRequestResolver = {
     const requesterContactResult = requesterExternalUserId
       ? findContactChannel({
           channelType: channel,
-          externalUserId: requesterExternalUserId,
+          address: requesterExternalUserId,
         })
       : null;
     const requesterDisplayName =
@@ -382,7 +382,7 @@ const accessRequestResolver: GuardianRequestResolver = {
     const decidedByContactResult = decidedByExternalUserId
       ? findContactChannel({
           channelType: channel,
-          externalUserId: decidedByExternalUserId,
+          address: decidedByExternalUserId,
         })
       : null;
     const decidedByDisplayName =

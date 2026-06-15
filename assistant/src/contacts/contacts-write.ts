@@ -125,7 +125,7 @@ export function upsertContactChannel(params: {
 
   const contactResult = findContactChannel({
     channelType: params.sourceChannel,
-    externalUserId: address,
+    address,
     externalChatId: params.externalChatId,
   });
 

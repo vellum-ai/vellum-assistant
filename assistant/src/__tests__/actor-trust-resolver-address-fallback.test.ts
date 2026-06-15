@@ -20,9 +20,6 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // ── Contact store stubs — filled in per test ─────────────────────────────────
-let _byExternalId: ReturnType<
-  (typeof import("../contacts/contact-store.js"))["findContactByChannelExternalId"]
-> = null;
 let _byAddress: ReturnType<
   (typeof import("../contacts/contact-store.js"))["findContactByAddress"]
 > = null;
@@ -31,7 +28,6 @@ let _guardian: ReturnType<
 > = null;
 
 mock.module("../contacts/contact-store.js", () => ({
-  findContactByChannelExternalId: (_type: string, _id: string) => _byExternalId,
   findContactByAddress: (_type: string, _addr: string) => _byAddress,
   findGuardianForChannel: (_channel: string) => _guardian,
 }));
@@ -92,7 +88,6 @@ function makeContact(
 
 describe("resolveActorTrust — address fallback", () => {
   beforeEach(() => {
-    _byExternalId = null;
     _byAddress = null;
     _guardian = null;
   });
@@ -116,7 +111,6 @@ describe("resolveActorTrust — address fallback", () => {
   });
 
   test("address lookup is the sole member resolution path", () => {
-    _byExternalId = makeContact("contact", "active", PHONE);
     _byAddress = makeContact("contact", "active", null);
 
     const result = resolveActorTrust({
@@ -131,7 +125,6 @@ describe("resolveActorTrust — address fallback", () => {
   });
 
   test("returns null memberRecord when neither lookup finds the number", () => {
-    _byExternalId = null;
     _byAddress = null;
 
     const result = resolveActorTrust({

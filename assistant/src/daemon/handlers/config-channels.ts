@@ -204,7 +204,7 @@ export function revokeVerificationForChannel(
   // revocation becomes a no-op (wrong reason or skipped entirely).
   const contactResult = findContactChannel({
     channelType: resolvedChannel,
-    externalUserId: bindingBeforeRevoke.guardianExternalUserId,
+    address: bindingBeforeRevoke.guardianExternalUserId,
     externalChatId: bindingBeforeRevoke.guardianDeliveryChatId,
   });
 

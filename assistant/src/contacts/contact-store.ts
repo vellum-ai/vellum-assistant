@@ -717,17 +717,6 @@ export function findContactByAddress(
 }
 
 /**
- * Find a contact by channel external user ID. Delegates to address-based
- * lookup since address is the canonical identity for all channel types.
- */
-export function findContactByChannelExternalId(
-  channelType: string,
-  externalUserId: string,
-): ContactWithChannels | null {
-  return findContactByAddress(channelType, externalUserId);
-}
-
-/**
  * Find a contact by channel external chat ID. This is the fallback lookup path
  * when externalUserId is not available — matches by (type, externalChatId).
  * No unique constraint exists on externalChatId, so ORDER BY is needed.
@@ -765,18 +754,14 @@ function findContactByChannelExternalChatId(
  */
 export function findContactChannel(params: {
   channelType: string;
-  externalUserId?: string;
+  address?: string;
   externalChatId?: string;
 }): { contact: ContactWithChannels; channel: ContactChannel } | null {
-  if (params.externalUserId) {
-    const contact = findContactByAddress(
-      params.channelType,
-      params.externalUserId,
-    );
+  if (params.address) {
+    const contact = findContactByAddress(params.channelType, params.address);
     if (contact) {
       const ch = contact.channels.find(
-        (c) =>
-          c.type === params.channelType && c.address === params.externalUserId,
+        (c) => c.type === params.channelType && c.address === params.address,
       );
       if (ch) return { contact, channel: ch };
     }

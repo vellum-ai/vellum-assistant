@@ -186,7 +186,7 @@ export async function enforceIngressAcl(
     if (canonicalSenderId) {
       const contactResult = findContactChannel({
         channelType: sourceChannel,
-        externalUserId: canonicalSenderId,
+        address: canonicalSenderId,
         externalChatId: conversationExternalId,
       });
       resolvedMember = contactResult

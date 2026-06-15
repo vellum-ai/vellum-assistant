@@ -129,7 +129,7 @@ export function redeemInvite(params: {
     : undefined;
   const contactResult = findContactChannel({
     channelType: sourceChannel,
-    externalUserId: canonicalUserId,
+    address: canonicalUserId,
     externalChatId: externalChatId,
   });
   const existingChannel = contactResult?.channel ?? null;
@@ -359,7 +359,7 @@ export function redeemVoiceInviteCode(params: {
     callerExternalUserId;
   const voiceContactResult = findContactChannel({
     channelType: "phone",
-    externalUserId: canonicalCallerId,
+    address: canonicalCallerId,
   });
   const existingVoiceChannel = voiceContactResult?.channel ?? null;
   const voiceContact = voiceContactResult?.contact ?? null;
@@ -511,7 +511,7 @@ export function redeemInviteByCode(params: {
     : undefined;
   const contactResult = findContactChannel({
     channelType: sourceChannel,
-    externalUserId: canonicalUserId,
+    address: canonicalUserId,
     externalChatId: externalChatId,
   });
   const existingChannel = contactResult?.channel ?? null;
