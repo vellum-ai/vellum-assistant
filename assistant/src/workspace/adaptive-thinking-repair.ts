@@ -1,6 +1,8 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { getCatalogProviderForModel } from "../providers/model-catalog.js";
+
 // Enable adaptive thinking on the managed "balanced" and "quality-optimized"
 // profiles.
 //
@@ -28,11 +30,14 @@ import { join } from "node:path";
 //   - Are source: "user" (user-created profiles are untouched)
 //   - Have a non-managed, non-absent source (unknown origin)
 //   - Resolve to a non-Anthropic provider (adaptive thinking is
-//     Anthropic-specific). A profile with no explicit provider inherits
-//     llm.default.provider, so the check falls back to that — with a
-//     completely absent llm.default.provider treated as Anthropic, matching
-//     migration 052's own `?? "anthropic"` default. This keeps the legacy
-//     non-Anthropic empty `{}` shells seeded by migration 052 off the repair.
+//     Anthropic-specific). Effective provider is the profile's explicit
+//     `provider`; otherwise the provider implied by a known catalog `model`
+//     (mirroring the resolver's withImpliedProviderForKnownModel); otherwise
+//     llm.default.provider — with a completely absent llm.default.provider
+//     treated as Anthropic, matching migration 052's own `?? "anthropic"`
+//     default. This keeps the legacy non-Anthropic empty `{}` shells seeded by
+//     migration 052 off the repair while still patching profiles that pin a
+//     known Claude model under a non-Anthropic default.
 
 const ADAPTIVE_THINKING = { enabled: true, streamThinking: true } as const;
 const TARGET_PROFILES = ["balanced", "quality-optimized"] as const;
@@ -63,8 +68,9 @@ export function repairAdaptiveThinkingOnManagedProfiles(
   const profiles = readObject(llm.profiles);
   if (profiles === null) return;
 
-  // Profiles without an explicit provider inherit llm.default.provider at
-  // resolution time; an absent llm.default.provider resolves to Anthropic.
+  // Profiles without an explicit provider and without a model-implied provider
+  // inherit llm.default.provider at resolution time; an absent
+  // llm.default.provider resolves to Anthropic.
   const defaultBlock = readObject(llm.default);
   const defaultProvider =
     typeof defaultBlock?.provider === "string"
@@ -81,12 +87,16 @@ export function repairAdaptiveThinkingOnManagedProfiles(
     // Legacy profiles created before the `source` metadata field was introduced
     // have source=undefined. Treat these as managed when the profile name is one
     // of the canonical managed names (which TARGET_PROFILES already guarantees)
-    // and the effective provider — explicit, or inherited from llm.default — is
-    // Anthropic. Explicit `source: "user"` profiles are always skipped.
+    // and the effective provider is Anthropic. Effective provider is the
+    // explicit `provider`, else the provider implied by a known catalog
+    // `model`, else the inherited llm.default.provider. Explicit
+    // `source: "user"` profiles are always skipped.
     if (profile.source === "user") continue;
     if (profile.source !== undefined && profile.source !== "managed") continue;
-    const effectiveProvider =
-      typeof profile.provider === "string" ? profile.provider : defaultProvider;
+    const effectiveProvider = resolveEffectiveProvider(
+      profile,
+      defaultProvider,
+    );
     if (effectiveProvider !== "anthropic") continue;
 
     // Skip if thinking is already enabled.
@@ -103,6 +113,18 @@ export function repairAdaptiveThinkingOnManagedProfiles(
     config.llm = llm;
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
   }
+}
+
+function resolveEffectiveProvider(
+  profile: Record<string, unknown>,
+  defaultProvider: string,
+): string {
+  if (typeof profile.provider === "string") return profile.provider;
+  if (typeof profile.model === "string") {
+    const implied = getCatalogProviderForModel(profile.model);
+    if (implied !== undefined) return implied;
+  }
+  return defaultProvider;
 }
 
 function readObject(value: unknown): Record<string, unknown> | null {

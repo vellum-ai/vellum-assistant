@@ -131,6 +131,30 @@ describe.each(implementations)("%s", (_label, run) => {
     expect(profile("balanced").thinking).toEqual(ADAPTIVE);
   });
 
+  test("patches source-less profiles pinning a known Claude model under a non-Anthropic default", () => {
+    // A managed/source-less profile that omits `provider` but pins a known
+    // Claude model is Anthropic via the resolver's model-implied provider, even
+    // when llm.default.provider is non-Anthropic. It must still get adaptive
+    // thinking rather than being skipped.
+    writeConfig({
+      llm: {
+        default: { provider: "gemini", model: "gemini-2.5-pro" },
+        profiles: {
+          balanced: { model: "claude-sonnet-4-6" },
+          "quality-optimized": {
+            source: "managed",
+            model: "claude-opus-4-8",
+          },
+        },
+      },
+    });
+
+    run(workspaceDir);
+
+    expect(profile("balanced").thinking).toEqual(ADAPTIVE);
+    expect(profile("quality-optimized").thinking).toEqual(ADAPTIVE);
+  });
+
   test("skips profiles with an explicit non-Anthropic provider", () => {
     writeConfig({
       llm: {
