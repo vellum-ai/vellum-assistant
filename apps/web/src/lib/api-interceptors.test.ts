@@ -30,10 +30,12 @@ mock.module("@/lib/local-mode", () => ({
 }));
 
 import {
+  daemonErrorInterceptor,
   daemonRequestInterceptor,
   platformFeaturesGate,
   requestInterceptor,
 } from "@/lib/api-interceptors";
+import { ApiError } from "@/utils/api-errors";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { getClientId } from "@/lib/telemetry/client-identity";
 import { __resetForTesting as resetSessionToken } from "@/runtime/session-token";
@@ -487,5 +489,58 @@ describe("api-interceptors / platform features gate", () => {
     const input = new Request("https://platform.test/v1/organizations/");
     const output = platformFeaturesGate(input);
     expect(output.signal.aborted).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Daemon error interceptor — ApiError normalization
+// ---------------------------------------------------------------------------
+
+describe("api-interceptors / daemonErrorInterceptor", () => {
+  test("wraps plain-object errors from non-OK responses into ApiError", () => {
+    const body = { detail: "Service unavailable" };
+    const response = new Response(null, { status: 503 });
+    const result = daemonErrorInterceptor(body, response);
+    expect(result).toBeInstanceOf(ApiError);
+    expect((result as ApiError).status).toBe(503);
+    expect((result as ApiError).message).toBe("Service unavailable");
+  });
+
+  test("wraps string errors into ApiError", () => {
+    const body = "Bad Gateway";
+    const response = new Response(null, { status: 502 });
+    const result = daemonErrorInterceptor(body, response);
+    expect(result).toBeInstanceOf(ApiError);
+    expect((result as ApiError).status).toBe(502);
+    expect((result as ApiError).message).toBe("Bad Gateway");
+  });
+
+  test("passes through existing ApiError instances unchanged", () => {
+    const existing = new ApiError(401, "Unauthorized");
+    const response = new Response(null, { status: 401 });
+    const result = daemonErrorInterceptor(existing, response);
+    expect(result).toBe(existing);
+  });
+
+  test("passes through errors with no response (network failures)", () => {
+    const networkError = new TypeError("fetch failed");
+    const result = daemonErrorInterceptor(networkError, undefined);
+    expect(result).toBe(networkError);
+  });
+
+  test("passes through errors when response is OK", () => {
+    const body = { detail: "unexpected" };
+    const response = new Response(null, { status: 200 });
+    const result = daemonErrorInterceptor(body, response);
+    expect(result).toBe(body);
+  });
+
+  test("extracts Organization-Id message for 400 errors", () => {
+    const body = { detail: "Organization-Id header is required" };
+    const response = new Response(null, { status: 400 });
+    const result = daemonErrorInterceptor(body, response);
+    expect(result).toBeInstanceOf(ApiError);
+    expect((result as ApiError).status).toBe(400);
+    expect((result as ApiError).message).toBe("Organization-Id header is required");
   });
 });
