@@ -29,10 +29,9 @@ export function createSelectors<
   S extends UseBoundStore<StoreApi<object>>,
 >(_store: S) {
   const store = _store as WithSelectors<typeof _store>;
-  store.use = {} as typeof store.use;
-  for (const k of Object.keys(store.getState())) {
-    (store.use as Record<string, () => unknown>)[k] = () =>
-      store((s) => s[k as keyof typeof s]);
-  }
+  store.use = new Proxy({} as typeof store.use, {
+    get: (_target, prop: string) => () =>
+      store((s) => s[prop as keyof typeof s]),
+  });
   return store;
 }
