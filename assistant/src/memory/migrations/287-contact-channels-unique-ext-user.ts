@@ -58,7 +58,7 @@ export function migrateContactChannelsUniqueExtUser(database: DrizzleDb): void {
     );
   }
 
-  // Step 2: Deduplicate by (type, external_user_id) so that step 3's
+  // Step 2: Deduplicate by (type, external_user_id) so that a future
   // normalization (SET address = external_user_id) cannot produce collisions.
   // Two rows with different addresses but the same external_user_id would
   // both get the same address after normalization.
