@@ -5,13 +5,22 @@
  * `plugins inspect` already reports *which* files drifted via the install-time
  * per-file fingerprint (see {@link ./plugin-fingerprint}), but that digest is
  * one-way — it cannot reconstruct the original bytes, so it can't show *what*
- * changed. To produce a real diff, the install-time baseline is re-derived by
- * re-materializing the recorded commit (from the `install-meta.json` provenance
- * sidecar) through the *same* pipeline install used (see
- * {@link ./install-from-github.materializePluginTree}): a shallow clone at the
- * immutable SHA plus the curated adapter overlay. Routing both install and diff
- * through one path guarantees an install-time adapter transform never reads as
- * local drift — the baseline is byte-identical to what install produced.
+ * changed. Drift here is classified the same way `inspect` does — against the
+ * fingerprint recorded at install — so the two surfaces always agree and a
+ * curated adapter overlay that changed since install never misreads as local
+ * drift.
+ *
+ * Showing *what* changed still needs the baseline *bytes*, which the fingerprint
+ * cannot reconstruct. Those are re-derived by re-materializing the recorded
+ * commit (from `install-meta.json`) through the *same* pipeline install used
+ * (see {@link ./install-from-github.materializePluginTree}): a shallow clone at
+ * the immutable SHA plus the curated adapter overlay. The adapter overlay is
+ * fetched from the canonical repo's current ref, not the install-time ref (which
+ * is not recorded), so a re-materialized file can diverge from what install
+ * produced. Each baseline file is therefore verified against the recorded
+ * fingerprint digest before it is diffed: on a mismatch the install-time bytes
+ * cannot be faithfully reconstructed, so the file is flagged rather than diffed
+ * against a fabricated baseline.
  *
  * The baseline is always the recorded install commit, not the marketplace's
  * current pin: this answers "what local changes have been made since install",
@@ -46,6 +55,7 @@ import { readInstalledPlugin } from "./list-installed-plugins.js";
 import {
   compareFingerprint,
   computeFingerprint,
+  type Fingerprint,
 } from "./plugin-fingerprint.js";
 import { PluginNotInstalledError } from "./uninstall-plugin.js";
 
@@ -61,11 +71,22 @@ export interface PluginFileDiff {
   /**
    * Unified diff (`--- a/… / +++ b/…`) of the file's bytes. For a binary file
    * this is a short `Binary files differ` marker instead of a line diff, since
-   * a line-based patch of non-text content is noise.
+   * a line-based patch of non-text content is noise. When {@link
+   * PluginFileDiff.reconstructed} is false this is a short explanatory marker
+   * rather than a patch, since the install-time bytes are unavailable.
    */
   readonly diff: string;
   /** True when either side was detected as binary (NUL byte present). */
   readonly binary: boolean;
+  /**
+   * True when the install-time baseline for this file was faithfully recovered
+   * (its re-materialized bytes hash-match the digest recorded at install).
+   * False when the baseline could not be reconstructed — e.g. the curated
+   * adapter overlay the file was built from has changed since install — in
+   * which case {@link PluginFileDiff.diff} is a marker, not a real patch.
+   * Always true for `added` files, whose baseline is the empty side.
+   */
+  readonly reconstructed: boolean;
 }
 
 /** Resolved diff of an installed plugin against its install-time baseline. */
@@ -141,7 +162,17 @@ function makeDiff(
   status: PluginFileDiffStatus,
   before: FileContent | null,
   after: FileContent | null,
+  reconstructed: boolean,
 ): PluginFileDiff {
+  if (!reconstructed) {
+    return {
+      path,
+      status,
+      diff: `Baseline unavailable (${status}): the install-time content of this file could not be reconstructed — the curated adapter overlay it was built from has changed since install. Reinstall with 'plugins install <name> --force' to refresh the baseline.`,
+      binary: false,
+      reconstructed: false,
+    };
+  }
   const binary = (before?.binary ?? false) || (after?.binary ?? false);
   if (binary) {
     return {
@@ -149,6 +180,7 @@ function makeDiff(
       status,
       diff: `Binary files differ (${status})`,
       binary: true,
+      reconstructed: true,
     };
   }
   // `/dev/null` on the absent side and `a/`–`b/` prefixes mirror `git diff`, so
@@ -164,43 +196,70 @@ function makeDiff(
     undefined,
     { context: 3 },
   );
-  return { path, status, diff, binary: false };
+  return { path, status, diff, binary: false, reconstructed: true };
 }
 
 /**
- * Build a per-file unified diff between the re-materialized baseline tree and
- * the on-disk install, reusing the same fingerprint comparison `inspect` uses
- * to classify drift (so the two surfaces always agree on which files changed).
- * The provenance sidecar is excluded on both sides — it never exists in the
- * baseline and must not read as a local addition.
+ * Recover the install-time bytes of `path` from the re-materialized baseline
+ * tree, but only when they faithfully match what install produced: the
+ * re-materialized digest must equal the digest `recorded` at install. A
+ * mismatch (or a file the re-materialization did not produce) means the
+ * install-time content cannot be reconstructed — typically because the curated
+ * adapter overlay the file was built from changed since install — so `null` is
+ * returned and the caller flags the file instead of diffing fabricated bytes.
+ */
+function baselineContent(
+  path: string,
+  baselineRoot: string,
+  recorded: Fingerprint,
+  materialized: Fingerprint,
+): FileContent | null {
+  if (materialized.files[path] !== recorded.files[path]) return null;
+  return readContent(join(baselineRoot, path));
+}
+
+/**
+ * Build a per-file unified diff for the on-disk install, classifying drift
+ * against the fingerprint `recorded` at install — the same baseline `inspect`
+ * uses, so the two surfaces always agree on which files changed and an adapter
+ * overlay that moved since install never reads as drift. The re-materialized
+ * tree supplies the baseline *bytes* for the diff, verified per file against
+ * `recorded`. The provenance sidecar is excluded on both sides — it never
+ * exists in the baseline and must not read as a local addition.
  */
 function buildFileDiffs(
   baselineRoot: string,
   target: string,
+  recorded: Fingerprint,
 ): PluginFileDiff[] {
-  const baseline = computeFingerprint(baselineRoot, [INSTALL_META_FILENAME]);
-  const comparison = compareFingerprint(target, baseline, [
+  const comparison = compareFingerprint(target, recorded, [
+    INSTALL_META_FILENAME,
+  ]);
+  const materialized = computeFingerprint(baselineRoot, [
     INSTALL_META_FILENAME,
   ]);
 
   const files: PluginFileDiff[] = [];
   for (const path of comparison.modified) {
+    const before = baselineContent(path, baselineRoot, recorded, materialized);
     files.push(
       makeDiff(
         path,
         "modified",
-        readContent(join(baselineRoot, path)),
+        before,
         readContent(join(target, path)),
+        before !== null,
       ),
     );
   }
   for (const path of comparison.added) {
-    files.push(makeDiff(path, "added", null, readContent(join(target, path))));
+    files.push(
+      makeDiff(path, "added", null, readContent(join(target, path)), true),
+    );
   }
   for (const path of comparison.removed) {
-    files.push(
-      makeDiff(path, "removed", readContent(join(baselineRoot, path)), null),
-    );
+    const before = baselineContent(path, baselineRoot, recorded, materialized);
+    files.push(makeDiff(path, "removed", before, null, before !== null));
   }
   files.sort((a, b) => a.path.localeCompare(b.path));
   return files;
@@ -237,6 +296,15 @@ export async function diffPlugin(
       `no install commit was recorded (an older or manually-copied install); reinstall with 'assistant plugins install ${name} --force' to record provenance`,
     );
   }
+  // Drift is classified against the install-time fingerprint (as `inspect`
+  // does), so without it there is no trustworthy baseline to diff against.
+  const recorded = meta.fingerprint;
+  if (!recorded) {
+    throw new PluginDiffUnavailableError(
+      name,
+      `no install-time fingerprint was recorded (an older or manually-copied install); reinstall with 'assistant plugins install ${name} --force' to record provenance`,
+    );
+  }
 
   const source: PluginFetchSource = {
     owner: meta.source.owner,
@@ -263,7 +331,7 @@ export async function diffPlugin(
       );
     }
 
-    const files = buildFileDiffs(baselineRoot, target);
+    const files = buildFileDiffs(baselineRoot, target, recorded);
     return {
       name,
       target,

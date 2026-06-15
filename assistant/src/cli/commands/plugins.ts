@@ -226,7 +226,7 @@ Examples:
         )
         .option(
           "--json",
-          "Emit machine-readable JSON ({ path, status, diff }[]) instead of a unified diff",
+          "Emit the machine-readable diff result as JSON (files: { path, status, diff, binary, reconstructed }[]) instead of a unified diff",
         )
         .addHelpText(
           "after",
@@ -625,6 +625,12 @@ function formatDiff(result: PluginDiffResult): string[] {
     "",
   ];
   for (const file of result.files) {
+    // A non-reconstructed baseline carries an explanatory marker, not a patch
+    // with `a/`–`b/` headers, so name the file it refers to.
+    if (!file.reconstructed) {
+      lines.push(`${file.path}: ${file.diff.trimEnd()}`, "");
+      continue;
+    }
     lines.push(file.diff.trimEnd(), "");
   }
   return lines;

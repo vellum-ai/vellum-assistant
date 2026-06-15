@@ -1286,6 +1286,7 @@ function diffResult(
         status: "modified",
         diff: "--- a/src/skill.ts\n+++ b/src/skill.ts\n@@ -1 +1 @@\n-old\n+new\n",
         binary: false,
+        reconstructed: true,
       },
     ],
   };
@@ -1297,7 +1298,7 @@ async function invokeDiff(
   return (await diffHandler(args)) as PluginDiffResult;
 }
 
-describe("GET /v1/plugins/:name/diff", () => {
+describe("POST /v1/plugins/:name/diff", () => {
   beforeEach(() => {
     diffSpy.mockReset();
   });

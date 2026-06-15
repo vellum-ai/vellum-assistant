@@ -11,6 +11,7 @@
  * removed drift, binary content, and the clean case.
  */
 
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -76,15 +77,40 @@ const unusedGitRunner: GitRunner = async (args) => {
 };
 
 /**
+ * Per-file SHA-256 digest of a tree, in the {@link Fingerprint} shape install
+ * records in `install-meta.json`. Drift is classified against this recorded
+ * baseline (as `inspect` does), so each fixture records the digest of its
+ * install-time tree.
+ */
+function fingerprintOf(tree: Tree): {
+  algorithm: "sha256";
+  files: Record<string, string>;
+} {
+  const files: Record<string, string> = {};
+  for (const [rel, content] of Object.entries(tree)) {
+    const buf = typeof content === "string" ? Buffer.from(content) : content;
+    files[rel] = createHash("sha256").update(buf).digest("hex");
+  }
+  return { algorithm: "sha256", files };
+}
+
+/**
  * Materialize an installed plugin copy with `files` on disk and an optional
  * provenance sidecar. `sidecar: null` writes no `install-meta.json`; a sidecar
- * with `commit: null` records an install that captured no commit.
+ * with `commit: null` records an install that captured no commit. `baseline`
+ * is the install-time tree whose fingerprint is recorded — drift is classified
+ * against it (as `inspect` does); omit it to record an install with no
+ * fingerprint (an older or manually-copied install).
  */
 function installCopy(
   pluginsDir: string,
   name: string,
   files: Tree,
-  sidecar: { commit: string | null; committedAt?: string } | null,
+  sidecar: {
+    commit: string | null;
+    committedAt?: string;
+    baseline?: Tree;
+  } | null,
 ): void {
   const dir = join(pluginsDir, name);
   mkdirSync(dir, { recursive: true });
@@ -108,6 +134,10 @@ function installCopy(
         commit: sidecar.commit,
         committedAt: sidecar.committedAt,
         installedAt: "2026-06-10T12:00:00.000Z",
+        fingerprint:
+          sidecar.baseline !== undefined
+            ? fingerprintOf(sidecar.baseline)
+            : null,
       }),
     );
   }
@@ -141,7 +171,7 @@ describe("diffPlugin", () => {
         "package.json": '{"name":"level-up"}',
         "src/skill.ts": "export const a = 1;\nexport const b = 99;\n",
       },
-      { commit: SHA_A },
+      { commit: SHA_A, baseline },
     );
 
     // WHEN the plugin is diffed against its install commit
@@ -163,6 +193,7 @@ describe("diffPlugin", () => {
     expect(file.path).toBe("src/skill.ts");
     expect(file.status).toBe("modified");
     expect(file.binary).toBe(false);
+    expect(file.reconstructed).toBe(true);
     // AND the unified diff shows the old and new line
     expect(file.diff).toContain("-export const b = 2;");
     expect(file.diff).toContain("+export const b = 99;");
@@ -184,7 +215,7 @@ describe("diffPlugin", () => {
         "package.json": '{"name":"level-up"}',
         "src/new.ts": "export const added = true;\n",
       },
-      { commit: SHA_A },
+      { commit: SHA_A, baseline },
     );
 
     // WHEN the plugin is diffed
@@ -218,7 +249,10 @@ describe("diffPlugin", () => {
       "package.json": '{"name":"level-up"}',
       "src/skill.ts": "export const a = 1;\n",
     };
-    installCopy(pluginsDir, "level-up", tree, { commit: SHA_A });
+    installCopy(pluginsDir, "level-up", tree, {
+      commit: SHA_A,
+      baseline: tree,
+    });
 
     // WHEN the plugin is diffed
     const result = await diffPlugin(
@@ -239,7 +273,10 @@ describe("diffPlugin", () => {
     // GIVEN a baseline (which never contains install-meta.json) and an on-disk
     // copy identical to it apart from the sidecar install always writes
     const tree: Tree = { "package.json": '{"name":"level-up"}' };
-    installCopy(pluginsDir, "level-up", tree, { commit: SHA_A });
+    installCopy(pluginsDir, "level-up", tree, {
+      commit: SHA_A,
+      baseline: tree,
+    });
 
     // WHEN the plugin is diffed
     const result = await diffPlugin(
@@ -269,7 +306,7 @@ describe("diffPlugin", () => {
         "package.json": '{"name":"level-up"}',
         "assets/icon.bin": Buffer.from([0x00, 0xff, 0xfe, 0xfd]),
       },
-      { commit: SHA_A },
+      { commit: SHA_A, baseline },
     );
 
     // WHEN the plugin is diffed
@@ -287,7 +324,56 @@ describe("diffPlugin", () => {
     const [file] = result.files;
     expect(file.path).toBe("assets/icon.bin");
     expect(file.binary).toBe(true);
+    expect(file.reconstructed).toBe(true);
     expect(file.diff).toContain("Binary files differ");
+  });
+
+  test("flags a file whose install-time baseline cannot be reconstructed", async () => {
+    // GIVEN an install whose recorded fingerprint captured one version of a file
+    const recorded: Tree = {
+      "package.json": '{"name":"level-up"}',
+      "src/skill.ts": "export const v = 1;\n",
+    };
+    // AND an on-disk copy the user edited (drift vs the recorded baseline)
+    installCopy(
+      pluginsDir,
+      "level-up",
+      {
+        "package.json": '{"name":"level-up"}',
+        "src/skill.ts": "export const v = 2;\n",
+      },
+      { commit: SHA_A, baseline: recorded },
+    );
+    // AND a re-materialization that yields DIFFERENT bytes than were recorded
+    // (e.g. the curated adapter overlay moved since install), so the baseline
+    // bytes cannot be faithfully reconstructed for this file
+    const driftedClone: Tree = {
+      "package.json": '{"name":"level-up"}',
+      "src/skill.ts": "export const v = 3;\n",
+    };
+
+    // WHEN the plugin is diffed
+    const result = await diffPlugin(
+      { name: "level-up" },
+      {
+        fetch: makeFetch(),
+        runGit: fakeGitRunner(SHA_A, driftedClone),
+        workspacePluginsDir: pluginsDir,
+      },
+    );
+
+    // THEN the file is still reported as drifted (classified vs the recorded
+    // fingerprint, like inspect), but flagged rather than diffed against the
+    // fabricated baseline bytes
+    expect(result.clean).toBe(false);
+    expect(result.files).toHaveLength(1);
+    const [file] = result.files;
+    expect(file.path).toBe("src/skill.ts");
+    expect(file.status).toBe("modified");
+    expect(file.reconstructed).toBe(false);
+    expect(file.diff).toContain("Baseline unavailable");
+    // AND the re-materialized (wrong) bytes are never presented as the baseline
+    expect(file.diff).not.toContain("export const v = 3;");
   });
 
   test("throws PluginNotInstalledError when no copy is installed", async () => {
@@ -330,12 +416,13 @@ describe("diffPlugin", () => {
   });
 
   test("throws PluginNotFoundError when the recorded commit yields no tree", async () => {
-    // GIVEN an installed copy with a recorded commit
+    // GIVEN an installed copy with a recorded commit and fingerprint (so the
+    // baseline-classification guard passes and execution reaches the clone)
     installCopy(
       pluginsDir,
       "level-up",
       { "package.json": '{"name":"level-up"}' },
-      { commit: SHA_A },
+      { commit: SHA_A, baseline: { "package.json": '{"name":"level-up"}' } },
     );
     // AND a clone that materializes no files (the commit/sub-path is gone)
     const emptyClone = fakeGitRunner(SHA_A, {});
