@@ -15,6 +15,14 @@ export interface NavigationState {
   platformSession: PlatformSessionStatus;
   tosAccepted: boolean;
   aiDataConsent: boolean;
+  /**
+   * The `experiment-activation-flow-2026-06-03 = personal-page` ("cast") arm.
+   * The cast flow owns its own provisioning (it background-hatches itself from
+   * the pre-chat step), so a no-assistant cast user is routed to prechat rather
+   * than the standalone hatching screen. Defaults to `false` for every other
+   * arm (control / variant-a) and for local mode, leaving their routing intact.
+   */
+  isCastArm: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -255,6 +263,12 @@ function requireAssistant(state: NavigationState): NavigationDecision | null {
 
   if (!hasCompletedOnboarding(state)) {
     return { action: "redirect", to: routes.onboarding.privacy };
+  }
+  // The cast arm's pre-chat flow hatches its own assistant, so a consented
+  // cast user with no assistant belongs in prechat, not the standalone
+  // hatching screen. Every other arm keeps the hatching redirect.
+  if (state.isCastArm) {
+    return { action: "redirect", to: routes.onboarding.prechat };
   }
   return { action: "redirect", to: routes.onboarding.hatching };
 }

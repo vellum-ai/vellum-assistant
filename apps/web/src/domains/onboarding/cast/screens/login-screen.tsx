@@ -22,18 +22,25 @@ import type {
   LoginIdentity,
   LoginScreenProps,
 } from "@/domains/onboarding/cast/screens/screen-slot";
+import { useIsAuthenticated } from "@/stores/auth-store";
 import "@/domains/onboarding/cast/cast.css";
 
 export type { LoginIdentity };
 
 export function LoginScreen({ onAdvance, onContinue, onIdentity }: LoginScreenProps) {
-  const [loggedIn, setLoggedIn] = useState(false);
+  // The cast arm only runs post-auth/post-consent, so the sign-in buttons are
+  // mock theatre. When already authenticated, skip the fake sign-in stage and
+  // render the about-you form directly; the provider-button path survives only
+  // for the (unexpected) unauthenticated case.
+  const isAuthenticated = useIsAuthenticated();
+  const [loggedIn, setLoggedIn] = useState(isAuthenticated);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [role, setRole] = useState("");
   const [exiting, setExiting] = useState(false);
 
-  // Reveal the about-you form once a provider is chosen (mock sign-in).
+  // Reveal the about-you form once a provider is chosen (mock sign-in). Only
+  // reachable on the unauthenticated fallback path.
   function handleLogin() {
     if (loggedIn) return;
     setLoggedIn(true);
@@ -176,16 +183,16 @@ export function LoginScreen({ onAdvance, onContinue, onIdentity }: LoginScreenPr
                   </button>
                 </motion.p>
 
-                <motion.button
+                <motion.a
                   className="cast-login__download"
-                  onClick={handleLogin}
+                  href="/downloads"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ duration: 0.3, delay: 0.75 }}
                 >
                   <AppleLogo size={16} />
                   Download for macOS
-                </motion.button>
+                </motion.a>
               </motion.div>
             ) : (
               <motion.div

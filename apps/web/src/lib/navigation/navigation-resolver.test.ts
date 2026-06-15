@@ -16,6 +16,7 @@ const base: NavigationState = {
   platformSession: "present",
   tosAccepted: true,
   aiDataConsent: true,
+  isCastArm: false,
 };
 
 function s(overrides: Partial<NavigationState>): NavigationState {
@@ -292,6 +293,43 @@ describe("resolveNavigation", () => {
         action: "redirect",
         to: "/assistant/onboarding/hatching",
       });
+    });
+
+    // -- cast arm (personal-page): owns its own provisioning -----------------
+
+    test("redirects consented cast-arm user without assistants to prechat, not hatching", () => {
+      expect(
+        guard(s({ hasAssistants: false, isCastArm: true })),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/prechat",
+      });
+    });
+
+    test("redirects cast-arm user without assistants to prechat from a deep path", () => {
+      expect(
+        guard(s({ hasAssistants: false, isCastArm: true }), "/assistant/home"),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/prechat",
+      });
+    });
+
+    test("cast-arm user without consent still goes to privacy first", () => {
+      expect(
+        guard(
+          s({
+            hasAssistants: false,
+            isCastArm: true,
+            tosAccepted: false,
+            aiDataConsent: false,
+          }),
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy" });
+    });
+
+    test("cast-arm flag does not change routing for a user who has an assistant", () => {
+      expect(guard(s({ isCastArm: true }))).toEqual(ALLOW);
     });
   });
 

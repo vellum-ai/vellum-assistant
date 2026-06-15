@@ -49,6 +49,12 @@ mock.module("@/stores/client-feature-flag-store", () => ({
   useClientFeatureFlagStore: { use: { stringFlags: () => ({}) } },
 }));
 
+// Activation-flow arm — drives the post-consent destination (cast → prechat).
+let activationArm = "control";
+mock.module("@/hooks/use-client-feature-flag-sync", () => ({
+  useActivationFlowArm: () => ({ arm: activationArm, settled: true }),
+}));
+
 // Light passthroughs for layout/design-library so the screen renders in happy-dom.
 mock.module("@/domains/onboarding/components/onboarding-layout", () => ({
   OnboardingLayout: ({ children }: { children: React.ReactNode }) => children,
@@ -85,6 +91,7 @@ describe("PrivacyScreen — Start navigation", () => {
     navigateMock.mockClear();
     saveConsentMock.mockClear();
     emitFunnelStepCompletedMock.mockClear();
+    activationArm = "control";
   });
   afterEach(cleanup);
 
@@ -111,5 +118,19 @@ describe("PrivacyScreen — Start navigation", () => {
 
     expect(saveConsentMock).toHaveBeenCalledTimes(1);
     expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.hatching);
+  });
+
+  test("cast arm persists consent and skips hatching for prechat", () => {
+    searchParamsValue = new URLSearchParams();
+    activationArm = "personal-page";
+    render(<PrivacyScreen />);
+
+    clickStart();
+
+    // The cast flow owns its own provisioning, so post-consent goes straight to
+    // prechat (no standalone hatching step).
+    expect(saveConsentMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.prechat);
+    expect(navigateMock).not.toHaveBeenCalledWith(routes.onboarding.hatching);
   });
 });
