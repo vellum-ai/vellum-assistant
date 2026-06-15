@@ -13,8 +13,10 @@ import { ChevronRight } from "lucide-react";
 import { getModelsForProvider } from "@/assistant/llm-model-catalog";
 import { configGetOptions, inferenceProviderconnectionsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 
-import type { ProfileEntry, ProfilePatchEntry, ProfileStatus, ProfileWithName } from "@/domains/settings/ai/ai-types";
-import { INFERENCE_PROVIDER_DISPLAY_NAMES } from "@/domains/settings/ai/ai-types";
+import type { ProfileEntry, ProfilePatchEntry, ProfileStatus } from "@/generated/daemon/types.gen";
+
+import { INFERENCE_PROVIDER_DISPLAY_NAMES } from "@/domains/settings/ai/constants";
+import type { ProfileWithName } from "@/domains/settings/ai/utils";
 import {
     ProfileAdvancedParams,
     THINKING_LEVEL_INHERIT,

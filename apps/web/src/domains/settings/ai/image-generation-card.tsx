@@ -14,12 +14,12 @@ import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import { LS_IMAGE_GEN_MODE, LS_IMAGE_GEN_MODEL } from "@/domains/settings/ai/ai-local-storage-keys";
-import { AVAILABLE_IMAGE_GEN_MODELS, IMAGE_GEN_MODEL_DISPLAY_NAMES } from "@/domains/settings/ai/ai-provider-catalogs";
-import { parseServiceMode } from "@/domains/settings/ai/ai-types";
+import { LS_IMAGE_GEN_MODE, LS_IMAGE_GEN_MODEL } from "@/domains/settings/ai/local-storage-keys";
+import { AVAILABLE_IMAGE_GEN_MODELS, IMAGE_GEN_MODEL_DISPLAY_NAMES } from "@/domains/settings/ai/provider-catalogs";
+import { parseServiceMode } from "@/domains/settings/ai/utils";
 import type { ServiceMode } from "@/generated/daemon/types.gen";
 
-import { ResetButton, SaveButton, ServiceCard } from "@/domains/settings/ai/ai-shared-ui";
+import { ResetButton, SaveButton, ServiceCard } from "@/domains/settings/ai/shared-ui";
 import { useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
 import { configGetOptions, configGetSetQueryData, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useQuery } from "@tanstack/react-query";

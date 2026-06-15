@@ -1,4 +1,4 @@
-import { INFERENCE_PROVIDER_DISPLAY_NAMES } from "@/domains/settings/ai/ai-types";
+import { INFERENCE_PROVIDER_DISPLAY_NAMES } from "@/domains/settings/ai/constants";
 import { toKebabCase } from "@/domains/settings/ai/slugify";
 
 /**
