@@ -65,6 +65,7 @@ export const LOCAL_MODE_SAVE_ASSISTANT = "vellum:localMode:saveLockfileAssistant
 export const LOCAL_MODE_REPLACE_PLATFORM = "vellum:localMode:replacePlatformAssistants";
 export const LOCAL_MODE_RETIRE = "vellum:localMode:retire";
 export const LOCAL_MODE_WAKE = "vellum:localMode:wake";
+export const LOCAL_MODE_STATUS = "vellum:localMode:status";
 export const LOCAL_MODE_GUARDIAN_TOKEN = "vellum:localMode:guardianToken";
 
 // Menu

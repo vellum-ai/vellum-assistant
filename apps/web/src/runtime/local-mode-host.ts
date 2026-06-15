@@ -1,4 +1,7 @@
-import type { LocalWakeOptions } from "@vellumai/ipc-contract";
+import type {
+  LocalAssistantStatusResult,
+  LocalWakeOptions,
+} from "@vellumai/ipc-contract";
 import { parseLockfile } from "@vellumai/local-mode/contract";
 import type {
   Lockfile,
@@ -67,6 +70,8 @@ export interface LocalWakeResult {
   ok: boolean;
   error?: string;
 }
+
+export type { LocalAssistantStatusResult };
 
 /**
  * Thrown by {@link fetchGuardianTokenHost} when a host returns a structured
@@ -252,6 +257,27 @@ export async function wakeLocalAssistantHost(
     }),
   });
   return res.json() as Promise<LocalWakeResult>;
+}
+
+export async function getLocalAssistantStatusHost(
+  assistantId: string,
+): Promise<LocalAssistantStatusResult> {
+  if (isElectron()) {
+    const status = window.vellum!.localMode.status;
+    if (!status) {
+      return {
+        ok: false,
+        status: 501,
+        error: "Local assistant status is not supported by this app version",
+      };
+    }
+    return status(assistantId);
+  }
+
+  const res = await fetch(
+    `/assistant/__local/status/${encodeURIComponent(assistantId)}`,
+  );
+  return res.json() as Promise<LocalAssistantStatusResult>;
 }
 
 /**

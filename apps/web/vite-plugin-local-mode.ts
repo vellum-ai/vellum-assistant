@@ -10,6 +10,7 @@ import {
   headerHostIsLoopback,
   originIsAllowed,
   getLockfileData,
+  getLocalAssistantStatus,
   upsertLockfileAssistant,
   replacePlatformAssistants,
   isActiveAssistant,
@@ -24,6 +25,7 @@ import {
 
 const GUARDIAN_TOKEN_PATTERN =
   /^(?:\/assistant)?\/__local\/guardian-token\/([^/]+)$/;
+const LOCAL_STATUS_PATTERN = /^(?:\/assistant)?\/__local\/status\/([^/]+)$/;
 
 export function localModePlugin(env: Record<string, string>): Plugin {
   const config = resolveLocalConfigFromEnv(env);
@@ -51,6 +53,7 @@ export function localModePlugin(env: Record<string, string>): Plugin {
       server.middlewares.use(hatchMiddleware(baseDir));
       server.middlewares.use(retireMiddleware(baseDir, config.lockfilePaths));
       server.middlewares.use(wakeMiddleware(baseDir));
+      server.middlewares.use(statusMiddleware(config.lockfilePaths));
       server.middlewares.use(
         guardianTokenMiddleware(config.configDir, baseDir, env),
       );
@@ -393,6 +396,30 @@ function wakeMiddleware(baseDir: string): Connect.NextHandleFunction {
           ),
         );
       });
+    });
+  };
+}
+
+function statusMiddleware(lockfilePaths: string[]): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    const match = req.url?.match(LOCAL_STATUS_PATTERN);
+    if (!match) return next();
+
+    if (rejectUnlessLocalEndpointRequest(req, res)) return;
+
+    if (req.method !== "GET") {
+      res.statusCode = 405;
+      res.end();
+      return;
+    }
+
+    void getLocalAssistantStatus(
+      lockfilePaths,
+      decodeURIComponent(match[1]!),
+    ).then((result) => {
+      res.statusCode = result.ok ? 200 : result.status;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify(result));
     });
   };
 }

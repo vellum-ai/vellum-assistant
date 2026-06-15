@@ -12,7 +12,10 @@
  * `window.vellum`, `isNativePlatform()` calls Capacitor, and the web branch
  * uses `localStorage` — so consumers stay platform-agnostic.
  */
-import type { Lockfile, LockfileWriteResult } from "@vellumai/local-mode/contract";
+import type {
+  Lockfile,
+  LockfileWriteResult,
+} from "@vellumai/local-mode/contract";
 import type {
   AppVersionInfo,
   AssistantStatus,
@@ -29,6 +32,7 @@ import type {
   HotkeyEvent,
   HotkeyEventState,
   HotkeyScope,
+  LocalAssistantStatusResult,
   LocalWakeOptions,
   NotificationActionEvent,
   NotificationCategory,
@@ -190,6 +194,9 @@ declare global {
           assistantId: string,
           options?: LocalWakeOptions,
         ): Promise<{ ok: boolean; error?: string }>;
+        status?(
+          assistantId: string,
+        ): Promise<LocalAssistantStatusResult>;
         guardianToken(
           assistantId: string,
         ): Promise<
