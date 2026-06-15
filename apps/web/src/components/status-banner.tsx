@@ -1,5 +1,5 @@
 import { CloudOff, LoaderCircle, Moon, WifiOff, Wrench } from "lucide-react";
-import { type ReactNode, useCallback, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { Button } from "@vellumai/design-library/components/button";
 import {
@@ -143,6 +143,22 @@ function useAssistantBannerConfig(): BannerConfig | null {
     isError: operationalStatusIsError,
     refetch: refetchOperationalStatus,
   } = statusQuery;
+
+  // Track whether the assistant was recently sleeping so we can suppress
+  // the brief "unreachable" flash that occurs during the tail end of a
+  // wake (pod ready per k8s but application healthz not yet ok).
+  const [wasRecentlySleeping, setWasRecentlySleeping] = useState(false);
+  useEffect(() => {
+    if (operationalStatus?.state === "sleeping") {
+      setWasRecentlySleeping(true);
+    } else if (
+      operationalStatus?.state === "active" ||
+      operationalStatus?.state === "crash_loop" ||
+      operationalStatus?.state === "not_found"
+    ) {
+      setWasRecentlySleeping(false);
+    }
+  }, [operationalStatus?.state]);
   const [isExitingMaintenanceMode, setIsExitingMaintenanceMode] =
     useState(false);
   const [maintenanceModeExitError, setMaintenanceModeExitError] = useState<
@@ -223,9 +239,18 @@ function useAssistantBannerConfig(): BannerConfig | null {
     };
   }
 
+  // When the status transitions from sleeping directly to unreachable, the
+  // assistant is in the final phase of waking (pod ready per k8s but the
+  // application healthz hasn't responded ok yet). Show "waking" so the user
+  // sees a smooth sleeping → waking → active progression.
+  const effectiveStatus =
+    operationalStatus?.state === "unreachable" && wasRecentlySleeping
+      ? { ...operationalStatus, state: "waking" as AssistantOperationalState }
+      : operationalStatus;
+
   const operationalBanner = shouldUseLifecycleMaintenanceMode
     ? maintenanceModeBannerConfig()
-    : operationalStatusBannerConfig(operationalStatus, showDoctorAction);
+    : operationalStatusBannerConfig(effectiveStatus, showDoctorAction);
   const isMaintenanceModeBanner =
     operationalStatus?.state === "maintenance_mode" ||
     shouldUseLifecycleMaintenanceMode;
