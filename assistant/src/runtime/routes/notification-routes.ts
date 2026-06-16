@@ -25,7 +25,7 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 // ── Notification intent result (client delivery ack) ──────────────────
 
 const NotificationIntentResultParams = z.object({
-  deliveryId: z.string().describe("Notification delivery ID"),
+  deliveryId: z.string().min(1).describe("Notification delivery ID"),
   success: z.boolean().describe("Whether delivery succeeded").optional(),
   errorMessage: z
     .string()
