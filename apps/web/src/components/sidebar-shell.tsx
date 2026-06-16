@@ -48,6 +48,7 @@ export function SidebarShell({
     containerRef: swipeContainerRef,
     onBack: handleSwipeBack,
     enabled: isMobile && !isMenuRoute,
+    navKey: pathname,
   });
 
   // In the Electron shell the macOS window controls (traffic lights) sit in an
