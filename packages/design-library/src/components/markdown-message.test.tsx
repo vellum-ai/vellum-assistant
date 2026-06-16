@@ -64,19 +64,22 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("text-body-small-default");
   });
 
-  test("inline code in table cells gets whitespace-nowrap to prevent wrapping", () => {
+  test("inline code in table cells wraps with preserved spacing and breathing room", () => {
     const html = renderToStaticMarkup(
       createElement(MarkdownMessage, {
         content: "| Function | Usage |\n| --- | --- |\n| `useState` | `const [s, setS] = useState(v)` |",
       }),
     );
 
-    // Both <td> and <th> carry the descendant variant that prevents code
-    // wrapping. Static markup HTML-encodes `&` → `&amp;`.
+    // Both <td> and <th> let inline code wrap while preserving its spacing.
+    // leading-relaxed is load-bearing: the body-small token sets line-height:1,
+    // which clips the padded inline-code background once it wraps onto a second
+    // line.
     const tdMatches = html.match(/<td\b[^>]*class="([^"]*)"/g) ?? [];
     const thMatches = html.match(/<th\b[^>]*class="([^"]*)"/g) ?? [];
     for (const match of [...tdMatches, ...thMatches]) {
-      expect(match).toContain("whitespace-nowrap");
+      expect(match).toContain("whitespace-pre-wrap");
+      expect(match).toContain("leading-relaxed");
     }
     // Code elements inside cells are still inline code (not block).
     expect(html).toContain("<code");
