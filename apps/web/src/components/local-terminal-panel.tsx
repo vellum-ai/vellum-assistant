@@ -28,10 +28,13 @@ export function LocalTerminalPanel({ className }: LocalTerminalPanelProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const writeToTerminalRef = useRef<((data: string) => void) | null>(null);
+  const mountedRef = useRef(true);
+  const pendingDimensionsRef = useRef<{ cols: number; rows: number } | null>(null);
 
-  // Teardown: kill PTY session on unmount
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
       const id = sessionIdRef.current;
       if (id) {
         void killLocalTerminal(id);
@@ -73,7 +76,18 @@ export function LocalTerminalPanel({ className }: LocalTerminalPanelProps) {
     setStatus("connecting");
     setErrorMessage(null);
 
-    const result = await spawnLocalTerminal();
+    const dims = pendingDimensionsRef.current ?? undefined;
+    const result = await spawnLocalTerminal(
+      dims ? { cols: dims.cols, rows: dims.rows } : undefined,
+    );
+
+    if (!mountedRef.current) {
+      if (result.ok) {
+        void killLocalTerminal(result.sessionId);
+      }
+      return;
+    }
+
     if (!result.ok) {
       setStatus("error");
       setErrorMessage(result.error);
@@ -82,6 +96,10 @@ export function LocalTerminalPanel({ className }: LocalTerminalPanelProps) {
 
     sessionIdRef.current = result.sessionId;
     setStatus("connected");
+
+    if (dims) {
+      resizeLocalTerminal(result.sessionId, dims.cols, dims.rows);
+    }
   }, []);
 
   const disconnect = useCallback(async () => {
@@ -102,6 +120,7 @@ export function LocalTerminalPanel({ className }: LocalTerminalPanelProps) {
 
   const handleConsoleResize = useCallback(
     ({ cols, rows }: { cols: number; rows: number }) => {
+      pendingDimensionsRef.current = { cols, rows };
       const id = sessionIdRef.current;
       if (id) {
         resizeLocalTerminal(id, cols, rows);
