@@ -2,6 +2,28 @@ import { app, BrowserWindow } from "electron";
 
 import log from "./logger";
 
+// Build-time define (see electron.vite.config.ts) — the same VELLUM_ENVIRONMENT
+// that electron-builder.config.cjs derives `productName` from.
+declare const __VELLUM_ENVIRONMENT__: string;
+
+/**
+ * The app's user-facing product name ("Vellum", "Vellum Local", "Vellum Dev",
+ * …). `app.getName()` can't be used here: electron-builder writes the product
+ * name to the bundle Info.plist (`CFBundleName`), not into the asar'd
+ * package.json, so `app.getName()` returns the package `name` (`@vellumai/macos`)
+ * for packaged builds. We instead mirror the per-environment derivation in
+ * electron-builder.config.cjs so the two always agree. (Setting it via
+ * `app.setName()` is avoided — that would shift the production `userData` path.)
+ */
+function productDisplayName(): string {
+  const env =
+    typeof __VELLUM_ENVIRONMENT__ === "string"
+      ? __VELLUM_ENVIRONMENT__
+      : "production";
+  if (env === "production") return "Vellum";
+  return `Vellum ${env.charAt(0).toUpperCase()}${env.slice(1)}`;
+}
+
 /**
  * Minimal in-process splash shown while the app copies itself into
  * /Applications. `app.moveToApplicationsFolder()` is a *synchronous* call that
@@ -30,6 +52,7 @@ function installSplashHtml(productName: string): string {
 }
 
 function createInstallSplash(): BrowserWindow {
+  const name = productDisplayName();
   const win = new BrowserWindow({
     width: 340,
     height: 170,
@@ -42,16 +65,14 @@ function createInstallSplash(): BrowserWindow {
     center: true,
     alwaysOnTop: true,
     backgroundColor: "#ffffff",
-    title: `Installing ${app.getName()}`,
+    title: `Installing ${name}`,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
   void win.loadURL(
-    `data:text/html;charset=utf-8,${encodeURIComponent(
-      installSplashHtml(app.getName()),
-    )}`,
+    `data:text/html;charset=utf-8,${encodeURIComponent(installSplashHtml(name))}`,
   );
   return win;
 }
