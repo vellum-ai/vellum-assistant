@@ -46,7 +46,7 @@ export class ContactStore {
 
   getContactByChannel(
     channelType: string,
-    externalUserId: string,
+    address: string,
   ): Contact | undefined {
     return this.db
       .select({
@@ -62,7 +62,7 @@ export class ContactStore {
       .where(
         and(
           eq(contactChannels.type, channelType),
-          eq(contactChannels.address, externalUserId),
+          sql`${contactChannels.address} = ${address} COLLATE NOCASE`,
         ),
       )
       .limit(1)
@@ -94,7 +94,7 @@ export class ContactStore {
         and(
           eq(contactChannels.type, "phone"),
           ne(contactChannels.status, "revoked"),
-          eq(contactChannels.address, phoneNumber),
+          sql`${contactChannels.address} = ${phoneNumber} COLLATE NOCASE`,
         ),
       )
       .limit(1)
@@ -449,7 +449,7 @@ export class ContactStore {
           .where(
             and(
               eq(contactChannels.type, ch.type),
-              eq(contactChannels.address, ch.address),
+              sql`${contactChannels.address} = ${ch.address} COLLATE NOCASE`,
             ),
           )
           .get();
@@ -561,6 +561,7 @@ export class ContactStore {
     now: number,
   ): void {
     for (const ch of channels) {
+      // COLLATE NOCASE catches legacy lowercased rows (pre-migration m0005).
       const existing = this.db
         .select()
         .from(contactChannels)
@@ -568,7 +569,7 @@ export class ContactStore {
           and(
             eq(contactChannels.contactId, contactId),
             eq(contactChannels.type, ch.type),
-            eq(contactChannels.address, ch.address),
+            sql`${contactChannels.address} = ${ch.address} COLLATE NOCASE`,
           ),
         )
         .get();
@@ -601,14 +602,15 @@ export class ContactStore {
         continue;
       }
 
-      // Cross-contact conflict check — skip to avoid unique-address violations
+      // Cross-contact conflict check — skip to avoid unique-address violations.
+      // COLLATE NOCASE catches legacy lowercased rows.
       const conflict = this.db
         .select({ id: contactChannels.id })
         .from(contactChannels)
         .where(
           and(
             eq(contactChannels.type, ch.type),
-            eq(contactChannels.address, ch.address),
+            sql`${contactChannels.address} = ${ch.address} COLLATE NOCASE`,
           ),
         )
         .get();

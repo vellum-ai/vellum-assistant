@@ -232,6 +232,59 @@ describe("migration 291 — renormalize addresses", () => {
     expect(rows[0].address).toBe("U12345ABC");
   });
 
+  test("does not overwrite canonical E.164 phone address with raw external_user_id", () => {
+    const db = createTestDb();
+    bootstrap(db);
+    const raw = getSqliteFrom(db);
+
+    insertContact(raw, "c1");
+    // Phone channel whose address was canonicalized to E.164 (+1 prefix)
+    // but external_user_id still holds the raw 10-digit number.
+    insertChannel(raw, {
+      id: "ch1",
+      contactId: "c1",
+      type: "phone",
+      // generic-examples:ignore-next-line — reason: testing E.164 canonicalization preservation
+      address: "+15550101234",
+      // generic-examples:ignore-next-line — reason: testing raw 10-digit phone before E.164 normalization
+      externalUserId: "5550101234",
+      status: "active",
+    });
+
+    migrateContactChannelsRenormalizeAddresses(db);
+
+    const rows = raw
+      .prepare("SELECT * FROM contact_channels")
+      .all() as ChannelRow[];
+    expect(rows).toHaveLength(1);
+    // generic-examples:ignore-next-line — reason: verifying E.164 address preserved
+    expect(rows[0].address).toBe("+15550101234");
+  });
+
+  test("does not overwrite canonical WhatsApp address with raw external_user_id", () => {
+    const db = createTestDb();
+    bootstrap(db);
+    const raw = getSqliteFrom(db);
+
+    insertContact(raw, "c1");
+    insertChannel(raw, {
+      id: "ch1",
+      contactId: "c1",
+      type: "whatsapp",
+      address: "+447911123456",
+      externalUserId: "447911123456",
+      status: "active",
+    });
+
+    migrateContactChannelsRenormalizeAddresses(db);
+
+    const rows = raw
+      .prepare("SELECT * FROM contact_channels")
+      .all() as ChannelRow[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0].address).toBe("+447911123456");
+  });
+
   test("no-op when address already matches external_user_id", () => {
     const db = createTestDb();
     bootstrap(db);

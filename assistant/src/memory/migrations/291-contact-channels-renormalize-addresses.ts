@@ -1,10 +1,13 @@
 import { getLogger } from "../../util/logger.js";
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 
-const log = getLogger("migration-290");
+const log = getLogger("migration-291");
 
 /**
- * Restores original platform-provided casing into address from external_user_id.
+ * Restores original platform-provided casing into address from external_user_id
+ * for channels where the raw platform ID is the canonical identity (Slack,
+ * Telegram, etc.). Phone and WhatsApp channels are excluded because their
+ * canonical form (E.164) may differ from the raw external_user_id.
  *
  * Idempotent: rows where address already equals external_user_id are no-ops.
  */
@@ -29,13 +32,15 @@ export function migrateContactChannelsRenormalizeAddresses(
       )
   `);
 
-  // Non-email channels: restore original platform casing from external_user_id.
+  // Non-phone, non-email channels: restore original platform casing from
+  // external_user_id. Phone/WhatsApp are excluded because their canonical
+  // form (E.164 with '+' prefix) may differ from the raw external_user_id.
   const nonEmailResult = raw.run(/*sql*/ `
     UPDATE OR IGNORE contact_channels
     SET address = external_user_id
     WHERE external_user_id IS NOT NULL
       AND address != external_user_id
-      AND type != 'email'
+      AND type NOT IN ('email', 'phone', 'whatsapp')
   `);
 
   // Email channels: ensure address is lowercased (canonical per RFC 5321).

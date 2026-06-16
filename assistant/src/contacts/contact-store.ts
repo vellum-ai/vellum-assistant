@@ -175,21 +175,16 @@ interface SyncChannelData {
 
 // ── CRUD ─────────────────────────────────────────────────────────────
 
-/** Retrieve a contact by ID.
- * Used by functions that have already resolved identity through channel lookups. */
-export function getContactInternal(id: string): ContactWithChannels | null {
-  const db = getDb();
-  const row = db.select().from(contacts).where(eq(contacts.id, id)).get();
-  if (!row) return null;
-  return withChannels(parseContact(row));
-}
-
+/** Retrieve a contact by ID. */
 export function getContact(id: string): ContactWithChannels | null {
   const db = getDb();
   const row = db.select().from(contacts).where(eq(contacts.id, id)).get();
   if (!row) return null;
   return withChannels(parseContact(row));
 }
+
+/** @deprecated Use {@link getContact} directly. */
+export const getContactInternal = getContact;
 
 /**
  * Look up a single contact channel by its primary key.
@@ -689,13 +684,19 @@ export function mergeContacts(
       .all();
 
     for (const ch of donorChannels) {
-      const typeMatch = eq(contactChannels.type, ch.type);
-      const ownerMatch = eq(contactChannels.contactId, keepId);
-      const addressMatch = eq(contactChannels.address, ch.address);
-
-      const condition = and(ownerMatch, typeMatch, addressMatch);
-
-      const exists = tx.select().from(contactChannels).where(condition).get();
+      // COLLATE NOCASE catches legacy lowercased rows so we don't try to
+      // move a donor channel that collides with an existing survivor channel.
+      const exists = tx
+        .select()
+        .from(contactChannels)
+        .where(
+          and(
+            eq(contactChannels.contactId, keepId),
+            eq(contactChannels.type, ch.type),
+            sql`${contactChannels.address} = ${ch.address} COLLATE NOCASE`,
+          ),
+        )
+        .get();
 
       if (!exists) {
         tx.update(contactChannels)

@@ -105,15 +105,16 @@ export function up(): MigrationResult {
 
   log.info("Removed cross-column collision blockers");
 
-  // Restore original platform-provided casing from external_user_id.
-  // Email addresses stay lowercased (canonical per RFC 5321).
-  // UPDATE OR IGNORE as safety net for any remaining edge cases.
+  // Restore original platform-provided casing from external_user_id for
+  // channels where the raw platform ID is the canonical identity (Slack,
+  // Telegram, etc.). Phone/WhatsApp are excluded because their canonical
+  // form (E.164 with '+' prefix) may differ from the raw external_user_id.
   db.exec(/*sql*/ `
     UPDATE OR IGNORE contact_channels
     SET address = external_user_id
     WHERE external_user_id IS NOT NULL
       AND address != external_user_id
-      AND type != 'email'
+      AND type NOT IN ('email', 'phone', 'whatsapp')
   `);
   db.exec(/*sql*/ `
     UPDATE OR IGNORE contact_channels
