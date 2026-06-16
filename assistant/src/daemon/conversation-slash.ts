@@ -133,7 +133,12 @@ function parseModelCommand(trimmed: string): ModelCommandParse | null {
 function orderedProfileNames(
   profiles: Record<
     string,
-    { label?: string; description?: string; status?: "active" | "disabled" }
+    {
+      label?: string;
+      description?: string;
+      status?: "active" | "disabled";
+      hidden?: boolean;
+    }
   >,
   profileOrder: readonly string[] | undefined,
 ): string[] {
@@ -141,13 +146,16 @@ function orderedProfileNames(
   const seen = new Set<string>();
   const ordered: string[] = [];
   for (const name of order) {
-    if (profiles[name] != null && !seen.has(name)) {
+    // `hidden` profiles (e.g. the call-site-internal `advisor`) are excluded
+    // from the picker; they stay editable in settings and resolvable by call
+    // sites, just not selectable as a chat model.
+    if (profiles[name] != null && !profiles[name].hidden && !seen.has(name)) {
       ordered.push(name);
       seen.add(name);
     }
   }
   const tail = Object.keys(profiles)
-    .filter((n) => !seen.has(n))
+    .filter((n) => !seen.has(n) && !profiles[n].hidden)
     .sort();
   return [...ordered, ...tail];
 }
@@ -158,7 +166,12 @@ async function resolveModelCommand(
   const config = getConfig();
   const profiles = (config.llm.profiles ?? {}) as Record<
     string,
-    { label?: string; description?: string; status?: "active" | "disabled" }
+    {
+      label?: string;
+      description?: string;
+      status?: "active" | "disabled";
+      hidden?: boolean;
+    }
   >;
   const profileNames = orderedProfileNames(profiles, config.llm.profileOrder);
   const activeProfile = config.llm.activeProfile;
@@ -197,6 +210,12 @@ async function resolveModelCommand(
     return {
       kind: "unknown",
       message: `Profile \`${target}\` not found.${hint}`,
+    };
+  }
+  if (profiles[target].hidden) {
+    return {
+      kind: "unknown",
+      message: `Profile \`${target}\` is used internally and can't be selected as a chat model.`,
     };
   }
   if (profiles[target].status === "disabled") {

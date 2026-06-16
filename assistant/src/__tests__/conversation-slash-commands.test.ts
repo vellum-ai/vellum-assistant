@@ -245,8 +245,18 @@ describe("resolveSlash /model — inference profile switcher", () => {
             label: "Short context",
             status: "disabled",
           },
+          advisor: {
+            label: "Advisor",
+            description: "Higher-tier model consulted by the advisor tool",
+            hidden: true,
+          },
         },
-        profileOrder: ["balanced", "cost-optimized", "short-context"],
+        profileOrder: [
+          "balanced",
+          "cost-optimized",
+          "short-context",
+          "advisor",
+        ],
         activeProfile: "balanced",
       },
     });
@@ -294,6 +304,24 @@ describe("resolveSlash /model — inference profile switcher", () => {
     expect(result.message).toContain("Profile `gemini` not found.");
     expect(result.message).toContain("`balanced`");
     expect(result.message).toContain("`cost-optimized`");
+  });
+
+  test("`/model` hides `hidden` profiles from the picker and refuses to switch to them", async () => {
+    const list = await resolveSlash("/model");
+    if (list.kind !== "unknown") throw new Error("expected unknown kind");
+    // The hidden `advisor` profile must not appear in the picker list, even
+    // though it is present in `profileOrder`. Visible profiles still show.
+    expect(list.message).not.toContain("`advisor`");
+    expect(list.message).toContain("`balanced`");
+
+    // It also cannot be selected as a chat model.
+    const switched = await resolveSlash("/model advisor");
+    if (switched.kind !== "unknown") throw new Error("expected unknown kind");
+    expect(switched.message).toBe(
+      "Profile `advisor` is used internally and can't be selected as a chat model.",
+    );
+    const persisted = loadRawConfig() as { llm?: { activeProfile?: string } };
+    expect(persisted.llm?.activeProfile).toBe("balanced");
   });
 
   test("`/model <disabled>` refuses to switch and points at Settings", async () => {

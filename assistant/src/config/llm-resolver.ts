@@ -366,6 +366,9 @@ function profileConfigFragment(profile: ProfileEntry): Mergeable {
     // lower-precedence (e.g. active) profile into one that merely inherited it.
     // `RetryProvider` resolves it from the applied profile, not the merge.
     logitBias: _logitBias,
+    // `hidden` is presentation metadata (picker visibility), not inheritable
+    // config — strip it so it can never leak into the merged `LLMConfigBase`.
+    hidden: _hidden,
     ...config
   } = profile;
   return config as Mergeable;

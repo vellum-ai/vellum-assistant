@@ -976,6 +976,22 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.provider_connection).toBe("my-anthropic");
   });
 
+  test("a `hidden` profile resolves normally and the marker is stripped from the result", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        advisor: { model: "claude-opus-4-8", maxTokens: 2048, hidden: true },
+      },
+      callSites: {},
+    });
+
+    const resolved = resolveCallSiteConfig("advisor", llm);
+    // `hidden` is picker-visibility metadata only — it must not affect model
+    // resolution and must not leak into the resolved LLMConfigBase.
+    expect(resolved.model).toBe("claude-opus-4-8");
+    expect((resolved as Record<string, unknown>).hidden).toBeUndefined();
+  });
+
   test("profile with provider but no provider_connection inherits stale default connection (JARVIS-861)", () => {
     // This test documents the merge behavior that causes JARVIS-861: a profile
     // overrides `provider` but not `provider_connection`, so the deep merge

@@ -71,6 +71,9 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     provider: "anthropic",
     connectionName: "anthropic-managed",
     source: "managed",
+    // Hidden from the model picker — the advisor is a call-site-internal model,
+    // not a selectable chat profile. Still editable in profile settings.
+    hidden: true,
     label: "Advisor",
     description: "Higher-tier model consulted by the advisor tool",
     maxTokens: 2048,
@@ -146,6 +149,8 @@ const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     provider: "anthropic",
     connectionName: "",
     source: "user",
+    // Hidden from the model picker (see the managed `advisor` profile).
+    hidden: true,
     label: "Advisor",
     description: "Higher-tier model consulted by the advisor tool",
     maxTokens: 2048,
