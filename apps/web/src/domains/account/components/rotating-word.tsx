@@ -3,9 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 
 /**
  * Cycles `words` in place inside the headline with a vertical cross-fade,
- * rendered as a styled `<em>` (see `.cast-login__title em`). A hidden sizer
- * (longest word) reserves width so the headline doesn't reflow. Ported from
- * the cast prototype's RotatingWord.
+ * rendered as a styled `<em>` (see `.signup__title em`). A hidden sizer
+ * (longest word) reserves width so the headline doesn't reflow.
  */
 export function RotatingWord({ words }: { words: string[] }) {
   const [index, setIndex] = useState(0);
@@ -22,8 +21,8 @@ export function RotatingWord({ words }: { words: string[] }) {
   }, [words.length]);
 
   return (
-    <span className="cast-login__rotating">
-      <span className="cast-login__rotating-sizer" aria-hidden>
+    <span className="signup__rotating">
+      <span className="signup__rotating-sizer" aria-hidden>
         {longest}.
       </span>
       <AnimatePresence mode="wait">

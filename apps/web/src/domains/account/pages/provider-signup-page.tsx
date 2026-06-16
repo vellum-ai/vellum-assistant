@@ -155,21 +155,21 @@ export function ProviderSignupPage() {
     const canSubmit = occupation.trim().length > 0 && !isSubmitting;
     return (
       <PersonalPageShell>
-        <form onSubmit={onPersonalPageSubmit} className="cast-about__thread">
-          <h2 className="cast-about__heading">
+        <form onSubmit={onPersonalPageSubmit} className="signup-details__thread">
+          <h2 className="signup-details__heading">
             Almost there,
             <br />
             one more detail
           </h2>
 
-          {error && <p className="cast-about__error">{error}</p>}
+          {error && <p className="signup-details__error">{error}</p>}
 
-          <div className="cast-about__step">
-            <span className="cast-about__label">
-              What should I call you? <span className="cast-about__req">*</span>
+          <div className="signup-details__step">
+            <span className="signup-details__label">
+              What should I call you? <span className="signup-details__req">*</span>
             </span>
             <input
-              className="cast-about__input"
+              className="signup-details__input"
               type="text"
               placeholder="First name"
               value={firstName}
@@ -178,12 +178,12 @@ export function ProviderSignupPage() {
             />
           </div>
 
-          <div className="cast-about__step">
-            <span className="cast-about__label">
-              And your last name? <span className="cast-about__req">*</span>
+          <div className="signup-details__step">
+            <span className="signup-details__label">
+              And your last name? <span className="signup-details__req">*</span>
             </span>
             <input
-              className="cast-about__input"
+              className="signup-details__input"
               type="text"
               placeholder="Last name"
               value={lastName}
@@ -192,12 +192,12 @@ export function ProviderSignupPage() {
             />
           </div>
 
-          <div className="cast-about__step">
-            <span className="cast-about__label">
-              Your role <span className="cast-about__req">*</span>
+          <div className="signup-details__step">
+            <span className="signup-details__label">
+              Your role <span className="signup-details__req">*</span>
             </span>
             <input
-              className="cast-about__input"
+              className="signup-details__input"
               type="text"
               autoComplete="organization-title"
               placeholder="e.g. Software Engineer"
@@ -207,10 +207,10 @@ export function ProviderSignupPage() {
             />
           </div>
 
-          <div className="cast-about__step">
+          <div className="signup-details__step">
             <button
               type="submit"
-              className="cast-about__continue"
+              className="signup-details__continue"
               disabled={!canSubmit}
             >
               {isSubmitting ? "Setting up…" : "Continue →"}

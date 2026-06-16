@@ -56,11 +56,10 @@ interface PersonalPageSignupScreenProps {
 }
 
 /**
- * Personal-page activation sign-up screen, matching the cast prototype demo: a
- * brand-left / full-bleed-video-right layout with a rotating headline and
- * Google / Apple / Email buttons. Unlike the prototype's mock buttons, each
- * hands off to the real WorkOS `startAuthFlow` (`intent: "signup"`); the
- * post-OAuth name/occupation step lives in `ProviderSignupPage`.
+ * Branded sign-up screen: a brand-left / full-bleed-video-right layout with a
+ * rotating headline and Google / Apple / Email buttons. Each button hands off
+ * to the real WorkOS `startAuthFlow` (`intent: "signup"`); the post-OAuth
+ * name/occupation step lives in `ProviderSignupPage`.
  */
 export function PersonalPageSignupScreen({
   returnTo,
@@ -94,41 +93,41 @@ export function PersonalPageSignupScreen({
 
   return (
     <PersonalPageShell>
-      <h1 className="cast-login__title">
+      <h1 className="signup__title">
         Meet your own
         <br />
         <RotatingWord words={HEADLINE_WORDS} />
       </h1>
-      <p className="cast-login__subtitle">
+      <p className="signup__subtitle">
         The most powerful assistant that can handle your work and life admin
         tasks.
       </p>
 
-      <div className="cast-login__buttons">
+      <div className="signup__buttons">
         {BUTTONS.map((btn, i) => (
           <button
             key={btn.label}
             type="button"
-            className="cast-login__btn"
+            className="signup__btn"
             onClick={() => start(btn.providerHint)}
           >
-            {i === 0 && <span className="cast-login__tag">Most used</span>}
+            {i === 0 && <span className="signup__tag">Most used</span>}
             {btn.icon}
             {btn.label}
           </button>
         ))}
       </div>
 
-      {error && <p className="cast-login__error">{error}</p>}
+      {error && <p className="signup__error">{error}</p>}
 
-      <p className="cast-login__footer">
+      <p className="signup__footer">
         Already have an account?{" "}
-        <Link to={routes.account.login} className="cast-login__link">
+        <Link to={routes.account.login} className="signup__link">
           Sign in
         </Link>
       </p>
 
-      <a className="cast-login__download" href="/downloads">
+      <a className="signup__download" href="/downloads">
         <AppleLogo size={16} />
         Download for macOS
       </a>
