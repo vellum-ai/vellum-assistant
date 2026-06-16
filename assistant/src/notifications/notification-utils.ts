@@ -24,7 +24,8 @@ export function readPayloadString(
   payload: unknown,
   key: string,
 ): string | undefined {
-  if (!payload || typeof payload !== "object") return undefined;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload))
+    return undefined;
   const value = (payload as Record<string, unknown>)[key];
   return typeof value === "string" ? value : undefined;
 }

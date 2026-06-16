@@ -5,98 +5,110 @@
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { FeedItemSchema } from "../../api/responses/home.js";
 import { getDb } from "../../memory/db-connection.js";
 import { notificationDeliveries } from "../../memory/schema.js";
 import { bufferIfDeferred } from "../../notifications/deferred-emit.js";
 import { editNotification } from "../../notifications/edit-notification.js";
 import { emitNotificationSignal } from "../../notifications/emit-signal.js";
 import { listEvents } from "../../notifications/events-store.js";
-import type { AttentionHints } from "../../notifications/signal.js";
+import {
+  AttentionHintsSchema,
+  NotificationSourceChannelSchema,
+  RoutingIntentSchema,
+  UrgencySchema,
+} from "../../notifications/signal.js";
 import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
-import { BadRequestError, NotFoundError } from "./errors.js";
+import { NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
-function handleNotificationIntentResult({ body = {} }: RouteHandlerArgs) {
-  const { deliveryId, success, errorMessage, errorCode } = body as {
-    deliveryId?: string;
-    success?: boolean;
-    errorMessage?: string;
-    errorCode?: string;
-  };
+// ── Notification intent result (client delivery ack) ──────────────────
 
-  if (!deliveryId || typeof deliveryId !== "string") {
-    throw new BadRequestError("deliveryId is required");
-  }
+const NotificationIntentResultParams = z.object({
+  deliveryId: z.string().describe("Notification delivery ID"),
+  success: z.boolean().describe("Whether delivery succeeded").optional(),
+  errorMessage: z
+    .string()
+    .describe("Error message if delivery failed")
+    .optional(),
+  errorCode: z.string().describe("Error code if delivery failed").optional(),
+});
+
+function handleNotificationIntentResult({ body = {} }: RouteHandlerArgs) {
+  const validated = NotificationIntentResultParams.parse(body);
 
   const db = getDb();
   const now = Date.now();
 
-  const updates: Record<string, unknown> = {
-    clientDeliveryStatus: success ? "delivered" : "client_failed",
-    clientDeliveryAt: now,
-    updatedAt: now,
-  };
-  if (errorMessage) {
-    updates.clientDeliveryError = errorMessage;
-  }
-  if (errorCode) {
-    updates.errorCode = errorCode;
-  }
-
   db.update(notificationDeliveries)
-    .set(updates)
-    .where(eq(notificationDeliveries.id, deliveryId))
+    .set({
+      clientDeliveryStatus: validated.success ? "delivered" : "client_failed",
+      clientDeliveryAt: now,
+      updatedAt: now,
+      ...(validated.errorMessage
+        ? { clientDeliveryError: validated.errorMessage }
+        : {}),
+      ...(validated.errorCode ? { errorCode: validated.errorCode } : {}),
+    })
+    .where(eq(notificationDeliveries.id, validated.deliveryId))
     .run();
 
   return { ok: true };
 }
 
-// ── Notification pipeline schemas ─────────────────────────────────────
-
-const AttentionHintsSchema = z.object({
-  requiresAction: z.boolean(),
-  urgency: z.enum(["low", "medium", "high", "critical"]),
-  deadlineAt: z.number().optional(),
-  isAsyncBackground: z.boolean(),
-  visibleInSourceNow: z.boolean(),
-});
+// ── Emit signal ───────────────────────────────────────────────────────
 
 const EmitSignalParams = z.object({
   sourceEventName: z.string().min(1),
-  sourceChannel: z.enum([
-    "assistant_tool",
-    "vellum",
-    "phone",
-    "telegram",
-    "slack",
-    "scheduler",
-    "watcher",
-  ]),
+  sourceChannel: NotificationSourceChannelSchema,
   sourceContextId: z.string().min(1),
   attentionHints: AttentionHintsSchema,
   contextPayload: z.record(z.string(), z.unknown()).optional(),
-  routingIntent: z
-    .enum(["single_channel", "multi_channel", "all_channels"])
-    .optional(),
+  routingIntent: RoutingIntentSchema.optional(),
   conversationAffinityHint: z.record(z.string(), z.string()).optional(),
   dedupeKey: z.string().optional(),
   throwOnError: z.boolean().optional(),
-  // Conversation that originated this signal — used by `deferred-emit` to
-  // buffer notifications during in-band background-job tool calls.
   originatingConversationId: z.string().optional(),
 });
 
-const ListNotificationEventsParams = z.object({
-  limit: z.number().int().positive().optional(),
-  sourceEventName: z.string().optional(),
+const EmitSignalResponse = z.object({
+  signalId: z.string(),
+  dispatched: z.boolean(),
+  deduplicated: z.boolean(),
+  reason: z.string(),
 });
+
+async function handleEmitSignal({ body = {} }: RouteHandlerArgs) {
+  const validated = EmitSignalParams.parse(body);
+  const buffered = bufferIfDeferred(
+    validated.originatingConversationId,
+    validated,
+  );
+  if (buffered) {
+    return {
+      signalId: buffered.signalId,
+      dispatched: buffered.dispatched,
+      deduplicated: buffered.deduplicated,
+      reason: buffered.reason,
+    };
+  }
+  const result = await emitNotificationSignal(validated);
+  return {
+    signalId: result.signalId,
+    dispatched: result.dispatched,
+    deduplicated: result.deduplicated,
+    reason: result.reason,
+  };
+}
+
+// ── Edit notification ─────────────────────────────────────────────────
 
 const EditNotificationParams = z
   .object({
     id: z.string().min(1).describe("Feed item id (notif:<uuid>) or bare uuid"),
     title: z.string().optional(),
     body: z.string().optional(),
-    urgency: z.enum(["low", "medium", "high", "critical"]).optional(),
+    urgency: UrgencySchema.optional(),
     status: z.enum(["new", "seen", "acted_on", "dismissed"]).optional(),
   })
   .refine(
@@ -111,41 +123,18 @@ const EditNotificationParams = z
     },
   );
 
-// ── Notification pipeline handlers ───────────────────────────────────
+const ChannelEditOutcomeSchema = z.object({
+  channel: z.string(),
+  deliveryId: z.string(),
+  outcome: z.enum(["updated", "unsupported", "skipped", "failed"]),
+  reason: z.string().optional(),
+});
 
-async function handleEmitSignal({ body = {} }: RouteHandlerArgs) {
-  const validated = EmitSignalParams.parse(body);
-  const params = {
-    sourceEventName: validated.sourceEventName,
-    sourceChannel: validated.sourceChannel,
-    sourceContextId: validated.sourceContextId,
-    attentionHints: validated.attentionHints as AttentionHints,
-    contextPayload: validated.contextPayload as Record<string, unknown>,
-    routingIntent: validated.routingIntent,
-    conversationAffinityHint: validated.conversationAffinityHint,
-    dedupeKey: validated.dedupeKey,
-    throwOnError: validated.throwOnError,
-  };
-  const buffered = bufferIfDeferred(
-    validated.originatingConversationId,
-    params,
-  );
-  if (buffered) {
-    return {
-      signalId: buffered.signalId,
-      dispatched: buffered.dispatched,
-      deduplicated: buffered.deduplicated,
-      reason: buffered.reason,
-    };
-  }
-  const result = await emitNotificationSignal(params);
-  return {
-    signalId: result.signalId,
-    dispatched: result.dispatched,
-    deduplicated: result.deduplicated,
-    reason: result.reason,
-  };
-}
+const EditNotificationResponse = z.object({
+  ok: z.boolean(),
+  feedItem: FeedItemSchema,
+  channels: z.array(ChannelEditOutcomeSchema),
+});
 
 async function handleEditNotification({ body = {} }: RouteHandlerArgs) {
   const validated = EditNotificationParams.parse(body);
@@ -160,6 +149,23 @@ async function handleEditNotification({ body = {} }: RouteHandlerArgs) {
   };
 }
 
+// ── List events ───────────────────────────────────────────────────────
+
+const ListNotificationEventsParams = z.object({
+  limit: z.number().int().positive().optional(),
+  sourceEventName: z.string().optional(),
+});
+
+const NotificationEventSchema = z.object({
+  id: z.string(),
+  sourceEventName: z.string(),
+  sourceChannel: z.string(),
+  sourceContextId: z.string(),
+  urgency: z.string(),
+  dedupeKey: z.string().nullable(),
+  createdAt: z.string(),
+});
+
 function handleListEvents({ body = {} }: RouteHandlerArgs) {
   const validated = ListNotificationEventsParams.parse(body);
   const rows = listEvents({
@@ -169,12 +175,10 @@ function handleListEvents({ body = {} }: RouteHandlerArgs) {
   return rows.map((row) => {
     let urgency = "unknown";
     try {
-      const hints = JSON.parse(row.attentionHintsJson) as {
-        urgency?: string;
-      };
-      if (hints.urgency) {
-        urgency = hints.urgency;
-      }
+      const hints = AttentionHintsSchema.parse(
+        JSON.parse(row.attentionHintsJson),
+      );
+      urgency = hints.urgency;
     } catch {
       // Leave urgency as "unknown" if parsing fails.
     }
@@ -207,12 +211,7 @@ export const ROUTES: RouteDefinition[] = [
       "Emit a notification signal into the pipeline for routing and delivery.",
     tags: ["notifications"],
     requestBody: EmitSignalParams,
-    responseBody: z.object({
-      signalId: z.string(),
-      dispatched: z.boolean(),
-      deduplicated: z.boolean(),
-      reason: z.string(),
-    }),
+    responseBody: EmitSignalResponse,
   },
   {
     operationId: "edit_notification",
@@ -228,18 +227,7 @@ export const ROUTES: RouteDefinition[] = [
       "Patch the home-feed entry for a notification and, where supported (Slack today), update the delivered message in place.",
     tags: ["notifications"],
     requestBody: EditNotificationParams,
-    responseBody: z.object({
-      ok: z.boolean(),
-      feedItem: z.record(z.string(), z.unknown()),
-      channels: z.array(
-        z.object({
-          channel: z.string(),
-          deliveryId: z.string(),
-          outcome: z.enum(["updated", "unsupported", "skipped", "failed"]),
-          reason: z.string().optional(),
-        }),
-      ),
-    }),
+    responseBody: EditNotificationResponse,
     additionalResponses: {
       "404": {
         description: "No notification found for the supplied id",
@@ -260,17 +248,7 @@ export const ROUTES: RouteDefinition[] = [
       "List recent notification events, optionally filtered by source event name.",
     tags: ["notifications"],
     requestBody: ListNotificationEventsParams,
-    responseBody: z.array(
-      z.object({
-        id: z.string(),
-        sourceEventName: z.string(),
-        sourceChannel: z.string(),
-        sourceContextId: z.string(),
-        urgency: z.string(),
-        dedupeKey: z.string().nullable(),
-        createdAt: z.string(),
-      }),
-    ),
+    responseBody: z.array(NotificationEventSchema),
   },
   {
     operationId: "notificationintentresult_post",
@@ -285,18 +263,7 @@ export const ROUTES: RouteDefinition[] = [
       "Client acknowledgment for local notification delivery outcome.",
     tags: ["notifications"],
     handler: handleNotificationIntentResult,
-    requestBody: z.object({
-      deliveryId: z.string().describe("Notification delivery ID"),
-      success: z.boolean().describe("Whether delivery succeeded").optional(),
-      errorMessage: z
-        .string()
-        .describe("Error message if delivery failed")
-        .optional(),
-      errorCode: z
-        .string()
-        .describe("Error code if delivery failed")
-        .optional(),
-    }),
+    requestBody: NotificationIntentResultParams,
     responseBody: z.object({
       ok: z.boolean(),
     }),
