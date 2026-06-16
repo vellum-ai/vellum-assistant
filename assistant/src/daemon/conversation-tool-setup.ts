@@ -541,7 +541,7 @@ const ADVISOR_TOOL_NAME = "advisor";
  * unavailable, so a misconfigured install never surfaces an advisor tool it
  * cannot rank.
  */
-export function advisorActiveForConversation(
+function advisorActiveForConversation(
   executorCallSite: LLMCallSite,
   overrideProfile: string | undefined,
   conversationId: string | undefined,

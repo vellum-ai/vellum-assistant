@@ -931,7 +931,7 @@ describe("resolveCallSiteConfig", () => {
         balanced: { model: "claude-haiku-4-5-20251001" },
       },
       activeProfile: "balanced",
-      // Migration 105 seeds this on disk in production. A bare
+      // `seedInferenceProfiles` seeds this on disk in production. A bare
       // `CALL_SITE_DEFAULTS.advisor` would have its `profile` stripped under an
       // `overrideProfile`, so the seeded call-site entry is what pins the
       // advisor profile above both activeProfile and overrideProfile.

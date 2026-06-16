@@ -57,7 +57,6 @@ const VERSION_PATTERN_DOTTED = /(\d+)\.(\d+)/;
  * (`claude-fable-5.2`) forms.
  */
 const SINGLE_TIER_VERSION_PATTERN_DASHED = /-(\d+)/;
-const SINGLE_TIER_VERSION_PATTERN_DOTTED = /(\d+)\.(\d+)/;
 
 function encodeVersion(major: number, minor: number): number {
   // Divide by 100 (not 10) so a two-digit minor (e.g. `4.10`) stays within its
@@ -95,7 +94,7 @@ function parseTieredVersion(id: string): number | null {
  * `null` when neither form is present.
  */
 function parseSingleTierVersion(id: string): number | null {
-  const dotted = id.match(SINGLE_TIER_VERSION_PATTERN_DOTTED);
+  const dotted = id.match(VERSION_PATTERN_DOTTED);
   if (dotted) return encodeVersion(Number(dotted[1]), Number(dotted[2]));
   const dashed = id.match(SINGLE_TIER_VERSION_PATTERN_DASHED);
   if (dashed) return Number(dashed[1]);
