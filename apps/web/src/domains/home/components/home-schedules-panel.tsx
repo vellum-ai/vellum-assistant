@@ -2,6 +2,7 @@ import { Calendar } from "lucide-react";
 
 import { HomeEmptyState } from "@/domains/home/components/home-empty-state";
 import { HomeScheduleRow } from "@/domains/home/components/home-schedule-row";
+import { Button } from "@vellumai/design-library";
 import { Notice } from "@vellumai/design-library/components/notice";
 
 import type { Schedule } from "@/domains/settings/types/schedules";
@@ -17,6 +18,8 @@ export interface HomeSchedulesPanelProps {
   onToggle: (id: string, enabled: boolean) => void;
   onSelectSchedule: (id: string) => void;
   selectedScheduleId: string | null;
+  onStartNewChat: () => void;
+  onCreateSchedule: () => void;
 }
 
 export function HomeSchedulesPanel({
@@ -29,6 +32,8 @@ export function HomeSchedulesPanel({
   onToggle,
   onSelectSchedule,
   selectedScheduleId,
+  onStartNewChat,
+  onCreateSchedule,
 }: HomeSchedulesPanelProps) {
   const renderScheduleRow = (schedule: Schedule) => (
     <HomeScheduleRow
@@ -79,7 +84,28 @@ export function HomeSchedulesPanel({
         <HomeEmptyState
           icon={Calendar}
           title="No schedules yet"
-          description="Tasks your assistant runs for you on a schedule will appear here."
+          description="Ask your assistant to set one up, or create one yourself."
+          actions={
+            <>
+              <Button
+                variant="primary"
+                size="regular"
+                onClick={onStartNewChat}
+              >
+                New Conversation
+              </Button>
+              <span className="text-body-small-default text-[var(--content-tertiary)]">
+                or
+              </span>
+              <Button
+                variant="outlined"
+                size="regular"
+                onClick={onCreateSchedule}
+              >
+                Create schedule
+              </Button>
+            </>
+          }
         />
       );
     }

@@ -20,6 +20,9 @@
   "src/domains/home/components/schedule-detail-panel.tsx": [
     "settings"
   ],
+  "src/domains/home/home-page.tsx": [
+    "settings"
+  ],
   "src/domains/home/hooks/use-home-schedules-data.ts": [
     "settings"
   ]

@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   BarChart3,
-  Calendar,
   ChevronRight,
   Coins,
   Loader2,
@@ -364,13 +363,6 @@ export function ScheduleDetailPanel({
           </div>
         )}
         <div className="flex items-center gap-2">
-          <Button
-            variant="outlined"
-            leftIcon={<Calendar className="h-3.5 w-3.5" />}
-            onClick={() => navigate(routes.settings.schedule(schedule.id))}
-          >
-            View schedule
-          </Button>
           <Button
             variant="outlined"
             leftIcon={<BarChart3 className="h-3.5 w-3.5" />}

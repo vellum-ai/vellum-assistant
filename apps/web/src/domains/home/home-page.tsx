@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { PageShell } from "@/components/page-shell";
+import { CreateScheduleModal } from "@/domains/settings/components/create-schedule-modal";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import { ResizablePanel, Tabs } from "@vellumai/design-library";
@@ -33,6 +34,7 @@ function HomePageSkeleton() {
 export interface HomePageProps {
   assistantId: string;
   validConversationIds: Set<string>;
+  onStartNewChat: () => void;
   onOpenConversation: (conversationId: string) => void;
 }
 
@@ -49,6 +51,7 @@ function getFeedItemScheduleId(item: FeedItem | null): string | null {
 export function HomePage({
   assistantId,
   validConversationIds,
+  onStartNewChat,
   onOpenConversation,
 }: HomePageProps) {
   const isMobile = useIsMobile();
@@ -56,6 +59,7 @@ export function HomePage({
   useHomeStateQuery(assistantId);
   const schedules = useHomeSchedulesData(assistantId);
 
+  const [createScheduleOpen, setCreateScheduleOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"schedules" | "notifications">(
     "schedules",
   );
@@ -215,6 +219,8 @@ export function HomePage({
       onToggle={schedules.handleToggle}
       onSelectSchedule={handleSelectSchedule}
       selectedScheduleId={selectedScheduleId}
+      onStartNewChat={onStartNewChat}
+      onCreateSchedule={() => setCreateScheduleOpen(true)}
     />
   );
 
@@ -299,5 +305,18 @@ export function HomePage({
     );
   }
 
-  return <PageShell>{feedContent}</PageShell>;
+  return (
+    <>
+      <PageShell>{feedContent}</PageShell>
+      <CreateScheduleModal
+        isOpen={createScheduleOpen}
+        assistantId={assistantId}
+        onClose={() => setCreateScheduleOpen(false)}
+        onCreated={() => {
+          setCreateScheduleOpen(false);
+          schedules.refetch();
+        }}
+      />
+    </>
+  );
 }
