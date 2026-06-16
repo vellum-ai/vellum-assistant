@@ -514,6 +514,55 @@ const bridge: VellumBridge = {
       };
     },
   },
+  terminal: {
+    spawn: (
+      options?: { cols?: number; rows?: number },
+    ): Promise<
+      { ok: true; sessionId: string } | { ok: false; error: string }
+    > =>
+      ipcRenderer.invoke("vellum:terminal:spawn", options) as Promise<
+        { ok: true; sessionId: string } | { ok: false; error: string }
+      >,
+    write: (sessionId: string, data: string): void => {
+      ipcRenderer.send("vellum:terminal:write", sessionId, data);
+    },
+    resize: (sessionId: string, cols: number, rows: number): void => {
+      ipcRenderer.send("vellum:terminal:resize", sessionId, cols, rows);
+    },
+    kill: (sessionId: string): Promise<void> =>
+      ipcRenderer.invoke("vellum:terminal:kill", sessionId) as Promise<void>,
+    onData: (
+      callback: (sessionId: string, data: string) => void,
+    ): (() => void) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        sessionId: string,
+        data: string,
+      ) => {
+        callback(sessionId, data);
+      };
+      ipcRenderer.on("vellum:terminal:data", handler);
+      return () => {
+        ipcRenderer.off("vellum:terminal:data", handler);
+      };
+    },
+    onExit: (
+      callback: (sessionId: string, exitCode: number, signal: number) => void,
+    ): (() => void) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        sessionId: string,
+        exitCode: number,
+        signal: number,
+      ) => {
+        callback(sessionId, exitCode, signal);
+      };
+      ipcRenderer.on("vellum:terminal:exit", handler);
+      return () => {
+        ipcRenderer.off("vellum:terminal:exit", handler);
+      };
+    },
+  },
 };
 
 contextBridge.exposeInMainWorld("vellum", bridge);

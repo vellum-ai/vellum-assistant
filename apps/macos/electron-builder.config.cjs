@@ -40,6 +40,7 @@ module.exports = {
     { from: "resources/cli-lockfile", to: "cli-lockfile" },
     { from: "build/icon.icns", to: "icon.icns" },
   ],
+  asarUnpack: ["**/node_modules/node-pty/**"],
   afterPack: "./scripts/afterPack.js",
   afterSign: "./scripts/afterSign.js",
   protocols: [

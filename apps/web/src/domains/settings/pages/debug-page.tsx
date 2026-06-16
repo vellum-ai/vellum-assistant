@@ -4,12 +4,15 @@ import { useSearchParams } from "react-router";
 import { AssistantTerminalPanel } from "@/domains/settings/components/panels/assistant-terminal-panel";
 import { DebugControlsPanel } from "@/domains/settings/components/panels/debug-controls-panel";
 import { DoctorPanel } from "@/domains/settings/components/panels/doctor-panel";
+import { LocalTerminalPanel } from "@/domains/settings/components/panels/local-terminal-panel";
+import { isElectron } from "@/runtime/is-electron";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { cn } from "@/utils/misc";
 
 const ALL_TABS = [
   { id: "general", label: "General" },
   { id: "terminal", label: "Terminal" },
+  { id: "local-terminal", label: "Local Terminal" },
   { id: "doctor", label: "Doctor" },
 ] as const;
 
@@ -27,8 +30,15 @@ export function DebugPage() {
   const tabs = useMemo(
     () =>
       ALL_TABS.filter((tab) => {
-        if (tab.id === "terminal" && platformGate === "gated") return false;
-        if (tab.id === "doctor" && platformGate === "gated") return false;
+        if (tab.id === "terminal" && platformGate === "gated") {
+          return false;
+        }
+        if (tab.id === "local-terminal" && !isElectron()) {
+          return false;
+        }
+        if (tab.id === "doctor" && platformGate === "gated") {
+          return false;
+        }
         return true;
       }),
     [platformGate],
@@ -89,6 +99,7 @@ export function DebugPage() {
       >
         {activeTab === "general" && <DebugControlsPanel />}
         {activeTab === "terminal" && <AssistantTerminalPanel />}
+        {activeTab === "local-terminal" && <LocalTerminalPanel />}
         {activeTab === "doctor" && <DoctorPanel />}
       </div>
     </div>

@@ -1,0 +1,158 @@
+/**
+ * Self-contained local terminal panel. Spawns a PTY shell on the user's
+ * machine via the Electron main-process `node-pty` manager. Manages its
+ * own connection lifecycle — mount it and it handles connect/disconnect,
+ * input/output, and resize.
+ */
+
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import { TerminalConsole } from "@/domains/terminal/components/terminal-console";
+import { TerminalToolbar } from "@/domains/terminal/components/terminal-toolbar";
+import type { TerminalStatus } from "@/domains/terminal/types";
+import {
+  killLocalTerminal,
+  onLocalTerminalData,
+  onLocalTerminalExit,
+  resizeLocalTerminal,
+  spawnLocalTerminal,
+  writeLocalTerminal,
+} from "@/runtime/local-terminal";
+
+interface LocalTerminalPanelProps {
+  className?: string;
+}
+
+export function LocalTerminalPanel({ className }: LocalTerminalPanelProps) {
+  const [status, setStatus] = useState<TerminalStatus>("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
+  const writeToTerminalRef = useRef<((data: string) => void) | null>(null);
+
+  // Teardown: kill PTY session on unmount
+  useEffect(() => {
+    return () => {
+      const id = sessionIdRef.current;
+      if (id) {
+        void killLocalTerminal(id);
+        sessionIdRef.current = null;
+      }
+    };
+  }, []);
+
+  // Subscribe to PTY data/exit events
+  useEffect(() => {
+    const unsubData = onLocalTerminalData((sessionId, data) => {
+      if (sessionId !== sessionIdRef.current) {
+        return;
+      }
+      writeToTerminalRef.current?.(data);
+    });
+
+    const unsubExit = onLocalTerminalExit((sessionId) => {
+      if (sessionId !== sessionIdRef.current) {
+        return;
+      }
+      sessionIdRef.current = null;
+      setStatus("closed");
+    });
+
+    return () => {
+      unsubData();
+      unsubExit();
+    };
+  }, []);
+
+  const connect = useCallback(async () => {
+    const prev = sessionIdRef.current;
+    if (prev) {
+      await killLocalTerminal(prev);
+      sessionIdRef.current = null;
+    }
+
+    setStatus("connecting");
+    setErrorMessage(null);
+
+    const result = await spawnLocalTerminal();
+    if (!result.ok) {
+      setStatus("error");
+      setErrorMessage(result.error);
+      return;
+    }
+
+    sessionIdRef.current = result.sessionId;
+    setStatus("connected");
+  }, []);
+
+  const disconnect = useCallback(async () => {
+    const id = sessionIdRef.current;
+    if (id) {
+      await killLocalTerminal(id);
+      sessionIdRef.current = null;
+    }
+    setStatus("closed");
+  }, []);
+
+  const handleConsoleData = useCallback((data: string) => {
+    const id = sessionIdRef.current;
+    if (id) {
+      writeLocalTerminal(id, data);
+    }
+  }, []);
+
+  const handleConsoleResize = useCallback(
+    ({ cols, rows }: { cols: number; rows: number }) => {
+      const id = sessionIdRef.current;
+      if (id) {
+        resizeLocalTerminal(id, cols, rows);
+      }
+    },
+    [],
+  );
+
+  const handleClear = useCallback(() => {
+    writeToTerminalRef.current?.("\x1b[2J\x1b[H");
+  }, []);
+
+  const handleConnect = useCallback(() => {
+    void connect();
+  }, [connect]);
+
+  const isReadOnly = status !== "connected";
+
+  return (
+    <div
+      className={[
+        "flex flex-col overflow-hidden rounded-lg border border-[var(--border-base)]",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <TerminalToolbar
+        status={status}
+        onConnect={handleConnect}
+        onDisconnect={disconnect}
+        onClear={handleClear}
+      />
+
+      {status === "error" && errorMessage && (
+        <div className="border-b border-[var(--border-base)] bg-[var(--system-negative-weak)] px-3 py-2 text-body-small-default text-[var(--system-negative-strong)]">
+          {errorMessage}
+        </div>
+      )}
+
+      <div className="relative min-h-0 flex-1">
+        <div className="absolute inset-0">
+          <TerminalConsole
+            onData={handleConsoleData}
+            onResize={handleConsoleResize}
+            readOnly={isReadOnly}
+            writeRef={writeToTerminalRef}
+            className="h-full w-full"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}

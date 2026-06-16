@@ -56,6 +56,7 @@ import { installHostProxyBridge } from "./host-proxy-router";
 import "./executors/host-bash-executor"; // side-effect: registers host_bash executor
 import log from "./logger";
 import {
+  current as currentMainWindow,
   ensureVisible as ensureMainWindowVisible,
   installMainWindow,
   toggleVisibility as toggleMainWindowVisibility,
@@ -68,6 +69,7 @@ import { installPermissionHandler } from "./permissions";
 import { installPermissionsService } from "./permissions-service";
 import { installPowerEvents } from "./power-events";
 import { installConnectivityIpc, installStatusIpc } from "./status";
+import { installTerminalPtyIpc } from "./terminal-pty";
 import { installTextInsertionIpc } from "./textInsertion";
 import { installTray } from "./tray";
 import { hardenedWebPreferences } from "./windows";
@@ -397,6 +399,7 @@ app
       openAbout: openAboutWindow,
     });
     installNativeAuth();
+    installTerminalPtyIpc(currentMainWindow);
     installMainWindow();
 
     // Dock-icon click / Cmd-Tab re-activation: bring the main window

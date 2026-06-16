@@ -75,7 +75,7 @@ export default defineConfig({
         entry: "src/main/index.ts",
       },
       rollupOptions: {
-        external: ["electron"],
+        external: ["electron", "node-pty"],
       },
     },
   },

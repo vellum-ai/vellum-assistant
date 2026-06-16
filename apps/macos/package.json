@@ -6,6 +6,7 @@
   "main": "out/main/index.js",
   "scripts": {
     "postinstall": "node node_modules/electron/install.js && bun run scripts/install-file-deps.ts && bash scripts/build-mac-helper.sh",
+    "rebuild:native": "electron-rebuild -f -w node-pty",
     "dev": "bun run install:all && bun scripts/dev.ts",
     "dev:standalone": "bun run install:all && bun run scripts/reclaim-dev-port.ts && concurrently --kill-others --names web,electron --prefix-colors blue,green \"bun run dev:web\" \"bun run dev:electron\"",
     "dev:electron-only": "bun install && bun run prepare:electron-dev && electron-vite dev",
@@ -23,6 +24,7 @@
     "pack:debug": "VELLUM_ENABLE_CHROME_DEVTOOLS=true bash scripts/pack.sh"
   },
   "devDependencies": {
+    "@electron/rebuild": "4.0.4",
     "@types/bun": "1.3.14",
     "@types/node": "22.10.5",
     "concurrently": "9.1.2",
@@ -41,6 +43,7 @@
     "electron-updater": "6.8.9",
     "electron-store": "11.0.2",
     "jszip": "3.10.1",
+    "node-pty": "1.1.0",
     "zod": "4.3.6"
   }
 }
