@@ -19,7 +19,7 @@ import {
   UrgencySchema,
 } from "../../notifications/signal.js";
 import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
-import { NotFoundError } from "./errors.js";
+import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ── Notification intent result (client delivery ack) ──────────────────
@@ -35,7 +35,11 @@ const NotificationIntentResultParams = z.object({
 });
 
 function handleNotificationIntentResult({ body = {} }: RouteHandlerArgs) {
-  const validated = NotificationIntentResultParams.parse(body);
+  const parsed = NotificationIntentResultParams.safeParse(body);
+  if (!parsed.success) {
+    throw new BadRequestError("deliveryId is required");
+  }
+  const validated = parsed.data;
 
   const db = getDb();
   const now = Date.now();
@@ -79,7 +83,13 @@ const EmitSignalResponse = z.object({
 });
 
 async function handleEmitSignal({ body = {} }: RouteHandlerArgs) {
-  const validated = EmitSignalParams.parse(body);
+  const parsed = EmitSignalParams.safeParse(body);
+  if (!parsed.success) {
+    throw new BadRequestError(
+      parsed.error.issues[0]?.message ?? "Invalid signal parameters",
+    );
+  }
+  const validated = parsed.data;
   const buffered = bufferIfDeferred(
     validated.originatingConversationId,
     validated,
@@ -137,7 +147,13 @@ const EditNotificationResponse = z.object({
 });
 
 async function handleEditNotification({ body = {} }: RouteHandlerArgs) {
-  const validated = EditNotificationParams.parse(body);
+  const parsed = EditNotificationParams.safeParse(body);
+  if (!parsed.success) {
+    throw new BadRequestError(
+      parsed.error.issues[0]?.message ?? "Invalid notification parameters",
+    );
+  }
+  const validated = parsed.data;
   const result = await editNotification(validated);
   if (!result) {
     throw new NotFoundError(`No notification found for id ${validated.id}`);
@@ -167,7 +183,13 @@ const NotificationEventSchema = z.object({
 });
 
 function handleListEvents({ body = {} }: RouteHandlerArgs) {
-  const validated = ListNotificationEventsParams.parse(body);
+  const parsed = ListNotificationEventsParams.safeParse(body);
+  if (!parsed.success) {
+    throw new BadRequestError(
+      parsed.error.issues[0]?.message ?? "Invalid query parameters",
+    );
+  }
+  const validated = parsed.data;
   const rows = listEvents({
     limit: validated.limit,
     sourceEventName: validated.sourceEventName,
