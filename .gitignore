@@ -99,6 +99,8 @@ yarn-error.log*
 .vercel
 
 # xcode / spm build artifacts
+.build
+.build/
 .derivedData/
 *.xcactivitylog
 *.o

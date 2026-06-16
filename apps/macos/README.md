@@ -57,12 +57,9 @@ Because the web UI is bundled locally, **web changes require an Electron
 release** to reach users. The update typically lands within hours (next
 app restart or the 4-hour poll), not instantly.
 
-> **Note on workflow filenames.** This directory is `apps/macos/` to match the
-> platform-named convention used by `apps/ios/`, but the CI workflow files are
-> still named `pr-electron.yaml` / `ci-main-electron.yaml` because
-> `.github/workflows/ci-main-macos.yaml` is already taken by the legacy
-> native Swift app at [`clients/macos/`](../../clients/macos/). The workflow
-> filenames will be renamed to `-macos.yaml` once `clients/macos/` retires.
+> **Workflow filenames.** This directory is `apps/macos/` to match the
+> platform-named convention used by `apps/ios/`, and its CI workflow files are
+> `pr-macos.yaml` / `ci-main-macos.yaml`.
 
 ## Prerequisites
 

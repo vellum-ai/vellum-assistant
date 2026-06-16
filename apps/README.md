@@ -29,9 +29,7 @@ desktop wrappers that users interact with directly.
 ## Notes
 
 - **macOS workflow filenames** — `apps/macos/` is the canonical platform-named
-  directory, but its CI workflow files are still named
-  `pr-electron.yaml` / `ci-main-electron.yaml` because
-  `.github/workflows/ci-main-macos.yaml` is taken by the legacy native Swift
-  app at `clients/macos/`.
+  directory, and its CI workflow files are `pr-macos.yaml` /
+  `ci-main-macos.yaml`.
 - **Chrome extension** — currently at `clients/chrome-extension/`; planned to
   move to `apps/chrome-extension/`.
