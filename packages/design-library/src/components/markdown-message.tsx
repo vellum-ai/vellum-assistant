@@ -337,12 +337,12 @@ function buildMarkdownComponents(
     ),
     th: ({ children }) => (
        
-      <th className={"border border-stone-200 px-2 py-1 text-left font-semibold [&_code]:whitespace-nowrap dark:border-moss-600" /* typography: off-scale — no canonical variant */}>
+      <th className={"border border-stone-200 px-2 py-1 text-left font-semibold [&_code]:whitespace-pre-wrap dark:border-moss-600" /* typography: off-scale — no canonical variant */}>
         {children}
       </th>
     ),
     td: ({ children }) => (
-      <td className="border border-stone-200 px-2 py-1 [&_code]:whitespace-nowrap dark:border-moss-600">
+      <td className="border border-stone-200 px-2 py-1 [&_code]:whitespace-pre-wrap dark:border-moss-600">
         {children}
       </td>
     ),
