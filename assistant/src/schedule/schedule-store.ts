@@ -51,6 +51,8 @@ export interface ScheduleJob {
   workflowName: string | null;
   /** Args passed verbatim to the workflow run; only used when mode = 'workflow'. */
   workflowArgs: unknown;
+  /** Capability manifest scoping the schedule's run; null = unconstrained. */
+  capabilities: unknown | null;
   nextRunAt: number;
   lastRunAt: number | null;
   lastStatus: string | null;
@@ -108,6 +110,7 @@ export function createSchedule(params: {
   wakeConversationId?: string | null;
   workflowName?: string | null;
   workflowArgs?: unknown;
+  capabilities?: unknown;
   enabled?: boolean;
   createdBy?: string;
   syntax?: ScheduleSyntax;
@@ -191,6 +194,8 @@ export function createSchedule(params: {
       params.workflowArgs === undefined
         ? null
         : JSON.stringify(params.workflowArgs),
+    capabilitiesJson:
+      params.capabilities != null ? JSON.stringify(params.capabilities) : null,
     nextRunAt,
     lastRunAt: null as number | null,
     lastStatus: null as string | null,
@@ -299,6 +304,7 @@ export function updateSchedule(
     wakeConversationId?: string | null;
     workflowName?: string | null;
     workflowArgs?: unknown;
+    capabilities?: unknown;
     maxRetries?: number;
     retryBackoffMs?: number;
     timeoutMs?: number | null;
@@ -376,6 +382,13 @@ export function updateSchedule(
       updates.workflowArgs === undefined
         ? null
         : JSON.stringify(updates.workflowArgs);
+  // `capabilities` may legitimately be any JSON value (including null), so
+  // detect presence by key rather than `!== undefined`.
+  if ("capabilities" in updates)
+    set.capabilitiesJson =
+      updates.capabilities == null
+        ? null
+        : JSON.stringify(updates.capabilities);
   if (updates.maxRetries !== undefined) set.maxRetries = updates.maxRetries;
   if (updates.retryBackoffMs !== undefined)
     set.retryBackoffMs = updates.retryBackoffMs;
@@ -1088,6 +1101,7 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
     wakeConversationId: row.wakeConversationId ?? null,
     workflowName: row.workflowName ?? null,
     workflowArgs: parseOptionalJson(row.workflowArgsJson),
+    capabilities: parseOptionalJson(row.capabilitiesJson),
     nextRunAt: row.nextRunAt,
     lastRunAt: row.lastRunAt,
     lastStatus: row.lastStatus,

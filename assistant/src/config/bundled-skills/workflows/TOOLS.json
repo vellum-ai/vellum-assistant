@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "run_workflow",
+      "description": "Launch an autonomous, multi-agent workflow from a script you author (or by saved name); returns a runId immediately and notifies this conversation on completion. See SKILL.md for the full script-authoring contract.",
+      "category": "workflow",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "script": {
+            "type": "string",
+            "description": "Inline workflow source (JavaScript/TypeScript) following the authoring contract. Provide this OR name, not both."
+          },
+          "name": {
+            "type": "string",
+            "description": "Name of a previously saved workflow to run. Provide this OR script, not both."
+          },
+          "args": {
+            "type": "object",
+            "description": "Verbatim input object exposed to the script as `args`. Pass timestamps/seeds here (the script may not generate them)."
+          },
+          "capabilities": {
+            "type": "object",
+            "description": "Per-run capability grant (the single consent point). Leaves get a read-only baseline by default.",
+            "properties": {
+              "tools": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Side-effecting tool names granted to leaves on top of the read-only baseline."
+              },
+              "hostFunctions": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Host-function names the run may invoke."
+              },
+              "persona": {
+                "type": "boolean",
+                "description": "Grant leaves access to persona (identity + memory) context."
+              }
+            }
+          },
+          "label": {
+            "type": "string",
+            "description": "Human-readable label for display; defaults to the script's meta.name."
+          }
+        }
+      },
+      "executor": "tools/run-workflow.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "manage_workflows",
+      "description": "Inspect or control workflow runs started by run_workflow: status, abort, resume, list_runs, and list_profiles. See SKILL.md for details.",
+      "category": "workflow",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["status", "abort", "resume", "list_runs", "list_profiles"],
+            "description": "What to do."
+          },
+          "run_id": {
+            "type": "string",
+            "description": "Target run id (required for \"status\", \"abort\", and \"resume\")."
+          }
+        },
+        "required": ["action"]
+      },
+      "executor": "tools/manage-workflows.ts",
+      "execution_target": "host"
+    }
+  ]
+}

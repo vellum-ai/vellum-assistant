@@ -194,6 +194,7 @@ import {
   migrateRenameVerificationSessionIdColumn,
   migrateRenameVerificationTable,
   migrateRenameVoiceToPhone,
+  migrateScheduleCapabilities,
   migrateScheduleDescription,
   migrateScheduleInferenceProfile,
   migrateScheduleOneShotRouting,
@@ -516,6 +517,7 @@ export function initializeDb(): void {
     migrateConversationOriginChannelIndex,
     migrateBackfillOriginChannelFromBindings,
     migrateContactChannelsUniqueExtUser,
+    migrateScheduleCapabilities,
   ];
 
   // Run each migration step, catching and logging individual failures so one
