@@ -63,15 +63,26 @@ function encodeVersion(major: number, minor: number): number {
 }
 
 /**
+ * A version minor is a small integer. A large trailing segment is a release
+ * date (e.g. `claude-sonnet-4-20250514` → `20250514`), not a minor — treat
+ * such date-only slugs as major-only (minor 0) so an old dated build never
+ * outranks a real `major.minor` release like `claude-sonnet-4-6`.
+ */
+function normalizeMinor(raw: string): number {
+  const n = Number(raw);
+  return n >= 100 ? 0 : n;
+}
+
+/**
  * Parse a tiered family's version from either the dashed (`-4-8`) or dotted
  * (`4.8`) form, returning the same monotonic encoding for both so that the two
  * spellings of one model compare equal. `null` when neither form is present.
  */
 function parseTieredVersion(id: string): number | null {
   const dashed = id.match(VERSION_PATTERN_DASHED);
-  if (dashed) return encodeVersion(Number(dashed[1]), Number(dashed[2]));
+  if (dashed) return encodeVersion(Number(dashed[1]), normalizeMinor(dashed[2]));
   const dotted = id.match(VERSION_PATTERN_DOTTED);
-  if (dotted) return encodeVersion(Number(dotted[1]), Number(dotted[2]));
+  if (dotted) return encodeVersion(Number(dotted[1]), normalizeMinor(dotted[2]));
   return null;
 }
 

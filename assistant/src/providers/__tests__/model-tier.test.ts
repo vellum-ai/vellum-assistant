@@ -192,4 +192,22 @@ describe("isStrictlyMoreCapable", () => {
     );
     expect(isStrictlyMoreCapable("gpt-4o", "minimax-m3")).toBe(false);
   });
+
+  test("date-only Claude slugs do not outrank a real major.minor release", () => {
+    // The release date sits where the minor would be; it must parse as
+    // major-only (4.0), not minor 20250514.
+    expect(parseModelCapability("claude-sonnet-4-20250514")).toEqual({
+      lineage: "claude",
+      familyRank: CLAUDE_FAMILY_RANK.sonnet!,
+      version: 4,
+    });
+    // The dated 4.x build must NOT be surfaced as an upgrade over 4.6.
+    expect(
+      isStrictlyMoreCapable("claude-sonnet-4-20250514", "claude-sonnet-4-6"),
+    ).toBe(false);
+    // A higher family still upgrades over a dated lower-family build.
+    expect(
+      isStrictlyMoreCapable("claude-opus-4-8", "claude-sonnet-4-20250514"),
+    ).toBe(true);
+  });
 });
