@@ -57,8 +57,12 @@ interface UseMessageReconciliationReturn {
   cancelReconciliation: () => void;
   /** Fetches the latest messages, reconciles them, and reconciles turn
    *  state (dispatches POLL_RECONCILED when the turn is stuck in a
-   *  sending phase). */
-  reconcileActiveConversation: () => Promise<ReconcileActiveConversationResult>;
+   *  sending phase). Pass `authoritative` to re-bootstrap the transcript
+   *  from the server snapshot regardless of the seq watermark — set by
+   *  reconnect reconciles, where the live suffix may be non-contiguous. */
+  reconcileActiveConversation: (
+    authoritative?: boolean,
+  ) => Promise<ReconcileActiveConversationResult>;
 }
 
 function serverHasAssistantProgress(
@@ -157,6 +161,7 @@ export function useMessageReconciliation({
       serverMessages: ConversationMessage[],
       conversationId: string,
       serverSeq: number | null,
+      authoritative = false,
     ): {
       changed: boolean;
       assistantProgress: boolean;
@@ -190,6 +195,7 @@ export function useMessageReconciliation({
           serverSeq,
           localSeq,
           oldestPageTimestamp: initialPageOldestTsRef.current,
+          authoritative,
         });
         changed = next !== prev;
         // The "added" count is what telemetry uses to distinguish a
@@ -205,6 +211,7 @@ export function useMessageReconciliation({
         changed,
         assistantProgress,
         messagesAdded,
+        authoritative,
         oldestPageTimestamp: initialPageOldestTsRef.current,
         server: summarizeRuntimeMessages(serverMessages),
         localBefore,
@@ -233,12 +240,14 @@ export function useMessageReconciliation({
       snapshotTurnId: string | null,
       snapshotConversationId: string,
       serverSeq: number | null,
+      authoritative = false,
     ): ReconcileActiveConversationResult => {
       const { changed, assistantProgress, messagesAdded } =
         reconcileFromServerDetailed(
           serverMessages,
           snapshotConversationId,
           serverSeq,
+          authoritative,
         );
 
       // Reconcile turn state: only fire the silent-stall rescue when ALL
@@ -438,7 +447,9 @@ export function useMessageReconciliation({
   );
 
   const reconcileActiveConversation = useCallback(
-    async (): Promise<ReconcileActiveConversationResult> => {
+    async (
+      authoritative = false,
+    ): Promise<ReconcileActiveConversationResult> => {
       const empty: ReconcileActiveConversationResult = {
         changed: false,
         messagesAdded: 0,
@@ -477,12 +488,13 @@ export function useMessageReconciliation({
           snapshotTurnId,
           ctx.conversationId,
           serverSeq,
+          authoritative,
         );
       } catch (err) {
-        // Re-throw so callers that observe the promise (e.g. gap-detection
-        // cursor advancement) can distinguish "fetch succeeded, nothing new"
-        // from "fetch failed." Callers that fire-and-forget already have
-        // their own .catch() handlers.
+        // Re-throw so callers that await the result (e.g. the
+        // reconnect-recovery reconcile in reconcile-on-reopen) can
+        // distinguish "fetch succeeded, nothing new" from "fetch failed."
+        // Fire-and-forget callers already have their own .catch() handlers.
         recordDiagnostic("reconciliation_active_fetch_error", {
           assistantId: ctx.assistantId,
           conversationId: ctx.conversationId,

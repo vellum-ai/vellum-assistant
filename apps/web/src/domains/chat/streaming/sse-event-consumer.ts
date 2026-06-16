@@ -3,8 +3,8 @@
  *
  * The bus delivers every event from a single unfiltered SSE
  * connection. This module runs connection-wide seq-gap detection (and
- * triggers a reconcile when a gap is observed), applies the
- * cross-conversation filter that keeps other conversations' events
+ * triggers an authoritative reconcile when a gap is observed), applies
+ * the cross-conversation filter that keeps other conversations' events
  * from leaking into the active view, and dispatches the surviving
  * events to the caller's handler.
  *
@@ -39,14 +39,20 @@
  *   - An event whose seq < cursor: the daemon's counter restarted
  *     (daemon restart). Replace the stale cursor and reconcile.
  *   - An event whose seq > cursor + 1: events were missed on the
- *     connection. Fire a reconcile of the active conversation and defer
- *     cursor advancement until it resolves. While a reconcile is
- *     in-flight, subsequent gap events are debounced — only the latest
- *     seq is tracked. On success the cursor jumps to the latest seq; on
- *     failure it stays pinned so the next event retries.
+ *     connection — the consumer fell outside the daemon's bounded
+ *     replay ring. Fire an authoritative reconcile of the active
+ *     conversation: it reloads `/messages` and takes the durable server
+ *     snapshot wholesale, because the live suffix is known to be missing
+ *     the evicted events. The reconcile is debounced while one is in
+ *     flight so a burst of gap events fires a single fetch. The cursor
+ *     still advances past the gap (below) — the hole is healed by the
+ *     snapshot, not by replaying it, so the cursor follows the live
+ *     frontier instead of wedging on the gap.
  *   - On the normal (no-gap) path the cursor advances AFTER the
  *     handler returns. A thrown handler keeps the cursor pinned so the
- *     next event re-triggers the gap path.
+ *     next event re-triggers the gap path. The generation-reset path
+ *     replaces the cursor synchronously and defers the post-dispatch
+ *     advance.
  *
  * Per-conversation idempotent apply:
  *   Past the active-conversation filter, each applied event advances a
@@ -63,7 +69,8 @@
  *   the daemon replays every buffered event with `seq > cursor` from
  *   its global ring before going live, so a normal reconnect resumes
  *   without any gap. If the cursor is older than the ring window, the
- *   daemon goes live from a higher seq and gap detection refetches.
+ *   daemon goes live from a higher seq and gap detection reconciles
+ *   authoritatively from `/messages`.
  */
 
 import { useStreamStore } from "@/domains/chat/stream-store";
@@ -114,7 +121,6 @@ export function createSseEventConsumer(
   // Tracks in-flight gap reconciliation so we debounce rather than
   // firing O(N) reconcile calls while the first one is still pending.
   let reconcileInFlight = false;
-  let latestGapSeq: number | null = null;
 
   return {
     handleSseEvent(envelope) {
@@ -153,31 +159,20 @@ export function createSseEventConsumer(
             observed: eventSeq,
             gap: eventSeq - stored,
           });
-          gapDeferred = true;
-          // Track the latest seq seen during a gap so the cursor jumps
-          // to the right place when reconcile succeeds.
-          latestGapSeq = eventSeq;
+          // Events between `stored` and `eventSeq` were evicted from the
+          // daemon's replay ring before this reconnect, so the live
+          // suffix is non-contiguous. Heal the hole with an authoritative
+          // reconcile that reloads `/messages` and takes the server
+          // snapshot wholesale. Debounced while one is in-flight so a
+          // burst of gap events fires a single fetch. The cursor advances
+          // to `eventSeq` below (the dropped events are healed by the
+          // snapshot, not replayed), so it tracks the live frontier
+          // rather than wedging on the hole.
           if (!reconcileInFlight) {
             reconcileInFlight = true;
-            const reconcileEpoch = useStreamStore.getState().streamEpoch;
-            deps.reconcileActive()
-              .then(() => {
-                // Only advance if the epoch is still current. A stale
-                // reconcile (SSE reconnected during the fetch) resolves
-                // with empty — advancing would mark the gap as repaired
-                // without authoritative data.
-                if (
-                  latestGapSeq != null &&
-                  useStreamStore.getState().streamEpoch === reconcileEpoch
-                ) {
-                  replaceReconnectCursor(latestGapSeq);
-                  latestGapSeq = null;
-                }
-              })
-              .catch(() => {
-                // Reconcile failed — cursor stays pinned so the next
-                // event re-detects the gap and retries.
-              })
+            deps
+              .reconcileActive()
+              .catch(() => {})
               .finally(() => {
                 reconcileInFlight = false;
               });
@@ -232,10 +227,12 @@ export function createSseEventConsumer(
       // Advance the global cursor AFTER dispatch so a thrown handler
       // does not advance the cursor past unapplied work. Skip when a
       // gap was deferred — the generation-reset path replaced the
-      // cursor synchronously; the seq-gap path defers advancement until
-      // reconcile resolves. The cursor advances for filtered-out
-      // (other-conversation) events too, so it stays contiguous with
-      // the global counter for transport-level resume.
+      // cursor synchronously. A detected seq gap does NOT defer: its
+      // hole is healed by the authoritative reconcile, so the cursor
+      // advances to the live frontier to avoid re-detecting the same
+      // gap on every subsequent event. The cursor advances for
+      // filtered-out (other-conversation) events too, so it stays
+      // contiguous with the global counter for transport-level resume.
       if (eventSeq != null && !gapDeferred) {
         advanceReconnectCursor(eventSeq);
       }

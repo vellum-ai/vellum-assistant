@@ -59,7 +59,9 @@ export interface UseEventStreamParams {
 
   // Callbacks from useStreamEventHandler / useMessageReconciliation
   handleStreamEvent: (event: AssistantEvent, epoch: number) => void;
-  reconcileActiveConversation: () => Promise<ReconcileActiveConversationResult>;
+  reconcileActiveConversation: (
+    authoritative?: boolean,
+  ) => Promise<ReconcileActiveConversationResult>;
   startReconciliationLoop: (epoch: number) => void;
   cancelReconciliation: () => void;
 
@@ -226,7 +228,9 @@ export function useEventStream({
       activeConversationIdRef: activeConversationIdLatestRef,
       handleStreamEvent: (event, epoch) =>
         handleStreamEventRef.current(event, epoch),
-      reconcileActive: () => reconcileActiveConversationRef.current(),
+      // Reconnect reconcile: re-bootstrap authoritatively from the server
+      // snapshot, since a gap means the live suffix may be non-contiguous.
+      reconcileActive: () => reconcileActiveConversationRef.current(true),
     });
   }, [
     assistantStateKind,
@@ -253,7 +257,9 @@ export function useEventStream({
     return createReconcileOnReopen({
       assistantId,
       conversationId: activeConversationId,
-      reconcileActive: () => reconcileActiveConversationRef.current(),
+      // Reconnect reconcile: re-bootstrap authoritatively from the server
+      // snapshot, since a gap means the live suffix may be non-contiguous.
+      reconcileActive: () => reconcileActiveConversationRef.current(true),
       startReconciliationLoop: (epoch) =>
         startReconciliationLoopRef.current(epoch),
     });
