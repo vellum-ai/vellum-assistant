@@ -9,8 +9,9 @@ import { getWorkspaceConfigPath } from "../util/platform.js";
  * `getModelProfiles()` — the runtime handle a plugin (e.g. a model router) calls
  * to learn which inference profiles a workspace defines. These tests pin its
  * contract: presentation ordering (`profileOrder` then alphabetical tail), mix
- * profiles omitted, disabled profiles included and flagged, and the per-field
- * fallbacks (label → key, description → null, isActive → `llm.activeProfile`).
+ * profiles included and flagged via `isMix`, disabled profiles included and
+ * flagged via `isDisabled`, and the per-field fallbacks (label → key,
+ * description → null, isActive → `llm.activeProfile`).
  */
 
 function writeFixtureConfig(config: Record<string, unknown>): void {
@@ -39,7 +40,7 @@ describe("getModelProfiles", () => {
     expect(keys).toEqual(["balanced", "cost-optimized", "alpha", "zeta"]);
   });
 
-  test("omits mix profiles, which are not a routing target", () => {
+  test("includes mix profiles and flags them via isMix", () => {
     // GIVEN a workspace with a weighted mix profile alongside plain ones.
     writeFixtureConfig({
       llm: {
@@ -57,9 +58,39 @@ describe("getModelProfiles", () => {
       },
     });
     // WHEN the profiles are listed.
-    const keys = getModelProfiles().map((p) => p.key);
-    // THEN the mix profile is filtered out.
-    expect(keys).toEqual(["alpha", "beta"]);
+    const flags = getModelProfiles().map((p) => [p.key, p.isMix]);
+    // THEN the mix profile is present and flagged isMix, while plain profiles are not.
+    expect(flags).toEqual([
+      ["alpha", false],
+      ["beta", false],
+      ["blend", true],
+    ]);
+  });
+
+  test("marks an active mix profile via isActive", () => {
+    // GIVEN a workspace whose activeProfile is itself a weighted mix.
+    writeFixtureConfig({
+      llm: {
+        profiles: {
+          alpha: {},
+          blend: {
+            mix: [
+              { profile: "alpha", weight: 1 },
+              { profile: "beta", weight: 1 },
+            ],
+          },
+          beta: {},
+        },
+        profileOrder: ["alpha", "blend", "beta"],
+        activeProfile: "blend",
+      },
+    });
+    // WHEN the profiles are listed.
+    const active = getModelProfiles()
+      .filter((p) => p.isActive)
+      .map((p) => p.key);
+    // THEN the active mix profile is the one flagged isActive.
+    expect(active).toEqual(["blend"]);
   });
 
   test("includes disabled profiles and flags them via isDisabled", () => {

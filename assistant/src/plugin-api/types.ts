@@ -114,6 +114,13 @@ export interface ModelProfileInfo {
   readonly isActive: boolean;
   /** Whether the profile is disabled; routing to it is rejected by the resolver. */
   readonly isDisabled: boolean;
+  /**
+   * Whether this is a weighted "mix" profile — an A/B blend that resolves to one
+   * of its constituent profiles per conversation via a seeded weighted pick.
+   * Routing to its {@link key} is valid; it directs the call into the blend
+   * rather than at a single fixed model.
+   */
+  readonly isMix: boolean;
 }
 
 // ─── Shutdown context ────────────────────────────────────────────────────────

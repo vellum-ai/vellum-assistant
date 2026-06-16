@@ -278,11 +278,12 @@ the original request.
 **Discovering routable profiles.** Profile keys vary per workspace, so a router
 shouldn't hard-code them. The runtime handle `getModelProfiles()` returns the
 profiles this workspace defines, in the order the `/model` picker shows them —
-each entry is `{ key, label, description, isActive, isDisabled }`. Assign a
-`key` to `ctx.modelProfile` to route a call there. Mix profiles are omitted (not
-a routing target); disabled profiles are included and flagged via `isDisabled`.
-It reads live config, so call it whenever you need the current set — at `init`
-to build a map once, or per call.
+each entry is `{ key, label, description, isActive, isDisabled, isMix }`. Assign
+a `key` to `ctx.modelProfile` to route a call there. Disabled profiles are
+included and flagged via `isDisabled`; weighted "mix" profiles are included and
+flagged via `isMix` (a mix is a valid target — routing to it A/B-splits the call
+across its constituents per conversation). It reads live config, so call it
+whenever you need the current set — at `init` to build a map once, or per call.
 
 ```ts
 // hooks/init.ts — build and validate the router's category → profile map
