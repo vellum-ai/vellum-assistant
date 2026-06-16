@@ -15,5 +15,10 @@ export async function run(
     setAppCommitMessage(context.conversationId, input.change_summary.trim());
   }
   const createInput: AppCreateInput = input as unknown as AppCreateInput;
-  return executeAppCreate(createInput, appStore, context.proxyToolResolver);
+  return executeAppCreate(
+    createInput,
+    appStore,
+    context.proxyToolResolver,
+    context.conversationId,
+  );
 }
