@@ -14,6 +14,8 @@ import { NotFound } from "@/components/not-found";
 import { RouteErrorBoundary } from "@/components/route-error-boundary";
 import { RootHydrateFallback } from "@/components/root-hydrate-fallback";
 import { ActiveAssistantGate } from "@/components/layout/active-assistant-gate";
+import { remoteGatewayPublicPathPrefix } from "@/lib/auth/remote-gateway-session";
+import { isRemoteGatewayMode } from "@/lib/local-mode";
 import { routes } from "@/utils/routes";
 
 /**
@@ -32,7 +34,14 @@ function OAuthDesktopCompleteRedirect() {
   );
 }
 
-// Route tree — no basename, routes are absolute browser paths.
+export function getRouterBasename(): string | undefined {
+  if (!isRemoteGatewayMode()) return undefined;
+  return remoteGatewayPublicPathPrefix() || undefined;
+}
+
+// Route tree — no basename in normal app modes; remote-gateway mode adds the
+// public path prefix as the router basename so Velay-style URLs such as
+// `/assistant-123/assistant/pair` match the same `/assistant/*` route tree.
 // To view the full hierarchy at a glance:
 //   grep -n 'path:' apps/web/src/routes.tsx
 //
@@ -109,6 +118,11 @@ export const routeTree = [
     // bundle-confirmation BrowserWindow. No auth required so bundles can
     // be opened before the user logs in. Same sibling pattern as About.
     { path: "/assistant/bundle/confirm", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/pages/BundleConfirmPage").then((m) => m.BundleConfirmPage) } },
+
+    // Remote web pairing — standalone page for the RFC8628-style browser
+    // polling flow. It must stay outside the auth-protected app tree because
+    // its job is to obtain the first in-memory gateway access token.
+    { path: "/assistant/pair", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/domains/remote-web/pairing-page").then((m) => m.RemoteWebPairingPage) } },
 
     // Quick Input — lightweight input panel rendered inside the Electron
     // quick input BrowserWindow (a frameless, always-on-top panel invoked
@@ -329,5 +343,6 @@ export const routeTree = [
 ];
 
 export const router = createBrowserRouter(routeTree as never, {
+  basename: getRouterBasename(),
   future: { v8_middleware: true },
 });

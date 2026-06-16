@@ -51,6 +51,8 @@ const LEGACY_TOKEN_SOURCE_KEY = "gw:tokenSource";
 let cachedToken: string | null = null;
 let cachedExpiresAt: number = 0;
 let cachedTokenSource: string | null = null;
+let remoteGatewayToken: string | null = null;
+let remoteGatewayExpiresAt: number = 0;
 
 export function isGatewayAuthEnabled(): boolean {
   if (isRemoteGatewayMode()) return true;
@@ -58,7 +60,6 @@ export function isGatewayAuthEnabled(): boolean {
 }
 
 export function isGatewayAuthMode(): boolean {
-  if (isRemoteGatewayMode()) return true;
   return isGatewayAuthEnabled() && getGatewayToken() !== null;
 }
 
@@ -66,7 +67,32 @@ function isTokenExpired(expiresAt: number): boolean {
   return Date.now() / 1000 >= expiresAt - 60;
 }
 
+function toEpochSeconds(value: string | number): number {
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed / 1000 : 0;
+  }
+  return value > 1_000_000_000_000 ? value / 1000 : value;
+}
+
+export function setRemoteGatewayToken(params: {
+  accessToken: string;
+  accessTokenExpiresAt: string | number;
+}): void {
+  remoteGatewayToken = params.accessToken;
+  remoteGatewayExpiresAt = toEpochSeconds(params.accessTokenExpiresAt);
+}
+
 export function getGatewayToken(): string | null {
+  if (isRemoteGatewayMode()) {
+    if (remoteGatewayToken && !isTokenExpired(remoteGatewayExpiresAt)) {
+      return remoteGatewayToken;
+    }
+    remoteGatewayToken = null;
+    remoteGatewayExpiresAt = 0;
+    return null;
+  }
+
   if (cachedToken && !isTokenExpired(cachedExpiresAt)) {
     return cachedToken;
   }
@@ -154,6 +180,8 @@ export function clearGatewayToken(): void {
   cachedToken = null;
   cachedExpiresAt = 0;
   cachedTokenSource = null;
+  remoteGatewayToken = null;
+  remoteGatewayExpiresAt = 0;
   try {
     localStorage.removeItem(LS_TOKEN_KEY);
     localStorage.removeItem(LS_EXPIRES_KEY);

@@ -7,6 +7,7 @@ import {
   isGatewayAuthEnabled,
   isGatewayAuthMode,
   isRepairableGatewayTokenError,
+  setRemoteGatewayToken,
 } from "@/lib/auth/gateway-session";
 
 const realFetch = globalThis.fetch;
@@ -24,10 +25,17 @@ afterEach(() => {
 });
 
 describe("remote gateway mode", () => {
-  test("does not require a stored gateway token", () => {
+  test("is enabled but not active until an in-memory token exists", () => {
     window.__VELLUM_CONFIG__ = { mode: "remote-gateway" };
 
     expect(isGatewayAuthEnabled()).toBe(true);
+    expect(isGatewayAuthMode()).toBe(false);
+
+    setRemoteGatewayToken({
+      accessToken: "remote-token",
+      accessTokenExpiresAt: "2999-01-01T00:00:00.000Z",
+    });
+
     expect(isGatewayAuthMode()).toBe(true);
   });
 });
