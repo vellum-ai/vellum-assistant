@@ -12,11 +12,13 @@ import {
   supportsHostProxy,
 } from "../channels/types.js";
 import { getIsPlatform } from "../config/env-registry.js";
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
+import { isStrictlyMoreCapable } from "../providers/model-tier.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
@@ -521,6 +523,44 @@ export const SUBAGENT_ONLY_TOOL_NAMES = new Set<string>([
   "notify_parent",
 ]);
 
+/** Name of the always-on advisor tool, gated per turn by executor tier. */
+const ADVISOR_TOOL_NAME = "advisor";
+
+/**
+ * Whether the advisor tool should be exposed for the conversation's current
+ * turn: true only when the advisor's configured model is strictly more
+ * capable than the conversation's current executor model.
+ *
+ * Re-evaluated per turn because the executor profile can change per
+ * conversation (per-turn override profile or a workspace active-profile edit).
+ * The executor is resolved WITH the conversation's `overrideProfile` so a
+ * per-conversation pinned profile is reflected; the advisor is resolved
+ * WITHOUT an override because it is pinned by its own seeded call-site.
+ *
+ * Conservative on failure: returns `false` if config or resolution is
+ * unavailable, so a misconfigured install never surfaces an advisor tool it
+ * cannot rank.
+ */
+export function advisorActiveForConversation(
+  overrideProfile: string | undefined,
+  conversationId: string | undefined,
+): boolean {
+  try {
+    const llm = getConfig().llm;
+    if (!llm) return false;
+    const executor = resolveCallSiteConfig("mainAgent", llm, {
+      overrideProfile,
+      selectionSeed: conversationId,
+    });
+    const advisor = resolveCallSiteConfig("advisor", llm, {
+      selectionSeed: conversationId,
+    });
+    return isStrictlyMoreCapable(advisor.model, executor.model);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Determine whether a tool is part of the final exposed tool set for the
  * current turn. This helper mirrors the filtering applied by
@@ -643,6 +683,12 @@ export function isToolActiveForContext(
   }
   if (SUBAGENT_ONLY_TOOL_NAMES.has(name)) {
     return ctx.isSubagent === true;
+  }
+  if (name === ADVISOR_TOOL_NAME) {
+    return advisorActiveForConversation(
+      ctx.currentTurnOverrideProfile,
+      ctx.conversationId,
+    );
   }
   return true;
 }

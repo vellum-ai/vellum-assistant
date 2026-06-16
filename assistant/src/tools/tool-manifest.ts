@@ -11,6 +11,8 @@ import {
   isCesSecureInstallEnabled,
   isCesToolsEnabled,
 } from "../credential-execution/feature-gates.js";
+import { RiskLevel } from "../permissions/types.js";
+import { executeAdvisorConsult } from "./advisor/consult.js";
 import { askQuestionTool } from "./ask-question/ask-question-tool.js";
 import { makeAuthenticatedRequestTool } from "./credential-execution/make-authenticated-request.js";
 import { manageSecureCommandTool } from "./credential-execution/manage-secure-command-tool.js";
@@ -28,7 +30,8 @@ import { skillLoadTool } from "./skills/load.js";
 import { notifyParentTool } from "./subagent/notify-parent.js";
 import { requestSystemPermissionTool } from "./system/request-permission.js";
 import { shellTool } from "./terminal/shell.js";
-import type { ToolDefinition } from "./types.js";
+import { finalizeTool } from "./tool-defaults.js";
+import type { Tool, ToolDefinition } from "./types.js";
 
 // ── Eager side-effect modules ───────────────────────────────────────
 // These static imports trigger top-level `registerTool()` side effects on
@@ -113,6 +116,38 @@ export const cesTools: ToolDefinition[] = [
   runAuthenticatedCommandTool,
   manageSecureCommandTool,
 ];
+
+// ── Advisor tool ────────────────────────────────────────────────────
+// Always-on core tool whose per-turn visibility is gated by
+// `conversation-tool-setup.ts`: it is exposed to the model only when a
+// strictly-more-capable model is configured for the conversation's current
+// executor. The gate lives in the tool-projection layer, not here, because
+// it depends on per-conversation executor state.
+
+const advisorTool: ToolDefinition = {
+  name: "advisor",
+  description:
+    "Consult a higher-tier model that sees your full conversation. Call it BEFORE substantive work (before writing or committing to an approach), when stuck (errors recurring, approach not converging), and before declaring a task done. Read-only orientation (ls/grep/cat) is not substantive work and does not need a call. Takes no required arguments; pass an optional `focus` to ask about a specific decision.",
+  defaultRiskLevel: RiskLevel.Low,
+  category: "orchestration",
+  input_schema: {
+    type: "object",
+    properties: {
+      focus: {
+        type: "string",
+        description:
+          "Optional specific question or decision to focus the advisor on. Omit for a general review of the work so far.",
+      },
+    },
+    additionalProperties: false,
+  },
+  execute: (input, context) => executeAdvisorConsult(input, context),
+};
+
+/** Finalized advisor tool, registered by `initializeTools()` in registry.ts. */
+export function getAdvisorTool(): Tool {
+  return finalizeTool(advisorTool, "advisor");
+}
 
 /**
  * Return CES tools only if the CES feature flag is enabled.
