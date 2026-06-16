@@ -448,6 +448,33 @@ function useAssistantBannerConfig(): BannerConfig | null {
     }, 60_000);
     return () => clearTimeout(timeout);
   }, [wasRecentlySleeping, operationalStatus?.state]);
+
+  // Suppress the brief "unreachable" flash during the active → sleeping
+  // transition. When the pod is shutting down, healthz fails before the
+  // backend registers the sleep, causing a transient unreachable state.
+  const [wasRecentlyActive, setWasRecentlyActive] = useState(false);
+  useEffect(() => {
+    if (operationalStatus?.state === "active") {
+      setWasRecentlyActive(true);
+    } else if (
+      operationalStatus?.state === "sleeping" ||
+      operationalStatus?.state === "crash_loop" ||
+      operationalStatus?.state === "not_found"
+    ) {
+      setWasRecentlyActive(false);
+    }
+  }, [operationalStatus?.state]);
+
+  // Auto-clear after 15s so a genuinely unreachable assistant surfaces.
+  useEffect(() => {
+    if (!wasRecentlyActive || operationalStatus?.state !== "unreachable") {
+      return;
+    }
+    const timeout = setTimeout(() => {
+      setWasRecentlyActive(false);
+    }, 15_000);
+    return () => clearTimeout(timeout);
+  }, [wasRecentlyActive, operationalStatus?.state]);
   const [isExitingMaintenanceMode, setIsExitingMaintenanceMode] =
     useState(false);
   const [maintenanceModeExitError, setMaintenanceModeExitError] = useState<
@@ -636,10 +663,15 @@ function useAssistantBannerConfig(): BannerConfig | null {
   // assistant is in the final phase of waking (pod ready per k8s but the
   // application healthz hasn't responded ok yet). Show "waking" so the user
   // sees a smooth sleeping → waking → active progression.
+  // Conversely, when the status transitions from active directly to
+  // unreachable, the pod is shutting down for sleep. Show "sleeping" so
+  // the user sees a smooth active → sleeping progression.
   const effectiveStatus =
     operationalStatus?.state === "unreachable" && wasRecentlySleeping
       ? { ...operationalStatus, state: "waking" as AssistantOperationalState }
-      : operationalStatus;
+      : operationalStatus?.state === "unreachable" && wasRecentlyActive
+        ? { ...operationalStatus, state: "sleeping" as AssistantOperationalState }
+        : operationalStatus;
 
   const operationalBanner = shouldUseLifecycleMaintenanceMode
     ? maintenanceModeBannerConfig()
