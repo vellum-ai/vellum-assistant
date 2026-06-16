@@ -1,4 +1,4 @@
-import { desc, eq, lt, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../memory/db-connection.js";
@@ -18,6 +18,21 @@ export type HeartbeatRunStatus =
   | "skipped"
   | "missed"
   | "superseded";
+
+/**
+ * Statuses that represent a billed heartbeat execution (a conversation actually ran).
+ */
+export const HEARTBEAT_EXECUTION_STATUSES = ["ok", "error", "timeout"] as const;
+
+/**
+ * Statuses that represent a no-op attempt (no conversation ran).
+ * `pending`/`running` are in-flight and excluded from both classes.
+ */
+export const HEARTBEAT_ATTEMPT_STATUSES = [
+  "skipped",
+  "missed",
+  "superseded",
+] as const;
 
 export type HeartbeatSkipReason =
   | "disabled"
@@ -278,12 +293,17 @@ export function countRecentConsecutiveRuns(maxToCheck: number): number {
 export function listHeartbeatRuns(
   limit = 20,
   before?: number,
+  opts?: { statuses?: readonly HeartbeatRunStatus[] },
 ): HeartbeatRunRecord[] {
   const db = getDb();
+  const conditions = [
+    before != null ? lt(heartbeatRuns.scheduledFor, before) : undefined,
+    opts?.statuses ? inArray(heartbeatRuns.status, opts.statuses) : undefined,
+  ].filter((c) => c != null);
   const rows = db
     .select()
     .from(heartbeatRuns)
-    .where(before != null ? lt(heartbeatRuns.scheduledFor, before) : undefined)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(heartbeatRuns.scheduledFor))
     .limit(limit)
     .all();
