@@ -130,7 +130,15 @@ export class PermissionChecker {
       computePreviewDiff,
     );
 
-    const cli = await this.resolveCli(name, input, context);
+    // Best-effort telemetry dimension — a classification failure here (e.g. a
+    // cache miss that re-hits the gateway and fails) must never override an
+    // authorization decision that has already been made.
+    let cli: string | null = null;
+    try {
+      cli = await this.resolveCli(name, input, context);
+    } catch {
+      // Ignore — telemetry only.
+    }
     if (cli != null) return { ...decision, cli };
 
     return decision;
