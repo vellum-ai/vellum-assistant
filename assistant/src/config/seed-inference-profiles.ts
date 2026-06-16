@@ -71,9 +71,6 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     provider: "anthropic",
     connectionName: "anthropic-managed",
     source: "managed",
-    // Hidden from the model picker — the advisor is a call-site-internal model,
-    // not a selectable chat profile. Still editable in profile settings.
-    hidden: true,
     label: "Advisor",
     description: "Higher-tier model consulted by the advisor tool",
     maxTokens: 2048,
@@ -149,8 +146,6 @@ const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     provider: "anthropic",
     connectionName: "",
     source: "user",
-    // Hidden from the model picker (see the managed `advisor` profile).
-    hidden: true,
     label: "Advisor",
     description: "Higher-tier model consulted by the advisor tool",
     maxTokens: 2048,
@@ -183,6 +178,18 @@ export const AUTO_PROFILE_KEY = "auto";
 export const MANAGED_PROFILE_NAMES = new Set([
   ...Object.keys(MANAGED_PROFILE_TEMPLATES),
   AUTO_PROFILE_KEY,
+]);
+
+/**
+ * Profiles that exist only to back an internal call site (the `advisor` tool's
+ * model) rather than to be selected as a chat model. They are seeded and stay
+ * editable in profile settings, but the model picker filters them out so users
+ * never pick them as their conversation model. Keep in sync with the `advisor`
+ * and `custom-advisor` profile templates above.
+ */
+export const INTERNAL_PROFILE_NAMES: ReadonlySet<string> = new Set([
+  "advisor",
+  "custom-advisor",
 ]);
 
 export type SeedInferenceProfilesOptions = {

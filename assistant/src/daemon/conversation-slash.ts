@@ -1,6 +1,7 @@
 import type { InterfaceId } from "../channels/types.js";
 import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
+import { INTERNAL_PROFILE_NAMES } from "../config/seed-inference-profiles.js";
 import {
   getConfig,
   invalidateConfigCache,
@@ -133,29 +134,28 @@ function parseModelCommand(trimmed: string): ModelCommandParse | null {
 function orderedProfileNames(
   profiles: Record<
     string,
-    {
-      label?: string;
-      description?: string;
-      status?: "active" | "disabled";
-      hidden?: boolean;
-    }
+    { label?: string; description?: string; status?: "active" | "disabled" }
   >,
   profileOrder: readonly string[] | undefined,
 ): string[] {
   const order = profileOrder ?? [];
   const seen = new Set<string>();
   const ordered: string[] = [];
+  // Internal call-site profiles (e.g. `advisor`) are excluded from the picker;
+  // they stay editable in settings and resolvable by call sites, just not
+  // selectable as a chat model.
   for (const name of order) {
-    // `hidden` profiles (e.g. the call-site-internal `advisor`) are excluded
-    // from the picker; they stay editable in settings and resolvable by call
-    // sites, just not selectable as a chat model.
-    if (profiles[name] != null && !profiles[name].hidden && !seen.has(name)) {
+    if (
+      profiles[name] != null &&
+      !INTERNAL_PROFILE_NAMES.has(name) &&
+      !seen.has(name)
+    ) {
       ordered.push(name);
       seen.add(name);
     }
   }
   const tail = Object.keys(profiles)
-    .filter((n) => !seen.has(n) && !profiles[n].hidden)
+    .filter((n) => !seen.has(n) && !INTERNAL_PROFILE_NAMES.has(n))
     .sort();
   return [...ordered, ...tail];
 }
@@ -166,12 +166,7 @@ async function resolveModelCommand(
   const config = getConfig();
   const profiles = (config.llm.profiles ?? {}) as Record<
     string,
-    {
-      label?: string;
-      description?: string;
-      status?: "active" | "disabled";
-      hidden?: boolean;
-    }
+    { label?: string; description?: string; status?: "active" | "disabled" }
   >;
   const profileNames = orderedProfileNames(profiles, config.llm.profileOrder);
   const activeProfile = config.llm.activeProfile;
@@ -212,7 +207,7 @@ async function resolveModelCommand(
       message: `Profile \`${target}\` not found.${hint}`,
     };
   }
-  if (profiles[target].hidden) {
+  if (INTERNAL_PROFILE_NAMES.has(target)) {
     return {
       kind: "unknown",
       message: `Profile \`${target}\` is used internally and can't be selected as a chat model.`,

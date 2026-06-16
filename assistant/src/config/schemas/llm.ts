@@ -443,15 +443,6 @@ export const ProfileEntry = LLMConfigFragment.extend({
    * may accompany `mix`.
    */
   mix: MixSchema.optional(),
-  /**
-   * When true, the profile is excluded from the model picker (the CLI `/model`
-   * list and client pickers) but stays fully editable in profile settings and
-   * resolvable by call sites. Used for call-site-internal profiles like
-   * `advisor` that must not be selectable as a chat model. Presentation-only
-   * metadata — stripped by `profileConfigFragment` so it never leaks into the
-   * resolved `LLMConfigBase`.
-   */
-  hidden: z.boolean().optional(),
 });
 export type ProfileEntry = z.infer<typeof ProfileEntry>;
 

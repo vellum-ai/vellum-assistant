@@ -28829,8 +28829,6 @@ components:
               - profile
               - weight
             additionalProperties: false
-        hidden:
-          type: boolean
         supportsVision:
           type: boolean
       additionalProperties: {}

@@ -248,7 +248,6 @@ describe("resolveSlash /model — inference profile switcher", () => {
           advisor: {
             label: "Advisor",
             description: "Higher-tier model consulted by the advisor tool",
-            hidden: true,
           },
         },
         profileOrder: [
@@ -306,11 +305,11 @@ describe("resolveSlash /model — inference profile switcher", () => {
     expect(result.message).toContain("`cost-optimized`");
   });
 
-  test("`/model` hides `hidden` profiles from the picker and refuses to switch to them", async () => {
+  test("`/model` hides internal profiles (advisor) from the picker and refuses to switch to them", async () => {
     const list = await resolveSlash("/model");
     if (list.kind !== "unknown") throw new Error("expected unknown kind");
-    // The hidden `advisor` profile must not appear in the picker list, even
-    // though it is present in `profileOrder`. Visible profiles still show.
+    // The internal `advisor` profile must not appear in the picker, even though
+    // it is present in `profileOrder`. Visible profiles still show.
     expect(list.message).not.toContain("`advisor`");
     expect(list.message).toContain("`balanced`");
 
