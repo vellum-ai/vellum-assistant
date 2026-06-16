@@ -847,6 +847,69 @@ function buildCompactionRequest(
   return [...stripHistoricalWebSearchResults(history).messages, instruction];
 }
 
+// Token headroom a compaction summary call reserves on top of its history: room
+// for the instruction message and the summary the model emits, so a request
+// front-truncated to `compactionPrefixBudget` still fits the context window.
+const COMPACTION_INSTRUCTION_TOKEN_RESERVE = 800;
+const COMPACTION_OUTPUT_BUDGET_RATIO = 0.15;
+
+// Largest history (in estimated tokens) a compaction summary call may carry
+// while leaving room for the instruction and the emitted summary within
+// `maxInputTokens`.
+function compactionPrefixBudget(maxInputTokens: number): number {
+  return (
+    maxInputTokens -
+    COMPACTION_INSTRUCTION_TOKEN_RESERVE -
+    Math.floor(maxInputTokens * COMPACTION_OUTPUT_BUDGET_RATIO)
+  );
+}
+
+// Front-truncate the history handed to a compaction summary call so the call
+// itself fits the context window. Drops messages from the front until the
+// estimated prompt fits `budgetTokens`, then prepends a marker noting how many
+// were dropped so the model knows the summary covers only the visible portion.
+// Returns the input untouched when it already fits or holds a single message —
+// so a below-budget call keeps its prefix byte-aligned with the agent's warm
+// cache and pays no extra cache write.
+function truncateHistoryToBudget(args: {
+  messages: Message[];
+  systemPrompt: string;
+  budgetTokens: number;
+  providerName: string;
+}): Message[] {
+  const { messages, systemPrompt, budgetTokens, providerName } = args;
+  let estimate = estimatePromptTokens(messages, systemPrompt, { providerName });
+  if (estimate <= budgetTokens || messages.length <= 1) {
+    return messages;
+  }
+  let dropCount = 0;
+  while (estimate > budgetTokens && dropCount < messages.length - 1) {
+    dropCount++;
+    estimate = estimatePromptTokens(messages.slice(dropCount), systemPrompt, {
+      providerName,
+    });
+  }
+  if (dropCount === 0) {
+    return messages;
+  }
+  log.info(
+    { dropCount, budgetTokens, totalMessages: messages.length },
+    "Compaction summary input exceeds context window — truncating from front",
+  );
+  return [
+    {
+      role: "user" as const,
+      content: [
+        {
+          type: "text" as const,
+          text: `[${dropCount} earlier messages truncated — summary covers only the visible portion]`,
+        },
+      ],
+    },
+    ...messages.slice(dropCount),
+  ];
+}
+
 export async function runAssistantDrivenCompaction(
   args: CompactionRunArgs,
 ): Promise<CompactionRunResult> {
@@ -881,7 +944,19 @@ export async function runAssistantDrivenCompaction(
     args.targetTokens,
   );
 
-  const requestMessages = buildCompactionRequest(args.messages, instruction);
+  // Bound the summary call's own input to the context window. With no tool
+  // pair to anchor an emergency split, an overflow recovery routes the full
+  // history straight here, so the summary call must front-truncate itself or
+  // it overflows in turn. `args.messages` stays intact for tail resolution
+  // below — only the outbound request is truncated. A below-budget history is
+  // returned untouched, keeping the prefix aligned with the agent's warm cache.
+  const summaryHistory = truncateHistoryToBudget({
+    messages: args.messages,
+    systemPrompt: args.systemPrompt,
+    budgetTokens: compactionPrefixBudget(args.maxInputTokens),
+    providerName: args.provider.tokenEstimationProvider ?? args.provider.name,
+  });
+  const requestMessages = buildCompactionRequest(summaryHistory, instruction);
 
   let response: ProviderResponse;
   try {
@@ -1296,54 +1371,15 @@ export async function runEmergencyCompaction(
   const keptTail = stripInjectionsForCompaction(
     args.messages.slice(splitIndex),
   );
-  let prefix = args.messages.slice(0, splitIndex);
-
-  // If the prefix itself exceeds the context window, truncate messages
-  // from the front so the model can at least see the recent portion.
-  // Reserve budget for the instruction message + output.
-  const instructionBudget = 800; // ~tokens for the emergency prompt
-  const outputBudget = Math.floor(args.maxInputTokens * 0.15);
-  const prefixBudget = args.maxInputTokens - instructionBudget - outputBudget;
-
-  let prefixEstimate = estimatePromptTokens(prefix, args.systemPrompt, {
+  // Bound the prefix to the context window so the summary call fits, reserving
+  // budget for the instruction message and the emitted summary. Truncates from
+  // the front, keeping the recent portion the summary most needs.
+  const prefix = truncateHistoryToBudget({
+    messages: args.messages.slice(0, splitIndex),
+    systemPrompt: args.systemPrompt,
+    budgetTokens: compactionPrefixBudget(args.maxInputTokens),
     providerName: args.provider.tokenEstimationProvider ?? args.provider.name,
   });
-
-  if (prefixEstimate > prefixBudget && prefix.length > 1) {
-    log.info(
-      {
-        prefixEstimate,
-        prefixBudget,
-        prefixMessages: prefix.length,
-      },
-      "Emergency compaction: prefix exceeds context window — truncating from front",
-    );
-    // Drop messages from the front until we fit. Keep at least the first
-    // message (may be an existing summary) and try to preserve recent context.
-    let dropCount = 0;
-    while (prefixEstimate > prefixBudget && dropCount < prefix.length - 1) {
-      dropCount++;
-      const truncated = prefix.slice(dropCount);
-      prefixEstimate = estimatePromptTokens(truncated, args.systemPrompt, {
-        providerName:
-          args.provider.tokenEstimationProvider ?? args.provider.name,
-      });
-    }
-    if (dropCount > 0) {
-      prefix = [
-        {
-          role: "user" as const,
-          content: [
-            {
-              type: "text" as const,
-              text: `[${dropCount} earlier messages truncated — summary covers only the visible portion]`,
-            },
-          ],
-        },
-        ...prefix.slice(dropCount),
-      ];
-    }
-  }
 
   const instruction: Message = {
     role: "user",

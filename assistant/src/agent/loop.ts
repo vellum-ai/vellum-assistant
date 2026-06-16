@@ -764,10 +764,11 @@ export class AgentLoop {
    * Compact the running history in place when the budget gate trips.
    *
    * Calls the default compaction plugin, then re-applies injections via the
-   * supplied hooks. The budget path summarizes the injected `history` (so the
-   * summary call reuses the agent's warm prefix cache); overflow recovery runs
-   * on the injection-stripped history. When `overflowSignal` is
-   * supplied the plugin routes through the manager's reduction ladder (which
+   * supplied hooks. Both the budget and overflow paths hand the full injected
+   * `history` to the plugin (so the summary call reuses the agent's warm prefix
+   * cache); the POST_COMPACT hook owns re-injection idempotency so continuing
+   * from injected history does not double-stack blocks. When `overflowSignal`
+   * is supplied the plugin routes through the manager's reduction ladder (which
    * advances one rung per call and reports `exhausted` / `autoCompressApplied`
    * / `injectionMode`); otherwise it runs ordinary forced compaction. Returns
    * the re-injected history to continue from alongside the ladder's terminal
