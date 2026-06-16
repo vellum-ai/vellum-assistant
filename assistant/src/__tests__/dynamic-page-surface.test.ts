@@ -207,6 +207,81 @@ describe("ui_show dynamic_page app substitute guard", () => {
 });
 
 // ---------------------------------------------------------------------------
+// task_progress ui_show appends the update hint to its return value
+// ---------------------------------------------------------------------------
+
+describe("ui_show task_progress update hint", () => {
+  const ctx = {
+    conversationId: "conversation-123",
+    workingDir: "/tmp",
+    trustClass: "guardian" as const,
+    proxyToolResolver: async () => ({
+      content: "Surface displayed (surface_id: surf-1).",
+      isError: false,
+    }),
+  };
+
+  test("appends the ui_update hint after a task_progress card is shown", async () => {
+    const result = await uiShowTool.execute(
+      {
+        surface_type: "card",
+        template: "task_progress",
+        templateData: { status: "in_progress", steps: [] },
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Surface displayed (surface_id: surf-1).");
+    expect(result.content).toContain("call ui_update with this surface_id");
+  });
+
+  test("recognizes task_progress nested under data", async () => {
+    const result = await uiShowTool.execute(
+      {
+        surface_type: "card",
+        data: {
+          template: "task_progress",
+          templateData: { status: "in_progress" },
+        },
+      },
+      ctx,
+    );
+
+    expect(result.content).toContain("call ui_update with this surface_id");
+  });
+
+  test("does not append the hint for a non-task_progress card", async () => {
+    const result = await uiShowTool.execute(
+      { surface_type: "card", data: { title: "Plain", body: "hi" } },
+      ctx,
+    );
+
+    expect(result.content).toBe("Surface displayed (surface_id: surf-1).");
+  });
+
+  test("does not append the hint when the surface call errors", async () => {
+    const result = await uiShowTool.execute(
+      {
+        surface_type: "card",
+        template: "task_progress",
+        templateData: { status: "in_progress" },
+      },
+      {
+        ...ctx,
+        proxyToolResolver: async () => ({
+          content: "blocked on this channel",
+          isError: true,
+        }),
+      },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toBe("blocked on this channel");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // UiSurfaceShowDynamicPage structure
 // ---------------------------------------------------------------------------
 

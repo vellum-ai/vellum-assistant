@@ -279,6 +279,77 @@ export function markSurfaceCompleted(
 }
 const TASK_PROGRESS_TEMPLATE_FIELDS = ["title", "status", "steps"] as const;
 
+const TASK_PROGRESS_CARD_STATUSES = new Set([
+  "in_progress",
+  "completed",
+  "failed",
+]);
+const TASK_PROGRESS_STEP_STATUSES = new Set([
+  "pending",
+  "in_progress",
+  "completed",
+  "failed",
+]);
+
+/**
+ * Coerce a model-supplied `steps` value into a renderable array. Drops
+ * non-object and label-less entries, accepts `title` as a `label` alias, and
+ * defaults a missing/invalid per-step status to "pending". Returns `[]` for a
+ * missing or non-array input so an indeterminate card still renders.
+ */
+function normalizeTaskProgressSteps(
+  value: unknown,
+): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((step): step is Record<string, unknown> => isPlainObject(step))
+    .map((step) => {
+      const label =
+        typeof step.label === "string"
+          ? step.label
+          : typeof step.title === "string"
+            ? step.title
+            : "";
+      const status =
+        typeof step.status === "string" &&
+        TASK_PROGRESS_STEP_STATUSES.has(step.status)
+          ? step.status
+          : "pending";
+      return { ...step, label, status };
+    })
+    .filter((step) => (step.label as string).trim().length > 0);
+}
+
+/**
+ * Guarantee a task_progress card reaches the client with a well-formed
+ * `templateData` object so a coarse or indeterminate attempt (missing steps,
+ * missing status) renders instead of being silently dropped. Fills only
+ * missing fields — a fully-specified card is left intact.
+ */
+function ensureTaskProgressTemplateData(
+  normalized: Record<string, unknown>,
+): void {
+  const templateData: Record<string, unknown> = isPlainObject(
+    normalized.templateData,
+  )
+    ? { ...normalized.templateData }
+    : {};
+  if (
+    typeof templateData.title !== "string" &&
+    typeof normalized.title === "string"
+  ) {
+    templateData.title = normalized.title;
+  }
+  if (
+    typeof templateData.status !== "string" ||
+    !TASK_PROGRESS_CARD_STATUSES.has(templateData.status)
+  ) {
+    templateData.status = "in_progress";
+  }
+  templateData.steps = normalizeTaskProgressSteps(templateData.steps);
+  normalized.templateData = templateData;
+}
+
 /**
  * Migrate dynamic_page fields from the top-level tool input into `data`.
  *
@@ -363,6 +434,10 @@ function normalizeCardShowData(
     typeof normalized.body !== "string"
   ) {
     normalized.body = "";
+  }
+
+  if (normalized.template === "task_progress") {
+    ensureTaskProgressTemplateData(normalized);
   }
 
   return normalized as unknown as CardSurfaceData;
