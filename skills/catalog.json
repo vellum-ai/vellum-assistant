@@ -626,7 +626,7 @@
       "metadata": {
         "emoji": "🧩",
         "vellum": {
-          "category": "extensibility",
+          "category": "development",
           "display-name": "Plugin Builder",
           "activation-hints": [
             "User wants to build, scaffold, or author a Vellum plugin",
@@ -643,7 +643,8 @@
           ]
         }
       },
-      "compatibility": "Designed for Vellum personal assistants"
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-06-16T19:29:01.000Z"
     },
     {
       "id": "public-ingress",
