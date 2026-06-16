@@ -24,12 +24,14 @@ mock.module("@/runtime/local-mode-host", () => ({
 
 import {
   getActiveAssistant,
+  getLocalGatewayUrl,
   getLocalAssistants,
   getLockfile,
   getPlatformAssistants,
   getSelectedAssistant,
   isLocalAssistant,
   isPlatformAssistant,
+  isRemoteGatewayMode,
   loadLockfile,
   reconcileSelectedAssistant,
   syncPlatformAssistantsToLockfile,
@@ -66,10 +68,34 @@ function setLockfile(lockfile: Lockfile): void {
 }
 
 afterEach(() => {
+  window.__VELLUM_CONFIG__ = undefined;
   useLockfileStore.setState({ lockfile: null, committed: false });
   localStorage.removeItem(LOCKFILE_STORAGE_KEY);
   localStorage.removeItem(SELECTED_ASSISTANT_STORAGE_KEY);
   replacePlatformAssistantsHost.mockClear();
+});
+
+describe("remote gateway mode", () => {
+  test("loads a synthetic active assistant without calling the local host", async () => {
+    window.__VELLUM_CONFIG__ = { mode: "remote-gateway" };
+
+    const lockfile = await loadLockfile();
+
+    expect(isRemoteGatewayMode()).toBe(true);
+    expect(loadLockfileHost).not.toHaveBeenCalled();
+    expect(lockfile.activeAssistant).toBe("self");
+    expect(lockfile.assistants).toEqual([
+      expect.objectContaining({
+        assistantId: "self",
+        cloud: "local",
+        name: "Local Assistant",
+        runtimeUrl: window.location.origin,
+      }),
+    ]);
+    expect(getLocalAssistants().map((a) => a.assistantId)).toEqual(["self"]);
+    expect(getLocalGatewayUrl()).toBeUndefined();
+    expect(useLockfileStore.getState().committed).toBe(true);
+  });
 });
 
 describe("syncPlatformAssistantsToLockfile", () => {
@@ -94,7 +120,10 @@ describe("syncPlatformAssistantsToLockfile", () => {
     const [entries, org] = replacePlatformAssistantsHost.mock.calls[0]!;
     expect(org).toBe("org-1");
     expect(entries).toEqual([
-      expect.objectContaining({ assistantId: "platform-a", organizationId: "org-1" }),
+      expect.objectContaining({
+        assistantId: "platform-a",
+        organizationId: "org-1",
+      }),
     ]);
   });
 
@@ -207,9 +236,7 @@ describe("reconcileSelectedAssistant", () => {
 
     reconcileSelectedAssistant();
 
-    expect(
-      localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY),
-    ).toBeNull();
+    expect(localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY)).toBeNull();
     expect(getSelectedAssistant()).toBe(localA);
   });
 
@@ -219,7 +246,9 @@ describe("reconcileSelectedAssistant", () => {
 
     reconcileSelectedAssistant();
 
-    expect(localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY)).toBe("local-b");
+    expect(localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY)).toBe(
+      "local-b",
+    );
     expect(getSelectedAssistant()).toBe(localB);
   });
 
@@ -228,9 +257,7 @@ describe("reconcileSelectedAssistant", () => {
 
     reconcileSelectedAssistant();
 
-    expect(
-      localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY),
-    ).toBeNull();
+    expect(localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY)).toBeNull();
   });
 
   test("a transient empty-lockfile read does not clear the selection", () => {
@@ -241,7 +268,9 @@ describe("reconcileSelectedAssistant", () => {
 
     getLockfile();
 
-    expect(localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY)).toBe("local-a");
+    expect(localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY)).toBe(
+      "local-a",
+    );
   });
 });
 

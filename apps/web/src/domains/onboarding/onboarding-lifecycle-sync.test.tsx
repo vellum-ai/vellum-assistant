@@ -98,7 +98,11 @@ mock.module("@/assistant/lifecycle-service", () => ({
 mock.module("@/assistant/api", () => ({
   hatchAssistant: hatchAssistantMock,
   getAssistant: getAssistantMock,
-  getAssistantHealthz: async () => ({ ok: true, status: 200, data: { status: "ok" } }),
+  getAssistantHealthz: async () => ({
+    ok: true,
+    status: 200,
+    data: { status: "ok" },
+  }),
 }));
 
 mock.module("@/assistant/avatar-api", () => ({
@@ -200,6 +204,7 @@ mock.module("@/runtime/native-auth", () => ({
 
 mock.module("@/lib/local-mode", () => ({
   isLocalMode: () => isLocalModeValue,
+  isRemoteGatewayMode: () => false,
   isLocalAssistant: () => false,
   isPlatformAssistant: () => false,
   hasAssistants: () => false,

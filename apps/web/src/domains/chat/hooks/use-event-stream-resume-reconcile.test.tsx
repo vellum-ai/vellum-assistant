@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
+import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import {
   __resetForTesting,
   publish,
 } from "@/lib/event-bus";
+import { resetReconnectCursor } from "@/lib/streaming/reconnect-cursor";
+import { __resetLocalSeqForTesting } from "@/lib/streaming/local-seq";
 
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
 
@@ -45,11 +48,15 @@ function renderEventStream(params: {
 
 beforeEach(() => {
   __resetForTesting();
+  resetReconnectCursor();
+  __resetLocalSeqForTesting();
 });
 
 afterEach(() => {
   cleanup();
   __resetForTesting();
+  resetReconnectCursor();
+  __resetLocalSeqForTesting();
 });
 
 describe("useEventStream — sse.opened reconcile triggers", () => {
@@ -85,6 +92,89 @@ describe("useEventStream — sse.opened reconcile triggers", () => {
       cause: "resume",
     });
     expect(reconcile).toHaveBeenCalledTimes(1);
+  });
+
+  test("reconciles non-authoritatively on a warm resume so the freshly streamed tail is kept", async () => {
+    /**
+     * A warm resume usually replays the daemon's buffered suffix
+     * contiguously, with no proven seq gap. Taking the `/messages`
+     * snapshot authoritatively here would let the debounced (lagging)
+     * snapshot clobber the freshly streamed tail it hasn't persisted yet,
+     * leaving a hole in the middle of the response until the server
+     * watermark catches up. The authoritative heal is owned by the
+     * consumer's seq-gap detector, which only fires on a proven gap.
+     */
+    // GIVEN a mounted stream that records the reconcile's authoritative arg
+    const reconcile = mock(async (_authoritative?: boolean) => ({
+      changed: false,
+      messagesAdded: 0,
+      assistantProgress: false,
+    }));
+    renderEventStream({
+      activeConversationId: "conv-A",
+      reconcileActiveConversation: reconcile as never,
+    });
+
+    // WHEN the bus reopens on a warm resume
+    publish("sse.opened", {
+      assistantId: "asst-1",
+      cause: "resume",
+    });
+
+    // THEN the reopen reconcile is invoked without the authoritative flag
+    expect(reconcile).toHaveBeenCalledTimes(1);
+    expect(reconcile.mock.calls[0]?.[0]).toBeFalsy();
+  });
+
+  test("a proven seq gap on the live stream heals authoritatively", async () => {
+    /**
+     * When the daemon's replay ring evicts events during a long
+     * suspension, the live suffix resumes non-contiguously (the global
+     * seq jumps past the next expected value). The consumer's seq-gap
+     * detector owns the authoritative heal: it reloads `/messages` and
+     * takes the server snapshot wholesale to refill the dropped
+     * beginning, so this reconcile must run with the authoritative flag.
+     */
+    // GIVEN a mounted stream that records the reconcile's authoritative arg
+    const reconcile = mock(async (_authoritative?: boolean) => ({
+      changed: true,
+      messagesAdded: 1,
+      assistantProgress: true,
+    }));
+    renderEventStream({
+      activeConversationId: "conv-A",
+      reconcileActiveConversation: reconcile as never,
+    });
+    // AND the global cursor seeded by a first contiguous live event
+    publish("sse.event", {
+      id: "evt-seed",
+      conversationId: "conv-A",
+      seq: 5,
+      emittedAt: new Date().toISOString(),
+      message: {
+        type: "assistant_text_delta",
+        conversationId: "conv-A",
+        text: "a",
+      },
+    } as AssistantEventEnvelope);
+
+    // WHEN a later event arrives with a seq gap (events were evicted)
+    publish("sse.event", {
+      id: "evt-gap",
+      conversationId: "conv-A",
+      seq: 5000,
+      emittedAt: new Date().toISOString(),
+      message: {
+        type: "assistant_text_delta",
+        conversationId: "conv-A",
+        text: "b",
+      },
+    } as AssistantEventEnvelope);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // THEN the gap heal reconcile runs with the authoritative flag set
+    expect(reconcile).toHaveBeenCalledTimes(1);
+    expect(reconcile.mock.calls[0]?.[0]).toBe(true);
   });
 
   test("reconciles when the bus reopens after a reachability-driven retry", async () => {

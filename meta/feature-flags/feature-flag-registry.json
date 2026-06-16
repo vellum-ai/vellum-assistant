@@ -39,7 +39,7 @@
       "scope": "both",
       "key": "experiment-activation-flow-2026-06-03",
       "label": "Activation Flow Experiment 2026-06-03",
-      "description": "Multivariate activation-flow experiment. control = standard flow; variant-a = activation rail; personal-page = preseeded personal-page app (read by the daemon, hence scope \"both\"). Targeted via LaunchDarkly.",
+      "description": "Multivariate activation-flow experiment. control = standard flow; variant-a = activation rail; personal-page = new sign-up-page variant (front-end only). Targeted via LaunchDarkly.",
       "defaultEnabled": "control",
       "values": ["control", "variant-a", "personal-page"]
     },

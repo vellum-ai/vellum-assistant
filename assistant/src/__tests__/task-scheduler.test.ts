@@ -535,6 +535,60 @@ describe("scheduler workflow mode", () => {
     expect(runs[0].status).toBe("ok");
   });
 
+  test("fires with the schedule's stored side-effecting manifest", async () => {
+    const schedule = createSchedule({
+      name: "Side-effecting workflow",
+      cronExpression: "0 9 * * *",
+      message: "go",
+      syntax: "cron",
+      mode: "workflow",
+      workflowName: "send-report",
+      capabilities: {
+        tools: ["file_write"],
+        hostFunctions: ["notify"],
+        persona: true,
+      },
+    });
+    forceScheduleDue(schedule.id);
+
+    await runScheduleDueWorkOnce(
+      async () => {},
+      () => {},
+    );
+
+    expect(workflowStartCalls).toHaveLength(1);
+    expect(workflowStartCalls[0]).toMatchObject({
+      manifest: {
+        tools: ["file_write"],
+        hostFunctions: ["notify"],
+        persona: true,
+      },
+    });
+  });
+
+  test("a legacy schedule (null capabilities) fires with the read-only baseline", async () => {
+    const schedule = createSchedule({
+      name: "Legacy workflow",
+      cronExpression: "0 9 * * *",
+      message: "go",
+      syntax: "cron",
+      mode: "workflow",
+      workflowName: "digest",
+      capabilities: null,
+    });
+    forceScheduleDue(schedule.id);
+
+    await runScheduleDueWorkOnce(
+      async () => {},
+      () => {},
+    );
+
+    expect(workflowStartCalls).toHaveLength(1);
+    expect(workflowStartCalls[0]).toMatchObject({
+      manifest: { tools: [], hostFunctions: [], persona: false },
+    });
+  });
+
   test("falls back to createdFromConversationId for the completion wake", async () => {
     // Workflow schedules created via schedule_create store the originating
     // conversation as createdFromConversationId and leave wakeConversationId

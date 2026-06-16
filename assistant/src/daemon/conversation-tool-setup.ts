@@ -26,6 +26,7 @@ import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
 } from "../tools/schema-transforms.js";
+import { resolveSkillExecuteInput } from "../tools/skills/execute.js";
 import { resolveToolInvocationAlias } from "../tools/tool-name-aliases.js";
 import {
   isDiskPressureCleanupToolName,
@@ -296,10 +297,7 @@ export function createToolExecutor(
     if (executionName === "skill_execute") {
       const rawToolName =
         typeof executionInput.tool === "string" ? executionInput.tool : "";
-      const rawToolInput =
-        executionInput.input != null && typeof executionInput.input === "object"
-          ? (executionInput.input as Record<string, unknown>)
-          : {};
+      const rawToolInput = resolveSkillExecuteInput(executionInput);
 
       // Clone to avoid mutating shared input objects
       const { name: toolName, input: toolInput } = resolveToolInvocationAlias(

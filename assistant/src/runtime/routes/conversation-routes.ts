@@ -97,6 +97,7 @@ import {
   getOrCreateConversation,
 } from "../../memory/conversation-key-store.js";
 import { searchConversations } from "../../memory/conversation-queries.js";
+import { MEMORY_RETROSPECTIVE_FORK_SOURCE } from "../../memory/memory-retrospective-constants.js";
 import { recordOnboardingEvent } from "../../memory/onboarding-events-store.js";
 import { buildSlackMessageDeepLinks } from "../../messaging/providers/slack/deep-link.js";
 import {
@@ -681,12 +682,23 @@ export function handleListMessages({
   // is left visible, the result will render as a standalone orphan because
   // `mergeToolResultsIntoAssistantMessages` has nothing to merge it into.
   //
+  // Exception: memory-retrospective fork conversations show their hidden rows
+  // (the retrospective instruction) so the run is readable as a distinct turn
+  // and its LLM call is inspectable. The instruction row also separates the
+  // copied source tail from the review turn, so `mergeConsecutiveAssistantMessages`
+  // no longer folds the review into the source's last assistant message. This
+  // is display-only and scoped to the fork source; the LLM-side `getMessages`
+  // loader is unfiltered regardless.
+  //
   // Only renderable roles reach this UI-facing transcript. `system` rows (a
   // permitted `MessageRole`, e.g. skill-authored context) are agent-context
   // scaffolding, never a displayed turn, so they are dropped here at the
   // source rather than narrowed away per-client.
+  const isRetrospectiveFork =
+    getConversation(resolvedConversationId)?.source ===
+    MEMORY_RETROSPECTIVE_FORK_SOURCE;
   const visibleFilter = (m: MessageRow) =>
-    !isHiddenMessage(m.metadata) &&
+    (isRetrospectiveFork || !isHiddenMessage(m.metadata)) &&
     (m.role === "user" || m.role === "assistant");
 
   if (isPaginated) {

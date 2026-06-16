@@ -1,4 +1,7 @@
-import type { LocalWakeOptions } from "@vellumai/ipc-contract";
+import type {
+  LocalAssistantStatusResult,
+  LocalWakeOptions,
+} from "@vellumai/ipc-contract";
 import { parseLockfile } from "@vellumai/local-mode/contract";
 import type {
   Lockfile,
@@ -63,10 +66,17 @@ export interface LocalRetireResult {
   error?: string;
 }
 
+export interface LocalSleepResult {
+  ok: boolean;
+  error?: string;
+}
+
 export interface LocalWakeResult {
   ok: boolean;
   error?: string;
 }
+
+export type { LocalAssistantStatusResult };
 
 /**
  * Thrown by {@link fetchGuardianTokenHost} when a host returns a structured
@@ -214,6 +224,30 @@ export async function retireLocalAssistantHost(
 }
 
 /**
+ * Stop a local assistant's daemon and gateway. Both hosts drive the Vellum
+ * CLI's `sleep --force` in a trusted process and return the same `{ ok, error }`
+ * contract. Used as the first half of a restart (sleep → wake).
+ */
+export async function sleepLocalAssistantHost(
+  assistantId: string,
+): Promise<LocalSleepResult> {
+  if (isElectron()) {
+    const sleep = window.vellum!.localMode.sleep;
+    if (!sleep) {
+      return { ok: false, error: "Sleep is not supported by this app version" };
+    }
+    return sleep(assistantId);
+  }
+
+  const res = await fetch("/assistant/__local/sleep", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ assistantId }),
+  });
+  return res.json() as Promise<LocalSleepResult>;
+}
+
+/**
  * Wake (start/restart) a local assistant's daemon and gateway, re-seeding its
  * guardian token. Both hosts drive the Vellum CLI's `wake` in a trusted
  * process and return the same `{ ok, error }` contract.
@@ -252,6 +286,27 @@ export async function wakeLocalAssistantHost(
     }),
   });
   return res.json() as Promise<LocalWakeResult>;
+}
+
+export async function getLocalAssistantStatusHost(
+  assistantId: string,
+): Promise<LocalAssistantStatusResult> {
+  if (isElectron()) {
+    const status = window.vellum!.localMode.status;
+    if (!status) {
+      return {
+        ok: false,
+        status: 501,
+        error: "Local assistant status is not supported by this app version",
+      };
+    }
+    return status(assistantId);
+  }
+
+  const res = await fetch(
+    `/assistant/__local/status/${encodeURIComponent(assistantId)}`,
+  );
+  return res.json() as Promise<LocalAssistantStatusResult>;
 }
 
 /**

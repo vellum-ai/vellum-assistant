@@ -18,6 +18,11 @@ import {
 } from "./cleanup-schedule-state.js";
 import { conversationAnalyzeJob } from "./conversation-analyze-job.js";
 import { maybeRunDbMaintenance } from "./db-maintenance.js";
+import {
+  EmbeddingBillingBlockError,
+  extractHttpStatus,
+  recordBillingBlock,
+} from "./embedding-billing-breaker.js";
 import { bootstrapFromHistory } from "./graph/bootstrap.js";
 import { runConsolidation } from "./graph/consolidation.js";
 import { runDecayTick } from "./graph/decay.js";
@@ -317,6 +322,18 @@ export async function runMemoryJobsOnce(
             "handleJobError itself threw, job left in running status",
           );
         }
+        // A billing block (402) is deterministic — every subsequent embed
+        // call will fail identically. Defer the remaining embed jobs in
+        // this batch instead of burning a network round-trip on each one.
+        if (
+          err instanceof EmbeddingBillingBlockError ||
+          (embedSet.has(job.type) && extractHttpStatus(err) === 402)
+        ) {
+          for (const remaining of group.slice(group.indexOf(job) + 1)) {
+            deferMemoryJob(remaining.id);
+          }
+          break;
+        }
       }
     }
     return groupProcessed;
@@ -478,6 +495,41 @@ async function graphNarrativeRefineJob(
 // ── Job error handling ─────────────────────────────────────────────
 
 function handleJobError(job: MemoryJob, err: unknown): void {
+  if (err instanceof EmbeddingBillingBlockError) {
+    const result = deferMemoryJob(job.id);
+    if (result === "failed") {
+      log.error(
+        { jobId: job.id, type: job.type },
+        "Billing breaker open, job exceeded max deferrals",
+      );
+    } else {
+      log.debug(
+        { jobId: job.id, type: job.type },
+        "Billing breaker open, deferring job",
+      );
+    }
+    return;
+  }
+
+  // Detect 402 billing exhaustion from any embedding backend and trip the
+  // billing breaker so subsequent embed jobs short-circuit at claim time.
+  if (EMBED_JOB_TYPES.includes(job.type) && extractHttpStatus(err) === 402) {
+    recordBillingBlock();
+    const result = deferMemoryJob(job.id);
+    if (result === "failed") {
+      log.error(
+        { jobId: job.id, type: job.type },
+        "Embedding billing block (402), job exceeded max deferrals",
+      );
+    } else {
+      log.warn(
+        { jobId: job.id, type: job.type },
+        "Embedding billing block (402), deferring job",
+      );
+    }
+    return;
+  }
+
   if (err instanceof BackendUnavailableError) {
     const result = deferMemoryJob(job.id);
     if (result === "failed") {

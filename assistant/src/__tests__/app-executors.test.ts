@@ -168,6 +168,49 @@ describe("executeAppCreate", () => {
     expect(parsed.next_steps).toContain("app_refresh");
   });
 
+  test("associates the new app with its conversation when a conversationId is given", async () => {
+    const app = makeMultifileApp({ id: "app-xyz", name: "Assoc App" });
+    const associated: Array<{ appId: string; conversationId: string }> = [];
+    const store: AppStore = {
+      ...mockStore(app, {}),
+      addAppConversationId: (appId, conversationId) => {
+        associated.push({ appId, conversationId });
+        return true;
+      },
+    };
+
+    const result = await executeAppCreate(
+      { name: "Assoc App" },
+      store,
+      undefined,
+      "conv-assoc-1",
+    );
+
+    expect(result.isError).toBe(false);
+    expect(associated).toEqual([
+      { appId: "app-xyz", conversationId: "conv-assoc-1" },
+    ]);
+  });
+
+  test("a failed conversation association does not fail the create", async () => {
+    const app = makeMultifileApp({ id: "app-throw", name: "Throw App" });
+    const store: AppStore = {
+      ...mockStore(app, {}),
+      addAppConversationId: () => {
+        throw new Error("disk gone");
+      },
+    };
+
+    const result = await executeAppCreate(
+      { name: "Throw App" },
+      store,
+      undefined,
+      "conv-assoc-2",
+    );
+
+    expect(result.isError).toBe(false);
+  });
+
   test("skips auto_open on scaffold even when proxy resolver is available", async () => {
     const files: Record<string, string> = {};
     const app = makeMultifileApp({ name: "New App" });

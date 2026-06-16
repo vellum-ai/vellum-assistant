@@ -1,6 +1,6 @@
+import { ApiError } from "@/utils/api-errors";
 import { LLM_USAGE_DIMENSION_LABELS } from "@/utils/llm-dimension";
 import { resolveUsageRangeWindow } from "@/utils/usage-window";
-import { UsageRequestError } from "./usage-api";
 import type {
   UsageGranularity,
   UsageGroupBy,
@@ -153,7 +153,7 @@ export function shouldRetryUsageGroupQuery(
 
 function isUnsupportedUsageGroupByError(error: unknown): boolean {
   return (
-    error instanceof UsageRequestError &&
+    error instanceof ApiError &&
     UNSUPPORTED_GROUP_BY_STATUSES.has(error.status)
   );
 }

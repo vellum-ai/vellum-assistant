@@ -4,6 +4,8 @@
  * verification, guardian action answers, approval interception, and
  * invite token redemption.
  */
+import type { SourceMetadata } from "@vellumai/gateway-client";
+
 import {
   attachmentsToContentBlocks,
   type MessageAttachmentInput,
@@ -127,16 +129,16 @@ function trimMetadataString(
 
 function parseSlackActorTimezoneMetadata(
   sourceChannel: string,
-  metadata: Record<string, unknown> | undefined,
+  metadata: SourceMetadata | undefined,
 ): SlackActorTimezoneMetadata | undefined {
   if (sourceChannel !== "slack") return undefined;
 
-  const timezone = trimMetadataString(metadata, "timezone");
-  const timezoneLabel = trimMetadataString(metadata, "timezoneLabel");
-  const rawOffset = metadata?.timezoneOffsetSeconds;
+  const timezone = metadata?.timezone?.trim() || undefined;
+  const timezoneLabel = metadata?.timezoneLabel?.trim() || undefined;
   const timezoneOffsetSeconds =
-    typeof rawOffset === "number" && Number.isFinite(rawOffset)
-      ? rawOffset
+    metadata?.timezoneOffsetSeconds != null &&
+    Number.isFinite(metadata.timezoneOffsetSeconds)
+      ? metadata.timezoneOffsetSeconds
       : undefined;
 
   if (
@@ -193,17 +195,16 @@ function resolveSlackTranscriptTimestampTimezone(
 
 function resolveInboundClientTimezone(params: {
   bodyClientTimezone?: unknown;
-  sourceMetadata?: Record<string, unknown>;
+  sourceMetadata?: SourceMetadata;
   conversationId: string;
 }): string | undefined {
   const bodyClientTimezone =
     typeof params.bodyClientTimezone === "string"
       ? canonicalizeTimeZone(params.bodyClientTimezone)
       : undefined;
-  const metadataClientTimezone =
-    typeof params.sourceMetadata?.clientTimezone === "string"
-      ? canonicalizeTimeZone(params.sourceMetadata.clientTimezone)
-      : undefined;
+  const metadataClientTimezone = params.sourceMetadata?.clientTimezone
+    ? canonicalizeTimeZone(params.sourceMetadata.clientTimezone)
+    : undefined;
   return (
     bodyClientTimezone ??
     metadataClientTimezone ??
@@ -248,7 +249,7 @@ export async function handleChannelInbound({
     attachmentIds?: string[];
     actorExternalId?: string;
     actorUsername?: string;
-    sourceMetadata?: Record<string, unknown>;
+    sourceMetadata?: SourceMetadata;
     replyCallbackUrl?: string;
     callbackQueryId?: string;
     callbackData?: string;

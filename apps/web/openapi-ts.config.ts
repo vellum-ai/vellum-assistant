@@ -23,4 +23,9 @@ export default defineConfig([
     output: "src/generated/daemon",
     plugins: ["@hey-api/client-fetch", reactQueryPlugin],
   },
+  {
+    input: "./openapi-schemas/gateway.json",
+    output: "src/generated/gateway",
+    plugins: ["@hey-api/client-fetch", reactQueryPlugin],
+  },
 ]);

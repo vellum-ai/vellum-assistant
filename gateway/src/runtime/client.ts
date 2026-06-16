@@ -7,7 +7,8 @@ import {
   TWILIO_PUBLIC_BASE_WSS_PLACEHOLDER,
 } from "@vellumai/service-contracts/twilio-ingress";
 
-import type { ChannelId, InterfaceId } from "../channels/types.js";
+import type { RuntimeInboundPayload } from "@vellumai/gateway-client";
+import type { ChannelId } from "../channels/types.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import {
   mintIngressToken,
@@ -165,23 +166,7 @@ export class AttachmentValidationError extends Error {
   }
 }
 
-export type RuntimeInboundPayload = {
-  sourceChannel: ChannelId;
-  /** Explicit interface identifier forwarded to the assistant. */
-  interface: InterfaceId;
-  conversationExternalId: string;
-  externalMessageId: string;
-  content: string;
-  isEdit?: boolean;
-  callbackQueryId?: string;
-  callbackData?: string;
-  actorDisplayName?: string;
-  actorExternalId: string;
-  actorUsername?: string;
-  sourceMetadata?: Record<string, unknown>;
-  attachmentIds?: string[];
-  replyCallbackUrl?: string;
-};
+export type { RuntimeInboundPayload } from "@vellumai/gateway-client";
 
 export type RuntimeAttachmentMeta = {
   id: string;

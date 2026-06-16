@@ -20,53 +20,69 @@ let schedulesResponse: AssistantSchedule[] = [...defaultSchedules];
 const fetchSchedulesMock = mock(
   async (): Promise<AssistantSchedule[]> => schedulesResponse,
 );
-const fetchUsageTotalsMock = mock(
+
+// ---------------------------------------------------------------------------
+// SDK mocks — each returns { data: T } matching throwOnError: true shape.
+// The generated options factories call these internally; the breakdown query
+// calls usageBreakdownGet directly.
+// ---------------------------------------------------------------------------
+
+function sdkScheduleId(opts: {
+  query?: { scheduleId?: string };
+}): string | undefined {
+  return opts.query?.scheduleId;
+}
+
+const usageTotalsGetMock = mock(
   async (
-    _assistantId: string,
-    _params: { scheduleId?: string },
-  ): Promise<UsageTotals> => ({
-    totalInputTokens: 120,
-    totalOutputTokens: 80,
-    totalCacheCreationTokens: 0,
-    totalCacheReadTokens: 0,
-    totalEstimatedCostUsd: 0.03,
-    eventCount: 2,
-    pricedEventCount: 2,
-    unpricedEventCount: 0,
+    _opts: { query?: { scheduleId?: string } },
+  ): Promise<{ data: UsageTotals }> => ({
+    data: {
+      totalInputTokens: 120,
+      totalOutputTokens: 80,
+      totalCacheCreationTokens: 0,
+      totalCacheReadTokens: 0,
+      totalEstimatedCostUsd: 0.03,
+      eventCount: 2,
+      pricedEventCount: 2,
+      unpricedEventCount: 0,
+    },
   }),
 );
-const fetchUsageBreakdownMock = mock(
-  async (
-    _assistantId: string,
-    params: { scheduleId?: string },
-  ): Promise<UsageBreakdownResponse> => {
-    const selectedScheduleId = params.scheduleId ?? "schedule-123";
+
+const usageBreakdownGetMock = mock(
+  async (opts: {
+    query?: { scheduleId?: string };
+  }): Promise<{ data: UsageBreakdownResponse }> => {
+    const selectedScheduleId = sdkScheduleId(opts) ?? "schedule-123";
     const selectedSchedule = defaultSchedules.find(
       (schedule) => schedule.id === selectedScheduleId,
     );
     return {
-      breakdown: [
-        {
-          group: selectedSchedule?.name ?? "Deleted schedule",
-          groupId: selectedScheduleId,
-          groupKey: selectedScheduleId,
-          totalInputTokens: 120,
-          totalOutputTokens: 80,
-          totalCacheCreationTokens: 0,
-          totalCacheReadTokens: 0,
-          totalEstimatedCostUsd: 0.03,
-          eventCount: 2,
-        },
-      ],
+      data: {
+        breakdown: [
+          {
+            group: selectedSchedule?.name ?? "Deleted schedule",
+            groupId: selectedScheduleId,
+            groupKey: selectedScheduleId,
+            totalInputTokens: 120,
+            totalOutputTokens: 80,
+            totalCacheCreationTokens: 0,
+            totalCacheReadTokens: 0,
+            totalEstimatedCostUsd: 0.03,
+            eventCount: 2,
+          },
+        ],
+      },
     };
   },
 );
-const fetchUsageSeriesMock = mock(
-  async (
-    _assistantId: string,
-    params: { scheduleId?: string },
-  ): Promise<UsageSeriesResponse> => {
-    const selectedScheduleId = params.scheduleId ?? "schedule-123";
+
+const usageSeriesGetMock = mock(
+  async (opts: {
+    query?: { scheduleId?: string };
+  }): Promise<{ data: UsageSeriesResponse }> => {
+    const selectedScheduleId = sdkScheduleId(opts) ?? "schedule-123";
     const selectedSeriesKey = usageSeriesKeyForGroupValue(
       selectedScheduleId,
       "schedule",
@@ -75,53 +91,92 @@ const fetchUsageSeriesMock = mock(
       (schedule) => schedule.id === selectedScheduleId,
     );
     return {
-      buckets: [
-        {
-          bucketId: "2026-06-01",
-          date: "2026-06-01",
-          displayLabel: "Jun 1",
-          totalInputTokens: 120,
-          totalOutputTokens: 80,
-          totalEstimatedCostUsd: 0.03,
-          eventCount: 2,
-          groups: {
-            [selectedSeriesKey]: {
-              group: selectedSchedule?.name ?? "Deleted schedule",
-              groupKey: selectedScheduleId,
-              totalInputTokens: 120,
-              totalOutputTokens: 80,
-              totalEstimatedCostUsd: 0.03,
-              eventCount: 2,
+      data: {
+        buckets: [
+          {
+            bucketId: "2026-06-01",
+            date: "2026-06-01",
+            displayLabel: "Jun 1",
+            totalInputTokens: 120,
+            totalOutputTokens: 80,
+            totalEstimatedCostUsd: 0.03,
+            eventCount: 2,
+            groups: {
+              [selectedSeriesKey]: {
+                group: selectedSchedule?.name ?? "Deleted schedule",
+                groupKey: selectedScheduleId,
+                totalInputTokens: 120,
+                totalOutputTokens: 80,
+                totalEstimatedCostUsd: 0.03,
+                eventCount: 2,
+              },
             },
           },
-        },
-      ],
+        ],
+      },
     };
   },
 );
-const fetchUsageDailyMock = mock(async () => ({ buckets: [] }));
-class UsageRequestError extends Error {
-  status: number;
 
-  constructor(status: number, message: string) {
-    super(message);
-    this.name = "UsageRequestError";
-    this.status = status;
-  }
+const usageDailyGetMock = mock(
+  async (_opts: Record<string, unknown>) => ({ data: { buckets: [] } }),
+);
+
+// ---------------------------------------------------------------------------
+// Mock generated options factories — replaces @tanstack/react-query.gen
+// so it never imports from sdk.gen (avoids ESM named-export validation issue)
+// ---------------------------------------------------------------------------
+
+function createQueryKeyMock(id: string, options: unknown) {
+  const opts = options as Record<string, unknown> | undefined;
+  return [{ _id: id, path: opts?.path, query: opts?.query }];
 }
 
+mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
+  usageTotalsGetOptions: (opts: Record<string, unknown>) => ({
+    queryKey: createQueryKeyMock("usageTotalsGet", opts),
+    queryFn: async () => {
+      const { data } = await usageTotalsGetMock(opts as never);
+      return data;
+    },
+  }),
+  usageDailyGetOptions: (opts: Record<string, unknown>) => ({
+    queryKey: createQueryKeyMock("usageDailyGet", opts),
+    queryFn: async () => {
+      const { data } = await usageDailyGetMock(opts as never);
+      return data;
+    },
+  }),
+  usageSeriesGetOptions: (opts: Record<string, unknown>) => ({
+    queryKey: createQueryKeyMock("usageSeriesGet", opts),
+    queryFn: async () => {
+      const { data } = await usageSeriesGetMock(opts as never);
+      return data;
+    },
+  }),
+  usageBreakdownGetQueryKey: (opts: Record<string, unknown>) =>
+    createQueryKeyMock("usageBreakdownGet", opts),
+  configLlmCallsitesGetOptions: (opts: Record<string, unknown>) => ({
+    queryKey: createQueryKeyMock("configLlmCallsitesGet", opts),
+    queryFn: async () => ({ domains: [], callSites: [] }),
+  }),
+  configGetOptions: (opts: Record<string, unknown>) => ({
+    queryKey: createQueryKeyMock("configGet", opts),
+    queryFn: async () => ({}),
+  }),
+}));
+
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  usageBreakdownGet: usageBreakdownGetMock,
+}));
+mock.module("@/lib/sync/query-tags", () => ({
+  assistantSchedulesQueryKey: (id: string) => ["schedules", id],
+}));
 mock.module("@/utils/schedules", () => ({
   fetchSchedules: fetchSchedulesMock,
 }));
 mock.module("@/utils/use-effective-timezone", () => ({
   useEffectiveTimezone: () => "UTC",
-}));
-mock.module("@/domains/logs/usage-api", () => ({
-  UsageRequestError,
-  fetchUsageBreakdown: fetchUsageBreakdownMock,
-  fetchUsageDaily: fetchUsageDailyMock,
-  fetchUsageSeries: fetchUsageSeriesMock,
-  fetchUsageTotals: fetchUsageTotalsMock,
 }));
 
 const { UsageTab } = await import("./usage-tab");
@@ -130,10 +185,10 @@ afterEach(() => {
   cleanup();
   schedulesResponse = [...defaultSchedules];
   fetchSchedulesMock.mockClear();
-  fetchUsageTotalsMock.mockClear();
-  fetchUsageBreakdownMock.mockClear();
-  fetchUsageSeriesMock.mockClear();
-  fetchUsageDailyMock.mockClear();
+  usageTotalsGetMock.mockClear();
+  usageBreakdownGetMock.mockClear();
+  usageSeriesGetMock.mockClear();
+  usageDailyGetMock.mockClear();
 });
 
 function renderUsageTab(initialEntry: string) {
@@ -176,7 +231,7 @@ describe("UsageTab", () => {
     );
 
     await waitFor(() =>
-      expect(fetchUsageSeriesMock.mock.calls).toHaveLength(1),
+      expect(usageSeriesGetMock.mock.calls).toHaveLength(1),
     );
 
     expect(
@@ -186,15 +241,15 @@ describe("UsageTab", () => {
       screen.queryByRole("button", { name: "Clear schedule filter" }),
     ).toBeNull();
     expect(screen.getByText("Schedule")).toBeTruthy();
-    expect(fetchUsageTotalsMock.mock.calls[0]?.[1]?.scheduleId).toBe(
-      "schedule-123",
-    );
-    expect(fetchUsageBreakdownMock.mock.calls[0]?.[1]?.scheduleId).toBe(
-      "schedule-123",
-    );
-    expect(fetchUsageSeriesMock.mock.calls[0]?.[1]?.scheduleId).toBe(
-      "schedule-123",
-    );
+    expect(
+      usageTotalsGetMock.mock.calls[0]?.[0]?.query?.scheduleId,
+    ).toBe("schedule-123");
+    expect(
+      usageBreakdownGetMock.mock.calls[0]?.[0]?.query?.scheduleId,
+    ).toBe("schedule-123");
+    expect(
+      usageSeriesGetMock.mock.calls[0]?.[0]?.query?.scheduleId,
+    ).toBe("schedule-123");
 
     const legendItems = readLegendItems(container);
     expect(legendItems.map((item) => item.label.textContent)).toEqual([
@@ -219,7 +274,7 @@ describe("UsageTab", () => {
     );
 
     await waitFor(() =>
-      expect(fetchUsageSeriesMock.mock.calls).toHaveLength(1),
+      expect(usageSeriesGetMock.mock.calls).toHaveLength(1),
     );
 
     const legendItems = readLegendItems(container);

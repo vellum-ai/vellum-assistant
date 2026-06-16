@@ -796,6 +796,13 @@ describe("web_search_tool_result structural guard", () => {
     // conservative direction (fewer nudges). Same reasoning as agent/loop.ts.
     "plugins/defaults/exploration-drift/hooks/post-tool-use.ts",
 
+    // Detects turn boundaries by checking whether a user message carries any
+    // tool_result block (internal continuation) vs. none (genuine user prompt).
+    // A web_search_tool_result-only message is also internal, but treating one
+    // as a boundary only bounds the round count early — the conservative
+    // direction (fewer nudges). Same reasoning as exploration-drift above.
+    "plugins/defaults/task-progress-nudge/hooks/post-tool-use.ts",
+
     // Reconciles synthesized cancellation tool_results for locally-executed
     // tools only. Same reasoning as agent/loop.ts above.
     "daemon/conversation-agent-loop.ts",

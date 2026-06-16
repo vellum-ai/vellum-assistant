@@ -199,8 +199,10 @@ export function createEmailWebhookHandler(
         sourceMetadata: {
           emailSubject: (payload.subject as string | undefined) ?? undefined,
           emailRecipient: recipientAddress,
-          ...(payload.inReplyTo ? { emailInReplyTo: payload.inReplyTo } : {}),
-          ...(payload.references
+          ...(typeof payload.inReplyTo === "string"
+            ? { emailInReplyTo: payload.inReplyTo }
+            : {}),
+          ...(typeof payload.references === "string"
             ? { emailReferences: payload.references }
             : {}),
         },
@@ -242,7 +244,9 @@ export function createEmailWebhookHandler(
 
       if (!result.rejected) {
         const denied = result.runtimeResponse?.denied ?? false;
-        const deniedReason = denied ? (result.runtimeResponse?.reason ?? "unknown") : undefined;
+        const deniedReason = denied
+          ? (result.runtimeResponse?.reason ?? "unknown")
+          : undefined;
         tlog.info(
           {
             status: denied ? "denied" : "forwarded",

@@ -587,36 +587,6 @@ describe("isSideEffectTool", () => {
     expect(isSideEffectTool("nonexistent_tool")).toBe(false);
     expect(isSideEffectTool("")).toBe(false);
   });
-
-  describe("action-aware classification for mixed-action tools", () => {
-    test("credential_store store is a side-effect", () => {
-      expect(isSideEffectTool("credential_store", { action: "store" })).toBe(
-        true,
-      );
-    });
-
-    test("credential_store delete is a side-effect", () => {
-      expect(isSideEffectTool("credential_store", { action: "delete" })).toBe(
-        true,
-      );
-    });
-
-    test("credential_store prompt is a side-effect", () => {
-      expect(isSideEffectTool("credential_store", { action: "prompt" })).toBe(
-        true,
-      );
-    });
-
-    test("credential_store list is NOT a side-effect", () => {
-      expect(isSideEffectTool("credential_store", { action: "list" })).toBe(
-        false,
-      );
-    });
-
-    test("credential_store without input is NOT a side-effect", () => {
-      expect(isSideEffectTool("credential_store")).toBe(false);
-    });
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -751,10 +721,6 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
       { name: "document_create", input: { title: "doc", content: "body" } },
       { name: "document_update", input: { id: "doc-1", content: "updated" } },
       { name: "document_delete", input: { surface_id: "doc-1" } },
-      {
-        name: "credential_store",
-        input: { action: "store", name: "api-key", value: "secret" },
-      },
     ];
 
     for (const { name, input } of sideEffectTools) {
@@ -815,51 +781,6 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
 
     expect(result.isError).toBe(false);
     expect(promptCalled).toBe(true);
-  });
-
-  // ── Credential store action-aware (PR fix9) ──────────
-
-  test("credential_store store forces prompt under forcePromptSideEffects", async () => {
-    checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
-
-    const executor = new ToolExecutor(makeTrackingPrompter());
-    const result = await executor.execute(
-      "credential_store",
-      { action: "store", name: "api-key", value: "sk-secret-123" },
-      makeContext({ forcePromptSideEffects: true }),
-    );
-
-    expect(result.isError).toBe(false);
-    expect(promptCalled).toBe(true);
-  });
-
-  test("credential_store delete forces prompt under forcePromptSideEffects", async () => {
-    checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
-
-    const executor = new ToolExecutor(makeTrackingPrompter());
-    const result = await executor.execute(
-      "credential_store",
-      { action: "delete", name: "api-key" },
-      makeContext({ forcePromptSideEffects: true }),
-    );
-
-    expect(result.isError).toBe(false);
-    expect(promptCalled).toBe(true);
-  });
-
-  test("credential_store list does NOT force prompt under forcePromptSideEffects", async () => {
-    checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
-
-    const executor = new ToolExecutor(makeTrackingPrompter());
-    const result = await executor.execute(
-      "credential_store",
-      { action: "list" },
-      makeContext({ forcePromptSideEffects: true }),
-    );
-
-    expect(result.isError).toBe(false);
-    // list is read-only — must NOT trigger forced prompting
-    expect(promptCalled).toBe(false);
   });
 
   // ── Workspace mode + forcePromptSideEffects interaction ──────────

@@ -266,7 +266,7 @@ for (const config of CHANNEL_CONFIGS) {
 
       const contactResult = findContactChannel({
         channelType: config.channel,
-        externalUserId: config.senderExternalUserId,
+        address: config.senderExternalUserId,
       });
 
       expect(contactResult).not.toBeNull();
@@ -288,7 +288,7 @@ for (const config of CHANNEL_CONFIGS) {
       // Should be found on this channel
       const sameChanResult = findContactChannel({
         channelType: config.channel,
-        externalUserId: config.senderExternalUserId,
+        address: config.senderExternalUserId,
       });
       expect(sameChanResult).not.toBeNull();
 
@@ -296,7 +296,7 @@ for (const config of CHANNEL_CONFIGS) {
       const otherChannel = config.channel === "telegram" ? "slack" : "telegram";
       const crossChanResult = findContactChannel({
         channelType: otherChannel,
-        externalUserId: config.senderExternalUserId,
+        address: config.senderExternalUserId,
       });
       expect(crossChanResult).toBeNull();
     });

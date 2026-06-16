@@ -25,10 +25,7 @@ import {
   type SessionStatus,
 } from "@/stores/session-status";
 
-import {
-  getSession,
-  logout as allauthLogout,
-} from "@/lib/auth/allauth-client";
+import { getSession, logout as allauthLogout } from "@/lib/auth/allauth-client";
 import {
   clearUserSnapshot,
   persistUserSnapshot,
@@ -44,6 +41,7 @@ import {
 } from "@/lib/auth/gateway-session";
 import {
   isLocalMode,
+  isRemoteGatewayMode,
   getPlatformAssistants,
   getLocalAssistants,
   primeLocalGatewayConnection,
@@ -54,14 +52,30 @@ import { listAssistants } from "@/assistant/api";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
 import { fetchMe, patchConsent } from "@/domains/account/profile";
-import { restoreConsentForUser, persistConsentForUser, resolveServerConsent, CONSENT_VERSION } from "@/utils/onboarding-cleanup";
+import {
+  restoreConsentForUser,
+  persistConsentForUser,
+  resolveServerConsent,
+  CONSENT_VERSION,
+} from "@/utils/onboarding-cleanup";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
-import { clearOrganization, useOrganizationStore } from "@/stores/organization-store";
+import {
+  clearOrganization,
+  useOrganizationStore,
+} from "@/stores/organization-store";
 import { clearUserScopedStorage } from "@/lib/auth/session-cleanup";
 import { subscribe } from "@/lib/event-bus";
 import { isElectron } from "@/runtime/is-electron";
-import { isNativePlatform, isOAuthFlowInFlight, installSessionCookies, waitForNativeSessionCookie } from "@/runtime/native-auth";
-import { isBiometricEnabled, retrieveBiometricToken } from "@/runtime/native-biometric";
+import {
+  isNativePlatform,
+  isOAuthFlowInFlight,
+  installSessionCookies,
+  waitForNativeSessionCookie,
+} from "@/runtime/native-auth";
+import {
+  isBiometricEnabled,
+  retrieveBiometricToken,
+} from "@/runtime/native-biometric";
 
 export interface AuthUser {
   id: string | null;
@@ -143,7 +157,9 @@ const GATEWAY_LOCAL_USER: AuthUser = {
  * `platformSession` is left untouched by transitions that don't know it yet
  * (a follow-up probe settles it); transitions that do know it set it inline.
  */
-const authenticatedPlatformUser = (user: AuthUser | null): Partial<AuthState> => {
+const authenticatedPlatformUser = (
+  user: AuthUser | null,
+): Partial<AuthState> => {
   // Entering this state is the one place a platform session is freshly
   // confirmed — persist the snapshot here so every confirmation path
   // (boot, refresh, connect, biometric retry) feeds the offline restore
@@ -233,8 +249,10 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
         const store = useOnboardingStore.getState();
         store.setTosAccepted(resolved.tos);
         store.setAiDataConsent(resolved.ai);
-        if (resolved.shareAnalytics !== null) store.setShareAnalytics(resolved.shareAnalytics);
-        if (resolved.shareDiagnostics !== null) store.setShareDiagnostics(resolved.shareDiagnostics);
+        if (resolved.shareAnalytics !== null)
+          store.setShareAnalytics(resolved.shareAnalytics);
+        if (resolved.shareDiagnostics !== null)
+          store.setShareDiagnostics(resolved.shareDiagnostics);
         persistConsentForUser(nextUserId, resolved.tos, resolved.ai);
         syncOrganizationState(nextUserId);
         return;
@@ -346,7 +364,8 @@ function probePlatformSession(
                 if (syncIsCurrent() && apiAssistants.ok) {
                   await syncPlatformAssistantsToLockfile(
                     apiAssistants.data,
-                    useOrganizationStore.getState().currentOrganizationId ?? undefined,
+                    useOrganizationStore.getState().currentOrganizationId ??
+                      undefined,
                     syncIsCurrent,
                   );
                 }
@@ -422,7 +441,11 @@ function probePlatformSessionIfReachable(
   set: AuthSet,
   options?: { setUserOnSuccess?: boolean; clearOnFailure?: boolean },
 ): void {
-  if (!isLocalMode() || isGatewayAuthEnabled() || getPlatformAssistants().length > 0) {
+  if (
+    !isLocalMode() ||
+    isGatewayAuthEnabled() ||
+    getPlatformAssistants().length > 0
+  ) {
     probePlatformSession(set, options);
   } else {
     set({ platformSession: "absent" });
@@ -435,6 +458,11 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
   platformSession: "unknown",
 
   initSession: async () => {
+    if (isRemoteGatewayMode()) {
+      set({ ...authenticatedLocalUser(), platformSession: "absent" });
+      return;
+    }
+
     if (isGatewayAuthEnabled()) {
       try {
         await primeLocalGatewayConnection();
@@ -466,7 +494,8 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
               if (apiAssistants.ok) {
                 await syncPlatformAssistantsToLockfile(
                   apiAssistants.data,
-                  useOrganizationStore.getState().currentOrganizationId ?? undefined,
+                  useOrganizationStore.getState().currentOrganizationId ??
+                    undefined,
                 );
               }
             } catch {
@@ -509,9 +538,13 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
           await useOrganizationStore.getState().fetchOrganizations();
           const apiAssistants = await listAssistants();
           if (apiAssistants.ok) {
-            useResolvedAssistantsStore.getState().setFromApi(apiAssistants.data);
+            useResolvedAssistantsStore
+              .getState()
+              .setFromApi(apiAssistants.data);
           }
-        } catch { /* best effort */ }
+        } catch {
+          /* best effort */
+        }
         set(authenticatedPlatformUser(user));
         return;
       }
@@ -543,9 +576,13 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
               await useOrganizationStore.getState().fetchOrganizations();
               const apiAssistants = await listAssistants();
               if (apiAssistants.ok) {
-                useResolvedAssistantsStore.getState().setFromApi(apiAssistants.data);
+                useResolvedAssistantsStore
+                  .getState()
+                  .setFromApi(apiAssistants.data);
               }
-            } catch { /* best effort */ }
+            } catch {
+              /* best effort */
+            }
             set(authenticatedPlatformUser(user));
             return;
           }
@@ -617,6 +654,11 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
   },
 
   refreshSession: async () => {
+    if (isRemoteGatewayMode()) {
+      set({ ...authenticatedLocalUser(), platformSession: "absent" });
+      return true;
+    }
+
     if (isGatewayAuthMode()) {
       try {
         await ensureGatewayToken(getLocalTokenUrl());
@@ -648,7 +690,8 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
             if (apiAssistants.ok) {
               await syncPlatformAssistantsToLockfile(
                 apiAssistants.data,
-                useOrganizationStore.getState().currentOrganizationId ?? undefined,
+                useOrganizationStore.getState().currentOrganizationId ??
+                  undefined,
               );
             }
           } catch {
@@ -701,7 +744,8 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       // Clean up session token in the main process.
       if (isElectron()) await window.vellum?.auth?.signOut?.();
       if (isLocalMode()) {
-        document.cookie = "sessionid=; path=/; samesite=lax; expires=Thu, 01 Jan 1970 00:00:00 UTC";
+        document.cookie =
+          "sessionid=; path=/; samesite=lax; expires=Thu, 01 Jan 1970 00:00:00 UTC";
       }
       void deleteBiometricToken();
       clearOrganization();

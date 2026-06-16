@@ -4703,10 +4703,12 @@ paths:
         schema:
           type: string
           enum:
+          - managed_speech_proxy
           - oauth_proxy
           - runtime_proxy
           - search_proxy
-        description: 'Filter by usage source: runtime_proxy, oauth_proxy, or search_proxy.'
+        description: 'Filter by usage source: runtime_proxy, oauth_proxy, search_proxy,
+          or managed_speech_proxy.'
       tags:
       - organizations
       security:
@@ -4787,10 +4789,12 @@ paths:
         schema:
           type: string
           enum:
+          - managed_speech_proxy
           - oauth_proxy
           - runtime_proxy
           - search_proxy
-        description: 'Filter by usage source: runtime_proxy, oauth_proxy, or search_proxy.'
+        description: 'Filter by usage source: runtime_proxy, oauth_proxy, search_proxy,
+          or managed_speech_proxy.'
       tags:
       - organizations
       security:

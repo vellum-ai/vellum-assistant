@@ -1,6 +1,23 @@
+/**
+ * Operational-status polling for platform-hosted assistants.
+ *
+ * Uses the generated platform SDK (`assistantsOperationalStatusDetailRead`)
+ * for the HTTP call and `assistantsOperationalStatusDetailReadOptions()` for
+ * the TanStack Query cache key. The queryFn intentionally treats 403/404 as
+ * "no status available" (returns `null`) rather than errors — a 404 means the
+ * assistant hasn't been provisioned yet, and 403 means the user's org doesn't
+ * own it.
+ */
+
 import { useQuery } from "@tanstack/react-query";
 
-import { client } from "@/generated/api/client.gen";
+import { assistantsOperationalStatusDetailRead } from "@/generated/api/sdk.gen";
+import { assistantsOperationalStatusDetailReadOptions } from "@/generated/api/@tanstack/react-query.gen";
+import type {
+  OperationalStatus,
+  OperationalStatusStateEnum,
+} from "@/generated/api/types.gen";
+
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import type { AssistantState } from "@/assistant/types";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
@@ -8,47 +25,10 @@ import {
   useActiveAssistantIsPlatformHosted,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
-import {
-  ApiError,
-  assertHasResponse,
-  extractErrorMessage,
-} from "@/utils/api-errors";
 
-export type AssistantOperationalState =
-  | "initializing"
-  | "provisioning"
-  | "active"
-  | "sleeping"
-  | "waking"
-  | "restarting"
-  | "restoring_backup"
-  | "upgrading_assistant_version"
-  | "resizing_machine"
-  | "resizing_storage"
-  | "maintenance_mode"
-  | "crash_loop"
-  | "unreachable"
-  | "not_found"
-  | "retiring";
-
-export interface AssistantOperationalStatus {
-  state: AssistantOperationalState;
-  detail_state: string | null;
-  poll_after_ms: number | null;
-  updated_at: string;
-  active_operation: {
-    operation: string;
-    operation_id: string;
-    phase: string;
-    started_at: string;
-    updated_at: string;
-    target: Record<string, unknown>;
-  } | null;
-  detail?: {
-    reason?: string | null;
-    message?: string | null;
-  } | null;
-}
+/** Re-export generated types under their legacy names for consumers. */
+export type AssistantOperationalState = OperationalStatusStateEnum;
+export type AssistantOperationalStatus = OperationalStatus;
 
 const DEFAULT_STATUS_POLL_MS = 5_000;
 const DISABLED_STATUS_POLL_MS = 30_000;
@@ -81,29 +61,26 @@ function canPollOperationalStatus({
   }
 }
 
-export async function fetchAssistantOperationalStatus(
+/**
+ * Fetch operational status, returning `null` for 403 (forbidden) and 404
+ * (not found) responses which are expected non-error states.
+ */
+async function fetchOperationalStatus(
   assistantId: string,
-): Promise<AssistantOperationalStatus | null> {
-  const { data, error, response } = await client.get<
-    AssistantOperationalStatus,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/operational/status/",
-    path: { assistant_id: assistantId },
-    throwOnError: false,
-  });
+  signal?: AbortSignal,
+): Promise<OperationalStatus | null> {
+  const { data, error, response } =
+    await assistantsOperationalStatusDetailRead({
+      path: { id: assistantId },
+      signal,
+      throwOnError: false,
+    });
 
-  assertHasResponse(response, error, "Failed to fetch assistant status.");
-
-  if (response.status === 403 || response.status === 404) {
-    return null;
-  }
-
-  if (!response.ok) {
-    throw new ApiError(
-      response.status,
-      extractErrorMessage(error, response, "Failed to fetch assistant status."),
-    );
+  if (!response || !response.ok) {
+    if (response?.status === 403 || response?.status === 404) {
+      return null;
+    }
+    throw error ?? new Error("Failed to fetch assistant operational status");
   }
 
   return data ?? null;
@@ -131,10 +108,10 @@ export function useAssistantOperationalStatus(assistantId: string | null) {
     });
 
   return useQuery({
-    // Keep disabled observers off the assistant-specific cache entry so
-    // stale unhealthy status cannot render after eligibility flips false.
-    queryKey: ["assistant-operational-status", enabled ? assistantId : null],
-    queryFn: () => fetchAssistantOperationalStatus(assistantId!),
+    queryKey: assistantsOperationalStatusDetailReadOptions({
+      path: { id: enabled ? assistantId! : "disabled" },
+    }).queryKey,
+    queryFn: ({ signal }) => fetchOperationalStatus(assistantId!, signal),
     enabled,
     retry: false,
     staleTime: 0,
@@ -153,7 +130,7 @@ export function useAssistantOperationalStatus(assistantId: string | null) {
 }
 
 export function isHealthyOperationalStatus(
-  status: AssistantOperationalStatus | null | undefined,
+  status: OperationalStatus | null | undefined,
 ): boolean {
   return status?.state === "active";
 }

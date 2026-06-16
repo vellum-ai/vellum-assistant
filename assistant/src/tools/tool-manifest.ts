@@ -6,7 +6,6 @@
  * so adding/removing tools only requires editing this manifest.
  */
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import {
   isCesSecureInstallEnabled,
@@ -16,7 +15,6 @@ import { askQuestionTool } from "./ask-question/ask-question-tool.js";
 import { makeAuthenticatedRequestTool } from "./credential-execution/make-authenticated-request.js";
 import { manageSecureCommandTool } from "./credential-execution/manage-secure-command-tool.js";
 import { runAuthenticatedCommandTool } from "./credential-execution/run-authenticated-command.js";
-import { credentialStoreTool } from "./credentials/vault.js";
 import { fileEditTool } from "./filesystem/edit.js";
 import { fileListTool } from "./filesystem/list.js";
 import { fileReadTool } from "./filesystem/read.js";
@@ -30,8 +28,6 @@ import { notifyParentTool } from "./subagent/notify-parent.js";
 import { requestSystemPermissionTool } from "./system/request-permission.js";
 import { shellTool } from "./terminal/shell.js";
 import type { ToolDefinition } from "./types.js";
-import { manageWorkflowsTool } from "./workflows/manage-workflows.js";
-import { runWorkflowTool } from "./workflows/run-workflow.js";
 
 // ── Eager side-effect modules ───────────────────────────────────────
 // These static imports trigger top-level `registerTool()` side effects on
@@ -93,7 +89,6 @@ export const explicitTools: ToolDefinition[] = [
   // Always-explicit tools
   rememberTool,
   recallTool,
-  credentialStoreTool,
   notifyParentTool,
   askQuestionTool,
   // NOTE: external skill tools (registered via registerExternalTools in
@@ -135,34 +130,6 @@ export function getCesToolsIfEnabled(): ToolDefinition[] {
     }
   } catch {
     // Config not yet loaded (e.g. during test setup) - CES tools stay off.
-  }
-  return [];
-}
-
-// ── Workflow tools (feature-flag gated) ─────────────────────────────
-// The workflow orchestration tools (`run_workflow`, `manage_workflows`) are
-// only registered when the `workflows` feature flag is enabled. Kept separate
-// from `explicitTools` so initializeTools() can include them conditionally.
-
-/** All workflow tools - stable references for the manifest snapshot. */
-export const workflowTools: ToolDefinition[] = [
-  runWorkflowTool,
-  manageWorkflowsTool,
-];
-
-/**
- * Return the workflow tools only if the `workflows` feature flag is enabled.
- * Returns an empty array when the flag is off so callers can unconditionally
- * iterate the result.
- */
-export function getWorkflowToolsIfEnabled(): ToolDefinition[] {
-  try {
-    const config = getConfig();
-    if (isAssistantFeatureFlagEnabled("workflows", config)) {
-      return workflowTools;
-    }
-  } catch {
-    // Config not yet loaded (e.g. during test setup) - workflow tools stay off.
   }
   return [];
 }
