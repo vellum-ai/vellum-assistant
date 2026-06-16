@@ -7,6 +7,7 @@ import {
 } from "@/domains/onboarding/prechat-context";
 import {
   buildCastPreChatContext,
+  buildEarlyResearchContext,
   CAST_RESEARCH_DIRECTIVE,
   type CastSelections,
 } from "@/domains/onboarding/cast/cast-prechat-mapping";
@@ -121,5 +122,41 @@ describe("buildCastPreChatContext", () => {
     const context = buildCastPreChatContext(baseSelections());
     expect(context.cohort).toBe(ACTIVATION_FLOW_COHORT);
     expect(context.bootstrapTemplate).toBe(ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE);
+  });
+});
+
+describe("buildEarlyResearchContext", () => {
+  test("carries name + occupation + the research directive", () => {
+    const context = buildEarlyResearchContext({
+      firstName: "Alex",
+      lastName: "Nork",
+      role: "Founder",
+    });
+    expect(context.userName).toBe("Alex Nork");
+    expect(context.occupation).toBe("Founder");
+    expect(context.initialMessage).toBe(CAST_RESEARCH_DIRECTIVE);
+  });
+
+  test("does not carry tone/tools personalization (learned in-chat)", () => {
+    // The early send happens before those screens, so they're empty here; tone
+    // falls back to the default group id.
+    const context = buildEarlyResearchContext({
+      firstName: "Alex",
+      lastName: "Nork",
+      role: "Founder",
+    });
+    expect(context.tools).toEqual([]);
+    expect(context.tasks).toEqual([]);
+    expect(context.tone).toBe(DEFAULT_GROUP_ID);
+    expect(context.assistantName).toBeUndefined();
+  });
+
+  test("omits occupation when the role is blank", () => {
+    const context = buildEarlyResearchContext({
+      firstName: "Alex",
+      lastName: "Nork",
+      role: "   ",
+    });
+    expect(context.occupation).toBeUndefined();
   });
 });

@@ -75,3 +75,25 @@ export function buildCastPreChatContext(
   context.initialMessage = CAST_RESEARCH_DIRECTIVE;
   return context;
 }
+
+/**
+ * Build the minimal context for the *early* research send, fired right after
+ * the user completes the name/occupation step (before the rest of the flow is
+ * walked). The research directive only needs the user's name + role, so this
+ * carries just those plus the directive — the richer personalization (tone,
+ * connected tools, assistant name) is collected on later screens and is
+ * deliberately not part of this payload (it's learned in-chat).
+ */
+export function buildEarlyResearchContext(identity: {
+  firstName: string;
+  lastName: string;
+  role: string;
+}): PreChatOnboardingContext {
+  return buildCastPreChatContext({
+    firstName: identity.firstName || undefined,
+    lastName: identity.lastName || undefined,
+    role: identity.role || undefined,
+    jobs: [],
+    reachTools: [],
+  });
+}

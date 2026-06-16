@@ -91,7 +91,18 @@ export interface DialogueScreenProps extends BaseScreenProps {
   character: CastCharacter;
   name: string;
   userName: string;
-  brainFileContent: string | null;
+  /**
+   * The user's role/occupation (from the login step). Drives which second
+   * integration the reach picker offers — e.g. an engineer is offered GitHub,
+   * a PM Linear — instead of a deterministic per-character fallback.
+   */
+  occupation: string;
+  /**
+   * The background-hatched assistant id, or `null` until the hatch is ready.
+   * The reach cards trigger real OAuth against this assistant; while it's null
+   * the connect affordance is disabled.
+   */
+  assistantId: string | null;
   memories: MemoryEntry[];
   onTonePicked: (value: "fast" | "deep") => void;
   onReachPicked: (connected: string[], creditsEarned: number) => void;

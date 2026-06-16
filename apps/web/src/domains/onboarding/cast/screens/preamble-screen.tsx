@@ -94,7 +94,10 @@ export function PreambleScreen({ firstName, onAdvance }: PreambleScreenProps) {
   return (
     <motion.div
       key="preamble"
-      className="relative flex h-full w-full cursor-pointer flex-col items-center justify-center p-[var(--app-spacing-xxl)]"
+      // Click-anywhere advances the story, but a page-wide pointer cursor over
+      // plain prose reads as "broken link". Keep the default cursor; the
+      // blinking "Next ▼" affordance signals advance.
+      className="relative flex h-full w-full cursor-default flex-col items-center justify-center p-[var(--app-spacing-xxl)]"
       onClick={handleClick}
       initial={{ opacity: 0, y: 40 }}
       animate={{ opacity: 1, y: 0 }}
