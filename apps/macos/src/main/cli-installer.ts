@@ -16,7 +16,7 @@ import path from "node:path";
 import log from "./logger";
 
 // Auto-stamped by create-release-branch workflow.
-export const PINNED_CLI_VERSION = "0.8.12";
+export const PINNED_CLI_VERSION = "0.8.13";
 
 // Baked by electron.vite.config.ts: the repo CLI entry for local builds,
 // empty for release builds (and absent under bun test).
