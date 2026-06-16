@@ -67,7 +67,8 @@ const DEFAULT_READY_POLL_MS = 100;
 const DEFAULT_READY_MAX_ATTEMPTS = 100;
 const DRIVER_PATH = "/opt/browser/driver.mjs";
 const STATE_MOUNT = "/state";
-const CDP_ENDPOINT_FILE = `${STATE_MOUNT}/cdp-endpoint`;
+const CDP_ENDPOINT_FILENAME = "cdp-endpoint";
+const CDP_ENDPOINT_FILE = `${STATE_MOUNT}/${CDP_ENDPOINT_FILENAME}`;
 
 const ObservationSchema = z.object({
   url: z.string(),
@@ -144,6 +145,14 @@ export class BrowserSession {
       .run("docker", ["rm", "-f", this.containerName])
       .catch(() => undefined);
 
+    // A reused state directory can still hold the previous boot's endpoint
+    // file. Readiness is signalled by that file's presence, so clear it
+    // before the container starts or polling could pass against a browser
+    // that is no longer listening.
+    await this.runner
+      .run("rm", ["-f", join(this.stateDir, CDP_ENDPOINT_FILENAME)])
+      .catch(() => undefined);
+
     const build = await this.runner.run("docker", [
       "build",
       "-t",
@@ -167,7 +176,15 @@ export class BrowserSession {
     ]);
     assertSuccess(run, `start browser session container ${this.containerName}`);
 
-    await this.waitForReady(options);
+    // The container shares the jail's network namespace, so a started-but-
+    // never-ready container must be removed before the error propagates;
+    // otherwise it leaks and outlives the jail it depends on.
+    try {
+      await this.waitForReady(options);
+    } catch (error) {
+      await this.close();
+      throw error;
+    }
   }
 
   private async waitForReady(

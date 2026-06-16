@@ -152,6 +152,29 @@ describe("BrowserSession.launch", () => {
     expect(sleeps).toEqual([100, 100]);
   });
 
+  test("clears the stale CDP endpoint file before starting the container", async () => {
+    // GIVEN a fake runner whose CDP endpoint is ready on the first poll
+    const runner = new FakeBrowserRunner();
+    const staleEndpoint = "/runs/eval-browser-1/browser/cdp-endpoint";
+
+    // WHEN a session launches
+    await BrowserSession.launch(runner, baseOptions);
+
+    // THEN it removes a prior boot's endpoint file from the state dir,
+    const clear = runner.runs.find(
+      (r) => r.command === "rm" && r.args.at(-1) === staleEndpoint,
+    );
+    expect(clear).toBeDefined();
+    expect(clear!.args).toEqual(["-f", staleEndpoint]);
+
+    // AND does so before running the container, so readiness can't pass
+    // against the stale file.
+    const runIndex = runner.runs.findIndex(
+      (r) => r.command === "docker" && r.args[0] === "run",
+    );
+    expect(runner.runs.indexOf(clear!)).toBeLessThan(runIndex);
+  });
+
   test("fails when the CDP endpoint never appears", async () => {
     // GIVEN a runner whose CDP endpoint never becomes ready
     const runner = new FakeBrowserRunner();
@@ -165,6 +188,32 @@ describe("BrowserSession.launch", () => {
 
     // THEN it rejects after exhausting the budget.
     await expect(launch).rejects.toThrow("did not become ready");
+  });
+
+  test("force-removes the container when readiness fails", async () => {
+    // GIVEN a runner whose CDP endpoint never becomes ready
+    const runner = new FakeBrowserRunner();
+    runner.readyAfterPolls = Number.POSITIVE_INFINITY;
+
+    // WHEN a session launches with a small readiness budget and fails
+    await expect(
+      BrowserSession.launch(runner, { ...baseOptions, readyMaxAttempts: 2 }),
+    ).rejects.toThrow("did not become ready");
+
+    // THEN it force-removes the started container after the failed run, so a
+    // container can't leak and outlive the jail it shares a namespace with.
+    const runIndex = runner.runs.findIndex(
+      (r) => r.command === "docker" && r.args[0] === "run",
+    );
+    const cleanup = runner.runs
+      .slice(runIndex + 1)
+      .find(
+        (r) =>
+          r.command === "docker" &&
+          r.args[0] === "rm" &&
+          r.args.at(-1) === CONTAINER,
+      );
+    expect(cleanup).toBeDefined();
   });
 });
 
