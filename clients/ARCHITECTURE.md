@@ -2,7 +2,7 @@
 
 This document owns macOS client architecture details. The repo-level architecture index lives in [`/ARCHITECTURE.md`](../ARCHITECTURE.md).
 
-The iOS client is a Capacitor shell that lives in [`vellum-assistant-platform/web/ios/`](https://github.com/vellum-ai/vellum-assistant-platform); it loads the web app over HTTPS and does not consume any Swift code from this repo.
+The iOS client is a Capacitor shell that lives in [`apps/ios/`](../apps/ios/); it loads the web app over HTTPS and does not consume any Swift code from `clients/`.
 
 ## macOS App — Service and State Ownership
 
@@ -28,8 +28,8 @@ The main window has three dedicated state objects:
 
 | Object | Pattern | Scope |
 |--------|---------|-------|
-| `MainWindowState` | `ObservableObject` | Cross-view UI state: active panel, dynamic workspace, API key status |
-| `ConversationManager` | `ObservableObject` | Conversation CRUD, tab management, conforms to `ConversationRestorerDelegate` |
+| `MainWindowState` | `@Observable` | Cross-view UI state: active panel, dynamic workspace, API key status |
+| `ConversationManager` | `@Observable` (facade over 3 stores) | Conversation CRUD, tab management, conforms to `ConversationRestorerDelegate` |
 | `ConversationRestorer` | Plain class with delegate | Daemon conversation restoration (conversation list responses, history hydration) |
 
 `ConversationManager` owns conversation lifecycle. `ConversationRestorer` handles the async daemon communication for restoring conversations on reconnect, delegating state mutations back through the `ConversationRestorerDelegate` protocol for testability.
@@ -44,15 +44,7 @@ After acknowledgement, chat surfaces receive `SafeStorageCleanupStatusViewState`
 
 ### Observation Framework Migration
 
-Low-risk types use Swift's `@Observable` macro (Observation framework) instead of `ObservableObject`/`@Published`:
-
-| Type | Consumer pattern |
-|------|-----------------|
-| `ZoomManager` | Plain `var` (read-only in views) |
-| `ConversationInputState` | `@Bindable` (bindings needed for text input) |
-| `BundleConfirmationViewModel` | Plain `var` (read-only in view) |
-
-Types that use Combine `$`-prefixed publishers (e.g., `VoiceTranscriptionViewModel`) remain as `ObservableObject`.
+Most view models and state objects use Swift's `@Observable` macro (Observation framework) instead of `ObservableObject`/`@Published`. See the full migration list and intentional `ObservableObject` holdouts in [`clients/AGENTS.md`](AGENTS.md#state-management-observable-vs-observableobject).
 
 ### macOS Voice Mode Live Channel
 

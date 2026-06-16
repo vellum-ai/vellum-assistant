@@ -1,6 +1,6 @@
 # Capacitor iOS shell
 
-Native iOS wrapper around `dev-assistant.vellum.ai` built with [Capacitor](https://capacitorjs.com/).
+Native iOS wrapper built with [Capacitor](https://capacitorjs.com/).
 This is _not_ a port of the web app — it's a thin `WKWebView` shell in
 `server.url` mode that loads the live web app directly over HTTPS.
 
@@ -132,7 +132,7 @@ Apple's reference for the toolbar controls:
 ## Debugging
 
 The app has two layers — the **WKWebView contents** (the React app loaded
-from `dev-assistant.vellum.ai`) and the **native Swift shell** (Capacitor
+from the configured server URL) and the **native Swift shell** (Capacitor
 bridge, `MyViewController`, the two native plugins). Each has its own
 debugger.
 
@@ -253,8 +253,8 @@ side on the same device.
 | Target | Bundle ID | Display Name | Icon | Server |
 |--------|-----------|-------------|------|--------|
 | App | `ai.vocify-inc.vellum-assistant-ios` | Vellum | Green | `www.vellum.ai` |
-| App Staging | `.staging` | Vellum Staging | Yellow | `staging-assistant.vellum.ai` |
-| App Dev | `.dev` | Vellum Dev | Pink | `dev-assistant.vellum.ai` |
+| App Staging | `.staging` | Vellum Staging | Yellow | staging server |
+| App Dev | `.dev` | Vellum Dev | Pink | dev server |
 
 Build settings shared across all three targets live in
 `App/App/Config/Base.xcconfig`. Per-target overrides (bundle ID, display
@@ -322,7 +322,7 @@ server: {
   HTTP by default
 - Run `bunx cap sync ios`, then rebuild in Xcode
 - **Revert before committing.** The default must remain
-  `https://dev-assistant.vellum.ai` with `cleartext: false`.
+  the dev server URL with `cleartext: false`.
 
 ### Add a new Capacitor plugin
 
@@ -366,7 +366,7 @@ On first build after pulling:
 - [ ] Home-screen icon is Vellum green with a white "V" (not the blue X
       Capacitor placeholder)
 - [ ] Launch screen briefly flashes green + V
-- [ ] WebView loads `dev-assistant.vellum.ai` and you can sign in
+- [ ] WebView loads the configured server URL and you can sign in
 - [ ] Chat streams token-by-token (verifies SSE is intact — if tokens
       arrive in one big blob, CapacitorHttp got turned on somewhere)
 - [ ] Photo / file attachments work (exercises the WKWebView file-picker

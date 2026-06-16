@@ -8,13 +8,12 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | ------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | Assistant runtime                           | [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md)                                           |
 | Gateway ingress/webhooks                    | [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md)                                               |
-| Clients (macOS, browser extension)          | [`clients/ARCHITECTURE.md`](clients/ARCHITECTURE.md)                                               |
-| Apps (end-user surfaces, scaffold)          | [`apps/README.md`](apps/README.md)                                                                 |
+| Clients (macOS native, browser extension)    | [`clients/ARCHITECTURE.md`](clients/ARCHITECTURE.md)                                               |
+| Apps (web, iOS, macOS/Electron)              | [`apps/README.md`](apps/README.md)                                                                 |
 | Assistant memory deep dive                  | [`assistant/docs/architecture/memory.md`](assistant/docs/architecture/memory.md)                   |
 | Assistant integrations deep dive            | [`assistant/docs/architecture/integrations.md`](assistant/docs/architecture/integrations.md)       |
 | Assistant scheduling deep dive              | [`assistant/docs/architecture/scheduling.md`](assistant/docs/architecture/scheduling.md)           |
 | Assistant security deep dive                | [`assistant/docs/architecture/security.md`](assistant/docs/architecture/security.md)               |
-| macOS keychain broker (removed, historical) | [`assistant/docs/architecture/keychain-broker.md`](assistant/docs/architecture/keychain-broker.md) |
 | Trusted contact access design               | [`assistant/docs/trusted-contact-access.md`](assistant/docs/trusted-contact-access.md)             |
 | Trusted contacts operator runbook           | [`assistant/docs/runbook-trusted-contacts.md`](assistant/docs/runbook-trusted-contacts.md)         |
 | Credential Execution Service (CES)          | [`assistant/docs/credential-execution-service.md`](assistant/docs/credential-execution-service.md) |

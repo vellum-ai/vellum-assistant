@@ -70,7 +70,7 @@ If you use Claude Code, see [.claude/README.md](.claude/README.md) for setup (sh
 | `assistant/` | Core assistant runtime — memory, tools, skills, scheduling, integrations |
 | `gateway/` | Public ingress — webhooks, API routes, OAuth callbacks |
 | `cli/` | The `vellum` CLI |
-| `apps/` | End-user app surfaces (web, iOS, macOS/Electron, Chrome extension) |
+| `apps/` | End-user app surfaces (web, iOS, macOS/Electron) |
 | `credential-executor/` | Isolated credential execution service |
 | `packages/` | Shared internal packages |
 | `skills/` | Skill definitions |
