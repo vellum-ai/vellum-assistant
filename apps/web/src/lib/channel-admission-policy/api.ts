@@ -153,14 +153,22 @@ export async function setConversationOverride(
   assistantId: string,
   conversationId: string,
   floor: AdmissionPolicy | null,
+  channelType?: string | null,
 ): Promise<ConversationOverrideView> {
+  // §8.1: client-side guard — exempt channels are not user-configurable.
+  if (channelType && isInternalChannel(channelType)) {
+    throw new ApiError(
+      403,
+      `Channel "${channelType}" is internal and is not user-configurable.`,
+    );
+  }
   const { data, error, response } = await client.put<
     ConversationResponse,
     unknown
   >({
     url: "/v1/assistants/{assistant_id}/channel-admission-policy/conversations/{conversation_id}",
     path: { assistant_id: assistantId, conversation_id: conversationId },
-    body: { floor },
+    body: { floor, channelType: channelType ?? null },
     headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
@@ -172,6 +180,39 @@ export async function setConversationOverride(
         error,
         response,
         "Failed to save conversation override.",
+      ),
+    );
+  }
+  if (!data?.override) {
+    throw new ApiError(500, "Gateway returned no override in response.");
+  }
+  return data.override;
+}
+
+/**
+ * Delete the per-conversation admission override, reverting to the channel
+ * type floor. The gateway returns the post-delete view with `override: null`.
+ */
+export async function resetConversationOverride(
+  assistantId: string,
+  conversationId: string,
+): Promise<ConversationOverrideView> {
+  const { data, error, response } = await client.delete<
+    ConversationResponse,
+    unknown
+  >({
+    url: "/v1/assistants/{assistant_id}/channel-admission-policy/conversations/{conversation_id}",
+    path: { assistant_id: assistantId, conversation_id: conversationId },
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, "Failed to reset conversation override.");
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      extractErrorMessage(
+        error,
+        response,
+        "Failed to reset conversation override.",
       ),
     );
   }

@@ -100,7 +100,13 @@ function printUsage(): void {
     "  list                                       List policies for every client-controllable channel",
   );
   console.log(
+    "  get <channel-type>                         Show the merged policy for one channel",
+  );
+  console.log(
     "  set <channel-type> <floor>                 Set the floor for one channel",
+  );
+  console.log(
+    "  reset [--channel <type>] [--conversation <id>]  Reset a channel or conversation to its default",
   );
   console.log(
     "  conversation-list <conversation-id>        Show override + type-floor for one conversation",
@@ -122,12 +128,17 @@ function printUsage(): void {
   console.log("");
   console.log("Examples:");
   console.log("  $ vellum channel-policy list");
+  console.log("  $ vellum channel-policy get slack");
   console.log("  $ vellum channel-policy set slack guardian_only");
+  console.log("  $ vellum channel-policy reset --channel slack");
   console.log(
     "  $ vellum channel-policy conversation-list slack:C0123",
   );
   console.log(
     "  $ vellum channel-policy conversation-set slack:C0123 trusted_contacts",
+  );
+  console.log(
+    "  $ vellum channel-policy reset --conversation slack:C0123",
   );
 }
 
@@ -348,6 +359,126 @@ async function conversationSet(
   if (o.override) warnIfDivergent(o.override, o.typeFloor, o.channelType);
 }
 
+async function getPolicy(
+  channelType: string,
+  assistantName?: string,
+): Promise<void> {
+  if (isInternalChannel(channelType)) {
+    console.error(
+      `Channel "${channelType}" is internal (vellum/platform/a2a) and is not user-configurable.`,
+    );
+    process.exit(1);
+  }
+  const client = createClient(assistantName);
+  let res: Response;
+  try {
+    // The list endpoint returns all channels merged with defaults; filter to
+    // the requested one to give the same "merged row" view (including the
+    // default when no DB row exists).
+    res = await client.get("/channel-admission-policy");
+  } catch (err) {
+    rethrowFetchError(err);
+  }
+  const data = await readJson<ListResponse>(res, "get channel policy");
+  const policy = data.policies.find((p) => p.channelType === channelType);
+  if (!policy) {
+    console.error(
+      `Channel "${channelType}" not found. Use 'vellum channel-policy list' to see available channels.`,
+    );
+    process.exit(1);
+  }
+  console.log(`Channel:    ${policy.channelType}`);
+  console.log(`Floor:      ${policy.policy}`);
+  if (policy.note) console.log(`Note:       ${policy.note}`);
+  if (policy.updatedAt != null) {
+    console.log(`Updated:    ${new Date(policy.updatedAt).toISOString()}`);
+  }
+}
+
+async function resetPolicy(opts: {
+  channel?: string;
+  conversation?: string;
+  assistantName?: string;
+}): Promise<void> {
+  const { channel, conversation, assistantName } = opts;
+  if (!channel && !conversation) {
+    console.error(
+      "Usage: vellum channel-policy reset --channel <type>  OR  --conversation <id>",
+    );
+    process.exit(1);
+  }
+  if (channel && conversation) {
+    console.error(
+      "Provide either --channel OR --conversation, not both.",
+    );
+    process.exit(1);
+  }
+
+  const client = createClient(assistantName);
+
+  if (channel) {
+    if (isInternalChannel(channel)) {
+      console.error(
+        `Channel "${channel}" is internal (vellum/platform/a2a) and is not user-configurable.`,
+      );
+      process.exit(1);
+    }
+    // DELETE the row so the read-side default (trusted_contacts) takes over.
+    let res: Response;
+    try {
+      res = await client.delete(
+        `/channel-admission-policy/${encodeURIComponent(channel)}`,
+      );
+    } catch (err) {
+      rethrowFetchError(err);
+    }
+    if (res.status === 404 || res.status === 204) {
+      console.log(
+        `Reset ${channel} to default floor (trusted_contacts). No persisted row found.`,
+      );
+      return;
+    }
+    if (res.status === 403) {
+      console.error(
+        `Channel "${channel}" is not user-configurable (gateway returned 403).`,
+      );
+      process.exit(1);
+    }
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`reset channel failed: HTTP ${res.status}${body ? ` ${body}` : ""}`);
+    }
+    console.log(`Reset ${channel} floor to default (trusted_contacts).`);
+    return;
+  }
+
+  if (conversation) {
+    // DELETE the conversation override row.
+    let res: Response;
+    try {
+      res = await client.delete(
+        `/channel-admission-policy/conversations/${encodeURIComponent(conversation)}`,
+      );
+    } catch (err) {
+      rethrowFetchError(err);
+    }
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(
+        `reset conversation override failed: HTTP ${res.status}${body ? ` ${body}` : ""}`,
+      );
+    }
+    const data = await readJson<ConversationOverrideResponse>(
+      res,
+      "reset conversation override",
+    );
+    const o = data.override;
+    console.log(
+      `Reset override on ${o.conversationId}. Now inherits type floor: ${o.typeFloor}.`,
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Entrypoint
 // ---------------------------------------------------------------------------
@@ -372,6 +503,37 @@ export async function channelPolicy(): Promise<void> {
     case "list":
       await listPolicies(assistantName);
       return;
+
+    case "get": {
+      const channelType = args[1];
+      if (!channelType) {
+        console.error("Usage: vellum channel-policy get <channel-type>");
+        process.exit(1);
+      }
+      await getPolicy(channelType, assistantName);
+      return;
+    }
+
+    case "reset": {
+      // Extract --channel and --conversation flags from the remaining args.
+      let channelFlag: string | undefined;
+      let conversationFlag: string | undefined;
+      for (let i = 1; i < args.length; i++) {
+        if (args[i] === "--channel" && args[i + 1]) {
+          channelFlag = args[i + 1];
+          i++;
+        } else if (args[i] === "--conversation" && args[i + 1]) {
+          conversationFlag = args[i + 1];
+          i++;
+        }
+      }
+      await resetPolicy({
+        channel: channelFlag,
+        conversation: conversationFlag,
+        assistantName,
+      });
+      return;
+    }
 
     case "set": {
       const channelType = args[1];

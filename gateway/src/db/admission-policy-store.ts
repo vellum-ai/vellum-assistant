@@ -1,6 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 import { type GatewayDb, getGatewayDb } from "./connection.js";
-import { channelAdmissionPolicy } from "./schema.js";
+import { channelAdmissionPolicy, conversationAdmissionOverride } from "./schema.js";
 import { type ChannelId, isChannelId } from "../channels/types.js";
 
 // ---------------------------------------------------------------------------
@@ -57,6 +57,35 @@ export interface AdmissionPolicyRow {
   policy: AdmissionPolicy;
   note: string | null;
   updatedAt: number;
+}
+
+export interface ConversationAdmissionOverrideRow {
+  conversationId: string;
+  channelType: string | null;
+  override: AdmissionPolicy;
+  updatedAt: number;
+}
+
+/**
+ * Read-side view returned by the conversation override endpoints.
+ * `typeFloor` is merged from the channel-type policy (or the default).
+ */
+export interface ConversationOverrideView {
+  conversationId: string;
+  channelType: string | null;
+  override: AdmissionPolicy | null;
+  typeFloor: AdmissionPolicy;
+  updatedAt: number | null;
+}
+
+/**
+ * Internal channels that must not receive user-configurable overrides (§8.1).
+ * Matches the client-side list in `apps/web/src/lib/channel-admission-policy/types.ts`.
+ */
+export const EXEMPT_CHANNEL_TYPES = new Set<string>(["vellum", "platform", "a2a"]);
+
+export function isExemptChannelType(channelType: string): boolean {
+  return EXEMPT_CHANNEL_TYPES.has(channelType);
 }
 
 // ---------------------------------------------------------------------------
@@ -180,6 +209,103 @@ export class AdmissionPolicyStore {
     this.db
       .delete(channelAdmissionPolicy)
       .where(eq(channelAdmissionPolicy.channelType, channelType))
+      .run();
+    return true;
+  }
+
+  // -------------------------------------------------------------------------
+  // Conversation-level override API (§8.3)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Read the override view for a single conversation. Always returns a view:
+   * `override` is null when no row exists (meaning "inherit type floor").
+   * `typeFloor` is merged from the channel-type policy row or the default.
+   */
+  getConversationOverride(conversationId: string): ConversationOverrideView {
+    const row = this.db
+      .select()
+      .from(conversationAdmissionOverride)
+      .where(eq(conversationAdmissionOverride.conversationId, conversationId))
+      .get();
+
+    // Resolve the type floor from the stored channelType (if any).
+    const channelType = row?.channelType ?? null;
+    const typeFloor =
+      channelType && isChannelId(channelType)
+        ? this.get(channelType)
+        : ADMISSION_POLICY_DEFAULT;
+
+    if (!row) {
+      return {
+        conversationId,
+        channelType: null,
+        override: null,
+        typeFloor,
+        updatedAt: null,
+      };
+    }
+
+    return {
+      conversationId,
+      channelType,
+      override: coercePolicy(row.override),
+      typeFloor,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  /**
+   * Upsert the admission override for a conversation. `channelType` is stored
+   * for diagnostics and exemption checks but is NOT required. Passing `null`
+   * for `override` deletes the row (same as `removeConversationOverride`).
+   */
+  setConversationOverride(
+    conversationId: string,
+    override: AdmissionPolicy,
+    channelType?: string | null,
+  ): ConversationOverrideView {
+    const now = Date.now();
+    const channelTypeValue = channelType ?? null;
+
+    this.db.run(sql`
+      INSERT INTO conversation_admission_override (conversation_id, channel_type, override, updated_at)
+      VALUES (${conversationId}, ${channelTypeValue}, ${override}, ${now})
+      ON CONFLICT (conversation_id) DO UPDATE SET
+        channel_type = excluded.channel_type,
+        override = excluded.override,
+        updated_at = excluded.updated_at
+    `);
+
+    const typeFloor =
+      channelTypeValue && isChannelId(channelTypeValue)
+        ? this.get(channelTypeValue)
+        : ADMISSION_POLICY_DEFAULT;
+
+    return {
+      conversationId,
+      channelType: channelTypeValue,
+      override,
+      typeFloor,
+      updatedAt: now,
+    };
+  }
+
+  /**
+   * Delete the per-conversation override row, reverting to the type floor.
+   * Returns true when a row was deleted, false if nothing existed.
+   */
+  removeConversationOverride(conversationId: string): boolean {
+    const existing = this.db
+      .select()
+      .from(conversationAdmissionOverride)
+      .where(eq(conversationAdmissionOverride.conversationId, conversationId))
+      .get();
+    if (!existing) return false;
+
+    this.db
+      .delete(conversationAdmissionOverride)
+      .where(eq(conversationAdmissionOverride.conversationId, conversationId))
       .run();
     return true;
   }

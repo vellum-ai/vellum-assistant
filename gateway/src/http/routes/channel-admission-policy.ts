@@ -15,8 +15,10 @@ import {
   ADMISSION_POLICY_DEFAULT,
   ADMISSION_POLICY_VALUES,
   AdmissionPolicyStore,
+  isExemptChannelType,
   type AdmissionPolicy,
   type AdmissionPolicyRow,
+  type ConversationOverrideView,
 } from "../../db/admission-policy-store.js";
 import { invalidateAdmissionPolicyCache } from "../../risk/admission-policy-cache.js";
 import {
@@ -139,6 +141,173 @@ export function createChannelAdmissionPolicySetHandler() {
       return Response.json({ policy: rowToView(row) });
     } catch (err) {
       log.error({ err }, "Failed to set channel admission policy");
+      return Response.json({ error: "Internal server error" }, { status: 500 });
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Conversation override schemas
+// ---------------------------------------------------------------------------
+
+const SetConversationOverrideBodySchema = z.object({
+  floor: z.enum(ADMISSION_POLICY_VALUES as readonly [string, ...string[]]).nullable(),
+  channelType: z.string().nullable().optional(),
+});
+
+// ---------------------------------------------------------------------------
+// Response shape — conversation override
+// ---------------------------------------------------------------------------
+
+function overrideToView(view: ConversationOverrideView): ConversationOverrideView {
+  return view;
+}
+
+// ---------------------------------------------------------------------------
+// GET /v1/channel-admission-policy/conversations/:conversationId
+// ---------------------------------------------------------------------------
+
+export function createConversationAdmissionGetHandler() {
+  return async (_req: Request, conversationId: string): Promise<Response> => {
+    if (!conversationId) {
+      return Response.json({ error: "conversationId is required" }, { status: 400 });
+    }
+    try {
+      const store = new AdmissionPolicyStore();
+      const view = store.getConversationOverride(conversationId);
+      // §8.1: exempt channel reads are allowed (GET is safe) but we surface
+      // the channelType so callers can decide how to render it.
+      return Response.json({ override: overrideToView(view) });
+    } catch (err) {
+      log.error({ err }, "Failed to get conversation admission override");
+      return Response.json({ error: "Internal server error" }, { status: 500 });
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// POST /v1/channel-admission-policy/conversations/:conversationId
+// ---------------------------------------------------------------------------
+
+export function createConversationAdmissionSetHandler() {
+  return async (req: Request, conversationId: string): Promise<Response> => {
+    if (!conversationId) {
+      return Response.json({ error: "conversationId is required" }, { status: 400 });
+    }
+
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return Response.json(
+        { error: "Request body must be valid JSON" },
+        { status: 400 },
+      );
+    }
+
+    const parsed = SetConversationOverrideBodySchema.safeParse(body);
+    if (!parsed.success) {
+      return Response.json(
+        {
+          error: `Invalid request body: "floor" must be one of: ${(ADMISSION_POLICY_VALUES as readonly string[]).join(", ")} or null`,
+          issues: parsed.error.issues,
+        },
+        { status: 400 },
+      );
+    }
+
+    const { floor, channelType } = parsed.data;
+
+    // §8.1: reject writes for exempt internal channels.
+    if (channelType && isExemptChannelType(channelType)) {
+      return Response.json(
+        {
+          error: `Channel "${channelType}" is internal (vellum/platform/a2a) and is not user-configurable.`,
+        },
+        { status: 403 },
+      );
+    }
+
+    try {
+      const store = new AdmissionPolicyStore();
+
+      if (floor === null) {
+        // null floor = reset to type default
+        store.removeConversationOverride(conversationId);
+        const view = store.getConversationOverride(conversationId);
+        return Response.json({ override: overrideToView(view) });
+      }
+
+      const view = store.setConversationOverride(
+        conversationId,
+        floor as AdmissionPolicy,
+        channelType,
+      );
+      return Response.json({ override: overrideToView(view) });
+    } catch (err) {
+      log.error({ err }, "Failed to set conversation admission override");
+      return Response.json({ error: "Internal server error" }, { status: 500 });
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /v1/channel-admission-policy/conversations/:conversationId
+// ---------------------------------------------------------------------------
+
+export function createConversationAdmissionDeleteHandler() {
+  return async (_req: Request, conversationId: string): Promise<Response> => {
+    if (!conversationId) {
+      return Response.json({ error: "conversationId is required" }, { status: 400 });
+    }
+    try {
+      const store = new AdmissionPolicyStore();
+      store.removeConversationOverride(conversationId);
+      const view = store.getConversationOverride(conversationId);
+      return Response.json({ override: overrideToView(view) });
+    } catch (err) {
+      log.error({ err }, "Failed to delete conversation admission override");
+      return Response.json({ error: "Internal server error" }, { status: 500 });
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /v1/channel-admission-policy/:channelType — remove persisted row
+// ---------------------------------------------------------------------------
+
+export function createChannelAdmissionPolicyDeleteHandler() {
+  return async (_req: Request, channelType: string): Promise<Response> => {
+    if (!isChannelId(channelType)) {
+      return Response.json(
+        {
+          error: `Unknown channelType: "${channelType}". Must be one of: ${CHANNEL_IDS.join(", ")}`,
+        },
+        { status: 400 },
+      );
+    }
+
+    // §8.1: exempt channels cannot be modified.
+    if (isExemptChannelType(channelType)) {
+      return Response.json(
+        {
+          error: `Channel "${channelType}" is internal (vellum/platform/a2a) and is not user-configurable.`,
+        },
+        { status: 403 },
+      );
+    }
+
+    try {
+      const store = new AdmissionPolicyStore();
+      store.remove(channelType as ChannelId);
+      invalidateAdmissionPolicyCache();
+      // Return the post-delete merged view (default policy) so the client
+      // can update its UI optimistically without a separate GET.
+      return Response.json({
+        policy: defaultView(channelType as ChannelId),
+      });
+    } catch (err) {
+      log.error({ err }, "Failed to delete channel admission policy");
       return Response.json({ error: "Internal server error" }, { status: 500 });
     }
   };

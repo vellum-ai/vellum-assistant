@@ -220,8 +220,9 @@ describe("conversation override", () => {
     await setConversationOverride("asst-1", "slack:C0123", null);
 
     const call = mockPut.mock.calls[0] as unknown as [
-      { body: { floor: unknown } },
+      { body: { floor: unknown; channelType: unknown } },
     ];
-    expect(call[0].body).toEqual({ floor: null });
+    // channelType is null when not supplied — the gateway accepts it.
+    expect(call[0].body).toEqual({ floor: null, channelType: null });
   });
 });

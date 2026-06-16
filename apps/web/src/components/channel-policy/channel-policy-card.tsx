@@ -24,6 +24,7 @@ import {
   type ChannelPolicyView,
 } from "@/lib/channel-admission-policy/types";
 import { Card } from "@vellumai/design-library/components/card";
+import { ConfirmDialog } from "@vellumai/design-library";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 
 const DROPDOWN_OPTIONS = ADMISSION_POLICY_VALUES.map((value) => ({
@@ -53,6 +54,11 @@ export function ChannelPolicyCard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingChannel, setSavingChannel] = useState<string | null>(null);
+  // Kill-switch confirmation state: non-null while the "no_one" dialog is shown.
+  const [killSwitchPending, setKillSwitchPending] = useState<{
+    channelType: string;
+    label: string;
+  } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -73,7 +79,7 @@ export function ChannelPolicyCard() {
     void load();
   }, [load]);
 
-  const handleChange = useCallback(
+  const applyChange = useCallback(
     async (channelType: string, next: AdmissionPolicy) => {
       setSavingChannel(channelType);
       setError(null);
@@ -108,6 +114,30 @@ export function ChannelPolicyCard() {
     },
     [assistantId, load],
   );
+
+  const handleChange = useCallback(
+    (channelType: string, next: AdmissionPolicy) => {
+      if (next === "no_one") {
+        // §kill-switch: show destructive confirmation before persisting.
+        const channelLabel = humaniseChannel(channelType);
+        setKillSwitchPending({ channelType, label: channelLabel });
+        return;
+      }
+      void applyChange(channelType, next);
+    },
+    [applyChange],
+  );
+
+  const handleKillSwitchConfirm = useCallback(() => {
+    if (!killSwitchPending) return;
+    const { channelType } = killSwitchPending;
+    setKillSwitchPending(null);
+    void applyChange(channelType, "no_one");
+  }, [killSwitchPending, applyChange]);
+
+  const handleKillSwitchCancel = useCallback(() => {
+    setKillSwitchPending(null);
+  }, []);
 
   const visible = useMemo(() => policies ?? [], [policies]);
 
@@ -163,7 +193,7 @@ export function ChannelPolicyCard() {
             <div style={{ minWidth: 220 }}>
               <Dropdown<AdmissionPolicy>
                 value={policy.policy}
-                onChange={(next) => void handleChange(policy.channelType, next)}
+                onChange={(next) => handleChange(policy.channelType, next)}
                 options={DROPDOWN_OPTIONS}
                 disabled={savingChannel === policy.channelType}
                 aria-label={`Floor for ${humaniseChannel(policy.channelType)}`}
@@ -173,6 +203,21 @@ export function ChannelPolicyCard() {
           </div>
         ))}
       </div>
+
+      {/* Kill-switch confirmation dialog (§8 — no_one is a hard kill switch). */}
+      <ConfirmDialog
+        open={killSwitchPending !== null}
+        title="Block all inbound messages?"
+        message={
+          killSwitchPending
+            ? `Setting ${killSwitchPending.label} to "No one" will hard-deny every inbound message on this channel. You can reverse this at any time.`
+            : ""
+        }
+        confirmLabel="Block all"
+        destructive
+        onConfirm={handleKillSwitchConfirm}
+        onCancel={handleKillSwitchCancel}
+      />
     </Card>
   );
 }

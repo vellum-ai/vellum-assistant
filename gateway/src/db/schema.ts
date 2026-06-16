@@ -391,3 +391,29 @@ export const channelDenialReplyLog = sqliteTable(
     index("idx_channel_denial_sent").on(table.sentAt),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// Per-conversation admission override (§8.3)
+// ---------------------------------------------------------------------------
+
+/**
+ * One row per conversation that has an explicit admission floor override.
+ * When no row exists the conversation inherits the channel-type floor from
+ * `channel_admission_policy`. The `channel_type` column is stored for
+ * reference and to allow the gateway to enforce §8.1 exemptions (vellum /
+ * platform / a2a rows are forbidden — the route handlers reject them at
+ * write time).
+ */
+export const conversationAdmissionOverride = sqliteTable(
+  "conversation_admission_override",
+  {
+    conversationId: text("conversation_id").primaryKey(),
+    // Channel type the conversation belongs to. May be null when the client
+    // did not supply it (e.g. a bare CLI call). Stored for diagnostics and
+    // exemption re-validation on reads.
+    channelType: text("channel_type"),
+    // One of the ADMISSION_POLICY_VALUES; validated at write time.
+    override: text("override").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+);

@@ -172,6 +172,14 @@ export class AssistantClient {
     return this.request("PATCH", urlPath, body, opts);
   }
 
+  /** DELETE request to the gateway. Auth headers are added automatically. */
+  async delete(
+    urlPath: string,
+    opts?: RequestOpts,
+  ): Promise<Response> {
+    return this.request("DELETE", urlPath, undefined, opts);
+  }
+
   private async request(
     method: string,
     urlPath: string,
