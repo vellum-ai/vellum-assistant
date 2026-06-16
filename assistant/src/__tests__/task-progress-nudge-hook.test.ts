@@ -7,7 +7,8 @@
  * - Never nudges when a task_progress card was already shown this turn.
  * - Fires at most once per turn (dedupes parallel results / further rounds).
  * - Resets across turns so a later multi-step turn can nudge again.
- * - Gating: skips non-mainAgent call sites, surface-incapable clients, and
+ * - Gating: fires only for weak models (Kimi/DeepSeek/MiniMax) and skips
+ *   capable models, non-mainAgent call sites, surface-incapable clients, and
  *   subagent conversations.
  * - Appends to (not overwrites) `additionalContext` set by an earlier hook.
  * - The nudge leaves the tool result's `content` untouched.
@@ -103,17 +104,21 @@ function currentResponse(toolUseId: string): ToolResultContent {
   };
 }
 
+/** A weak-model id that matches WEAK_MODEL_PATTERN (the gated population). */
+const WEAK_MODEL = "minimax/minimax-m3";
+
 function makeCtx(
   conversationId: string,
   toolResponse: ToolResultContent,
   messages: Message[],
+  model: string = WEAK_MODEL,
 ): PostToolUseContext {
   return {
     conversationId,
     toolResponse,
     messages,
     additionalContext: null,
-    model: "any-model",
+    model,
     maxInputTokens: 10_000,
     logger: noopLogger,
   };
@@ -257,6 +262,42 @@ describe("task-progress-nudge post-tool-use hook", () => {
     );
     await postToolUse(ctx3);
     expect(ctx3.additionalContext).toBe(TASK_PROGRESS_NUDGE_TEXT);
+  });
+
+  test("fires for weak models (Kimi, DeepSeek, MiniMax)", async () => {
+    for (const model of [
+      "moonshotai/kimi-k2.6",
+      "deepseek/deepseek-chat",
+      "accounts/fireworks/models/minimax-m3",
+    ]) {
+      const { messages, currentToolUseId } = turnWithRounds(
+        TASK_PROGRESS_NUDGE_ROUND_THRESHOLD,
+      );
+      const ctx = makeCtx(
+        freshConversationId(),
+        currentResponse(currentToolUseId),
+        messages,
+        model,
+      );
+      await postToolUse(ctx);
+      expect(ctx.additionalContext).toBe(TASK_PROGRESS_NUDGE_TEXT);
+    }
+  });
+
+  test("skips capable models (not in the weak-model set)", async () => {
+    for (const model of ["claude-opus-4-8", "gpt-5.5"]) {
+      const { messages, currentToolUseId } = turnWithRounds(
+        TASK_PROGRESS_NUDGE_ROUND_THRESHOLD + 2,
+      );
+      const ctx = makeCtx(
+        freshConversationId(),
+        currentResponse(currentToolUseId),
+        messages,
+        model,
+      );
+      await postToolUse(ctx);
+      expect(ctx.additionalContext).toBeNull();
+    }
   });
 
   test("skips non-mainAgent call sites", async () => {

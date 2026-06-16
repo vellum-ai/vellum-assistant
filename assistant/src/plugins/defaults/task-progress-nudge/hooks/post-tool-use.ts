@@ -15,8 +15,10 @@
  *   a card unnecessary.
  * - A failed or ignored card never blocks the turn.
  *
- * It self-targets: a model that already showed a card (`shown`) is never
- * nudged, so capable models that follow the prompt pay nothing.
+ * It is scoped to weaker open models (Kimi, DeepSeek, MiniMax) that disregard
+ * the static progress-card instruction; capable models follow the prompt and
+ * never need the reminder. It also self-targets: a model that already showed a
+ * card this turn is never nudged.
  *
  * The turn state is derived from conversation history on every call (mirroring
  * the tool-error and exploration-drift plugins) so the signal survives
@@ -25,11 +27,16 @@
  * tool_result blocks). Within it we count tool-use rounds and detect whether a
  * `ui_show` task_progress card was issued.
  *
- * Gating (resolved lazily on the would-nudge path, off the hot path):
+ * Gating:
+ * - weaker open models only (Kimi, DeepSeek, MiniMax) — checked first on the
+ *   hot path so capable-model turns short-circuit immediately.
  * - mainAgent call site only — background turns (wake, title-gen, memory) and
  *   subagents have no live user watching, so a progress card is pointless.
  * - the client must support dynamic UI — otherwise `ui_show` is blocked
  *   client-side and the nudge would only provoke a wasted, erroring call.
+ *
+ * The call-site, capability, and subagent gates are resolved lazily on the
+ * would-nudge path; the model gate is a cheap regex test run up front.
  *
  * Dedup uses a per-conversation high-water mark of the round count at the last
  * nudge: a non-zero mark means "already nudged this turn", which also dedupes
@@ -58,6 +65,17 @@ export const TASK_PROGRESS_NUDGE_TEXT =
  * nudged, and only once. Lower from telemetry if cards still arrive too late.
  */
 export const TASK_PROGRESS_NUDGE_ROUND_THRESHOLD = 3;
+
+/**
+ * Weaker open models that disregard the static progress-card instruction and
+ * so get the mid-turn nudge: Kimi, DeepSeek, and MiniMax. Family-level matching
+ * spans provider naming conventions (OpenRouter `moonshotai/kimi-k2.6`,
+ * `deepseek/deepseek-chat`, `minimax/minimax-m3`; Fireworks
+ * `accounts/fireworks/models/minimax-m3`, `kimi-k2p6`). Extend as other models
+ * show the same gap. Capable models (Claude, GPT) follow the prompt and are
+ * intentionally excluded.
+ */
+const WEAK_MODEL_PATTERN = /kimi|deepseek|minimax/i;
 
 /**
  * Round count at the last nudge, per conversation. A non-zero entry means the
@@ -125,6 +143,8 @@ function scanTurn(messages: ReadonlyArray<Message>): {
 }
 
 const postToolUse: PluginHookFn<PostToolUseContext> = async (ctx) => {
+  if (!WEAK_MODEL_PATTERN.test(ctx.model)) return;
+
   const { rounds, taskProgressShown } = scanTurn(ctx.messages);
 
   let lastNudged = lastNudgedRoundsByConversation.get(ctx.conversationId) ?? 0;
