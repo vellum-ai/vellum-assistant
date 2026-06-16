@@ -180,6 +180,28 @@ const markdown = new MarkdownIt({
 });
 
 /**
+ * Render Markdown images as inert links rather than `<img>` elements. The
+ * report is an offline artifact that renders untrusted assistant output and may
+ * be opened or shared outside the eval egress jail, so an auto-loaded
+ * `<img src="https://…">` would make merely opening it fetch a model-supplied
+ * URL — leaking the viewer's IP/metadata. A link carries the same information
+ * (alt text + destination) without any automatic network request, and runs
+ * through the renderer's own `validateLink` so unsafe schemes degrade to plain
+ * text.
+ */
+markdown.renderer.rules.image = (tokens, idx) => {
+  const token = tokens[idx];
+  const src = token.attrGet("src") ?? "";
+  const alt = token.content.length > 0 ? token.content : src;
+  const label = markdown.utils.escapeHtml(alt);
+  if (!markdown.validateLink(src)) {
+    return label;
+  }
+  const href = markdown.utils.escapeHtml(src);
+  return `<a class="md-image-link" href="${href}" rel="noopener noreferrer nofollow">${label}</a>`;
+};
+
+/**
  * A chunk's run time, shown only on hover of its chunk (CSS reveal) so the
  * transcript stays uncluttered. The badge's own `title` surfaces the chunk's
  * start time on hover, so the two timestamps are one interaction apart without

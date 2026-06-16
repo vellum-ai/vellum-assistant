@@ -378,6 +378,40 @@ describe("report html", () => {
     expect(html).not.toMatch(/<img\b/i);
   });
 
+  test("execution page renders Markdown images as inert links, not auto-loading <img>", () => {
+    // GIVEN an assistant answer with a Markdown image pointing at an external URL
+    const run: ReportRunDetail = {
+      ...executionDetail,
+      transcript: [
+        {
+          role: "assistant",
+          content: "Here it is: ![the chart](https://tracker.example/p.png)",
+          emittedAt: "2026-05-15T12:00:01.000Z",
+        },
+      ],
+      assistantEvents: [
+        {
+          message: {
+            type: "assistant_text_delta",
+            text: "Here it is: ![the chart](https://tracker.example/p.png)",
+          },
+          emittedAt: "2026-05-15T12:00:01.000Z",
+        },
+      ],
+    };
+
+    // WHEN the execution page renders
+    const html = renderReportPage({ kind: "execution", run });
+
+    // THEN the image becomes a link carrying the alt text and destination
+    expect(html).toContain(
+      '<a class="md-image-link" href="https://tracker.example/p.png"',
+    );
+    expect(html).toContain(">the chart</a>");
+    // AND no <img> element is emitted, so opening the report fetches nothing
+    expect(html).not.toMatch(/<img\b/i);
+  });
+
   test("execution page stamps each turn with its end time at the foot", () => {
     // GIVEN an answer whose deltas stream over a span (first 12:00:01, last 12:00:09)
     const run: ReportRunDetail = {
