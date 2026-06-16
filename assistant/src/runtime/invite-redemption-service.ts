@@ -168,11 +168,8 @@ export function redeemInvite(params: {
     const canonicalCallerId = externalUserId
       ? canonicalizeInboundIdentity(sourceChannel as ChannelId, externalUserId)
       : null;
-    const memberMatchesSender = !!(
-      canonicalMemberId &&
-      canonicalCallerId &&
-      canonicalMemberId === canonicalCallerId
-    );
+    const memberMatchesSender =
+      !!canonicalCallerId && canonicalMemberId === canonicalCallerId;
     const preservedDisplayName =
       memberMatchesSender && existingContact?.displayName?.trim().length
         ? existingContact.displayName
@@ -541,11 +538,8 @@ export function redeemInviteByCode(params: {
     const canonicalCallerId = externalUserId
       ? canonicalizeInboundIdentity(sourceChannel as ChannelId, externalUserId)
       : null;
-    const memberMatchesSender = !!(
-      canonicalMemberId &&
-      canonicalCallerId &&
-      canonicalMemberId === canonicalCallerId
-    );
+    const memberMatchesSender =
+      !!canonicalCallerId && canonicalMemberId === canonicalCallerId;
     const preservedDisplayName =
       memberMatchesSender && existingContact?.displayName?.trim().length
         ? existingContact.displayName

@@ -181,7 +181,7 @@ export function resolveActorTrust(
     const { contact: guardianContact, channel: guardianChannel } =
       guardianResult;
     guardianBindingMatch = {
-      guardianExternalUserId: guardianChannel.address ?? "",
+      guardianExternalUserId: guardianChannel.address,
       guardianDeliveryChatId: guardianChannel.externalChatId,
     };
     guardianPrincipalId = guardianContact.principalId ?? undefined;
