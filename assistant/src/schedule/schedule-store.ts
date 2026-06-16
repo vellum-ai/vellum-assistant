@@ -191,6 +191,7 @@ export function createSchedule(params: {
       params.workflowArgs === undefined
         ? null
         : JSON.stringify(params.workflowArgs),
+    capabilitiesJson: null as string | null,
     nextRunAt,
     lastRunAt: null as number | null,
     lastStatus: null as string | null,
