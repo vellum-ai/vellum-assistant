@@ -36,12 +36,15 @@ distinct API shape and is not metered, so its runs score $0 on the cost
 metric until a parser for it is added.
 
 Design notes:
-- Bodies are accumulated by mitmproxy. For SSE streaming we let
-  mitmproxy buffer the full response before the `response` hook fires;
-  this is fine for evals (we're not consuming the stream — the
-  assistant container is — and mitmproxy's response_streaming=False
-  default gives us a complete body). Latency overhead is bounded by the
-  longest single model response.
+- SSE model responses are streamed through to the assistant in
+  pass-through mode: `responseheaders` sets `flow.response.stream` to an
+  accumulator that forwards every chunk unmodified the moment it arrives
+  AND keeps a copy of the full body. The assistant therefore receives a
+  slow model's tokens incrementally — which keeps the harness's per-turn
+  quiet-window timer alive for models that reason for minutes — while the
+  `response` hook still parses usage from the accumulated body once the
+  stream ends. Non-SSE responses stay buffered (mitmproxy's default),
+  which is correct for the fast single-document JSON replies.
 - Errors during parsing are swallowed and logged via ctx.log so a
   single bad response can never crash the proxy and bring the whole
   evals run down.
@@ -103,6 +106,36 @@ OPENAI_COMPATIBLE_HOSTS = {
 # Lock guards the NDJSON file writer — mitmproxy can fire `response`
 # hooks concurrently for parallel requests.
 _write_lock = threading.Lock()
+
+# Key under which `responseheaders` stashes the streaming accumulator on
+# `flow.metadata`, so the later `response` hook knows to read the body
+# from the accumulator (a streamed response leaves `flow.response.content`
+# unavailable) rather than from mitmproxy's buffer.
+_STREAM_ACCUMULATOR_KEY = "vellum_sse_accumulator"
+
+
+class _SseStreamAccumulator:
+    """Tee callback for `flow.response.stream`.
+
+    mitmproxy invokes the instance with each response body chunk as it is
+    proxied to the client, then a final time with `b""` to mark
+    end-of-stream. Every chunk is returned unchanged — pure pass-through, so
+    the assistant sees the model's tokens the instant they arrive — and is
+    copied into an internal buffer so the full Server-Sent Events body is
+    available for usage parsing once the stream completes.
+    """
+
+    def __init__(self) -> None:
+        self._chunks: list[bytes] = []
+
+    def __call__(self, data: bytes) -> bytes:
+        if data:
+            self._chunks.append(data)
+        return data
+
+    @property
+    def body(self) -> bytes:
+        return b"".join(self._chunks)
 
 
 def _log_info(message: str) -> None:
@@ -212,13 +245,54 @@ def _payload_fields(prefix: str, body: bytes) -> dict:
     }
 
 
+def _is_recorded_host(host: str) -> bool:
+    """True for hosts whose responses the addon parses for usage."""
+    return host == "api.anthropic.com" or host in OPENAI_COMPATIBLE_HOSTS
+
+
+def responseheaders(flow) -> None:  # type: ignore[no-untyped-def]
+    """mitmproxy hook fired once response headers arrive, before the body.
+
+    For a recorded model host serving a Server-Sent Events stream, switch the
+    response into pass-through streaming so the assistant receives the model's
+    tokens incrementally (keeping the harness's quiet-window timer alive for
+    slow models) instead of waiting for mitmproxy to buffer the whole body.
+    The accumulator tees a copy of the body for the `response` hook to parse.
+
+    Only `text/event-stream` bodies are streamed; the fast single-document
+    JSON replies stay on mitmproxy's default buffered path. A streamed body
+    is accumulated as raw wire bytes, so a `Content-Encoding` would leave the
+    parser holding compressed bytes — SSE responses are not content-encoded
+    in practice, but if one ever is, leave it buffered rather than accumulate
+    bytes the parser can't read.
+    """
+    try:
+        host = (flow.request.pretty_host or "").lower()
+        if not _is_recorded_host(host):
+            return
+        response = flow.response
+        content_type = response.headers.get("content-type", "").lower()
+        if "text/event-stream" not in content_type:
+            return
+        if response.headers.get("content-encoding"):
+            return
+        accumulator = _SseStreamAccumulator()
+        response.stream = accumulator
+        flow.metadata[_STREAM_ACCUMULATOR_KEY] = accumulator
+    except Exception as err:  # noqa: BLE001 -- never crash mitmproxy
+        _log_warn(
+            f"recording: responseheaders hook raised "
+            f"{type(err).__name__}: {err}"
+        )
+
+
 def response(flow) -> None:  # type: ignore[no-untyped-def]
     """mitmproxy hook fired after the full response body is available."""
     try:
         request = flow.request
         response = flow.response
         host = (request.pretty_host or "").lower()
-        if host != "api.anthropic.com" and host not in OPENAI_COMPATIBLE_HOSTS:
+        if not _is_recorded_host(host):
             return
         # Use the content-decoded body, not `raw_content`. The model SDKs
         # negotiate `Accept-Encoding: gzip` (and brotli/zstd when those libs
@@ -228,7 +302,15 @@ def response(flow) -> None:  # type: ignore[no-untyped-def]
         # only if decoding itself raises (malformed encoding header).
         # https://docs.mitmproxy.org/stable/api/mitmproxy/http.html#Message.content
         request_body = _decoded_body(request)
-        response_body = _decoded_body(response)
+        # A streamed response leaves mitmproxy's body buffer empty, so read the
+        # full SSE body from the tee accumulator that `responseheaders` stashed.
+        # SSE bodies stream uncompressed (responseheaders skips any that carry a
+        # Content-Encoding), so the accumulated wire bytes are the decoded body.
+        accumulator = flow.metadata.get(_STREAM_ACCUMULATOR_KEY)
+        if isinstance(accumulator, _SseStreamAccumulator):
+            response_body = accumulator.body
+        else:
+            response_body = _decoded_body(response)
         content_type = response.headers.get("content-type", "")
         if host == "api.anthropic.com":
             record: Optional[dict] = (
