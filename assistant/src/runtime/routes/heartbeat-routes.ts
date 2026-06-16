@@ -16,7 +16,12 @@ import {
   loadRawConfig,
   saveRawConfig,
 } from "../../config/loader.js";
-import { listHeartbeatRuns } from "../../heartbeat/heartbeat-run-store.js";
+import {
+  HEARTBEAT_ATTEMPT_STATUSES,
+  HEARTBEAT_EXECUTION_STATUSES,
+  type HeartbeatRunStatus,
+  listHeartbeatRuns,
+} from "../../heartbeat/heartbeat-run-store.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import { getConversation } from "../../memory/conversation-crud.js";
 import { getUsageCostForConversationWindow } from "../../memory/llm-usage-store.js";
@@ -40,12 +45,26 @@ const log = getLogger("heartbeat-routes");
 // Handlers (transport-agnostic)
 // ---------------------------------------------------------------------------
 
+function resolveIncludeStatuses(
+  include: string | undefined,
+): readonly HeartbeatRunStatus[] | undefined {
+  switch (include) {
+    case "executions":
+      return HEARTBEAT_EXECUTION_STATUSES;
+    case "attempts":
+      return HEARTBEAT_ATTEMPT_STATUSES;
+    default:
+      return undefined;
+  }
+}
+
 function handleListRuns(queryParams: Record<string, string>) {
   const limit = parseRunsLimit(queryParams, 20);
   const before = parseRunsBeforeCursor(queryParams);
+  const statuses = resolveIncludeStatuses(queryParams.include);
 
   const { rows, nextCursor } = paginateRuns(
-    listHeartbeatRuns(limit + 1, before),
+    listHeartbeatRuns(limit + 1, before, { statuses }),
     limit,
     (r) => r.scheduledFor,
   );
@@ -123,7 +142,19 @@ export const ROUTES: RouteDefinition[] = [
     summary: "List heartbeat runs",
     description: "Return recent heartbeat conversation runs.",
     tags: ["heartbeat"],
-    queryParams: RUNS_PAGINATION_QUERY_PARAMS(20),
+    queryParams: [
+      ...RUNS_PAGINATION_QUERY_PARAMS(20),
+      {
+        name: "include",
+        schema: {
+          type: "string",
+          enum: ["executions", "attempts", "all"],
+        },
+        description:
+          "Filter by run class: `executions` (ok/error/timeout), " +
+          "`attempts` (skipped/missed/superseded), or `all` (default).",
+      },
+    ],
     responseBody: z.object({
       runs: z
         .array(

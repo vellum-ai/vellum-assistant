@@ -16,6 +16,8 @@ import { initializeDb } from "../../memory/db-init.js";
 import {
   completeHeartbeatRun,
   countCompletedHeartbeatRuns,
+  HEARTBEAT_ATTEMPT_STATUSES,
+  HEARTBEAT_EXECUTION_STATUSES,
   insertPendingHeartbeatRun,
   listHeartbeatRuns,
   markStaleRunningAsError,
@@ -235,6 +237,71 @@ describe("heartbeat-run-store", () => {
     completeHeartbeatRun(id4, { status: "ok", conversationId: "conv-2" });
 
     expect(countCompletedHeartbeatRuns()).toBe(2);
+  });
+
+  test("listHeartbeatRuns filters by status class", () => {
+    const now = Date.now();
+
+    // ok
+    const idOk = insertPendingHeartbeatRun(now);
+    startHeartbeatRun(idOk);
+    completeHeartbeatRun(idOk, { status: "ok", conversationId: "conv-ok" });
+
+    // error
+    const idError = insertPendingHeartbeatRun(now + 1);
+    startHeartbeatRun(idError);
+    completeHeartbeatRun(idError, { status: "error", error: "boom" });
+
+    // timeout
+    const idTimeout = insertPendingHeartbeatRun(now + 2);
+    startHeartbeatRun(idTimeout);
+    completeHeartbeatRun(idTimeout, { status: "timeout" });
+
+    // skipped
+    const idSkipped = insertPendingHeartbeatRun(now + 3);
+    skipHeartbeatRun(idSkipped, "disabled");
+
+    // superseded
+    const idSuperseded = insertPendingHeartbeatRun(now + 4);
+    supersedePendingRun(idSuperseded);
+
+    // missed (drive via the stale-pending sweep)
+    insertPendingHeartbeatRun(now - 10 * 60 * 1000);
+    markStaleRunsAsMissed(5 * 60 * 1000);
+
+    // in-flight rows (excluded from both classes)
+    insertPendingHeartbeatRun(now + 5);
+    const idRunning = insertPendingHeartbeatRun(now + 6);
+    startHeartbeatRun(idRunning);
+
+    const executionStatuses = listHeartbeatRuns(50, undefined, {
+      statuses: HEARTBEAT_EXECUTION_STATUSES,
+    })
+      .map((r) => r.status)
+      .sort();
+    expect(executionStatuses).toEqual(["error", "ok", "timeout"]);
+
+    const attemptStatuses = listHeartbeatRuns(50, undefined, {
+      statuses: HEARTBEAT_ATTEMPT_STATUSES,
+    })
+      .map((r) => r.status)
+      .sort();
+    expect(attemptStatuses).toEqual(["missed", "skipped", "superseded"]);
+
+    // No opts → everything, including in-flight rows.
+    const allStatuses = listHeartbeatRuns(50)
+      .map((r) => r.status)
+      .sort();
+    expect(allStatuses).toEqual([
+      "error",
+      "missed",
+      "ok",
+      "pending",
+      "running",
+      "skipped",
+      "superseded",
+      "timeout",
+    ]);
   });
 
   test("countCompletedHeartbeatRuns returns 0 when no ok rows exist", () => {
