@@ -35,6 +35,12 @@ export interface ClassificationResult {
   resolvedPaths?: string[];
   actionKeys?: string[];
   commandCandidates?: string[];
+  /**
+   * Normalized top-level CLI for bash/host_bash commands (e.g. `git`, `npm`),
+   * or `null` when the command isn't a single recognized CLI. Used for
+   * telemetry grouping. Absent for non-shell tools.
+   */
+  cli?: string | null;
   dangerousPatterns?: DangerousPattern[];
   opaqueConstructs?: boolean;
   isComplexSyntax?: boolean;

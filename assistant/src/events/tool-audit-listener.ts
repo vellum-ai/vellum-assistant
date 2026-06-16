@@ -19,6 +19,23 @@ import { getLogger } from "../util/logger.js";
 const RESULT_PREVIEW_LIMIT = 1000;
 const log = getLogger("tool-audit-listener");
 
+/** Shell tools whose recorded name is broken down by top-level CLI. */
+const SHELL_TOOLS = new Set(["bash", "host_bash"]);
+
+/**
+ * For shell tools, fold the normalized top-level CLI into the recorded tool
+ * name (`bash:git`, `host_bash:other`) so telemetry can break shell usage down
+ * by CLI. Commands that aren't a single recognized CLI bucket as `:other`.
+ * Non-shell tools are returned unchanged.
+ */
+function composeToolName(
+  toolName: string,
+  cli: string | null | undefined,
+): string {
+  if (!SHELL_TOOLS.has(toolName)) return toolName;
+  return `${toolName}:${cli ?? "other"}`;
+}
+
 type InvocationRecorder = (record: ToolInvocationRecord) => void;
 
 export function createToolAuditListener(
@@ -47,7 +64,7 @@ function toInvocationRecord(
       const rawInput = stringifyToolInput(event.input);
       return {
         conversationId: event.conversationId,
-        toolName: event.toolName,
+        toolName: composeToolName(event.toolName, event.cli),
         // Inputs can carry secrets the model typed verbatim (e.g.
         // `export OPENAI_API_KEY=...` in a bash command) — redact before
         // the row reaches the audit store, like results below.
@@ -77,7 +94,7 @@ function toInvocationRecord(
       const result = `error: ${event.errorMessage}`;
       return {
         conversationId: event.conversationId,
-        toolName: event.toolName,
+        toolName: composeToolName(event.toolName, event.cli),
         input: redactToolInput(event.input, rawInput),
         result,
         decision: "error",
