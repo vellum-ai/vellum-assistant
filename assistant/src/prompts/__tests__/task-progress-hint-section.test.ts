@@ -1,5 +1,5 @@
 /**
- * Tests for the task_progress hint in the 01-parallel-tool-calls workspace
+ * Tests for the task_progress hint in the 01-progress-surface workspace
  * system prompt section.
  *
  * Verifies that the task_progress guidance renders unconditionally in the
@@ -54,11 +54,10 @@ mock.module("../../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
-const { buildSystemPrompt, ensurePromptFiles } = await import(
-  "../system-prompt.js"
-);
+const { buildSystemPrompt, ensurePromptFiles } =
+  await import("../system-prompt.js");
 
-describe("task_progress hint in parallel-tool-calls section", () => {
+describe("task_progress hint in progress-surface section", () => {
   beforeEach(() => {
     ensurePromptFiles();
   });
@@ -66,7 +65,7 @@ describe("task_progress hint in parallel-tool-calls section", () => {
   test("buildSystemPrompt() includes task_progress guidance", () => {
     const result = buildSystemPrompt();
     expect(result).toContain("task_progress");
-    expect(result).toContain("No exceptions");
+    expect(result).toContain("Show Progress on Long Turns");
   });
 
   test("renders unconditionally — no options required", () => {
@@ -85,5 +84,4 @@ describe("task_progress hint in parallel-tool-calls section", () => {
     expect(withoutClientFlag).toContain("task_progress");
     expect(withExcludePrefix).toContain("task_progress");
   });
-
 });
