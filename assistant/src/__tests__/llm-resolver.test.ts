@@ -923,6 +923,37 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.effort).toBe("max");
   });
 
+  test("advisor call site resolves its own profile independent of activeProfile and overrideProfile", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        advisor: { model: "claude-opus-4-8", maxTokens: 2048 },
+        balanced: { model: "claude-haiku-4-5-20251001" },
+      },
+      activeProfile: "balanced",
+      // Migration 105 seeds this on disk in production. A bare
+      // `CALL_SITE_DEFAULTS.advisor` would have its `profile` stripped under an
+      // `overrideProfile`, so the seeded call-site entry is what pins the
+      // advisor profile above both activeProfile and overrideProfile.
+      callSites: { advisor: { profile: "advisor" } },
+    });
+
+    // The seeded `advisor` call site pins the `advisor` profile, so the advisor
+    // model wins even though the workspace's active (and lower-tier) profile is
+    // `balanced`.
+    const resolved = resolveCallSiteConfig("advisor", llm);
+    expect(resolved.model).toBe("claude-opus-4-8");
+    // maxTokens is sourced from the profile, since the call-site entry is bare.
+    expect(resolved.maxTokens).toBe(2048);
+
+    // A per-turn executor override (the chat profile) must not bleed into the
+    // advisor call site — it still resolves the advisor profile's model.
+    expect(
+      resolveCallSiteConfig("advisor", llm, { overrideProfile: "balanced" })
+        .model,
+    ).toBe("claude-opus-4-8");
+  });
+
   test("profile with provider but no provider_connection inherits stale default connection (JARVIS-861)", () => {
     // This test documents the merge behavior that causes JARVIS-861: a profile
     // overrides `provider` but not `provider_connection`, so the deep merge

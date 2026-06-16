@@ -19,6 +19,12 @@ type CallSiteDefaultConfig = {
 export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   mainAgent: { profile: "balanced" },
   subagentSpawn: { profile: "balanced" },
+  // Bare on purpose: all advisor tuning (model, effort, thinking, the 2048
+  // output cap) lives in the managed `advisor` profile so the profile stays
+  // the single, user-editable source of truth. Re-setting maxTokens/effort
+  // here would sit ABOVE the resolved profile and silently override a user who
+  // edits the advisor profile.
+  advisor: { profile: "advisor" },
   compactionAgent: { profile: "balanced" },
   analyzeConversation: { profile: "balanced" },
   patternScan: { profile: "balanced" },
