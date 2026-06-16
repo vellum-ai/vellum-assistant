@@ -228,8 +228,9 @@ export function useEventStream({
       activeConversationIdRef: activeConversationIdLatestRef,
       handleStreamEvent: (event, epoch) =>
         handleStreamEventRef.current(event, epoch),
-      // Reconnect reconcile: re-bootstrap authoritatively from the server
-      // snapshot, since a gap means the live suffix may be non-contiguous.
+      // Seq-gap reconcile: a proven out-of-ring gap means the live suffix
+      // is non-contiguous, so re-bootstrap authoritatively from the server
+      // snapshot rather than keeping the holey local rows.
       reconcileActive: () => reconcileActiveConversationRef.current(true),
     });
   }, [
@@ -257,9 +258,12 @@ export function useEventStream({
     return createReconcileOnReopen({
       assistantId,
       conversationId: activeConversationId,
-      // Reconnect reconcile: re-bootstrap authoritatively from the server
-      // snapshot, since a gap means the live suffix may be non-contiguous.
-      reconcileActive: () => reconcileActiveConversationRef.current(true),
+      // Reopen reconcile: a warm resume usually replays the buffered suffix
+      // contiguously, so reconcile non-authoritatively and let the
+      // keep-local rule protect the freshly streamed tail the debounced
+      // `/messages` snapshot has not persisted yet. A genuine out-of-ring
+      // gap is healed authoritatively by the consumer's seq-gap detector.
+      reconcileActive: () => reconcileActiveConversationRef.current(),
       startReconciliationLoop: (epoch) =>
         startReconciliationLoopRef.current(epoch),
     });

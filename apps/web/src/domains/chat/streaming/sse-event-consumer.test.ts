@@ -290,15 +290,16 @@ describe("sse-event-consumer — seq-gap detection", () => {
     expect(reconcileActive).toHaveBeenCalledTimes(1);
   });
 
-  test("a seq gap fires an authoritative reconcile and advances the cursor to the frontier", () => {
+  test("a seq gap fires an authoritative reconcile and advances the cursor once it resolves", async () => {
     /**
      * A gap means events were evicted from the daemon's replay ring, so the
      * live suffix is non-contiguous. The consumer reconciles (the wiring
-     * makes it authoritative) and advances the cursor to the live frontier —
-     * the hole is healed by the snapshot, not by replaying it, so the cursor
-     * must follow the frontier rather than wedge on the gap.
+     * makes it authoritative) and, once the snapshot heal resolves, advances
+     * the cursor to the live frontier — the hole is healed by the snapshot,
+     * not by replaying it, so the cursor follows the frontier rather than
+     * wedging on the gap.
      */
-    // GIVEN a consumer with a seeded cursor
+    // GIVEN a consumer with a seeded cursor and a resolving reconcile
     const reconcileActive = mock(() => Promise.resolve());
     const { deps } = makeDeps({ reconcileActive });
     const consumer = createSseEventConsumer(deps);
@@ -318,22 +319,25 @@ describe("sse-event-consumer — seq-gap detection", () => {
         message: { type: "assistant_text_delta", text: "b" },
       }),
     );
+    // The cursor advance is deferred to the reconcile, so drain microtasks.
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // THEN a single reconcile fires and the cursor follows the frontier
+    // THEN a single reconcile fired and the cursor follows the frontier
     expect(reconcileActive).toHaveBeenCalledTimes(1);
     expect(globalCursor).toBe(10);
   });
 
-  test("a burst of gaps fires a single debounced reconcile while the cursor follows the frontier", async () => {
+  test("a burst of gaps fires a single debounced reconcile and advances to the latest frontier once it settles", async () => {
     /**
      * While one authoritative reconcile is in-flight a further gap must not
      * fire a second concurrent fetch (the in-flight one already reloads the
-     * whole snapshot), but the cursor still tracks the live frontier so the
-     * stream resumes from the latest position once it settles.
+     * whole snapshot). The cursor stays pinned until the heal settles, then
+     * jumps straight to the latest frontier seen so the stream resumes from
+     * the live position.
      */
     // GIVEN a consumer whose reconcile stays in-flight
     let resolveReconcile!: () => void;
-    const reconcilePromise = new Promise<void>((r) => {
+    let reconcilePromise = new Promise<void>((r) => {
       resolveReconcile = r;
     });
     const reconcileActive = mock(() => reconcilePromise);
@@ -363,14 +367,18 @@ describe("sse-event-consumer — seq-gap detection", () => {
       }),
     );
 
-    // THEN only one reconcile fired and the cursor reached the latest seq
+    // THEN only one reconcile fired and the cursor stays pinned while it is
+    // in flight (advancing now would strand the hole if the heal fails)
     expect(reconcileActive).toHaveBeenCalledTimes(1);
+    expect(globalCursor).toBe(5);
+
+    // AND once it settles the cursor jumps to the latest frontier seen
+    resolveReconcile();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(globalCursor).toBe(20);
 
-    // AND once it settles the debounce releases for a later gap
-    resolveReconcile();
-    await reconcilePromise;
-    await Promise.resolve();
+    // AND the debounce releases so a later gap reconciles again
+    reconcilePromise = Promise.resolve();
     consumer.handleSseEvent(
       makeEnvelope({
         conversationId: "conv-1",
@@ -378,17 +386,18 @@ describe("sse-event-consumer — seq-gap detection", () => {
         message: { type: "assistant_text_delta", text: "d" },
       }),
     );
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(reconcileActive).toHaveBeenCalledTimes(2);
     expect(globalCursor).toBe(30);
   });
 
-  test("a failed gap reconcile still advances the cursor instead of wedging on the gap", async () => {
+  test("a failed gap reconcile keeps the cursor pinned and retries on the next event", async () => {
     /**
-     * The cursor follows the live frontier even when the authoritative
-     * reconcile rejects: pinning it would re-detect the same gap on every
-     * subsequent event (the wedge that produced the original storm of gap
-     * diagnostics). A transient failure is healed by the authoritative
-     * reconcile the reconnect path fires on the next reopen.
+     * If the authoritative snapshot fetch rejects (a transient `/messages`
+     * failure), the cursor must NOT advance past the gap — advancing would
+     * mark the missing seqs as seen and the hole would survive until the
+     * next reconnect. Pinning the cursor makes the next live event re-detect
+     * the gap and retry the heal.
      */
     // GIVEN a consumer whose reconcile rejects
     const reconcileActive = mock(() => Promise.reject(new Error("network")));
@@ -410,13 +419,13 @@ describe("sse-event-consumer — seq-gap detection", () => {
         message: { type: "assistant_text_delta", text: "b" },
       }),
     );
-    await Promise.resolve();
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // THEN the cursor advanced past the gap and a following contiguous
-    // event does not re-trigger the gap path
+    // THEN the cursor stays pinned at the pre-gap position
     expect(reconcileActive).toHaveBeenCalledTimes(1);
-    expect(globalCursor).toBe(10);
+    expect(globalCursor).toBe(5);
+
+    // AND the next live event re-detects the gap and retries the reconcile
     consumer.handleSseEvent(
       makeEnvelope({
         conversationId: "conv-1",
@@ -424,8 +433,9 @@ describe("sse-event-consumer — seq-gap detection", () => {
         message: { type: "assistant_text_delta", text: "c" },
       }),
     );
-    expect(reconcileActive).toHaveBeenCalledTimes(1);
-    expect(globalCursor).toBe(11);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(reconcileActive).toHaveBeenCalledTimes(2);
+    expect(globalCursor).toBe(5);
   });
 
   test("counter-reset (seq < stored) replaces the cursor synchronously and reconciles", () => {
