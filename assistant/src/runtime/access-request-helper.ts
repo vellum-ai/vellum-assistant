@@ -21,10 +21,7 @@ import {
   updateCanonicalGuardianDelivery,
 } from "../memory/canonical-guardian-store.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
-import type {
-  GuardianResolutionSource,
-  NotificationSourceChannel,
-} from "../notifications/signal.js";
+import type { GuardianResolutionSource } from "../notifications/signal.js";
 import type { NotificationDeliveryResult } from "../notifications/types.js";
 import { getLogger } from "../util/logger.js";
 import { GUARDIAN_APPROVAL_TTL_MS } from "./routes/channel-route-shared.js";
@@ -219,7 +216,7 @@ export function notifyGuardianOfAccessRequest(
 
   void emitNotificationSignal({
     sourceEventName: "ingress.access_request",
-    sourceChannel: sourceChannel as NotificationSourceChannel,
+    sourceChannel,
     sourceContextId: `access-req-${sourceChannel}-${actorExternalId}`,
     requiresConversation: true,
     ...(sameChannelOnly ? { routingIntent: "single_channel" as const } : {}),
