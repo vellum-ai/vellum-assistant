@@ -305,7 +305,7 @@ export async function upgradeLocalAssistantHost(
     if (!upgrade) {
       return {
         ok: false,
-        error: "Upgrade is not supported by this app version",
+        error: "Update and restart the desktop app to enable local upgrades.",
       };
     }
     return upgrade(assistantId, options);

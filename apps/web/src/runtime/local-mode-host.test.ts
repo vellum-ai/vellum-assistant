@@ -350,8 +350,10 @@ describe("upgradeLocalAssistantHost", () => {
   test("older Electron shell without the upgrade channel reports an unsupported failure", async () => {
     setElectronBridge({});
 
-    const result = await upgradeLocalAssistantHost("a-1");
-    expect(result.ok).toBe(false);
+    expect(await upgradeLocalAssistantHost("a-1")).toEqual({
+      ok: false,
+      error: "Update and restart the desktop app to enable local upgrades.",
+    });
   });
 });
 
