@@ -110,8 +110,9 @@ mock.module("@/assistant/avatar-api", () => ({
   saveCharacterTraits: saveCharacterTraitsMock,
 }));
 
-mock.module("@/lib/sync/query-tags", () => ({
+mock.module("@/hooks/use-assistant-avatar", () => ({
   avatarQueryKey: (assistantId: string) => ["assistantAvatar", assistantId],
+  AVATAR_QUERY_KEY_PREFIX: "assistantAvatar",
 }));
 
 mock.module("@/utils/avatar-bundled-components", () => ({

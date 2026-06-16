@@ -164,13 +164,12 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
     queryKey: createQueryKeyMock("configGet", opts),
     queryFn: async () => ({}),
   }),
+  schedulesGetQueryKey: (opts: { path: { assistant_id: string } }) =>
+    createQueryKeyMock("schedulesGet", opts),
 }));
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   usageBreakdownGet: usageBreakdownGetMock,
-}));
-mock.module("@/lib/sync/query-tags", () => ({
-  assistantSchedulesQueryKey: (id: string) => ["schedules", id],
 }));
 mock.module("@/utils/schedules", () => ({
   fetchSchedules: fetchSchedulesMock,

@@ -11,7 +11,7 @@ import {
   flagKeyToStoreKey,
 } from "@/lib/feature-flags/feature-flag-catalog";
 import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
-import { CLIENT_FLAG_QUERY_KEY } from "@/lib/sync/query-tags";
+import { featureFlagsClientFlagValuesRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 
 const VALID_BOOL_KEYS = new Set(Object.keys(CLIENT_FLAG_DEFAULTS));
 const VALID_STRING_KEYS = new Set(Object.keys(CLIENT_STRING_FLAG_DEFAULTS));
@@ -46,7 +46,7 @@ function mapFlags(
 export function useClientFeatureFlagSync(enabled: boolean) {
   const freshness = useFlagQueryFreshness();
   const { data, isFetched } = useQuery({
-    queryKey: CLIENT_FLAG_QUERY_KEY,
+    queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
     queryFn: fetchClientFlagValues,
     enabled,
     ...freshness,
@@ -102,7 +102,7 @@ function readActivationFlowOverride(): string | null {
 export function useActivationFlowArm(): { arm: string; settled: boolean } {
   const freshness = useFlagQueryFreshness();
   const { data, isFetched } = useQuery({
-    queryKey: CLIENT_FLAG_QUERY_KEY,
+    queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
     queryFn: fetchClientFlagValues,
     ...freshness,
     retry: 1,

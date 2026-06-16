@@ -22,15 +22,48 @@ import {
   assertHasResponse,
   extractErrorMessage,
 } from "@/utils/api-errors";
-import {
-  archivedConversationsQueryKey,
-  backgroundConversationsQueryKey,
-  conversationsQueryKey,
-  scheduledConversationsQueryKey,
-} from "@/lib/sync/query-tags";
 import type { Conversation } from "@/types/conversation-types";
 import { isScheduledConversation } from "@/utils/conversation-predicates";
 import { toConversation } from "@/utils/conversation-transforms";
+
+// ---------------------------------------------------------------------------
+// Conversation list query keys
+//
+// All conversation list caches share a common prefix:
+//   ["conversation-list", assistantId, ...discriminator]
+//
+// This enables TanStack Query's prefix matching to operate on ALL
+// conversation caches simultaneously (cancel, invalidate, snapshot, patch)
+// without maintaining a static registry.
+// ---------------------------------------------------------------------------
+
+export const CONVERSATION_LIST_PREFIX = "conversation-list" as const;
+
+/** Prefix key matching ALL conversation list caches for the given assistant. */
+export function conversationListPrefix(assistantId: string | null) {
+  return [CONVERSATION_LIST_PREFIX, assistantId ?? ""] as const;
+}
+
+export function conversationsQueryKey(assistantId: string | null) {
+  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "foreground"] as const;
+}
+
+export function archivedConversationsQueryKey(assistantId: string | null) {
+  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "archived"] as const;
+}
+
+export function backgroundConversationsQueryKey(assistantId: string | null) {
+  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "background"] as const;
+}
+
+export function scheduledConversationsQueryKey(assistantId: string | null) {
+  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "scheduled"] as const;
+}
+
+/** Prefix key matching all origin-channel conversation caches. */
+export function originChannelListPrefix(assistantId: string | null) {
+  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "channel"] as const;
+}
 
 // ---------------------------------------------------------------------------
 // Shared sort comparator

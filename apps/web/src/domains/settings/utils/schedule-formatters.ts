@@ -12,7 +12,7 @@ import type { TagTone } from "@vellumai/design-library/components/tag";
 
 import { fetchScheduleUsageSummary } from "@/domains/settings/api/schedules";
 import { resolveScheduleUsageWindow } from "@/domains/settings/utils/schedule-usage-window";
-import { assistantScheduleUsageSummaryQueryKey } from "@/lib/sync/query-tags";
+import { schedulesUsagesummaryGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 
 // ---------------------------------------------------------------------------
 // Timestamp / duration / cost formatting
@@ -285,7 +285,10 @@ export function scheduleUsageSummaryQueryOptions(
   enabled = true,
 ) {
   return {
-    queryKey: assistantScheduleUsageSummaryQueryKey(assistantId, tz),
+    queryKey: schedulesUsagesummaryGetQueryKey({
+      path: { assistant_id: assistantId ?? "" },
+      query: resolveScheduleUsageWindow(tz),
+    }),
     queryFn: () => {
       if (!assistantId) {
         return Promise.resolve<ScheduleUsageSummary[]>([]);

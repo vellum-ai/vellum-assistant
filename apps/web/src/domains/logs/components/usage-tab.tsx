@@ -57,8 +57,8 @@ import {
     usageDailyGetOptions,
     usageSeriesGetOptions,
     usageTotalsGetOptions,
+    schedulesGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
-import { assistantSchedulesQueryKey } from "@/lib/sync/query-tags";
 import { extractUsageProfileMetadata } from "@/utils/profile-metadata";
 import { storePendingInitialMessage } from "@/utils/initial-message-launch";
 import { routes } from "@/utils/routes";
@@ -125,7 +125,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
   const granularity = useMemo(() => resolveUsageGranularity(range), [range]);
 
   const schedulesQuery = useQuery({
-    queryKey: assistantSchedulesQueryKey(assistantId),
+    queryKey: schedulesGetQueryKey({ path: { assistant_id: assistantId } }),
     queryFn: () => fetchSchedules(assistantId),
     staleTime: 10_000,
   });

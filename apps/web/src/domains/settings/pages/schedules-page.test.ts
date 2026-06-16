@@ -416,11 +416,14 @@ describe("scheduleUsageSummaryQueryOptions", () => {
     nowSpy = spyOn(Date, "now").mockReturnValue(firstNow);
     const options = scheduleUsageSummaryQueryOptions("assistant-1", "UTC");
 
-    expect(options.queryKey).toEqual([
-      "schedule-usage-summary",
-      "assistant-1",
-      "UTC",
-    ]);
+    expect(options.queryKey).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          _id: "schedulesUsagesummaryGet",
+          path: { assistant_id: "assistant-1" },
+        }),
+      ]),
+    );
 
     await options.queryFn();
     nowSpy.mockReturnValue(secondNow);

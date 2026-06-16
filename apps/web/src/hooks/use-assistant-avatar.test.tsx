@@ -8,7 +8,7 @@ import type {
   CharacterComponents,
   CharacterTraits,
 } from "@/types/avatar";
-import { avatarQueryKey } from "@/lib/sync/query-tags";
+import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import { MIN_VERSION } from "@/lib/backwards-compat/avatar-state-manifest";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 

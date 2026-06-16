@@ -6,7 +6,7 @@ import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
 import { assistantFeatureFlagsGetQueryKey } from "@/generated/gateway/@tanstack/react-query.gen";
-import { CLIENT_FLAG_QUERY_KEY } from "@/lib/sync/query-tags";
+import { featureFlagsClientFlagValuesRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
 import {
   __resetForTesting,
@@ -77,7 +77,7 @@ describe("useFeatureFlagBusSync", () => {
     emit(syncEvent([SYNC_TAGS.featureFlagsClient]));
     await waitFor(() => {
       expect(spy).toHaveBeenCalledWith({
-        queryKey: CLIENT_FLAG_QUERY_KEY,
+        queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
       });
     });
   });
@@ -108,7 +108,7 @@ describe("useFeatureFlagBusSync", () => {
     });
     emitOpened("error");
     await waitFor(() => {
-      expect(spy).toHaveBeenCalledWith({ queryKey: CLIENT_FLAG_QUERY_KEY });
+      expect(spy).toHaveBeenCalledWith({ queryKey: featureFlagsClientFlagValuesRetrieveQueryKey() });
       expect(spy).toHaveBeenCalledWith({
         queryKey: assistantFeatureFlagsGetQueryKey({
           path: { assistant_id: "asst-1" },
@@ -127,7 +127,7 @@ describe("useFeatureFlagBusSync", () => {
     emitOpened("watchdog");
     emitOpened("resume");
     await waitFor(() => {
-      expect(spy).toHaveBeenCalledWith({ queryKey: CLIENT_FLAG_QUERY_KEY });
+      expect(spy).toHaveBeenCalledWith({ queryKey: featureFlagsClientFlagValuesRetrieveQueryKey() });
       expect(spy).toHaveBeenCalledWith({
         queryKey: assistantFeatureFlagsGetQueryKey({
           path: { assistant_id: "asst-1" },

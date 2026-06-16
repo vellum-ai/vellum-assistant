@@ -30,11 +30,14 @@ import { useQuery } from "@tanstack/react-query";
 
 import { fetchAssistantIdentity } from "@/assistant/identity";
 import { consumePendingAssistantName } from "@/domains/onboarding/prechat";
-import { assistantIdentityQueryKey } from "@/lib/sync/query-tags";
+import { identityGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { AssistantState } from "@/assistant/types";
 
-export { assistantIdentityQueryKey } from "@/lib/sync/query-tags";
+/** Build the generated query key for identity. Exported for invalidation sites. */
+export function assistantIdentityQueryKey(assistantId: string | null) {
+  return identityGetQueryKey({ path: { assistant_id: assistantId ?? "" } });
+}
 
 interface UseAssistantIdentityInitParams {
   assistantId: string | null;

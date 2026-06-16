@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { captureError } from "@/lib/sentry/capture-error";
-import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
+
 import {
     getLocalSetting,
     setLocalSetting,
@@ -21,7 +21,7 @@ import type { ServiceMode } from "@/generated/daemon/types.gen";
 
 import { ResetButton, SaveButton, ServiceCard } from "@/domains/settings/ai/shared-ui";
 import { useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
-import { configGetOptions, configGetSetQueryData, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
+import { configGetOptions, configGetQueryKey, configGetSetQueryData, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useQuery } from "@tanstack/react-query";
 import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
 import { modelImagegenPut } from "@/generated/daemon/sdk.gen";
@@ -89,7 +89,7 @@ export function ImageGenerationCard() {
         throw error;
       } finally {
         void queryClient.invalidateQueries({
-          queryKey: assistantDaemonConfigQueryKey(assistantId),
+          queryKey: configGetQueryKey({ path: { assistant_id: assistantId } }),
         });
       }
     } catch {
