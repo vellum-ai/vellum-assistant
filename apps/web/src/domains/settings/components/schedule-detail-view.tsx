@@ -18,6 +18,9 @@ import {
   SCHEDULE_RUNS_PAGE_SIZE,
   updateSchedule,
 } from "@/domains/settings/api/schedules";
+import { configLlmProfilesGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import type { Options } from "@/generated/daemon/sdk.gen";
+import type { ConfigLlmProfilesGetData } from "@/generated/daemon/types.gen";
 import { RecentRunsCard } from "@/domains/settings/components/recent-runs-card";
 import { StatusDot } from "@/domains/settings/components/schedule-shared-ui";
 import {
@@ -224,7 +227,9 @@ export function ScheduleDetailView({
   // fall back to the raw profile key while loading or if the profile was
   // deleted from the config after the schedule pinned it.
   const { data: profileMetadata } = useQuery({
-    queryKey: ["usage-profile-metadata", assistantId],
+    queryKey: configLlmProfilesGetQueryKey({
+      path: { assistant_id: assistantId },
+    } as Options<ConfigLlmProfilesGetData>),
     queryFn: () => fetchUsageProfileMetadata(assistantId),
     enabled: schedule.inferenceProfile != null,
     staleTime: 60_000,

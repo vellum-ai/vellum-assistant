@@ -10,6 +10,23 @@ import {
     fetchUsageCallSiteCatalog,
 } from "@/domains/logs/call-site-metadata";
 import {
+    configLlmCallsitesGetQueryKey,
+    configLlmProfilesGetQueryKey,
+    usageBreakdownGetQueryKey,
+    usageDailyGetQueryKey,
+    usageSeriesGetQueryKey,
+    usageTotalsGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import type { Options } from "@/generated/daemon/sdk.gen";
+import type {
+    ConfigLlmCallsitesGetData,
+    ConfigLlmProfilesGetData,
+    UsageBreakdownGetData,
+    UsageDailyGetData,
+    UsageSeriesGetData,
+    UsageTotalsGetData,
+} from "@/generated/daemon/types.gen";
+import {
     UsageTrendChart,
     UsageTrendSkeleton,
     type UsageTrendChartLegendItem,
@@ -137,13 +154,14 @@ export function UsageTab({ assistantId }: UsageTabProps) {
   );
 
   const totalsQuery = useQuery({
-    queryKey: [
-      "usage-totals",
-      assistantId,
-      rangeWindow.from,
-      rangeWindow.to,
-      scheduleId ?? null,
-    ],
+    queryKey: usageTotalsGetQueryKey({
+      path: { assistant_id: assistantId },
+      query: {
+        from: rangeWindow.from,
+        to: rangeWindow.to,
+        scheduleId: scheduleId ?? undefined,
+      },
+    } as Options<UsageTotalsGetData>),
     queryFn: () =>
       fetchUsageTotals(assistantId, {
         from: rangeWindow.from,
@@ -153,14 +171,15 @@ export function UsageTab({ assistantId }: UsageTabProps) {
   });
 
   const breakdownQuery = useQuery<UsageBreakdownState>({
-    queryKey: [
-      "usage-breakdown",
-      assistantId,
-      rangeWindow.from,
-      rangeWindow.to,
-      groupBy,
-      scheduleId ?? null,
-    ],
+    queryKey: usageBreakdownGetQueryKey({
+      path: { assistant_id: assistantId },
+      query: {
+        from: rangeWindow.from,
+        to: rangeWindow.to,
+        groupBy,
+        scheduleId: scheduleId ?? undefined,
+      },
+    } as Options<UsageBreakdownGetData>),
     queryFn: async () => {
       try {
         return {
@@ -197,16 +216,17 @@ export function UsageTab({ assistantId }: UsageTabProps) {
     : undefined;
 
   const seriesQuery = useQuery({
-    queryKey: [
-      "usage-series",
-      assistantId,
-      rangeWindow.from,
-      rangeWindow.to,
-      granularity,
-      timezone,
-      effectiveGroupBy,
-      scheduleId ?? null,
-    ],
+    queryKey: usageSeriesGetQueryKey({
+      path: { assistant_id: assistantId },
+      query: {
+        from: rangeWindow.from,
+        to: rangeWindow.to,
+        granularity,
+        tz: timezone,
+        groupBy: effectiveGroupBy,
+        scheduleId: scheduleId ?? undefined,
+      },
+    } as Options<UsageSeriesGetData>),
     queryFn: () => {
       if (!seriesGroupBy) {
         return { buckets: [] };
@@ -226,15 +246,16 @@ export function UsageTab({ assistantId }: UsageTabProps) {
   });
 
   const dailyQuery = useQuery({
-    queryKey: [
-      "usage-daily",
-      assistantId,
-      rangeWindow.from,
-      rangeWindow.to,
-      granularity,
-      timezone,
-      scheduleId ?? null,
-    ],
+    queryKey: usageDailyGetQueryKey({
+      path: { assistant_id: assistantId },
+      query: {
+        from: rangeWindow.from,
+        to: rangeWindow.to,
+        granularity,
+        tz: timezone,
+        scheduleId: scheduleId ?? undefined,
+      },
+    } as Options<UsageDailyGetData>),
     queryFn: () =>
       fetchUsageDaily(assistantId, {
         from: rangeWindow.from,
@@ -247,14 +268,18 @@ export function UsageTab({ assistantId }: UsageTabProps) {
   });
 
   const callSiteCatalogQuery = useQuery({
-    queryKey: ["usage-call-sites", assistantId],
+    queryKey: configLlmCallsitesGetQueryKey({
+      path: { assistant_id: assistantId },
+    } as Options<ConfigLlmCallsitesGetData>),
     queryFn: () => fetchUsageCallSiteCatalog(assistantId),
     enabled: effectiveGroupBy === "task",
     staleTime: Infinity,
   });
 
   const profileMetadataQuery = useQuery({
-    queryKey: ["usage-profile-metadata", assistantId],
+    queryKey: configLlmProfilesGetQueryKey({
+      path: { assistant_id: assistantId },
+    } as Options<ConfigLlmProfilesGetData>),
     queryFn: () => fetchUsageProfileMetadata(assistantId),
     enabled: effectiveGroupBy === "profile",
     staleTime: PROFILE_METADATA_STALE_TIME_MS,

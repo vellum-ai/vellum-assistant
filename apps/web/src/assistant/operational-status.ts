@@ -1,6 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 
+import { assistantsOperationalStatusDetailReadQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import { client } from "@/generated/api/client.gen";
+import type { Options } from "@/generated/api/sdk.gen";
+import type { AssistantsOperationalStatusDetailReadData } from "@/generated/api/types.gen";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import type { AssistantState } from "@/assistant/types";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
@@ -133,7 +136,9 @@ export function useAssistantOperationalStatus(assistantId: string | null) {
   return useQuery({
     // Keep disabled observers off the assistant-specific cache entry so
     // stale unhealthy status cannot render after eligibility flips false.
-    queryKey: ["assistant-operational-status", enabled ? assistantId : null],
+    queryKey: assistantsOperationalStatusDetailReadQueryKey({
+      path: { id: enabled ? assistantId! : "" },
+    } as Options<AssistantsOperationalStatusDetailReadData>),
     queryFn: () => fetchAssistantOperationalStatus(assistantId!),
     enabled,
     retry: false,

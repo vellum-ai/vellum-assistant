@@ -36,11 +36,20 @@ import { isJson, prettifyJson } from "@/domains/workspace/utils/file-json";
 import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
 import { isHiddenPath } from "@/domains/workspace/utils/is-hidden-path";
 import {
+    workspaceFileContentGetQueryKey,
+    workspaceFileGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import {
     workspaceFileContentGet,
     workspaceFileGet,
     workspaceWritePost,
 } from "@/generated/daemon/sdk.gen";
-import type { WorkspaceFileGetResponse } from "@/generated/daemon/types.gen";
+import type { Options } from "@/generated/daemon/sdk.gen";
+import type {
+    WorkspaceFileContentGetData,
+    WorkspaceFileGetData,
+    WorkspaceFileGetResponse,
+} from "@/generated/daemon/types.gen";
 import { Button } from "@vellumai/design-library/components/button";
 
 import type { WorkspaceViewMode } from "@/domains/workspace/components/workspace-browser";
@@ -53,19 +62,23 @@ function workspaceFileRetrieveOptions(opts: {
   path: { assistant_id: string };
   query: { path: string; showHidden?: boolean };
 }) {
+  const sdkOpts = {
+    path: opts.path,
+    query: {
+      path: opts.query.path,
+      ...(opts.query.showHidden ? { showHidden: "true" } : {}),
+    },
+  } as Options<WorkspaceFileGetData>;
   return queryOptions<WorkspaceFileGetResponse>({
     queryFn: async () => {
       const { data, error } = await workspaceFileGet({
-        path: opts.path,
-        query: {
-          path: opts.query.path,
-          ...(opts.query.showHidden ? { showHidden: "true" } : {}),
-        },
+        ...sdkOpts,
+        throwOnError: false,
       });
       if (error) throw error;
       return data!;
     },
-    queryKey: ["assistantsWorkspaceFileRetrieve", opts],
+    queryKey: workspaceFileGetQueryKey(sdkOpts),
   });
 }
 
@@ -200,10 +213,10 @@ function BinaryContentViewer({
       if (res.error) throw res.error;
       return res.data!;
     },
-    queryKey: [
-      "assistantsWorkspaceFileContentRetrieve",
-      { assistantId, path, showHidden },
-    ],
+    queryKey: workspaceFileContentGetQueryKey({
+      path: { assistant_id: assistantId },
+      query: { path, ...(showHidden ? { showHidden: "true" } : {}) },
+    } as Options<WorkspaceFileContentGetData>),
     enabled: !!path,
   });
 
@@ -553,7 +566,7 @@ export function WorkspaceFileViewer({
         current?.path === variables.path ? null : current,
       );
       void queryClient.invalidateQueries({
-        queryKey: ["assistantsWorkspaceFileRetrieve"],
+        queryKey: [{ _id: "workspaceFileGet" }],
       });
     },
   });

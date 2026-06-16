@@ -6,6 +6,9 @@ import { useNavigate, useParams } from "react-router";
 
 import { DetailCard } from "@/components/detail-card";
 import { getAssistantHealthz } from "@/assistant/api";
+import { healthzGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import type { Options } from "@/generated/daemon/sdk.gen";
+import type { HealthzGetData } from "@/generated/daemon/types.gen";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { fetchSchedules, toggleSchedule } from "@/domains/settings/api/schedules";
 import { CreateScheduleModal } from "@/domains/settings/components/create-schedule-modal";
@@ -139,7 +142,9 @@ export function SchedulesPage() {
 
   const systemTasks = useSystemTasks(assistantId, tz);
   const { data: canOpenMemorySettings = false } = useQuery({
-    queryKey: ["assistant-memory-opt-out-capability", assistantId],
+    queryKey: healthzGetQueryKey({
+      path: { assistant_id: assistantId },
+    } as Options<HealthzGetData>),
     queryFn: async () => {
       const result = await getAssistantHealthz(assistantId);
       return result.ok && result.data.capabilities?.memoryOptOut === true;

@@ -1,14 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import {
-    AlertTriangle,
-    ChevronDown,
-    ChevronUp,
-    Loader2,
-    ScrollText,
-} from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronUp, Loader2, ScrollText } from "lucide-react";
 import { createElement, useCallback, useMemo, useState } from "react";
 
 import { Dropdown } from "@vellumai/design-library";
+
+import { traceeventsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import type { Options } from "@/generated/daemon/sdk.gen";
+import type { TraceeventsGetData } from "@/generated/daemon/types.gen";
 
 import {
     formatLatency,
@@ -112,7 +110,13 @@ export function LogsTab({ assistantId }: LogsTabProps) {
     isError,
     error,
   } = useQuery({
-    queryKey: ["trace-events", assistantId, activeConversationId],
+    queryKey: traceeventsGetQueryKey({
+      path: { assistant_id: assistantId },
+      query: {
+        conversationId: activeConversationId,
+        limit: TRACE_EVENT_LIMIT,
+      },
+    } as Options<TraceeventsGetData>),
     queryFn: () =>
       fetchTraceEvents(assistantId, {
         conversationId: activeConversationId,

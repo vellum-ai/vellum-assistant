@@ -10,6 +10,9 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { MAX_CONVERSATION_STARTER_CHIPS } from "@/domains/chat/utils/empty-state-constants";
+import { conversationstartersGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import type { Options } from "@/generated/daemon/sdk.gen";
+import type { ConversationstartersGetData } from "@/generated/daemon/types.gen";
 
 import {
   listConversationStarters,
@@ -50,7 +53,10 @@ export function useConversationStarters(
   const enabled = Boolean(assistantId);
 
   const query = useQuery<ListConversationStartersResult>({
-    queryKey: ["conversation-starters", assistantId],
+    queryKey: conversationstartersGetQueryKey({
+      path: { assistant_id: assistantId ?? "" },
+      query: { limit: MAX_CONVERSATION_STARTER_CHIPS },
+    } as Options<ConversationstartersGetData>),
     queryFn: () =>
       listConversationStarters(assistantId!, {
         limit: MAX_CONVERSATION_STARTER_CHIPS,

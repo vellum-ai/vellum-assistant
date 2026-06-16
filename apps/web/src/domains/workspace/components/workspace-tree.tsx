@@ -47,13 +47,20 @@ import {
     type WorkspaceSortMode,
 } from "@/domains/workspace/utils/sort-entries";
 import {
+    workspaceTreeGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import {
     workspaceDeletePost,
     workspaceMkdirPost,
     workspaceRenamePost,
     workspaceTreeGet,
     workspaceWritePost,
 } from "@/generated/daemon/sdk.gen";
-import type { WorkspaceTreeGetResponse } from "@/generated/daemon/types.gen";
+import type { Options } from "@/generated/daemon/sdk.gen";
+import type {
+    WorkspaceTreeGetData,
+    WorkspaceTreeGetResponse,
+} from "@/generated/daemon/types.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { BottomSheet } from "@vellumai/design-library/components/bottom-sheet";
 import { Button } from "@vellumai/design-library/components/button";
@@ -86,15 +93,16 @@ function workspaceTreeRetrieveOptions(opts: {
   path: { assistant_id: string };
   query?: { path?: string; showHidden?: boolean; includeDirSizes?: boolean };
 }) {
+  const query: Record<string, string> = {};
+  if (opts.query?.path) query.path = opts.query.path;
+  if (opts.query?.showHidden) query.showHidden = "true";
+  if (opts.query?.includeDirSizes) query.includeDirSizes = "true";
+  const sdkOpts = { path: opts.path, query } as Options<WorkspaceTreeGetData>;
   return queryOptions<WorkspaceTreeGetResponse>({
     queryFn: async () => {
-      const query: Record<string, string> = {};
-      if (opts.query?.path) query.path = opts.query.path;
-      if (opts.query?.showHidden) query.showHidden = "true";
-      if (opts.query?.includeDirSizes) query.includeDirSizes = "true";
       const { data, error } = await workspaceTreeGet({
-        path: opts.path,
-        query,
+        ...sdkOpts,
+        throwOnError: false,
       });
       if (error) {
         throw error;
@@ -104,7 +112,7 @@ function workspaceTreeRetrieveOptions(opts: {
       }
       return data;
     },
-    queryKey: ["assistantsWorkspaceTreeRetrieve", opts],
+    queryKey: workspaceTreeGetQueryKey(sdkOpts),
   });
 }
 
@@ -548,12 +556,12 @@ export function WorkspaceTree({
   // foo.md and then recreating it must not serve the old file's cached
   // contents from the viewer.
   const invalidateWorkspace = useCallback(() => {
-    for (const key of [
-      "assistantsWorkspaceTreeRetrieve",
-      "assistantsWorkspaceFileRetrieve",
-      "assistantsWorkspaceFileContentRetrieve",
+    for (const _id of [
+      "workspaceTreeGet",
+      "workspaceFileGet",
+      "workspaceFileContentGet",
     ]) {
-      queryClient.invalidateQueries({ queryKey: [key] });
+      queryClient.invalidateQueries({ queryKey: [{ _id }] });
     }
   }, [queryClient]);
 

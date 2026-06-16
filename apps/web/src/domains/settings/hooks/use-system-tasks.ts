@@ -13,11 +13,23 @@ import {
   updateHeartbeatConfig,
 } from "@/domains/settings/api/schedules";
 import {
+  consolidationConfigGetQueryKey,
+  consolidationRunsGetQueryKey,
   heartbeatConfigGetQueryKey,
   heartbeatConfigGetSetQueryData,
+  heartbeatRunsGetQueryKey,
+  retrospectiveConfigGetQueryKey,
+  retrospectiveRunsGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { Options } from "@/generated/daemon/sdk.gen";
-import type { HeartbeatConfigGetData } from "@/generated/daemon/types.gen";
+import type {
+  ConsolidationConfigGetData,
+  ConsolidationRunsGetData,
+  HeartbeatConfigGetData,
+  HeartbeatRunsGetData,
+  RetrospectiveConfigGetData,
+  RetrospectiveRunsGetData,
+} from "@/generated/daemon/types.gen";
 import {
   type ScheduleRowUsage,
   SYSTEM_TASK_STATS_RUN_LIMIT,
@@ -66,7 +78,9 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
     isError: isConsolidationError,
     refetch: refetchConsolidation,
   } = useQuery({
-    queryKey: ["consolidation-config", assistantId],
+    queryKey: consolidationConfigGetQueryKey({
+      path: { assistant_id: assistantId ?? "" },
+    } as Options<ConsolidationConfigGetData>),
     queryFn: () => fetchConsolidationConfig(assistantId!),
     enabled: !!assistantId,
     staleTime: 10_000,
@@ -78,7 +92,9 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
     isError: isRetrospectiveError,
     refetch: refetchRetrospective,
   } = useQuery({
-    queryKey: ["retrospective-config", assistantId],
+    queryKey: retrospectiveConfigGetQueryKey({
+      path: { assistant_id: assistantId ?? "" },
+    } as Options<RetrospectiveConfigGetData>),
     queryFn: () => fetchRetrospectiveConfig(assistantId!),
     enabled: !!assistantId,
     staleTime: 10_000,
@@ -94,12 +110,10 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
     isError: isHeartbeatStatsError,
     refetch: refetchHeartbeatStats,
   } = useQuery({
-    queryKey: [
-      "system-task-runs-summary",
-      assistantId,
-      "heartbeat",
-      SYSTEM_TASK_STATS_RUN_LIMIT,
-    ],
+    queryKey: heartbeatRunsGetQueryKey({
+      path: { assistant_id: assistantId ?? "" },
+      query: { limit: SYSTEM_TASK_STATS_RUN_LIMIT },
+    } as Options<HeartbeatRunsGetData>),
     queryFn: () =>
       fetchHeartbeatRuns(assistantId!, SYSTEM_TASK_STATS_RUN_LIMIT).then(
         (page) => page.runs,
@@ -114,12 +128,10 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
     isError: isConsolidationStatsError,
     refetch: refetchConsolidationStats,
   } = useQuery({
-    queryKey: [
-      "system-task-runs-summary",
-      assistantId,
-      "consolidation",
-      SYSTEM_TASK_STATS_RUN_LIMIT,
-    ],
+    queryKey: consolidationRunsGetQueryKey({
+      path: { assistant_id: assistantId ?? "" },
+      query: { limit: SYSTEM_TASK_STATS_RUN_LIMIT },
+    } as Options<ConsolidationRunsGetData>),
     queryFn: () =>
       fetchConsolidationRuns(assistantId!, SYSTEM_TASK_STATS_RUN_LIMIT).then(
         (page) => page.runs,
@@ -134,12 +146,10 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
     isError: isRetrospectiveStatsError,
     refetch: refetchRetrospectiveStats,
   } = useQuery({
-    queryKey: [
-      "system-task-runs-summary",
-      assistantId,
-      "retrospective",
-      SYSTEM_TASK_STATS_RUN_LIMIT,
-    ],
+    queryKey: retrospectiveRunsGetQueryKey({
+      path: { assistant_id: assistantId ?? "" },
+      query: { limit: SYSTEM_TASK_STATS_RUN_LIMIT },
+    } as Options<RetrospectiveRunsGetData>),
     queryFn: () =>
       fetchRetrospectiveRuns(assistantId!, SYSTEM_TASK_STATS_RUN_LIMIT).then(
         (page) => page.runs,
@@ -224,7 +234,14 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
       if (!assistantId) return;
       const invalidate = () => {
         void queryClient.invalidateQueries({
-          queryKey: ["system-task-runs", assistantId, kind],
+          queryKey: [{
+            _id: kind === "heartbeat"
+              ? "heartbeatRunsGet"
+              : kind === "consolidation"
+                ? "consolidationRunsGet"
+                : "retrospectiveRunsGet",
+            path: { assistant_id: assistantId },
+          }],
         });
       };
       invalidate();

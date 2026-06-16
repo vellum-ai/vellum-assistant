@@ -8,6 +8,17 @@ import {
   fetchRetrospectiveRuns,
   SCHEDULE_RUNS_PAGE_SIZE,
 } from "@/domains/settings/api/schedules";
+import {
+  consolidationRunsGetInfiniteQueryKey,
+  heartbeatRunsGetInfiniteQueryKey,
+  retrospectiveRunsGetInfiniteQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import type { Options } from "@/generated/daemon/sdk.gen";
+import type {
+  ConsolidationRunsGetData,
+  HeartbeatRunsGetData,
+  RetrospectiveRunsGetData,
+} from "@/generated/daemon/types.gen";
 import { RecentRunsCard } from "@/domains/settings/components/recent-runs-card";
 import {
   flattenRunPages,
@@ -76,7 +87,21 @@ export function SystemTaskDetailView({
 
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
     useInfiniteQuery({
-      queryKey: ["system-task-runs", assistantId, kind],
+      queryKey:
+        kind === "heartbeat"
+          ? heartbeatRunsGetInfiniteQueryKey({
+              path: { assistant_id: assistantId },
+              query: { limit: SCHEDULE_RUNS_PAGE_SIZE },
+            } as Options<HeartbeatRunsGetData>)
+          : kind === "consolidation"
+            ? consolidationRunsGetInfiniteQueryKey({
+                path: { assistant_id: assistantId },
+                query: { limit: SCHEDULE_RUNS_PAGE_SIZE },
+              } as Options<ConsolidationRunsGetData>)
+            : retrospectiveRunsGetInfiniteQueryKey({
+                path: { assistant_id: assistantId },
+                query: { limit: SCHEDULE_RUNS_PAGE_SIZE },
+              } as Options<RetrospectiveRunsGetData>),
       queryFn: ({ pageParam }) =>
         kind === "heartbeat"
           ? fetchHeartbeatRuns(assistantId, SCHEDULE_RUNS_PAGE_SIZE, pageParam)

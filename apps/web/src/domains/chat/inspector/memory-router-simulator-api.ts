@@ -1,15 +1,23 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 
 import {
+  configLlmProfilesGetQueryKey,
+  memoryV2NowtextGetQueryKey,
+  memoryV2RouterprompttemplateGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import {
   configLlmProfilesGet,
   memoryV2NowtextGet,
   memoryV2RouterprompttemplateGet,
   memoryV2SimulaterouterPost,
 } from "@/generated/daemon/sdk.gen";
-
+import type { Options } from "@/generated/daemon/sdk.gen";
 import type {
+  ConfigLlmProfilesGetData,
   ConfigLlmProfilesGetResponse,
+  MemoryV2NowtextGetData,
   MemoryV2NowtextGetResponse,
+  MemoryV2RouterprompttemplateGetData,
   MemoryV2RouterprompttemplateGetResponse,
   MemoryV2SimulaterouterPostData,
   MemoryV2SimulaterouterPostResponse,
@@ -142,8 +150,11 @@ async function fetchLlmProfiles(
 }
 
 export function useLlmProfiles(assistantId: string | undefined) {
+  const pathOpts = {
+    path: { assistant_id: assistantId ?? "" },
+  } as Options<ConfigLlmProfilesGetData>;
   return useQuery({
-    queryKey: ["llm-profiles", assistantId] as const,
+    queryKey: configLlmProfilesGetQueryKey(pathOpts),
     queryFn: async ({ signal }): Promise<LlmProfilesListResponse> => {
       if (!assistantId) {
         throw new SimulateMemoryRouterError(0, "Missing assistantId");
@@ -182,8 +193,11 @@ async function fetchRouterPromptTemplate(
 export function useDefaultRouterPromptTemplate(
   assistantId: string | undefined,
 ) {
+  const pathOpts = {
+    path: { assistant_id: assistantId ?? "" },
+  } as Options<MemoryV2RouterprompttemplateGetData>;
   return useQuery({
-    queryKey: ["router-prompt-template", assistantId] as const,
+    queryKey: memoryV2RouterprompttemplateGetQueryKey(pathOpts),
     queryFn: async ({
       signal,
     }): Promise<MemoryV2RouterprompttemplateGetResponse> => {
@@ -223,8 +237,11 @@ async function fetchCurrentNowText(
 }
 
 export function useCurrentNowText(assistantId: string | undefined) {
+  const pathOpts = {
+    path: { assistant_id: assistantId ?? "" },
+  } as Options<MemoryV2NowtextGetData>;
   return useQuery({
-    queryKey: ["memory-router-now-text", assistantId] as const,
+    queryKey: memoryV2NowtextGetQueryKey(pathOpts),
     queryFn: async ({ signal }): Promise<MemoryV2NowtextGetResponse> => {
       if (!assistantId) {
         throw new SimulateMemoryRouterError(0, "Missing assistantId");
