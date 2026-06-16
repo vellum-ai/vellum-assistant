@@ -1390,4 +1390,44 @@ describe("runProviderConnectionsBackfill — profiles added after boot", () => {
       "fireworks-personal",
     );
   });
+
+  test("wires a managed connection for a managed-capable provider on platform installs", () => {
+    /**
+     * On a managed (platform) install, a profile added after boot for a
+     * managed-capable provider (fireworks) must resolve to the seeded
+     * platform-auth connection — not a BYOK personal connection that would
+     * force dispatch to look for an absent API key.
+     */
+    // GIVEN a platform install whose config gained a fireworks profile with no
+    // provider_connection after boot
+    process.env.IS_PLATFORM = "true";
+    writeConfig({
+      llm: {
+        default: {
+          provider: "anthropic",
+          provider_connection: "anthropic-managed",
+          model: "claude-sonnet-4-6",
+        },
+        profiles: {
+          minimax: {
+            provider: "fireworks",
+            model: "accounts/fireworks/models/minimax-m3",
+          },
+        },
+        activeProfile: "minimax",
+      },
+    });
+    const db = createProviderConnectionsDb();
+
+    // WHEN the connection backfill runs (as commitConfigWrite invokes it)
+    runProviderConnectionsBackfill(db);
+
+    // THEN the profile is wired to the seeded managed connection
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.profiles.minimax.provider_connection).toBe(
+      "fireworks-managed",
+    );
+    // AND no BYOK personal connection was created
+    expect(getConnection(db, "fireworks-personal")).toBeNull();
+  });
 });
