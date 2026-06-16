@@ -52,6 +52,7 @@ mock.module("@vellumai/local-mode", () => ({
   runHatch: mock(async () => ({ ok: false, error: "unused" })),
   runRetire: mock(async () => ({ ok: false, error: "unused" })),
   runSleep: mock(async () => ({ ok: false, error: "unused" })),
+  runUpgrade: mock(async () => ({ ok: false, error: "unused" })),
   runWake: mock(async () => ({ ok: false, error: "unused" })),
   getLocalAssistantStatus: mock(async () => ({ ok: true, state: "sleeping" })),
 }));

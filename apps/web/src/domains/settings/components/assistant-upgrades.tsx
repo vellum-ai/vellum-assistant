@@ -15,6 +15,8 @@ import type {
     ReleaseChannelEnum,
     ReleaseListItem,
 } from "@/generated/api/types.gen";
+import { lifecycleService } from "@/assistant/lifecycle-service";
+import { upgradeLocalAssistantHost } from "@/runtime/local-mode-host";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
@@ -358,6 +360,115 @@ export function AssistantUpgrades({
               ? "Update preview"
               : "Update"
         }
+        onConfirm={handleUpgrade}
+        onCancel={() => setShowConfirmation(false)}
+      />
+    </div>
+  );
+}
+
+interface LocalAssistantUpgradesProps {
+  assistantId: string;
+  currentVersion?: string | null;
+  onUpgradeComplete?: () => void;
+}
+
+export function LocalAssistantUpgrades({
+  assistantId,
+  currentVersion,
+  onUpgradeComplete,
+}: LocalAssistantUpgradesProps) {
+  const [showConfirmation, setShowConfirmation] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const upgradeCreate = useMutation({
+    mutationFn: async () => {
+      lifecycleService.setLocalAssistantUpgradeInProgress(assistantId, true);
+      try {
+        const result = await upgradeLocalAssistantHost(assistantId, {
+          latest: true,
+        });
+        if (!result.ok) {
+          throw new Error(result.error ?? "Failed to trigger update.");
+        }
+        return result;
+      } finally {
+        lifecycleService.setLocalAssistantUpgradeInProgress(assistantId, false);
+      }
+    },
+  });
+
+  const handleUpgrade = async () => {
+    setShowConfirmation(false);
+    setSuccessMessage(null);
+    try {
+      const result = await upgradeCreate.mutateAsync();
+      setSuccessMessage(
+        result.version
+          ? `Successfully updated to version ${result.version}.`
+          : "Successfully updated to the latest stable version.",
+      );
+      toast.success("Update complete — assistant is healthy.");
+      await lifecycleService.checkAssistant(assistantId);
+      onUpgradeComplete?.();
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "Failed to trigger update. Please try again.",
+      );
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-4 md:grid md:grid-cols-[auto_minmax(0,1fr)] md:items-center md:gap-x-8 md:gap-y-4">
+        <div className="flex flex-col gap-1 md:contents">
+          <span className="text-body-medium-default text-[var(--content-tertiary)]">
+            Current
+          </span>
+          <span className="block min-w-0 break-all text-body-medium-lighter text-[var(--content-default)]">
+            {currentVersion ?? "—"}
+          </span>
+        </div>
+
+        <div className="flex flex-col gap-1 md:contents">
+          <span className="text-body-medium-default text-[var(--content-tertiary)]">
+            Update to
+          </span>
+          <span className="block min-w-0 break-all text-body-medium-lighter text-[var(--content-default)]">
+            Latest stable
+          </span>
+        </div>
+      </div>
+
+      <Button
+        variant="primary"
+        className="min-w-[160px]"
+        leftIcon={
+          upgradeCreate.isPending ? (
+            <Loader2 className="animate-spin" />
+          ) : (
+            <RefreshCw />
+          )
+        }
+        onClick={() => setShowConfirmation(true)}
+        disabled={upgradeCreate.isPending}
+      >
+        {upgradeCreate.isPending ? "Updating..." : "Update"}
+      </Button>
+
+      {successMessage && (
+        <p className="text-body-medium-lighter text-[var(--system-positive-strong)]">
+          {successMessage}
+        </p>
+      )}
+
+      <ConfirmDialog
+        open={showConfirmation}
+        title="Update assistant"
+        message="Update to the latest stable version? The assistant will be briefly unavailable during the update."
+        confirmLabel="Update"
         onConfirm={handleUpgrade}
         onCancel={() => setShowConfirmation(false)}
       />

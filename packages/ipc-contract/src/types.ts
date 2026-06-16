@@ -391,6 +391,7 @@ export type LockfileWriteResult =
 
 export type LocalAssistantRuntimeState =
   | "healthy"
+  | "upgrading"
   | "sleeping"
   | "starting"
   | "crashed"

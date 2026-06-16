@@ -39,6 +39,8 @@ export { runSleep } from "./sleep";
 export type { SleepResult } from "./sleep";
 export { runWake } from "./wake";
 export type { WakeOptions, WakeResult } from "./wake";
+export { runUpgrade } from "./upgrade";
+export type { UpgradeOptions, UpgradeResult } from "./upgrade";
 export { getLocalAssistantStatus } from "./status";
 export type {
   LocalAssistantRuntimeState,

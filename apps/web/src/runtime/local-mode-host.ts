@@ -1,5 +1,6 @@
 import type {
   LocalAssistantStatusResult,
+  LocalUpgradeOptions,
   LocalWakeOptions,
 } from "@vellumai/ipc-contract";
 import { parseLockfile } from "@vellumai/local-mode/contract";
@@ -76,7 +77,14 @@ export interface LocalWakeResult {
   error?: string;
 }
 
+export interface LocalUpgradeResult {
+  ok: boolean;
+  version?: string;
+  error?: string;
+}
+
 export type { LocalAssistantStatusResult };
+export type { LocalUpgradeOptions };
 
 /**
  * Thrown by {@link fetchGuardianTokenHost} when a host returns a structured
@@ -286,6 +294,36 @@ export async function wakeLocalAssistantHost(
     }),
   });
   return res.json() as Promise<LocalWakeResult>;
+}
+
+export async function upgradeLocalAssistantHost(
+  assistantId: string,
+  options?: LocalUpgradeOptions,
+): Promise<LocalUpgradeResult> {
+  if (isElectron()) {
+    const upgrade = window.vellum!.localMode.upgrade;
+    if (!upgrade) {
+      return {
+        ok: false,
+        error: "Upgrade is not supported by this app version",
+      };
+    }
+    return upgrade(assistantId, options);
+  }
+
+  const body = {
+    assistantId,
+    ...(options?.latest ? { latest: true } : {}),
+    ...(options?.version ? { version: options.version } : {}),
+    ...(options?.force ? { force: true } : {}),
+  };
+
+  const res = await fetch("/assistant/__local/upgrade", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return res.json() as Promise<LocalUpgradeResult>;
 }
 
 export async function getLocalAssistantStatusHost(

@@ -122,6 +122,14 @@ function localHealthBannerConfig(
           <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
         ),
       };
+    case "upgrading":
+      return {
+        tone: "warning",
+        title: "Assistant is upgrading",
+        icon: (
+          <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+        ),
+      };
     case "crashed":
       return {
         tone: "error",

@@ -14,11 +14,13 @@ import {
   runHatch,
   runRetire,
   runSleep,
+  runUpgrade,
   runWake,
   upsertLockfileAssistant,
   type CliInvocation,
   type LockfileWriteResult,
   type TokenResult,
+  type UpgradeOptions,
   type WakeOptions,
 } from "@vellumai/local-mode";
 import { handle } from "./ipc";
@@ -60,6 +62,12 @@ interface RetireResult {
 
 interface WakeResult {
   ok: boolean;
+  error?: string;
+}
+
+interface UpgradeResult {
+  ok: boolean;
+  version?: string;
   error?: string;
 }
 
@@ -156,6 +164,38 @@ async function wake(
   return result.ok ? { ok: true } : { ok: false, error: result.error };
 }
 
+const upgradingLocalAssistantIds = new Set<string>();
+
+async function upgrade(
+  assistantId: string,
+  options?: UpgradeOptions,
+): Promise<UpgradeResult> {
+  if (upgradingLocalAssistantIds.has(assistantId)) {
+    return {
+      ok: false,
+      error: "An upgrade is already in progress for this assistant.",
+    };
+  }
+
+  let invocation: CliInvocation;
+  try {
+    invocation = await resolveCliInvocation();
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+
+  upgradingLocalAssistantIds.add(assistantId);
+  try {
+    const result = await runUpgrade(invocation, assistantId, options);
+    if (!result.ok) return { ok: false, error: result.error };
+    return result.version
+      ? { ok: true, version: result.version }
+      : { ok: true };
+  } finally {
+    upgradingLocalAssistantIds.delete(assistantId);
+  }
+}
+
 // A persisted assistant entry as it crosses the IPC boundary. The
 // package's lockfile parser owns the real field-level contract; here we
 // only assert the renderer sent an object, so unknown/forward-compat
@@ -174,6 +214,17 @@ const assistantIdArgs = z.tuple([z.string().optional()]);
 const wakeArgs = z.tuple([
   z.string().optional(),
   z.object({ repairGuardian: z.boolean().optional() }).optional(),
+]);
+
+const upgradeArgs = z.tuple([
+  z.string().optional(),
+  z
+    .object({
+      version: z.string().optional(),
+      latest: z.boolean().optional(),
+      force: z.boolean().optional(),
+    })
+    .optional(),
 ]);
 
 let installed = false;
@@ -257,9 +308,17 @@ export const installLocalMode = (): void => {
     return wake(assistantId, options);
   });
 
+  handle("vellum:localMode:upgrade", upgradeArgs, ([assistantId, options]) => {
+    if (!assistantId) return { ok: false, error: "Missing assistantId" };
+    return upgrade(assistantId, options);
+  });
+
   handle("vellum:localMode:status", assistantIdArgs, ([assistantId]) => {
     if (!assistantId) {
       return { ok: false, status: 400, error: "Missing assistantId" };
+    }
+    if (upgradingLocalAssistantIds.has(assistantId)) {
+      return { ok: true, state: "upgrading" };
     }
     return getLocalAssistantStatus(lockfilePaths, assistantId);
   });
