@@ -11701,6 +11701,14 @@ paths:
                     anyOf:
                       - type: string
                       - type: "null"
+                  maxConsecutiveRuns:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  maxDailyRuns:
+                    anyOf:
+                      - type: number
+                      - type: "null"
                   nextRunAt:
                     anyOf:
                       - type: number
@@ -11718,6 +11726,8 @@ paths:
                   - activeHoursEnd
                   - cronExpression
                   - timezone
+                  - maxConsecutiveRuns
+                  - maxDailyRuns
                   - nextRunAt
                   - lastRunAt
                   - success
@@ -11761,6 +11771,20 @@ paths:
                   anyOf:
                     - type: string
                     - type: "null"
+                maxConsecutiveRuns:
+                  description: Max consecutive heartbeats without a guardian message, or null for unlimited
+                  anyOf:
+                    - type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                    - type: "null"
+                maxDailyRuns:
+                  description: Max heartbeats per calendar day, or null for unlimited
+                  anyOf:
+                    - type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                    - type: "null"
       responses:
         "200":
           description: Successful response
@@ -11789,6 +11813,14 @@ paths:
                     anyOf:
                       - type: string
                       - type: "null"
+                  maxConsecutiveRuns:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  maxDailyRuns:
+                    anyOf:
+                      - type: number
+                      - type: "null"
                   nextRunAt:
                     anyOf:
                       - type: number
@@ -11806,6 +11838,8 @@ paths:
                   - activeHoursEnd
                   - cronExpression
                   - timezone
+                  - maxConsecutiveRuns
+                  - maxDailyRuns
                   - nextRunAt
                   - lastRunAt
                   - success

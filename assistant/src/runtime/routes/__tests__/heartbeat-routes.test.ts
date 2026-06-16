@@ -15,11 +15,16 @@ import type { RouteDefinition } from "../types.js";
 
 // ─── Module mocks ──────────────────────────────────────────────────────────
 
-// Stub the heartbeat service so the response-path's getInstance() returns
-// undefined (no scheduler running in tests).
+// Stub the heartbeat service so the response-path's getInstance() returns a
+// reconfigure spy and surfaces no scheduler-derived values.
+const reconfigureSpy = mock(() => {});
 mock.module("../../../heartbeat/heartbeat-service.js", () => ({
   HeartbeatService: {
-    getInstance: () => undefined,
+    getInstance: () => ({
+      reconfigure: reconfigureSpy,
+      nextRunAt: null,
+      lastRunAt: null,
+    }),
   },
 }));
 
@@ -29,10 +34,14 @@ let workspaceDir: string;
 let origWorkspaceDir: string | undefined;
 let configPath: string;
 
-function findHandler(operationId: string): RouteDefinition["handler"] {
+function findRoute(operationId: string): RouteDefinition {
   const route = ROUTES.find((r) => r.operationId === operationId);
   if (!route) throw new Error(`Route ${operationId} not found`);
-  return route.handler;
+  return route;
+}
+
+function findHandler(operationId: string): RouteDefinition["handler"] {
+  return findRoute(operationId).handler;
 }
 
 function readConfig(): Record<string, unknown> {
@@ -108,5 +117,60 @@ describe("setHeartbeatConfig handler", () => {
     expect(onDisk).toEqual({
       heartbeat: { intervalMs: 60000, enabled: true },
     });
+  });
+});
+
+describe("heartbeat run caps", () => {
+  test("PUT persists maxDailyRuns and GET reflects it", async () => {
+    writeFileSync(configPath, JSON.stringify({}, null, 2) + "\n");
+
+    const put = findHandler("updateHeartbeatConfig");
+    const putResult = (await put({ body: { maxDailyRuns: 6 } })) as {
+      maxDailyRuns: number | null;
+    };
+    expect(putResult.maxDailyRuns).toBe(6);
+
+    expect(readConfig()).toEqual({ heartbeat: { maxDailyRuns: 6 } });
+
+    const get = findHandler("getHeartbeatConfig");
+    const getResult = (await get({})) as { maxDailyRuns: number | null };
+    expect(getResult.maxDailyRuns).toBe(6);
+  });
+
+  test("PUT with null clears maxConsecutiveRuns (unbounded)", async () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify({ heartbeat: { maxConsecutiveRuns: 5 } }, null, 2) + "\n",
+    );
+
+    const put = findHandler("updateHeartbeatConfig");
+    const putResult = (await put({
+      body: { maxConsecutiveRuns: null },
+    })) as { maxConsecutiveRuns: number | null };
+    expect(putResult.maxConsecutiveRuns).toBeNull();
+
+    expect(readConfig()).toEqual({ heartbeat: { maxConsecutiveRuns: null } });
+  });
+
+  test("request schema rejects non-positive and non-integer cap values", () => {
+    const requestBody = findRoute("updateHeartbeatConfig").requestBody;
+    if (!requestBody || !("parse" in requestBody)) {
+      throw new Error("expected a zod requestBody schema");
+    }
+    expect(() => requestBody.parse({ maxDailyRuns: 0 })).toThrow();
+    expect(() => requestBody.parse({ maxConsecutiveRuns: -1 })).toThrow();
+    expect(() => requestBody.parse({ maxDailyRuns: 1.5 })).toThrow();
+    expect(() => requestBody.parse({ maxDailyRuns: 3 })).not.toThrow();
+    expect(() => requestBody.parse({ maxConsecutiveRuns: null })).not.toThrow();
+  });
+
+  test("reconfigure() is invoked after a successful write", async () => {
+    writeFileSync(configPath, JSON.stringify({}, null, 2) + "\n");
+    reconfigureSpy.mockClear();
+
+    const put = findHandler("updateHeartbeatConfig");
+    await put({ body: { maxDailyRuns: 4 } });
+
+    expect(reconfigureSpy).toHaveBeenCalledTimes(1);
   });
 });
