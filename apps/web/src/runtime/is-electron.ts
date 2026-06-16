@@ -190,6 +190,9 @@ declare global {
           organizationId?: string,
         ): Promise<LockfileWriteResult>;
         retire(assistantId: string): Promise<{ ok: boolean; error?: string }>;
+        sleep?(
+          assistantId: string,
+        ): Promise<{ ok: boolean; error?: string }>;
         wake?(
           assistantId: string,
           options?: LocalWakeOptions,
