@@ -452,7 +452,7 @@ export function AssistantSideMenu({
         {onOpenHome ? (
           <SideMenu.Item
             icon={Calendar}
-            label="Schedules"
+            label="Activity"
             showCollapsedTooltip
             active={isHomeActive}
             badge={

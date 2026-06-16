@@ -47,7 +47,7 @@ export function HomePageRoute() {
           variant="body-medium-default"
           className="text-[var(--content-secondary)]"
         >
-          Overview
+          Activity
         </Typography>,
       );
     } else {

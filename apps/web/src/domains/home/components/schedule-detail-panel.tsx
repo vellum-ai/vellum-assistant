@@ -265,7 +265,7 @@ export function ScheduleDetailPanel({
       )}
     >
       {/* Header */}
-      <div className="flex shrink-0 items-start gap-3 border-b border-[var(--border-base)] p-[var(--app-spacing-lg)]">
+      <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-base)] p-[var(--app-spacing-lg)]">
         <div className="min-w-0 flex-1">
           <Typography
             variant="title-small"
@@ -273,11 +273,6 @@ export function ScheduleDetailPanel({
           >
             {schedule.name}
           </Typography>
-          {schedule.description ? (
-            <p className="mt-0.5 truncate text-body-small-default text-[var(--content-tertiary)]">
-              {schedule.description}
-            </p>
-          ) : null}
         </div>
         <Button
           variant="ghost"
@@ -291,6 +286,12 @@ export function ScheduleDetailPanel({
 
       {/* Scrollable body */}
       <div className="flex-1 space-y-6 overflow-y-auto px-[var(--app-spacing-lg)] py-[var(--app-spacing-lg)]">
+        {schedule.description ? (
+          <p className="text-body-medium-lighter text-[var(--content-secondary)]">
+            {schedule.description}
+          </p>
+        ) : null}
+
         <section>
           <SectionLabel>Details</SectionLabel>
           <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] px-4 py-2">
