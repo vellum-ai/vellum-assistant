@@ -22,7 +22,6 @@ import {
   EmbeddingBillingBlockError,
   extractHttpStatus,
   recordBillingBlock,
-  recordBillingSuccess,
 } from "./embedding-billing-breaker.js";
 import { bootstrapFromHistory } from "./graph/bootstrap.js";
 import { runConsolidation } from "./graph/consolidation.js";
@@ -314,9 +313,6 @@ export async function runMemoryJobsOnce(
         await processJob(job, config);
         completeMemoryJob(job.id);
         groupProcessed += 1;
-        if (embedSet.has(job.type)) {
-          recordBillingSuccess();
-        }
       } catch (err) {
         try {
           handleJobError(job, err);
