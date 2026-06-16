@@ -56,7 +56,6 @@ export const ICON_SET_AVATAR = "vellum:icon:setAvatar";
 
 // Dock
 export const DOCK_SET_BADGE = "vellum:dock:setBadge";
-export const DOCK_SET_SIGNED_IN = "vellum:dock:setSignedIn";
 
 // Local mode
 export const LOCAL_MODE_HATCH = "vellum:localMode:hatch";

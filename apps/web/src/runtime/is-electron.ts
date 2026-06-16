@@ -169,7 +169,6 @@ declare global {
       };
       dock: {
         setBadge(count: number): void;
-        setSignedIn(signedIn: boolean): void;
       };
       menu: {
         setPlatformSession(has: boolean): Promise<void>;
