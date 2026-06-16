@@ -15,7 +15,6 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
-  useRef,
   useState,
 } from "react";
 import { Link } from "react-router";
@@ -413,30 +412,29 @@ function useAssistantBannerConfig(): BannerConfig | null {
   // Suppress the brief "unreachable" flash during the active → sleeping
   // transition. When the pod is shutting down, healthz fails before the
   // backend registers the sleep, causing a transient unreachable state.
-  const prevOperationalStateRef = useRef(operationalStatus?.state);
-  const [recentlyLeftActive, setRecentlyLeftActive] = useState(false);
+  const [wasRecentlyActive, setWasRecentlyActive] = useState(false);
   useEffect(() => {
-    const prev = prevOperationalStateRef.current;
-    const current = operationalStatus?.state;
-    prevOperationalStateRef.current = current;
-
-    if (prev === "active" && current === "unreachable") {
-      setRecentlyLeftActive(true);
-    } else if (current !== "unreachable") {
-      setRecentlyLeftActive(false);
+    if (operationalStatus?.state === "active") {
+      setWasRecentlyActive(true);
+    } else if (
+      operationalStatus?.state === "sleeping" ||
+      operationalStatus?.state === "crash_loop" ||
+      operationalStatus?.state === "not_found"
+    ) {
+      setWasRecentlyActive(false);
     }
   }, [operationalStatus?.state]);
 
   // Auto-clear after 15s so a genuinely unreachable assistant surfaces.
   useEffect(() => {
-    if (!recentlyLeftActive || operationalStatus?.state !== "unreachable") {
+    if (!wasRecentlyActive || operationalStatus?.state !== "unreachable") {
       return;
     }
     const timeout = setTimeout(() => {
-      setRecentlyLeftActive(false);
+      setWasRecentlyActive(false);
     }, 15_000);
     return () => clearTimeout(timeout);
-  }, [recentlyLeftActive, operationalStatus?.state]);
+  }, [wasRecentlyActive, operationalStatus?.state]);
   const [isExitingMaintenanceMode, setIsExitingMaintenanceMode] =
     useState(false);
   const [maintenanceModeExitError, setMaintenanceModeExitError] = useState<
@@ -631,7 +629,7 @@ function useAssistantBannerConfig(): BannerConfig | null {
   const effectiveStatus =
     operationalStatus?.state === "unreachable" && wasRecentlySleeping
       ? { ...operationalStatus, state: "waking" as AssistantOperationalState }
-      : operationalStatus?.state === "unreachable" && recentlyLeftActive
+      : operationalStatus?.state === "unreachable" && wasRecentlyActive
         ? { ...operationalStatus, state: "sleeping" as AssistantOperationalState }
         : operationalStatus;
 
