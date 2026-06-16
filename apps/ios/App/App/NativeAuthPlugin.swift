@@ -180,10 +180,7 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         self.authSession?.cancel()
         self.authSession = nil
 
-        let session = ASWebAuthenticationSession(
-            url: authorizeURL,
-            callbackURLScheme: NativeAuthPlugin.callbackScheme
-        ) { [weak self] callbackURL, error in
+        let completionHandler: ASWebAuthenticationSession.CompletionHandler = { [weak self] callbackURL, error in
             // Deliberately NOT clearing `self.authSession` here: a late-firing
             // completion from a cancelled prior session would otherwise wipe
             // the replacement the outer call has since installed. Cleared only
@@ -252,6 +249,22 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                     }
                 }
             }
+        }
+
+        // Use the non-deprecated `callback:` initializer on iOS 17.4+
+        let session: ASWebAuthenticationSession
+        if #available(iOS 17.4, *) {
+            session = ASWebAuthenticationSession(
+                url: authorizeURL,
+                callback: .customScheme(NativeAuthPlugin.callbackScheme),
+                completionHandler: completionHandler
+            )
+        } else {
+            session = ASWebAuthenticationSession(
+                url: authorizeURL,
+                callbackURLScheme: NativeAuthPlugin.callbackScheme,
+                completionHandler: completionHandler
+            )
         }
 
         // Ephemeral (private) session: a clean cookie jar per attempt. Without
