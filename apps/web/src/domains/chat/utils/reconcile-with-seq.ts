@@ -31,9 +31,20 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
  *
  * When `L > S` the snapshot is stale: every row it carries reflects state at
  * or below `S`, so applying it would regress rows the stream advanced past
- * `S`. We keep the live local rows. When `S >= L` (or either is unknown) the
- * snapshot has seen everything the stream applied, so it is authoritative and
- * we take the server rows wholesale.
+ * `S`. We keep the live local rows. When `S >= L` the snapshot has seen
+ * everything the stream applied, so it is authoritative and we take the
+ * server rows wholesale.
+ *
+ * Seq-unknown safety net: `seq` only steers the merge when it is present on
+ * BOTH sides — stamped by the daemon AND surviving to the client. On paths
+ * where it is absent (a pre-seq daemon image, an older client, a replay edge)
+ * the CDC invariant cannot fire, and an authoritative-by-default snapshot
+ * would take server rows wholesale — including a debounced snapshot still
+ * lagging the stream, which truncates the rendered answer (the exact
+ * regression this reconciler exists to prevent). So when seq is unavailable
+ * we apply one narrow guard: never replace a local assistant row with a
+ * snapshot row whose text strictly truncates it (see
+ * {@link snapshotTruncatesRow}). The seq-present path is untouched.
  *
  * Idempotent stream apply (events with `seq <= L` are no-ops) is enforced
  * upstream in the SSE consumer, so this merge never has to dedupe replays.
@@ -76,6 +87,12 @@ export function reconcileMessagesWithSeq(
     options.localSeq != null &&
     options.serverSeq < options.localSeq;
 
+  // Seq absent on either side disables the CDC invariant above. We can no
+  // longer prove staleness, so a debounced snapshot would otherwise truncate
+  // a live answer; the per-row guard below restores a narrow protection only
+  // on this path. No-op whenever seq is present (both non-null).
+  const seqUnknown = options.serverSeq == null || options.localSeq == null;
+
   const serverIds = new Set(server.flatMap((m) => messageIdentityKeys(m)));
 
   const oldestLocalTs =
@@ -111,10 +128,15 @@ export function reconcileMessagesWithSeq(
       return [];
     }
 
-    if (streamAhead && localMsg) {
+    if (
+      localMsg &&
+      (streamAhead || (seqUnknown && snapshotTruncatesRow(localMsg, m)))
+    ) {
       // Stale snapshot, live local row: keep the streamed row and adopt
       // only the server-assigned identity so dedupe and the optimistic
-      // echo-swap still resolve the row to its canonical id.
+      // echo-swap still resolve the row to its canonical id. The
+      // seq-unknown arm is the safety net for paths with no honest seq —
+      // it fires only when the snapshot would strictly truncate the row.
       return [adoptServerIdentity(localMsg, m)];
     }
 
@@ -163,6 +185,31 @@ function sameIdentitySequence(
     return false;
   }
   return a.every((row, i) => row.id === b[i]?.id);
+}
+
+/**
+ * Whether `server` would regress `local` by dropping rendered text — the
+ * seq-unknown safety net's sole trigger. True only for an assistant row whose
+ * server text is a strictly shorter prefix of the local text: the signature of
+ * a debounced snapshot that still lags the stream. A genuine server correction
+ * is rarely a pure prefix, so the guard stays tight — it shields a live or
+ * just-streamed answer from truncation without pinning the client to stale
+ * local content on a real edit (those fall through to the wholesale take).
+ * Restricted to assistant rows because only assistant turns stream deltas;
+ * user rows are written whole and never arrive truncated.
+ */
+function snapshotTruncatesRow(
+  local: DisplayMessage,
+  server: DisplayMessage,
+): boolean {
+  if (local.role !== "assistant") {
+    return false;
+  }
+  const localText = messagePlainText(local);
+  const serverText = messagePlainText(server);
+  return (
+    serverText.length < localText.length && localText.startsWith(serverText)
+  );
 }
 
 /**
