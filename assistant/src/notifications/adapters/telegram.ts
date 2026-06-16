@@ -11,8 +11,6 @@
 import { sendTelegramReply } from "../../messaging/providers/telegram-bot/send.js";
 import { ConfigError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
-import { isConversationSeedSane } from "../conversation-seed-composer.js";
-import { nonEmpty } from "../notification-utils.js";
 import type {
   ChannelAdapter,
   ChannelDeliveryPayload,
@@ -20,25 +18,9 @@ import type {
   DeliveryResult,
   NotificationChannel,
 } from "../types.js";
+import { resolveMessageText } from "./shared.js";
 
 const log = getLogger("notif-adapter-telegram");
-
-function resolveTelegramMessageText(payload: ChannelDeliveryPayload): string {
-  const deliveryText = nonEmpty(payload.copy.deliveryText);
-  if (deliveryText) return deliveryText;
-
-  if (isConversationSeedSane(payload.copy.conversationSeedMessage)) {
-    return payload.copy.conversationSeedMessage.trim();
-  }
-
-  const body = nonEmpty(payload.copy.body);
-  if (body) return body;
-
-  const title = nonEmpty(payload.copy.title);
-  if (title) return title;
-
-  return payload.sourceEventName.replace(/[._]/g, " ");
-}
 
 export class TelegramAdapter implements ChannelAdapter {
   readonly channel: NotificationChannel = "telegram";
@@ -59,7 +41,7 @@ export class TelegramAdapter implements ChannelAdapter {
       };
     }
 
-    const messageText = resolveTelegramMessageText(payload);
+    const messageText = resolveMessageText(payload);
     const approval = payload.approvalContext;
 
     try {
