@@ -8,9 +8,8 @@
  *     channel actually connects, not just stored;
  *   - any other credential: written to secure storage.
  *
- * Both the `credential_store` tool's prompt action and the CLI
- * `credentials prompt` route share this logic so the two entry points behave
- * identically.
+ * The CLI `credentials prompt` route uses this logic to persist a credential
+ * collected through a secure prompt.
  */
 
 import { getConfig } from "../config/loader.js";

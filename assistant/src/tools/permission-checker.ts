@@ -173,7 +173,7 @@ export class PermissionChecker {
       if (
         context.forcePromptSideEffects &&
         result.decision === "allow" &&
-        isSideEffectTool(name, input)
+        isSideEffectTool(name)
       ) {
         result.decision = "prompt";
         result.reason = "Side-effect tool requires explicit approval";
