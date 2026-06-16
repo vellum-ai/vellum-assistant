@@ -9,6 +9,7 @@ import {
 } from "../permissions/checker.js";
 import { getAutoApproveThreshold } from "../permissions/gateway-threshold-reader.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
+import { isFullAccessThreshold } from "../permissions/threshold.js";
 import type {
   ApprovalMode,
   ApprovalReason,
@@ -183,7 +184,13 @@ export class PermissionChecker {
       // cannot bypass the interactive prompt. This is separate from the
       // forcePromptSideEffects path above to ensure requireFreshApproval
       // is self-sufficient without relying on SIDE_EFFECT_TOOLS membership.
-      if (context.requireFreshApproval && result.decision === "allow") {
+      // At a full-access posture the user has opted into auto-approving even
+      // high-risk tools, so the promotion is skipped.
+      if (
+        context.requireFreshApproval &&
+        result.decision === "allow" &&
+        !isFullAccessThreshold(riskThreshold)
+      ) {
         result.decision = "prompt";
         result.reason =
           "Fresh approval required: per-invocation human review enforced";
