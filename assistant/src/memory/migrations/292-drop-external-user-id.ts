@@ -4,15 +4,13 @@ import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 const log = getLogger("migration-292");
 
 /**
- * Drops the `external_user_id` column from `contact_channels`.
+ * Drops the `external_user_id` column and its index from `contact_channels`.
  *
- * The column is fully redundant: `address` is the single canonical identity
- * column and every write path already canonicalizes into it. All reads that
- * previously fell back through `externalUserId ?? address` now read `address`
- * directly.
+ * `address` is the single canonical identity column; `external_user_id` is
+ * redundant. The index `idx_contact_channels_type_ext_user` must be dropped
+ * first — SQLite refuses to drop a column referenced by an index.
  *
- * Idempotent: skips if the column has already been dropped (fresh installs
- * or re-runs).
+ * Idempotent: skips if the column has already been dropped.
  */
 export function migrateDropExternalUserId(database: DrizzleDb): void {
   const raw = getSqliteFrom(database);
@@ -27,6 +25,7 @@ export function migrateDropExternalUserId(database: DrizzleDb): void {
     return;
   }
 
+  raw.run("DROP INDEX IF EXISTS idx_contact_channels_type_ext_user");
   raw.run("ALTER TABLE contact_channels DROP COLUMN external_user_id");
   log.info("Dropped external_user_id column from contact_channels");
 }
