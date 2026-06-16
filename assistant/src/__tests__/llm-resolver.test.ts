@@ -931,15 +931,19 @@ describe("resolveCallSiteConfig", () => {
         balanced: { model: "claude-haiku-4-5-20251001" },
       },
       activeProfile: "balanced",
-      callSites: {},
+      // Migration 105 seeds this on disk in production. A bare
+      // `CALL_SITE_DEFAULTS.advisor` would have its `profile` stripped under an
+      // `overrideProfile`, so the seeded call-site entry is what pins the
+      // advisor profile above both activeProfile and overrideProfile.
+      callSites: { advisor: { profile: "advisor" } },
     });
 
-    // The bare `advisor` call-site default pins the `advisor` profile, so the
-    // advisor model wins even though the workspace's active (and lower-tier)
-    // profile is `balanced`.
+    // The seeded `advisor` call site pins the `advisor` profile, so the advisor
+    // model wins even though the workspace's active (and lower-tier) profile is
+    // `balanced`.
     const resolved = resolveCallSiteConfig("advisor", llm);
     expect(resolved.model).toBe("claude-opus-4-8");
-    // maxTokens is sourced from the profile, since the call-site default is bare.
+    // maxTokens is sourced from the profile, since the call-site entry is bare.
     expect(resolved.maxTokens).toBe(2048);
 
     // A per-turn executor override (the chat profile) must not bleed into the
