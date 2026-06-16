@@ -27,19 +27,6 @@
   color: var(--content-tertiary);
   font-weight: 300;
 }
-.cast-vn__advance {
-  display: inline-block;
-  margin-top: 16px;
-  font-size: 14px;
-  font-weight: 620;
-  color: var(--content-secondary);
-  animation: cast-blink 1.2s ease-in-out infinite;
-  appearance: none;
-  border: none;
-  background: none;
-  cursor: pointer;
-  padding: 0;
-}
 .cast-vn__ghost {
   display: inline-flex;
   align-items: center;
@@ -55,11 +42,15 @@
   color: var(--content-tertiary);
 }
 
-/* ---- VN dialogue scene layout (centered, top-anchored) ---- */
+/* ---- VN dialogue scene layout (top-anchored) ----
+   Anchor the dialogue block toward the top rather than dead-center: when the
+   choice cards mount after the line finishes typing, a centered block jumps
+   upward to make room. Top-anchoring keeps the avatar + streaming line fixed
+   and lets the choices grow downward. */
 .cast-vn--top {
   align-items: center;
-  justify-content: center;
-  padding: 32px;
+  justify-content: flex-start;
+  padding: clamp(72px, 16vh, 180px) 32px 32px;
 }
 .cast-vn__top {
   max-width: 460px;
@@ -80,12 +71,14 @@
   color: #fff;
 }
 
-/* Dialogue body: lighter weight + roomier leading than the body token. */
+/* Dialogue body: the spoken line. Sized up so it reads as the focal element
+   rather than being dwarfed by the large choice cards below it. */
 .cast-dialogue__text {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 300;
-  line-height: 1.6;
+  margin: 0 0 4px;
+  font-size: 27px;
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: -0.01em;
   color: var(--content-default);
 }
 

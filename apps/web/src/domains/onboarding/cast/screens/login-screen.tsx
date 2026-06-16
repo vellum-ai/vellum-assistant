@@ -14,7 +14,8 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 
-import { Button, Input } from "@vellumai/design-library";
+import { Button, Dropdown, Input, Typography } from "@vellumai/design-library";
+import type { DropdownOption } from "@vellumai/design-library";
 
 import { AppleLogo } from "@/components/icons/apple-logo";
 import { GoogleLogo } from "@/components/icons/google-logo";
@@ -24,10 +25,38 @@ import type {
   LoginIdentity,
   LoginScreenProps,
 } from "@/domains/onboarding/cast/screens/screen-slot";
-import { useIsAuthenticated } from "@/stores/auth-store";
+import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
 import "@/domains/onboarding/cast/cast.css";
 
 export type { LoginIdentity };
+
+/** Sentinel for the "Other…" role option that reveals a free-text input. */
+const OTHER_ROLE = "__other__";
+
+/**
+ * Curated role list for the occupation dropdown. `occupation` is a free string
+ * downstream (persona + research directive), so the values are the plain role
+ * labels; the trailing "Other…" option reveals a free-text input so a role
+ * outside this list is never lost.
+ */
+const ROLE_OPTIONS: DropdownOption<string>[] = [
+  { value: "Software Engineer", label: "Software Engineer" },
+  { value: "Product Manager", label: "Product Manager" },
+  { value: "Designer", label: "Designer" },
+  { value: "Founder / CEO", label: "Founder / CEO" },
+  { value: "Marketing", label: "Marketing" },
+  { value: "Sales", label: "Sales" },
+  { value: "Operations", label: "Operations" },
+  { value: "Finance / Accounting", label: "Finance / Accounting" },
+  { value: "Data / Analytics", label: "Data / Analytics" },
+  { value: "Customer Success / Support", label: "Customer Success / Support" },
+  { value: "People / Recruiting", label: "People / Recruiting" },
+  { value: "Consultant", label: "Consultant" },
+  { value: "Student", label: "Student" },
+  { value: "Researcher", label: "Researcher" },
+  { value: "Writer / Creator", label: "Writer / Creator" },
+  { value: OTHER_ROLE, label: "Other…" },
+];
 
 export function LoginScreen({ onAdvance, onContinue, onIdentity }: LoginScreenProps) {
   // The cast arm only runs post-auth/post-consent, so the sign-in buttons are
@@ -35,10 +64,18 @@ export function LoginScreen({ onAdvance, onContinue, onIdentity }: LoginScreenPr
   // render the about-you form directly; the provider-button path survives only
   // for the (unexpected) unauthenticated case.
   const isAuthenticated = useIsAuthenticated();
+  // Prefill name from the signup identity (WorkOS/allauth `first_name` /
+  // `last_name`, exposed as `firstName`/`lastName` on the auth user). These can
+  // be empty strings when the provider didn't supply them — still fully
+  // editable below.
+  const user = useAuthStore.use.user();
   const [loggedIn, setLoggedIn] = useState(isAuthenticated);
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [role, setRole] = useState("");
+  const [firstName, setFirstName] = useState(user?.firstName ?? "");
+  const [lastName, setLastName] = useState(user?.lastName ?? "");
+  // Occupation is a dropdown with an "Other…" escape hatch: `roleSelection` is
+  // the picked option; `roleOther` holds free text when "Other…" is chosen.
+  const [roleSelection, setRoleSelection] = useState("");
+  const [roleOther, setRoleOther] = useState("");
   const [exiting, setExiting] = useState(false);
 
   // Reveal the about-you form once a provider is chosen (mock sign-in). Only
@@ -48,10 +85,13 @@ export function LoginScreen({ onAdvance, onContinue, onIdentity }: LoginScreenPr
     setLoggedIn(true);
   }
 
+  // The effective role string that flows to occupation downstream.
+  const role = roleSelection === OTHER_ROLE ? roleOther.trim() : roleSelection;
+
   const canContinue =
     firstName.trim().length > 0 &&
     lastName.trim().length > 0 &&
-    role.trim().length > 0;
+    role.length > 0;
 
   function handleContinue() {
     if (exiting || !canContinue) return;
@@ -59,7 +99,7 @@ export function LoginScreen({ onAdvance, onContinue, onIdentity }: LoginScreenPr
     const identity: LoginIdentity = {
       firstName: firstName.trim(),
       lastName: lastName.trim(),
-      role: role.trim(),
+      role,
     };
     setTimeout(() => {
       onIdentity?.(identity);
@@ -269,18 +309,33 @@ export function LoginScreen({ onAdvance, onContinue, onIdentity }: LoginScreenPr
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.35 }}
                 >
-                  <Input
-                    fullWidth
-                    label={
-                      <>
-                        Your role <span className="cast-about__req">*</span>
-                      </>
-                    }
-                    type="text"
-                    placeholder="e.g. Software Engineer"
-                    value={role}
-                    onChange={(e) => setRole(e.target.value)}
+                  <Typography
+                    as="label"
+                    variant="body-small-default"
+                    htmlFor="cast-role"
+                    className="text-[var(--content-secondary)]"
+                  >
+                    Your role <span className="cast-about__req">*</span>
+                  </Typography>
+                  <Dropdown
+                    id="cast-role"
+                    options={ROLE_OPTIONS}
+                    value={roleSelection}
+                    onChange={setRoleSelection}
+                    placeholder="Select your role"
+                    aria-label="Your role"
                   />
+                  {roleSelection === OTHER_ROLE && (
+                    <Input
+                      fullWidth
+                      type="text"
+                      placeholder="What's your role?"
+                      value={roleOther}
+                      onChange={(e) => setRoleOther(e.target.value)}
+                      aria-label="Your role"
+                      autoFocus
+                    />
+                  )}
                 </motion.div>
 
                 <motion.div
@@ -304,24 +359,6 @@ export function LoginScreen({ onAdvance, onContinue, onIdentity }: LoginScreenPr
           </AnimatePresence>
         </div>
       </div>
-
-      {/* ---- Right column: video ---- */}
-      <motion.div
-        className="cast-login__right"
-        initial={{ opacity: 0 }}
-        animate={exiting ? { opacity: 0 } : { opacity: 1 }}
-        transition={{ duration: 0.6, delay: exiting ? 0 : 0.15 }}
-        aria-hidden
-      >
-        <video
-          className="cast-login__video"
-          src={publicAsset("/vellum-scene-cut.mp4")}
-          autoPlay
-          loop
-          muted
-          playsInline
-        />
-      </motion.div>
     </motion.div>
   );
 }

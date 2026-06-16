@@ -18,21 +18,29 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library";
 
 import { BlinkingAvatar } from "@/domains/onboarding/cast/cast-shell";
 import type { CastCharacter } from "@/domains/onboarding/cast/cast-roster";
 import type { CastTool } from "@/domains/onboarding/cast/cast-tools";
-import { CAST_TOOLS, SECOND_REACH_TOOLS } from "@/domains/onboarding/cast/cast-tools";
+import { CAST_TOOLS, pickSecondReachTool } from "@/domains/onboarding/cast/cast-tools";
 import type { DialogueScreenProps } from "@/domains/onboarding/cast/screens/screen-slot";
+import { useOAuthConnect } from "@/hooks/use-oauth-connect";
+import { oauthProvidersGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import {
+  assistantsOauthConnectionsListOptions,
+  assistantsOauthConnectionsListQueryKey,
+} from "@/generated/api/@tanstack/react-query.gen";
+import type { OAuthConnection } from "@/generated/api/types.gen";
 import { publicAsset } from "@/utils/public-asset";
 import "@/domains/onboarding/cast/cast.css";
 
 // ---------------------------------------------------------------------------
-// Reach tools — driven by the shared `cast-tools` registry. The second tool
-// offered is chosen by analysing the brain-import context (or a deterministic
-// per-character fallback); Google Calendar (the registry's first entry) is
-// always offered first and is excluded from the second-slot candidates.
+// Reach tools — driven by the shared `cast-tools` registry. Google Calendar
+// (the registry's first entry) is always offered first; the second tool is
+// chosen from the user's role/occupation, falling back to a deterministic
+// per-character pick. The cards trigger real OAuth (see `ReachToolCard`).
 // ---------------------------------------------------------------------------
 
 const GOOGLE_CALENDAR = CAST_TOOLS[0];
@@ -42,37 +50,14 @@ function toolIcon(tool: CastTool): React.ReactNode {
   return <img src={publicAsset(tool.icon)} alt={tool.label} width={32} height={32} />;
 }
 
-/**
- * Analyse uploaded brain-import context to pick the best second OAuth tool.
- * Returns a tool from `SECOND_REACH_TOOLS`. Falls back to a deterministic
- * pick seeded from `characterId` when no context was uploaded or no keywords
- * match.
- */
-function pickSecondReachTool(fileContent: string | null, characterId: string): CastTool {
-  if (fileContent) {
-    const lower = fileContent.toLowerCase();
-    let best: CastTool | null = null;
-    let bestScore = 0;
-    for (const tool of SECOND_REACH_TOOLS) {
-      const score = tool.keywords.reduce((n, kw) => {
-        // Count occurrences of each keyword (case-insensitive, whole-word-ish)
-        const re = new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi");
-        return n + (lower.match(re)?.length ?? 0);
-      }, 0);
-      if (score > bestScore) {
-        bestScore = score;
-        best = tool;
-      }
-    }
-    if (best) return best;
-  }
-
-  // Deterministic pseudo-random pick seeded from character id
-  let hash = 0;
-  for (let i = 0; i < characterId.length; i++) {
-    hash = (hash * 31 + characterId.charCodeAt(i)) | 0;
-  }
-  return SECOND_REACH_TOOLS[Math.abs(hash) % SECOND_REACH_TOOLS.length];
+/** True when the assistant has a live connection for the tool's provider. */
+function isToolConnected(
+  connections: OAuthConnection[] | undefined,
+  tool: CastTool,
+): boolean {
+  return Boolean(
+    connections?.find((c) => c.provider === tool.provider)?.connected,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -84,7 +69,8 @@ interface VNDialogueFlowProps {
   character: CastCharacter;
   name: string;
   userName: string;
-  brainFileContent: string | null;
+  occupation: string;
+  assistantId: string | null;
   memories: [string, string][];
   onTonePicked: (value: "fast" | "deep") => void;
   onReachPicked: (connected: string[], creditsEarned: number) => void;
@@ -121,7 +107,8 @@ function VNDialogueFlow({
   character,
   name,
   userName,
-  brainFileContent,
+  occupation,
+  assistantId,
   memories: _memories,
   onTonePicked,
   onReachPicked,
@@ -132,7 +119,6 @@ function VNDialogueFlow({
   const [charCount, setCharCount] = useState(0);
   const [typed, setTyped] = useState(false);
   const [tonePick, setTonePick] = useState<"left" | "right" | null>(null);
-  const [reachConnected, setReachConnected] = useState<Set<string>>(new Set());
   const [loadingStepIdx, setLoadingStepIdx] = useState(0);
   const loadingSteps = useMemo(() => [
     `Learning about ${userName}…`,
@@ -156,15 +142,37 @@ function VNDialogueFlow({
 
   const text = vnDialogueText(step, name);
 
-  // Reach tools (same logic as the prototype's ReachChoice)
+  // Reach tools: Google Calendar always first, the second chosen from the
+  // user's role/occupation (e.g. engineer → GitHub, PM → Linear).
   const secondTool = useMemo(
-    () => pickSecondReachTool(brainFileContent, character.id),
-    [brainFileContent, character.id],
+    () => pickSecondReachTool(occupation, character.id),
+    [occupation, character.id],
   );
   const reachTools = useMemo<CastTool[]>(
     () => [GOOGLE_CALENDAR, secondTool],
     [secondTool],
   );
+
+  // OAuth state for the reach cards. The background-hatched assistant owns the
+  // connections; the queries stay disabled (and the cards non-connectable)
+  // until its id is available. `oauthProvidersGet` tells us which providers
+  // support managed mode; `connections` reflects what's actually connected.
+  const { data: providers } = useQuery({
+    ...oauthProvidersGetOptions({
+      path: { assistant_id: assistantId ?? "" },
+    }),
+    select: (data) => data.providers,
+    enabled: !!assistantId,
+  });
+  const connectionsQueryKey = assistantsOauthConnectionsListQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+  });
+  const { data: connections } = useQuery({
+    ...assistantsOauthConnectionsListOptions({
+      path: { assistant_id: assistantId ?? "" },
+    }),
+    enabled: !!assistantId,
+  });
 
   // --- Typewriter effect ---
   useEffect(() => {
@@ -221,19 +229,13 @@ function VNDialogueFlow({
     setTimeout(() => setStep({ kind: "tone-react", value }), 200);
   }
 
-  // --- Reach connect ---
-  function handleReachConnect(key: string, e: React.MouseEvent) {
-    e.stopPropagation();
-    setReachConnected((prev) => {
-      const next = new Set(prev);
-      next.add(key);
-      return next;
-    });
-  }
-
+  // --- Reach continue --- (each card connects via real OAuth in `ReachToolCard`;
+  // the connected set is read back from the live connections query here).
   function handleReachContinue(e: React.MouseEvent) {
     e.stopPropagation();
-    const connected = [...reachConnected];
+    const connected = reachTools
+      .filter((tool) => isToolConnected(connections, tool))
+      .map((tool) => tool.slug);
     onReachPicked(connected, connected.length > 0 ? 25 : 0);
     setStep({ kind: "reach-react", connected: connected.length });
   }
@@ -295,45 +297,28 @@ function VNDialogueFlow({
           </div>
         )}
 
-        {/* Reach tool cards */}
+        {/* Reach tool cards — each connects via real OAuth. */}
         {step.kind === "reach" && typed && (
           <>
             <div className="grid grid-cols-2 gap-3.5">
-              {reachTools.map((tool) => {
-                const isConnected = reachConnected.has(tool.slug);
-                return (
-                  <motion.div
-                    key={tool.slug}
-                    className="flex"
-                    whileHover={isConnected ? undefined : { y: -6 }}
-                    whileTap={isConnected ? undefined : { scale: 0.97 }}
-                  >
-                    <Button
-                      variant="ghost"
-                      fullWidth
-                      className="cast-dialogue__choice relative flex-col gap-2.5"
-                      style={{ opacity: isConnected ? 0.85 : 1, cursor: isConnected ? "default" : "pointer" }}
-                      onClick={(e) => !isConnected && handleReachConnect(tool.slug, e)}
-                    >
-                      {toolIcon(tool)}
-                      {tool.label}
-                      {isConnected && (
-                        <span className="cast-dialogue__connected-tag absolute right-2 top-2">
-                          Connected
-                        </span>
-                      )}
-                    </Button>
-                  </motion.div>
-                );
-              })}
+              {reachTools.map((tool) => (
+                <ReachToolCard
+                  key={tool.slug}
+                  tool={tool}
+                  assistantId={assistantId}
+                  providers={providers}
+                  connections={connections}
+                  connectionsQueryKey={connectionsQueryKey}
+                />
+              ))}
             </div>
-            <button
-              type="button"
-              className="cast-vn__advance"
+            <Button
+              variant="primary"
+              className="self-center"
               onClick={handleReachContinue}
             >
-              Next &#9660;
-            </button>
+              Continue
+            </Button>
           </>
         )}
 
@@ -366,6 +351,83 @@ function VNDialogueFlow({
 }
 
 // ---------------------------------------------------------------------------
+// ReachToolCard — one reach-phase card wired to the real OAuth connect flow.
+// Rendered as its own component so each card owns a single `useOAuthConnect`
+// instance (the hook can't be called in a loop in the parent).
+// ---------------------------------------------------------------------------
+
+function ReachToolCard({
+  tool,
+  assistantId,
+  providers,
+  connections,
+  connectionsQueryKey,
+}: {
+  tool: CastTool;
+  assistantId: string | null;
+  providers:
+    | Array<{ provider_key: string; supports_managed_mode: boolean }>
+    | undefined;
+  connections: OAuthConnection[] | undefined;
+  connectionsQueryKey: ReturnType<typeof assistantsOauthConnectionsListQueryKey>;
+}) {
+  const managedAvailable = Boolean(
+    providers?.find((p) => p.provider_key === tool.provider)
+      ?.supports_managed_mode,
+  );
+  const { handleConnect, oauthInProgress, startOAuthPending } = useOAuthConnect({
+    assistantId: assistantId ?? "",
+    providerKey: tool.provider,
+    displayName: tool.label,
+    managedAvailable,
+    connectionsQueryKey,
+    allConnections: connections,
+  });
+
+  const isConnected = isToolConnected(connections, tool);
+  const busy = oauthInProgress || startOAuthPending;
+  // The hatch may still be in flight, or the provider may not support managed
+  // mode — in either case the card can't connect yet.
+  const unavailable = !assistantId || !managedAvailable;
+  const interactive = !isConnected && !busy && !unavailable;
+
+  return (
+    <motion.div
+      className="flex"
+      whileHover={interactive ? { y: -6 } : undefined}
+      whileTap={interactive ? { scale: 0.97 } : undefined}
+    >
+      <Button
+        variant="ghost"
+        fullWidth
+        disabled={unavailable}
+        className="cast-dialogue__choice relative flex-col gap-2.5"
+        style={{
+          opacity: isConnected ? 0.85 : 1,
+          cursor: interactive ? "pointer" : "default",
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (interactive) handleConnect();
+        }}
+      >
+        {toolIcon(tool)}
+        {tool.label}
+        {isConnected ? (
+          <span className="cast-dialogue__connected-tag absolute right-2 top-2">
+            Connected
+          </span>
+        ) : busy ? (
+          <span className="cast-dialogue__connected-tag absolute right-2 top-2">
+            Connecting…
+          </span>
+        ) : null}
+      </Button>
+    </motion.div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // DialogueScreen — slot adapter conforming to `DialogueScreenProps`.
 // ---------------------------------------------------------------------------
 
@@ -374,7 +436,8 @@ export function DialogueScreen({
   character,
   name,
   userName,
-  brainFileContent,
+  occupation,
+  assistantId,
   memories,
   onTonePicked,
   onReachPicked,
@@ -385,7 +448,8 @@ export function DialogueScreen({
       character={character}
       name={name}
       userName={userName}
-      brainFileContent={brainFileContent}
+      occupation={occupation}
+      assistantId={assistantId}
       memories={memories}
       onTonePicked={onTonePicked}
       onReachPicked={onReachPicked}

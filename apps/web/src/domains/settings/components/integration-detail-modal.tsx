@@ -15,7 +15,7 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
-import { useOAuthConnect } from "@/domains/settings/hooks/use-oauth-connect";
+import { useOAuthConnect } from "@/hooks/use-oauth-connect";
 import type { PlatformGateState } from "@/hooks/use-platform-gate";
 import { extractErrorMessage } from "@/utils/api-errors";
 

@@ -206,7 +206,12 @@ export function CastStarter({
 
         {bodyIndex !== null && previewCharacter && (
           <motion.div
-            className="absolute inset-0 z-[6] flex h-[100dvh] flex-col items-center justify-center px-5 [background:radial-gradient(120%_90%_at_50%_0%,var(--surface-lift)_0%,var(--surface-base)_60%,var(--cast-shroud)_100%)]"
+            // Opaque backdrop hides the line-up behind the customize card, but
+            // it must stay the SAME dark-green vignette as `.cast-panel` — the
+            // old surface→shroud gradient flipped the backdrop green→black on
+            // select and back to green on the next phase. Mirror the panel green
+            // (bespoke literal; see shell.css — no token equivalent).
+            className="absolute inset-0 z-[6] flex h-[100dvh] flex-col items-center justify-center px-5 [background:radial-gradient(ellipse_at_50%_30%,#162b16_0%,#0f1f0f_40%,#091509_100%)]"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.3, ease: "easeOut" }}
