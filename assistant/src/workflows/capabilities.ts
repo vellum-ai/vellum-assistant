@@ -6,7 +6,7 @@
  * functions, and persona access its leaf agents may use. That declaration is
  * the **single consent point** for the entire run: there are no per-leaf or
  * per-call permission prompts inside a workflow run. The engine/leaf runner
- * (a later PR) calls {@link resolveCapabilities} once and then **hard-denies**
+ * calls {@link resolveCapabilities} once and then **hard-denies**
  * any tool invocation that falls outside the resolved set.
  *
  * Resolution policy:
@@ -77,9 +77,9 @@ export const WORKFLOW_READONLY_BASELINE: readonly string[] = [
  *
  * - `subagent_spawn` — leaves must not spawn nested agents; the workflow
  *   engine owns fan-out.
- * - `run_workflow` / `manage_workflows` — the workflow tools themselves
- *   (registered by a later PR; referenced here by name) would let a leaf
- *   recurse into or reconfigure the engine.
+ * - `run_workflow` / `manage_workflows` — the workflow tools themselves;
+ *   granting either to a leaf would let it recurse into or reconfigure the
+ *   engine.
  * - `manage_secure_command_tool` — CES secure-bundle management is a
  *   human-in-the-loop install path and is never delegated to an unattended
  *   leaf.

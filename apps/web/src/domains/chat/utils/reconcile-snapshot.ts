@@ -19,6 +19,8 @@ export interface ReconcileSnapshotOptions {
   /** Local seq `L` as of before this snapshot is applied. */
   localSeq: number | null;
   oldestPageTimestamp?: number | null;
+  /** Force the snapshot to win even when `L > S` (set by reconnect reconciles). */
+  authoritative?: boolean;
 }
 
 export function reconcileSnapshot(
@@ -30,6 +32,7 @@ export function reconcileSnapshot(
     serverSeq: options.serverSeq,
     localSeq: options.localSeq,
     oldestPageTimestamp: options.oldestPageTimestamp,
+    authoritative: options.authoritative,
   });
 }
 

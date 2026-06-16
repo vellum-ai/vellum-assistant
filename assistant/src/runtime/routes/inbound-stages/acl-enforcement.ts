@@ -2,10 +2,9 @@
  * Ingress ACL enforcement stage: resolves the inbound actor to a member
  * record, enforces allow/deny/escalate policies, handles invite token
  * intercepts, and notifies the guardian of denied access requests.
- *
- * Extracted from inbound-message-handler.ts to keep the top-level handler
- * focused on orchestration.
  */
+import type { SourceMetadata } from "@vellumai/gateway-client";
+
 import { isInviteCodeRedemptionEnabled } from "../../../channels/config.js";
 import type { ChannelId } from "../../../channels/types.js";
 import {
@@ -85,7 +84,7 @@ export interface AclEnforcementParams {
   conversationExternalId: string;
   canonicalAssistantId: string;
   trimmedContent: string;
-  sourceMetadata: Record<string, unknown> | undefined;
+  sourceMetadata: SourceMetadata | undefined;
   actorDisplayName: string | undefined;
   actorUsername: string | undefined;
   replyCallbackUrl: string | undefined;
@@ -138,40 +137,21 @@ export async function enforceIngressAcl(
   } = params;
 
   // Trust signals from Slack users.info, forwarded via sourceMetadata.
-  const isStranger = sourceMetadata?.isStranger === true ? true : undefined;
-  const isRestricted = sourceMetadata?.isRestricted === true ? true : undefined;
+  const isStranger = sourceMetadata?.isStranger ?? undefined;
+  const isRestricted = sourceMetadata?.isRestricted ?? undefined;
 
   // Slack message timestamp for permalink construction.
-  const messageTs =
-    typeof sourceMetadata?.messageId === "string"
-      ? sourceMetadata.messageId
-      : undefined;
+  const messageTs = sourceMetadata?.messageId ?? undefined;
 
   let resolvedMember: ResolvedMember | null = null;
 
   // /start gv_<token> bootstrap commands must also bypass ACL — the user
   // hasn't been verified yet and needs to complete the bootstrap handshake.
-  const rawCommandIntentForAcl = sourceMetadata?.commandIntent;
+  const commandIntentForAcl = sourceMetadata?.commandIntent;
   const isBootstrapCommand =
-    rawCommandIntentForAcl &&
-    typeof rawCommandIntentForAcl === "object" &&
-    !Array.isArray(rawCommandIntentForAcl) &&
-    (rawCommandIntentForAcl as Record<string, unknown>).type === "start" &&
-    typeof (rawCommandIntentForAcl as Record<string, unknown>).payload ===
-      "string" &&
-    (
-      (rawCommandIntentForAcl as Record<string, unknown>).payload as string
-    ).startsWith("gv_");
-
-  // Parse invite token from /start payloads using the channel transport
-  // adapter. The token is extracted once here so both the ACL bypass and
-  // the intercept handler can reference it without re-parsing.
-  const commandIntentForAcl =
-    rawCommandIntentForAcl &&
-    typeof rawCommandIntentForAcl === "object" &&
-    !Array.isArray(rawCommandIntentForAcl)
-      ? (rawCommandIntentForAcl as Record<string, unknown>)
-      : undefined;
+    commandIntentForAcl?.type === "start" &&
+    typeof commandIntentForAcl.payload === "string" &&
+    commandIntentForAcl.payload.startsWith("gv_");
   const inviteAdapter = getInviteAdapterRegistry().get(sourceChannel);
   const inviteToken = inviteAdapter?.extractInboundToken?.({
     commandIntent: commandIntentForAcl,
@@ -205,9 +185,7 @@ export async function enforceIngressAcl(
       // any `/start gv_<garbage>` would bypass the not_a_member gate and
       // fall through to normal /start processing.
       if (isBootstrapCommand) {
-        const bootstrapPayload = (
-          rawCommandIntentForAcl as Record<string, unknown>
-        ).payload as string;
+        const bootstrapPayload = commandIntentForAcl!.payload!;
         const bootstrapTokenForAcl = bootstrapPayload.slice(3); // strip 'gv_' prefix
         const bootstrapSessionForAcl = resolveBootstrapToken(
           sourceChannel,
@@ -476,9 +454,7 @@ export async function enforceIngressAcl(
         // (pending/revoked), but never for blocked members.
         let denyInactiveMember = true;
         if (!isBlockedMember && isBootstrapCommand) {
-          const bootstrapPayload = (
-            rawCommandIntentForAcl as Record<string, unknown>
-          ).payload as string;
+          const bootstrapPayload = commandIntentForAcl!.payload!;
           const bootstrapTokenForAcl = bootstrapPayload.slice(3);
           const bootstrapSessionForAcl = resolveBootstrapToken(
             sourceChannel,

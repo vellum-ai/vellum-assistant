@@ -51,7 +51,9 @@ mock.module("@vellumai/local-mode", () => ({
   upsertLockfileAssistant: mock(() => ({ ok: false, error: "unused" })),
   runHatch: mock(async () => ({ ok: false, error: "unused" })),
   runRetire: mock(async () => ({ ok: false, error: "unused" })),
+  runSleep: mock(async () => ({ ok: false, error: "unused" })),
   runWake: mock(async () => ({ ok: false, error: "unused" })),
+  getLocalAssistantStatus: mock(async () => ({ ok: true, state: "sleeping" })),
 }));
 
 const ensureCliInstalledMock = mock(async () => undefined);

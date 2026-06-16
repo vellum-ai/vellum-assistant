@@ -68,7 +68,7 @@ interface HeadlessProviderEntry {
  * During the coexistence window the platform lists two entries
  * with the same "workos-oidc" provider ID.
  * The OAuth2 one is distinguished by having no OIDC discovery URL.
- * Returns null when the platform doesn't support token auth yet - 
+ * Returns null when the platform doesn't support token auth yet -
  * callers should surface that as a clear error.
  */
 export function selectWorkosClientId(

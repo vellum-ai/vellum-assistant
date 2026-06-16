@@ -54,6 +54,10 @@ import memoryRetrievalPkg from "./memory-retrieval/package.json" with { type: "j
 import memoryV3PostCompact from "./memory-v3-shadow/hooks/post-compact.js";
 import memoryV3UserPromptSubmit from "./memory-v3-shadow/hooks/user-prompt-submit.js";
 import memoryV3Pkg from "./memory-v3-shadow/package.json" with { type: "json" };
+import taskProgressNudgePostToolUse, {
+  resetTaskProgressNudgeStateForTests,
+} from "./task-progress-nudge/hooks/post-tool-use.js";
+import taskProgressNudgePkg from "./task-progress-nudge/package.json" with { type: "json" };
 import titleGenerateStop from "./title-generate/hooks/stop.js";
 import titleGenerateUserPromptSubmit from "./title-generate/hooks/user-prompt-submit.js";
 import titleGeneratePkg from "./title-generate/package.json" with { type: "json" };
@@ -240,6 +244,22 @@ export const defaultExplorationDriftPlugin: Plugin = {
 };
 
 /**
+ * `task-progress-nudge` — a `post-tool-use` hook that nudges the model to show
+ * a `task_progress` card once an interactive turn has accumulated several
+ * tool-call rounds without one. Best-effort and once-per-turn; capable models
+ * that already show a card are never nudged.
+ */
+export const defaultTaskProgressNudgePlugin: Plugin = {
+  manifest: {
+    name: taskProgressNudgePkg.name,
+    version: taskProgressNudgePkg.version,
+  },
+  hooks: {
+    "post-tool-use": taskProgressNudgePostToolUse,
+  },
+};
+
+/**
  * `tool-result-truncate` — a `post-tool-use` hook that tail-drops an oversized
  * tool result down to a character budget derived from the model's context
  * window before the result is sent to the provider.
@@ -268,6 +288,7 @@ function getAllDefaultPlugins(): readonly Plugin[] {
     defaultMaxTokensContinuePlugin,
     defaultToolErrorPlugin,
     defaultExplorationDriftPlugin,
+    defaultTaskProgressNudgePlugin,
     defaultHistoryRepairPlugin,
     defaultImageRecoveryPlugin,
     defaultCompactionPlugin,
@@ -317,5 +338,6 @@ export function resetPluginRegistryAndRegisterDefaults(): void {
   resetRepairStateStoreForTests();
   resetImageRecoveryStoreForTests();
   resetExplorationDriftStateForTests();
+  resetTaskProgressNudgeStateForTests();
   registerDefaultPlugins();
 }

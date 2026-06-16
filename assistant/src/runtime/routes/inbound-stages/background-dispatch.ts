@@ -14,16 +14,13 @@ import type { TrustContext } from "../../../daemon/trust-context.js";
 import {
   addSlackDmLiveDeliveredTextResponseIndex,
   getSlackDmLiveDeliveredTextResponseIndexes,
-  updateDeliveredSegmentCount,
 } from "../../../memory/delivery-channels.js";
 import {
   linkMessage,
   storeReplyMessageId,
 } from "../../../memory/delivery-crud.js";
 import {
-  markDeliveryDelivered,
   markProcessed,
-  recordDeliveryFailure,
   recordProcessingFailure,
 } from "../../../memory/delivery-status.js";
 import {
@@ -53,7 +50,7 @@ import {
   isSlackDeliveryCallbackUrl,
 } from "../../slack-dm-text-delivery.js";
 import { resolveRoutingState } from "../../trust-context-resolver.js";
-import { deliverReplyViaCallback } from "../channel-delivery-routes.js";
+import { finalizeEventDelivery } from "../channel-delivery-routes.js";
 import { deliverGeneratedApprovalPrompt } from "../guardian-approval-prompt.js";
 
 const log = getLogger("runtime-http");
@@ -326,32 +323,21 @@ export function processChannelMessageInBackground(
 
       if (replyCallbackUrl) {
         try {
-          if (slackDmTextDelivery) {
-            await slackDmTextDelivery.waitForPendingDeliveries();
-          }
-          const liveDeliveryResumeOptions =
-            slackDmTextDelivery?.getFinalDeliveryResumeOptions(replyMessageId);
-
-          await deliverReplyViaCallback(
+          await finalizeEventDelivery({
+            eventId,
             conversationId,
             externalChatId,
             replyCallbackUrl,
             assistantId,
-            {
-              messageId: replyMessageId,
-              sinceMessageId: userMessageId,
-              ...liveDeliveryResumeOptions,
-              onSegmentDelivered: (count) =>
-                updateDeliveredSegmentCount(eventId, count),
-            },
-          );
-          markDeliveryDelivered(eventId);
+            replyMessageId,
+            userMessageId,
+            slackDmTextDelivery,
+          });
         } catch (err) {
           log.error(
             { err, conversationId },
             "Background channel reply delivery failed",
           );
-          recordDeliveryFailure(eventId, err);
         }
       }
     } finally {

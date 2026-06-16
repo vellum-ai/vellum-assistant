@@ -212,6 +212,30 @@ def _payload_fields(prefix: str, body: bytes) -> dict:
     }
 
 
+def _round_trip_ms(flow) -> Optional[int]:  # type: ignore[no-untyped-def]
+    """Proxy-observed round-trip latency for one request, in whole ms.
+
+    mitmproxy stamps `request.timestamp_start` when the first request byte
+    arrives and `response.timestamp_end` when the last response byte is sent,
+    both as epoch-second floats. Their difference is the wall-clock the client
+    waited on this call as seen at the proxy. Returns `None` when either stamp
+    is missing or the pair is non-monotonic, so the report renders "—" rather
+    than a bogus duration.
+    """
+    try:
+        start = getattr(flow.request, "timestamp_start", None)
+        end = getattr(flow.response, "timestamp_end", None)
+        if not isinstance(start, (int, float)) or not isinstance(
+            end, (int, float)
+        ):
+            return None
+        if end < start:
+            return None
+        return round((end - start) * 1000)
+    except Exception:  # noqa: BLE001 -- never crash the recording hook
+        return None
+
+
 def response(flow) -> None:  # type: ignore[no-untyped-def]
     """mitmproxy hook fired after the full response body is available."""
     try:
@@ -250,6 +274,7 @@ def response(flow) -> None:  # type: ignore[no-untyped-def]
         if record is None:
             return
         record["recorded_at"] = datetime.now(timezone.utc).isoformat()
+        record["duration_ms"] = _round_trip_ms(flow)
         record["request_path"] = request.path
         record["status_code"] = response.status_code
         record.update(_payload_fields("request", request_body))

@@ -77,7 +77,7 @@ public final class OAuthConnectSurfaceCoordinator {
 
     private func performWebAuth(url: URL) async throws -> URL {
         try await withCheckedThrowingContinuation { continuation in
-            let session = ASWebAuthenticationSession(url: url, callbackURLScheme: "vellum-assistant") { [weak self] callbackURL, error in
+            let session = ASWebAuthenticationSession(url: url, callback: .customScheme("vellum-assistant")) { [weak self] callbackURL, error in
                 self?.activeSession = nil
                 if let error {
                     continuation.resume(throwing: error)

@@ -3874,6 +3874,105 @@ paths:
       description: Receive an inbound message from a channel integration.
       tags:
         - channels
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sourceChannel:
+                  type: string
+                interface:
+                  type: string
+                conversationExternalId:
+                  type: string
+                externalMessageId:
+                  type: string
+                content:
+                  type: string
+                isEdit:
+                  type: boolean
+                callbackQueryId:
+                  type: string
+                callbackData:
+                  type: string
+                actorDisplayName:
+                  type: string
+                actorExternalId:
+                  type: string
+                actorUsername:
+                  type: string
+                sourceMetadata:
+                  type: object
+                  properties:
+                    updateId:
+                      type: string
+                    messageId:
+                      type: string
+                    chatType:
+                      type: string
+                    threadId:
+                      type: string
+                    channelName:
+                      type: string
+                    languageCode:
+                      type: string
+                    isBot:
+                      type: boolean
+                    timezone:
+                      type: string
+                    timezoneLabel:
+                      type: string
+                    timezoneOffsetSeconds:
+                      type: number
+                    isStranger:
+                      type: boolean
+                    isRestricted:
+                      type: boolean
+                    hints:
+                      type: array
+                      items:
+                        type: string
+                    uxBrief:
+                      type: string
+                    clientTimezone:
+                      type: string
+                    commandIntent:
+                      type: object
+                      properties:
+                        type:
+                          type: string
+                        payload:
+                          type: string
+                      required:
+                        - type
+                    slackBotMentioned:
+                      type: boolean
+                    account:
+                      type: string
+                    emailSubject:
+                      type: string
+                    emailRecipient:
+                      type: string
+                    emailInReplyTo:
+                      type: string
+                    emailReferences:
+                      type: string
+                  additionalProperties: {}
+                attachmentIds:
+                  type: array
+                  items:
+                    type: string
+                replyCallbackUrl:
+                  type: string
+              required:
+                - sourceChannel
+                - interface
+                - conversationExternalId
+                - externalMessageId
+                - content
+                - actorExternalId
       responses:
         "200":
           description: Successful response

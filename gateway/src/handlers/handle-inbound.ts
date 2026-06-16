@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import type { SourceMetadata } from "@vellumai/gateway-client";
 import type { GatewayConfig } from "../config.js";
 import { ipcCallAssistant } from "../ipc/assistant-client.js";
 import { resolveIpcSocketPath } from "../ipc/socket-path.js";
@@ -40,7 +41,7 @@ export type HandleInboundOptions = {
   /** When provided, skip resolveAssistant() and use this pre-resolved route. */
   routingOverride?: RouteResult;
   /** Extra fields merged into sourceMetadata (e.g. commandIntent). */
-  sourceMetadata?: Record<string, unknown>;
+  sourceMetadata?: Partial<SourceMetadata>;
 };
 
 function normalizeTransportHints(hints: string[] | undefined): string[] {

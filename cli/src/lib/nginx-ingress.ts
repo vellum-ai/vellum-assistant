@@ -13,6 +13,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
 import { GATEWAY_PORT } from "./constants.js";
@@ -26,6 +27,7 @@ import { GATEWAY_PORT } from "./constants.js";
  */
 
 export const DEFAULT_NGINX_INGRESS_PORT = 7840;
+const _require = createRequire(import.meta.url);
 
 /** Listen port for nginx ingress, from VELLUM_NGINX_INGRESS_PORT. */
 export function getNginxIngressPort(): number {
@@ -79,12 +81,118 @@ function saveRawConfig(
 }
 
 /**
+ * Locate the pre-built @vellumai/web dist directory.
+ *
+ * Resolution order:
+ *   1. npm-installed package — require.resolve('@vellumai/web/package.json')
+ *   2. Source checkout — walk up from cli/ to find apps/web/dist/
+ */
+export function findWebDistDir(): string | null {
+  try {
+    const pkgPath = _require.resolve("@vellumai/web/package.json");
+    const distDir = join(dirname(pkgPath), "dist");
+    if (existsSync(join(distDir, "index.html"))) {
+      return distDir;
+    }
+  } catch {
+    // Package not installed; try source checkout.
+  }
+
+  let dir = import.meta.dir;
+  for (let depth = 0; depth < 8; depth++) {
+    const candidate = join(dir, "apps", "web", "dist", "index.html");
+    if (existsSync(candidate)) {
+      return dirname(candidate);
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
+function nginxQuoted(value: string, label: string): string {
+  if (/[\u0000-\u001f\u007f]/.test(value)) {
+    throw new Error(`${label} contains a control character`);
+  }
+  return `"${value
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\$/g, "\\$")}"`;
+}
+
+function nginxDirPath(dir: string): string {
+  return dir.endsWith("/") ? dir : `${dir}/`;
+}
+
+function gatewayProxyBlock(gatewayPort: number): string {
+  return `      proxy_pass http://127.0.0.1:${gatewayPort};
+      proxy_http_version 1.1;
+      proxy_request_buffering off;
+      proxy_buffering off;
+      proxy_read_timeout 1h;
+      proxy_set_header Host $host;
+      proxy_set_header X-Vellum-Edge-Forwarded "1";
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection $connection_upgrade;`;
+}
+
+export interface RemoteWebIngressOptions {
+  webDistDir: string;
+  indexHtmlPath?: string;
+  config?: Record<string, unknown>;
+}
+
+function remoteWebIngressConfig(
+  config: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  return {
+    mode: "remote-gateway",
+    apiBaseUrl: "/v1",
+    platformDisabled: true,
+    disablePlatform: true,
+    ...config,
+  };
+}
+
+function safeScriptJson(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e");
+}
+
+export function buildRemoteWebIndexHtml(
+  rawHtml: string,
+  config: Record<string, unknown>,
+): string {
+  const script = `<script>window.__VELLUM_CONFIG__=${safeScriptJson(config)}</script>`;
+  if (rawHtml.includes("</head>")) {
+    return rawHtml.replace("</head>", `${script}</head>`);
+  }
+  return `${script}${rawHtml}`;
+}
+
+/**
  * Build the nginx config that forwards tunnel web traffic to the gateway.
  */
 export function buildIngressNginxConfig(opts: {
   gatewayPort: number;
   listenPort: number;
+  remoteWebIngress?: RemoteWebIngressOptions;
 }): string {
+  const proxyBlock = gatewayProxyBlock(opts.gatewayPort);
+  const remoteWebIngress = opts.remoteWebIngress;
+  const serverLocations = remoteWebIngress
+    ? buildRemoteWebIngressLocations({
+        gatewayPort: opts.gatewayPort,
+        webDistDir: remoteWebIngress.webDistDir,
+        indexHtmlPath: remoteWebIngress.indexHtmlPath,
+        config: remoteWebIngressConfig(remoteWebIngress.config),
+      })
+    : `    location / {
+${proxyBlock}
+    }`;
+
   return `
 worker_processes 1;
 error_log stderr;
@@ -94,6 +202,24 @@ events {}
 
 http {
   access_log off;
+  default_type application/octet-stream;
+
+  types {
+    application/javascript js mjs;
+    application/json json map;
+    application/wasm wasm;
+    font/woff woff;
+    font/woff2 woff2;
+    image/gif gif;
+    image/jpeg jpeg jpg;
+    image/png png;
+    image/svg+xml svg svgz;
+    image/webp webp;
+    image/x-icon ico;
+    text/css css;
+    text/html html htm;
+    text/plain txt;
+  }
 
   map $http_upgrade $connection_upgrade {
     default upgrade;
@@ -104,19 +230,93 @@ http {
     listen 127.0.0.1:${opts.listenPort};
     client_max_body_size 512m;
 
-    location / {
-      proxy_pass http://127.0.0.1:${opts.gatewayPort};
-      proxy_http_version 1.1;
-      proxy_request_buffering off;
-      proxy_buffering off;
-      proxy_read_timeout 1h;
-      proxy_set_header Host $host;
-      proxy_set_header Upgrade $http_upgrade;
-      proxy_set_header Connection $connection_upgrade;
-    }
+${serverLocations}
   }
 }
 `;
+}
+
+function buildRemoteWebIngressLocations(opts: {
+  gatewayPort: number;
+  webDistDir: string;
+  indexHtmlPath?: string;
+  config: Record<string, unknown>;
+}): string {
+  const proxyBlock = gatewayProxyBlock(opts.gatewayPort);
+  const webDistDir = nginxDirPath(opts.webDistDir);
+  const webAssetsDir = join(opts.webDistDir, "assets");
+  const indexHtmlPath =
+    opts.indexHtmlPath ?? join(opts.webDistDir, "index.html");
+  const configJson = JSON.stringify(opts.config);
+
+  return `    location = /auth/token { return 404; }
+    location = /auth/token/ { return 404; }
+    location = /v1/pair { return 404; }
+    location = /v1/pair/ { return 404; }
+    location = /v1/pair/web-init { return 404; }
+    location = /v1/pair/web-init/ { return 404; }
+    location = /v1/devices { return 404; }
+    location = /v1/devices/ { return 404; }
+    location = /v1/devices/revoke { return 404; }
+    location = /v1/devices/revoke/ { return 404; }
+    location = /v1/guardian/init { return 404; }
+    location = /v1/guardian/init/ { return 404; }
+    location = /v1/guardian/reset-bootstrap { return 404; }
+    location = /v1/guardian/reset-bootstrap/ { return 404; }
+    location ^~ /assistant/__local/ { return 404; }
+    location ^~ /assistant/__gateway/ { return 404; }
+
+    location = /healthz {
+${proxyBlock}
+    }
+
+    location ^~ /v1/ {
+${proxyBlock}
+    }
+
+    location = /assistant {
+      return 302 /assistant/;
+    }
+
+    location = /assistant/ {
+      rewrite ^ /assistant/__remote-index.html last;
+    }
+
+    location = /assistant/index.html {
+      rewrite ^ /assistant/__remote-index.html last;
+    }
+
+    location = /assistant/__remote-index.html {
+      internal;
+      alias ${nginxQuoted(indexHtmlPath, "remote web ingress index path")};
+      add_header Cache-Control "no-store";
+    }
+
+    location = /assistant/__config {
+      default_type application/json;
+      add_header Cache-Control "no-store";
+      return 200 ${nginxQuoted(configJson, "remote web ingress config")};
+    }
+
+    location ^~ /assistant/assets/ {
+      alias ${nginxQuoted(nginxDirPath(webAssetsDir), "web assets path")};
+      try_files $uri =404;
+      add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    location ^~ /assistant/ {
+      alias ${nginxQuoted(webDistDir, "web dist path")};
+      try_files $uri $uri/ /assistant/__remote-index.html;
+      add_header Cache-Control "no-store";
+    }
+
+    location = / {
+      return 302 /assistant/;
+    }
+
+    location / {
+      return 404;
+    }`;
 }
 
 function nginxBin(): string {
@@ -250,15 +450,34 @@ export function startIngressNginx(opts: {
   workspaceDir: string;
   gatewayPort: number;
   listenPort: number;
+  remoteWebIngress?: RemoteWebIngressOptions;
 }): ChildProcess {
   const paths = getIngressPaths(opts.workspaceDir);
   mkdirSync(paths.dir, { recursive: true });
   mkdirSync(join(opts.workspaceDir, "data", "logs"), { recursive: true });
+  const remoteWebIngress = opts.remoteWebIngress
+    ? {
+        ...opts.remoteWebIngress,
+        config: remoteWebIngressConfig(opts.remoteWebIngress.config),
+        indexHtmlPath: join(paths.dir, "assistant-index.html"),
+      }
+    : undefined;
+  if (remoteWebIngress) {
+    const rawIndexHtml = readFileSync(
+      join(remoteWebIngress.webDistDir, "index.html"),
+      "utf-8",
+    );
+    writeFileSync(
+      remoteWebIngress.indexHtmlPath,
+      buildRemoteWebIndexHtml(rawIndexHtml, remoteWebIngress.config),
+    );
+  }
   writeFileSync(
     paths.confPath,
     buildIngressNginxConfig({
       gatewayPort: opts.gatewayPort,
       listenPort: opts.listenPort,
+      remoteWebIngress,
     }),
   );
 

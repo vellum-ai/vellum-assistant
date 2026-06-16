@@ -59,7 +59,9 @@ export interface UseEventStreamParams {
 
   // Callbacks from useStreamEventHandler / useMessageReconciliation
   handleStreamEvent: (event: AssistantEvent, epoch: number) => void;
-  reconcileActiveConversation: () => Promise<ReconcileActiveConversationResult>;
+  reconcileActiveConversation: (
+    authoritative?: boolean,
+  ) => Promise<ReconcileActiveConversationResult>;
   startReconciliationLoop: (epoch: number) => void;
   cancelReconciliation: () => void;
 
@@ -226,7 +228,10 @@ export function useEventStream({
       activeConversationIdRef: activeConversationIdLatestRef,
       handleStreamEvent: (event, epoch) =>
         handleStreamEventRef.current(event, epoch),
-      reconcileActive: () => reconcileActiveConversationRef.current(),
+      // Seq-gap reconcile: a proven out-of-ring gap means the live suffix
+      // is non-contiguous, so re-bootstrap authoritatively from the server
+      // snapshot rather than keeping the holey local rows.
+      reconcileActive: () => reconcileActiveConversationRef.current(true),
     });
   }, [
     assistantStateKind,
@@ -253,6 +258,11 @@ export function useEventStream({
     return createReconcileOnReopen({
       assistantId,
       conversationId: activeConversationId,
+      // Reopen reconcile: a warm resume usually replays the buffered suffix
+      // contiguously, so reconcile non-authoritatively and let the
+      // keep-local rule protect the freshly streamed tail the debounced
+      // `/messages` snapshot has not persisted yet. A genuine out-of-ring
+      // gap is healed authoritatively by the consumer's seq-gap detector.
       reconcileActive: () => reconcileActiveConversationRef.current(),
       startReconciliationLoop: (epoch) =>
         startReconciliationLoopRef.current(epoch),

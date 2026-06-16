@@ -5,7 +5,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { getSqliteFrom } from "../../db-connection.js";
 import * as schema from "../../schema.js";
-import { migrateContactChannelsRenormalizeAddresses } from "../290-contact-channels-renormalize-addresses.js";
+import { migrateContactChannelsRenormalizeAddresses } from "../291-contact-channels-renormalize-addresses.js";
 
 interface ChannelRow {
   id: string;
@@ -95,7 +95,7 @@ function insertChannel(
     );
 }
 
-describe("migration 290 — renormalize addresses", () => {
+describe("migration 291 — renormalize addresses", () => {
   test("restores Slack address casing from external_user_id", () => {
     const db = createTestDb();
     bootstrap(db);

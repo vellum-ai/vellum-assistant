@@ -24,6 +24,8 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence } from "motion/react";
 
+import { PortalContainerProvider } from "@vellumai/design-library/utils/portal-container";
+
 import type { StyleProfile } from "@/domains/onboarding/cast/cast-templates";
 import type { CastCharacter } from "@/domains/onboarding/cast/cast-roster";
 import type { Rect } from "@/domains/onboarding/cast/cast-hero-types";
@@ -35,25 +37,24 @@ import { DialogueScreen } from "@/domains/onboarding/cast/screens/dialogue-scree
 import { StyleScreen } from "@/domains/onboarding/cast/screens/style-screen";
 import { DoneScreen } from "@/domains/onboarding/cast/screens/done-screen";
 import type {
+  LoginIdentity,
   MemoryEntry,
   StarterResume,
 } from "@/domains/onboarding/cast/screens/screen-slot";
 import {
-  buildCastPreChatContext,
-  type CastSelections,
+  buildEarlyResearchContext,
+  CAST_RESEARCH_DIRECTIVE,
 } from "@/domains/onboarding/cast/cast-prechat-mapping";
-import { deriveTaskSuggestions } from "@/domains/onboarding/cast/cast-task-derivation";
+import { sendCastResearchMessage } from "@/domains/onboarding/cast/send-research-message";
+import { persistCastAssistantName } from "@/domains/onboarding/cast/persist-assistant-name";
 import { useBackgroundHatch } from "@/domains/onboarding/cast/use-background-hatch";
-import {
-  setPendingAssistantName,
-  setPendingPreChatContext,
-} from "@/domains/onboarding/prechat";
-import { DEFAULT_GROUP_ID } from "@/domains/onboarding/prechat-names";
+import { setPendingAssistantName } from "@/domains/onboarding/prechat";
 import {
   emitOnboardingFunnelStepCompleted,
   ONBOARDING_FUNNEL_STEPS,
   ONBOARDING_FUNNEL_VARIANTS,
 } from "@/domains/onboarding/funnel-events";
+import { getAssistant } from "@/assistant/api";
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { setSelectedAssistant } from "@/assistant/selection";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -82,29 +83,6 @@ type CastFunnelPhase = keyof typeof CAST_FUNNEL_STEP_BY_PHASE;
 
 /** Callback that emits one cast funnel step for the given phase. */
 type EmitCastFunnelStep = (phase: CastFunnelPhase) => void;
-
-/**
- * Map the cast dialogue "tone" choice onto a personality tone group id
- * understood by {@link PreChatOnboardingContext} ("grounded" | "warm" |
- * "energetic" | "poetic", per `PERSONALITY_GROUPS` in
- * `onboarding/prechat-names.ts`). The cast flow only collects a binary
- * fast/deep axis, so this is a deliberate, lossy projection onto the two
- * groups whose descriptors line up with that axis:
- *   - `"fast"` (concise, direct) → `"energetic"` (descriptor "Fast and direct")
- *   - `"deep"` (thorough, detailed) → `"grounded"` (descriptor "Calm and precise")
- *   - `null` (skipped) → `DEFAULT_GROUP_ID` ("grounded")
- *
- * Finalized in PR 7: the fast→energetic / deep→grounded pairing matches the
- * group descriptors directly, and a skipped tone defaulting to "grounded"
- * (the same `DEFAULT_GROUP_ID` the control funnel falls back to) keeps the
- * cast arm consistent with the rest of onboarding. The remaining two groups
- * ("warm", "poetic") have no corresponding cast axis to project from.
- */
-export function castToneToGroupId(tone: "fast" | "deep" | null): string {
-  if (tone === "fast") return "energetic";
-  if (tone === "deep") return "grounded";
-  return DEFAULT_GROUP_ID;
-}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -161,11 +139,20 @@ const win = () => ({
 function InteractiveCastFlow({
   onComplete,
   onLoginPhase,
+  onLoginComplete,
+  assistantId,
   emitFunnelStep,
 }: {
   onComplete: (data: CastCompletionData) => void;
   /** Fired once when the flow first enters the login/role phase. */
   onLoginPhase: () => void;
+  /**
+   * Fired when the user finishes the login/role step, with their identity.
+   * The parent kicks off the early research send (hatch must be ready) here.
+   */
+  onLoginComplete: (identity: LoginIdentity) => void;
+  /** The background-hatched assistant id (null until ready); drives reach OAuth. */
+  assistantId: string | null;
   /** Emit a cast funnel step on advance out of the given phase. */
   emitFunnelStep: EmitCastFunnelStep;
 }) {
@@ -201,7 +188,6 @@ function InteractiveCastFlow({
   const [selected, setSelected] = useState<CastCharacter | null>(null);
   const [names, setNames] = useState<Record<string, string>>({});
   const [customizing, setCustomizing] = useState(false);
-  const [brainFileContent, setBrainFileContent] = useState<string | null>(null);
   const [earnedCredits, setEarnedCredits] = useState(0);
 
   const [boxes, setBoxes] = useState(() => {
@@ -302,7 +288,6 @@ function InteractiveCastFlow({
     setConnectedTools([]);
     setMemories([]);
     setTypingStep(null);
-    setBrainFileContent(null);
     setEarnedCredits(0);
     pendingPhaseRef.current = null;
     setPhase("starter");
@@ -328,9 +313,11 @@ function InteractiveCastFlow({
             setPhase("preamble");
           }}
           onContinue={(fn) => setUserFirstName(fn)}
-          onIdentity={({ lastName, role }) => {
-            setUserLastName(lastName);
-            setUserRole(role);
+          onIdentity={(identity) => {
+            setUserLastName(identity.lastName);
+            setUserRole(identity.role);
+            // Kick off the early research send now that name + role are known.
+            onLoginComplete(identity);
           }}
         />
       )}
@@ -363,7 +350,8 @@ function InteractiveCastFlow({
               character={selected}
               name={name}
               userName={userFirstName}
-              brainFileContent={brainFileContent}
+              occupation={userRole}
+              assistantId={assistantId}
               memories={memories}
               onAdvance={() =>
                 completeHandoff(completionData(selected))
@@ -449,44 +437,25 @@ function InteractiveCastFlow({
 }
 
 // ---------------------------------------------------------------------------
-// CastOnboardingFlow — top-level orchestrator entry (was `InteractiveSetup`).
-// Wraps the flow in the themed cast stage and owns the completion handoff:
-// background-hatch on login-step entry, then on completion await readiness,
-// build the PreChatOnboardingContext, stash it, and finish like
-// `pages/pre-chat-flow.tsx`. The chat surface auto-sends the research directive
-// (the context's `initialMessage`) with the context attached as the
-// `onboarding` payload — no extra send wiring here.
+// CastOnboardingFlow — top-level orchestrator entry. Wraps the flow in the
+// themed cast stage and owns the handoff. The assistant is background-hatched
+// on entry to the login step; the moment the user finishes the name/occupation
+// step the research directive is sent to it (so research runs while they walk
+// the rest of onboarding), and on completion the flow lands the user in that
+// same conversation.
 // ---------------------------------------------------------------------------
 
-/** Build the handoff context from the flow's collected completion data. */
-export function buildHandoffFromCompletion(
-  data: CastCompletionData,
-): { context: ReturnType<typeof buildCastPreChatContext>; assistantName: string } {
-  const selections: CastSelections = {
-    firstName: data.firstName || undefined,
-    lastName: data.lastName || undefined,
-    role: data.role || undefined,
-    tone: castToneToGroupId(data.tone),
-    reachTools: data.connectedTools,
-    // The dedicated `job` phase is gone, so tasks come from the designated
-    // source — `deriveTaskSuggestions`, fed by the connected-tools memory.
-    jobs: deriveTaskSuggestions(
-      data.connectedTools.length > 0
-        ? [["reach", `Connected: ${data.connectedTools.join(", ")}`]]
-        : [],
-    ),
-    // `priorAssistant` is not collected by the cast flow yet.
-    priorAssistant: undefined,
-    // The chosen cast name rides the context (not just the optimistic
-    // pending-name key) so the onboarding payload carries `assistantName` and
-    // the daemon persists it to IDENTITY.md after the first message.
-    assistantName: data.name || undefined,
-  };
-  return {
-    context: buildCastPreChatContext(selections),
-    assistantName: data.name,
-  };
+/**
+ * What the early research send resolves to: the hatched assistant and the
+ * server-minted conversation the research message opened (where the flow lands
+ * the user once onboarding finishes).
+ */
+interface ResearchSend {
+  assistantId: string;
+  conversationId: string;
 }
+
+const SEND_FAILED_MESSAGE = "Failed to start your assistant. Please try again.";
 
 /**
  * Inner flow body that owns one background-hatch instance. `useBackgroundHatch`
@@ -508,72 +477,102 @@ function CastFlowBody({
   emitFunnelStep: EmitCastFunnelStep;
   /**
    * Preview (`?preview=true`) renders the flow purely visually — no side
-   * effects. The background hatch and the real handoff (hatch + select +
-   * stash context + auto-send) are gated off, mirroring how
+   * effects. The background hatch, the early research send, and the final
+   * select/navigate handoff are gated off, mirroring how
    * `pages/pre-chat-flow.tsx` skips its real completion in preview.
    */
   isPreview: boolean;
 }) {
   const navigate = useNavigate();
-  const { start, awaitReady } = useBackgroundHatch();
+  const { start, awaitReady, ready, assistantId } = useBackgroundHatch();
   const handoffStartedRef = useRef(false);
+  // The early research send, armed at login completion. Resolves to the hatched
+  // assistant + the conversation the research opened; the final handoff awaits
+  // it. Null until armed (or on a fresh retry remount, where it's re-armed).
+  const researchSendRef = useRef<Promise<ResearchSend> | null>(null);
 
-  async function runHandoff(data: CastCompletionData): Promise<void> {
-    let assistantId: string;
-    try {
-      // Wait for the background hatch to report healthy before handing off.
-      assistantId = await awaitReady();
-    } catch (err) {
-      onHandoffError(
-        err instanceof Error
-          ? err.message
-          : "Failed to start your assistant. Please try again.",
+  // Fire the research directive as soon as the hatch is ready, carrying just the
+  // name + role from the login step. Idempotent (ref-guarded) and inert in
+  // preview. The hatch usually already started on login-phase entry; `start()`
+  // is idempotent so calling it here is safe on a retry remount too.
+  function startResearchSend(identity: LoginIdentity): void {
+    if (isPreview || researchSendRef.current) return;
+    start();
+    const pending = (async () => {
+      const id = await awaitReady();
+      const conversationId = await sendCastResearchMessage(
+        id,
+        CAST_RESEARCH_DIRECTIVE,
+        buildEarlyResearchContext(identity),
       );
-      return;
-    }
-
-    const { context, assistantName } = buildHandoffFromCompletion(data);
-    setPendingPreChatContext(context);
-    setPendingAssistantName(assistantName);
-
-    // Mirror `pages/pre-chat-flow.tsx`'s finish: select the hatched assistant,
-    // mark the chat surface as expecting the first message, refresh lifecycle,
-    // then navigate to chat. The chat surface auto-sends `initialMessage`
-    // (the research directive) with the context attached.
-    //
-    // In a multi-assistant session a *different* assistant may already be the
-    // platform selection. Make the hatched assistant the selection (so the
-    // persisted selection + lockfile converge on it) AND pin the lifecycle
-    // refresh to the hatched id, so `checkAssistant` fetches/projects the
-    // hatched assistant rather than re-fetching the prior selection and
-    // overwriting `activeAssistantId` back to it — otherwise the onboarding
-    // payload would be sent to the wrong assistant.
-    useResolvedAssistantsStore.getState().setActiveAssistantId(assistantId);
-    await setSelectedAssistant(assistantId);
-    lifecycleService.markExpectingFirstMessage();
-    await lifecycleService.checkAssistant(assistantId);
-    // The chat surface's existing `initialMessage` auto-send path renders the
-    // research directive (`CAST_RESEARCH_DIRECTIVE`) as the first user message
-    // bubble — no separate send is wired here.
-    void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
+      return { assistantId: id, conversationId };
+    })();
+    // The final handoff awaits this and surfaces any failure as a retry. Attach
+    // a no-op catch so a hatch/send failure that happens *before* completion
+    // isn't flagged as an unhandled rejection while the promise waits to be
+    // awaited (the rejection is still delivered to the `await` in `runHandoff`).
+    pending.catch(() => {});
+    researchSendRef.current = pending;
   }
 
-  // On a (re)mount that already has completion data — i.e. a retry — provision a
-  // fresh hatch (the user is past the login step, so nothing else triggers it)
-  // and replay the handoff. Ref-guarded so it fires once per mount. Inert in
-  // preview (retry isn't reachable in preview since the handoff never runs).
+  async function runHandoff(data: CastCompletionData): Promise<void> {
+    // The early send is the source of truth for both the assistant id and the
+    // conversation to land in. On a retry remount it may not be armed yet —
+    // re-arm it from the captured identity so the retry replays it against the
+    // fresh hatch.
+    if (!researchSendRef.current) {
+      startResearchSend({
+        firstName: data.firstName,
+        lastName: data.lastName,
+        role: data.role,
+      });
+    }
+
+    let result: ResearchSend;
+    try {
+      result = await researchSendRef.current!;
+    } catch (err) {
+      onHandoffError(err instanceof Error ? err.message : SEND_FAILED_MESSAGE);
+      return;
+    }
+    const { assistantId: id, conversationId } = result;
+
+    // Make the hatched assistant the selection AND ensure it's in the resolved
+    // list before navigating: otherwise the `requireAssistant` route guard sees
+    // `hasAssistants === false` on landing and redirects the user straight back
+    // to `/onboarding/prechat` (the cast flow) — which reads as a stray, extra
+    // onboarding step. `checkAssistant` projects the assistant, but only on an
+    // `active` fetch, so upsert it directly too to populate the list reliably.
+    useResolvedAssistantsStore.getState().setActiveAssistantId(id);
+    await setSelectedAssistant(id);
+    const fetched = await getAssistant(id);
+    if (fetched.ok) {
+      useResolvedAssistantsStore.getState().upsertFromApi(fetched.data);
+    }
+    // The chosen cast name rides as the optimistic pending name for display
+    // (covers the window before the identity fetch), AND is written durably to
+    // the daemon's IDENTITY.md now that it's known — the early research first
+    // message couldn't carry it (sent before the starter/name step).
+    setPendingAssistantName(data.name);
+    await persistCastAssistantName(id, data.name);
+    await lifecycleService.checkAssistant(id);
+    // Land the user in the conversation the research message already opened.
+    void navigate(routes.conversation(conversationId), { replace: true });
+  }
+
+  // On a (re)mount that already has completion data — i.e. a retry — replay the
+  // handoff (which re-arms the research send against the fresh hatch). Ref-
+  // guarded so it fires once per mount. Inert in preview.
   useEffect(() => {
     if (isPreview || !completedData || handoffStartedRef.current) return;
     handoffStartedRef.current = true;
-    start();
     void runHandoff(completedData);
-    // runHandoff/start are stable for the lifetime of this mount.
+    // runHandoff is stable for the lifetime of this mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [completedData, isPreview]);
 
   function handleComplete(data: CastCompletionData) {
-    // Preview is purely visual: let the flow advance but run no handoff (no
-    // hatch readiness wait, no context stash, no select/auto-send, no nav).
+    // Preview is purely visual: let the flow advance but run no handoff.
     if (isPreview) return;
     if (handoffStartedRef.current) return;
     handoffStartedRef.current = true;
@@ -586,6 +585,10 @@ function CastFlowBody({
       onComplete={handleComplete}
       // In preview the login phase must NOT kick off the background hatch.
       onLoginPhase={isPreview ? noop : start}
+      // Fires the early research send once the name/role step is done.
+      onLoginComplete={startResearchSend}
+      // Reach OAuth only once the hatch is healthy.
+      assistantId={ready ? assistantId : null}
       emitFunnelStep={emitFunnelStep}
     />
   );
@@ -602,6 +605,15 @@ export function CastOnboardingFlow() {
   );
   const [handoffError, setHandoffError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  // Portal target for overlay menus (the occupation Dropdown). The cast stage
+  // is `position: fixed` with framer-motion transforms in the content subtree,
+  // so a Dropdown's `position: fixed` menu would anchor to the transformed
+  // column instead of the viewport. Portaling to this stage-root element (no
+  // transform) keeps the menu correctly placed — same pattern as
+  // `OnboardingLayout`.
+  const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(
+    null,
+  );
 
   const [searchParams] = useSearchParams();
   const isPreview = searchParams.get("preview") === "true";
@@ -630,22 +642,26 @@ export function CastOnboardingFlow() {
 
   return (
     <div className="cast-stage" data-theme="dark">
-      <CastFlowBody
-        key={attempt}
-        completedData={completedData}
-        onCompleted={setCompletedData}
-        onHandoffError={setHandoffError}
-        emitFunnelStep={emitFunnelStep}
-        isPreview={isPreview}
-      />
-      {handoffError !== null && (
-        <div className="cast-handoff-error" role="alert">
-          <p>{handoffError}</p>
-          <button type="button" onClick={retryHandoff}>
-            Try again
-          </button>
-        </div>
-      )}
+      <PortalContainerProvider container={portalContainer}>
+        <CastFlowBody
+          key={attempt}
+          completedData={completedData}
+          onCompleted={setCompletedData}
+          onHandoffError={setHandoffError}
+          emitFunnelStep={emitFunnelStep}
+          isPreview={isPreview}
+        />
+        {handoffError !== null && (
+          <div className="cast-handoff-error" role="alert">
+            <p>{handoffError}</p>
+            <button type="button" onClick={retryHandoff}>
+              Try again
+            </button>
+          </div>
+        )}
+      </PortalContainerProvider>
+      {/* Stage-root portal target — outside the transformed content subtree. */}
+      <div ref={setPortalContainer} />
     </div>
   );
 }

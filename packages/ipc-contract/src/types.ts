@@ -364,6 +364,7 @@ export interface AppVersionInfo {
  */
 
 export interface LocalAssistantResources {
+  instanceDir?: string;
   gatewayPort: number;
   daemonPort: number;
 }
@@ -387,3 +388,19 @@ export interface Lockfile {
 export type LockfileWriteResult =
   | { ok: true; lockfile: Lockfile }
   | { ok: false; error: string };
+
+export type LocalAssistantRuntimeState =
+  | "healthy"
+  | "sleeping"
+  | "starting"
+  | "crashed"
+  | "unknown";
+
+export type LocalAssistantStatusResult =
+  | {
+      ok: true;
+      state: LocalAssistantRuntimeState;
+      detail?: string;
+      pid?: number;
+    }
+  | { ok: false; status: number; error: string };

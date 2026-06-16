@@ -17,14 +17,12 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// Controllable gated-tool sets. `syncFlagGatedTools()` dynamically imports
-// `./tool-manifest.js` and reads only these two helpers, so mocking them lets a
-// test simulate "flag enabled" (non-empty) vs "flag off / not yet loaded" ([]).
+// Controllable gated-tool set. `syncFlagGatedTools()` dynamically imports
+// `./tool-manifest.js` and reads only this helper, so mocking it lets a test
+// simulate "flag enabled" (non-empty) vs "flag off / not yet loaded" ([]).
 let cesEnabled: Array<{ name: string }> = [];
-let workflowEnabled: Array<{ name: string }> = [];
 mock.module("./tool-manifest.js", () => ({
   getCesToolsIfEnabled: () => cesEnabled,
-  getWorkflowToolsIfEnabled: () => workflowEnabled,
 }));
 
 import {
@@ -49,22 +47,12 @@ describe("syncFlagGatedTools", () => {
   beforeEach(() => {
     __clearRegistryForTesting();
     cesEnabled = [];
-    workflowEnabled = [];
   });
 
-  test("registers a workflow tool that startup registration missed (the race)", async () => {
-    workflowEnabled = [fakeTool("run_workflow"), fakeTool("manage_workflows")];
-    // Simulates initializeTools() having run before the flag was known.
-    expect(getTool("run_workflow")).toBeUndefined();
-
-    await syncFlagGatedTools();
-
-    expect(getTool("run_workflow")).toBeDefined();
-    expect(getTool("manage_workflows")).toBeDefined();
-  });
-
-  test("registers enabled CES tools by the same path", async () => {
+  test("registers a CES tool that startup registration missed (the race)", async () => {
     cesEnabled = [fakeTool("make_authenticated_request")];
+    // Simulates initializeTools() having run before the flag was known.
+    expect(getTool("make_authenticated_request")).toBeUndefined();
 
     await syncFlagGatedTools();
 
@@ -72,18 +60,17 @@ describe("syncFlagGatedTools", () => {
   });
 
   test("is idempotent — re-running does not throw or duplicate", async () => {
-    workflowEnabled = [fakeTool("run_workflow")];
+    cesEnabled = [fakeTool("make_authenticated_request")];
 
     await syncFlagGatedTools();
     await syncFlagGatedTools();
 
-    expect(getTool("run_workflow")).toBeDefined();
+    expect(getTool("make_authenticated_request")).toBeDefined();
   });
 
   test("registers nothing when no gated flag is enabled", async () => {
     await syncFlagGatedTools();
 
-    expect(getTool("run_workflow")).toBeUndefined();
     expect(getTool("make_authenticated_request")).toBeUndefined();
   });
 });

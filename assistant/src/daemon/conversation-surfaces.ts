@@ -7,6 +7,7 @@ import {
   getAppDirPath,
   getAppPreview,
   isMultifileApp,
+  listAppsByConversation,
   resolveAppDir,
   resolveEffectiveAppHtml,
   updateApp,
@@ -180,6 +181,18 @@ export function flushSurfaceDataPersist(surfaceId: string): void {
 }
 
 /**
+ * Discard (without writing) any pending debounced persist for `surfaceId`.
+ * Called on dismissal so an in-flight `ui_update` snapshot cannot land after
+ * the surface block has been removed.
+ */
+export function cancelSurfaceDataPersist(surfaceId: string): void {
+  const pending = pendingSurfacePersists.get(surfaceId);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pendingSurfacePersists.delete(surfaceId);
+}
+
+/**
  * Cancel all pending debounced persists. Called on conversation
  * teardown to avoid timers firing against torn-down state.
  *
@@ -277,7 +290,132 @@ export function markSurfaceCompleted(
     log.warn({ err, surfaceId }, "Failed to persist surface completion to DB");
   }
 }
+
+/**
+ * Remove a `ui_surface` content block from history so a passively dismissed
+ * surface does not survive a reload. The live client drops a dismissed surface
+ * entirely; this converges persisted state with that behaviour. Cancels any
+ * pending debounced data persist first so a late `ui_update` snapshot cannot
+ * re-add the block, then strips the block from in-memory messages and the DB.
+ */
+export function removeSurfaceBlock(
+  ctx: { conversationId: string; messages?: Array<{ content: unknown }> },
+  surfaceId: string,
+): void {
+  cancelSurfaceDataPersist(surfaceId);
+
+  if (ctx.messages) {
+    for (let i = ctx.messages.length - 1; i >= 0; i--) {
+      const msg = ctx.messages[i];
+      if (!Array.isArray(msg.content)) continue;
+      const idx = msg.content.findIndex((block) => {
+        const b = block as Record<string, unknown>;
+        return b.type === "ui_surface" && b.surfaceId === surfaceId;
+      });
+      if (idx !== -1) {
+        msg.content.splice(idx, 1);
+        break;
+      }
+    }
+  }
+
+  try {
+    const rows = getMessages(ctx.conversationId);
+    for (let r = rows.length - 1; r >= 0; r--) {
+      let parsed: unknown[];
+      try {
+        const result = JSON.parse(rows[r].content);
+        if (!Array.isArray(result)) continue;
+        parsed = result;
+      } catch {
+        continue;
+      }
+      const idx = parsed.findIndex((pb) => {
+        const rb = pb as Record<string, unknown>;
+        return rb.type === "ui_surface" && rb.surfaceId === surfaceId;
+      });
+      if (idx !== -1) {
+        parsed.splice(idx, 1);
+        updateMessageContent(rows[r].id, JSON.stringify(parsed));
+        return;
+      }
+    }
+  } catch (err) {
+    log.warn({ err, surfaceId }, "Failed to remove dismissed surface from DB");
+  }
+}
 const TASK_PROGRESS_TEMPLATE_FIELDS = ["title", "status", "steps"] as const;
+
+const TASK_PROGRESS_CARD_STATUSES = new Set([
+  "in_progress",
+  "completed",
+  "failed",
+]);
+const TASK_PROGRESS_STEP_STATUSES = new Set([
+  "pending",
+  "in_progress",
+  "completed",
+  "failed",
+]);
+
+/**
+ * Coerce a model-supplied `steps` value into a renderable array. Drops
+ * non-object and label-less entries, accepts `title` as a `label` alias, and
+ * defaults a missing/invalid per-step status to "pending". Returns `[]` for a
+ * missing or non-array input so an indeterminate card still renders.
+ */
+function normalizeTaskProgressSteps(
+  value: unknown,
+): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((step): step is Record<string, unknown> => isPlainObject(step))
+    .map((step) => {
+      const label =
+        typeof step.label === "string"
+          ? step.label
+          : typeof step.title === "string"
+            ? step.title
+            : "";
+      const status =
+        typeof step.status === "string" &&
+        TASK_PROGRESS_STEP_STATUSES.has(step.status)
+          ? step.status
+          : "pending";
+      return { ...step, label, status };
+    })
+    .filter((step) => (step.label as string).trim().length > 0);
+}
+
+/**
+ * Guarantee a task_progress card reaches the client with a well-formed
+ * `templateData` object so a coarse or indeterminate attempt (missing steps,
+ * missing status) renders instead of being silently dropped. Fills only
+ * missing fields — a fully-specified card is left intact.
+ */
+function ensureTaskProgressTemplateData(
+  normalized: Record<string, unknown>,
+): void {
+  const templateData: Record<string, unknown> = isPlainObject(
+    normalized.templateData,
+  )
+    ? { ...normalized.templateData }
+    : {};
+  if (
+    typeof templateData.title !== "string" &&
+    typeof normalized.title === "string"
+  ) {
+    templateData.title = normalized.title;
+  }
+  if (
+    typeof templateData.status !== "string" ||
+    !TASK_PROGRESS_CARD_STATUSES.has(templateData.status)
+  ) {
+    templateData.status = "in_progress";
+  }
+  templateData.steps = normalizeTaskProgressSteps(templateData.steps);
+  normalized.templateData = templateData;
+}
 
 /**
  * Migrate dynamic_page fields from the top-level tool input into `data`.
@@ -363,6 +501,10 @@ function normalizeCardShowData(
     typeof normalized.body !== "string"
   ) {
     normalized.body = "";
+  }
+
+  if (normalized.template === "task_progress") {
+    ensureTaskProgressTemplateData(normalized);
   }
 
   return normalized as unknown as CardSurfaceData;
@@ -2783,6 +2925,15 @@ export async function surfaceProxyResolver(
         conversationId: ctx.conversationId,
         surfaceId,
       });
+      // The live client drops a dismissed surface entirely. Mirror that in
+      // persisted state: pull it from the pending turn snapshot (appended to
+      // the message at turn completion) and strip any already-persisted block,
+      // so a reload does not resurrect a half-finished progress card.
+      const turnIdx = ctx.currentTurnSurfaces.findIndex(
+        (s) => s.surfaceId === surfaceId,
+      );
+      if (turnIdx !== -1) ctx.currentTurnSurfaces.splice(turnIdx, 1);
+      removeSurfaceBlock(ctx, surfaceId);
     }
     ctx.pendingSurfaceActions.delete(surfaceId);
     ctx.surfaceState.delete(surfaceId);
@@ -2796,11 +2947,24 @@ export async function surfaceProxyResolver(
   }
 
   if (toolName === "app_open") {
-    const appId = input.app_id as string;
+    // Weaker models routinely omit app_id even though the active app is in
+    // context. Fall back to the conversation's most-recently-updated app
+    // rather than failing with "Invalid ID: undefined".
+    let appId = input.app_id as string;
+    if (typeof appId !== "string" || appId.trim().length === 0) {
+      appId = listAppsByConversation(ctx.conversationId)[0]?.id ?? "";
+    }
     const preview = input.preview as DynamicPageSurfaceData["preview"];
     const openMode = input.open_mode as string | undefined;
-    const app = getApp(appId);
-    if (!app) return { content: `App not found: ${appId}`, isError: true };
+    const app = appId ? getApp(appId) : null;
+    if (!app) {
+      return {
+        content: appId
+          ? `App not found: ${appId}`
+          : "app_id is required and no active app exists in this conversation. Call app_create first, or pass app_id explicitly.",
+        isError: true,
+      };
+    }
 
     // Track conversation association (best-effort — failures must not break open flow).
     try {

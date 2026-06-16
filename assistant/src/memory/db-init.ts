@@ -195,6 +195,7 @@ import {
   migrateRenameVerificationSessionIdColumn,
   migrateRenameVerificationTable,
   migrateRenameVoiceToPhone,
+  migrateScheduleCapabilities,
   migrateScheduleDescription,
   migrateScheduleInferenceProfile,
   migrateScheduleOneShotRouting,
@@ -517,6 +518,7 @@ export function initializeDb(): void {
     migrateConversationOriginChannelIndex,
     migrateBackfillOriginChannelFromBindings,
     migrateContactChannelsUniqueExtUser,
+    migrateScheduleCapabilities,
     migrateContactChannelsRenormalizeAddresses,
   ];
 

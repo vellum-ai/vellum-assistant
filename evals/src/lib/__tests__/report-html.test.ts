@@ -500,6 +500,51 @@ describe("report html", () => {
     expect(html.indexOf("<td>1</td>")).toBeLessThan(html.indexOf("<td>0</td>"));
   });
 
+  test("per-request breakdown shows each request's round-trip latency next to its time", () => {
+    // GIVEN two requests: one with a multi-second latency, one sub-second, and
+    // one with no recorded latency at all
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        usage: {
+          requests: [
+            {
+              provider: "anthropic",
+              model: "model-slow",
+              input_tokens: 10,
+              output_tokens: 10,
+              recorded_at: "2026-06-13T10:00:00Z",
+              duration_ms: 2340,
+            },
+            {
+              provider: "anthropic",
+              model: "model-fast",
+              input_tokens: 20,
+              output_tokens: 20,
+              recorded_at: "2026-06-13T10:00:05Z",
+              duration_ms: 840,
+            },
+            {
+              provider: "anthropic",
+              model: "model-untimed",
+              input_tokens: 5,
+              output_tokens: 5,
+              recorded_at: "2026-06-13T10:00:10Z",
+            },
+          ],
+          costStatus: "ok",
+        },
+      },
+    });
+
+    // THEN seconds-scale latency renders as one-decimal seconds, sub-second as
+    // whole ms, and a missing latency falls back to an em dash
+    expect(html).toContain("(2.3s)");
+    expect(html).toContain("(840ms)");
+    expect(html).toContain("(—)");
+  });
+
   test("execution page inlines captured request/response payloads, noting truncation", () => {
     // GIVEN a request whose response payload was truncated by the recorder
     const html = renderReportPage({

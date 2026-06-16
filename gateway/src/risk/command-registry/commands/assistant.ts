@@ -201,6 +201,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "schedules",
   "schedules list",
   "schedules get",
+  "schedules inspect",
   "schedules runs",
   "schedules create",
   "schedules update",

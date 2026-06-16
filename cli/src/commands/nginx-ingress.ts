@@ -17,6 +17,7 @@ import {
 import { waitForDaemonReady } from "../lib/http-client.js";
 import {
   DEFAULT_NGINX_INGRESS_PORT,
+  findWebDistDir,
   getIngressPaths,
   getIngressPid,
   getNginxIngressPort,
@@ -33,14 +34,12 @@ function printHelp(): void {
   console.log("Usage: vellum nginx-ingress <subcommand> [<name>] [options]");
   console.log("");
   console.log(
-    "Manage the nginx reverse proxy that fronts the gateway for remote web",
+    "Manage the nginx web edge that serves the SPA and fronts the gateway",
   );
   console.log(
-    "access: browser → tunnel (TLS) → nginx@127.0.0.1 → gateway. While the",
+    "for remote web access: browser → tunnel (TLS) → nginx@127.0.0.1.",
   );
-  console.log(
-    "nginx ingress is running, `vellum tunnel` targets it instead of the gateway.",
-  );
+  console.log("While nginx ingress is running, `vellum tunnel` targets it.");
   console.log("");
   console.log("Subcommands:");
   console.log("  up       Generate the nginx config and start the proxy");
@@ -148,6 +147,7 @@ async function assertWebRemoteIngressEnabled(
     enabled = await isAssistantFeatureFlagEnabled(
       target.assistantId,
       WEB_REMOTE_INGRESS_FLAG,
+      { runtimeUrl: `http://127.0.0.1:${target.gatewayPort}` },
     );
   } catch (err) {
     throw new Error(
@@ -188,15 +188,31 @@ async function up(target: NginxIngressTarget): Promise<void> {
     return;
   }
 
+  const webDistDir = findWebDistDir();
+  if (!webDistDir) {
+    console.error(
+      "Error: unable to locate built web assets for remote web ingress.",
+    );
+    console.error("");
+    console.error("Build the SPA first:");
+    console.error("  cd apps/web && VITE_PLATFORM_MODE=false bun run build");
+    console.error("");
+    console.error(
+      "Or install @vellumai/web so its packaged dist directory is available.",
+    );
+    process.exit(1);
+  }
+
   console.log(`Using ${version}`);
   console.log(
-    `Starting nginx ingress on 127.0.0.1:${listenPort} → gateway 127.0.0.1:${gatewayPort}...`,
+    `Starting nginx ingress on 127.0.0.1:${listenPort} → web ${webDistDir} + gateway 127.0.0.1:${gatewayPort}...`,
   );
 
   const child = startIngressNginx({
     workspaceDir,
     gatewayPort,
     listenPort,
+    remoteWebIngress: { webDistDir },
   });
   child.unref();
 

@@ -58,20 +58,6 @@ Some routes are IPC-only (defined in `src/ipc/routes/`, not in the shared array)
 
 The module-level dependency-injection pattern (`registerFooDeps()`) used by some IPC routes is a known antipattern. New IPC-only routes should avoid it.
 
-## SQLite WAL checkpointing
-
-**Never run `PRAGMA wal_checkpoint(TRUNCATE)` from a subprocess** (i.e. from `runAsyncSqlite` or any other path that opens a fresh SQLite connection while the daemon's in-process connection is live).
-
-TRUNCATE has a side effect documented in the SQLite source but not in most surface-level docs: after writing all committed WAL pages to the main database file, if the resulting WAL file is empty, SQLite **unlinks the `.wal` (and `.shm`) file from the directory**. This is fine when the connection running the checkpoint is the only connection — the next opener creates a fresh WAL. It is **not** fine when a peer connection (the daemon) still holds open file descriptors to the original WAL inode: the unlink orphans those fds into a "ghost WAL" only the daemon can reach, every subsequent connection creates a new `.wal`/`.shm` pair on disk, and you get split-brain — daemon and outside readers see different data, no errors logged on either side. The symptom in `/proc/<daemon-pid>/fd/` is the unmistakable `(deleted)` suffix on the daemon's WAL/SHM entries while the main DB fd looks normal.
-
-Use these instead:
-
-- **`PRAGMA wal_checkpoint(FULL)`** when you need flush-completion (export readers, migration snapshots — anywhere downstream reads the main `.db` file). FULL blocks until all committed WAL pages are written to the main DB but does _not_ truncate the WAL file size, so the unlink side effect does not fire.
-- **`PRAGMA wal_checkpoint(PASSIVE)`** for background/amortized housekeeping where partial progress is acceptable. PASSIVE makes no attempt to acquire locks that would conflict with active readers, so it never reaches the empty-WAL state in a contested environment.
-- **Autocheckpoint** (`PRAGMA wal_autocheckpoint = <pages>`, default 1000) handles the routine "keep the WAL bounded" case without any explicit PRAGMA call.
-
-TRUNCATE _is_ safe on the daemon's own long-lived in-process connection (e.g. at startup or during shutdown when no peer connections exist). Today `src/memory/db-init.ts` and `src/daemon/shutdown-handlers.ts` legitimately use it. **Do not copy that pattern into any code path that runs via `runAsyncSqlite` or otherwise spawns a separate process.**
-
 ## Code comments
 
 When writing or updating comments, **do not reference code that has been removed.** Comments should describe the current state of the codebase, not narrate its history. Avoid phrases like "no longer does X", "previously used Y", or "was removed in PR Z" — future readers should not need to understand past implementations to understand the current code.

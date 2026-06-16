@@ -15,6 +15,10 @@ import {
   formatLocalDate,
   isValidCronExpression,
 } from "../../schedule/schedule-store.js";
+import {
+  CapabilityManifestSchema,
+  resolveCapabilities,
+} from "../../workflows/capabilities.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 const VALID_MODES: ScheduleMode[] = ["notify", "execute", "script", "workflow"];
@@ -56,6 +60,10 @@ export async function executeScheduleCreate(
     typeof input.workflow_name === "string" ? input.workflow_name.trim() : null;
   const workflowArgs = input.workflow_args;
   const inferenceProfile = input.inference_profile as string | undefined;
+
+  // Validated workflow capability manifest, resolved only for workflow mode.
+  // Left null for non-workflow modes so `createSchedule` persists no manifest.
+  let capabilities: unknown = null;
 
   if (timeoutMs !== undefined) {
     const timeoutError = validateScriptTimeoutMs(timeoutMs);
@@ -127,6 +135,25 @@ export async function executeScheduleCreate(
         isError: true,
       };
     }
+    // A workflow schedule may carry a capability manifest — the single consent
+    // point for its eventual unattended run. Validate and normalize it here so a
+    // schedule can never persist a malformed or forbidden manifest: parse the
+    // declared shape, then run the same forbidden/unknown/host-tool checks
+    // resolveCapabilities applies at launch. A side-effecting manifest forces a
+    // fresh approval at CREATION (see executor.ts).
+    if (input.capabilities !== undefined) {
+      try {
+        const manifest = CapabilityManifestSchema.parse(input.capabilities);
+        resolveCapabilities(manifest);
+        capabilities = manifest;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          content: `Error: invalid capabilities manifest: ${msg}`,
+          isError: true,
+        };
+      }
+    }
   } else {
     if (!message || typeof message !== "string") {
       return {
@@ -194,6 +221,7 @@ export async function executeScheduleCreate(
         timeoutMs,
         workflowName,
         workflowArgs,
+        capabilities,
         inferenceProfile,
         createdFromConversationId: context.conversationId,
       });
@@ -284,6 +312,7 @@ export async function executeScheduleCreate(
       timeoutMs,
       workflowName,
       workflowArgs,
+      capabilities,
       inferenceProfile,
       createdFromConversationId: context.conversationId,
     });
