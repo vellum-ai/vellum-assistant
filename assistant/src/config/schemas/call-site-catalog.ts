@@ -51,6 +51,13 @@ const CATALOG_RECORD: CatalogRecord = {
     description: "Spawns a subagent to handle a delegated subtask.",
     domain: "agentLoop",
   },
+  advisor: {
+    id: "advisor",
+    displayName: "Advisor",
+    description:
+      "Consults a higher-tier model mid-task for strategic guidance.",
+    domain: "agentLoop",
+  },
   heartbeatAgent: {
     id: "heartbeatAgent",
     displayName: "Heartbeat Agent",
