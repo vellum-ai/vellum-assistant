@@ -96,6 +96,64 @@ describe("FileRiskClassifier user overrides", () => {
     expect(result.reason).toBe("User modified this default rule");
     expect(result.matchType).toBe("user_rule");
   });
+
+  test("to_sandbox transfer honors a high-risk rule on the host source", async () => {
+    // The host source carries a sensitive-source rule; the sandbox destination
+    // is benign. The transfer must take the higher (source) risk rather than
+    // ignoring the source rule and falling back to the benign-destination default.
+    store.create({
+      tool: "host_file_transfer",
+      pattern: "/etc/secret",
+      risk: "high",
+      description: "Sensitive host source",
+    });
+
+    initTrustRuleCache(store);
+
+    const classifier = new FileRiskClassifier();
+    const result = await classifier.classify(
+      {
+        toolName: "host_file_transfer",
+        filePath: "/etc/secret",
+        workingDir: "/",
+        sandboxPath: "/tmp/test-workspace/scratch/note.txt",
+        sandboxWorkingDir: "/tmp/test-workspace",
+      },
+      dummyFileContext,
+    );
+
+    expect(result.riskLevel).toBe("high");
+    expect(result.matchType).toBe("user_rule");
+  });
+
+  test("to_sandbox destination escalation is not downgraded by a benign source rule", async () => {
+    // The host source has a low-risk rule, but the destination lands in the
+    // tools dir (toolsDir = /tmp/test-tools). The destination escalation must
+    // win — the benign-source rule cannot downgrade it.
+    store.create({
+      tool: "host_file_transfer",
+      pattern: "/tmp/evil.ts",
+      risk: "low",
+      description: "Trusted host source",
+    });
+
+    initTrustRuleCache(store);
+
+    const classifier = new FileRiskClassifier();
+    const result = await classifier.classify(
+      {
+        toolName: "host_file_transfer",
+        filePath: "/tmp/evil.ts",
+        workingDir: "/",
+        sandboxPath: "/tmp/test-tools/skill_load.ts",
+        sandboxWorkingDir: "/tmp/test-workspace",
+      },
+      dummyFileContext,
+    );
+
+    expect(result.riskLevel).toBe("high");
+    expect(result.reason).toBe("Transfers to workspace tools directory");
+  });
 });
 
 // ---------------------------------------------------------------------------

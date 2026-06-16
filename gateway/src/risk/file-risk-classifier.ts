@@ -38,6 +38,7 @@ import type {
   RiskAssessment,
   RiskClassifier,
 } from "./risk-types.js";
+import { riskOrd } from "./risk-types.js";
 import { getTrustRuleCache } from "./trust-rule-cache.js";
 
 // -- Context interface --------------------------------------------------------
@@ -502,12 +503,38 @@ export class FileRiskClassifier implements RiskClassifier<
       }
     }
 
-    // User override is applied after normal classification. This means a user-defined
-    // rule CAN lower a security-escalated risk (e.g., actor-token-signing-key read).
-    // This is intentional — user overrides are authoritative for users who explicitly
-    // created them.
+    // User override is applied after normal classification. For a single-
+    // subject tool this means a user-defined rule CAN lower a security-
+    // escalated risk (e.g., actor-token-signing-key read) — intentional, since
+    // user overrides are authoritative for rules they explicitly created.
     try {
       const ruleCache = getTrustRuleCache();
+      if (input.sandboxPath) {
+        // A to_sandbox transfer has two subjects: the host source (filePath)
+        // and the sandbox destination (sandboxPath). A user rule on either
+        // applies; take the highest risk among the joint classification and
+        // both overrides so neither a benign-source rule downgrades a
+        // dangerous destination, nor a sensitive-source rule (e.g.
+        // `host_file_transfer:/etc/secret`) is ignored for a benign one.
+        let best = assessment!;
+        for (const p of [filePath, input.sandboxPath]) {
+          const override = ruleCache.findToolOverride(toolName, p);
+          if (
+            override &&
+            (override.userModified || override.origin === "user_defined") &&
+            riskOrd(override.risk) > riskOrd(best.riskLevel)
+          ) {
+            best = {
+              riskLevel: override.risk,
+              reason: override.description,
+              scopeOptions: [],
+              matchType: "user_rule",
+              allowlistOptions,
+            };
+          }
+        }
+        return best;
+      }
       const override = ruleCache.findToolOverride(toolName, subjectPath);
       if (
         override &&
