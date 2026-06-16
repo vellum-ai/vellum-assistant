@@ -55,6 +55,13 @@ function clearFailures(clientIp: string): void {
   failureRateLimitByIp.delete(clientIp);
 }
 
+function failedAttemptResponse(clientIp: string, response: Response): Response {
+  const rateLimited = checkFailureRateLimit(clientIp);
+  if (rateLimited) return rateLimited;
+  recordFailure(clientIp);
+  return response;
+}
+
 export function resetRemoteWebPairingVerificationRateLimiterForTests(): void {
   failureRateLimitByIp.clear();
 }
@@ -70,9 +77,6 @@ export async function handleVerifyRemoteWebPairingChallenge(
     });
   }
 
-  const rateLimited = checkFailureRateLimit(clientIp);
-  if (rateLimited) return rateLimited;
-
   let userCode: string | null = null;
   try {
     const body = (await req.json()) as { userCode?: unknown };
@@ -81,23 +85,31 @@ export async function handleVerifyRemoteWebPairingChallenge(
         ? body.userCode
         : null;
   } catch {
-    recordFailure(clientIp);
-    return jsonError("BAD_REQUEST", "invalid JSON body", 400);
+    return failedAttemptResponse(
+      clientIp,
+      jsonError("BAD_REQUEST", "invalid JSON body", 400),
+    );
   }
 
   if (!userCode) {
-    recordFailure(clientIp);
-    return jsonError("BAD_REQUEST", "userCode is required", 400);
+    return failedAttemptResponse(
+      clientIp,
+      jsonError("BAD_REQUEST", "userCode is required", 400),
+    );
   }
 
   const result = approveRemoteWebPairingChallenge(userCode);
   if (result.status === "invalid") {
-    recordFailure(clientIp);
-    return jsonError("INVALID_USER_CODE", "invalid pairing code", 404);
+    return failedAttemptResponse(
+      clientIp,
+      jsonError("INVALID_USER_CODE", "invalid pairing code", 404),
+    );
   }
   if (result.status === "expired") {
-    recordFailure(clientIp);
-    return jsonError("EXPIRED_USER_CODE", "pairing code expired", 410);
+    return failedAttemptResponse(
+      clientIp,
+      jsonError("EXPIRED_USER_CODE", "pairing code expired", 410),
+    );
   }
 
   clearFailures(clientIp);

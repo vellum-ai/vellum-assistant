@@ -123,5 +123,13 @@ describe("remote web pairing verification", () => {
 
     expect(limited.status).toBe(429);
     expect(limited.headers.get("Retry-After")).toBeTruthy();
+
+    const challenge = await createChallenge();
+    const approved = await handleVerifyRemoteWebPairingChallenge(
+      makeVerificationRequest({ userCode: challenge.userCode }),
+      CLIENT_IP,
+    );
+
+    expect(approved.status).toBe(200);
   });
 });
