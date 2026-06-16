@@ -226,19 +226,12 @@ export async function enforceIngressAcl(
         }
       }
 
-      // ── Policy-aware non-member bypass (`strangers`) ──
-      // When the effective admission policy is `strangers`, any sender
-      // (rank 1) meets the floor (rank 1). Skip the deny gate so the
-      // admission stage can emit the final verdict rather than ACL
-      // prematurely firing guardian notifications and a canned reply.
-      if (denyNonMember && effectiveAdmissionPolicy === "strangers") {
-        denyNonMember = false;
-      }
-
       // ── Invite token intercept (non-member) ──
       // /start invite deep links grant access without guardian approval.
-      // Intercept here — before the deny gate — so valid invites short-circuit
-      // the ACL rejection and never reach the agent pipeline.
+      // Runs BEFORE the policy-aware bypass so a valid /start iv_<token>
+      // always redeems and creates a member record — even when the
+      // admission policy is `strangers` (which would otherwise admit the
+      // sender as a non-member before the token is consumed).
       if (inviteToken && denyNonMember) {
         const inviteResult = await handleInviteTokenIntercept({
           rawToken: inviteToken,
@@ -263,6 +256,8 @@ export async function enforceIngressAcl(
       // On channels with codeRedemptionEnabled, a bare 6-digit message may be
       // an invite code. Attempt redemption; on failure (no matching code) fall
       // through to normal processing — the number may be a regular message.
+      // Runs before the policy-aware bypass for the same reason as the token
+      // intercept above.
       if (denyNonMember && /^\d{6}$/.test(trimmedContent)) {
         const codeInterceptResult = await handleInviteCodeIntercept({
           code: trimmedContent,
@@ -281,6 +276,16 @@ export async function enforceIngressAcl(
             resolvedMember: null,
             earlyResponse: codeInterceptResult,
           };
+      }
+
+      // ── Policy-aware non-member bypass (`strangers`) ──
+      // When the effective admission policy is `strangers`, any sender
+      // (rank 1) meets the floor (rank 1). Skip the deny gate so the
+      // admission stage can emit the final verdict rather than ACL
+      // prematurely firing guardian notifications and a canned reply.
+      // Runs AFTER invite intercepts so valid tokens redeem first.
+      if (denyNonMember && effectiveAdmissionPolicy === "strangers") {
+        denyNonMember = false;
       }
 
       if (denyNonMember) {
@@ -509,27 +514,13 @@ export async function enforceIngressAcl(
           }
         }
 
-        // ── Policy-aware inactive-member bypass ──
-        // `strangers` (floor 1): admit any non-blocked sender, including
-        //   revoked/pending members.
-        // `any_contact` (floor 2): admit `pending` members (unverified_contact
-        //   rank 2 ≥ floor 2); deny `revoked` members (unknown rank 1 < floor 2).
-        // In both cases skip the deny gate so the admission stage decides.
-        if (!isBlockedMember && denyInactiveMember) {
-          if (
-            effectiveAdmissionPolicy === "strangers" ||
-            (effectiveAdmissionPolicy === "any_contact" &&
-              resolvedMember.channel.status === "pending")
-          ) {
-            denyInactiveMember = false;
-          }
-        }
-
         // ── Invite token intercept (inactive member) ──
         // Invite tokens can reactivate revoked/pending members without
         // requiring guardian approval, but blocked members are excluded so
         // they are short-circuited at the ACL layer rather than entering the
-        // redemption path.
+        // redemption path. Runs BEFORE the policy-aware bypass so a valid
+        // invite always redeems and reactivates the member record, rather
+        // than the bypass admitting the sender in their inactive state.
         if (!isBlockedMember && inviteToken && denyInactiveMember) {
           const inviteResult = await handleInviteTokenIntercept({
             rawToken: inviteToken,
@@ -554,7 +545,8 @@ export async function enforceIngressAcl(
         // Codes can reactivate revoked/pending members; non-matching codes
         // fall through. Blocked members are excluded here for consistency —
         // the redemption service would reject them anyway, but early exit
-        // avoids unnecessary work.
+        // avoids unnecessary work. Runs before the policy-aware bypass for
+        // the same reason as the token intercept above.
         if (
           !isBlockedMember &&
           denyInactiveMember &&
@@ -577,6 +569,23 @@ export async function enforceIngressAcl(
               resolvedMember: null,
               earlyResponse: codeInterceptResult,
             };
+        }
+
+        // ── Policy-aware inactive-member bypass ──
+        // `strangers` (floor 1): admit any non-blocked sender, including
+        //   revoked/pending members.
+        // `any_contact` (floor 2): admit `pending` members (unverified_contact
+        //   rank 2 ≥ floor 2); deny `revoked` members (unknown rank 1 < floor 2).
+        // In both cases skip the deny gate so the admission stage decides.
+        // Runs AFTER invite intercepts so valid tokens redeem first.
+        if (!isBlockedMember && denyInactiveMember) {
+          if (
+            effectiveAdmissionPolicy === "strangers" ||
+            (effectiveAdmissionPolicy === "any_contact" &&
+              resolvedMember.channel.status === "pending")
+          ) {
+            denyInactiveMember = false;
+          }
         }
 
         if (denyInactiveMember) {

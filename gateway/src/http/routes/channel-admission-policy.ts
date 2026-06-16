@@ -104,19 +104,10 @@ export function createChannelAdmissionPolicyListHandler() {
 
 export function createChannelAdmissionPolicySetHandler() {
   return async (req: Request, channelType: string): Promise<Response> => {
-    if (!isChannelId(channelType)) {
-      return Response.json(
-        {
-          error: `Unknown channelType: "${channelType}". Must be one of: ${CHANNEL_IDS.join(", ")}`,
-        },
-        { status: 400 },
-      );
-    }
-
-    // §8.1: internal channels are exempt from admission policy. Reject the
-    // PUT with 403 — guardians configuring `no_one` on `vellum` would lock
-    // themselves out of their own client. Defense in depth alongside the
-    // runtime exempt-channel short-circuit and the gateway kill switch.
+    // §8.1: internal channels are exempt from admission policy. Check BEFORE
+    // the isChannelId gate so that channels like `platform` (which is in the
+    // exempt set but NOT in CHANNEL_IDS) return 403 rather than falling
+    // through to the 400 unknown-channel response.
     if (isAdmissionPolicyExemptChannel(channelType)) {
       return Response.json(
         {
@@ -125,6 +116,15 @@ export function createChannelAdmissionPolicySetHandler() {
           channelType,
         },
         { status: 403 },
+      );
+    }
+
+    if (!isChannelId(channelType)) {
+      return Response.json(
+        {
+          error: `Unknown channelType: "${channelType}". Must be one of: ${CHANNEL_IDS.join(", ")}`,
+        },
+        { status: 400 },
       );
     }
 
