@@ -20,7 +20,6 @@ import {
   buildAccessRequestWarnings,
   buildSlackMessagePermalink,
   isSlackDmConversation,
-  parseAccessRequestPayload,
   type ParsedAccessRequestPayload,
 } from "../access-request-copy.js";
 import { isConversationSeedSane } from "../conversation-seed-composer.js";
@@ -193,7 +192,7 @@ function buildAccessRequestCardBlocks(
   payload: ChannelDeliveryPayload,
 ): unknown[] {
   const approval = payload.approvalContext!;
-  const p = parseAccessRequestPayload(payload.contextPayload!);
+  const p = payload.accessRequestContext!;
   const blocks: unknown[] = [];
 
   const subtitle = buildAccessRequestSubtitle(p);
@@ -314,7 +313,7 @@ function buildApprovalNotificationBlocks(
 ): unknown[] {
   if (
     payload.sourceEventName === "ingress.access_request" &&
-    payload.contextPayload != null
+    payload.accessRequestContext != null
   ) {
     return buildAccessRequestCardBlocks(payload);
   }
