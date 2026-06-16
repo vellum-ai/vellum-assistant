@@ -168,7 +168,7 @@ describe("setChannelPolicy", () => {
       {
         url: string;
         path: { assistant_id: string; channel_type: string };
-        body: { policy: string };
+        body: { policy: string; note: string | null };
       },
     ];
     expect(call[0].url).toContain(
