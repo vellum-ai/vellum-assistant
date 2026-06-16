@@ -529,57 +529,61 @@ export class FileRiskClassifier implements RiskClassifier<
 
     // User overrides are applied after normal classification.
     //
-    // The primary subject (`subjectPath` — filePath for most tools, the
-    // sandbox destination for a to_sandbox transfer) is authoritative: a rule
-    // the user explicitly created for it REPLACES the classification and may
-    // intentionally lower it (e.g. honoring an approval of a benign transfer's
-    // destination, or lowering an actor-token-signing-key read).
+    // The primary subject (the resolved `subjectPath` — filePath for most
+    // tools, the sandbox destination for a to_sandbox transfer) is
+    // authoritative: a rule the user explicitly created for the actual target
+    // file REPLACES the classification and may intentionally lower it (e.g.
+    // honoring an approval of a benign transfer's destination, or lowering an
+    // actor-token-signing-key read).
     //
-    // A to_sandbox transfer also has a secondary subject — the host source
-    // (`filePath`). A rule there may only RAISE risk (e.g. a sensitive source
-    // such as `host_file_transfer:/etc/secret`); it must not downgrade a
-    // dangerous destination, so it applies only when it escalates above the
-    // already-resolved result.
+    // Two secondary lookups may only RAISE risk (never downgrade the resolved
+    // result): (1) the host source of a to_sandbox transfer — a sensitive
+    // source such as `host_file_transfer:/etc/secret` must still escalate; and
+    // (2) the pre-canonicalization RAW path — a legacy rule saved against a
+    // relative/alias path is kept working, but only to escalate, since a raw
+    // path resolves ambiguously across working dirs and must not be trusted to
+    // lower a now-escalated write.
     try {
       const ruleCache = getTrustRuleCache();
-      let result = assessment!;
-
-      const primaryOverride = ruleCache.findToolOverride(
-        toolName,
-        resolvedSubjectPath,
-      );
-      if (
-        primaryOverride &&
-        (primaryOverride.userModified ||
-          primaryOverride.origin === "user_defined")
-      ) {
-        result = {
-          riskLevel: primaryOverride.risk,
-          reason: primaryOverride.description,
-          scopeOptions: [],
-          matchType: "user_rule",
-          allowlistOptions,
-        };
-      }
-
-      if (input.sandboxPath) {
-        const sourceOverride = ruleCache.findToolOverride(
-          toolName,
-          resolve(filePath),
-        );
-        if (
-          sourceOverride &&
-          (sourceOverride.userModified ||
-            sourceOverride.origin === "user_defined") &&
-          riskOrd(sourceOverride.risk) > riskOrd(result.riskLevel)
-        ) {
-          result = {
-            riskLevel: sourceOverride.risk,
-            reason: sourceOverride.description,
+      const asUserRule = (path: string): RiskAssessment | null => {
+        const ov = ruleCache.findToolOverride(toolName, path);
+        if (ov && (ov.userModified || ov.origin === "user_defined")) {
+          return {
+            riskLevel: ov.risk,
+            reason: ov.description,
             scopeOptions: [],
             matchType: "user_rule",
             allowlistOptions,
           };
+        }
+        return null;
+      };
+
+      let result = assessment!;
+
+      // Primary (canonical) subject rule replaces — may lower or raise.
+      const primary = asUserRule(resolvedSubjectPath);
+      if (primary) {
+        result = primary;
+      }
+
+      // Raise-only lookups: the legacy raw subject path, and (for a to_sandbox
+      // transfer) the host source in both resolved and raw form.
+      const raiseOnlyPaths = new Set<string>();
+      if (subjectPath && subjectPath !== resolvedSubjectPath) {
+        raiseOnlyPaths.add(subjectPath);
+      }
+      if (input.sandboxPath && filePath) {
+        raiseOnlyPaths.add(resolve(filePath));
+        raiseOnlyPaths.add(filePath);
+      }
+      for (const path of raiseOnlyPaths) {
+        const candidate = asUserRule(path);
+        if (
+          candidate &&
+          riskOrd(candidate.riskLevel) > riskOrd(result.riskLevel)
+        ) {
+          result = candidate;
         }
       }
 

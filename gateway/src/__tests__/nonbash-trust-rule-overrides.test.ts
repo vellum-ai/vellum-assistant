@@ -97,6 +97,33 @@ describe("FileRiskClassifier user overrides", () => {
     expect(result.matchType).toBe("user_rule");
   });
 
+  test("a legacy high-risk rule saved on a raw relative path still applies", async () => {
+    // Rules created before subject-path canonicalization are keyed on the raw
+    // (relative/alias) path. A high-risk one must still escalate via the
+    // raise-only raw fallback rather than silently falling back to low.
+    store.create({
+      tool: "file_write",
+      pattern: "src/secret.txt",
+      risk: "high",
+      description: "Legacy raw-path rule",
+    });
+
+    initTrustRuleCache(store);
+
+    const classifier = new FileRiskClassifier();
+    const result = await classifier.classify(
+      {
+        toolName: "file_write",
+        filePath: "src/secret.txt",
+        workingDir: "/repo",
+      },
+      dummyFileContext,
+    );
+
+    expect(result.riskLevel).toBe("high");
+    expect(result.matchType).toBe("user_rule");
+  });
+
   test("a low rule on a /workspace alias from a benign dir does not downgrade a tools-dir write", async () => {
     // "/workspace/skill_load.ts" resolves differently per working dir. A low
     // rule whose resolved key is a benign path must NOT match a write that
