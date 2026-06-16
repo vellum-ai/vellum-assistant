@@ -986,6 +986,36 @@ export function describeCronExpression(expr: string | null): string {
       }
     }
 
+    // Stepped or fixed minutes constrained to a contiguous range of hours,
+    // every day/month (e.g. "*/30 7-23 * * *" → "Every 30 minutes, 7 AM–11 PM").
+    const hoursAreContiguousRange =
+      !allHours &&
+      activeHours.length > 1 &&
+      activeHours.every((h, i) => i === 0 || h === activeHours[i - 1] + 1);
+
+    if (hoursAreContiguousRange && anyDayAndMonth) {
+      const hourLabel = (h: number) => {
+        const period = h >= 12 ? "PM" : "AM";
+        return `${h % 12 || 12} ${period}`;
+      };
+      const rangeStr = `${hourLabel(activeHours[0])}–${hourLabel(
+        activeHours[activeHours.length - 1],
+      )}`;
+
+      if (steppedMinutes && activeMinutes[0] === 0) {
+        const step = activeMinutes[1] - activeMinutes[0];
+        const isRegularStep = activeMinutes.every((v, i) => v === i * step);
+        if (isRegularStep && 60 % step === 0) {
+          return `Every ${step} minutes, ${rangeStr}`;
+        }
+      }
+      if (fixedMinute) {
+        return activeMinutes[0] === 0
+          ? `Hourly, ${rangeStr}`
+          : `Hourly at minute ${activeMinutes[0]}, ${rangeStr}`;
+      }
+    }
+
     // Fallback: return the raw expression
     return expr;
   } catch {

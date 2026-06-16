@@ -58,10 +58,8 @@ export async function writeHomeFeedItemForSignal(
   decision: NotificationDecision,
   fallbackConversationId?: string,
 ): Promise<FeedItem | null> {
-  const { mirror, sourceConversationId } = resolveHomeFeedMirror(
-    signal,
-    fallbackConversationId,
-  );
+  const { mirror, sourceConversationId, sourceScheduleJobId } =
+    resolveHomeFeedMirror(signal, fallbackConversationId);
   if (!mirror) return null;
 
   const renderedCopy =
@@ -106,12 +104,27 @@ export async function writeHomeFeedItemForSignal(
 
   const category = deriveCategory(signal);
   const panelKind = deriveDetailPanelKind(signal);
-  const metadata =
+
+  const baseMetadata =
     signal.contextPayload &&
     typeof signal.contextPayload === "object" &&
     !Array.isArray(signal.contextPayload)
-      ? (signal.contextPayload as Record<string, unknown>)
+      ? { ...(signal.contextPayload as Record<string, unknown>) }
       : undefined;
+
+  // Link scheduled-run notifications back to their schedule. `notify`-mode
+  // jobs put `scheduleId` directly in the context payload; `execute`-mode (and
+  // other agent-backed) jobs only tag their conversation, so fall back to the
+  // source conversation's `scheduleJobId`.
+  const scheduleId =
+    readPayloadString(signal.contextPayload, "scheduleId") ??
+    sourceScheduleJobId ??
+    undefined;
+
+  const metadata =
+    scheduleId !== undefined
+      ? { ...(baseMetadata ?? {}), scheduleId }
+      : baseMetadata;
 
   const item: FeedItem = {
     id: `notif:${signal.signalId}`,
@@ -202,8 +215,11 @@ function resolveHomeFeedMirror(
 ): {
   mirror: boolean;
   sourceConversationId?: string;
+  sourceScheduleJobId?: string;
 } {
-  let sourceRow: { conversationType?: string } | null = null;
+  let sourceRow:
+    | { conversationType?: string; scheduleJobId?: string | null }
+    | null = null;
   if (signal.sourceContextId) {
     try {
       sourceRow = getConversation(signal.sourceContextId) ?? null;
@@ -219,15 +235,16 @@ function resolveHomeFeedMirror(
   const sourceConversationId = sourceRow
     ? signal.sourceContextId
     : fallbackConversationId;
+  const sourceScheduleJobId = sourceRow?.scheduleJobId ?? undefined;
 
   if (signal.sourceChannel === "assistant_tool") {
-    return { mirror: true, sourceConversationId };
+    return { mirror: true, sourceConversationId, sourceScheduleJobId };
   }
   if (signal.attentionHints.isAsyncBackground) {
-    return { mirror: true, sourceConversationId };
+    return { mirror: true, sourceConversationId, sourceScheduleJobId };
   }
   if (isBackgroundConversationType(sourceRow?.conversationType)) {
-    return { mirror: true, sourceConversationId };
+    return { mirror: true, sourceConversationId, sourceScheduleJobId };
   }
   return { mirror: false };
 }
