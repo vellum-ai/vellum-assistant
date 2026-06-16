@@ -269,9 +269,6 @@ const bridge: VellumBridge = {
     setBadge: (count: number): void => {
       ipcRenderer.send("vellum:dock:setBadge", count);
     },
-    setSignedIn: (signedIn: boolean): void => {
-      ipcRenderer.send("vellum:dock:setSignedIn", signedIn);
-    },
   },
   localMode: {
     hatch: (species: string, remote?: string) =>

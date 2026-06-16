@@ -35,9 +35,13 @@ mock.module("electron", () => ({
 
 mock.module("./logger", () => ({ default: { warn: () => {}, error: () => {} } }));
 
-const { getSessionToken, saveSessionToken, clearSessionToken, __resetForTesting } = await import(
-  "./session-token-store"
-);
+const {
+  getSessionToken,
+  saveSessionToken,
+  clearSessionToken,
+  onSessionTokenChange,
+  __resetForTesting,
+} = await import("./session-token-store");
 
 const tokenPath = (): string => path.join(userDataDir, "session.enc");
 
@@ -110,5 +114,81 @@ describe("clearSessionToken", () => {
 
   test("tolerates a missing file", () => {
     expect(() => clearSessionToken()).not.toThrow();
+  });
+});
+
+describe("onSessionTokenChange", () => {
+  test("fires the listener when a token is saved", () => {
+    // GIVEN a registered listener
+    let callCount = 0;
+    onSessionTokenChange(() => {
+      callCount++;
+    });
+
+    // WHEN a token is saved
+    saveSessionToken("tok-abc");
+
+    // THEN the listener fires once
+    expect(callCount).toBe(1);
+  });
+
+  test("fires the listener when the token is cleared", () => {
+    // GIVEN a saved token and a registered listener
+    saveSessionToken("tok-abc");
+    let callCount = 0;
+    onSessionTokenChange(() => {
+      callCount++;
+    });
+
+    // WHEN the token is cleared
+    clearSessionToken();
+
+    // THEN the listener fires once
+    expect(callCount).toBe(1);
+  });
+
+  test("fires the listener even when encryption is unavailable", () => {
+    // GIVEN encryption is unavailable
+    encryptionAvailable = false;
+    let callCount = 0;
+    onSessionTokenChange(() => {
+      callCount++;
+    });
+
+    // WHEN a token is saved (in-memory only)
+    saveSessionToken("tok-mem");
+
+    // THEN the listener still fires
+    expect(callCount).toBe(1);
+  });
+
+  test("unsubscribe stops further notifications", () => {
+    // GIVEN a registered listener
+    let callCount = 0;
+    const unsub = onSessionTokenChange(() => {
+      callCount++;
+    });
+
+    // WHEN we unsubscribe and then save a token
+    unsub();
+    saveSessionToken("tok-abc");
+
+    // THEN the listener does not fire
+    expect(callCount).toBe(0);
+  });
+
+  test("__resetForTesting clears all listeners", () => {
+    // GIVEN a registered listener
+    let callCount = 0;
+    onSessionTokenChange(() => {
+      callCount++;
+    });
+
+    // WHEN we reset and then save a token
+    __resetForTesting();
+    saveSessionToken("tok-abc");
+
+    // THEN the listener does not fire
+    expect(callCount).toBe(0);
   });
 });

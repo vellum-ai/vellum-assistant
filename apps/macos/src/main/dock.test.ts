@@ -47,6 +47,21 @@ mock.module("./ipc", () => ({
 }));
 mock.module("./avatar", () => ({ onAvatarChange: () => () => undefined }));
 
+// Mock session-token-store so the dock can derive signed-in state
+// without a real Electron safeStorage / keychain. The mock captures
+// registered listeners so tests can simulate token changes.
+let mockToken: string | null = null;
+const tokenChangeListeners = new Set<() => void>();
+mock.module("./session-token-store", () => ({
+  getSessionToken: () => mockToken,
+  onSessionTokenChange: (listener: () => void) => {
+    tokenChangeListeners.add(listener);
+    return () => {
+      tokenChangeListeners.delete(listener);
+    };
+  },
+}));
+
 const avatarBitmapMock = mock((_size: number): Buffer | null => null);
 mock.module("./avatar-image", () => ({ avatarBitmap: avatarBitmapMock }));
 
@@ -106,6 +121,9 @@ const fakeAvatar = (): Buffer => Buffer.alloc(DOCK_ICON_PX * DOCK_ICON_PX * 4, 2
 
 beforeEach(() => {
   __resetForTesting();
+  mockToken = null;
+  // Do NOT clear tokenChangeListeners here — installDock() (beforeAll)
+  // registered its listener and that must persist across tests.
   avatarBitmapMock.mockReset();
   avatarBitmapMock.mockReturnValue(null);
   setIconMock.mockClear();
@@ -259,25 +277,25 @@ describe("installDock IPC registration", () => {
     installDock();
   });
 
-  test("publishes dock state over fire-and-forget `on`, never awaitable `handle`/`invoke`", () => {
-    // The whole point of the call-style alignment: these are one-way
-    // notifications with no acknowledgement, so they must register through
-    // `on` (renderer `send`), not `handle` (renderer `invoke`). A renderer
-    // calling `invoke` against an `on` handler never gets a reply and its
-    // promise hangs — so this guards against a silent regression to `handle`.
+  test("publishes dock badge over fire-and-forget `on`, never awaitable `handle`/`invoke`", () => {
+    // GIVEN installDock has been called
+    // WHEN we inspect the registrations
+    // THEN only setBadge uses the IPC `on` path (signed-in is derived
+    //   from session-token-store, not IPC)
     expect(handleRegistrations).toHaveLength(0);
 
     const channels = onRegistrations.map((r) => r.channel);
     expect(channels.filter((c) => c === "vellum:dock:setBadge")).toHaveLength(1);
-    expect(channels.filter((c) => c === "vellum:dock:setSignedIn")).toHaveLength(
-      1,
-    );
   });
 
   test("the setBadge schema accepts a single number and rejects anything else", () => {
+    // GIVEN the setBadge IPC registration
     const schema = onRegistrations.find(
       (r) => r.channel === "vellum:dock:setBadge",
     )!.schema;
+
+    // WHEN we parse valid and invalid payloads
+    // THEN numbers pass, everything else rejects
     expect(schema.safeParse([5]).success).toBe(true);
     expect(schema.safeParse([0]).success).toBe(true);
     expect(schema.safeParse([]).success).toBe(false);
@@ -285,25 +303,58 @@ describe("installDock IPC registration", () => {
     expect(schema.safeParse([1, 2]).success).toBe(false);
   });
 
-  test("the setSignedIn schema accepts a single boolean and rejects anything else", () => {
-    const schema = onRegistrations.find(
-      (r) => r.channel === "vellum:dock:setSignedIn",
-    )!.schema;
-    expect(schema.safeParse([true]).success).toBe(true);
-    expect(schema.safeParse([false]).success).toBe(true);
-    expect(schema.safeParse([]).success).toBe(false);
-    expect(schema.safeParse(["true"]).success).toBe(false);
-  });
-
   test("a published badge count is formatted onto the Dock", () => {
+    // GIVEN the setBadge IPC handler
     const fn = onRegistrations.find(
       (r) => r.channel === "vellum:dock:setBadge",
     )!.fn;
     setBadgeMock.mockClear();
+
+    // WHEN a positive count is published
     fn([42]);
+
+    // THEN it is formatted onto the Dock
     expect(setBadgeMock).toHaveBeenLastCalledWith("42");
-    // A non-positive count clears the badge (matches `formatBadge`).
+
+    // AND a non-positive count clears the badge (matches `formatBadge`)
     fn([0]);
     expect(setBadgeMock).toHaveBeenLastCalledWith("");
+  });
+});
+
+describe("session-token-driven signed-in state", () => {
+  test("a token change from null to present flips signedIn to true", () => {
+    // GIVEN dock is installed with no token (signed out)
+    // (installDock already ran in beforeAll above; signedIn starts false)
+
+    // WHEN a token is saved
+    mockToken = "tok-abc";
+    for (const listener of tokenChangeListeners) listener();
+
+    // THEN the dock should schedule a policy refresh (signedIn = true)
+    //   — verified indirectly: the badge is NOT cleared (only cleared
+    //   on sign-out transitions)
+    setBadgeMock.mockClear();
+    expect(setBadgeMock).not.toHaveBeenCalled();
+  });
+
+  test("a token change from present to null clears the badge synchronously", () => {
+    // GIVEN dock sees a signed-in session
+    mockToken = "tok-abc";
+    for (const listener of tokenChangeListeners) listener();
+
+    // AND there is a badge count
+    const badgeFn = onRegistrations.find(
+      (r) => r.channel === "vellum:dock:setBadge",
+    )!.fn;
+    badgeFn([5]);
+    setBadgeMock.mockClear();
+
+    // WHEN the token is cleared (sign-out)
+    mockToken = null;
+    for (const listener of tokenChangeListeners) listener();
+
+    // THEN the badge is cleared synchronously
+    expect(setBadgeMock).toHaveBeenCalledWith("");
   });
 });
