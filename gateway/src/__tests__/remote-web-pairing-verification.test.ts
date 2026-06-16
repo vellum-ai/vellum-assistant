@@ -28,14 +28,41 @@ function makeChallengeRequest(): Request {
 }
 
 function makeVerificationRequest(body: unknown): Request {
+  return makeRawVerificationRequest(JSON.stringify(body));
+}
+
+function makeRawVerificationRequest(
+  body: BodyInit,
+  headers: Record<string, string> = {},
+): Request {
   return new Request(
     "https://paired.example.com/v1/remote-web/pairing-verification",
     {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
+      headers: { "content-type": "application/json", ...headers },
+      body,
     },
   );
+}
+
+function makeTrackedBodyAccessVerificationRequest(): {
+  req: Request;
+  getBodyAccessCount: () => number;
+} {
+  let bodyAccessCount = 0;
+  const req = {
+    method: "POST",
+    headers: new Headers({ "content-type": "application/json" }),
+    get body() {
+      bodyAccessCount += 1;
+      return new ReadableStream<Uint8Array>();
+    },
+  } as unknown as Request;
+
+  return {
+    req,
+    getBodyAccessCount: () => bodyAccessCount,
+  };
 }
 
 async function createChallenge(): Promise<{
@@ -134,5 +161,32 @@ describe("remote web pairing verification", () => {
     expect(
       getRemoteWebPairingChallengeForTests(challenge.userCode)?.status,
     ).toBe("pending");
+
+    const tracked = makeTrackedBodyAccessVerificationRequest();
+    const blockedUnreadBody = await handleVerifyRemoteWebPairingChallenge(
+      tracked.req,
+      CLIENT_IP,
+    );
+
+    expect(blockedUnreadBody.status).toBe(429);
+    expect(tracked.getBodyAccessCount()).toBe(0);
+  });
+
+  test("rejects oversized verification bodies", async () => {
+    const body = JSON.stringify({ userCode: "A".repeat(512) });
+    const res = await handleVerifyRemoteWebPairingChallenge(
+      makeRawVerificationRequest(body, {
+        "content-length": String(body.length),
+      }),
+      CLIENT_IP,
+    );
+
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({
+      error: {
+        code: "PAYLOAD_TOO_LARGE",
+        message: "request body too large",
+      },
+    });
   });
 });
