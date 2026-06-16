@@ -20,7 +20,6 @@ import {
   fetchManagedCatalog,
   type ManagedCredentialDescriptor,
 } from "../../credential-execution/managed-catalog.js";
-import { clearSlackUserToken } from "../../daemon/handlers/config-slack-channel.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import {
   disconnectOAuthProvider,
@@ -380,17 +379,11 @@ async function handleCredentialsDelete({ body }: RouteHandlerArgs) {
   // The Slack user_token only grants read access to channels the bot isn't a
   // member of; Socket Mode itself runs on the bot + app tokens. Deleting just
   // the user_token must leave the oauth_connection intact — disconnecting the
-  // provider here would flap the integration's connected state until the next
-  // sync. Delete it surgically and skip the OAuth teardown below.
-  if (service === "slack_channel" && field === "user_token") {
-    const cleared = await clearSlackUserToken();
-    if (!cleared.success) {
-      throw new InternalError(
-        cleared.error ?? "Failed to delete Slack user token",
-      );
-    }
-    return { service, field };
-  }
+  // provider would flap the integration's connected state until the next sync.
+  // Every other step (secret + metadata removal, not-found handling) is the
+  // same as a normal credential delete.
+  const preserveOAuthConnection =
+    service === "slack_channel" && field === "user_token";
 
   const key = credentialKey(service, field);
   const existing = await getSecureKeyAsync(key);
@@ -407,10 +400,12 @@ async function handleCredentialsDelete({ body }: RouteHandlerArgs) {
 
   // Clean up OAuth connection (best-effort).
   let oauthResult: "disconnected" | "not-found" | "error" = "not-found";
-  try {
-    oauthResult = await disconnectOAuthProvider(service);
-  } catch {
-    // Best-effort — OAuth tables may not exist yet
+  if (!preserveOAuthConnection) {
+    try {
+      oauthResult = await disconnectOAuthProvider(service);
+    } catch {
+      // Best-effort — OAuth tables may not exist yet
+    }
   }
 
   if (oauthResult === "error") {

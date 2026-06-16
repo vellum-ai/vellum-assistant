@@ -11,7 +11,6 @@ let secureStore: Map<string, string>;
 let metadataStore: Map<string, CredentialMetadata>;
 let syncedServices: string[];
 let disconnectedProviders: string[];
-let clearSlackUserTokenCalls: number;
 let credentialIdCounter: number;
 
 function metaKey(service: string, field: string): string {
@@ -105,23 +104,6 @@ mock.module("../oauth/oauth-store.js", () => ({
   }),
 }));
 
-mock.module("../daemon/handlers/config-slack-channel.js", () => ({
-  clearSlackUserToken: mock(async () => {
-    clearSlackUserTokenCalls += 1;
-    secureStore.delete("slack_channel:user_token");
-    metadataStore.delete("slack_channel:user_token");
-    return {
-      success: true,
-      hasBotToken: secureStore.has("slack_channel:bot_token"),
-      hasAppToken: secureStore.has("slack_channel:app_token"),
-      hasUserToken: false,
-      connected:
-        secureStore.has("slack_channel:bot_token") &&
-        secureStore.has("slack_channel:app_token"),
-    };
-  }),
-}));
-
 mock.module("../credential-execution/managed-catalog.js", () => ({
   fetchManagedCatalog: mock(async () => ({ ok: true, descriptors: [] })),
 }));
@@ -152,7 +134,6 @@ describe("credentials routes", () => {
     metadataStore = new Map();
     syncedServices = [];
     disconnectedProviders = [];
-    clearSlackUserTokenCalls = 0;
     credentialIdCounter = 0;
   });
 
@@ -307,9 +288,8 @@ describe("credentials routes", () => {
         body: { service: "slack_channel", field: "user_token" },
       })) as DeleteResponse;
 
-      // THEN the surgical helper runs and the response echoes the identifiers
+      // THEN the response echoes the identifiers
       expect(result).toEqual({ service: "slack_channel", field: "user_token" });
-      expect(clearSlackUserTokenCalls).toBe(1);
 
       // AND only the user_token is removed; bot + app tokens remain
       expect(secureStore.has("slack_channel:user_token")).toBe(false);
@@ -317,6 +297,31 @@ describe("credentials routes", () => {
       expect(secureStore.has("slack_channel:app_token")).toBe(true);
 
       // AND the OAuth provider is never disconnected
+      expect(disconnectedProviders).not.toContain("slack_channel");
+    });
+
+    test("rejects deleting an absent Slack user_token without disconnecting the provider", async () => {
+      /**
+       * Deleting a Slack user_token that was never stored surfaces the same
+       * not-found rejection as any other missing credential — it must not be
+       * reported as an internal storage error, and it must still skip the
+       * OAuth teardown so a connected channel's bot + app tokens are untouched.
+       */
+      // GIVEN a connected Slack channel with only bot + app tokens (no user_token)
+      secureStore.set("slack_channel:bot_token", "xoxb-bot");
+      secureStore.set("slack_channel:app_token", "xapp-app");
+
+      // WHEN the absent user_token is deleted
+      const call = deleteRoute!.handler({
+        body: { service: "slack_channel", field: "user_token" },
+      });
+
+      // THEN it rejects with a BadRequestError (not an InternalError)
+      await expect(call).rejects.toBeInstanceOf(BadRequestError);
+
+      // AND the bot + app tokens remain and the provider is never disconnected
+      expect(secureStore.has("slack_channel:bot_token")).toBe(true);
+      expect(secureStore.has("slack_channel:app_token")).toBe(true);
       expect(disconnectedProviders).not.toContain("slack_channel");
     });
 
@@ -333,10 +338,7 @@ describe("credentials routes", () => {
         body: { service: "slack_channel", field: "bot_token" },
       });
 
-      // THEN the surgical user-token path is not taken
-      expect(clearSlackUserTokenCalls).toBe(0);
-
-      // AND the generic path disconnects the provider
+      // THEN the generic path disconnects the provider
       expect(disconnectedProviders).toContain("slack_channel");
     });
 
