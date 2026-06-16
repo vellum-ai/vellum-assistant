@@ -472,7 +472,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           outputs: type=image,"name=${{ steps.image.outputs.gcp }}",push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=assistant-${{ needs.extract-version.outputs.docker_environment }}-${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=assistant-${{ needs.extract-version.outputs.docker_environment }}-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,ignore-error=true,scope=assistant-${{ needs.extract-version.outputs.docker_environment }}-${{ matrix.platform }}
 
       - name: Export digest
         run: |
@@ -672,7 +672,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           outputs: type=image,"name=${{ steps.image.outputs.gcp }}",push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=gateway-${{ needs.extract-version.outputs.docker_environment }}-${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=gateway-${{ needs.extract-version.outputs.docker_environment }}-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,ignore-error=true,scope=gateway-${{ needs.extract-version.outputs.docker_environment }}-${{ matrix.platform }}
 
       - name: Export digest
         run: |
@@ -752,7 +752,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           outputs: type=image,"name=${{ steps.image.outputs.gcp }}",push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=credential-executor-${{ needs.extract-version.outputs.docker_environment }}-${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=credential-executor-${{ needs.extract-version.outputs.docker_environment }}-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,ignore-error=true,scope=credential-executor-${{ needs.extract-version.outputs.docker_environment }}-${{ matrix.platform }}
 
       - name: Export digest
         run: |
