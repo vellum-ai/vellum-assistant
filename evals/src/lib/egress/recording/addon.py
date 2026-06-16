@@ -5,9 +5,9 @@ mitmproxy addon. Two responsibilities:
      usage parsers (`usage_parser.parse_*`) and appends each parsed
      usage record as one NDJSON line to `RECORDING_OUTPUT_PATH`
      (default `/recording/egress-usage.ndjson`). Anthropic
-     `/v1/messages` and OpenAI-compatible `/chat/completions` (OpenAI,
-     Fireworks) traffic are parsed; every record carries a `provider`
-     field so the report can key pricing on `<provider>:<model>`.
+     `/v1/messages` and Fireworks `/chat/completions` traffic are
+     parsed; every record carries a `provider` field so the report can
+     key pricing on `<provider>:<model>`.
   2. **Mocking.** Wires the `request` hook into the pure-function
      mock-github handler (`mock_github_handler.handle`). When the
      handler returns a synthesized response, the addon short-circuits
@@ -20,7 +20,6 @@ mitmproxy addon. Two responsibilities:
 
 Hosts intercepted for response parsing:
   - `api.anthropic.com` — Anthropic `/v1/messages`
-  - `api.openai.com` — OpenAI `/chat/completions`
   - `api.fireworks.ai` — Fireworks `/inference/v1/chat/completions`
     (open-weight models, e.g. the `vellum-minimax` profile's MiniMax-M3)
 
@@ -31,9 +30,11 @@ set):
 
 Other allowlisted model hosts flow through mitmproxy and out the egress
 jail untouched — the addon only parses hosts whose wire format it
-understands. Gemini (`generativelanguage.googleapis.com`) uses a
-distinct API shape and is not metered, so its runs score $0 on the cost
-metric until a parser for it is added.
+understands. OpenAI (`api.openai.com`, served via the Responses API at
+`/v1/responses`) and Gemini (`generativelanguage.googleapis.com`) use
+distinct API shapes the chat-completions parser cannot read, so they are
+not intercepted and their runs score $0 on the cost metric until a
+parser for each is added.
 
 Design notes:
 - SSE model responses are streamed through to the assistant in
@@ -94,12 +95,16 @@ MAX_PAYLOAD_CHARS = int(os.environ.get("RECORDING_MAX_PAYLOAD_CHARS", "32768"))
 PLUGIN_FIXTURES_DIR: Optional[str] = os.environ.get("PLUGIN_FIXTURES_DIR")
 
 # Hosts whose responses speak the OpenAI chat-completions wire format,
-# mapped to the provider label stamped onto each usage record. OpenAI and
-# Fireworks share an identical request/response shape, so one parser
-# serves both; only the observed host distinguishes the provider for
-# pricing (`<provider>:<model>` in `src/lib/pricing.ts`).
+# mapped to the provider label stamped onto each usage record. The label
+# keys pricing (`<provider>:<model>` in `src/lib/pricing.ts`).
+#
+# OpenAI's own `api.openai.com` is intentionally excluded: the assistant's
+# `openai` provider is the Responses API (`/v1/responses`, see
+# adapter-factory.ts), whose payloads this `/chat/completions` parser does
+# not read — intercepting it would MITM the traffic yet record nothing.
+# Fireworks serves open-weight models over `/chat/completions`, which the
+# parser handles.
 OPENAI_COMPATIBLE_HOSTS = {
-    "api.openai.com": "openai",
     "api.fireworks.ai": "fireworks",
 }
 

@@ -264,6 +264,42 @@ class ResponseHookGzipTest(unittest.TestCase):
             record["model"], "accounts/fireworks/models/minimax-m3"
         )
 
+    def test_openai_responses_host_is_not_recorded(self) -> None:
+        """OpenAI's `api.openai.com` is intentionally left out of the recorded set.
+
+        The assistant's `openai` provider speaks the Responses API
+        (`/v1/responses`), which the chat-completions parser cannot read, so the
+        host is excluded from interception rather than recorded as $0.
+        """
+        # GIVEN an OpenAI Responses API response on api.openai.com
+        response_body = json.dumps(
+            {
+                "model": "gpt-5.2",
+                "usage": {"input_tokens": 100, "output_tokens": 20},
+            }
+        ).encode("utf-8")
+        flow = _FakeFlow(
+            request=_FakeRequest(
+                host="api.openai.com",
+                path="/v1/responses",
+                decoded=b"{}",
+                raw=b"{}",
+            ),
+            response=_FakeResponse(
+                decoded=response_body,
+                raw=response_body,
+                content_type="application/json",
+            ),
+        )
+
+        # WHEN the response hook runs
+        addon.response(flow)
+
+        # THEN no usage record is written and the host is not in the recorded set
+        self.assertEqual(self._records(), [])
+        self.assertFalse(addon._is_recorded_host("api.openai.com"))
+        self.assertNotIn("api.openai.com", addon.OPENAI_COMPATIBLE_HOSTS)
+
     def test_unmetered_host_is_skipped(self) -> None:
         """A response from a non-parsed allowlisted host records nothing."""
         # GIVEN a Gemini response (an allowlisted host with no parser)

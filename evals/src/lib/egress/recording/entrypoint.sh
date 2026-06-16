@@ -53,8 +53,8 @@ fi
 #   the addon sees `api.anthropic.com` not the rewritten dest.
 # `--allow-hosts <regex>` restricts TLS interception to the hosts the
 #   addon records or mocks: the model providers whose usage it parses
-#   (Anthropic `/v1/messages`; OpenAI + Fireworks `/chat/completions`)
-#   and, when plugin fixtures are mounted, GitHub Contents + Raw so the
+#   (Anthropic `/v1/messages`; Fireworks `/chat/completions`) and, when
+#   plugin fixtures are mounted, GitHub Contents + Raw so the
 #   mock-github handler can synthesize plugin-install responses. Every
 #   other host gets pure-TCP passthrough, which matters because:
 #   (a) the CA cert is only trusted by the assistant container
@@ -73,9 +73,9 @@ fi
 #   localhost (the assistant container shares netns with us).
 ALLOW_HOSTS="${ALLOW_HOSTS:-api.anthropic.com}"
 if [ -n "${PLUGIN_FIXTURES_DIR:-}" ]; then
-  RECORDING_TLS_HOSTS_RE="${RECORDING_TLS_HOSTS_RE:-^(api\\.anthropic\\.com|api\\.openai\\.com|api\\.fireworks\\.ai|api\\.github\\.com|raw\\.githubusercontent\\.com):443$}"
+  RECORDING_TLS_HOSTS_RE="${RECORDING_TLS_HOSTS_RE:-^(api\\.anthropic\\.com|api\\.fireworks\\.ai|api\\.github\\.com|raw\\.githubusercontent\\.com):443$}"
 else
-  RECORDING_TLS_HOSTS_RE="${RECORDING_TLS_HOSTS_RE:-^(api\\.anthropic\\.com|api\\.openai\\.com|api\\.fireworks\\.ai):443$}"
+  RECORDING_TLS_HOSTS_RE="${RECORDING_TLS_HOSTS_RE:-^(api\\.anthropic\\.com|api\\.fireworks\\.ai):443$}"
 fi
 
 exec su -s /bin/sh -c "exec mitmdump \
