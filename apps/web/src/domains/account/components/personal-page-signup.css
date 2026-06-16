@@ -135,6 +135,11 @@
   line-height: 1.4;
   pointer-events: none;
 }
+.cast-login__error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--system-negative-strong);
+}
 .cast-login__footer {
   margin: 0;
   font-size: 13px;
