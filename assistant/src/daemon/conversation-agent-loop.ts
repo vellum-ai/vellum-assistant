@@ -1439,31 +1439,46 @@ export async function runAgentLoopImpl(
 
     ctx.profiler.emitSummary(ctx.traceEmitter, reqId);
 
-    ctx.abortController = null;
-    ctx.setProcessing(false);
-    ctx.onConfirmationOutcome = undefined;
-    ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? "");
-    ctx.approvedViaPromptThisTurn = false;
-    ctx.currentRequestId = undefined;
-    ctx.currentActiveSurfaceId = undefined;
-    ctx.allowedToolNames = undefined;
-    ctx.diskPressureCleanupModeActive = false;
-    ctx.preactivatedSkillIds = undefined;
-    ctx.currentTurnOverrideProfile = undefined;
-    // Channel command intents (e.g. Telegram /start) are single-turn metadata.
-    // Clear at turn end so they never leak into subsequent unrelated messages.
-    ctx.commandIntent = undefined;
-    // taskRunId scopes ephemeral task-run permissions to a single turn. Clear
-    // before drainQueue so queued/drained turns on a reused conversation can't
-    // inherit stale in-task-run scope from the turn that just finished.
-    ctx.taskRunId = undefined;
+    // A user cancel clears `processing` immediately so the UI unblocks even
+    // when this turn is slow to unwind, which lets a new turn start and install
+    // its own AbortController, processing flag, request id, and queued work
+    // before this turn reaches here. The shared per-turn state below belongs to
+    // whichever turn currently owns the conversation, so tear it down only while
+    // this turn is still the owner. Each turn captures its AbortController at
+    // start, so a newer turn having replaced `ctx.abortController` means it has
+    // taken ownership; in that case leave the state intact so the new turn stays
+    // cancellable and visible.
+    const supersededByNewerTurn =
+      ctx.abortController !== null && ctx.abortController !== abortController;
+    if (!supersededByNewerTurn) {
+      ctx.abortController = null;
+      ctx.setProcessing(false);
+      ctx.onConfirmationOutcome = undefined;
+      ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? "");
+      ctx.approvedViaPromptThisTurn = false;
+      ctx.currentRequestId = undefined;
+      ctx.currentActiveSurfaceId = undefined;
+      ctx.allowedToolNames = undefined;
+      ctx.diskPressureCleanupModeActive = false;
+      ctx.preactivatedSkillIds = undefined;
+      ctx.currentTurnOverrideProfile = undefined;
+      // Channel command intents (e.g. Telegram /start) are single-turn metadata.
+      // Clear at turn end so they never leak into subsequent unrelated messages.
+      ctx.commandIntent = undefined;
+      // taskRunId scopes ephemeral task-run permissions to a single turn. Clear
+      // before drainQueue so queued/drained turns on a reused conversation can't
+      // inherit stale in-task-run scope from the turn that just finished.
+      ctx.taskRunId = undefined;
 
-    // Consolidation deferred to compaction: keeping assistant + tool_result
-    // messages unconsolidated preserves the exact message structure sent to
-    // the API, enabling stable prefix caching across turns.  Compaction
-    // consolidates when it summarizes old messages (cache miss is expected).
+      // Consolidation deferred to compaction: keeping assistant + tool_result
+      // messages unconsolidated preserves the exact message structure sent to
+      // the API, enabling stable prefix caching across turns.  Compaction
+      // consolidates when it summarizes old messages (cache miss is expected).
 
-    ctx.drainQueue(yieldedForHandoff ? "checkpoint_handoff" : "loop_complete");
+      ctx.drainQueue(
+        yieldedForHandoff ? "checkpoint_handoff" : "loop_complete",
+      );
+    }
 
     // Clear conversation tags so they don't leak into unrelated error captures
     // (e.g. unhandledRejection from a different async chain).
