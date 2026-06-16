@@ -39,11 +39,17 @@ export function recordBillingBlock(): void {
   openedAt = Date.now();
 }
 
-/** Clear the breaker after a successful embedding call. */
+/**
+ * Clear the breaker after a successful embedding call during the probe
+ * window. Ignored when the breaker is closed or when the cooldown has not
+ * yet elapsed — this prevents a concurrent in-flight embed job (started
+ * before the breaker opened) from prematurely closing a freshly-tripped
+ * breaker.
+ */
 export function recordBillingSuccess(): void {
-  if (breakerState === "open") {
-    log.info("Embedding billing breaker closed — billing probe succeeded");
-  }
+  if (breakerState !== "open") return;
+  if (Date.now() - openedAt < COOLDOWN_MS) return;
+  log.info("Embedding billing breaker closed — billing probe succeeded");
   breakerState = "closed";
   openedAt = 0;
 }
