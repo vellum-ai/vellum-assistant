@@ -450,6 +450,12 @@ describe("package-resolver", () => {
     expect(ALLOWED_PACKAGES).toContain("lodash-es");
     expect(ALLOWED_PACKAGES).toContain("zod");
     expect(ALLOWED_PACKAGES).toContain("clsx");
-    expect(ALLOWED_PACKAGES).toContain("lucide");
+  });
+
+  // `lucide` (the vanilla package) unpacks to ~29 MB, far above the resolver's
+  // size cap, so it is installed then deleted and never resolves. It also
+  // exports icon data arrays, not Preact components. Apps use inline SVG.
+  test("ALLOWED_PACKAGES excludes lucide", () => {
+    expect(ALLOWED_PACKAGES).not.toContain("lucide");
   });
 });

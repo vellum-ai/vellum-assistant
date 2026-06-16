@@ -4,7 +4,7 @@
 
 Bun + TypeScript monorepo with multiple packages:
 
-- `apps/` — End-user app surfaces. Currently hosts `apps/web/` (Vite + React Router v7 SPA, mid-migration from `vellum-assistant-platform/web/`), `apps/ios/` (Capacitor iOS shell that loads the web app in a WKWebView), and `apps/macos/` (Electron desktop shell that wraps `apps/web/`; daemon/gateway lifecycle is owned by the `vellum` CLI, which the app invokes as a subprocess; distribution and auto-update wiring still to come — note the CI workflow filenames are still `pr-electron.yaml` / `ci-main-electron.yaml` until the legacy Swift app's `ci-main-macos.yaml` retires). The Chrome extension at `clients/chrome-extension/` will also move here (as `apps/chrome-extension/`) in a follow-up PR; see [`apps/README.md`](apps/README.md) and [`apps/AGENTS.md`](apps/AGENTS.md).
+- `apps/` — End-user app surfaces: `apps/web/` (Vite + React Router v7 SPA), `apps/ios/` (Capacitor iOS shell that loads the web app in a WKWebView), and `apps/macos/` (Electron desktop shell that wraps `apps/web/`; daemon/gateway lifecycle is owned by the `vellum` CLI, which the app invokes as a subprocess; auto-update via `electron-updater`). CI workflow filenames are still `pr-electron.yaml` / `ci-main-electron.yaml` until the legacy Swift app's `ci-main-macos.yaml` retires. See [`apps/README.md`](apps/README.md) and [`apps/AGENTS.md`](apps/AGENTS.md).
 - `assistant/` — Main backend service (Bun + TypeScript)
 - `cli/` — Multi-assistant management CLI (Bun + TypeScript). See `cli/AGENTS.md`.
 - `clients/` — Client apps (macOS, browser extension, etc). See `clients/AGENTS.md` and platform docs like `clients/macos/AGENTS.md`.
@@ -60,6 +60,10 @@ We do **not** pin: `apt-get` packages (Debian rotates), `brew install` formulae 
 ### Workflow duplication
 
 `dev-release.yaml` and `release.yml` share inline logic (e.g. "Compute migration ceilings"). When changing logic that lives in both, update both in the same PR.
+
+### Docker build cache
+
+Docker `cache-to: type=gha` must set `ignore-error=true`. The GHA cache is a build-speed optimization, not part of the artifact, so a cache-export failure (e.g. `error writing layer blob: not_found` from an evicted scope) must never fail the build-push step or gate a release. See [Docker cache backends](https://docs.docker.com/build/cache/backends/).
 
 ### iOS release
 

@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import { getLockfileData, resolveLockfilePaths } from "@vellumai/local-mode";
 import { app, nativeImage, type NativeImage } from "electron";
 import { z } from "zod";
 
@@ -11,6 +12,10 @@ import {
   current as currentMainWindow,
   onMainWindowVisibilityChange,
 } from "./main-window";
+import {
+  getSessionToken,
+  onSessionTokenChange,
+} from "./session-token-store";
 
 /**
  * Dock integration: avatar icon + unread-count badge + visibility state
@@ -41,10 +46,13 @@ import {
  *      windows (About, future thread pop-outs) deliberately do NOT
  *      drive dock policy — opening About while signed out would
  *      otherwise flicker the dock icon to `regular` and back.
- *   2. **Signed-in flag**, published by the renderer over the
- *      `vellum:dock:setSignedIn` IPC channel. Renderer is the source of
- *      truth today; this side of the bridge becomes a no-op once the
- *      main-process auth state is the canonical signal.
+ *   2. **Signed-in flag**, derived from two main-process signals:
+ *      a session token (`getSessionToken() !== null`), which covers
+ *      platform auth, and active local assistants in the lockfile,
+ *      which covers local-mode auth (gateway-only, no platform
+ *      token). The dock subscribes to `onSessionTokenChange` and
+ *      re-derives on every save/clear; local-assistant presence is
+ *      re-checked at the same time.
  *
  * Policy:
  *
@@ -271,16 +279,22 @@ export const installDock = (): void => {
     applyBadge();
   });
 
-  // Renderer-published signed-in flag. Becomes redundant once main
-  // owns the auth state directly — at that point the source of truth
-  // flips and this handler can be replaced with a subscription.
-  //
-  // On a flip to signed-out we also clear the badge synchronously
-  // (here, ahead of the debounced policy refresh). Otherwise a logout
-  // that destroys the renderer's JS context (hard navigate) can leave
-  // a stale count on the Dock — the renderer never gets to publish
-  // `setDockBadge(0)` because the layout unmounts first.
-  on("vellum:dock:setSignedIn", z.tuple([z.boolean()]), ([signedIn]) => {
+  // Derive signed-in from two main-process signals: the session token
+  // (platform auth) and active local assistants in the lockfile
+  // (local-mode / gateway auth). On a flip to signed-out, clear the
+  // badge synchronously (ahead of the debounced policy refresh) so a
+  // logout can't leave a stale count on the Dock.
+  const lockfilePaths = resolveLockfilePaths(process.env);
+  const deriveSignedIn = (): boolean => {
+    if (getSessionToken() !== null) {
+      return true;
+    }
+    const lockfile = getLockfileData(lockfilePaths);
+    return lockfile.ok && lockfile.data.assistants.length > 0;
+  };
+  state.signedIn = deriveSignedIn();
+  onSessionTokenChange(() => {
+    const signedIn = deriveSignedIn();
     if (state.signedIn && !signedIn) {
       state.badgeCount = 0;
       applyBadge();

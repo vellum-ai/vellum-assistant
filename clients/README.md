@@ -37,9 +37,8 @@ clients/
 ```
 
 The iOS app is a Capacitor shell that lives in
-[`vellum-assistant-platform/web/ios/`](https://github.com/vellum-ai/vellum-assistant-platform);
-it loads the web app over HTTPS and does not consume any Swift code from this
-repo.
+[`apps/ios/`](../apps/ios/); it loads the web app over HTTPS and does not
+consume any Swift code from `clients/`.
 
 </details>
 

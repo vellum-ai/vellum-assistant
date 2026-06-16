@@ -18,11 +18,17 @@ import type { Database } from "bun:sqlite";
 
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import { RiskLevel } from "../permissions/types.js";
+import {
+  __clearRegistryForTesting,
+  __resetRegistryForTesting,
+  registerTool,
+} from "../tools/registry.js";
 import { executeScheduleCreate as rawExecuteScheduleCreate } from "../tools/schedule/create.js";
 import { executeScheduleDelete } from "../tools/schedule/delete.js";
 import { executeScheduleList } from "../tools/schedule/list.js";
 import { executeScheduleUpdate } from "../tools/schedule/update.js";
-import type { ToolContext } from "../tools/types.js";
+import type { Tool, ToolContext } from "../tools/types.js";
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 initializeDb();
@@ -515,6 +521,135 @@ describe("schedule tools — workflow mode", () => {
       .get(id) as { mode: string; workflow_name: string };
     expect(dbRow.mode).toBe("workflow");
     expect(dbRow.workflow_name).toBe("nightly-report");
+  });
+});
+
+// ── schedule_create workflow capability manifest ────────────────────
+
+describe("schedule_create — workflow capability manifest", () => {
+  function makeFakeTool(name: string): Tool {
+    return {
+      name,
+      description: `Fake ${name}`,
+      category: "test",
+      defaultRiskLevel: RiskLevel.Low,
+      executionTarget: "sandbox",
+      input_schema: { type: "object", properties: {}, required: [] },
+      async execute() {
+        return { content: "ok", isError: false };
+      },
+    };
+  }
+
+  beforeEach(() => {
+    getRawDb().run("DELETE FROM cron_runs");
+    getRawDb().run("DELETE FROM cron_jobs");
+    setOverridesForTesting({ workflows: true });
+    // Deterministic registry so a declared side-effecting tool resolves.
+    __clearRegistryForTesting();
+    registerTool(makeFakeTool("file_write"));
+  });
+  afterAll(() => {
+    setOverridesForTesting({});
+    __resetRegistryForTesting();
+  });
+
+  test("persists a validated side-effecting manifest verbatim", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Nightly writeback",
+        expression: "0 2 * * *",
+        mode: "workflow",
+        workflow_name: "nightly-report",
+        capabilities: { tools: ["file_write"], persona: true },
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    const row = getRawDb()
+      .query("SELECT capabilities_json FROM cron_jobs LIMIT 1")
+      .get() as { capabilities_json: string };
+    expect(JSON.parse(row.capabilities_json)).toEqual({
+      tools: ["file_write"],
+      hostFunctions: [],
+      persona: true,
+    });
+  });
+
+  test("rejects a forbidden manifest at creation", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Recursion vector",
+        expression: "0 2 * * *",
+        mode: "workflow",
+        workflow_name: "nightly-report",
+        capabilities: { tools: ["run_workflow"] },
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("invalid capabilities manifest");
+    expect(getRawDb().query("SELECT id FROM cron_jobs").all()).toHaveLength(0);
+  });
+
+  test("rejects an unknown tool in the manifest at creation", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Bad tool",
+        expression: "0 2 * * *",
+        mode: "workflow",
+        workflow_name: "nightly-report",
+        capabilities: { tools: ["unknown_tool"] },
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("invalid capabilities manifest");
+    expect(getRawDb().query("SELECT id FROM cron_jobs").all()).toHaveLength(0);
+  });
+
+  test("a read-only manifest persists as a baseline grant", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Read-only run",
+        expression: "0 2 * * *",
+        mode: "workflow",
+        workflow_name: "nightly-report",
+        capabilities: { tools: [], hostFunctions: [], persona: false },
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    const row = getRawDb()
+      .query("SELECT capabilities_json FROM cron_jobs LIMIT 1")
+      .get() as { capabilities_json: string };
+    expect(JSON.parse(row.capabilities_json)).toEqual({
+      tools: [],
+      hostFunctions: [],
+      persona: false,
+    });
+  });
+
+  test("an absent manifest persists no capabilities", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "No manifest",
+        expression: "0 2 * * *",
+        mode: "workflow",
+        workflow_name: "nightly-report",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    const row = getRawDb()
+      .query("SELECT capabilities_json FROM cron_jobs LIMIT 1")
+      .get() as { capabilities_json: string | null };
+    expect(row.capabilities_json).toBeNull();
   });
 });
 

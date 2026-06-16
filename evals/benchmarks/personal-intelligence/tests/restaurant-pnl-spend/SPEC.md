@@ -1,5 +1,5 @@
 ---
-status: experimental
+status: stable
 ---
 
 # restaurant-pnl-spend

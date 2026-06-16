@@ -13,6 +13,25 @@ const TOKEN_FILENAME = "session.enc";
 // the main process.
 let inMemoryToken: string | null = null;
 
+type TokenChangeListener = () => void;
+const listeners = new Set<TokenChangeListener>();
+
+/**
+ * Subscribe to token changes (save or clear). Returns an unsubscribe
+ * function. Fires after every `saveSessionToken` or `clearSessionToken`
+ * so subscribers can re-derive signed-in state.
+ */
+export function onSessionTokenChange(listener: TokenChangeListener): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+function notifyListeners(): void {
+  for (const listener of listeners) listener();
+}
+
 function tokenFilePath(): string {
   return path.join(app.getPath("userData"), TOKEN_FILENAME);
 }
@@ -37,11 +56,13 @@ export function saveSessionToken(token: string): void {
   inMemoryToken = token;
   if (!safeStorage.isEncryptionAvailable()) {
     log.warn("[session-token] OS encryption unavailable; token not persisted");
+    notifyListeners();
     return;
   }
   writeFileSync(tokenFilePath(), safeStorage.encryptString(token), {
     mode: 0o600,
   });
+  notifyListeners();
 }
 
 /** Delete the persisted token. */
@@ -54,8 +75,10 @@ export function clearSessionToken(): void {
       log.warn("[session-token] failed to delete persisted token:", err);
     }
   }
+  notifyListeners();
 }
 
 export function __resetForTesting(): void {
   inMemoryToken = null;
+  listeners.clear();
 }

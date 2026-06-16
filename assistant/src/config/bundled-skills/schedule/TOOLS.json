@@ -59,6 +59,26 @@
             "type": "object",
             "description": "Arguments object passed to the saved workflow as `args`. Optional; only used in workflow mode."
           },
+          "capabilities": {
+            "type": "object",
+            "description": "Workflow mode only. Per-run capability grant (the single consent point) persisted with the schedule and applied to each triggered run. Leaves get a read-only baseline by default. Declaring any side-effecting tool or host function requires a fresh approval at creation.",
+            "properties": {
+              "tools": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Side-effecting tool names granted to leaves on top of the read-only baseline."
+              },
+              "hostFunctions": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Host-function names the run may invoke."
+              },
+              "persona": {
+                "type": "boolean",
+                "description": "Grant leaves access to persona (identity + memory) context."
+              }
+            }
+          },
           "routing_intent": {
             "type": "string",
             "enum": ["single_channel", "multi_channel", "all_channels"],

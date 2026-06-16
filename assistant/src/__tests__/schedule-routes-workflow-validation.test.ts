@@ -319,6 +319,52 @@ describe("POST /schedules/:id/run — workflow mode triggers the workflow", () =
     expect(Array.isArray(result.schedules)).toBe(true);
   });
 
+  test("fires with the schedule's stored side-effecting manifest", async () => {
+    const schedule = createSchedule({
+      name: "Side-effecting workflow",
+      cronExpression: "0 9 * * *",
+      message: "",
+      syntax: "cron",
+      mode: "workflow",
+      workflowName: "send-report",
+      capabilities: {
+        tools: ["file_write"],
+        hostFunctions: ["notify"],
+        persona: true,
+      },
+    });
+
+    await runNowRoute().handler({ pathParams: { id: schedule.id } });
+
+    expect(workflowStartCalls).toHaveLength(1);
+    expect(workflowStartCalls[0]!.manifest).toEqual({
+      tools: ["file_write"],
+      hostFunctions: ["notify"],
+      persona: true,
+    });
+  });
+
+  test("a legacy schedule (null capabilities) fires with the read-only baseline", async () => {
+    const schedule = createSchedule({
+      name: "Legacy workflow",
+      cronExpression: "0 9 * * *",
+      message: "",
+      syntax: "cron",
+      mode: "workflow",
+      workflowName: "triage-inbox",
+      capabilities: null,
+    });
+
+    await runNowRoute().handler({ pathParams: { id: schedule.id } });
+
+    expect(workflowStartCalls).toHaveLength(1);
+    expect(workflowStartCalls[0]!.manifest).toEqual({
+      tools: [],
+      hostFunctions: [],
+      persona: false,
+    });
+  });
+
   test("rejects a workflow schedule with no workflowName", async () => {
     // Defensive guard mirroring the scheduler's automatic firing path; a
     // nameless workflow schedule cannot be created via the routes, but the store

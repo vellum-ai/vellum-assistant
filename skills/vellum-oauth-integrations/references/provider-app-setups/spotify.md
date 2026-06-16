@@ -113,4 +113,4 @@ Key Spotify-specific differences for Path B:
 
 - Loopback callback won't work from a remote channel - need public ingress configured
 - Add the ingress-based redirect URI in the app's Settings page under **Redirect URIs**
-- The app secret doesn't have a known prefix that triggers scanners, but still use `credential_store prompt` or `credential_store store` for security
+- The app secret doesn't have a known prefix that triggers scanners, but still use `assistant credentials prompt` or `assistant credentials set` for security

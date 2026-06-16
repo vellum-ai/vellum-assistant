@@ -4,5 +4,8 @@ src/generated/
 # Derived daemon spec — regenerated from assistant/openapi.yaml by transform-daemon-spec.ts
 openapi-schemas/daemon.json
 
+# Derived gateway spec — regenerated from gateway/openapi.json by transform-gateway-spec.ts
+openapi-schemas/gateway.json
+
 # Local tool logs
 *.log

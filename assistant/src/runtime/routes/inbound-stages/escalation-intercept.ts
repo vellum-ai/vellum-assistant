@@ -34,7 +34,7 @@ export interface EscalationInterceptParams {
   eventId: string;
   content: string | undefined;
   attachmentIds: string[] | undefined;
-  sourceMetadata: Record<string, unknown> | undefined;
+  sourceMetadata: import("@vellumai/gateway-client").SourceMetadata | undefined;
   actorDisplayName: string | undefined;
   actorExternalId: string | undefined;
   actorUsername: string | undefined;
@@ -84,11 +84,11 @@ export function handleEscalationIntercept(
       { sourceChannel, channelId: resolvedMember.channel.id },
       "Ingress ACL: escalate policy but no guardian binding, denying",
     );
-    return ({
+    return {
       accepted: true,
       denied: true,
       reason: "escalate_no_guardian",
-    });
+    };
   }
 
   // Persist the raw payload so the decide handler can recover the original
@@ -159,9 +159,9 @@ export function handleEscalationIntercept(
     "Guardian escalation created — notification pipeline handles channel delivery",
   );
 
-  return ({
+  return {
     accepted: true,
     escalated: true,
     reason: "policy_escalate",
-  });
+  };
 }

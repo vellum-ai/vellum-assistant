@@ -113,6 +113,7 @@ import type { ConversationMessage } from "@vellumai/assistant-api";
 
 import {
   makeServerMessage,
+  messageText,
   textBody,
   wireTextBody,
 } from "@/domains/chat/utils/message-test-helpers";
@@ -496,6 +497,84 @@ describe("reconcileActiveConversation", () => {
     expect(
       useConversationStore.getState().processingConversationIds.has("conv-1"),
     ).toBe(true);
+  });
+
+  test("heals a holey transcript when reconciled authoritatively even though the snapshot lags the frontier (S < L)", async () => {
+    // The reconnect heal: a tab suspended past the daemon's replay ring
+    // resumes the live stream mid-response, advancing the local seq (L)
+    // across the evicted events so the rendered assistant row is missing
+    // its beginning while L > S. The default merge would keep that holey
+    // row; the reconnect reconcile passes `authoritative` so the durable
+    // snapshot — which carries the full text — wins and refills the hole.
+    messages = [
+      makeMessage({ id: "m1", role: "user", ...textBody("Hello") }),
+      makeMessage({
+        id: "m2",
+        role: "assistant",
+        ...textBody("the end of the answer"),
+      }),
+    ];
+    mockFetchResult = [
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({
+        id: "m2",
+        role: "assistant",
+        ...wireTextBody("the beginning and the end of the answer"),
+      }),
+    ];
+    // AND the live stream advanced L past the debounced snapshot watermark S
+    mockFetchSeq = 5;
+    recordLocalSeq("conv-1", 10);
+    const { reconcileActiveConversation } = createHarness({
+      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
+      activeConversationId: "conv-1",
+    });
+
+    // WHEN the reconnect reconcile runs authoritatively
+    const result = await reconcileActiveConversation(true);
+
+    // THEN the snapshot heals the truncated row instead of being discarded
+    expect(result.changed).toBe(true);
+    const healed = messages.find((m) => m.id === "m2");
+    expect(healed).toBeDefined();
+    expect(messageText(healed)).toBe("the beginning and the end of the answer");
+  });
+
+  test("preserves the live row when the same lagging snapshot is reconciled non-authoritatively (S < L)", async () => {
+    // The contrast to the reconnect heal: the periodic poll loop reconciles
+    // with the default (non-authoritative) flag, so the ATL-781 keep-local
+    // rule still protects the freshly-streamed tail from a debounced snapshot
+    // that lags the frontier. Only the reconnect path opts into authoritative.
+    messages = [
+      makeMessage({ id: "m1", role: "user", ...textBody("Hello") }),
+      makeMessage({
+        id: "m2",
+        role: "assistant",
+        ...textBody("the full streamed answer"),
+      }),
+    ];
+    mockFetchResult = [
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({
+        id: "m2",
+        role: "assistant",
+        ...wireTextBody("the full"),
+      }),
+    ];
+    mockFetchSeq = 5;
+    recordLocalSeq("conv-1", 10);
+    const { reconcileActiveConversation } = createHarness({
+      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
+      activeConversationId: "conv-1",
+    });
+
+    // WHEN the poll-loop reconcile runs without the authoritative flag
+    await reconcileActiveConversation();
+
+    // THEN the streamed text is preserved (the stale snapshot is ignored)
+    const kept = messages.find((m) => m.id === "m2");
+    expect(kept).toBeDefined();
+    expect(messageText(kept)).toBe("the full streamed answer");
   });
 
   test("does NOT call onPollReconciled when turnId is null", async () => {

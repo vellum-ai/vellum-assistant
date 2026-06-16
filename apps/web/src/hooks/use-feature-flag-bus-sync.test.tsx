@@ -5,10 +5,8 @@ import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
-import {
-  assistantFlagValuesQueryKey,
-  CLIENT_FLAG_QUERY_KEY,
-} from "@/lib/sync/query-tags";
+import { assistantFeatureFlagsGetQueryKey } from "@/generated/gateway/@tanstack/react-query.gen";
+import { CLIENT_FLAG_QUERY_KEY } from "@/lib/sync/query-tags";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
 import {
   __resetForTesting,
@@ -94,7 +92,9 @@ describe("useFeatureFlagBusSync", () => {
     emit(syncEvent([SYNC_TAGS.featureFlagsAssistant]));
     await waitFor(() => {
       expect(spy).toHaveBeenCalledWith({
-        queryKey: assistantFlagValuesQueryKey("asst-1"),
+        queryKey: assistantFeatureFlagsGetQueryKey({
+          path: { assistant_id: "asst-1" },
+        }),
       });
     });
   });
@@ -110,7 +110,9 @@ describe("useFeatureFlagBusSync", () => {
     await waitFor(() => {
       expect(spy).toHaveBeenCalledWith({ queryKey: CLIENT_FLAG_QUERY_KEY });
       expect(spy).toHaveBeenCalledWith({
-        queryKey: assistantFlagValuesQueryKey("asst-1"),
+        queryKey: assistantFeatureFlagsGetQueryKey({
+          path: { assistant_id: "asst-1" },
+        }),
       });
     });
   });
@@ -127,7 +129,9 @@ describe("useFeatureFlagBusSync", () => {
     await waitFor(() => {
       expect(spy).toHaveBeenCalledWith({ queryKey: CLIENT_FLAG_QUERY_KEY });
       expect(spy).toHaveBeenCalledWith({
-        queryKey: assistantFlagValuesQueryKey("asst-1"),
+        queryKey: assistantFeatureFlagsGetQueryKey({
+          path: { assistant_id: "asst-1" },
+        }),
       });
     });
   });

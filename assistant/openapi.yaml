@@ -3874,6 +3874,105 @@ paths:
       description: Receive an inbound message from a channel integration.
       tags:
         - channels
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sourceChannel:
+                  type: string
+                interface:
+                  type: string
+                conversationExternalId:
+                  type: string
+                externalMessageId:
+                  type: string
+                content:
+                  type: string
+                isEdit:
+                  type: boolean
+                callbackQueryId:
+                  type: string
+                callbackData:
+                  type: string
+                actorDisplayName:
+                  type: string
+                actorExternalId:
+                  type: string
+                actorUsername:
+                  type: string
+                sourceMetadata:
+                  type: object
+                  properties:
+                    updateId:
+                      type: string
+                    messageId:
+                      type: string
+                    chatType:
+                      type: string
+                    threadId:
+                      type: string
+                    channelName:
+                      type: string
+                    languageCode:
+                      type: string
+                    isBot:
+                      type: boolean
+                    timezone:
+                      type: string
+                    timezoneLabel:
+                      type: string
+                    timezoneOffsetSeconds:
+                      type: number
+                    isStranger:
+                      type: boolean
+                    isRestricted:
+                      type: boolean
+                    hints:
+                      type: array
+                      items:
+                        type: string
+                    uxBrief:
+                      type: string
+                    clientTimezone:
+                      type: string
+                    commandIntent:
+                      type: object
+                      properties:
+                        type:
+                          type: string
+                        payload:
+                          type: string
+                      required:
+                        - type
+                    slackBotMentioned:
+                      type: boolean
+                    account:
+                      type: string
+                    emailSubject:
+                      type: string
+                    emailRecipient:
+                      type: string
+                    emailInReplyTo:
+                      type: string
+                    emailReferences:
+                      type: string
+                  additionalProperties: {}
+                attachmentIds:
+                  type: array
+                  items:
+                    type: string
+                replyCallbackUrl:
+                  type: string
+              required:
+                - sourceChannel
+                - interface
+                - conversationExternalId
+                - externalMessageId
+                - content
+                - actorExternalId
       responses:
         "200":
           description: Successful response
@@ -19146,6 +19245,109 @@ paths:
           description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
         "404":
           description: No installed copy and no catalog entry claims the given name.
+  /v1/plugins/{name}/diff:
+    post:
+      operationId: plugins_by_name_diff_post
+      summary: Diff a plugin against its install commit
+      description:
+        "Show a unified diff of local edits to an installed plugin against the exact commit it was installed at
+        (recorded in its `install-meta.json`). Computing the diff re-materializes the baseline through the install
+        pipeline — a network clone plus a temp-dir write — so this is a POST: it is not a safe, cacheable GET even
+        though it leaves persistent state untouched (requires only `settings.read`). Drift is classified against the
+        install-time fingerprint so an adapter overlay that moved since install never reads as a local change. Returns
+        the baseline `commit`, a `clean` flag, and a `files` array of `{ path, status, diff, binary, reconstructed }`
+        for each modified/added/removed file. The baseline is the install commit, not the marketplace pin — comparing
+        against the current pin is `POST /v1/plugins/:name/upgrade` with `dryRun`. A name with no installed copy returns
+        404; an install that recorded no commit or fingerprint returns 409; an unreachable source returns 503. Mirrors
+        the CLI's `assistant plugins diff <name>`."
+      tags:
+        - plugins
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    description: Install name. Matches `assistant plugins install <name>`.
+                  target:
+                    type: string
+                    description: Absolute path to the installed plugin directory on the host.
+                  commit:
+                    type: string
+                    description: Commit the baseline was re-materialized from (the recorded install SHA).
+                  committedAt:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: ISO-8601 committer timestamp (UTC) of `commit`; null when not recorded.
+                  clean:
+                    type: boolean
+                    description: True when the on-disk tree exactly matches the re-materialized baseline.
+                  files:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                          description: POSIX-relative path within the plugin root.
+                        status:
+                          type: string
+                          enum:
+                            - modified
+                            - added
+                            - removed
+                          description: Whether the file was edited, newly added, or deleted since install.
+                        diff:
+                          type: string
+                          description:
+                            Unified diff (`--- a/… / +++ b/…`) of the file. A short `Binary files differ` marker for binary files, or a
+                            `Baseline unavailable` marker when `reconstructed` is false.
+                        binary:
+                          type: boolean
+                          description: True when either side was detected as binary (NUL byte present).
+                        reconstructed:
+                          type: boolean
+                          description:
+                            True when the install-time baseline for this file was faithfully recovered (re-materialized bytes
+                            hash-match the install fingerprint). False when it could not be reconstructed (e.g. the
+                            curated adapter overlay changed since install), in which case `diff` is a marker, not a
+                            patch. Always true for added files.
+                      required:
+                        - path
+                        - status
+                        - diff
+                        - binary
+                        - reconstructed
+                      additionalProperties: false
+                      description: Unified diff of a single drifted file.
+                    description: One entry per drifted file, sorted by path. Empty when `clean`.
+                required:
+                  - name
+                  - target
+                  - commit
+                  - committedAt
+                  - clean
+                  - files
+                additionalProperties: false
+        "400":
+          description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
+        "404":
+          description: No copy of the plugin is installed, or its recorded commit resolves to nothing.
+        "409":
+          description: The install recorded no commit or no fingerprint to re-materialize and verify a baseline from.
+        "503":
+          description: The plugin source (GitHub) was temporarily unavailable; the diff is retryable.
   /v1/plugins/{name}/inspect:
     get:
       operationId: plugins_by_name_inspect_get

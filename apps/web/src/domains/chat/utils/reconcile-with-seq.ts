@@ -35,6 +35,17 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
  * snapshot has seen everything the stream applied, so it is authoritative and
  * we take the server rows wholesale.
  *
+ * The `L > S ⇒ keep local` rule assumes the stream applied a *contiguous*
+ * prefix up to `L`. That holds in steady state but breaks on a reconnect that
+ * resumed past the daemon's bounded replay ring: the client applies a
+ * non-contiguous live suffix, advancing `L` across events that were evicted
+ * and never delivered, so `L` overstates what was actually applied and the
+ * local transcript has a hole the snapshot fills. Reconnect reconciles pass
+ * `authoritative: true` to bypass the keep-local rule and re-bootstrap the
+ * transcript from the durable snapshot. The steady-state poll loop leaves it
+ * false so its debounced, lagging snapshot can't clobber the freshly-streamed
+ * tail.
+ *
  * Idempotent stream apply (events with `seq <= L` are no-ops) is enforced
  * upstream in the SSE consumer, so this merge never has to dedupe replays.
  *
@@ -55,6 +66,16 @@ export interface ReconcileWithSeqOptions {
    * a snapshot can't pull old messages back into the current window.
    */
   oldestPageTimestamp?: number | null;
+  /**
+   * Force the server snapshot to win even when `L > S`. Set by reconnect
+   * reconciles, where the live stream may have applied a non-contiguous
+   * suffix across events evicted from the daemon's replay ring — `L` then
+   * overstates what was applied, so the keep-local rule would preserve a
+   * transcript with a hole the snapshot fills. Left false for the
+   * steady-state poll loop, whose debounced lagging snapshot must not
+   * clobber the freshly-streamed tail.
+   */
+  authoritative?: boolean;
 }
 
 /**
@@ -72,6 +93,7 @@ export function reconcileMessagesWithSeq(
   }
 
   const streamAhead =
+    !options.authoritative &&
     options.serverSeq != null &&
     options.localSeq != null &&
     options.serverSeq < options.localSeq;

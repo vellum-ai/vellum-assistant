@@ -416,6 +416,103 @@ describe("ui_surface_update persistence", () => {
   });
 });
 
+describe("ui_dismiss persisted-state convergence", () => {
+  let writes: Array<{ id: string; content: unknown }> = [];
+
+  beforeEach(() => {
+    writes = [];
+    updateMessageContentSpy = (id: string, content: string) => {
+      writes.push({ id, content: JSON.parse(content) });
+    };
+    getMessagesImpl = () => [];
+    cancelPendingSurfaceDataPersists();
+  });
+
+  afterEach(() => {
+    cancelPendingSurfaceDataPersists();
+  });
+
+  test("passive dismiss drops the surface from the turn snapshot and strips the persisted block", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+    const surfaceId = "surface-dismiss-1";
+    // A progress card the model marked `completed` while leaving step 4 spinning.
+    const data: CardSurfaceData = {
+      title: "Refreshing dashboard",
+      body: "",
+      template: "task_progress",
+      templateData: {
+        status: "completed",
+        steps: [{ label: "Surface today's numbers", status: "in_progress" }],
+      },
+    };
+    ctx.surfaceState.set(surfaceId, { surfaceType: "card", data });
+    ctx.currentTurnSurfaces.push({ surfaceId, surfaceType: "card", data });
+    seedRows([
+      {
+        id: "msg-dismiss",
+        content: [
+          { type: "text", text: "done" },
+          { type: "ui_surface", surfaceId, surfaceType: "card", data },
+        ],
+      },
+    ]);
+
+    const result = await surfaceProxyResolver(ctx, "ui_dismiss", {
+      surface_id: surfaceId,
+    });
+    expect(result.isError).toBe(false);
+    expect(result.content).toBe("Surface dismissed");
+
+    // Removed from the pending turn snapshot so turn completion never re-appends it.
+    expect(
+      ctx.currentTurnSurfaces.find((s) => s.surfaceId === surfaceId),
+    ).toBeUndefined();
+
+    // The already-persisted block is stripped; the sibling text block survives.
+    expect(writes).toHaveLength(1);
+    const blocks = writes[0].content as Array<Record<string, unknown>>;
+    expect(blocks.find((b) => b.type === "ui_surface")).toBeUndefined();
+    expect(blocks.find((b) => b.type === "text")).toBeDefined();
+
+    // A passive dismiss event (not a completion) was emitted to the client.
+    expect(sent.some((m) => m.type === "ui_surface_dismiss")).toBe(true);
+    expect(sent.some((m) => m.type === "ui_surface_complete")).toBe(false);
+  });
+
+  test("dismiss cancels a pending debounced persist so a stale update cannot re-add the block", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+    const surfaceId = "surface-dismiss-2";
+    const data: CardSurfaceData = {
+      title: "x",
+      body: "",
+      template: "task_progress",
+      templateData: { status: "in_progress" },
+    };
+    ctx.surfaceState.set(surfaceId, { surfaceType: "card", data });
+    seedRows([
+      {
+        id: "msg-dismiss-2",
+        content: [{ type: "ui_surface", surfaceId, surfaceType: "card", data }],
+      },
+    ]);
+
+    // A final ui_update is still inside the debounce window when dismiss fires.
+    scheduleSurfaceDataPersist("conv-persist-1", surfaceId, {
+      ...data,
+      templateData: { status: "completed" },
+    } as SurfaceData);
+
+    await surfaceProxyResolver(ctx, "ui_dismiss", { surface_id: surfaceId });
+    const writeCountAfterDismiss = writes.length;
+
+    // The cancelled debounce must not fire a write that resurrects the block.
+    await new Promise((r) => setTimeout(r, 600));
+    expect(writes).toHaveLength(writeCountAfterDismiss);
+  });
+});
+
 describe("standalone surface DB persistence", () => {
   let writes: Array<{ id: string; content: unknown }> = [];
 

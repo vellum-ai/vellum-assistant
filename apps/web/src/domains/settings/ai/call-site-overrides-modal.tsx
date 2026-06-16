@@ -118,6 +118,7 @@ function CallSiteOverridesModalInner({
   const [showResetConfirmation, setShowResetConfirmation] = useState(false);
   const analyzeConversationEnabled =
     useAssistantFeatureFlagStore.use.analyzeConversation();
+  const workflowsEnabled = useAssistantFeatureFlagStore.use.workflows();
 
   const {
     data: catalog,
@@ -134,12 +135,15 @@ function CallSiteOverridesModalInner({
   });
 
   const gatedCallSites = useMemo(() => {
-    const all = (catalog?.callSites ?? []).filter(
-      (cs) => cs.id !== "mainAgent",
-    );
-    if (analyzeConversationEnabled) return all;
-    return all.filter((cs) => cs.id !== "analyzeConversation");
-  }, [catalog, analyzeConversationEnabled]);
+    let all = (catalog?.callSites ?? []).filter((cs) => cs.id !== "mainAgent");
+    if (!analyzeConversationEnabled) {
+      all = all.filter((cs) => cs.id !== "analyzeConversation");
+    }
+    if (!workflowsEnabled) {
+      all = all.filter((cs) => cs.id !== "workflowLeaf");
+    }
+    return all;
+  }, [catalog, analyzeConversationEnabled, workflowsEnabled]);
 
   const catalogLoaded = !isLoading && !isError && !!catalog;
   const daemonConfigLoaded = !!daemonConfig;

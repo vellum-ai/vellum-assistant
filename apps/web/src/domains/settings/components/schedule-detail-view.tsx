@@ -29,9 +29,10 @@ import {
   MIN_SCRIPT_TIMEOUT_SECONDS,
   MODE_TONE,
 } from "@/domains/settings/utils/schedule-formatters";
+import { configGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { assistantScheduleRunsQueryKey } from "@/lib/sync/query-tags";
-import { fetchUsageProfileMetadata } from "@/utils/profile-metadata";
+import { extractUsageProfileMetadata } from "@/utils/profile-metadata";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
@@ -224,8 +225,10 @@ export function ScheduleDetailView({
   // fall back to the raw profile key while loading or if the profile was
   // deleted from the config after the schedule pinned it.
   const { data: profileMetadata } = useQuery({
-    queryKey: ["usage-profile-metadata", assistantId],
-    queryFn: () => fetchUsageProfileMetadata(assistantId),
+    ...configGetOptions({
+      path: { assistant_id: assistantId },
+    }),
+    select: extractUsageProfileMetadata,
     enabled: schedule.inferenceProfile != null,
     staleTime: 60_000,
   });

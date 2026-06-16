@@ -65,6 +65,8 @@ function setup(opts: {
   saved?: SavedWorkflowEntry[];
   /** Custom resume impl; defaults to a success that records the id. */
   resume?: (id: string) => { runId: string };
+  /** Resolved auto-approve threshold for the resume posture gate. */
+  threshold?: "none" | "low" | "medium" | "high";
 }): {
   aborted: string[];
   resumed: string[];
@@ -98,6 +100,7 @@ function setup(opts: {
     listWorkflows: () => opts.saved ?? [],
     getConfig: () => ({}) as AssistantConfig,
     isFlagEnabled: () => opts.flagEnabled ?? true,
+    getAutoApproveThreshold: async () => opts.threshold ?? "none",
   });
   return { aborted, resumed, listCalls };
 }
@@ -182,13 +185,15 @@ describe("workflow routes (flag on)", () => {
     expect(resumed).toEqual(["run-1"]);
   });
 
-  test("resumeWorkflowRun rejects a side-effecting run with a 403 (no prompt channel)", () => {
+  test("resumeWorkflowRun rejects a side-effecting run with a 403 in normal posture", async () => {
     // The run's stored manifest grants side-effecting tools, so resuming would
     // restart leaves that perform them. This route has no interactive approval
-    // channel (unlike the conversational manage_workflows path), so it must
-    // refuse rather than silently bypass consent — resume() is never called.
+    // channel (unlike the conversational manage_workflows path), so outside
+    // full-access posture it must refuse rather than silently bypass consent —
+    // resume() is never called.
     const { resumed } = setup({
       flagEnabled: true,
+      threshold: "medium",
       runs: [
         makeRun({
           id: "run-1",
@@ -197,19 +202,42 @@ describe("workflow routes (flag on)", () => {
         }),
       ],
     });
-    expect(() =>
+    await expect(
       route("resumeWorkflowRun").handler({ pathParams: { id: "run-1" } }),
-    ).toThrow(ForbiddenError);
+    ).rejects.toThrow(ForbiddenError);
     expect(resumed).toEqual([]);
   });
 
-  test("resumeWorkflowRun rejects a run stored in the older RESOLVED shape", () => {
+  test("resumeWorkflowRun allows a side-effecting run at full-access posture", async () => {
+    // At full access ("high") the user has opted into auto-approving even
+    // high-risk tools, so no prompt is needed — the side-effecting resume
+    // proceeds directly.
+    const { resumed } = setup({
+      flagEnabled: true,
+      threshold: "high",
+      runs: [
+        makeRun({
+          id: "run-1",
+          status: "interrupted",
+          capabilities: { tools: ["bash"], hostFunctions: [], persona: false },
+        }),
+      ],
+    });
+    const result = (await route("resumeWorkflowRun").handler({
+      pathParams: { id: "run-1" },
+    })) as { ok: boolean; runId: string };
+    expect(result).toEqual({ ok: true, runId: "run-1" });
+    expect(resumed).toEqual(["run-1"]);
+  });
+
+  test("resumeWorkflowRun rejects a run stored in the older RESOLVED shape", async () => {
     // Some interrupted runs persisted resolved Tool objects (not string names).
     // resume() recovers those names and grants the tools, so the gate must catch
     // the object shape too — a strict parse would treat it as read-only and let
     // the side-effecting resume through without approval.
     const { resumed } = setup({
       flagEnabled: true,
+      threshold: "medium",
       runs: [
         makeRun({
           id: "run-1",
@@ -221,17 +249,18 @@ describe("workflow routes (flag on)", () => {
         }),
       ],
     });
-    expect(() =>
+    await expect(
       route("resumeWorkflowRun").handler({ pathParams: { id: "run-1" } }),
-    ).toThrow(ForbiddenError);
+    ).rejects.toThrow(ForbiddenError);
     expect(resumed).toEqual([]);
   });
 
-  test("resumeWorkflowRun allows a read-only run (empty manifest)", () => {
+  test("resumeWorkflowRun allows a read-only run (empty manifest) in normal posture", async () => {
     // An explicit empty manifest grants no side effects, so the route resumes
     // it directly — the gate keys on the stored manifest, not run existence.
     const { resumed } = setup({
       flagEnabled: true,
+      threshold: "medium",
       runs: [
         makeRun({
           id: "run-1",
@@ -240,11 +269,11 @@ describe("workflow routes (flag on)", () => {
         }),
       ],
     });
-    route("resumeWorkflowRun").handler({ pathParams: { id: "run-1" } });
+    await route("resumeWorkflowRun").handler({ pathParams: { id: "run-1" } });
     expect(resumed).toEqual(["run-1"]);
   });
 
-  test("resumeWorkflowRun maps a non-interrupted run to a 409 ConflictError", () => {
+  test("resumeWorkflowRun maps a non-interrupted run to a 409 ConflictError", async () => {
     setup({
       flagEnabled: true,
       runs: [makeRun({ id: "run-1", status: "completed" })],
@@ -256,12 +285,12 @@ describe("workflow routes (flag on)", () => {
         );
       },
     });
-    expect(() =>
+    await expect(
       route("resumeWorkflowRun").handler({ pathParams: { id: "run-1" } }),
-    ).toThrow(ConflictError);
+    ).rejects.toThrow(ConflictError);
   });
 
-  test("resumeWorkflowRun maps a cap error to a 429 TooManyRequestsError", () => {
+  test("resumeWorkflowRun maps a cap error to a 429 TooManyRequestsError", async () => {
     setup({
       flagEnabled: true,
       runs: [makeRun({ id: "run-1", status: "interrupted" })],
@@ -269,9 +298,9 @@ describe("workflow routes (flag on)", () => {
         throw new WorkflowRunCapError(3);
       },
     });
-    expect(() =>
+    await expect(
       route("resumeWorkflowRun").handler({ pathParams: { id: "run-1" } }),
-    ).toThrow(TooManyRequestsError);
+    ).rejects.toThrow(TooManyRequestsError);
   });
 
   test("listSavedWorkflows returns saved entries", async () => {
@@ -308,11 +337,11 @@ describe("workflow routes (unknown run)", () => {
     expect(aborted).toEqual([]);
   });
 
-  test("resumeWorkflowRun throws NotFoundError for an unknown id", () => {
+  test("resumeWorkflowRun throws NotFoundError for an unknown id", async () => {
     const { resumed } = setup({ flagEnabled: true, runs: [] });
-    expect(() =>
+    await expect(
       route("resumeWorkflowRun").handler({ pathParams: { id: "nope" } }),
-    ).toThrow(NotFoundError);
+    ).rejects.toThrow(NotFoundError);
     expect(resumed).toEqual([]);
   });
 });
@@ -330,9 +359,14 @@ describe("workflow routes (flag off)", () => {
     ["listWorkflowRuns", { queryParams: {} }],
     ["getWorkflowRun", { pathParams: { id: "run-1" } }],
     ["abortWorkflowRun", { pathParams: { id: "run-1" } }],
-    ["resumeWorkflowRun", { pathParams: { id: "run-1" } }],
     ["listSavedWorkflows", {}],
   ] as const)("%s throws NotFoundError when the flag is off", (op, args) => {
     expect(() => route(op).handler(args)).toThrow(NotFoundError);
+  });
+
+  test("resumeWorkflowRun rejects with NotFoundError when the flag is off", async () => {
+    await expect(
+      route("resumeWorkflowRun").handler({ pathParams: { id: "run-1" } }),
+    ).rejects.toThrow(NotFoundError);
   });
 });

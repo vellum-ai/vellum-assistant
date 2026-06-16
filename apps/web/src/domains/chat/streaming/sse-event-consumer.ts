@@ -3,8 +3,8 @@
  *
  * The bus delivers every event from a single unfiltered SSE
  * connection. This module runs connection-wide seq-gap detection (and
- * triggers a reconcile when a gap is observed), applies the
- * cross-conversation filter that keeps other conversations' events
+ * triggers an authoritative reconcile when a gap is observed), applies
+ * the cross-conversation filter that keeps other conversations' events
  * from leaking into the active view, and dispatches the surviving
  * events to the caller's handler.
  *
@@ -39,14 +39,23 @@
  *   - An event whose seq < cursor: the daemon's counter restarted
  *     (daemon restart). Replace the stale cursor and reconcile.
  *   - An event whose seq > cursor + 1: events were missed on the
- *     connection. Fire a reconcile of the active conversation and defer
- *     cursor advancement until it resolves. While a reconcile is
- *     in-flight, subsequent gap events are debounced — only the latest
- *     seq is tracked. On success the cursor jumps to the latest seq; on
- *     failure it stays pinned so the next event retries.
+ *     connection — the consumer fell outside the daemon's bounded
+ *     replay ring. Fire an authoritative reconcile of the active
+ *     conversation: it reloads `/messages` and takes the durable server
+ *     snapshot wholesale, because the live suffix is known to be missing
+ *     the evicted events. The reconcile is debounced while one is in
+ *     flight so a burst of gap events fires a single fetch. The cursor
+ *     advance is deferred until the reconcile resolves: on success it
+ *     jumps to the live frontier (the hole is healed by the snapshot,
+ *     not replayed) so the same gap is not re-detected on every following
+ *     event; on failure it stays pinned so the next event re-detects the
+ *     gap and retries the heal rather than stranding the hole until the
+ *     next reconnect.
  *   - On the normal (no-gap) path the cursor advances AFTER the
  *     handler returns. A thrown handler keeps the cursor pinned so the
- *     next event re-triggers the gap path.
+ *     next event re-triggers the gap path. The generation-reset path
+ *     replaces the cursor synchronously and defers the post-dispatch
+ *     advance.
  *
  * Per-conversation idempotent apply:
  *   Past the active-conversation filter, each applied event advances a
@@ -63,7 +72,8 @@
  *   the daemon replays every buffered event with `seq > cursor` from
  *   its global ring before going live, so a normal reconnect resumes
  *   without any gap. If the cursor is older than the ring window, the
- *   daemon goes live from a higher seq and gap detection refetches.
+ *   daemon goes live from a higher seq and gap detection reconciles
+ *   authoritatively from `/messages`.
  */
 
 import { useStreamStore } from "@/domains/chat/stream-store";
@@ -114,7 +124,11 @@ export function createSseEventConsumer(
   // Tracks in-flight gap reconciliation so we debounce rather than
   // firing O(N) reconcile calls while the first one is still pending.
   let reconcileInFlight = false;
-  let latestGapSeq: number | null = null;
+  // Highest seq observed while a gap heal is pending. The cursor advance
+  // is deferred until the heal resolves: on success it jumps here so the
+  // same gap is not re-detected on every following event; on failure the
+  // cursor stays pinned so the next event re-detects the gap and retries.
+  let gapFrontier: number | null = null;
 
   return {
     handleSseEvent(envelope) {
@@ -147,38 +161,41 @@ export function createSseEventConsumer(
           // to prevent unhandled-promise warnings.
           deps.reconcileActive().catch(() => {});
         } else if (eventSeq > stored + 1) {
-          recordDiagnostic("sse_seq_gap_detected", {
-            conversationId: eventConversationId,
-            stored,
-            observed: eventSeq,
-            gap: eventSeq - stored,
-          });
+          // Events between `stored` and `eventSeq` were evicted from the
+          // daemon's replay ring before this reconnect, so the live
+          // suffix is non-contiguous. Heal the hole with an authoritative
+          // reconcile that reloads `/messages` and takes the server
+          // snapshot wholesale.
+          //
+          // The cursor advance is deferred to the reconcile's outcome
+          // (`gapDeferred` skips the post-dispatch advance below): on
+          // success the cursor jumps to the live frontier so the same gap
+          // is not re-detected on every following event; on failure it
+          // stays pinned at `stored` so the next event re-detects the gap
+          // and retries the heal instead of stranding the hole until the
+          // next reconnect. A burst of gap events while one heal is in
+          // flight is debounced to a single fetch and a single diagnostic,
+          // and the deferred advance tracks the latest frontier seen.
           gapDeferred = true;
-          // Track the latest seq seen during a gap so the cursor jumps
-          // to the right place when reconcile succeeds.
-          latestGapSeq = eventSeq;
+          gapFrontier = eventSeq;
           if (!reconcileInFlight) {
+            recordDiagnostic("sse_seq_gap_detected", {
+              conversationId: eventConversationId,
+              stored,
+              observed: eventSeq,
+              gap: eventSeq - stored,
+            });
             reconcileInFlight = true;
-            const reconcileEpoch = useStreamStore.getState().streamEpoch;
-            deps.reconcileActive()
+            deps
+              .reconcileActive()
               .then(() => {
-                // Only advance if the epoch is still current. A stale
-                // reconcile (SSE reconnected during the fetch) resolves
-                // with empty — advancing would mark the gap as repaired
-                // without authoritative data.
-                if (
-                  latestGapSeq != null &&
-                  useStreamStore.getState().streamEpoch === reconcileEpoch
-                ) {
-                  replaceReconnectCursor(latestGapSeq);
-                  latestGapSeq = null;
+                if (gapFrontier != null) {
+                  advanceReconnectCursor(gapFrontier);
                 }
               })
-              .catch(() => {
-                // Reconcile failed — cursor stays pinned so the next
-                // event re-detects the gap and retries.
-              })
+              .catch(() => {})
               .finally(() => {
+                gapFrontier = null;
                 reconcileInFlight = false;
               });
           }
@@ -230,12 +247,13 @@ export function createSseEventConsumer(
       }
 
       // Advance the global cursor AFTER dispatch so a thrown handler
-      // does not advance the cursor past unapplied work. Skip when a
-      // gap was deferred — the generation-reset path replaced the
-      // cursor synchronously; the seq-gap path defers advancement until
-      // reconcile resolves. The cursor advances for filtered-out
-      // (other-conversation) events too, so it stays contiguous with
-      // the global counter for transport-level resume.
+      // does not advance the cursor past unapplied work. Skip when an
+      // advance was deferred: the generation-reset path replaced the
+      // cursor synchronously, and the seq-gap path advances only once its
+      // authoritative reconcile resolves (so a failed heal leaves the
+      // cursor pinned and the gap is retried). The cursor advances for
+      // filtered-out (other-conversation) events too, so it stays
+      // contiguous with the global counter for transport-level resume.
       if (eventSeq != null && !gapDeferred) {
         advanceReconnectCursor(eventSeq);
       }

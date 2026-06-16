@@ -32,3 +32,15 @@ export type {
 } from "./types.js";
 
 export { noopLogger } from "./types.js";
+
+export {
+  CommandIntentSchema,
+  RuntimeInboundPayloadSchema,
+  SourceMetadataSchema,
+} from "./inbound-contract.js";
+
+export type {
+  CommandIntent,
+  RuntimeInboundPayload,
+  SourceMetadata,
+} from "./inbound-contract.js";

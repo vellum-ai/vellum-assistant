@@ -21,11 +21,7 @@ import {
   unregisterWorkspaceTool,
 } from "../tools/registry.js";
 import { eagerModuleToolNames, explicitTools } from "../tools/tool-manifest.js";
-import type {
-  Tool,
-  ToolContext,
-  ToolExecutionResult,
-} from "../tools/types.js";
+import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 
 // Clean up global registry after this file completes to prevent
 // contamination of subsequent test files in combined runs.
@@ -115,12 +111,11 @@ describe("tool manifest", () => {
     expect(eagerModuleToolNames.length).toBe(11);
   });
 
-  test("explicit tools list includes memory and credential tools", () => {
+  test("explicit tools list includes memory tools", () => {
     const names = explicitTools.map((t) => t.name);
     expect(names).toContain("recall");
     expect(names.filter((name) => name === "recall")).toHaveLength(1);
     expect(names).toContain("remember");
-    expect(names).toContain("credential_store");
   });
 
   test("registered tool count is at least eager + host", async () => {

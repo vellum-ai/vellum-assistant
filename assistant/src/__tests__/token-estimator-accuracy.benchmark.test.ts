@@ -128,7 +128,6 @@ function makeSystemPrompt(size: "small" | "production" = "small"): string {
     "- `file_write` — Creating or overwriting files",
     "- `file_edit` — Modifying existing files",
     "- `file_delete` — Deleting files",
-    "- `credential_store set` — Storing credentials",
     "",
     "### Medium-Risk Tools (require approval on first use per session)",
     "- `web_fetch` — Fetching external URLs",
@@ -349,7 +348,7 @@ function makeToolDefinitions(): Array<{
     input_schema: object;
   }> = [];
 
-  // Core tools (11)
+  // Core tools (10)
   tools.push(
     {
       name: "bash",
@@ -564,33 +563,6 @@ function makeToolDefinitions(): Array<{
           },
         },
         required: ["query"],
-      },
-    },
-    {
-      name: "credential_store",
-      description:
-        "Securely store or retrieve credentials for external services. Credentials are encrypted at rest.",
-      input_schema: {
-        type: "object",
-        properties: {
-          action: {
-            type: "string",
-            enum: ["get", "set", "delete", "list"],
-          },
-          service: {
-            type: "string",
-            description: "The service name (e.g., 'github', 'slack')",
-          },
-          key: {
-            type: "string",
-            description: "Credential key within the service",
-          },
-          value: {
-            type: "string",
-            description: "Credential value (required for 'set')",
-          },
-        },
-        required: ["action", "service"],
       },
     },
   );
