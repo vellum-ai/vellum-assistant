@@ -135,6 +135,11 @@ import {
   createTrustRulesSuggestHandler,
 } from "./http/routes/trust-rules.js";
 import { initTrustRuleCache } from "./risk/trust-rule-cache.js";
+import { initAdmissionPolicyCache } from "./risk/admission-policy-cache.js";
+import {
+  createChannelAdmissionPolicyListHandler,
+  createChannelAdmissionPolicySetHandler,
+} from "./http/routes/channel-admission-policy.js";
 import { getLogger, initLogger } from "./logger.js";
 import { getPlatformBaseUrl } from "./platform-url.js";
 import {
@@ -297,6 +302,7 @@ async function main() {
 
   await initGatewayDb();
   initTrustRuleCache();
+  initAdmissionPolicyCache();
 
   // Wait for the assistant runtime to be healthy before serving traffic.
   // Data migrations (e.g. m0002 actor-token-tables-to-gateway) must
@@ -519,6 +525,10 @@ async function main() {
   const handleTrustRulesDelete = createTrustRulesDeleteHandler();
   const handleTrustRulesReset = createTrustRulesResetHandler();
   const handleTrustRulesSuggest = createTrustRulesSuggestHandler();
+  const handleChannelAdmissionPolicyList =
+    createChannelAdmissionPolicyListHandler();
+  const handleChannelAdmissionPolicySet =
+    createChannelAdmissionPolicySetHandler();
 
   const handleAgentCard = createAgentCardHandler(configFileCache);
 
@@ -1463,6 +1473,33 @@ async function main() {
       auth: "edge-scoped",
       scope: "settings.write",
       handler: (req, params) => handleTrustRulesDelete(req, params[0]),
+    },
+
+    // ── Channel admission policy (P2: storage + CRUD scaffolding) ──
+    // No enforcement reads these values yet — that lands in P3 via the
+    // admission-policy cache + handle-inbound gate.
+    {
+      path: "/v1/channel-admission-policy",
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleChannelAdmissionPolicyList(req),
+    },
+    {
+      path: /^\/v1\/channel-admission-policy\/([^/]+)$/,
+      method: "PUT",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) =>
+        handleChannelAdmissionPolicySet(req, params[0]),
+    },
+    {
+      path: /^\/v1\/channel-admission-policy\/([^/]+)$/,
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) =>
+        handleChannelAdmissionPolicySet(req, params[0]),
     },
 
     // ── Trust rules v3 — assistant-scoped variants ──
