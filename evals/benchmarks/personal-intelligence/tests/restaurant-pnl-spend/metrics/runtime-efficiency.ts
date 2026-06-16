@@ -7,10 +7,10 @@ import {
 
 /**
  * Target conversation wall-clock for an ideal run, in ms. A single P&L
- * question should be answered well inside a minute, so a run that resolves it
- * in 60s or less earns full marks and slower runs decay from there.
+ * question should be answered well inside ten minutes, so a run that resolves
+ * it in that span or less earns full marks and slower runs decay from there.
  */
-const RUNTIME_BASELINE_MS = 60_000;
+const RUNTIME_BASELINE_MS = 600_000;
 
 /**
  * The agent's conversation wall-clock: from the first simulator message
@@ -57,13 +57,14 @@ async function conversationMs(runId: string): Promise<number | undefined> {
 }
 
 /**
- * Scores how quickly the agent answered, baselined to a one-minute
+ * Scores how quickly the agent answered, baselined to a ten-minute
  * conversation. A run that finishes within the baseline earns full marks; past
  * it the score decays as the inverse ratio `min(1, baseline / elapsed)` — the
  * same hyperbolic curve as `assistant-cost` and `response-efficiency`, so the
- * efficiency signals compose on one 0-1 axis and keep a wide, legible range
- * instead of collapsing every slow run to a flat 0%. A run with no measurable
- * conversation span has no runtime to credit and scores 0.
+ * efficiency signals compose on one 0-1 axis. The curve only approaches 0
+ * asymptotically (a 20-minute run still scores 0.5, an hour 0.17), so any run
+ * that answered at all keeps a non-zero score; a flat 0 is reserved for a run
+ * with no measurable conversation span to credit at all.
  */
 export default async function scoreRuntimeEfficiency(
   input: MetricInput,
@@ -80,12 +81,12 @@ export default async function scoreRuntimeEfficiency(
   }
 
   const score = Math.min(1, RUNTIME_BASELINE_MS / elapsed);
-  const elapsedSec = (elapsed / 1000).toFixed(1);
-  const baselineSec = RUNTIME_BASELINE_MS / 1000;
+  const elapsedMin = (elapsed / 60_000).toFixed(1);
+  const baselineMin = RUNTIME_BASELINE_MS / 60_000;
   const reason =
     elapsed <= RUNTIME_BASELINE_MS
-      ? `Answered in ${elapsedSec}s (baseline ${baselineSec}s).`
-      : `Took ${elapsedSec}s against a baseline of ${baselineSec}s.`;
+      ? `Answered in ${elapsedMin} min (baseline ${baselineMin} min).`
+      : `Took ${elapsedMin} min against a baseline of ${baselineMin} min.`;
 
   return {
     name: "runtime-efficiency",

@@ -21,7 +21,7 @@ function deltaEventAt(text: string, emittedAt: string) {
 }
 
 describe("restaurant-pnl-spend runtime-efficiency metric", () => {
-  test("scores 1 for a conversation that resolves within the one-minute baseline", async () => {
+  test("scores 1 for a conversation that resolves within the ten-minute baseline", async () => {
     // GIVEN a run whose answer streams 30s after the question lands
     const runId = await freshRunId("baseline");
     await appendTranscriptTurn(runId, {
@@ -44,7 +44,7 @@ describe("restaurant-pnl-spend runtime-efficiency metric", () => {
   });
 
   test("decays as the inverse ratio when the conversation runs past the baseline", async () => {
-    // GIVEN a run whose answer lands two minutes after the question
+    // GIVEN a run whose answer lands twenty minutes after the question
     const runId = await freshRunId("slow");
     await appendTranscriptTurn(runId, {
       role: "simulator",
@@ -52,14 +52,14 @@ describe("restaurant-pnl-spend runtime-efficiency metric", () => {
       emittedAt: "2026-01-01T00:00:00.000Z",
     });
     await appendAssistantEvents(runId, [
-      deltaEventAt("Labor, at $48,069.", "2026-01-01T00:02:00.000Z"),
+      deltaEventAt("Labor, at $48,069.", "2026-01-01T00:20:00.000Z"),
     ]);
 
     // WHEN the metric scores the run
     const result = await scoreRuntimeEfficiency({ runId });
 
-    // THEN a two-minute conversation scores min(1, 60s / 120s)
-    expect(result.metadata?.elapsedMs).toBe(120_000);
+    // THEN a twenty-minute conversation scores min(1, 10min / 20min)
+    expect(result.metadata?.elapsedMs).toBe(1_200_000);
     expect(result.score).toBeCloseTo(0.5, 5);
   });
 
