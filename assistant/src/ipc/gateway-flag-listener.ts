@@ -10,14 +10,16 @@ import { resolveIpcSocketPath } from "./socket-path.js";
 const log = getLogger("gateway-flag-listener");
 
 /**
- * Refresh the flag-overrides cache from the gateway, then register any tools
- * whose flag gate has since opened. Both the `feature_flags_changed` event and a
- * reconnect only refresh the cache; without this follow-up, enabling a
- * tool-gating flag (e.g. `workflows`) at runtime would open the corresponding
- * routes' flag gate while the flag-gated tools (`run_workflow` /
- * `manage_workflows`, CES tools) stay absent from the registry until a daemon
- * restart. `syncFlagGatedTools` is idempotent and enable-only, so re-running it
- * on every refresh is safe; it also never throws (it logs internally).
+ * Refresh the flag-overrides cache from the gateway, then register any
+ * registry-gated tools whose flag gate has since opened. Both the
+ * `feature_flags_changed` event and a reconnect only refresh the cache;
+ * `syncFlagGatedTools` registers the CES tools whose flag is enabled so that
+ * enabling a CES-gating flag at runtime surfaces them without a daemon restart.
+ * Workflow tools (`run_workflow` / `manage_workflows`) are not registry-gated:
+ * they live in a flag-gated bundled skill surfaced via `skill_load` against the
+ * live flag cache, so they need no registry sync here. `syncFlagGatedTools` is
+ * idempotent and enable-only, so re-running it on every refresh is safe; it also
+ * never throws (it logs internally).
  */
 function refreshFlagsAndSyncTools(context: string): void {
   refreshOverridesFromGateway()
