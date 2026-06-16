@@ -219,6 +219,10 @@ export function ScheduleDetailView({
 
   const sourceConversationId =
     getOpenableScheduleSourceConversationId(schedule);
+  const showsModelProfile =
+    schedule.inferenceProfile != null ||
+    schedule.mode === "execute" ||
+    schedule.mode === "wake";
 
   return (
     <div className="space-y-4">
@@ -307,11 +311,13 @@ export function ScheduleDetailView({
               </span>
             </div>
           ) : null}
-          <ModelProfileRow
-            assistantId={assistantId}
-            pinnedProfile={schedule.inferenceProfile}
-            defaultCallSite="mainAgent"
-          />
+          {showsModelProfile ? (
+            <ModelProfileRow
+              assistantId={assistantId}
+              pinnedProfile={schedule.inferenceProfile}
+              defaultCallSite="mainAgent"
+            />
+          ) : null}
           <div className="flex items-center justify-between">
             <span className="text-[var(--content-secondary)]">Status</span>
             <span>{schedule.enabled ? "Enabled" : "Disabled"}</span>

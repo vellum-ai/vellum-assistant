@@ -1055,12 +1055,12 @@ describe("ScheduleDetailView", () => {
     renderWithQueryClient(
       createElement(ScheduleDetailView, {
         schedule: schedule({
-          id: "script-schedule-123",
-          name: "Local cleanup",
-          description: "Clean up local generated files",
+          id: "execute-schedule-123",
+          name: "Daily digest",
+          description: "Summarize the day",
           cadenceDescription: "Daily",
-          mode: "script",
-          script: "bun run cleanup",
+          mode: "execute",
+          script: null,
           inferenceProfile: null,
           enabled: true,
           nextRunAt: 1_761_792_000_000,
@@ -1081,8 +1081,69 @@ describe("ScheduleDetailView", () => {
 
     await waitFor(() =>
       expect(fetchScheduleRunsMock.mock.calls).toEqual([
+        ["assistant-1", "execute-schedule-123", RUNS_PAGE_SIZE, undefined],
+      ]),
+    );
+  });
+
+  test("hides the model profile for non-LLM schedules without a pinned profile", async () => {
+    renderWithQueryClient(
+      createElement(ScheduleDetailView, {
+        schedule: schedule({
+          id: "script-schedule-123",
+          name: "Local cleanup",
+          description: "Clean up local generated files",
+          cadenceDescription: "Daily",
+          mode: "script",
+          script: "bun run cleanup",
+          inferenceProfile: null,
+          enabled: true,
+          nextRunAt: 1_761_792_000_000,
+          lastRunAt: null,
+          lastStatus: null,
+        }),
+        assistantId: "assistant-1",
+        onBack: () => {},
+        onDeleted: () => {},
+        onUpdated: () => {},
+      }),
+    );
+
+    expect(screen.queryByText("Model profile")).toBeNull();
+
+    await waitFor(() =>
+      expect(fetchScheduleRunsMock.mock.calls).toEqual([
         ["assistant-1", "script-schedule-123", RUNS_PAGE_SIZE, undefined],
       ]),
+    );
+  });
+
+  test("shows pinned legacy profiles for non-LLM schedules", async () => {
+    renderWithQueryClient(
+      createElement(ScheduleDetailView, {
+        schedule: schedule({
+          id: "script-schedule-legacy",
+          name: "Local cleanup",
+          description: "Clean up local generated files",
+          cadenceDescription: "Daily",
+          mode: "script",
+          script: "bun run cleanup",
+          inferenceProfile: "cost-optimized",
+          enabled: true,
+          nextRunAt: 1_761_792_000_000,
+          lastRunAt: null,
+          lastStatus: null,
+        }),
+        assistantId: "assistant-1",
+        onBack: () => {},
+        onDeleted: () => {},
+        onUpdated: () => {},
+      }),
+    );
+
+    expect(screen.getByText("Model profile")).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByText("Cost optimized")).toBeTruthy(),
     );
   });
 });
