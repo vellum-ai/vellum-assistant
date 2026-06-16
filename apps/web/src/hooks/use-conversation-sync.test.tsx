@@ -5,10 +5,8 @@ import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import type { Conversation } from "@/types/conversation-types";
-import {
-  conversationGroupsQueryKey,
-  conversationsQueryKey,
-} from "@/lib/sync/query-tags";
+import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import { conversationsQueryKey } from "@/utils/conversation-list-fetchers";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
 import {
   __resetForTesting,
@@ -351,7 +349,7 @@ describe("useConversationSync", () => {
     expect(listFirstPageCalls).toEqual([
       { bucket: "foreground", assistantId: "asst-1" },
     ]);
-    const expectedGroupsKey = conversationGroupsQueryKey("asst-1")[0];
+    const expectedGroupsKey = groupsGetQueryKey({ path: { assistant_id: "asst-1" } })[0];
     const groupsCalls = (spy.mock.calls as unknown as Array<[unknown]>).filter(
       (call) => {
         const arg = call[0] as { queryKey: readonly unknown[] } | undefined;

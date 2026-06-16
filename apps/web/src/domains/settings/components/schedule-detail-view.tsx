@@ -29,9 +29,8 @@ import {
   MIN_SCRIPT_TIMEOUT_SECONDS,
   MODE_TONE,
 } from "@/domains/settings/utils/schedule-formatters";
-import { configGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import { configGetOptions, schedulesByIdRunsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { captureError } from "@/lib/sentry/capture-error";
-import { assistantScheduleRunsQueryKey } from "@/lib/sync/query-tags";
 import { extractUsageProfileMetadata } from "@/utils/profile-metadata";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
@@ -174,7 +173,7 @@ export function ScheduleDetailView({
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: assistantScheduleRunsQueryKey(assistantId, schedule.id),
+    queryKey: schedulesByIdRunsGetQueryKey({ path: { assistant_id: assistantId, id: schedule.id } }),
     queryFn: ({ pageParam }) =>
       fetchScheduleRuns(
         assistantId,

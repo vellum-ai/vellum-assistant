@@ -8,8 +8,8 @@ import {
   backgroundConversationsQueryKey,
   scheduledConversationsQueryKey,
   archivedConversationsQueryKey,
-  conversationGroupsQueryKey,
-} from "@/lib/sync/query-tags";
+} from "@/utils/conversation-list-fetchers";
+import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 
 import {
   markConversationSeenLocal,
@@ -71,7 +71,7 @@ function seedArchived(qc: QueryClient, conversations: Conversation[]) {
 
 function seedGroups(qc: QueryClient, groups: ConversationGroup[]) {
   qc.setQueryData<GroupsGetResponse>(
-    conversationGroupsQueryKey(ASSISTANT_ID),
+    groupsGetQueryKey({ path: { assistant_id: ASSISTANT_ID } }),
     { groups },
   );
 }
@@ -94,7 +94,7 @@ function getArchived(qc: QueryClient): Conversation[] {
 
 function getGroups(qc: QueryClient): ConversationGroup[] {
   return (
-    qc.getQueryData<GroupsGetResponse>(conversationGroupsQueryKey(ASSISTANT_ID))?.groups ?? []
+    qc.getQueryData<GroupsGetResponse>(groupsGetQueryKey({ path: { assistant_id: ASSISTANT_ID } }))?.groups ?? []
   );
 }
 

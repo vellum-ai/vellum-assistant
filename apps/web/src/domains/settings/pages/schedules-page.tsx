@@ -29,7 +29,7 @@ import {
 } from "@/domains/settings/utils/schedule-formatters";
 import { captureError } from "@/lib/sentry/capture-error";
 import type { Schedule } from "@/domains/settings/types/schedules";
-import { assistantSchedulesQueryKey } from "@/lib/sync/query-tags";
+import { schedulesGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { routes } from "@/utils/routes";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import { Button } from "@vellumai/design-library/components/button";
@@ -120,7 +120,7 @@ export function SchedulesPage() {
     isError: isSchedulesError,
     refetch,
   } = useQuery({
-    queryKey: assistantSchedulesQueryKey(assistantId),
+    queryKey: schedulesGetQueryKey({ path: { assistant_id: assistantId } }),
     queryFn: () => fetchSchedules(assistantId),
     staleTime: 10_000,
   });

@@ -13,7 +13,7 @@ import {
   zeroScheduleUsageSummary,
 } from "@/domains/settings/utils/schedule-formatters";
 import { captureError } from "@/lib/sentry/capture-error";
-import { assistantSchedulesQueryKey } from "@/lib/sync/query-tags";
+import { schedulesGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -46,7 +46,7 @@ export function useHomeSchedulesData(
     isError,
     refetch: refetchSchedules,
   } = useQuery({
-    queryKey: assistantSchedulesQueryKey(assistantId),
+    queryKey: schedulesGetQueryKey({ path: { assistant_id: assistantId ?? "" } }),
     queryFn: () =>
       assistantId ? fetchSchedules(assistantId) : Promise.resolve([]),
     staleTime: 10_000,
