@@ -441,8 +441,47 @@ describe("schedules runs", () => {
     expect(exitCode).toBe(0);
     expect(logLines.join("\n")).toContain("STATUS");
     expect(logLines.join("\n")).toContain("run-1");
-    expect(logLines.join("\n")).toContain("2500ms");
+    expect(logLines.join("\n")).toContain("2.5s");
     expect(logLines.join("\n")).toContain("conversation-1");
+  });
+
+  test("formats run durations into human-friendly units", async () => {
+    const durations = [
+      { ms: 450, expected: "450ms" },
+      { ms: 29_854, expected: "29.9s" },
+      { ms: 30_000, expected: "30s" },
+      { ms: 90_000, expected: "1m 30s" },
+      { ms: 300_000, expected: "5m" },
+      { ms: 3_600_000, expected: "1h" },
+      { ms: 8_100_000, expected: "2h 15m" },
+      { ms: 93_600_000, expected: "1d 2h" },
+    ];
+
+    mockIpcResult = {
+      ok: true,
+      result: {
+        runs: durations.map((d, i) => ({
+          id: `run-${i}`,
+          jobId: "schedule-1",
+          status: "ok",
+          startedAt: 1_778_799_000_000,
+          finishedAt: 1_778_799_000_000 + d.ms,
+          durationMs: d.ms,
+          output: "done",
+          error: null,
+          conversationId: `conversation-${i}`,
+          createdAt: 1_778_799_000_000,
+        })),
+      },
+    };
+
+    const { exitCode } = await runCommand(["schedules", "runs", "schedule-1"]);
+
+    expect(exitCode).toBe(0);
+    const output = logLines.join("\n");
+    for (const { expected } of durations) {
+      expect(output).toContain(expected);
+    }
   });
 
   test("prints an empty message when no runs are found", async () => {
