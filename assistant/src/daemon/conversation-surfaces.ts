@@ -7,6 +7,7 @@ import {
   getAppDirPath,
   getAppPreview,
   isMultifileApp,
+  listAppsByConversation,
   resolveAppDir,
   resolveEffectiveAppHtml,
   updateApp,
@@ -2946,11 +2947,24 @@ export async function surfaceProxyResolver(
   }
 
   if (toolName === "app_open") {
-    const appId = input.app_id as string;
+    // Weaker models routinely omit app_id even though the active app is in
+    // context. Fall back to the conversation's most-recently-updated app
+    // rather than failing with "Invalid ID: undefined".
+    let appId = input.app_id as string;
+    if (typeof appId !== "string" || appId.trim().length === 0) {
+      appId = listAppsByConversation(ctx.conversationId)[0]?.id ?? "";
+    }
     const preview = input.preview as DynamicPageSurfaceData["preview"];
     const openMode = input.open_mode as string | undefined;
-    const app = getApp(appId);
-    if (!app) return { content: `App not found: ${appId}`, isError: true };
+    const app = appId ? getApp(appId) : null;
+    if (!app) {
+      return {
+        content: appId
+          ? `App not found: ${appId}`
+          : "app_id is required and no active app exists in this conversation. Call app_create first, or pass app_id explicitly.",
+        isError: true,
+      };
+    }
 
     // Track conversation association (best-effort — failures must not break open flow).
     try {
