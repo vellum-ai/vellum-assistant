@@ -280,7 +280,7 @@ function SkillFileContent({
   useEffect(() => {
     setIsEditing(false);
     setEditableContent("");
-  }, [filePath]);
+  }, [skillId, filePath]);
 
   const workspacePath = `skills/${skillId}/${filePath}`;
 
