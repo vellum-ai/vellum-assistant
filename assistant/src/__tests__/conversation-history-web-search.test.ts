@@ -834,6 +834,13 @@ describe("web_search_tool_result structural guard", () => {
     // are stripped earlier by `buildMessageContentBlocks` and cannot reach
     // this filter, so only `tool_use` ↔ `tool_result` pairing is relevant.
     "messaging/providers/slack/render-transcript.ts",
+
+    // Removes orphaned `tool_use` blocks (e.g. the advisor tool's own in-flight
+    // `tool_use`) before a mid-turn nested inference. Only `tool_use` ↔
+    // `tool_result` pairing is relevant; server-side blocks (`server_tool_use` /
+    // `web_search_tool_result`) are left intact and repaired by the Anthropic
+    // client's orphan pass downstream. Same reasoning as the Slack renderer above.
+    "providers/sanitize-transcript.ts",
   ]);
 
   /**
