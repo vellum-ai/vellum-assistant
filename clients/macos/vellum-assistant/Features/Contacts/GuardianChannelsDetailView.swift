@@ -317,18 +317,17 @@ struct GuardianChannelsDetailView: View {
     private func telegramVerifiedIdentity(channel: ContactChannelPayload, verificationState: ChannelVerificationState?) -> some View {
         let displayName = verificationState?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
         let username = verificationState?.username?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let identity = (verificationState?.identity ?? channel.externalUserId)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let identity = (verificationState?.identity ?? channel.address).trimmingCharacters(in: .whitespacesAndNewlines)
 
         let formattedUsername: String? = {
             guard let username, !username.isEmpty else { return nil }
             return username.hasPrefix("@") ? username : "@\(username)"
         }()
 
-        // Primary line: display name, else username, else identity, else address
+        // Primary line: display name, else username, else identity (= address)
         let nameLine = (displayName.flatMap { $0.isEmpty ? nil : $0 })
             ?? formattedUsername
             ?? identity
-            ?? channel.address
 
         VStack(alignment: .leading, spacing: 2) {
             Text(nameLine)
@@ -345,7 +344,7 @@ struct GuardianChannelsDetailView: View {
             }
 
             // Telegram ID line: only hyperlink the ID itself
-            if let identity, !identity.isEmpty, identity != nameLine {
+            if !identity.isEmpty, identity != nameLine {
                 HStack(spacing: 0) {
                     Text("Telegram ID: ")
                         .font(VFont.labelDefault)
@@ -369,7 +368,7 @@ struct GuardianChannelsDetailView: View {
     private func slackVerifiedIdentity(channel: ContactChannelPayload, verificationState: ChannelVerificationState?) -> some View {
         let displayName = verificationState?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
         let username = verificationState?.username?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let identity = (verificationState?.identity ?? channel.externalUserId)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let identity = (verificationState?.identity ?? channel.address).trimmingCharacters(in: .whitespacesAndNewlines)
 
         let formattedUsername: String? = {
             guard let username, !username.isEmpty else { return nil }
@@ -388,7 +387,7 @@ struct GuardianChannelsDetailView: View {
                 .lineLimit(1)
 
             // Secondary line: user ID
-            if let identity, !identity.isEmpty {
+            if !identity.isEmpty {
                 HStack(spacing: 0) {
                     Text("Slack ID: ")
                         .font(VFont.labelDefault)
