@@ -53,6 +53,7 @@
     "@vellumai/twilio-client": "file:../packages/twilio-client",
     "commander": "13.1.0",
     "croner": "10.0.1",
+    "diff": "8.0.4",
     "dotenv": "17.3.1",
     "drizzle-orm": "0.45.2",
     "jszip": "3.10.1",
