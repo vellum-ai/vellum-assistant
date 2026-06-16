@@ -53,6 +53,7 @@ describe("invite-redemption-service", () => {
     const outcome = redeemInvite({
       rawToken,
       sourceChannel: "telegram",
+      externalUserId: "user-1",
     });
 
     expect(outcome.ok).toBe(true);
@@ -75,6 +76,7 @@ describe("invite-redemption-service", () => {
     const outcome = redeemInvite({
       rawToken,
       sourceChannel: "telegram",
+      externalUserId: "user-1",
     });
 
     expect(outcome.ok).toBe(true);
@@ -103,6 +105,7 @@ describe("invite-redemption-service", () => {
     const outcome = redeemInviteByCode({
       code: inviteCode,
       sourceChannel: "telegram",
+      externalUserId: "code-user-1",
     });
 
     expect(outcome.ok).toBe(true);
@@ -122,6 +125,7 @@ describe("invite-redemption-service", () => {
     const outcome = redeemInvite({
       rawToken: "totally-bogus-token",
       sourceChannel: "telegram",
+      externalUserId: "user-1",
     });
 
     expect(outcome).toEqual({ ok: false, reason: "invalid_token" });
@@ -140,6 +144,7 @@ describe("invite-redemption-service", () => {
     const outcome = redeemInvite({
       rawToken,
       sourceChannel: "telegram",
+      externalUserId: "user-1",
     });
 
     expect(outcome).toEqual({ ok: false, reason: "expired" });
@@ -157,6 +162,7 @@ describe("invite-redemption-service", () => {
     const outcome = redeemInvite({
       rawToken,
       sourceChannel: "telegram",
+      externalUserId: "user-1",
     });
 
     expect(outcome).toEqual({ ok: false, reason: "revoked" });
@@ -174,6 +180,7 @@ describe("invite-redemption-service", () => {
     const first = redeemInvite({
       rawToken,
       sourceChannel: "telegram",
+      externalUserId: "user-1",
     });
     expect(first.ok).toBe(true);
 
@@ -181,6 +188,7 @@ describe("invite-redemption-service", () => {
     const second = redeemInvite({
       rawToken,
       sourceChannel: "telegram",
+      externalUserId: "user-2",
     });
 
     expect(second).toEqual({ ok: false, reason: "max_uses_reached" });
@@ -197,6 +205,7 @@ describe("invite-redemption-service", () => {
     const outcome = redeemInvite({
       rawToken,
       sourceChannel: "phone",
+      externalUserId: "user-1",
     });
 
     expect(outcome).toEqual({ ok: false, reason: "channel_mismatch" });
@@ -222,6 +231,7 @@ describe("invite-redemption-service", () => {
     // Pre-create an active member and find their contact
     const member = upsertContactChannel({
       sourceChannel: "telegram",
+      externalUserId: "existing-user",
       status: "active",
     });
 
@@ -235,6 +245,7 @@ describe("invite-redemption-service", () => {
     const outcome = redeemInvite({
       rawToken,
       sourceChannel: "telegram",
+      externalUserId: "existing-user",
     });
 
     expect(outcome.ok).toBe(true);
@@ -252,6 +263,7 @@ describe("invite-redemption-service", () => {
     // Pre-create a blocked member and find their contact
     const member = upsertContactChannel({
       sourceChannel: "telegram",
+      externalUserId: "blocked-user",
       status: "blocked",
     });
 
@@ -265,6 +277,7 @@ describe("invite-redemption-service", () => {
     const outcome = redeemInvite({
       rawToken,
       sourceChannel: "telegram",
+      externalUserId: "blocked-user",
     });
 
     expect(outcome).toEqual({ ok: false, reason: "invalid_token" });
@@ -301,6 +314,7 @@ describe("invite-redemption-service", () => {
     const outcome = redeemInvite({
       rawToken,
       sourceChannel: "telegram",
+      externalUserId: "guardian-tg-id",
     });
 
     // Should succeed — redeemer's channel is bound to Mom
@@ -346,6 +360,7 @@ describe("invite-redemption-service", () => {
     const outcome = redeemInvite({
       rawToken,
       sourceChannel: "telegram",
+      externalUserId: "guardian-own-id",
     });
 
     expect(outcome.ok).toBe(true);
@@ -389,6 +404,7 @@ describe("invite-redemption-service", () => {
     const outcome = redeemInviteByCode({
       code,
       sourceChannel: "telegram",
+      externalUserId: "guardian-code-id",
     });
 
     // Should succeed — redeemer's channel is bound to Mom
@@ -421,6 +437,7 @@ describe("invite-redemption-service", () => {
     // Pre-create a revoked member
     const member = upsertContactChannel({
       sourceChannel: "telegram",
+      externalUserId: "revoked-user",
       status: "revoked",
     });
     expect(member!.channel.status).toBe("revoked");
@@ -428,6 +445,7 @@ describe("invite-redemption-service", () => {
     const outcome = redeemInvite({
       rawToken,
       sourceChannel: "telegram",
+      externalUserId: "revoked-user",
     });
 
     // Should redeem, not return already_member
@@ -448,6 +466,7 @@ describe("invite-redemption-service", () => {
     const outcome = redeemInvite({
       rawToken,
       sourceChannel: "telegram",
+      externalUserId: "user-1",
     });
 
     // Verify the raw token does not appear anywhere in the serialized outcome
@@ -466,6 +485,7 @@ describe("invite-redemption-service", () => {
     const outcome = redeemInvite({
       rawToken,
       sourceChannel: "slack",
+      externalUserId: "user-1",
     });
 
     expect(outcome).toEqual({ ok: false, reason: "channel_mismatch" });
@@ -475,6 +495,7 @@ describe("invite-redemption-service", () => {
     // Pre-create an active member
     upsertContactChannel({
       sourceChannel: "telegram",
+      externalUserId: "probed-user",
       status: "active",
     });
 
@@ -482,6 +503,7 @@ describe("invite-redemption-service", () => {
     const outcome = redeemInvite({
       rawToken: "completely-bogus-token",
       sourceChannel: "telegram",
+      externalUserId: "probed-user",
     });
 
     expect(outcome).toEqual({ ok: false, reason: "invalid_token" });
@@ -500,6 +522,7 @@ describe("invite-redemption-service", () => {
     // Pre-create an active member
     upsertContactChannel({
       sourceChannel: "telegram",
+      externalUserId: "expired-token-user",
       status: "active",
     });
 
@@ -507,6 +530,7 @@ describe("invite-redemption-service", () => {
     const outcome = redeemInvite({
       rawToken,
       sourceChannel: "telegram",
+      externalUserId: "expired-token-user",
     });
 
     expect(outcome).toEqual({ ok: false, reason: "expired" });
@@ -524,6 +548,7 @@ describe("invite-redemption-service", () => {
     // Pre-create an active member on telegram
     upsertContactChannel({
       sourceChannel: "telegram",
+      externalUserId: "cross-channel-user",
       status: "active",
     });
 
@@ -531,6 +556,7 @@ describe("invite-redemption-service", () => {
     const outcome = redeemInvite({
       rawToken,
       sourceChannel: "telegram",
+      externalUserId: "cross-channel-user",
     });
 
     expect(outcome).toEqual({ ok: false, reason: "channel_mismatch" });

@@ -296,6 +296,7 @@ describe("redeemVoiceInviteCode", () => {
     // Pre-create an active member for this phone on voice channel
     const member = upsertContactChannel({
       sourceChannel: "phone",
+      externalUserId: phone,
       status: "active",
       policy: "allow",
     });
@@ -326,6 +327,7 @@ describe("redeemVoiceInviteCode", () => {
     // Pre-create a blocked member and find their contact
     const member = upsertContactChannel({
       sourceChannel: "phone",
+      externalUserId: phone,
       status: "blocked",
       policy: "deny",
     });
