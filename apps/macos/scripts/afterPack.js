@@ -11,8 +11,8 @@ const { execSync } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 
-// Quick Look extensions to compile from the legacy Swift client source.
-// Each entry maps to clients/macos/<name>/ which contains a .swift file
+// Quick Look extensions to compile from the bundled Swift sources.
+// Each entry maps to native/quicklook/<name>/ which contains a .swift file
 // and Info.plist with the extension metadata.
 const QL_EXTENSIONS = [
   {
@@ -48,9 +48,8 @@ const SWIFTC_TARGETS = { 1: "x86_64-apple-macosx15.0", 3: "arm64-apple-macosx15.
  * @returns {boolean} true if the extension was built successfully.
  */
 function buildQLExtension(ext, plugInsDir, appBundleId, identity, timestampFlag, swiftTarget) {
-  // Resolve source directory relative to the repo root (two levels up from apps/macos/scripts/).
-  const repoRoot = path.resolve(__dirname, "..", "..", "..");
-  const sourceDir = path.join(repoRoot, "clients", "macos", ext.name);
+  // Resolve source directory relative to apps/macos/scripts/.
+  const sourceDir = path.join(__dirname, "..", "native", "quicklook", ext.name);
 
   if (!fs.existsSync(sourceDir)) {
     console.warn(`afterPack: ${ext.name} source not found at ${sourceDir}, skipping`);
