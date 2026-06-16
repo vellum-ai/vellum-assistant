@@ -72,8 +72,10 @@ export function deriveCliNameFromAnalysis(
     spec = lookupSpec(program);
   }
 
-  // Normalize to the canonical lowercased registry key; unknown programs → null.
-  const name = (program.split("/").pop() ?? program).toLowerCase();
+  // Normalize to the canonical registry key; unknown programs → null. Matching
+  // is case-sensitive (like the rest of the classifier) so case-sensitive keys
+  // such as `R` / `Rscript` resolve correctly rather than missing as "other".
+  const name = program.split("/").pop() ?? program;
   return Object.hasOwn(DEFAULT_COMMAND_REGISTRY, name) ? name : null;
 }
 

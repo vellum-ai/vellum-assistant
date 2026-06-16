@@ -15,9 +15,18 @@ describe("deriveCliName", () => {
     expect(await deriveCliName("rm -rf build")).toBe("rm");
   });
 
-  test("lowercases and path-strips the program", async () => {
+  test("path-strips the program", async () => {
     expect(await deriveCliName("/usr/bin/git status")).toBe("git");
-    expect(await deriveCliName("GIT status")).toBe("git");
+    expect(await deriveCliName("/opt/homebrew/bin/npm install")).toBe("npm");
+  });
+
+  test("preserves case-sensitive registry keys", async () => {
+    // `R` and `Rscript` are registered with that exact casing — matching is
+    // case-sensitive so they resolve rather than missing as "other".
+    expect(await deriveCliName("Rscript script.R")).toBe("Rscript");
+    expect(await deriveCliName("R --version")).toBe("R");
+    // An unregistered casing variant is not coerced into a known key.
+    expect(await deriveCliName("GIT status")).toBeNull();
   });
 
   test("unwraps wrappers to the program that actually runs", async () => {
