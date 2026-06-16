@@ -5,8 +5,6 @@ on:
     branches: [main]
     paths:
       - 'apps/macos/**'
-      - 'clients/macos/VellumQLThumbnail/**'
-      - 'clients/macos/VellumQLPreview/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
       - '.github/workflows/ci-main-electron.yaml'

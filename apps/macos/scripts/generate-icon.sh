@@ -3,14 +3,13 @@ set -euo pipefail
 
 # Generate a per-environment AppIcon.icns for the Electron build.
 # Reads VELLUM_ENVIRONMENT (default: local) and renders the matching icon from
-# clients/macos/build-resources/icons/{env}/ into build/icon.icns.
+# build-resources/icons/{env}/ into build/icon.icns.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-REPO_ROOT="$(cd "$APP_DIR/../.." && pwd)"
 
 VELLUM_ENVIRONMENT="${VELLUM_ENVIRONMENT:-local}"
-ICONS_DIR="$REPO_ROOT/clients/macos/build-resources/icons"
+ICONS_DIR="$APP_DIR/build-resources/icons"
 
 if [ -d "$ICONS_DIR/$VELLUM_ENVIRONMENT" ]; then
     ICON_SOURCE_DIR="$ICONS_DIR/$VELLUM_ENVIRONMENT"

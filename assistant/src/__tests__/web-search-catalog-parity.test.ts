@@ -8,20 +8,15 @@ import {
 } from "../providers/search-provider-catalog.js";
 
 /**
- * Parity guard: daemon TS catalog vs the two generated JSON copies.
+ * Parity guard: daemon TS catalog vs the generated JSON copy.
  *
  * The daemon maintains its canonical search-provider catalog in
  * `assistant/src/providers/search-provider-catalog.ts`.
- * `assistant/scripts/sync-web-search-catalog.ts` writes two byte-identical
- * artifacts:
- *   - `meta/web-search-provider-catalog.json` — primary cross-package artifact.
- *   - `clients/shared/Resources/web-search-provider-catalog.json` — SwiftPM
- *     resource bundled into `VellumAssistantShared` (Swift cannot reach
- *     files outside a target's source directory).
+ * `assistant/scripts/sync-web-search-catalog.ts` writes
+ * `meta/web-search-provider-catalog.json` — the primary cross-package artifact.
  *
  * These tests enforce structural equality between the TS catalog and the
- * meta/ copy, plus byte equality between the meta/ copy and the SwiftPM
- * mirror. CI fails when any of the three drift.
+ * meta/ copy. CI fails when they drift.
  */
 
 interface JsonCatalogEntry {
@@ -46,11 +41,6 @@ const META_JSON_PATH = join(
   "..",
   "meta/web-search-provider-catalog.json",
 );
-const SWIFTPM_MIRROR_PATH = join(
-  process.cwd(),
-  "..",
-  "clients/shared/Resources/web-search-provider-catalog.json",
-);
 
 function loadJsonCatalog(): JsonCatalog {
   return JSON.parse(readFileSync(META_JSON_PATH, "utf-8"));
@@ -73,7 +63,8 @@ function entryToPlain(
   if (entry.apiKeyPrefix !== undefined) out.apiKeyPrefix = entry.apiKeyPrefix;
   if (entry.envVar !== undefined) out.envVar = entry.envVar;
   if (entry.secretKey !== undefined) out.secretKey = entry.secretKey;
-  if (entry.fallbackOrder !== undefined) out.fallbackOrder = entry.fallbackOrder;
+  if (entry.fallbackOrder !== undefined)
+    out.fallbackOrder = entry.fallbackOrder;
   if (entry.privacyPolicyUrl !== undefined) {
     out.privacyPolicyUrl = entry.privacyPolicyUrl;
   }
@@ -94,15 +85,5 @@ describe("web-search catalog parity (TS canonical vs meta/ JSON)", () => {
     expect(json.providers.map((p) => p.id)).toEqual(
       SEARCH_PROVIDER_CATALOG.map((p) => p.id),
     );
-  });
-
-  test("SwiftPM mirror is byte-identical to meta/ copy", () => {
-    // The generator writes both files from the same serializer; this guard
-    // catches any case where one copy is regenerated without the other.
-    // Byte equality is required because SwiftPM bundles the resource verbatim
-    // and the meta/ JSON is consumed as a cross-package artifact.
-    const metaBytes = readFileSync(META_JSON_PATH);
-    const swiftPmBytes = readFileSync(SWIFTPM_MIRROR_PATH);
-    expect(swiftPmBytes.equals(metaBytes)).toBe(true);
   });
 });
