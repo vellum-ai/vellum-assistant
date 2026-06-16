@@ -126,6 +126,35 @@ describe("FileRiskClassifier user overrides", () => {
     expect(result.matchType).toBe("user_rule");
   });
 
+  test("to_sandbox transfer honors a user low-risk rule on the destination", async () => {
+    // Approving a benign transfer saves a low rule keyed to the destination.
+    // The destination is the primary subject, so its override replaces the
+    // classification and lowers it — the transfer must stop prompting.
+    store.create({
+      tool: "host_file_transfer",
+      pattern: "/tmp/test-workspace/scratch/note.txt",
+      risk: "low",
+      description: "Trusted destination",
+    });
+
+    initTrustRuleCache(store);
+
+    const classifier = new FileRiskClassifier();
+    const result = await classifier.classify(
+      {
+        toolName: "host_file_transfer",
+        filePath: "/tmp/source.txt",
+        workingDir: "/",
+        sandboxPath: "/tmp/test-workspace/scratch/note.txt",
+        sandboxWorkingDir: "/tmp/test-workspace",
+      },
+      dummyFileContext,
+    );
+
+    expect(result.riskLevel).toBe("low");
+    expect(result.matchType).toBe("user_rule");
+  });
+
   test("to_sandbox destination escalation is not downgraded by a benign source rule", async () => {
     // The host source has a low-risk rule, but the destination lands in the
     // tools dir (toolsDir = /tmp/test-tools). The destination escalation must

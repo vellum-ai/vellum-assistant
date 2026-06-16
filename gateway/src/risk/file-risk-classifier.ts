@@ -503,51 +503,57 @@ export class FileRiskClassifier implements RiskClassifier<
       }
     }
 
-    // User override is applied after normal classification. For a single-
-    // subject tool this means a user-defined rule CAN lower a security-
-    // escalated risk (e.g., actor-token-signing-key read) — intentional, since
-    // user overrides are authoritative for rules they explicitly created.
+    // User overrides are applied after normal classification.
+    //
+    // The primary subject (`subjectPath` — filePath for most tools, the
+    // sandbox destination for a to_sandbox transfer) is authoritative: a rule
+    // the user explicitly created for it REPLACES the classification and may
+    // intentionally lower it (e.g. honoring an approval of a benign transfer's
+    // destination, or lowering an actor-token-signing-key read).
+    //
+    // A to_sandbox transfer also has a secondary subject — the host source
+    // (`filePath`). A rule there may only RAISE risk (e.g. a sensitive source
+    // such as `host_file_transfer:/etc/secret`); it must not downgrade a
+    // dangerous destination, so it applies only when it escalates above the
+    // already-resolved result.
     try {
       const ruleCache = getTrustRuleCache();
-      if (input.sandboxPath) {
-        // A to_sandbox transfer has two subjects: the host source (filePath)
-        // and the sandbox destination (sandboxPath). A user rule on either
-        // applies; take the highest risk among the joint classification and
-        // both overrides so neither a benign-source rule downgrades a
-        // dangerous destination, nor a sensitive-source rule (e.g.
-        // `host_file_transfer:/etc/secret`) is ignored for a benign one.
-        let best = assessment!;
-        for (const p of [filePath, input.sandboxPath]) {
-          const override = ruleCache.findToolOverride(toolName, p);
-          if (
-            override &&
-            (override.userModified || override.origin === "user_defined") &&
-            riskOrd(override.risk) > riskOrd(best.riskLevel)
-          ) {
-            best = {
-              riskLevel: override.risk,
-              reason: override.description,
-              scopeOptions: [],
-              matchType: "user_rule",
-              allowlistOptions,
-            };
-          }
-        }
-        return best;
-      }
-      const override = ruleCache.findToolOverride(toolName, subjectPath);
+      let result = assessment!;
+
+      const primaryOverride = ruleCache.findToolOverride(toolName, subjectPath);
       if (
-        override &&
-        (override.userModified || override.origin === "user_defined")
+        primaryOverride &&
+        (primaryOverride.userModified ||
+          primaryOverride.origin === "user_defined")
       ) {
-        return {
-          riskLevel: override.risk,
-          reason: override.description,
+        result = {
+          riskLevel: primaryOverride.risk,
+          reason: primaryOverride.description,
           scopeOptions: [],
           matchType: "user_rule",
           allowlistOptions,
         };
       }
+
+      if (input.sandboxPath) {
+        const sourceOverride = ruleCache.findToolOverride(toolName, filePath);
+        if (
+          sourceOverride &&
+          (sourceOverride.userModified ||
+            sourceOverride.origin === "user_defined") &&
+          riskOrd(sourceOverride.risk) > riskOrd(result.riskLevel)
+        ) {
+          result = {
+            riskLevel: sourceOverride.risk,
+            reason: sourceOverride.description,
+            scopeOptions: [],
+            matchType: "user_rule",
+            allowlistOptions,
+          };
+        }
+      }
+
+      return result;
     } catch {
       // Cache not initialized — no override
     }
