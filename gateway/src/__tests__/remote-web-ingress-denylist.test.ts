@@ -69,6 +69,7 @@ describe("remote web ingress denylist", () => {
       "/v1/guardian/init",
       "/v1/guardian/reset-bootstrap",
       "/v1/pair",
+      "/v1/remote-web/pairing-challenge",
     ]);
 
     for (const path of unprotectedV1Routes) {
