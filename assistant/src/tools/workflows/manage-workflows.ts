@@ -23,7 +23,7 @@ import {
   type ToolExecutionResult,
 } from "../types.js";
 
-async function executeManageWorkflows(
+export async function executeManageWorkflows(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {

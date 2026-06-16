@@ -30,7 +30,7 @@ import {
   type ToolExecutionResult,
 } from "../types.js";
 
-const RUN_WORKFLOW_DESCRIPTION = `Launch an autonomous, multi-agent WORKFLOW from a script you author (or by saved name). A workflow fans work out across many short-lived leaf agents and orchestrates them deterministically. Returns a runId immediately; the run is asynchronous and you are notified in this conversation when it completes — do NOT poll.
+export const RUN_WORKFLOW_DESCRIPTION = `Launch an autonomous, multi-agent WORKFLOW from a script you author (or by saved name). A workflow fans work out across many short-lived leaf agents and orchestrates them deterministically. Returns a runId immediately; the run is asynchronous and you are notified in this conversation when it completes — do NOT poll.
 
 Provide EXACTLY ONE of:
 - "script": the workflow source (JavaScript/TypeScript), or
@@ -96,7 +96,7 @@ function resolveTrustContext(context: ToolContext): TrustContext {
   return { ...FALLBACK_TURN_TRUST, trustClass: context.trustClass };
 }
 
-async function executeRunWorkflow(
+export async function executeRunWorkflow(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
