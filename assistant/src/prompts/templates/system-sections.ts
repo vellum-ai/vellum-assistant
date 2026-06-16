@@ -143,7 +143,12 @@ function renderConnectedServices(): string | null {
 
   if (entries.length === 0) return null;
 
-  const lines = ["# Connected Services", ""];
+  const lines = [
+    "# Connected Services",
+    "",
+    "Each entry means the integration is authorized and its tools are available to you — not that the user's projects, sites, or data live on that service. Don't infer where something is hosted, deployed, or stored from this list; verify with a tool before stating it.",
+    "",
+  ];
   for (const conn of entries) {
     const state = conn.accountInfo
       ? `Connected (${conn.accountInfo})`

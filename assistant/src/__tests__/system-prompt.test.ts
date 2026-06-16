@@ -194,6 +194,23 @@ describe("buildSystemPrompt", () => {
     expect(dynamicIdx).toBeGreaterThan(staticIdx);
   });
 
+  test("connected-services block warns against inferring hosting from a connection", () => {
+    mockManagedConnections.push({ provider: "vercel", accountInfo: null });
+
+    const result = buildSystemPrompt();
+
+    const headerIdx = result.indexOf("# Connected Services");
+    const caveatIdx = result.indexOf(
+      "Don't infer where something is hosted, deployed, or stored from this list",
+    );
+    const entryIdx = result.indexOf("- **vercel**: Connected");
+    expect(headerIdx).toBeGreaterThan(-1);
+    // The caveat sits between the header and the connection entries so the
+    // model reads "available tools, not infrastructure" before the list.
+    expect(caveatIdx).toBeGreaterThan(headerIdx);
+    expect(entryIdx).toBeGreaterThan(caveatIdx);
+  });
+
   test("side-chain prompt options still include IDENTITY.md and SOUL.md", () => {
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "# Identity\n\nI am Vellum.");
     writeFileSync(join(TEST_DIR, "SOUL.md"), "# Soul\n\nBe thoughtful.");
