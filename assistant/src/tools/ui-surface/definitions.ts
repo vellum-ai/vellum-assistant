@@ -43,6 +43,14 @@ function proxyExecute(toolName: string) {
       };
     }
 
+    if (toolName === "ui_show" && isEmptyCard(input)) {
+      return {
+        content:
+          'Error: ui_show card requires content in `data` — a title/body, or a template with templateData (e.g. template "task_progress" with templateData.steps). The surface was not displayed because `data` carried no content; the user would see a blank box. Do not show an empty card and fill it in later with ui_update — resend ui_show with the content inline in `data`, or skip the card.',
+        isError: true,
+      };
+    }
+
     if (toolName === "ui_show" && isDynamicPageAppSubstitute(input)) {
       return {
         content:
@@ -68,6 +76,52 @@ function isEmptyDynamicPage(input: Record<string, unknown>): boolean {
   const data = asRecord(input.data);
   const html = data?.html;
   return typeof html !== "string" || html.trim().length === 0;
+}
+
+/**
+ * True when a `card` surface carries no renderable content. A card draws from
+ * `title`/`subtitle`/`body`/`metadata` or a `template` + `templateData`; with
+ * none of these present the client renders a blank box. Catches the common
+ * weak-model pattern of `ui_show({ surface_type: "card", data: {} })` followed
+ * by a deferred `ui_update`, which leaves an empty card visible in between.
+ */
+function isEmptyCard(input: Record<string, unknown>): boolean {
+  if (input.surface_type !== "card") {
+    return false;
+  }
+  const data = asRecord(input.data);
+  if (!data) {
+    return true;
+  }
+  const CONTENT_KEYS = [
+    "title",
+    "subtitle",
+    "body",
+    "metadata",
+    "template",
+    "templateData",
+  ];
+  return !CONTENT_KEYS.some((key) => hasMeaningfulValue(data[key]));
+}
+
+/**
+ * True when a value carries content: a non-blank string, a non-empty array, a
+ * non-empty object, or any non-nullish primitive.
+ */
+function hasMeaningfulValue(value: unknown): boolean {
+  if (value === undefined || value === null) {
+    return false;
+  }
+  if (typeof value === "string") {
+    return value.trim().length > 0;
+  }
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+  if (typeof value === "object") {
+    return Object.keys(value as Record<string, unknown>).length > 0;
+  }
+  return true;
 }
 
 function isDynamicPageAppSubstitute(input: Record<string, unknown>): boolean {

@@ -207,6 +207,96 @@ describe("ui_show dynamic_page app substitute guard", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Empty card guard
+// ---------------------------------------------------------------------------
+
+describe("ui_show empty card guard", () => {
+  const context = (onProxy: () => void) => ({
+    conversationId: "conversation-123",
+    workingDir: "/tmp",
+    trustClass: "guardian" as const,
+    proxyToolResolver: async () => {
+      onProxy();
+      return { content: "proxied", isError: false };
+    },
+  });
+
+  test("rejects a card with empty data and does not proxy", async () => {
+    let proxied = false;
+
+    const result = await uiShowTool.execute(
+      {
+        surface_type: "card",
+        activity: "Showing progress",
+        data: {},
+      },
+      context(() => {
+        proxied = true;
+      }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("blank box");
+    expect(proxied).toBe(false);
+  });
+
+  test("rejects a card with blank-only fields and does not proxy", async () => {
+    let proxied = false;
+
+    const result = await uiShowTool.execute(
+      { surface_type: "card", data: { title: "   ", body: "" } },
+      context(() => {
+        proxied = true;
+      }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(proxied).toBe(false);
+  });
+
+  test("allows a task_progress card with templateData", async () => {
+    let proxied = false;
+
+    const result = await uiShowTool.execute(
+      {
+        surface_type: "card",
+        data: {
+          template: "task_progress",
+          templateData: {
+            title: "Working on X",
+            status: "in_progress",
+            steps: [{ label: "Step 1", status: "in_progress" }],
+          },
+        },
+      },
+      context(() => {
+        proxied = true;
+      }),
+    );
+
+    expect(result).toEqual({ content: "proxied", isError: false });
+    expect(proxied).toBe(true);
+  });
+
+  test("allows a plain card with a title and body", async () => {
+    let proxied = false;
+
+    const result = await uiShowTool.execute(
+      {
+        surface_type: "card",
+        data: { title: "Summary", body: "All done." },
+      },
+      context(() => {
+        proxied = true;
+      }),
+    );
+
+    expect(result).toEqual({ content: "proxied", isError: false });
+    expect(proxied).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // UiSurfaceShowDynamicPage structure
 // ---------------------------------------------------------------------------
 
