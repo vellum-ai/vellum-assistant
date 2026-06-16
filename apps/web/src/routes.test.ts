@@ -1,7 +1,17 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { matchRoutes } from "react-router";
 
-import { routeTree } from "@/routes";
+mock.module("@/generated/gateway/@tanstack/react-query.gen", () => ({
+  assistantFeatureFlagsGetOptions: () => ({ queryKey: ["assistant-flags"] }),
+  assistantFeatureFlagsGetQueryKey: () => ["assistant-flags"],
+}));
+
+const { getRouterBasename, routeTree } = await import("@/routes");
+
+afterEach(() => {
+  window.__VELLUM_CONFIG__ = undefined;
+  window.history.pushState(null, "", "/");
+});
 
 // Walk the matched route chain for `path` and report whether `AccountLayout`
 // is one of its layout components. Matching runs against the raw `routeTree`
@@ -13,6 +23,13 @@ function isUnderAccountLayout(path: string): boolean {
     (m) =>
       (m.route as { Component?: { name?: string } }).Component?.name ===
       "AccountLayout",
+  );
+}
+
+function hasRouteMiddleware(path: string, basename?: string): boolean {
+  const matches = matchRoutes(routeTree as never, path, basename) ?? [];
+  return matches.some((m) =>
+    Array.isArray((m.route as { middleware?: unknown }).middleware),
   );
 }
 
@@ -42,5 +59,28 @@ describe("account route compact-window grouping", () => {
     "/account/platform-callback",
   ])("%s is NOT sized by AccountLayout", (path) => {
     expect(isUnderAccountLayout(path)).toBe(false);
+  });
+});
+
+describe("remote web pairing route", () => {
+  test("stays outside the auth-protected assistant app tree", () => {
+    expect(hasRouteMiddleware("/assistant/pair?deviceCode=abc")).toBe(false);
+  });
+
+  test("uses the remote-gateway public path prefix as the router basename", () => {
+    window.__VELLUM_CONFIG__ = { mode: "remote-gateway" };
+    window.history.pushState(
+      null,
+      "",
+      "/assistant-123/assistant/pair?deviceCode=abc",
+    );
+
+    expect(getRouterBasename()).toBe("/assistant-123");
+    expect(
+      hasRouteMiddleware(
+        "/assistant-123/assistant/pair?deviceCode=abc",
+        "/assistant-123",
+      ),
+    ).toBe(false);
   });
 });

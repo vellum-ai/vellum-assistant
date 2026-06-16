@@ -24,6 +24,7 @@ let mockIsLocalMode = false;
 let mockIsRemoteGatewayMode = false;
 let mockPlatformAssistants: unknown[] = [];
 let mockPrimeError: Error | null = null;
+let mockGatewayToken: string | null = null;
 const setSelectedAssistantMock = mock(async (_id: string | null) => {});
 const setFromApiMock = mock((_assistants: unknown) => {});
 const primeLocalGatewayConnectionMock = mock(async () => {
@@ -33,6 +34,7 @@ const primeLocalGatewayConnectionWithRepairMock = mock(async () => {
   if (mockPrimeError) throw mockPrimeError;
 });
 const ensureGatewayTokenMock = mock(async () => {});
+const refreshRemoteGatewaySessionMock = mock(async () => false);
 const restoreConsentForUserMock = mock((_userId: string | null) => ({
   tos: false,
   ai: false,
@@ -118,7 +120,12 @@ mock.module("@/lib/auth/gateway-session", () => ({
   isGatewayAuthMode: () => mockIsGatewayAuth,
   ensureGatewayToken: ensureGatewayTokenMock,
   clearGatewayToken: () => {},
+  getGatewayToken: () => mockGatewayToken,
   getLocalTokenUrl: () => "http://localhost/token",
+}));
+
+mock.module("@/lib/auth/remote-gateway-session", () => ({
+  refreshRemoteGatewaySession: refreshRemoteGatewaySessionMock,
 }));
 
 mock.module("@/lib/local-mode", () => ({
@@ -240,6 +247,21 @@ function resetAuthStore(): void {
   });
 }
 
+function authenticatedLocalUserForTest() {
+  return {
+    sessionStatus: "authenticated" as const,
+    user: {
+      id: "gateway-local",
+      username: "local",
+      email: null,
+      isStaff: false,
+      firstName: "Local",
+      lastName: "User",
+    },
+    platformSession: "absent" as const,
+  };
+}
+
 beforeEach(() => {
   sessionUser = null;
   getSessionCallCount = 0;
@@ -256,12 +278,14 @@ beforeEach(() => {
   mockIsNativePlatform = false;
   mockIsBiometricEnabled = false;
   mockBiometricToken = null;
+  mockGatewayToken = null;
   mockPrimeError = null;
   setSelectedAssistantMock.mockClear();
   setFromApiMock.mockClear();
   primeLocalGatewayConnectionMock.mockClear();
   primeLocalGatewayConnectionWithRepairMock.mockClear();
   ensureGatewayTokenMock.mockClear();
+  refreshRemoteGatewaySessionMock.mockClear();
   restoreConsentForUserMock.mockClear();
   persistConsentForUserMock.mockClear();
   resolveServerConsentMock.mockClear();
@@ -293,10 +317,12 @@ beforeEach(() => {
 describe("auth store onboarding flag reconciliation", () => {
   test("initSession treats remote-gateway mode as an authenticated local session", async () => {
     mockIsRemoteGatewayMode = true;
+    refreshRemoteGatewaySessionMock.mockImplementationOnce(async () => true);
 
     await useAuthStore.getState().initSession();
 
     expect(primeLocalGatewayConnectionMock).not.toHaveBeenCalled();
+    expect(refreshRemoteGatewaySessionMock).toHaveBeenCalledTimes(1);
     expect(getSessionCallCount).toBe(0);
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
     expect(useAuthStore.getState().user?.id).toBe("gateway-local");
@@ -306,12 +332,52 @@ describe("auth store onboarding flag reconciliation", () => {
   test("refreshSession keeps remote-gateway mode authenticated without minting a local token", async () => {
     mockIsRemoteGatewayMode = true;
     mockIsGatewayAuth = true;
+    refreshRemoteGatewaySessionMock.mockImplementationOnce(async () => true);
 
     await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
 
     expect(ensureGatewayTokenMock).not.toHaveBeenCalled();
+    expect(refreshRemoteGatewaySessionMock).toHaveBeenCalledTimes(1);
     expect(primeLocalGatewayConnectionMock).not.toHaveBeenCalled();
     expect(getSessionCallCount).toBe(0);
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.id).toBe("gateway-local");
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+  });
+
+  test("initSession leaves remote-gateway mode unauthenticated when cookie refresh fails and no token exists", async () => {
+    mockIsRemoteGatewayMode = true;
+
+    await useAuthStore.getState().initSession();
+
+    expect(refreshRemoteGatewaySessionMock).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+  });
+
+  test("refreshSession ends remote-gateway sessions when refresh fails and no token exists", async () => {
+    mockIsRemoteGatewayMode = true;
+    useAuthStore.setState({ ...authenticatedLocalUserForTest() });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(false);
+
+    expect(refreshRemoteGatewaySessionMock).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+  });
+
+  test("refreshSession keeps remote-gateway sessions when refresh throws but a token is still valid", async () => {
+    mockIsRemoteGatewayMode = true;
+    mockGatewayToken = "access-token";
+    refreshRemoteGatewaySessionMock.mockImplementationOnce(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(refreshRemoteGatewaySessionMock).toHaveBeenCalledTimes(1);
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
     expect(useAuthStore.getState().user?.id).toBe("gateway-local");
     expect(useAuthStore.getState().platformSession).toBe("absent");

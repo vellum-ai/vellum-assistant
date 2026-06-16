@@ -52,12 +52,14 @@ mock.module("@/lib/auth/gateway-session", () => ({
 }));
 
 const isLocalModeMock = mock(() => false);
+const isRemoteGatewayModeMock = mock(() => false);
 const getSelectedAssistantMock = mock(
   (): { assistantId: string } | undefined => undefined,
 );
 const getLocalGatewayUrlMock = mock((): string | undefined => undefined);
 mock.module("@/lib/local-mode", () => ({
   isLocalMode: isLocalModeMock,
+  isRemoteGatewayMode: isRemoteGatewayModeMock,
   isLocalAssistant: () => false,
   isPlatformAssistant: () => false,
   getSelectedAssistant: getSelectedAssistantMock,
@@ -134,6 +136,7 @@ beforeEach(() => {
   // tests will silently inherit the previous test's stub.
   isGatewayAuthModeMock.mockImplementation(() => false);
   isLocalModeMock.mockImplementation(() => false);
+  isRemoteGatewayModeMock.mockImplementation(() => false);
   getSelectedAssistantMock.mockImplementation(() => undefined);
   getLocalGatewayUrlMock.mockImplementation(() => undefined);
   getAssistantMock.mockImplementation(async () => ({ ok: false, status: 404 }));
@@ -160,6 +163,7 @@ beforeEach(() => {
 
 afterEach(() => {
   lifecycleService.__resetForTesting();
+  window.history.pushState(null, "", "/");
 });
 
 describe("lifecycleService — server state projection", () => {
@@ -384,6 +388,30 @@ describe("lifecycleService — bootstrap branches", () => {
       const s = useAssistantLifecycleStore.getState().assistantState;
       return s.kind === "active" && s.health === "healthy";
     });
+  });
+
+  test("remote gateway short-circuit preserves a public path prefix", async () => {
+    isGatewayAuthModeMock.mockImplementation(() => true);
+    isRemoteGatewayModeMock.mockImplementation(() => true);
+    window.history.pushState(
+      null,
+      "",
+      "/assistant-123/assistant/conversations/self",
+    );
+
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.respondToInputs();
+
+    expect(setSelfHostedConnectionMock).toHaveBeenCalledWith({
+      url: `${window.location.origin}/assistant-123`,
+      token: "token",
+    });
+    expect(useResolvedAssistantsStore.getState().activeAssistantId).toBe(
+      "self",
+    );
   });
 });
 

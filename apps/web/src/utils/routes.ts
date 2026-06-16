@@ -1,10 +1,10 @@
 /**
  * Centralized URL registry for app-internal navigation.
  *
- * All paths are absolute browser paths — pass them directly to
- * `<Link to>`, `navigate()`, `window.location.href`, and pathname
- * comparisons. No React Router basename is in play; the router runs
- * at `/` and matches these paths as-is.
+ * All paths are absolute app paths — pass them directly to `<Link to>`,
+ * `navigate()`, `window.location.href`, and pathname comparisons. Normal app
+ * modes run the router at `/`; remote-gateway mode may add a public ingress
+ * prefix as the React Router basename while keeping these app paths unchanged.
  *
  * Captured paths (e.g. inputs to `sanitizeReturnTo`, query-string round-trips)
  * are values, not constants — do NOT rewrite those through this module.
@@ -47,6 +47,7 @@ export const routes = {
    * dedicated BrowserWindow.
    */
   bundleConfirm: r("/assistant/bundle/confirm"),
+  remotePair: r("/assistant/pair"),
   quickInput: r("/assistant/quick-input"),
   conversations: r("/assistant/conversations"),
   conversation: (key: string) => dyn(r("/assistant/conversations"), key),

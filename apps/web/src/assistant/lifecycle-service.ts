@@ -53,6 +53,7 @@ import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
 import {
   getSelectedAssistant,
   getLocalGatewayUrl,
+  isRemoteGatewayMode,
 } from "@/lib/local-mode";
 import { getLocalAssistantStatusHost } from "@/runtime/local-mode-host";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
@@ -61,6 +62,15 @@ import { isAuthenticated, type SessionStatus } from "@/stores/session-status";
 const PROBE_RETRY_DELAY_MS = 4_000;
 const PROBE_RETRY_LIMIT_MS = 60_000;
 const LOCAL_HEALTH_POLL_MS = 5_000;
+
+function getRemoteGatewayIngressUrl(): string {
+  const match = /\/assistant(?:\/|$)/.exec(window.location.pathname);
+  const prefix =
+    match && match.index > 0
+      ? window.location.pathname.slice(0, match.index).replace(/\/+$/, "")
+      : "";
+  return `${window.location.origin}${prefix}`;
+}
 
 export interface LifecycleServiceInputs {
   sessionStatus: SessionStatus;
@@ -542,7 +552,9 @@ class AssistantLifecycleService {
     let ingressUrl = window.location.origin;
     let resolvedAssistantId = "self";
     const localGateway = getLocalGatewayUrl();
-    if (localGateway) {
+    if (isRemoteGatewayMode()) {
+      ingressUrl = getRemoteGatewayIngressUrl();
+    } else if (localGateway) {
       const assistant = getSelectedAssistant();
       ingressUrl = `${window.location.origin}${localGateway}`;
       resolvedAssistantId = assistant?.assistantId ?? resolvedAssistantId;

@@ -37,8 +37,10 @@ import {
   isGatewayAuthMode,
   ensureGatewayToken,
   clearGatewayToken,
+  getGatewayToken,
   getLocalTokenUrl,
 } from "@/lib/auth/gateway-session";
+import { refreshRemoteGatewaySession } from "@/lib/auth/remote-gateway-session";
 import {
   isLocalMode,
   isRemoteGatewayMode,
@@ -452,6 +454,15 @@ function probePlatformSessionIfReachable(
   }
 }
 
+async function hasRemoteGatewaySessionAfterRefresh(): Promise<boolean> {
+  try {
+    if (await refreshRemoteGatewaySession()) return true;
+  } catch {
+    // A network failure says nothing about an already-valid in-memory token.
+  }
+  return getGatewayToken() !== null;
+}
+
 const useAuthStoreBase = create<AuthStore>()((set, get) => ({
   sessionStatus: "initializing",
   user: null,
@@ -459,7 +470,11 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
 
   initSession: async () => {
     if (isRemoteGatewayMode()) {
-      set({ ...authenticatedLocalUser(), platformSession: "absent" });
+      if (await hasRemoteGatewaySessionAfterRefresh()) {
+        set({ ...authenticatedLocalUser(), platformSession: "absent" });
+      } else {
+        set(sessionEnded());
+      }
       return;
     }
 
@@ -655,8 +670,12 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
 
   refreshSession: async () => {
     if (isRemoteGatewayMode()) {
-      set({ ...authenticatedLocalUser(), platformSession: "absent" });
-      return true;
+      if (await hasRemoteGatewaySessionAfterRefresh()) {
+        set({ ...authenticatedLocalUser(), platformSession: "absent" });
+        return true;
+      }
+      set(sessionEnded());
+      return false;
     }
 
     if (isGatewayAuthMode()) {
