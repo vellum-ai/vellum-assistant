@@ -187,9 +187,7 @@ export class NotificationBroadcaster {
     const accessRequestContext =
       signal.sourceEventName === "ingress.access_request" &&
       signal.contextPayload
-        ? parseAccessRequestPayload(
-            signal.contextPayload as Record<string, unknown>,
-          )
+        ? parseAccessRequestPayload(signal.contextPayload)
         : undefined;
     const results: NotificationDeliveryResult[] = [];
 
