@@ -381,6 +381,10 @@ describe("StatusBanner", () => {
       expect(html).toContain("Wake up");
       expect(html).toContain('data-tone="neutral"');
       expect(html).toContain("items-center");
+      expect(html).toContain(
+        "[&amp;_[data-slot=button]]:hover:bg-[color-mix(in_srgb,var(--status-banner-action-color)_12%,transparent)]",
+      );
+      expect(html).toContain("[&amp;_[data-slot=button]]:hover:opacity-90");
     });
 
     test("renders unreachable local health as an asleep fallback", () => {
