@@ -523,9 +523,30 @@ export function initializeDb(): void {
     migrateContactChannelsRenormalizeAddresses,
   ];
 
+  // Crash recovery and the aggregator steps dispatch to a registry whose
+  // membership grows release to release, so they must run on every boot and are
+  // never checkpointed. Every other step is recorded once it completes and
+  // skipped on later boots.
+  const alwaysRun = new Set([
+    recoverCrashedMigrations.name,
+    runComplexMigrations.name,
+    runLateMigrations.name,
+  ]);
+
   // Run each migration step, catching and logging individual failures so one
   // broken migration doesn't prevent independent later ones from succeeding.
-  const { failed } = runMigrationSteps(database, migrationSteps);
+  const { failed, skipped } = runMigrationSteps(database, migrationSteps, {
+    alwaysRun,
+    forceRerun: process.env.VELLUM_MIGRATIONS_FORCE_RERUN === "1",
+  });
+
+  log.debug(
+    {
+      ranCount: migrationSteps.length - skipped.length,
+      skipped: skipped.length,
+    },
+    `DB migration steps complete (${skipped.length} skipped via checkpoint)`,
+  );
 
   if (failed.length > 0) {
     log.error(
