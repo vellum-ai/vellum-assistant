@@ -3576,6 +3576,86 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/channel-admission-policy": {
+        get: {
+          summary: "List channel admission policies",
+          description:
+            "Authenticated gateway endpoint that lists the admission policy for every channel from the SQLite-backed store. Channels without a persisted row are returned with the default policy.",
+          operationId: "channelAdmissionPolicyGet",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Channel admission policies returned" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
+      "/v1/channel-admission-policy/{channelType}": {
+        put: {
+          summary: "Set a channel admission policy",
+          description:
+            "Authenticated gateway endpoint that upserts the admission policy for a single channel in the SQLite-backed store and invalidates the in-memory admission-policy cache.",
+          operationId: "channelAdmissionPolicyPut",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "channelType",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Channel admission policy upserted" },
+            "400": { description: "Invalid request payload or channelType" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+        post: {
+          summary: "Set a channel admission policy",
+          description:
+            "Alias for the PUT upsert. Accepts the same payload so clients that issue POST upserts match the same handler.",
+          operationId: "channelAdmissionPolicyPost",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "channelType",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Channel admission policy upserted" },
+            "400": { description: "Invalid request payload or channelType" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
       "/integrations/status": {
         get: {
           summary: "Integration status",
