@@ -359,15 +359,11 @@ export async function handleMigrationExport(
         // flush on a multi-GB WAL file can otherwise stall the daemon's
         // event loop for the full duration of the flush.
         //
-        // FULL (not TRUNCATE): TRUNCATE has a side effect where, if the
-        // WAL is empty after the checkpoint, SQLite unlinks the WAL file
-        // from the directory. When the daemon's in-process connection
-        // still holds the original WAL fd, the unlink orphans that fd
-        // into a "ghost WAL" only the daemon can reach, and subsequent
-        // connections create a fresh WAL on disk — split-brain. FULL
-        // gives us the same flush-completion guarantee without the
-        // unlink side effect. See assistant/AGENTS.md "SQLite WAL
-        // checkpointing".
+        // FULL (not TRUNCATE): FULL blocks until every committed frame is
+        // written back to the main `.db` file, which is all the export
+        // needs since it copies that file. TRUNCATE additionally restarts
+        // the WAL and truncates it to zero bytes — extra work and blocking
+        // this path does not need.
         const result = await runAsyncSqlite("PRAGMA wal_checkpoint(FULL)");
         if (!result.ok) {
           // Best-effort: if the DB can't be checkpointed (e.g. not a valid
