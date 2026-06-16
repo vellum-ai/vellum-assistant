@@ -12,7 +12,7 @@ import type { TagTone } from "@vellumai/design-library/components/tag";
 
 import { fetchScheduleUsageSummary } from "@/domains/settings/api/schedules";
 import { resolveScheduleUsageWindow } from "@/domains/settings/utils/schedule-usage-window";
-import { schedulesUsagesummaryGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+
 
 // ---------------------------------------------------------------------------
 // Timestamp / duration / cost formatting
@@ -284,11 +284,15 @@ export function scheduleUsageSummaryQueryOptions(
   tz: string,
   enabled = true,
 ) {
+  // Stable key: only assistant + timezone identify this cache entry. The exact
+  // time window changes every millisecond (Date.now()), so including it in the
+  // key would create a new cache entry on every render. The queryFn computes
+  // the fresh window at fetch time; staleTime controls refetch cadence.
+  const stableKey = [
+    { _id: "schedulesUsagesummaryGet" as const, path: { assistant_id: assistantId ?? "" }, _tz: tz },
+  ];
   return {
-    queryKey: schedulesUsagesummaryGetQueryKey({
-      path: { assistant_id: assistantId ?? "" },
-      query: resolveScheduleUsageWindow(tz),
-    }),
+    queryKey: stableKey,
     queryFn: () => {
       if (!assistantId) {
         return Promise.resolve<ScheduleUsageSummary[]>([]);
