@@ -55,6 +55,11 @@ export async function sendCastResearchMessage(
     body[conversationField] = conversationId;
   }
 
+  // Mirror `chat/api/messages.ts` `postChatMessage` field-for-field — this IS
+  // the activation arm's first message, so the daemon installs the activation
+  // rail from `onboarding.bootstrapTemplate` and marks the activation session
+  // from `cohort` here; dropping those (or the other optional fields) would
+  // silently skip the bootstrap.
   const normalized = normalizePreChatOnboardingContext(onboarding);
   const onboardingDict: NonNullable<MessagesPostData["body"]["onboarding"]> = {
     tools: normalized.tools,
@@ -67,8 +72,19 @@ export async function sendCastResearchMessage(
     onboardingDict.occupation = normalized.occupation;
   if (normalized.assistantName !== undefined)
     onboardingDict.assistantName = normalized.assistantName;
+  if (normalized.googleConnected !== undefined)
+    onboardingDict.googleConnected = normalized.googleConnected;
+  if (normalized.googleScopes !== undefined)
+    onboardingDict.googleScopes = normalized.googleScopes;
+  if (normalized.priorAssistants !== undefined)
+    onboardingDict.priorAssistants = normalized.priorAssistants;
+  if (normalized.cohort !== undefined)
+    onboardingDict.cohort = normalized.cohort;
+  if (normalized.bootstrapTemplate !== undefined)
+    onboardingDict.bootstrapTemplate = normalized.bootstrapTemplate;
   if (normalized.initialMessage !== undefined)
     onboardingDict.initialMessage = normalized.initialMessage;
+  if (normalized.skills !== undefined) onboardingDict.skills = normalized.skills;
   body.onboarding = onboardingDict;
 
   // Seed the onboarding profile files (occupation → users/default.md) — fire
