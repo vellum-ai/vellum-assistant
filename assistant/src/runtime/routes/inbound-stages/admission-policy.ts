@@ -24,8 +24,8 @@
 
 import {
   ADMISSION_FLOOR,
-  isAdmissionPolicyExemptChannel,
   type AdmissionPolicy,
+  isAdmissionPolicyExemptChannel,
 } from "@vellumai/gateway-client";
 
 import type { ChannelId } from "../../../channels/types.js";

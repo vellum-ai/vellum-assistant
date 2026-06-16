@@ -94,7 +94,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
 }
 
 function makeEvent(
-  overrides: Partial<GatewayInboundEvent> = {},
+  overrides: Record<string, unknown> = {},
 ): GatewayInboundEvent {
   return {
     sourceChannel: "telegram",

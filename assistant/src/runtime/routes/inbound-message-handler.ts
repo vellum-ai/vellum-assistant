@@ -5,6 +5,11 @@
  * invite token redemption.
  */
 import type { SourceMetadata } from "@vellumai/gateway-client";
+import {
+  ADMISSION_POLICY_DEFAULT,
+  type AdmissionPolicy,
+  isAdmissionPolicy,
+} from "@vellumai/gateway-client";
 
 import {
   attachmentsToContentBlocks,
@@ -78,14 +83,16 @@ import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../../messaging/providers/slack/message-metadata.js";
+import { MESSAGE_PREVIEW_MAX_LENGTH } from "../../notifications/notification-utils.js";
 import type { ContentBlock } from "../../providers/types.js";
 import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
 import { getLogger } from "../../util/logger.js";
+import { truncate } from "../../util/truncate.js";
+import { notifyGuardianOfAccessRequest } from "../access-request-helper.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { deliverChannelReply } from "../gateway-client.js";
 import { resolveTrustContext } from "../trust-context-resolver.js";
-import { notifyGuardianOfAccessRequest } from "../access-request-helper.js";
 import { canonicalChannelAssistantId } from "./channel-route-shared.js";
 import { BadRequestError } from "./errors.js";
 import { handleApprovalInterception } from "./guardian-approval-interception.js";
@@ -102,13 +109,6 @@ import { handleGuardianActivationIntercept } from "./inbound-stages/guardian-act
 import { handleGuardianReplyIntercept } from "./inbound-stages/guardian-reply-intercept.js";
 import { runSecretIngressCheck } from "./inbound-stages/secret-ingress-check.js";
 import { tryTranscribeAudioAttachments } from "./inbound-stages/transcribe-audio.js";
-import {
-  ADMISSION_POLICY_DEFAULT,
-  isAdmissionPolicy,
-  type AdmissionPolicy,
-} from "@vellumai/gateway-client";
-import { MESSAGE_PREVIEW_MAX_LENGTH } from "../../notifications/notification-utils.js";
-import { truncate } from "../../util/truncate.js";
 import type { RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("runtime-http");
@@ -395,6 +395,21 @@ export async function handleChannelInbound({
   });
   if (guardianActivationResponse) return guardianActivationResponse;
 
+  // ── Admission policy pre-computation ──
+  // Resolve the effective policy before ACL so it can skip its hard-deny
+  // paths for permissive policies (`strangers`, `any_contact`). The same
+  // value is reused by the floor stage below.
+  const admissionPolicyFromGateway = isAdmissionPolicy(
+    sourceMetadata?.admissionPolicy,
+  )
+    ? (sourceMetadata!.admissionPolicy as AdmissionPolicy)
+    : ADMISSION_POLICY_DEFAULT;
+  // §8.3: P5 will resolve conversationOverride from the DB here; in P3
+  // the override is always null so the effective policy equals the gateway
+  // floor. resolveEffectivePolicy(admissionPolicyFromGateway, null) ===
+  // admissionPolicyFromGateway — inline here to avoid the import cost.
+  const effectiveAdmissionPolicyForAcl = admissionPolicyFromGateway;
+
   // ── Ingress ACL enforcement ──
   const aclResult = await enforceIngressAcl({
     canonicalSenderId,
@@ -410,6 +425,7 @@ export async function handleChannelInbound({
     replyCallbackUrl: body.replyCallbackUrl,
     assistantId,
     externalMessageId,
+    effectiveAdmissionPolicy: effectiveAdmissionPolicyForAcl,
   });
   if (aclResult.earlyResponse) return aclResult.earlyResponse;
   const { resolvedMember } = aclResult;
@@ -680,23 +696,25 @@ export async function handleChannelInbound({
   // Internal channels (`vellum`, `platform`, `a2a`) short-circuit admit
   // inside `enforceAdmissionPolicy` — defense in depth alongside the
   // gateway's exempt-channel skip and the PUT-handler's 403.
-  const admissionPolicyFromGateway = isAdmissionPolicy(
-    sourceMetadata?.admissionPolicy,
-  )
-    ? (sourceMetadata!.admissionPolicy as AdmissionPolicy)
-    : ADMISSION_POLICY_DEFAULT;
-  const admissionResult = enforceAdmissionPolicy({
-    sourceChannel,
-    trustClass: trustCtx.trustClass,
-    memberStatus: resolvedMember?.channel.status,
-    policy: admissionPolicyFromGateway,
-    // §8.3: P5 will populate `conversationOverride` from the per-conversation
-    // toggle. P3 reads but never writes, and the runtime has no DB column
-    // yet — pass null/undefined so the type-floor wins. Wired here so the
-    // P5 PR is a one-line plumbing change rather than a re-routing of the
-    // stage signature.
-    conversationOverride: null,
-  });
+  //
+  // Bootstrap deep-link: when ACL flagged a validated pending_bootstrap
+  // session, skip the floor entirely. The bootstrap intercept stage below
+  // handles identity binding and emits its own reply; the sender has not
+  // yet acquired a trust class and should not be denied here.
+  const admissionResult = aclResult.isValidatedBootstrap
+    ? ({ admitted: true } as const)
+    : enforceAdmissionPolicy({
+        sourceChannel,
+        trustClass: trustCtx.trustClass,
+        memberStatus: resolvedMember?.channel.status,
+        policy: admissionPolicyFromGateway,
+        // §8.3: P5 will populate `conversationOverride` from the per-conversation
+        // toggle. P3 reads but never writes, and the runtime has no DB column
+        // yet — pass null/undefined so the type-floor wins. Wired here so the
+        // P5 PR is a one-line plumbing change rather than a re-routing of the
+        // stage signature.
+        conversationOverride: null,
+      });
   if (!admissionResult.admitted) {
     log.info(
       {

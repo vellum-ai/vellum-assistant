@@ -3,7 +3,7 @@
  * record, enforces allow/deny/escalate policies, handles invite token
  * intercepts, and notifies the guardian of denied access requests.
  */
-import type { SourceMetadata } from "@vellumai/gateway-client";
+import type { AdmissionPolicy, SourceMetadata } from "@vellumai/gateway-client";
 
 import { isInviteCodeRedemptionEnabled } from "../../../channels/config.js";
 import type { ChannelId } from "../../../channels/types.js";
@@ -90,6 +90,18 @@ export interface AclEnforcementParams {
   replyCallbackUrl: string | undefined;
   assistantId: string;
   externalMessageId: string;
+  /**
+   * Effective admission policy for this request (gateway floor resolved with
+   * any per-conversation override). When set, ACL skips its hard-deny paths
+   * when the policy is permissive enough:
+   * - `strangers`: non-members and inactive (non-blocked) members are passed
+   *   through so the admission floor can emit the final verdict.
+   * - `any_contact`: inactive `pending` members are passed through.
+   *
+   * Passing this in avoids having ACL fire guardian notifications and canned
+   * replies for senders who will be admitted by the floor stage anyway.
+   */
+  effectiveAdmissionPolicy?: AdmissionPolicy;
 }
 
 /** Resolved contact + channel pair from ACL enforcement. */
@@ -102,6 +114,12 @@ export interface AclResult {
   resolvedMember: ResolvedMember | null;
   /** When set, the caller must return this response immediately. */
   earlyResponse?: Record<string, unknown>;
+  /**
+   * True when a valid `pending_bootstrap` session was resolved during ACL
+   * enforcement. The caller must skip the admission policy floor so the
+   * bootstrap intercept stage can handle identity binding and emit its reply.
+   */
+  isValidatedBootstrap?: boolean;
 }
 
 /** Map ChannelStatus to the API-facing member status (excludes "unverified"). */
@@ -134,7 +152,10 @@ export async function enforceIngressAcl(
     replyCallbackUrl,
     assistantId,
     externalMessageId,
+    effectiveAdmissionPolicy,
   } = params;
+
+  let isValidatedBootstrap = false;
 
   // Trust signals from Slack users.info, forwarded via sourceMetadata.
   const isStranger = sourceMetadata?.isStranger ?? undefined;
@@ -196,12 +217,22 @@ export async function enforceIngressAcl(
           bootstrapSessionForAcl.status === "pending_bootstrap"
         ) {
           denyNonMember = false;
+          isValidatedBootstrap = true;
         } else {
           log.info(
             { sourceChannel, hasValidBootstrapSession: false },
             "Ingress ACL: bootstrap command bypass denied — no valid pending_bootstrap session",
           );
         }
+      }
+
+      // ── Policy-aware non-member bypass (`strangers`) ──
+      // When the effective admission policy is `strangers`, any sender
+      // (rank 1) meets the floor (rank 1). Skip the deny gate so the
+      // admission stage can emit the final verdict rather than ACL
+      // prematurely firing guardian notifications and a canned reply.
+      if (denyNonMember && effectiveAdmissionPolicy === "strangers") {
+        denyNonMember = false;
       }
 
       // ── Invite token intercept (non-member) ──
@@ -465,6 +496,7 @@ export async function enforceIngressAcl(
             bootstrapSessionForAcl.status === "pending_bootstrap"
           ) {
             denyInactiveMember = false;
+            isValidatedBootstrap = true;
           } else {
             log.info(
               {
@@ -474,6 +506,22 @@ export async function enforceIngressAcl(
               },
               "Ingress ACL: inactive member bootstrap bypass denied",
             );
+          }
+        }
+
+        // ── Policy-aware inactive-member bypass ──
+        // `strangers` (floor 1): admit any non-blocked sender, including
+        //   revoked/pending members.
+        // `any_contact` (floor 2): admit `pending` members (unverified_contact
+        //   rank 2 ≥ floor 2); deny `revoked` members (unknown rank 1 < floor 2).
+        // In both cases skip the deny gate so the admission stage decides.
+        if (!isBlockedMember && denyInactiveMember) {
+          if (
+            effectiveAdmissionPolicy === "strangers" ||
+            (effectiveAdmissionPolicy === "any_contact" &&
+              resolvedMember.channel.status === "pending")
+          ) {
+            denyInactiveMember = false;
           }
         }
 
@@ -734,7 +782,7 @@ export async function enforceIngressAcl(
     }
   }
 
-  return { resolvedMember };
+  return { resolvedMember, ...(isValidatedBootstrap && { isValidatedBootstrap }) };
 }
 
 // ---------------------------------------------------------------------------
