@@ -5,8 +5,8 @@ import { Typography } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { handleLogout } from "@/lib/auth/handle-logout";
-import { isLocalMode } from "@/lib/local-mode";
 import { useHasPlatformSession } from "@/stores/auth-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
@@ -47,10 +47,10 @@ export function ActiveAssistantGate() {
 
 function ActiveAssistantPlaceholder() {
   const navigate = useNavigate();
-  // Keep an escape hatch reachable while the assistant lifecycle is
-  // unresolved: hide in pure local mode unless a platform session exists.
+  // Keep an auth escape hatch reachable while the assistant lifecycle is
+  // unresolved: Log Out with a platform session, Log In without one.
   const hasPlatformSession = useHasPlatformSession();
-  const showLogout = !isLocalMode() || hasPlatformSession;
+  const { login } = useOnboardingLogin();
 
   return (
     <div
@@ -62,9 +62,13 @@ function ActiveAssistantPlaceholder() {
       <Typography variant="body-medium-default">
         Connecting to your assistant…
       </Typography>
-      {showLogout && (
+      {hasPlatformSession ? (
         <Button variant="ghost" onClick={() => void handleLogout(navigate)}>
           Log Out
+        </Button>
+      ) : (
+        <Button variant="ghost" onClick={() => void login()}>
+          Log In
         </Button>
       )}
     </div>

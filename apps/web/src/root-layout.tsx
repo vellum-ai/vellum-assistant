@@ -1,4 +1,4 @@
-import { lazy, useState } from "react";
+import { lazy, useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
@@ -16,6 +16,8 @@ import {
 } from "@/stores/auth-store";
 import { handleLogout } from "@/lib/auth/handle-logout";
 import { getSelectedAssistant } from "@/lib/local-mode";
+import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
+import { setMenuPlatformSession } from "@/runtime/menu";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 
 import { routes } from "@/utils/routes";
@@ -95,6 +97,12 @@ export function RootLayout() {
   const sessionStatus = useAuthStore.use.sessionStatus();
   const isSessionInitializing = useIsSessionInitializing();
   const hasPlatformSession = useHasPlatformSession();
+  // Publish platform-session state to the Electron app menu from this
+  // always-mounted layer so the menu's Log In/Log Out toggle stays correct
+  // on non-chat routes (e.g. Settings) where ChatLayout isn't mounted.
+  useEffect(() => {
+    void setMenuPlatformSession(hasPlatformSession);
+  }, [hasPlatformSession]);
   useClientFeatureFlagSync(!isSessionInitializing);
   useAssistantLifecycle({
     sessionStatus,
@@ -152,9 +160,14 @@ export function RootLayout() {
   // Whether the tray "New Assistant…" name-prompt dialog is open.
   const [createOpen, setCreateOpen] = useState(false);
 
+  const { login } = useOnboardingLogin();
+
   useVellumCommands({
     openSettings: () => {
       void navigate(routes.settings.root);
+    },
+    login: () => {
+      void login();
     },
     logout: () => {
       void handleLogout(navigate);

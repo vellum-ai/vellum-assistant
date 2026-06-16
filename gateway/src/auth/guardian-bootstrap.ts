@@ -399,16 +399,18 @@ export async function createGuardianBinding(
 // Token operations (against the gateway's own DB — no cross-container issue)
 // ---------------------------------------------------------------------------
 
-/**
- * A freshly minted, DB-recorded access + refresh token pair bound to a device.
- */
-export interface DeviceBoundTokenPair {
+export interface RefreshableTokenPair {
   accessToken: string;
   accessTokenExpiresAt: number;
   refreshToken: string;
   refreshTokenExpiresAt: number;
   refreshAfter: number;
 }
+
+/**
+ * A freshly minted, DB-recorded access + refresh token pair bound to a device.
+ */
+export type DeviceBoundTokenPair = RefreshableTokenPair;
 
 /**
  * Revoke active actor tokens for a device binding.
@@ -502,6 +504,7 @@ function mintRefreshToken(
   guardianPrincipalId: string,
   hashedDeviceId: string,
   platform: string,
+  options: { browserRefreshCookiePath?: string } = {},
 ): {
   refreshToken: string;
   refreshTokenExpiresAt: number;
@@ -528,6 +531,7 @@ function mintRefreshToken(
       absoluteExpiresAt,
       inactivityExpiresAt,
       lastUsedAt: null,
+      browserRefreshCookiePath: options.browserRefreshCookiePath,
       createdAt: now,
       updatedAt: now,
     })
@@ -569,6 +573,40 @@ export function mintAndRecordDeviceBoundTokenPair(params: {
     params.guardianPrincipalId,
     hashedDeviceId,
     params.platform,
+  );
+
+  return {
+    accessToken: access.token,
+    accessTokenExpiresAt: access.expiresAt,
+    refreshToken: refresh.refreshToken,
+    refreshTokenExpiresAt: refresh.refreshTokenExpiresAt,
+    refreshAfter: refresh.refreshAfter,
+  };
+}
+
+/**
+ * Mint a refreshable browser credential without requiring the browser to track a
+ * separate device id. The current token tables still require a binding column,
+ * so remote web uses an internal random binding that never leaves the gateway.
+ */
+export function mintAndRecordBrowserTokenPair(params: {
+  guardianPrincipalId: string;
+  platform: string;
+  browserRefreshCookiePath: string;
+}): RefreshableTokenPair {
+  const internalBinding = randomBytes(32).toString("base64url");
+  const hashedDeviceId = hashToken(internalBinding);
+
+  const access = mintAccessToken(
+    params.guardianPrincipalId,
+    hashedDeviceId,
+    params.platform,
+  );
+  const refresh = mintRefreshToken(
+    params.guardianPrincipalId,
+    hashedDeviceId,
+    params.platform,
+    { browserRefreshCookiePath: params.browserRefreshCookiePath },
   );
 
   return {

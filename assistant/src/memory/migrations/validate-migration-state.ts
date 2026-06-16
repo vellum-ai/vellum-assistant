@@ -220,7 +220,7 @@ export function validateMigrationState(
   // registry entry — these are from a newer version of the daemon.
   //
   // The memory_checkpoints table is a general-purpose key-value store also
-  // used by non-migration subsystems (e.g., "identity:intro:text",
+  // used by non-migration subsystems (e.g., "empty_state:greeting:text",
   // "conversation_starters:item_count_at_last_gen"). Filter to only keys
   // that follow migration naming conventions before comparing against the
   // registry to avoid false-positive warnings.

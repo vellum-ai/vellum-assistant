@@ -1,18 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { setDockBadge } from "@/runtime/dock";
-import { setMenuPlatformSession } from "@/runtime/menu";
-import { useHasPlatformSession } from "@/stores/auth-store";
 import type { Conversation } from "@/types/conversation-types";
 import { contributesToUnreadCount } from "@/utils/conversation-predicates";
 import { getDeviceBool, watchDeviceSetting } from "@/utils/device-settings";
 
 /**
- * Publish the data the Electron Dock and app menu care about — unread
- * conversation count and platform-session state — to the main process
- * via the `window.vellum.dock.*` and `window.vellum.menu.*` bridges.
- * Both wrappers no-op on non-Electron hosts, so this hook is safe to
- * mount unconditionally inside `ChatLayout`.
+ * Publish the Electron Dock's unread conversation count to the main
+ * process via the `window.vellum.dock.*` bridge, which no-ops on
+ * non-Electron hosts so this hook is safe to mount unconditionally
+ * inside `ChatLayout`.
  *
  * Mount the hook once at a layout that already has the conversation
  * list in hand (currently `ChatLayout`, which subscribes to
@@ -22,12 +19,11 @@ import { getDeviceBool, watchDeviceSetting } from "@/utils/device-settings";
  * automated background / scheduled / archived threads don't contribute
  * to the badge.
  *
- * Signed-in state is owned by the main process (session-token-store)
- * and consumed by the dock module directly — the renderer does not
- * push it.
+ * The app menu's platform-session state is published separately from
+ * `RootLayout` (an always-mounted layer) so it stays correct on
+ * non-chat routes where `ChatLayout` isn't mounted.
  */
 export function useElectronDockSync(conversations: Conversation[]): void {
-  const hasPlatformSession = useHasPlatformSession();
   const [dockBadgesEnabled, setDockBadgesEnabled] = useState(() =>
     getDeviceBool("dockBadgesEnabled", true),
   );
@@ -52,8 +48,4 @@ export function useElectronDockSync(conversations: Conversation[]): void {
   useEffect(() => {
     setDockBadge(dockBadgesEnabled ? unreadCount : 0);
   }, [dockBadgesEnabled, unreadCount]);
-
-  useEffect(() => {
-    void setMenuPlatformSession(hasPlatformSession);
-  }, [hasPlatformSession]);
 }

@@ -2,6 +2,20 @@ import { useHasPlatformSession } from "@/stores/auth-store";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { isLocalMode, isPlatformDisabled } from "@/lib/local-mode";
 
+/**
+ * How a platform-dependent UI surface should behave, given the app mode,
+ * platform session, and active assistant:
+ *
+ *   - `"full"`     — render the feature and let the user use it.
+ *   - `"disabled"` — render the feature but block interaction (e.g. show
+ *                    it greyed-out behind a "sign in to use this" prompt).
+ *                    Reached when the platform is reachable but there is
+ *                    no platform session.
+ *   - `"gated"`    — hide the feature entirely; it has no meaning in this
+ *                    context — local mode with the platform API disabled,
+ *                    or (for `platformHostedOnly` surfaces) a self-hosted
+ *                    active assistant.
+ */
 export type PlatformGateState = "full" | "disabled" | "gated";
 
 export interface PlatformGateOptions {
@@ -153,6 +167,29 @@ export function useActiveAssistantLifecycleIsLoading(): boolean {
   );
 }
 
+/**
+ * Resolve how a platform-dependent UI surface should behave — see
+ * {@link PlatformGateState} for what each result means.
+ *
+ * Two modes, selected by `options.platformHostedOnly`:
+ *
+ *   - **Default** (most surfaces): gate on whether the app can reach the
+ *     platform at all. `"gated"` only when the app is in local mode AND
+ *     `VELLUM_DISABLE_PLATFORM` is set (the platform API is turned off);
+ *     otherwise the platform session decides:
+ *
+ *     | App mode                          | Platform session | Result       |
+ *     | --------------------------------- | ---------------- | ------------ |
+ *     | local + `VELLUM_DISABLE_PLATFORM` | any              | `"gated"`    |
+ *     | otherwise                         | no               | `"disabled"` |
+ *     | otherwise                         | yes              | `"full"`     |
+ *
+ *   - **`platformHostedOnly: true`**: for surfaces that only make sense
+ *     against a Vellum-hosted assistant (billing, devices, sleep policy,
+ *     …). Gates on the active assistant's hosting instead of the app
+ *     mode. See {@link PlatformGateOptions.platformHostedOnly} for its
+ *     truth table and rationale.
+ */
 export function usePlatformGate(
   options: PlatformGateOptions = {},
 ): PlatformGateState {
@@ -160,10 +197,12 @@ export function usePlatformGate(
   // `Object.is` snapshot equality is stable and `useSyncExternalStore`
   // does not loop. See CONVENTIONS.md § State management — `useShallow`
   // is not introduced in new code; atomic selectors avoid the need.
-  // Read the optimistic value: `"present"` is a live session, while both
-  // `"absent"` and the pre-settle `"unknown"` gate the surface. A re-probe
-  // keeps the last `"present"`/`"absent"` until the new result lands, so this
-  // doesn't flicker to `"disabled"` on app resume.
+  //
+  // `hasPlatformSession` reads the optimistic session value: a live
+  // session is `"present"`, while both `"absent"` and the pre-settle
+  // `"unknown"` gate the surface. A re-probe keeps the last
+  // `"present"`/`"absent"` until the new result lands, so the gate does
+  // not flicker to `"disabled"` on app resume.
   const hasPlatformSession = useHasPlatformSession();
   const platformDisabled = isPlatformDisabled();
   const activeIsSelfHosted = useActiveAssistantIsSelfHosted();

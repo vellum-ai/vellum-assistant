@@ -9,7 +9,6 @@ import {
   configGetQueryKey,
   homeFeedGetQueryKey,
   homeStateGetQueryKey,
-  identityIntroGetQueryKey,
   schedulesGetQueryKey,
   soundsConfigGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
@@ -113,30 +112,8 @@ describe("useAssistantResourceSync", () => {
         (arg) => (arg as { queryKey: readonly unknown[] }).queryKey
       );
       expect(queryKeys).toEqual(
-        expect.arrayContaining([
-          assistantIdentityQueryKey("asst-1"),
-          identityIntroGetQueryKey({ path: { assistant_id: "asst-1" } }),
-        ]) as never
+        expect.arrayContaining([assistantIdentityQueryKey("asst-1")]) as never
       );
-    });
-  });
-
-  test("invalidates identity intro query on assistant:self:identity-intro sync tag", async () => {
-    const queryClient = freshQueryClient();
-    const spy = mock(() => Promise.resolve());
-    queryClient.invalidateQueries = spy as never;
-    renderHook(() => useAssistantResourceSync("asst-1", true), {
-      wrapper: createWrapper(queryClient),
-    });
-    emit(
-      (syncEvent([
-        SYNC_TAGS.assistantIdentityIntro,
-      ]) as unknown) as AssistantEvent
-    );
-    await waitFor(() => {
-      expect(spy).toHaveBeenCalledWith({
-        queryKey: identityIntroGetQueryKey({ path: { assistant_id: "asst-1" } }),
-      });
     });
   });
 

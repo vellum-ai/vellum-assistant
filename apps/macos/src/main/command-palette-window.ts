@@ -36,6 +36,7 @@ const payloadlessCommandKindSchema = z.enum([
   "shareFeedback",
   "find",
   "markAllRead",
+  "login",
   "logout",
   "rePair",
   "sidebarToggle",

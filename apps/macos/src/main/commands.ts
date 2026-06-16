@@ -25,6 +25,7 @@ export const DEFAULT_ACCELERATORS: Record<VellumCommandKind, string> = {
   shareFeedback: "",
   find: "CmdOrCtrl+F",
   markAllRead: "",
+  login: "",
   logout: "",
   rePair: "",
   sidebarToggle: "CmdOrCtrl+\\",

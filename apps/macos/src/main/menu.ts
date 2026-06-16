@@ -166,11 +166,15 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
         ...(cliItems.length > 0 ? [{ type: "separator" as const }] : []),
         { role: "services" },
         { type: "separator" },
-        {
-          label: "Log Out",
-          enabled: state.hasPlatformSession,
-          click: () => dispatchMenuCommand({ kind: "logout" }),
-        },
+        state.hasPlatformSession
+          ? {
+              label: "Log Out",
+              click: () => dispatchMenuCommand({ kind: "logout" }),
+            }
+          : {
+              label: "Log In",
+              click: () => dispatchMenuCommand({ kind: "login" }),
+            },
         { type: "separator" },
         { role: "hide" },
         { role: "hideOthers" },
@@ -305,7 +309,8 @@ const applyMenu = (): void => {
  * normal packaged build doesn't expose devtools to end users.
  *
  * Registers an IPC handler so the renderer can publish platform session
- * state, which gates the "Log Out" item in the app menu.
+ * state, which toggles the app menu between "Log Out" (session present) and
+ * "Log In" (no session).
  */
 let installed = false;
 export const installApplicationMenu = (): void => {
