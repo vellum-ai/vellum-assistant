@@ -4807,10 +4807,6 @@ paths:
                               type: string
                             isPrimary:
                               type: boolean
-                            externalUserId:
-                              anyOf:
-                                - type: string
-                                - type: "null"
                             status:
                               type: string
                             policy:
@@ -4847,7 +4843,6 @@ paths:
                             - type
                             - address
                             - isPrimary
-                            - externalUserId
                             - status
                             - policy
                             - verifiedAt
@@ -4962,10 +4957,6 @@ paths:
                                 type: string
                               isPrimary:
                                 type: boolean
-                              externalUserId:
-                                anyOf:
-                                  - type: string
-                                  - type: "null"
                               status:
                                 type: string
                               policy:
@@ -5002,7 +4993,6 @@ paths:
                               - type
                               - address
                               - isPrimary
-                              - externalUserId
                               - status
                               - policy
                               - verifiedAt
@@ -5086,10 +5076,6 @@ paths:
                               type: string
                             isPrimary:
                               type: boolean
-                            externalUserId:
-                              anyOf:
-                                - type: string
-                                - type: "null"
                             status:
                               type: string
                             policy:
@@ -5126,7 +5112,6 @@ paths:
                             - type
                             - address
                             - isPrimary
-                            - externalUserId
                             - status
                             - policy
                             - verifiedAt
@@ -5461,10 +5446,6 @@ paths:
                               type: string
                             isPrimary:
                               type: boolean
-                            externalUserId:
-                              anyOf:
-                                - type: string
-                                - type: "null"
                             status:
                               type: string
                             policy:
@@ -5501,7 +5482,6 @@ paths:
                             - type
                             - address
                             - isPrimary
-                            - externalUserId
                             - status
                             - policy
                             - verifiedAt
@@ -5650,10 +5630,6 @@ paths:
                             type: string
                           isPrimary:
                             type: boolean
-                          externalUserId:
-                            anyOf:
-                              - type: string
-                              - type: "null"
                           status:
                             type: string
                           policy:
@@ -5690,7 +5666,6 @@ paths:
                           - type
                           - address
                           - isPrimary
-                          - externalUserId
                           - status
                           - policy
                           - verifiedAt
