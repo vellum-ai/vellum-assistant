@@ -271,9 +271,8 @@ describe("VellumAgent", () => {
     // network create / run); runs[5] is hatch joining the assistant
     // into the jail's namespace. Confirm the count to anchor the
     // indices: 6 pre-flag steps + 1 species default flag
-    // (`external-plugins`) + 1 setup command + 1 baseline app-dist
-    // probe (the last hatch step) = 9.
-    expect(runner.runs.length).toBe(9);
+    // (`external-plugins`) + 1 setup command = 8.
+    expect(runner.runs.length).toBe(8);
     expect(runner.runs[5].args[0]).toBe("hatch");
 
     // Species default: `external-plugins` is always flipped ON for
@@ -337,9 +336,8 @@ describe("VellumAgent", () => {
     await agent.hatch();
 
     // jail lifecycle (rm / network rm / build / network create / run) +
-    // hatch + 1 species default flag + 1 baseline app-dist probe (the
-    // last hatch step) = 8. No setup commands.
-    expect(runner.runs.length).toBe(8);
+    // hatch + 1 species default flag = 7. No setup commands.
+    expect(runner.runs.length).toBe(7);
     expect(runner.runs[6]).toEqual({
       command: "vellum",
       args: [
@@ -915,12 +913,15 @@ describe("VellumAgent", () => {
     ).rejects.toThrow(/has not been hatched/);
   });
 
-  // `resolveAppPage` reads the newest compiled sandbox app out of the
-  // assistant container (`/workspace/data/apps/<dir>/dist/`) and inlines
-  // it into one self-contained page for the browser-interaction phase.
-  // The runner-facing contract is the `docker exec` shape (an `ls` probe
-  // then a `cat` per dist file) plus the inlined result, so the
-  // FakeRunner trace asserts both without standing up Docker.
+  // `resolveAppPage` reads the sandbox app the evaluated turn built out of
+  // the assistant container (`/workspace/data/apps/<dir>/dist/`) and inlines
+  // it into one self-contained page for the browser-interaction phase. It
+  // tells a turn-built app apart from a boot-seeded one by mtime: the first
+  // `send` captures a baseline of every `dist/index.html` mtime, and a dir
+  // counts as turn-built only if it is new or its `index.html` mtime moved
+  // since that baseline. The runner-facing contract is the `docker exec`
+  // shape (a `stat` listing then a `cat` per dist file) plus the inlined
+  // result, so the FakeRunner trace asserts both without standing up Docker.
 
   const APP_INDEX_HTML = [
     "<!doctype html>",
@@ -928,16 +929,20 @@ describe("VellumAgent", () => {
     '<body><script type="module" src="main.js"></script></body></html>',
   ].join("\n");
 
-  // Records the `docker exec` app-resolution calls and answers the `ls`
-  // probe + per-file `cat`s from configurable state, delegating the
-  // jail/hatch lifecycle to the base FakeRunner. `indexPaths` is the
-  // newest-first list of `dist/index.html` paths the probe reports; `hatch`
-  // snapshots whatever is present then as the pre-existing baseline, so
-  // mutating `indexPaths` after `hatch` models the apps the turn built. A
-  // `cat` for a path absent from `files` exits non-zero, mimicking a
-  // missing dist asset.
+  // Records the `docker exec` app-resolution calls and answers the `stat`
+  // listing + per-file `cat`s from configurable state, delegating the
+  // jail/hatch lifecycle to the base FakeRunner. `indexMtimes` maps each
+  // `dist/index.html` path to its mtime (epoch seconds, as `stat -c '%Y'`
+  // reports); the listing branch emits `<mtime> <path>` lines sorted newest
+  // first, matching the production `stat ... | sort -rn`. The first `send`
+  // snapshots these mtimes as the baseline, so adding a path or bumping a
+  // path's mtime afterwards models the app the turn built or refreshed in
+  // place. A `cat` for a path absent from `files` exits non-zero, mimicking
+  // a missing dist asset.
   class AppPageRunner extends FakeRunner {
-    indexPaths: string[] = ["/workspace/data/apps/calc/dist/index.html"];
+    indexMtimes: Record<string, string> = {
+      "/workspace/data/apps/calc/dist/index.html": "100",
+    };
     files: Record<string, string> = {
       "/workspace/data/apps/calc/dist/index.html": APP_INDEX_HTML,
       "/workspace/data/apps/calc/dist/main.js": 'console.log("calc");',
@@ -952,10 +957,10 @@ describe("VellumAgent", () => {
       if (command === "docker" && args[0] === "exec") {
         this.runs.push({ command, args, opts });
         if (args[2] === "sh") {
-          const stdout =
-            this.indexPaths.length === 0
-              ? ""
-              : `${this.indexPaths.join("\n")}\n`;
+          const lines = Object.entries(this.indexMtimes)
+            .sort(([, a], [, b]) => Number(b) - Number(a))
+            .map(([path, mtime]) => `${mtime} ${path}`);
+          const stdout = lines.length === 0 ? "" : `${lines.join("\n")}\n`;
           return { exitCode: 0, stdout, stderr: "" };
         }
         if (args[2] === "cat") {
@@ -971,9 +976,9 @@ describe("VellumAgent", () => {
   }
 
   test("resolveAppPage probes for the newest app and inlines its dist into one page", async () => {
-    // GIVEN a hatched agent whose container held no apps at hatch
+    // GIVEN a hatched agent whose container held no apps when the turn began
     const runner = new AppPageRunner();
-    runner.indexPaths = [];
+    runner.indexMtimes = {};
     const agent = new VellumAgent({
       runner,
       profile,
@@ -982,15 +987,17 @@ describe("VellumAgent", () => {
     });
     await preStageRecordingCa(agent.id);
     await agent.hatch();
+    // AND the first user message captured that empty baseline
+    await agent.send({ content: "build a calculator" });
     // AND the evaluated turn then built a compiled app with both optional
     // dist assets present
-    runner.indexPaths = ["/workspace/data/apps/calc/dist/index.html"];
+    runner.indexMtimes = { "/workspace/data/apps/calc/dist/index.html": "200" };
     const baseline = runner.runs.length;
 
     // WHEN the runner resolves the app page
     const page = await agent.resolveAppPage!();
 
-    // THEN it first runs an `ls -1t` probe for the newest dist/index.html,
+    // THEN it first runs a `stat` listing for the dist/index.html mtimes,
     // then cats index.html and both optional assets out of the container.
     const newRuns = runner.runs.slice(baseline);
     expect(newRuns[0].command).toBe("docker");
@@ -1001,7 +1008,7 @@ describe("VellumAgent", () => {
       "-lc",
     ]);
     expect(newRuns[0].args[4]).toContain(
-      "ls -1t /workspace/data/apps/*/dist/index.html",
+      "stat -c '%Y %n' /workspace/data/apps/*/dist/index.html 2>/dev/null | sort -rn",
     );
     expect(newRuns[1].args).toEqual([
       "exec",
@@ -1019,10 +1026,17 @@ describe("VellumAgent", () => {
     expect(page?.html).toContain("<style>body { color: blue; }</style>");
   });
 
-  test("resolveAppPage returns undefined when no app was built", async () => {
-    // GIVEN a hatched agent whose container holds no compiled app
+  test("resolveAppPage returns undefined when the turn built nothing despite a pre-existing app", async () => {
+    // GIVEN a hatched agent whose container already held a boot-seeded app
+    // when the turn began
     const runner = new AppPageRunner();
-    runner.indexPaths = [];
+    runner.indexMtimes = {
+      "/workspace/data/apps/personal-page/dist/index.html": "100",
+    };
+    runner.files = {
+      "/workspace/data/apps/personal-page/dist/index.html":
+        "<html><body>seeded</body></html>",
+    };
     const agent = new VellumAgent({
       runner,
       profile,
@@ -1031,12 +1045,16 @@ describe("VellumAgent", () => {
     });
     await preStageRecordingCa(agent.id);
     await agent.hatch();
+    // AND the first user message captured that seeded app as the baseline
+    await agent.send({ content: "what's the weather?" });
+    // AND the evaluated turn leaves every app untouched
     const baseline = runner.runs.length;
 
     // WHEN the runner resolves the app page
     const page = await agent.resolveAppPage!();
 
-    // THEN the empty `ls` probe short-circuits to undefined with no `cat`.
+    // THEN the unchanged seeded app is excluded, so nothing resolves and no
+    // `cat` is issued.
     expect(page).toBeUndefined();
     const newRuns = runner.runs.slice(baseline);
     expect(newRuns).toHaveLength(1);
@@ -1044,9 +1062,9 @@ describe("VellumAgent", () => {
   });
 
   test("resolveAppPage omits a dist asset that is absent from the container", async () => {
-    // GIVEN a hatched agent whose container held no apps at hatch
+    // GIVEN a hatched agent whose container held no apps when the turn began
     const runner = new AppPageRunner();
-    runner.indexPaths = [];
+    runner.indexMtimes = {};
     delete runner.files["/workspace/data/apps/calc/dist/main.css"];
     const agent = new VellumAgent({
       runner,
@@ -1056,8 +1074,10 @@ describe("VellumAgent", () => {
     });
     await preStageRecordingCa(agent.id);
     await agent.hatch();
+    // AND the first user message captured that empty baseline
+    await agent.send({ content: "build a calculator" });
     // AND the evaluated turn built an app that has no main.css on disk
-    runner.indexPaths = ["/workspace/data/apps/calc/dist/index.html"];
+    runner.indexMtimes = { "/workspace/data/apps/calc/dist/index.html": "200" };
 
     // WHEN the runner resolves the app page
     const page = await agent.resolveAppPage!();
@@ -1086,11 +1106,13 @@ describe("VellumAgent", () => {
     );
   });
 
-  test("resolveAppPage ignores an app that already existed at hatch when the turn builds nothing", async () => {
-    // GIVEN a hatched agent whose container already held a preloaded app at
-    // hatch (e.g. the startup-seeded personal landing page)
+  test("resolveAppPage returns undefined before the first message is sent", async () => {
+    // GIVEN a hatched agent whose container already holds a boot-seeded app
+    // but no user message has been sent yet
     const runner = new AppPageRunner();
-    runner.indexPaths = ["/workspace/data/apps/personal-page/dist/index.html"];
+    runner.indexMtimes = {
+      "/workspace/data/apps/personal-page/dist/index.html": "100",
+    };
     runner.files = {
       "/workspace/data/apps/personal-page/dist/index.html":
         "<html><body>seeded</body></html>",
@@ -1099,29 +1121,28 @@ describe("VellumAgent", () => {
       runner,
       profile,
       testId: "calculator-app",
-      runId: "eval-apppage-baseline",
+      runId: "eval-apppage-presend",
     });
     await preStageRecordingCa(agent.id);
     await agent.hatch();
-    // AND the evaluated turn builds no app of its own
     const baseline = runner.runs.length;
 
-    // WHEN the runner resolves the app page
+    // WHEN the runner resolves the app page before any turn has begun
     const page = await agent.resolveAppPage!();
 
-    // THEN the pre-existing app is excluded, so nothing resolves and no
-    // `cat` is issued for the seeded page.
+    // THEN it resolves nothing and never inspects the container, since no
+    // baseline exists to tell a turn-built app from the seeded one.
     expect(page).toBeUndefined();
-    const newRuns = runner.runs.slice(baseline);
-    expect(newRuns).toHaveLength(1);
-    expect(newRuns[0].args[2]).toBe("sh");
+    expect(runner.runs.slice(baseline)).toHaveLength(0);
   });
 
-  test("resolveAppPage returns the turn-built app, not a newer pre-existing one", async () => {
-    // GIVEN a hatched agent whose container already held a preloaded app at
-    // hatch
+  test("resolveAppPage returns the turn-built app, not a newer unchanged pre-existing one", async () => {
+    // GIVEN a hatched agent whose container already held a boot-seeded app
+    // that stays newest by mtime
     const runner = new AppPageRunner();
-    runner.indexPaths = ["/workspace/data/apps/personal-page/dist/index.html"];
+    runner.indexMtimes = {
+      "/workspace/data/apps/personal-page/dist/index.html": "300",
+    };
     runner.files = {
       "/workspace/data/apps/personal-page/dist/index.html":
         "<html><body>seeded</body></html>",
@@ -1137,22 +1158,57 @@ describe("VellumAgent", () => {
     });
     await preStageRecordingCa(agent.id);
     await agent.hatch();
-    // AND the turn builds a new app while the preloaded app stays newest by
-    // mtime (e.g. re-seeded after the baseline snapshot)
-    runner.indexPaths = [
-      "/workspace/data/apps/personal-page/dist/index.html",
-      "/workspace/data/apps/calc/dist/index.html",
-    ];
+    // AND the first user message captured the seeded app as the baseline
+    await agent.send({ content: "build a calculator" });
+    // AND the turn builds a new app while the seeded app stays untouched and
+    // newest by mtime
+    runner.indexMtimes = {
+      "/workspace/data/apps/personal-page/dist/index.html": "300",
+      "/workspace/data/apps/calc/dist/index.html": "200",
+    };
 
     // WHEN the runner resolves the app page
     const page = await agent.resolveAppPage!();
 
-    // THEN it skips the baseline app even though it is newest and inlines the
-    // turn-built app instead.
+    // THEN it skips the unchanged seeded app even though it is newest and
+    // inlines the turn-built app instead.
     expect(page?.html).toContain(
       '<script type="module">console.log("calc");</script>',
     );
     expect(page?.html).not.toContain("seeded");
+  });
+
+  test("resolveAppPage returns a pre-existing app the turn refreshed in place", async () => {
+    // GIVEN a hatched agent whose container already held a boot-seeded app
+    const runner = new AppPageRunner();
+    runner.indexMtimes = {
+      "/workspace/data/apps/personal-page/dist/index.html": "100",
+    };
+    runner.files = {
+      "/workspace/data/apps/personal-page/dist/index.html":
+        "<html><body>refreshed profile</body></html>",
+    };
+    const agent = new VellumAgent({
+      runner,
+      profile,
+      testId: "calculator-app",
+      runId: "eval-apppage-refresh",
+    });
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+    // AND the first user message captured the app at its baseline mtime
+    await agent.send({ content: "update my profile page" });
+    // AND the evaluated turn refreshes the same app in place, bumping its
+    // index.html mtime
+    runner.indexMtimes = {
+      "/workspace/data/apps/personal-page/dist/index.html": "200",
+    };
+
+    // WHEN the runner resolves the app page
+    const page = await agent.resolveAppPage!();
+
+    // THEN the refreshed app is treated as turn-built and resolved.
+    expect(page?.html).toContain("refreshed profile");
   });
 
   test("newConversation runs `vellum exec assistant conversations new` and updates the conversation key", async () => {

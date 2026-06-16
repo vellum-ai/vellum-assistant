@@ -251,7 +251,17 @@ export class VellumAgent implements BaseAgent {
   private jail?: DockerEgressJail;
   private hatched = false;
   private stopped = false;
-  private baselineAppDistDirs = new Set<string>();
+  // Snapshot of the apps that already existed when the evaluated turn
+  // began, keyed by dist directory → `dist/index.html` mtime (epoch
+  // seconds). Captured lazily on the first `send()` so it reflects the
+  // workspace at turn start — after the daemon's background boot seeding
+  // (e.g. the preloaded personal landing page) has settled, but before
+  // the agent acts. `findNewestAppDistDir` treats a dist dir as
+  // turn-built when it is absent from this map or its mtime changed,
+  // so neither a late-seeded app nor a refreshed pre-existing app is
+  // misattributed. Empty until the first `send()`.
+  private appBaselineCaptured = false;
+  private appBaselineMtimes = new Map<string, string>();
 
   constructor(opts: VellumAgentOptions) {
     this.profile = opts.profile;
@@ -421,12 +431,6 @@ export class VellumAgent implements BaseAgent {
       }
 
       this.hatched = true;
-
-      // Record the apps that already exist before the evaluated turn runs
-      // (e.g. startup-seeded preloaded apps like the personal landing page,
-      // which the daemon compiles in the background at boot). resolveAppPage()
-      // excludes these so it only ever returns an app the turn itself built.
-      this.baselineAppDistDirs = new Set(await this.listAppDistDirs());
     } catch (err) {
       // Capture container forensics BEFORE any teardown — once
       // containers are removed, `docker inspect` and `docker logs`
@@ -512,6 +516,7 @@ export class VellumAgent implements BaseAgent {
 
   async send(message: AgentMessage): Promise<void> {
     this.assertHatched();
+    await this.captureAppBaselineOnce();
     const result = await this.runner.run(this.cliCommand, [
       "message",
       this.id,
@@ -746,39 +751,73 @@ export class VellumAgent implements BaseAgent {
   }
 
   /**
-   * Find the `dist` directory of the newest app the evaluated turn built,
-   * or `undefined` when the turn built none. Apps that already existed at
-   * hatch (the `baselineAppDistDirs` snapshot — e.g. startup-seeded
-   * preloaded apps) are excluded, so a turn that builds nothing never
-   * resolves to a pre-existing page. `listAppDistDirs` is newest-first by
-   * mtime, so the first non-baseline entry is the freshest turn-built app.
+   * Snapshot the apps present at turn start, keyed by dist dir → mtime.
+   * Runs once, on the first `send()`, so the baseline reflects the
+   * workspace just before the agent acts rather than at hatch — by
+   * first send the daemon's fire-and-forget boot seeding (which `/readyz`
+   * does not await) has settled, so a seeded app lands in the baseline
+   * instead of racing it. Subsequent sends are no-ops.
    */
-  private async findNewestAppDistDir(): Promise<string | undefined> {
-    const distDirs = await this.listAppDistDirs();
-    return distDirs.find((dir) => !this.baselineAppDistDirs.has(dir));
+  private async captureAppBaselineOnce(): Promise<void> {
+    if (this.appBaselineCaptured) return;
+    this.appBaselineCaptured = true;
+    const entries = await this.listAppDistEntries();
+    this.appBaselineMtimes = new Map(
+      entries.map((entry) => [entry.distDir, entry.mtime]),
+    );
   }
 
   /**
-   * List every compiled app's `dist` directory, newest first by
-   * `dist/index.html` mtime. Each returned path is the dist dir (the path
-   * up to the `index.html`'s last `/`). The glob is quoted so the shell —
-   * not this process — expands it inside the container, and `2>/dev/null`
-   * swallows the "no matches" stderr so the command still exits 0 with
-   * empty stdout.
+   * Find the `dist` directory of the newest app the evaluated turn built
+   * or refreshed, or `undefined` when it touched none. An app counts as
+   * turn-built when its `dist/index.html` is absent from the turn-start
+   * baseline (a brand-new app) or its mtime has since changed (a
+   * pre-existing app rebuilt in place, e.g. an `app_refresh`). Entries are
+   * newest-first by mtime, so the first such match is the freshest one.
+   * Returns `undefined` before any `send()` (no turn ran, so the baseline
+   * is unset and nothing can be attributed to the turn).
    */
-  private async listAppDistDirs(): Promise<string[]> {
+  private async findNewestAppDistDir(): Promise<string | undefined> {
+    if (!this.appBaselineCaptured) return undefined;
+    const entries = await this.listAppDistEntries();
+    const built = entries.find(
+      (entry) => this.appBaselineMtimes.get(entry.distDir) !== entry.mtime,
+    );
+    return built?.distDir;
+  }
+
+  /**
+   * List every compiled app's `dist` directory with its `dist/index.html`
+   * mtime (epoch seconds), newest first. `stat -c '%Y %n'` prints
+   * `<mtime> <path>` per match and `sort -rn` orders by mtime descending;
+   * each entry's `distDir` is the path up to the `index.html`'s last `/`.
+   * The glob is quoted so the shell — not this process — expands it inside
+   * the container, and `2>/dev/null` swallows the "no matches" stderr so
+   * the command still exits 0 with empty stdout.
+   */
+  private async listAppDistEntries(): Promise<
+    Array<{ distDir: string; mtime: string }>
+  > {
     const result = await this.runner.run("docker", [
       "exec",
       this.assistantContainerName,
       "sh",
       "-lc",
-      `ls -1t ${CONTAINER_APPS_DIR}/*/dist/index.html 2>/dev/null`,
+      `stat -c '%Y %n' ${CONTAINER_APPS_DIR}/*/dist/index.html 2>/dev/null | sort -rn`,
     ]);
     return result.stdout
       .split("\n")
       .map((line) => line.trim())
       .filter((line) => line !== "")
-      .map((indexPath) => indexPath.slice(0, indexPath.lastIndexOf("/")));
+      .map((line) => {
+        const spaceIdx = line.indexOf(" ");
+        const mtime = line.slice(0, spaceIdx);
+        const indexPath = line.slice(spaceIdx + 1);
+        return {
+          distDir: indexPath.slice(0, indexPath.lastIndexOf("/")),
+          mtime,
+        };
+      });
   }
 
   /**
