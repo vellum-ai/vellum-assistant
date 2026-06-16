@@ -285,16 +285,18 @@ function SkillFileContent({
   const workspacePath = `skills/${skillId}/${filePath}`;
 
   const saveMutation = useWorkspaceWritePostMutation({
-    onSuccess: () => {
-      setIsEditing(false);
-      setEditableContent("");
+    onSuccess: (_data, variables) => {
+      if (variables.body?.path === workspacePath) {
+        setIsEditing(false);
+        setEditableContent("");
+      }
       void queryClient.invalidateQueries({
         queryKey: [{ _id: "skillsByIdFilesContentGet" }],
       });
       void queryClient.invalidateQueries({
         queryKey: [{ _id: "skillsByIdFilesGet" }],
       });
-      if (filePath === "SKILL.md") {
+      if (variables.body?.path?.endsWith("/SKILL.md")) {
         void queryClient.invalidateQueries({
           queryKey: [{ _id: "skillsGet" }],
         });
