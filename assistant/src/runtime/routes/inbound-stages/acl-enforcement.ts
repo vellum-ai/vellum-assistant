@@ -573,16 +573,18 @@ export async function enforceIngressAcl(
 
         // ── Policy-aware inactive-member bypass ──
         // `strangers` (floor 1): admit any non-blocked sender, including
-        //   revoked/pending members.
-        // `any_contact` (floor 2): admit `pending` members (unverified_contact
-        //   rank 2 ≥ floor 2); deny `revoked` members (unknown rank 1 < floor 2).
+        //   revoked/pending/unverified members.
+        // `any_contact` (floor 2): admit `pending` and `unverified` members
+        //   (both classify as `unverified_contact` — rank 2 ≥ floor 2); deny
+        //   `revoked` members (unknown rank 1 < floor 2).
         // In both cases skip the deny gate so the admission stage decides.
         // Runs AFTER invite intercepts so valid tokens redeem first.
         if (!isBlockedMember && denyInactiveMember) {
           if (
             effectiveAdmissionPolicy === "strangers" ||
             (effectiveAdmissionPolicy === "any_contact" &&
-              resolvedMember.channel.status === "pending")
+              (resolvedMember.channel.status === "pending" ||
+                resolvedMember.channel.status === "unverified"))
           ) {
             denyInactiveMember = false;
           }

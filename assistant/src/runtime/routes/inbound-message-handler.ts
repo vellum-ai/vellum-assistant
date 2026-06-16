@@ -729,6 +729,22 @@ export async function handleChannelInbound({
       "Inbound admission policy floor denied",
     );
 
+    // §8.2 + webhook idempotency: skip guardian-notify + reply side
+    // effects on duplicate deliveries (matches the disk-pressure branch
+    // below at line ~810). Without this guard, a webhook retry of the
+    // same duplicated event that hit the floor re-fires the access
+    // request notification and the canned denial reply — visible to the
+    // guardian/sender without a re-evaluation.
+    if (result.duplicate) {
+      return {
+        accepted: true,
+        duplicate: result.duplicate,
+        eventId: result.eventId,
+        denied: true,
+        reason: admissionResult.reason,
+      };
+    }
+
     // Notify the guardian about the access attempt — same surface as
     // `acl-enforcement.ts:267-449` for `not_a_member`, so denials are
     // visible in the same UI. previousMemberStatus is only meaningful when
