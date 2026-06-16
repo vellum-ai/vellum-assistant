@@ -15,10 +15,10 @@ import {
 } from "@/utils/conversation-cache-mutations";
 import {
   backgroundConversationsQueryKey,
-  conversationGroupsQueryKey,
   conversationsQueryKey,
   scheduledConversationsQueryKey,
-} from "@/lib/sync/query-tags";
+} from "@/utils/conversation-list-fetchers";
+import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { patchConversation } from "@/utils/conversation-cache";
 import type {
   Conversation,
@@ -105,14 +105,14 @@ function getScheduledConversations(qc: QueryClient): Conversation[] {
 function getGroups(qc: QueryClient): ConversationGroup[] {
   return (
     qc.getQueryData<GroupsGetResponse>(
-      conversationGroupsQueryKey(ASSISTANT_ID),
+      groupsGetQueryKey({ path: { assistant_id: ASSISTANT_ID } }),
     )?.groups ?? []
   );
 }
 
 function seedGroups(qc: QueryClient, groups: ConversationGroup[]): void {
   qc.setQueryData<GroupsGetResponse>(
-    conversationGroupsQueryKey(ASSISTANT_ID),
+    groupsGetQueryKey({ path: { assistant_id: ASSISTANT_ID } }),
     { groups },
   );
 }

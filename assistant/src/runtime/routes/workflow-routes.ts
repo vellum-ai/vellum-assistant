@@ -16,6 +16,8 @@ import { z } from "zod";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
 import type { AssistantConfig } from "../../config/schema.js";
+import { getAutoApproveThreshold } from "../../permissions/gateway-threshold-reader.js";
+import { isFullAccessThreshold } from "../../permissions/threshold.js";
 import { manifestGrantsSideEffects } from "../../workflows/capabilities.js";
 import type { WorkflowRun } from "../../workflows/journal-store.js";
 import { listWorkflows } from "../../workflows/library.js";
@@ -46,6 +48,7 @@ export interface WorkflowRoutesDeps {
   listWorkflows: typeof listWorkflows;
   getConfig: () => AssistantConfig;
   isFlagEnabled: (config: AssistantConfig) => boolean;
+  getAutoApproveThreshold: typeof getAutoApproveThreshold;
 }
 
 function defaultDeps(): WorkflowRoutesDeps {
@@ -55,6 +58,7 @@ function defaultDeps(): WorkflowRoutesDeps {
     getConfig,
     isFlagEnabled: (config) =>
       isAssistantFeatureFlagEnabled("workflows", config),
+    getAutoApproveThreshold,
   };
 }
 
@@ -189,7 +193,7 @@ function handleAbortRun(id: string) {
   return { ok: true, runId: id };
 }
 
-function handleResumeRun(id: string) {
+async function handleResumeRun(id: string) {
   assertFlagEnabled();
   const manager = deps.getManager();
   // status() is the source of truth for existence, so 404 an unknown id here
@@ -204,15 +208,23 @@ function handleResumeRun(id: string) {
   // conversational `manage_workflows` resume path promotes such resumes to a
   // fresh interactive approval (executor.ts → requireFreshApproval); this
   // HTTP/IPC route (and the `vellum workflows resume` CLI on top of it) has no
-  // prompt channel, so it must not silently bypass that consent point. Refuse a
-  // side-effecting resume and direct the caller to the assistant; a read-only
-  // run (no declared tools/host functions) resumes freely.
+  // prompt channel. At full-access posture the user has opted into
+  // auto-approving even high-risk tools, so the resume proceeds without a
+  // prompt; otherwise it must not silently bypass consent — refuse and direct
+  // the caller to the assistant. A read-only run (no declared tools/host
+  // functions) resumes freely regardless of posture.
   if (manifestGrantsSideEffects(run.capabilities)) {
-    throw new ForbiddenError(
-      `Workflow run ${id} was granted side-effecting capabilities; resuming it ` +
-        `can restart steps that perform those side effects. Resume it through ` +
-        `the assistant (which will ask for approval) instead of this route.`,
+    const threshold = await deps.getAutoApproveThreshold(
+      run.conversationId ?? undefined,
+      "conversation",
     );
+    if (!isFullAccessThreshold(threshold)) {
+      throw new ForbiddenError(
+        `Workflow run ${id} was granted side-effecting capabilities; resuming it ` +
+          `can restart steps that perform those side effects. Resume it through ` +
+          `the assistant (which will ask for approval) instead of this route.`,
+      );
+    }
   }
   try {
     const { runId } = manager.resume(id);

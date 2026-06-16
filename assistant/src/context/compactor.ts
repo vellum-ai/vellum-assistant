@@ -1132,8 +1132,8 @@ export async function runAssistantDrivenCompaction(
   // from the moment of capture — keeping them would (a) waste tokens on
   // outdated content, (b) duplicate against the freshly re-injected blocks
   // the next turn produces, and (c) leak `<system_reminder>` text the model
-  // is not supposed to see in history. `<turn_context>` and `<workspace>`
-  // are intentionally preserved by `RUNTIME_INJECTION_PREFIXES`.
+  // is not supposed to see in history. `<turn_context>` is intentionally
+  // preserved by `RUNTIME_INJECTION_PREFIXES`.
   const tailMessages = stripInjectionsForCompaction(
     args.messages.slice(tailIndex),
   );

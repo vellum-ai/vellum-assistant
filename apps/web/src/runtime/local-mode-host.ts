@@ -66,6 +66,11 @@ export interface LocalRetireResult {
   error?: string;
 }
 
+export interface LocalSleepResult {
+  ok: boolean;
+  error?: string;
+}
+
 export interface LocalWakeResult {
   ok: boolean;
   error?: string;
@@ -216,6 +221,30 @@ export async function retireLocalAssistantHost(
     body: JSON.stringify({ assistantId }),
   });
   return res.json() as Promise<LocalRetireResult>;
+}
+
+/**
+ * Stop a local assistant's daemon and gateway. Both hosts drive the Vellum
+ * CLI's `sleep --force` in a trusted process and return the same `{ ok, error }`
+ * contract. Used as the first half of a restart (sleep → wake).
+ */
+export async function sleepLocalAssistantHost(
+  assistantId: string,
+): Promise<LocalSleepResult> {
+  if (isElectron()) {
+    const sleep = window.vellum!.localMode.sleep;
+    if (!sleep) {
+      return { ok: false, error: "Sleep is not supported by this app version" };
+    }
+    return sleep(assistantId);
+  }
+
+  const res = await fetch("/assistant/__local/sleep", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ assistantId }),
+  });
+  return res.json() as Promise<LocalSleepResult>;
 }
 
 /**

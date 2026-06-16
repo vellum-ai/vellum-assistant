@@ -51,7 +51,7 @@ export function HomePageRoute() {
           variant="body-medium-default"
           className="text-[var(--content-secondary)]"
         >
-          Home
+          Activity
         </Typography>,
       );
     } else {
@@ -67,21 +67,15 @@ export function HomePageRoute() {
       onStartNewChat={() => {
         useViewerStore.getState().setMainView("chat");
         const draftConversationId = createDraftConversationId();
-        useConversationStore.getState().setActiveConversationId(draftConversationId);
+        useConversationStore
+          .getState()
+          .setActiveConversationId(draftConversationId);
         navigate(routes.conversation(draftConversationId));
         requestComposerFocus();
       }}
       onOpenConversation={(conversationId) =>
         navigate(routes.conversation(conversationId))
       }
-      onSuggestionSelected={(prompt) => {
-        useViewerStore.getState().setMainView("chat");
-        const draftConversationId = createDraftConversationId();
-        useConversationStore.getState().setActiveConversationId(draftConversationId);
-        navigate(
-          `${routes.conversation(draftConversationId)}?prompt=${encodeURIComponent(prompt)}`,
-        );
-      }}
     />
   );
 }

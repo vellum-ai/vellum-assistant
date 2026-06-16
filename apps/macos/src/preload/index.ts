@@ -269,9 +269,6 @@ const bridge: VellumBridge = {
     setBadge: (count: number): void => {
       ipcRenderer.send("vellum:dock:setBadge", count);
     },
-    setSignedIn: (signedIn: boolean): void => {
-      ipcRenderer.send("vellum:dock:setSignedIn", signedIn);
-    },
   },
   localMode: {
     hatch: (species: string, remote?: string) =>
@@ -312,6 +309,11 @@ const bridge: VellumBridge = {
       ) as Promise<LocalAssistantStatusResult>,
     retire: (assistantId: string) =>
       ipcRenderer.invoke("vellum:localMode:retire", assistantId) as Promise<{
+        ok: boolean;
+        error?: string;
+      }>,
+    sleep: (assistantId: string) =>
+      ipcRenderer.invoke("vellum:localMode:sleep", assistantId) as Promise<{
         ok: boolean;
         error?: string;
       }>,

@@ -36,7 +36,7 @@ import {
   conversationListPrefix,
   conversationsQueryKey,
   scheduledConversationsQueryKey,
-} from "@/lib/sync/query-tags";
+} from "@/utils/conversation-list-fetchers";
 import type { Conversation } from "@/types/conversation-types";
 
 // ---------------------------------------------------------------------------

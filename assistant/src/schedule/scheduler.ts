@@ -14,6 +14,7 @@ import { runSequencesOnce } from "../sequence/engine.js";
 import { areCoreToolsInitialized } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 import { runWatchersOnce, type WatcherNotifier } from "../watcher/engine.js";
+import { normalizeCapabilityManifest } from "../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { hasSetConstructs } from "./recurrence-engine.js";
 import { applyRetryDecision, decideRetry } from "./retry-policy.js";
@@ -478,10 +479,6 @@ export async function runScheduleDueWorkOnce(
           },
           "Triggering workflow schedule",
         );
-        // V1 LIMITATION: scheduled workflows run with the read-only baseline
-        // manifest only (no tools / host functions / persona). The schedule
-        // record carries no capability manifest, so declaring side-effecting
-        // tools for scheduled runs is a future enhancement.
         const { runId: workflowRunId } = getWorkflowRunManager().start({
           name: job.workflowName,
           args: job.workflowArgs ?? {},
@@ -495,7 +492,10 @@ export async function runScheduleDueWorkOnce(
             job.wakeConversationId ??
             job.createdFromConversationId ??
             undefined,
-          manifest: { tools: [], hostFunctions: [], persona: false },
+          // The schedule's persisted capability manifest scopes the run; a
+          // legacy schedule with null `capabilities` normalizes to the read-only
+          // baseline.
+          manifest: normalizeCapabilityManifest(job.capabilities),
           trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
         });
         // `start` launches the run fire-and-forget and returns synchronously;

@@ -1,25 +1,28 @@
 /**
- * React hook over the conversation-starters daemon client.
+ * Conversation-starter query backed by the generated daemon SDK.
  *
- * Polls every 3s while the daemon reports `generating`/`refreshing` and
- * stops once it settles. `staleTime` is 60s so quick re-mounts reuse the
+ * Polls every 3 s while the daemon reports `generating`/`refreshing` and
+ * stops once it settles. `staleTime` is 60 s so quick re-mounts reuse the
  * cached result. When `assistantId` is missing the hook returns a stable
  * idle result without making a network call.
  */
 
 import { useQuery } from "@tanstack/react-query";
 
-import { MAX_CONVERSATION_STARTER_CHIPS } from "@/domains/chat/utils/empty-state-constants";
+import { conversationstartersGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 
-import {
-  listConversationStarters,
-  type ConversationStarter,
-  type ConversationStartersStatus,
-  type ListConversationStartersResult,
+import type {
+  ConversationStarter,
+  ConversationStartersStatus,
 } from "@/domains/chat/utils/conversation-starters";
+
+import { MAX_CONVERSATION_STARTER_CHIPS } from "@/domains/chat/utils/empty-state-constants";
 
 const STALE_TIME_MS = 60_000;
 const POLL_INTERVAL_MS = 3_000;
+
+const DEFAULT_OFFSET = 0;
+const DEFAULT_SCOPE_ID = "default";
 
 function shouldPoll(
   status: ConversationStartersStatus | undefined,
@@ -49,12 +52,15 @@ export function useConversationStarters(
 ): UseConversationStartersResult {
   const enabled = Boolean(assistantId);
 
-  const query = useQuery<ListConversationStartersResult>({
-    queryKey: ["conversation-starters", assistantId],
-    queryFn: () =>
-      listConversationStarters(assistantId!, {
+  const query = useQuery({
+    ...conversationstartersGetOptions({
+      path: { assistant_id: assistantId! },
+      query: {
         limit: MAX_CONVERSATION_STARTER_CHIPS,
-      }),
+        offset: DEFAULT_OFFSET,
+        scope_id: DEFAULT_SCOPE_ID,
+      },
+    }),
     enabled,
     staleTime: STALE_TIME_MS,
     refetchInterval: (q) => shouldPoll(q.state.data?.status),

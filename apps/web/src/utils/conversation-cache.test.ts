@@ -7,7 +7,7 @@ import {
   backgroundConversationsQueryKey,
   scheduledConversationsQueryKey,
   archivedConversationsQueryKey,
-} from "@/lib/sync/query-tags";
+} from "@/utils/conversation-list-fetchers";
 
 import {
   cancelConversationQueries,

@@ -23,7 +23,7 @@ import {
   replaceOptimisticGroup,
 } from "@/utils/conversation-cache-mutations";
 import { cancelConversationQueries, invalidateConversationQueries } from "@/utils/conversation-cache";
-import { conversationGroupsQueryKey } from "@/lib/sync/query-tags";
+import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 
 import { haptic } from "@/utils/haptics";
 import type { ConversationGroup } from "@/types/conversation-types";
@@ -86,7 +86,7 @@ export function useConversationGroupActions({
     const trimmed = name.trim();
     if (!trimmed) return;
 
-    const groupsKey = conversationGroupsQueryKey(assistantId);
+    const groupsKey = groupsGetQueryKey({ path: { assistant_id: assistantId } });
     await queryClient.cancelQueries({ queryKey: groupsKey });
 
     const optimisticId = `optimistic-${Date.now()}`;
@@ -117,7 +117,7 @@ export function useConversationGroupActions({
       const trimmed = next.trim();
       if (!trimmed || trimmed === current) return;
 
-      const groupsKey = conversationGroupsQueryKey(assistantId);
+      const groupsKey = groupsGetQueryKey({ path: { assistant_id: assistantId } });
       await queryClient.cancelQueries({ queryKey: groupsKey });
 
       patchGroup(queryClient, assistantId, groupId, { name: trimmed });
@@ -141,7 +141,7 @@ export function useConversationGroupActions({
       if (!assistantId) return;
       haptic.medium();
 
-      const groupsKey = conversationGroupsQueryKey(assistantId);
+      const groupsKey = groupsGetQueryKey({ path: { assistant_id: assistantId } });
       await Promise.all([
         cancelConversationQueries(queryClient, assistantId),
         queryClient.cancelQueries({ queryKey: groupsKey }),

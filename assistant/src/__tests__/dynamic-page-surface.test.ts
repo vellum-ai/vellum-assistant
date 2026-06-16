@@ -206,6 +206,175 @@ describe("ui_show dynamic_page app substitute guard", () => {
   });
 });
 
+describe("ui_show empty card guard", () => {
+  function makeCtx(onProxy: () => void) {
+    return {
+      conversationId: "conversation-123",
+      workingDir: "/tmp",
+      trustClass: "guardian" as const,
+      proxyToolResolver: async () => {
+        onProxy();
+        return { content: "proxied", isError: false };
+      },
+    };
+  }
+
+  test("rejects a card carrying only a title and does not proxy", async () => {
+    let proxied = false;
+    const result = await uiShowTool.execute(
+      {
+        surface_type: "card",
+        title: "Vellum Internal Usage app",
+        activity: "Showing progress",
+        data: {},
+      },
+      makeCtx(() => {
+        proxied = true;
+      }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("card requires content");
+    expect(proxied).toBe(false);
+  });
+
+  test("rejects a card with no content at all", async () => {
+    let proxied = false;
+    const result = await uiShowTool.execute(
+      { surface_type: "card", data: {} },
+      makeCtx(() => {
+        proxied = true;
+      }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(proxied).toBe(false);
+  });
+
+  test("allows a card with a body", async () => {
+    let proxied = false;
+    const result = await uiShowTool.execute(
+      { surface_type: "card", data: { title: "Plain", body: "hi" } },
+      makeCtx(() => {
+        proxied = true;
+      }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(proxied).toBe(true);
+  });
+
+  test("allows a task_progress card with empty data (template renders a shell)", async () => {
+    let proxied = false;
+    const result = await uiShowTool.execute(
+      {
+        surface_type: "card",
+        template: "task_progress",
+        templateData: { status: "in_progress", steps: [] },
+      },
+      makeCtx(() => {
+        proxied = true;
+      }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(proxied).toBe(true);
+  });
+
+  test("allows an action-only card", async () => {
+    let proxied = false;
+    const result = await uiShowTool.execute(
+      {
+        surface_type: "card",
+        title: "Confirm",
+        actions: [{ id: "ok", label: "OK" }],
+        data: {},
+      },
+      makeCtx(() => {
+        proxied = true;
+      }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(proxied).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// task_progress ui_show appends the update hint to its return value
+// ---------------------------------------------------------------------------
+
+describe("ui_show task_progress update hint", () => {
+  const ctx = {
+    conversationId: "conversation-123",
+    workingDir: "/tmp",
+    trustClass: "guardian" as const,
+    proxyToolResolver: async () => ({
+      content: "Surface displayed (surface_id: surf-1).",
+      isError: false,
+    }),
+  };
+
+  test("appends the ui_update hint after a task_progress card is shown", async () => {
+    const result = await uiShowTool.execute(
+      {
+        surface_type: "card",
+        template: "task_progress",
+        templateData: { status: "in_progress", steps: [] },
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Surface displayed (surface_id: surf-1).");
+    expect(result.content).toContain("call ui_update with this surface_id");
+  });
+
+  test("recognizes task_progress nested under data", async () => {
+    const result = await uiShowTool.execute(
+      {
+        surface_type: "card",
+        data: {
+          template: "task_progress",
+          templateData: { status: "in_progress" },
+        },
+      },
+      ctx,
+    );
+
+    expect(result.content).toContain("call ui_update with this surface_id");
+  });
+
+  test("does not append the hint for a non-task_progress card", async () => {
+    const result = await uiShowTool.execute(
+      { surface_type: "card", data: { title: "Plain", body: "hi" } },
+      ctx,
+    );
+
+    expect(result.content).toBe("Surface displayed (surface_id: surf-1).");
+  });
+
+  test("does not append the hint when the surface call errors", async () => {
+    const result = await uiShowTool.execute(
+      {
+        surface_type: "card",
+        template: "task_progress",
+        templateData: { status: "in_progress" },
+      },
+      {
+        ...ctx,
+        proxyToolResolver: async () => ({
+          content: "blocked on this channel",
+          isError: true,
+        }),
+      },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toBe("blocked on this channel");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // UiSurfaceShowDynamicPage structure
 // ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 import { lazy, useState } from "react";
-import { Outlet, useNavigate } from "react-router";
+import { Outlet, useLocation, useNavigate } from "react-router";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { useAppTheme } from "@/hooks/use-app-theme";
@@ -19,6 +19,7 @@ import { getSelectedAssistant } from "@/lib/local-mode";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 
 import { routes } from "@/utils/routes";
+import { shouldSuppressRootStatusBanner } from "@/utils/status-banner-visibility";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
 import { useBookmarksSync } from "@/hooks/use-bookmarks-sync";
@@ -38,8 +39,10 @@ import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
 import { useElectronIconSync } from "@/hooks/use-electron-icon-sync";
 import { useElectronStatusSync } from "@/hooks/use-electron-status-sync";
 import { useElectronFeatureFlagBridge } from "@/runtime/electron-feature-flags";
+import { isElectron } from "@/runtime/is-electron";
 import { GlobalPushToTalkBridge } from "@/domains/chat/voice/global-push-to-talk-bridge";
 import { TimezoneSync } from "@/components/timezone-sync";
+import { StatusBanner } from "@/components/status-banner";
 import { UpdateToast } from "@/components/update-toast";
 import { retireAssistant } from "@/assistant/retire-service";
 import { setSelectedAssistant } from "@/assistant/selection";
@@ -87,6 +90,7 @@ export function RootLayout() {
   const isMobile = useIsMobile();
   const visibleViewport = useVisibleViewport();
 
+  const location = useLocation();
   const navigate = useNavigate();
   const sessionStatus = useAuthStore.use.sessionStatus();
   const isSessionInitializing = useIsSessionInitializing();
@@ -241,6 +245,12 @@ export function RootLayout() {
   // background as a visible gap above the keyboard.
   const keyboardOffsetTop =
     keyboardOpen && visibleViewport ? visibleViewport.offsetTop : 0;
+  const electron = isElectron();
+  const isPopout = location.search.includes("popout=1");
+  const suppressStatusBanner = shouldSuppressRootStatusBanner(
+    location.pathname,
+    location.search,
+  );
 
   return (
     <div
@@ -266,6 +276,9 @@ export function RootLayout() {
       }}
     >
       <UpdateToast />
+      {!electron && !isPopout && !suppressStatusBanner ? (
+        <StatusBanner placement="web" />
+      ) : null}
       <div className="flex min-w-0 flex-col overflow-hidden w-full" style={{ flex: "1 1 0%", minHeight: 0 }}>
         <Outlet />
       </div>

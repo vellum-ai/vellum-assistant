@@ -365,6 +365,75 @@ describe("agent loop output hooks", () => {
     expect(calls[0].systemPrompt).toContain("[EDITED]");
   });
 
+  test("pre-model-call routes the call to the hook's chosen inference profile", async () => {
+    // GIVEN a hook that selects an inference profile for the user-facing call
+    registerOutputHookPlugin({
+      preModelCall: (ctx) => {
+        if (ctx.callSite !== "mainAgent") return;
+        ctx.modelProfile = "fast-profile";
+      },
+    });
+    const { provider, calls } = createMockProvider([textResponse("hi")]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the loop issues the user-facing provider call
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect([]),
+      callSite: "mainAgent",
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the provider call carries the hook's profile as the override
+    expect(calls[0].options?.config?.overrideProfile).toBe("fast-profile");
+  });
+
+  test("pre-model-call seeds modelProfile from the resolved override and clearing it drops the override", async () => {
+    // GIVEN a hook that observes the seeded override and then clears it
+    let seeded: string | null | undefined;
+    registerOutputHookPlugin({
+      preModelCall: (ctx) => {
+        seeded = ctx.modelProfile;
+        ctx.modelProfile = null;
+      },
+    });
+    const { provider, calls } = createMockProvider([textResponse("hi")]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the loop runs with an ad-hoc override profile
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect([]),
+      callSite: "mainAgent",
+      overrideProfile: "seed-profile",
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the hook saw the loop's resolved override
+    expect(seeded).toBe("seed-profile");
+    // AND clearing it sends no override on the provider call
+    expect(calls[0].options?.config?.overrideProfile).toBeUndefined();
+  });
+
+  // Context-window sizing and overflow recovery read the profile resolved
+  // before the hook runs, so a hook routing to a smaller-window profile does
+  // not resize the budget gate for that call. Tracked for a follow-up that
+  // resolves the routed profile ahead of the context-sizing gate.
+  test.todo(
+    "pre-model-call routing resizes the context-window budget for the routed profile",
+    () => {},
+  );
+
   test("fail-open: a hook that mutates in place AND then throws cannot corrupt the persisted content", async () => {
     // The hook mutates the array it receives before throwing. If the loop
     // handed the hook the real `assistantMessage.content` array, the

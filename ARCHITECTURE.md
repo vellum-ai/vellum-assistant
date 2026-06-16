@@ -8,13 +8,12 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | ------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | Assistant runtime                           | [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md)                                           |
 | Gateway ingress/webhooks                    | [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md)                                               |
-| Clients (macOS, browser extension)          | [`clients/ARCHITECTURE.md`](clients/ARCHITECTURE.md)                                               |
-| Apps (end-user surfaces, scaffold)          | [`apps/README.md`](apps/README.md)                                                                 |
+| Clients (macOS native, browser extension)    | [`clients/ARCHITECTURE.md`](clients/ARCHITECTURE.md)                                               |
+| Apps (web, iOS, macOS/Electron)              | [`apps/README.md`](apps/README.md)                                                                 |
 | Assistant memory deep dive                  | [`assistant/docs/architecture/memory.md`](assistant/docs/architecture/memory.md)                   |
 | Assistant integrations deep dive            | [`assistant/docs/architecture/integrations.md`](assistant/docs/architecture/integrations.md)       |
 | Assistant scheduling deep dive              | [`assistant/docs/architecture/scheduling.md`](assistant/docs/architecture/scheduling.md)           |
 | Assistant security deep dive                | [`assistant/docs/architecture/security.md`](assistant/docs/architecture/security.md)               |
-| macOS keychain broker (removed, historical) | [`assistant/docs/architecture/keychain-broker.md`](assistant/docs/architecture/keychain-broker.md) |
 | Trusted contact access design               | [`assistant/docs/trusted-contact-access.md`](assistant/docs/trusted-contact-access.md)             |
 | Trusted contacts operator runbook           | [`assistant/docs/runbook-trusted-contacts.md`](assistant/docs/runbook-trusted-contacts.md)         |
 | Credential Execution Service (CES)          | [`assistant/docs/credential-execution-service.md`](assistant/docs/credential-execution-service.md) |
@@ -655,24 +654,27 @@ End-to-end coverage lives in `assistant/src/__tests__/web-search-backend-failure
 
 ## Workflow Orchestration Engine
 
-The workflow engine lets the assistant author a short JS/TS script that runs in a sandbox and fans work out across many parallel, ephemeral **leaf agents** — for example: score every option in a list in parallel, then synthesize the winner. It is gated by the `workflows` feature flag (default off) and lives under `assistant/src/workflows/` with the launching tools at `assistant/src/tools/workflows/`. The authoring guide and a manual e2e runbook are at [`assistant/docs/workflows.md`](assistant/docs/workflows.md) and [`assistant/docs/workflows-testing.md`](assistant/docs/workflows-testing.md).
+The workflow engine lets the assistant author a short JS/TS script that runs in a sandbox and fans work out across many parallel, ephemeral **leaf agents** — for example: score every option in a list in parallel, then synthesize the winner. It is gated by the `workflows` feature flag (default off) and lives under `assistant/src/workflows/`. The launching tools (`run_workflow`, `manage_workflows`) are not always-on: they are served by the flag-gated `workflows` bundled skill at `assistant/src/config/bundled-skills/workflows/`, loaded with `skill_load` and invoked via `skill_execute`. The authoring guide and a manual e2e runbook are at [`assistant/docs/workflows.md`](assistant/docs/workflows.md) and [`assistant/docs/workflows-testing.md`](assistant/docs/workflows-testing.md).
 
 ### Modules
 
 - **`run-manager.ts`** (`WorkflowRunManager`) — the lifecycle surface the tool, scheduler, and routes drive. Gates on the feature flag and the concurrent-run cap, resolves the capability manifest, creates the journal run row, launches `executeWorkflow` **without awaiting it** (returns the `runId` immediately), and republishes engine progress/completion as `workflow_progress` / `workflow_completed` events. On completion it wakes the originating conversation with a human-readable summary via the same `wakeAgentForOpportunity` path scheduled tasks and background shell jobs use.
 - **`engine.ts`** (`executeWorkflow`) — runs the script in the sandbox and owns the host API (`agent`, `leaf`, `parallel`, `map`, `pipeline`, `phase`, `log`, `usage`, `workflow`, `args`), the deterministic `seq` assignment, the agent cap, and journaled resume. `map`/`pipeline` are JS-prelude helpers over the `parallel` host function (the single-threaded VM cannot re-enter itself mid-call); `pipeline` has a per-stage barrier.
 - **`sandbox.ts`** (`createWorkflowSandbox`) — a fresh QuickJS-WASM VM per run with **no** `fetch`/`process`/`Bun`/`require`/network/filesystem and a banned `Date.now`/`Math.random`/argless `new Date()`. Host functions are *asyncified*: a host call suspends the whole VM until its promise settles, so from the script's view host calls are **synchronous** (authors write `const r = agent(...)`, never `await`). An interrupt handler enforces a CPU deadline and cooperative abort.
-- **`capabilities.ts`** (`resolveCapabilities`) — resolves the per-run manifest into the concrete allow-set: a read-only baseline (`file_read`, `file_list`, `recall`, `web_search`, `web_fetch`) unioned with declared `tools`, with a forbidden set always denied. This is the single consent point; the leaf runner hard-denies anything outside it.
+- **`capabilities.ts`** (`resolveCapabilities`) — resolves the per-run manifest into the concrete allow-set: a read-only baseline (`file_read`, `file_list`, `recall`, `web_search`) unioned with declared `tools`, with a forbidden set always denied. `web_fetch` is **not** in the baseline (its URL can exfiltrate read data), so a run that fetches must declare it. This is the single consent point; the leaf runner hard-denies anything outside it. Declaring any side-effecting tool/host function arms the **threshold-aware launch approval** (`isFullAccessThreshold` in `permissions/threshold.ts`): full-access posture bypasses the prompt, normal posture prompts once. The same gate guards resume of a side-effecting run (re-prompt conversationally, 403 over the HTTP route in normal posture).
 - **`leaf-runner.ts`** (`runLeaf`) — the single-leaf primitive. A *schema* leaf makes one forced-`tool_choice` provider call returning structured output (no tools); a *tool* leaf runs a restricted agent loop. Leaves are anonymous by default (minimal task prompt, no identity, no memory); `persona: true` injects the assistant identity + memory pipeline. No leaf ever creates a conversation row, jsonl mirror, title job, or turn broadcast. Every leaf call resolves through the `workflowLeaf` call site (cost-optimized profile by default).
-- **`journal-store.ts`** — typed persistence over the `workflow_runs` and `workflow_journal` tables (migration 282). The journal is an append-only `(run_id, seq)` log; on resume the engine replays cached results for the unchanged call prefix instead of re-spawning agents.
+- **`journal-store.ts`** — typed persistence over the `workflow_runs` and `workflow_journal` tables (migration 284). The journal is an append-only `(run_id, seq)` log; on resume the engine replays cached results for the unchanged call prefix instead of re-spawning agents.
 - **`library.ts`** — saved workflows at `<workspace>/workflows/*.workflow.ts`, resolvable by name (by `meta.name`, then filename base) for `run_workflow({ name })`, `workflow(name)`, and the scheduler's `workflow` mode.
+
+A `workflow`-mode schedule carries a **persisted capability manifest** (`capabilities_json` on `cron_jobs`, migration 290), consented to once at `schedule_create` (which validates it and arms the threshold-aware approval at creation if it grants side effects). Both firing paths — the scheduler's auto-fire and the run-now `POST /v1/schedules/:id/run` route — execute under the stored manifest; a legacy/null manifest falls back to the read-only baseline.
 
 ### Data flow
 
 ```mermaid
 graph TB
-    TOOL["run_workflow tool<br/>(flag-gated)"]
-    SCHED["Scheduler<br/>(workflow mode)"]
+    TOOL["run_workflow / manage_workflows<br/>(workflows skill · skill_execute)"]
+    SCHED["Scheduler<br/>(workflow mode · stored manifest)"]
+    GATE["Threshold-aware consent<br/>side-effecting manifest:<br/>full-access bypass / else prompt"]
     RM["WorkflowRunManager<br/>flag + run-cap gate<br/>async launch"]
     CAPS["resolveCapabilities<br/>baseline ∪ declared − forbidden"]
     ENGINE["executeWorkflow<br/>host API + seq + agent cap"]
@@ -684,8 +686,9 @@ graph TB
     WAKE["Conversation wake<br/>completion summary"]
     ROUTES["GET /v1/workflows*<br/>+ vellum workflows CLI"]
 
-    TOOL --> RM
+    TOOL --> GATE
     SCHED --> RM
+    GATE --> RM
     RM --> CAPS
     CAPS --> ENGINE
     RM --> ENGINE
@@ -702,9 +705,9 @@ graph TB
 
 ### Tables, routes, and CLI
 
-- **Tables** (migration 282): `workflow_runs` (one row per run — status, agent/token counts, script source/hash, capabilities, originating conversation) and `workflow_journal` (append-only `(run_id, seq)` leaf-call log). Leaf cost is attributed in `llm_usage_events` under `call_site = 'workflowLeaf'`.
-- **Routes** (read/abort surfaces, all 404 when the flag is off): `GET /v1/workflows`, `GET /v1/workflows/runs`, `GET /v1/workflows/runs/:id`, `POST /v1/workflows/runs/:id/abort`.
-- **CLI**: `vellum workflows list | runs | show <id> | abort <id>`.
+- **Tables** (migration 284): `workflow_runs` (one row per run — status, agent/token counts, script source/hash, capabilities, originating conversation) and `workflow_journal` (append-only `(run_id, seq)` leaf-call log). Scheduled workflows persist their manifest in `cron_jobs.capabilities_json` (migration 290). Leaf cost is attributed in `llm_usage_events` under `call_site = 'workflowLeaf'`.
+- **Routes** (read/abort/resume surfaces, all 404 when the flag is off): `GET /v1/workflows`, `GET /v1/workflows/runs`, `GET /v1/workflows/runs/:id`, `POST /v1/workflows/runs/:id/abort`, `POST /v1/workflows/runs/:id/resume` (the resume route refuses a side-effecting run in normal posture and proceeds at full access).
+- **CLI**: `vellum workflows list | runs | show <id> | abort <id> | resume <id>`.
 - **Config** (`workflows.*`): `maxAgentsPerRun` (500), `maxConcurrentLeaves` (6), `maxConcurrentRuns` (3), `journalRetentionDays` (30).
 
 ## Maintenance Rule

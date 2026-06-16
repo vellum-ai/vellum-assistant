@@ -193,6 +193,7 @@ export function ChatLayout() {
   const topBarRightSlot = useChatLayoutSlotsStore.use.topBarRightSlot();
   const showLlmInspector = useCanUseLlmInspector();
   const isNative = useIsNativePlatform();
+  const electron = isElectron();
 
   // --- Assistant identity from store (written by ChatPage) ---
   const assistantName = useAssistantIdentityStore.use.name();
@@ -529,13 +530,13 @@ export function ChatLayout() {
 
   const handleOpenInNewWindow = useCallback(
     (conversation: Conversation) => {
-      if (isElectron()) {
+      if (electron) {
         void openPopoutWindow(conversation.conversationId);
       } else {
         window.open(routes.conversation(conversation.conversationId), "_blank");
       }
     },
-    [],
+    [electron],
   );
 
   const renderSideMenu = (args: SideMenuRenderArgs): ReactNode => (
@@ -557,6 +558,9 @@ export function ChatLayout() {
       onOpenIntelligence={handleOpenIdentity}
       isLibraryActive={isLibraryActive}
       onOpenLibrary={handleOpenLibrary}
+      isHomeActive={isHomeActive}
+      onOpenHome={handleOpenHome}
+      hasUnreadHome={hasUnreadHome}
       activeAppId={activeAppId ?? undefined}
       onOpenApp={handleOpenAppFromSidebar}
       onPinConversation={handleTogglePinConversation}
@@ -598,13 +602,10 @@ export function ChatLayout() {
           canGoForward={canGoForward}
           onGoBack={handleGoBack}
           onGoForward={handleGoForward}
-          onOpenHome={handleOpenHome}
-          isHomeActive={isHomeActive}
-          hasUnreadHome={hasUnreadHome}
         />
       )}
 
-      {!isPopout && <StatusBanner />}
+      {!isPopout && electron ? <StatusBanner placement="electron" /> : null}
 
       {isMobile ? (
         <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">

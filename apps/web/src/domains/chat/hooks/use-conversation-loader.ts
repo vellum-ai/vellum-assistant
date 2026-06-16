@@ -35,7 +35,7 @@ import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useConversationListQuery } from "@/hooks/conversation-queries";
-import { conversationGroupsQueryKey } from "@/lib/sync/query-tags";
+import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { Conversation } from "@/types/conversation-types";
 import { ApiError } from "@/utils/api-errors";
 import { invalidateConversationQueries } from "@/utils/conversation-cache";
@@ -130,7 +130,7 @@ export function useConversationLoader({
     if (conversationGroupsUI) {
       void queryClient
         .invalidateQueries({
-          queryKey: conversationGroupsQueryKey(assistantId),
+          queryKey: groupsGetQueryKey({ path: { assistant_id: assistantId } }),
         })
         .catch((err) => {
           captureError(err, { context: "refreshGroups", level: "warning" });

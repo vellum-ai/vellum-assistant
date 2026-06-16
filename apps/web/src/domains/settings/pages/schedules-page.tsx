@@ -29,7 +29,7 @@ import {
 } from "@/domains/settings/utils/schedule-formatters";
 import { captureError } from "@/lib/sentry/capture-error";
 import type { Schedule } from "@/domains/settings/types/schedules";
-import { assistantSchedulesQueryKey } from "@/lib/sync/query-tags";
+import { schedulesGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { routes } from "@/utils/routes";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import { Button } from "@vellumai/design-library/components/button";
@@ -120,7 +120,7 @@ export function SchedulesPage() {
     isError: isSchedulesError,
     refetch,
   } = useQuery({
-    queryKey: assistantSchedulesQueryKey(assistantId),
+    queryKey: schedulesGetQueryKey({ path: { assistant_id: assistantId } }),
     queryFn: () => fetchSchedules(assistantId),
     staleTime: 10_000,
   });
@@ -240,9 +240,9 @@ export function SchedulesPage() {
         lastRunAt={systemTasks.heartbeatConfig.lastRunAt}
         isRunning={systemTasks.isHeartbeatRunning}
         onBack={navigateToSchedules}
-        onRunNow={() => void systemTasks.handleRunNow("heartbeat")}
+        onRunNow={() => void systemTasks.runHeartbeatNow()}
         onToggleEnabled={(enabled) =>
-          void systemTasks.handleToggle("heartbeat", enabled)
+          void systemTasks.toggleHeartbeat(enabled)
         }
       />
     );
@@ -264,7 +264,7 @@ export function SchedulesPage() {
         lastRunAt={systemTasks.consolidationConfig.lastRunAt}
         isRunning={systemTasks.isConsolidationRunning}
         onBack={navigateToSchedules}
-        onRunNow={() => void systemTasks.handleRunNow("consolidation")}
+        onRunNow={() => void systemTasks.runConsolidationNow()}
         onOpenMemorySettings={
           canOpenMemorySettings ? navigateToMemorySettings : undefined
         }

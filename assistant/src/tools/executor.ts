@@ -161,6 +161,23 @@ export class ToolExecutor {
         context.requireFreshApproval = true;
       }
 
+      // Creating a workflow-mode schedule whose capability manifest grants
+      // side-effecting tools or host functions persists that grant for an
+      // unattended future run — so the user consents to it at CREATION, the
+      // single interactive point in the flow (a triggered run later fires with
+      // no live conversation). Same rationale as run_workflow above: the
+      // manifest is model-declared and the eventual run's leaves execute granted
+      // tools directly (no per-call prompt). Read-only or absent manifests stay
+      // low-risk and silent. `schedule_create` is not a SIDE_EFFECT tool, so
+      // requireFreshApproval is the self-sufficient promotion.
+      if (
+        name === "schedule_create" &&
+        input.mode === "workflow" &&
+        manifestGrantsSideEffects(input.capabilities)
+      ) {
+        context.requireFreshApproval = true;
+      }
+
       // Resuming a workflow whose STORED manifest granted side-effecting tools /
       // host functions restarts unfinished leaves that perform those side
       // effects. The original consent was given at LAUNCH (run_workflow above),

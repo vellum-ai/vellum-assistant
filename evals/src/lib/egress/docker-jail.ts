@@ -158,14 +158,64 @@ export const DEFAULT_INFRA_ALLOW_HOSTS = [
 ];
 
 /**
+ * Hosts the Vellum assistant downloads its on-device embedding stack from
+ * at daemon startup, when a profile leaves memory on the default local
+ * embedder (`Xenova/bge-small-en-v1.5`). The daemon's
+ * `EmbeddingRuntimeManager` fetches the ONNX runtime + transformers
+ * tarballs from npm, then transformers.js pulls the model weights from
+ * HuggingFace (large files redirect to its Xet/CloudFront CDN). Without
+ * these the embedder can't initialize in the fail-closed jail, dense
+ * memory recall silently degrades, and a long-memory benchmark scores
+ * near zero for reasons unrelated to the model under test.
+ *
+ * These are bulk asset downloads, **not** model-inference endpoints: they
+ * are deliberately kept out of the recording proxy's TLS interception
+ * (`RECORDING_TLS_HOSTS_RE` in `recording/entrypoint.sh`) so the embedding
+ * worker validates each origin's genuine certificate, and out of
+ * `DEFAULT_MODEL_ALLOW_HOSTS` so the addon never tries to parse usage out
+ * of a model-weight blob.
+ *
+ * They are **Vellum-specific**: only the Vellum adapter runs the on-device
+ * embedder, so only `VELLUM_ALLOW_HOSTS` folds them in. They are kept out
+ * of `DEFAULT_ALLOW_HOSTS` so a Hermes run — which never embeds locally —
+ * can't make unmetered npm/HuggingFace egress, preserving the honest
+ * model-provider-only allowlist that keeps cross-species cost comparisons
+ * fair.
+ */
+export const DEFAULT_EMBEDDING_ALLOW_HOSTS = [
+  "registry.npmjs.org",
+  "huggingface.co",
+  "cas-bridge.xethub.hf.co",
+  "us.aws.cdn.hf.co",
+];
+
+/**
  * The default allowlist applied when `applyDockerEgressJail` is called
- * without an explicit `allowHosts`. Concatenation order doesn't matter
- * — the iptables script (`apply-recording-jail.sh`) iterates and adds
- * each host independently.
+ * without an explicit `allowHosts`. Scoped to model-inference providers
+ * plus the Vellum platform infra every species needs, so it is the honest
+ * cross-species baseline: a Hermes run reaches exactly the model providers
+ * a Vellum run does and nothing more. Species with extra egress needs (the
+ * Vellum on-device embedder — see `VELLUM_ALLOW_HOSTS`) opt in explicitly
+ * rather than widening this shared default. Concatenation order doesn't
+ * matter — the iptables script (`apply-recording-jail.sh`) iterates and
+ * adds each host independently.
  */
 export const DEFAULT_ALLOW_HOSTS = [
   ...DEFAULT_MODEL_ALLOW_HOSTS,
   ...DEFAULT_INFRA_ALLOW_HOSTS,
+];
+
+/**
+ * The allowlist the Vellum adapter passes to `applyDockerEgressJail`. It
+ * extends the shared `DEFAULT_ALLOW_HOSTS` with the on-device embedder's
+ * download hosts (`DEFAULT_EMBEDDING_ALLOW_HOSTS`), which the Vellum daemon
+ * needs to initialize dense memory recall in the jail. Hermes intentionally
+ * does not use this — it never embeds locally — so its jail stays on the
+ * model-provider-only `DEFAULT_ALLOW_HOSTS`.
+ */
+export const VELLUM_ALLOW_HOSTS = [
+  ...DEFAULT_ALLOW_HOSTS,
+  ...DEFAULT_EMBEDDING_ALLOW_HOSTS,
 ];
 
 const DEFAULT_RECORDING_IMAGE = "vellum-evals-recording-jail:local";

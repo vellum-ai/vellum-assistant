@@ -1,8 +1,48 @@
 # Capacitor iOS shell
 
-Native iOS wrapper around `dev-assistant.vellum.ai` built with [Capacitor](https://capacitorjs.com/).
+Native iOS wrapper built with [Capacitor](https://capacitorjs.com/).
 This is _not_ a port of the web app — it's a thin `WKWebView` shell in
 `server.url` mode that loads the live web app directly over HTTPS.
+
+## Web content delivery
+
+**What:** The iOS app loads the web UI live over HTTPS from the deployed
+web origin (e.g. `https://www.vellum.ai/assistant`). No web assets are
+bundled in the IPA — the `webDir` (`capacitor-shell/`) contains only a
+placeholder HTML page that is never shown at runtime.
+
+**How:** `capacitor.config.ts` sets
+[`server.url`](https://capacitorjs.com/docs/guides/server-url) to the
+environment-appropriate origin. `cap sync ios` bakes that URL into the
+native `capacitor.config.json`. At launch, `WKWebView` navigates
+straight to it. Each environment (production, staging, dev) has its own
+origin — set `VELLUM_ENVIRONMENT` before `bunx cap sync ios` to select
+which URL is baked into the build.
+
+**Why remote URL, not a local bundle (like the Electron app):**
+
+- **Instant web updates** — deploying to the web origin is immediately
+  live for every iOS user on their next app load. No App Store review,
+  no TestFlight build, no update prompt. This decouples web deploy
+  frequency from the native release cycle.
+- **App Store review avoidance** — Apple's review process can take hours
+  to days. Bundling web assets would gate every web change behind that
+  process. With `server.url`, only native shell changes (Swift code,
+  entitlements, Capacitor plugin updates) require a store submission.
+- **Thin native surface** — the IPC bridge between the WKWebView and
+  native code is minimal (two plugins: `NativeAuthPlugin` and
+  `NativeBiometricPlugin`), so version skew risk between the web app
+  and native shell is low. Contrast with the Electron app, where the
+  `window.vellum.*` IPC surface is broad and tightly coupled.
+- **WKWebView security model** — unlike Electron's renderer, `WKWebView`
+  runs in a full iOS process sandbox with no access to native APIs
+  outside the Capacitor bridge. Loading remote content is the standard
+  pattern for Capacitor apps — see Capacitor's
+  [server.url guide](https://capacitorjs.com/docs/guides/server-url).
+
+**Tradeoff:** The app requires a network connection to load the UI. This
+is acceptable because the assistant needs its backend services for all
+functionality anyway — there is no useful offline state.
 
 ## Prerequisites
 
@@ -92,7 +132,7 @@ Apple's reference for the toolbar controls:
 ## Debugging
 
 The app has two layers — the **WKWebView contents** (the React app loaded
-from `dev-assistant.vellum.ai`) and the **native Swift shell** (Capacitor
+from the configured server URL) and the **native Swift shell** (Capacitor
 bridge, `MyViewController`, the two native plugins). Each has its own
 debugger.
 
@@ -187,17 +227,10 @@ breakpoint.
 
 ### `server.url` mode, not static export
 
-`capacitor.config.ts` sets `server.url` to
-`https://dev-assistant.vellum.ai/assistant` by default; setting
-`VELLUM_ENVIRONMENT=production` before `bunx cap sync ios` bakes
-`https://www.vellum.ai/assistant` instead — that's how TestFlight /
-App Store builds get pointed at prod. The `/assistant` suffix is
-deliberate — booting on the bare host lands on the marketing page,
-whose CTA redirects to `www.vellum.ai/assistant` and bounces non-prod
-shells off their own host. At launch, the
-WebView navigates straight to that URL — the bundled
-`capacitor-shell/index.html` is just a placeholder Capacitor requires
-for `webDir`, never actually shown.
+See [Web content delivery](#web-content-delivery) for the full
+what / how / why. The `/assistant` path suffix is deliberate — booting
+on the bare host lands on the marketing page, whose CTA redirects to
+`www.vellum.ai/assistant` and bounces non-prod shells off their own host.
 
 **Do not** switch to a static `vite build` output that bundles web
 assets into the IPA. We deliberately serve from the live web origin
@@ -220,8 +253,8 @@ side on the same device.
 | Target | Bundle ID | Display Name | Icon | Server |
 |--------|-----------|-------------|------|--------|
 | App | `ai.vocify-inc.vellum-assistant-ios` | Vellum | Green | `www.vellum.ai` |
-| App Staging | `.staging` | Vellum Staging | Yellow | `staging-assistant.vellum.ai` |
-| App Dev | `.dev` | Vellum Dev | Pink | `dev-assistant.vellum.ai` |
+| App Staging | `.staging` | Vellum Staging | Yellow | staging server |
+| App Dev | `.dev` | Vellum Dev | Pink | dev server |
 
 Build settings shared across all three targets live in
 `App/App/Config/Base.xcconfig`. Per-target overrides (bundle ID, display
@@ -289,7 +322,7 @@ server: {
   HTTP by default
 - Run `bunx cap sync ios`, then rebuild in Xcode
 - **Revert before committing.** The default must remain
-  `https://dev-assistant.vellum.ai` with `cleartext: false`.
+  the dev server URL with `cleartext: false`.
 
 ### Add a new Capacitor plugin
 
@@ -333,7 +366,7 @@ On first build after pulling:
 - [ ] Home-screen icon is Vellum green with a white "V" (not the blue X
       Capacitor placeholder)
 - [ ] Launch screen briefly flashes green + V
-- [ ] WebView loads `dev-assistant.vellum.ai` and you can sign in
+- [ ] WebView loads the configured server URL and you can sign in
 - [ ] Chat streams token-by-token (verifies SSE is intact — if tokens
       arrive in one big blob, CapacitorHttp got turned on somewhere)
 - [ ] Photo / file attachments work (exercises the WKWebView file-picker
@@ -430,11 +463,9 @@ on completion (`if: always()`). Failures surface in `#build-alerts` via
 
 ### Why no `bun run build` before `cap sync`
 
-The Capacitor `webDir` is `capacitor-shell/` — a static placeholder
-containing only a "Loading…" HTML page. The app uses
-[`server.url` mode](https://capacitorjs.com/docs/guides/server-url):
-at runtime, `WKWebView` loads the live web app over HTTPS. No web
-assets are bundled in the IPA, so no build step is needed.
+No web assets are bundled in the IPA (see
+[Web content delivery](#web-content-delivery)), so no web build step
+is needed before `cap sync`.
 
 ### IPA validation before upload
 

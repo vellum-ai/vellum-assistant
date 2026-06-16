@@ -2,23 +2,37 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { ArrowLeft, Loader2, Play, Settings } from "lucide-react";
 
 import { DetailCard } from "@/components/detail-card";
+import { SCHEDULE_RUNS_PAGE_SIZE } from "@/domains/settings/api/schedules";
 import {
-  fetchConsolidationRuns,
-  fetchHeartbeatRuns,
-  fetchRetrospectiveRuns,
-  SCHEDULE_RUNS_PAGE_SIZE,
-} from "@/domains/settings/api/schedules";
+  ModelProfileRow,
+  type ScheduleModelProfileCallSite,
+} from "@/domains/settings/components/model-profile-row";
 import { RecentRunsCard } from "@/domains/settings/components/recent-runs-card";
 import {
   flattenRunPages,
   formatTimestamp,
 } from "@/domains/settings/utils/schedule-formatters";
+import { toScheduleRun } from "@/domains/settings/utils/system-task-run-transforms";
+import {
+  consolidationRunsGetInfiniteOptions,
+  heartbeatRunsGetInfiniteOptions,
+  retrospectiveRunsGetInfiniteOptions,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Tag } from "@vellumai/design-library/components/tag";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import type { SystemTaskKind } from "@/domains/settings/types/schedules";
+
+const SYSTEM_TASK_PROFILE_CALL_SITES: Record<
+  SystemTaskKind,
+  ScheduleModelProfileCallSite
+> = {
+  heartbeat: "heartbeatAgent",
+  consolidation: "memoryV2Consolidation",
+  retrospective: "memoryRetrospective",
+};
 
 interface SystemTaskDetailViewProps {
   kind: SystemTaskKind;
@@ -74,28 +88,36 @@ export function SystemTaskDetailView({
     ? "Memory is off, so retrospectives are paused. Turn Memory back on to resume them."
     : "Memory is off, so consolidation is paused. Turn Memory back on to resume consolidation.";
 
+  const opts = {
+    path: { assistant_id: assistantId },
+    query: { limit: SCHEDULE_RUNS_PAGE_SIZE },
+  };
+
+  // Extract queryKey/queryFn individually — spreading the full options union
+  // triggers TS2769 because the three generated option types have subtly
+  // different `enabled` callback generics that don't unify.
+  const infiniteOpts =
+    kind === "heartbeat"
+      ? heartbeatRunsGetInfiniteOptions(opts)
+      : kind === "consolidation"
+        ? consolidationRunsGetInfiniteOptions(opts)
+        : retrospectiveRunsGetInfiniteOptions(opts);
+
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
     useInfiniteQuery({
-      queryKey: ["system-task-runs", assistantId, kind],
-      queryFn: ({ pageParam }) =>
-        kind === "heartbeat"
-          ? fetchHeartbeatRuns(assistantId, SCHEDULE_RUNS_PAGE_SIZE, pageParam)
-          : kind === "consolidation"
-            ? fetchConsolidationRuns(
-                assistantId,
-                SCHEDULE_RUNS_PAGE_SIZE,
-                pageParam,
-              )
-            : fetchRetrospectiveRuns(
-                assistantId,
-                SCHEDULE_RUNS_PAGE_SIZE,
-                pageParam,
-              ),
-      initialPageParam: undefined as number | undefined,
+      queryKey: infiniteOpts.queryKey,
+      queryFn: infiniteOpts.queryFn,
+      // Object page param — the generated queryFn merges it into the base
+      // query without adding a `before` cursor, fetching the most recent runs.
+      initialPageParam: { path: opts.path, query: {} },
       getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
       staleTime: 10_000,
     });
-  const runs = flattenRunPages(data?.pages);
+  const runs = flattenRunPages(
+    data?.pages.map((page) => ({
+      runs: page.runs.map((run) => toScheduleRun(run, kind)),
+    })),
+  );
 
   return (
     <div className="space-y-4">
@@ -145,6 +167,12 @@ export function SystemTaskDetailView({
         }
       >
         <div className="space-y-2 text-body-medium-lighter">
+          <ModelProfileRow
+            assistantId={assistantId}
+            defaultCallSite={SYSTEM_TASK_PROFILE_CALL_SITES[kind]}
+            fallbackLabel="Default (system task model)"
+            respectCallSiteOverride
+          />
           <div className="flex items-center justify-between">
             <span className="text-[var(--content-secondary)]">Status</span>
             <span className="flex items-center gap-2">

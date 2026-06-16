@@ -14,7 +14,10 @@ import { v4 as uuid } from "uuid";
 import { getConversation } from "../memory/conversation-crud.js";
 import type { ApprovalUIMetadata } from "../runtime/channel-approval-types.js";
 import { getLogger } from "../util/logger.js";
-import { buildAccessRequestContractText } from "./access-request-copy.js";
+import {
+  buildAccessRequestContractText,
+  parseAccessRequestPayload,
+} from "./access-request-copy.js";
 import { isGuardianSensitiveEvent } from "./adapters/macos.js";
 import { pairDeliveryWithConversation } from "./conversation-pairing.js";
 import { composeFallbackCopy } from "./copy-composer.js";
@@ -181,6 +184,11 @@ export class NotificationBroadcaster {
     > | null = null;
 
     const approvalContext = resolveApprovalContext(signal);
+    const accessRequestContext =
+      signal.sourceEventName === "ingress.access_request" &&
+      signal.contextPayload
+        ? parseAccessRequestPayload(signal.contextPayload)
+        : undefined;
     const results: NotificationDeliveryResult[] = [];
 
     for (const channel of orderedChannels) {
@@ -411,6 +419,7 @@ export class NotificationBroadcaster {
         contextPayload: signal.contextPayload,
         urgency: signal.attentionHints.urgency,
         approvalContext,
+        accessRequestContext,
       };
 
       // Compute conversation decision audit fields for the delivery record

@@ -29,18 +29,16 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 
+import {
+  configGetQueryKey,
+  identityGetQueryKey,
+  schedulesGetQueryKey,
+  soundsAvailableGetQueryKey,
+  soundsConfigGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { getClientId } from "@/lib/telemetry/client-identity";
-import {
-  assistantDaemonConfigQueryKey,
-  assistantIdentityQueryKey,
-  assistantScheduleRunsQueryKey,
-  assistantScheduleUsageSummaryQueryKey,
-  assistantSchedulesQueryKey,
-  assistantSoundsAvailableQueryKey,
-  assistantSoundsConfigQueryKey,
-  avatarQueryKey,
-} from "@/lib/sync/query-tags";
 import { SYNC_TAGS } from "@/lib/sync/types";
 
 /**
@@ -57,6 +55,7 @@ export function useAssistantResourceSync(
   isAssistantActive: boolean
 ): void {
   const queryClient = useQueryClient();
+  const pathOpts = { path: { assistant_id: assistantId ?? "" } };
 
   useBusSubscription("sse.event", (envelope) => {
     if (!assistantId || !isAssistantActive) return;
@@ -74,36 +73,36 @@ export function useAssistantResourceSync(
               break;
             case SYNC_TAGS.assistantIdentity:
               void queryClient.invalidateQueries({
-                queryKey: assistantIdentityQueryKey(assistantId),
+                queryKey: identityGetQueryKey(pathOpts),
               });
               break;
             case SYNC_TAGS.assistantConfig:
               void queryClient.invalidateQueries({
-                queryKey: assistantDaemonConfigQueryKey(assistantId),
+                queryKey: configGetQueryKey(pathOpts),
               });
               break;
             case SYNC_TAGS.assistantSounds:
               void queryClient.invalidateQueries({
-                queryKey: assistantSoundsConfigQueryKey(assistantId),
+                queryKey: soundsConfigGetQueryKey(pathOpts),
               });
               void queryClient.invalidateQueries({
-                queryKey: assistantSoundsAvailableQueryKey(assistantId),
+                queryKey: soundsAvailableGetQueryKey(pathOpts),
               });
               break;
             case SYNC_TAGS.assistantSchedules:
               void queryClient.invalidateQueries({
-                queryKey: assistantSchedulesQueryKey(assistantId),
+                queryKey: schedulesGetQueryKey(pathOpts),
               });
               void queryClient.invalidateQueries({
-                queryKey: assistantScheduleRunsQueryKey(assistantId),
+                queryKey: [{ _id: "schedulesByIdRunsGet", path: { assistant_id: assistantId } }],
               });
               void queryClient.invalidateQueries({
-                queryKey: assistantScheduleUsageSummaryQueryKey(assistantId),
+                queryKey: [{ _id: "schedulesUsagesummaryGet", path: { assistant_id: assistantId } }],
               });
               break;
             case SYNC_TAGS.appsList:
               void queryClient.invalidateQueries({
-                predicate: (query) => isAppsGetQueryKey(query.queryKey),
+                predicate: (query) => isGeneratedQueryKey(query.queryKey, "appsGet"),
               });
               break;
           }
@@ -112,22 +111,22 @@ export function useAssistantResourceSync(
 
       case "home_feed_updated":
         void queryClient.invalidateQueries({
-          predicate: (query) => isHomeFeedGetQueryKey(query.queryKey),
+          predicate: (query) => isGeneratedQueryKey(query.queryKey, "homeFeedGet"),
         });
         return;
 
       case "relationship_state_updated":
         void queryClient.invalidateQueries({
-          predicate: (query) => isHomeFeedGetQueryKey(query.queryKey),
+          predicate: (query) => isGeneratedQueryKey(query.queryKey, "homeFeedGet"),
         });
         void queryClient.invalidateQueries({
-          predicate: (query) => isHomeStateGetQueryKey(query.queryKey),
+          predicate: (query) => isGeneratedQueryKey(query.queryKey, "homeStateGet"),
         });
         return;
 
       case "identity_changed":
         void queryClient.invalidateQueries({
-          queryKey: assistantIdentityQueryKey(assistantId),
+          queryKey: identityGetQueryKey(pathOpts),
         });
         return;
 
@@ -148,34 +147,34 @@ export function useAssistantResourceSync(
       queryKey: avatarQueryKey(assistantId),
     });
     void queryClient.invalidateQueries({
-      queryKey: assistantIdentityQueryKey(assistantId),
+      queryKey: identityGetQueryKey(pathOpts),
     });
     void queryClient.invalidateQueries({
-      queryKey: assistantDaemonConfigQueryKey(assistantId),
+      queryKey: configGetQueryKey(pathOpts),
     });
     void queryClient.invalidateQueries({
-      queryKey: assistantSoundsConfigQueryKey(assistantId),
+      queryKey: soundsConfigGetQueryKey(pathOpts),
     });
     void queryClient.invalidateQueries({
-      queryKey: assistantSoundsAvailableQueryKey(assistantId),
+      queryKey: soundsAvailableGetQueryKey(pathOpts),
     });
     void queryClient.invalidateQueries({
-      queryKey: assistantSchedulesQueryKey(assistantId),
+      queryKey: schedulesGetQueryKey(pathOpts),
     });
     void queryClient.invalidateQueries({
-      queryKey: assistantScheduleRunsQueryKey(assistantId),
+      queryKey: [{ _id: "schedulesByIdRunsGet", path: { assistant_id: assistantId } }],
     });
     void queryClient.invalidateQueries({
-      queryKey: assistantScheduleUsageSummaryQueryKey(assistantId),
+      queryKey: [{ _id: "schedulesUsagesummaryGet", path: { assistant_id: assistantId } }],
     });
     void queryClient.invalidateQueries({
-      predicate: (query) => isAppsGetQueryKey(query.queryKey),
+      predicate: (query) => isGeneratedQueryKey(query.queryKey, "appsGet"),
     });
     void queryClient.invalidateQueries({
-      predicate: (query) => isHomeFeedGetQueryKey(query.queryKey),
+      predicate: (query) => isGeneratedQueryKey(query.queryKey, "homeFeedGet"),
     });
     void queryClient.invalidateQueries({
-      predicate: (query) => isHomeStateGetQueryKey(query.queryKey),
+      predicate: (query) => isGeneratedQueryKey(query.queryKey, "homeStateGet"),
     });
   });
 }
@@ -190,16 +189,4 @@ function isGeneratedQueryKey(
     typeof firstKeyPart === "object" &&
     (firstKeyPart as { _id?: unknown })._id === id
   );
-}
-
-function isAppsGetQueryKey(queryKey: readonly unknown[]): boolean {
-  return isGeneratedQueryKey(queryKey, "appsGet");
-}
-
-function isHomeFeedGetQueryKey(queryKey: readonly unknown[]): boolean {
-  return isGeneratedQueryKey(queryKey, "homeFeedGet");
-}
-
-function isHomeStateGetQueryKey(queryKey: readonly unknown[]): boolean {
-  return isGeneratedQueryKey(queryKey, "homeStateGet");
 }

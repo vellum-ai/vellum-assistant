@@ -11,7 +11,7 @@ import {
   flagKeyToStoreKey,
 } from "@/lib/feature-flags/feature-flag-catalog";
 import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
-import { CLIENT_FLAG_QUERY_KEY } from "@/lib/sync/query-tags";
+import { featureFlagsClientFlagValuesRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 
 const VALID_BOOL_KEYS = new Set(Object.keys(CLIENT_FLAG_DEFAULTS));
 const VALID_STRING_KEYS = new Set(Object.keys(CLIENT_STRING_FLAG_DEFAULTS));
@@ -45,8 +45,8 @@ function mapFlags(
 
 export function useClientFeatureFlagSync(enabled: boolean) {
   const freshness = useFlagQueryFreshness();
-  const { data, isFetched } = useQuery({
-    queryKey: CLIENT_FLAG_QUERY_KEY,
+  const { data } = useQuery({
+    queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
     queryFn: fetchClientFlagValues,
     enabled,
     ...freshness,
@@ -63,53 +63,4 @@ export function useClientFeatureFlagSync(enabled: boolean) {
       }
     }
   }, [data]);
-
-  // Mark the store `loaded` once the query SETTLES — `isFetched` is true on
-  // success AND on terminal error (react-query's `isFetched`, same signal
-  // `useActivationFlowArm` exposes as `settled`). Persisting it into the store
-  // lets the synchronous `buildNavigationState()` know the arm is no longer
-  // unknown, so a failed fetch doesn't hang the route guard forever.
-  useEffect(() => {
-    if (isFetched) {
-      useClientFeatureFlagStore.getState().setLoaded();
-    }
-  }, [isFetched]);
-}
-
-const ACTIVATION_FLOW_STORE_KEY = "experimentActivationFlow20260603";
-const ACTIVATION_FLOW_LS_KEY = `vellum:ff-str:${ACTIVATION_FLOW_STORE_KEY}`;
-
-function readActivationFlowOverride(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return localStorage.getItem(ACTIVATION_FLOW_LS_KEY);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Resolves the `experiment-activation-flow-2026-06-03` arm for the pre-auth
- * sign-up pages, with `settled` indicating the server fetch has completed.
- *
- * Reads the value DIRECTLY from the flag query data (not the store) so the
- * decision never races the store write: React runs child effects before parent
- * effects, so a consumer's redirect effect would otherwise fire before
- * `AccountLayout`'s sync writes the store, reading a stale default. Precedence:
- * a local `localStorage` override wins (for testing), then the server-synced
- * value, then `control`. Callers should hold off acting until `settled`.
- */
-export function useActivationFlowArm(): { arm: string; settled: boolean } {
-  const freshness = useFlagQueryFreshness();
-  const { data, isFetched } = useQuery({
-    queryKey: CLIENT_FLAG_QUERY_KEY,
-    queryFn: fetchClientFlagValues,
-    ...freshness,
-    retry: 1,
-  });
-  const override = readActivationFlowOverride();
-  const synced = data?.flags
-    ? mapFlags(data.flags).stringFlags[ACTIVATION_FLOW_STORE_KEY]
-    : undefined;
-  return { arm: override ?? synced ?? "control", settled: isFetched };
 }

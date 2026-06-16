@@ -679,8 +679,9 @@ export interface BuildExportVBundleOptions {
    * Optional callback to checkpoint the WAL before reading the database file.
    * In WAL mode, committed rows may live in the -wal file and not yet be
    * flushed to the main .db file. Callers should pass a function that runs
-   * PRAGMA wal_checkpoint(FULL) on the live database connection. (Not
-   * TRUNCATE — see assistant/AGENTS.md "SQLite WAL checkpointing".)
+   * PRAGMA wal_checkpoint(FULL) on the live database connection — FULL
+   * flushes committed frames to the .db file without the extra WAL restart
+   * and truncation that TRUNCATE performs.
    * Called before the workspace walk so the DB file is up to date.
    *
    * May return a Promise — `streamExportVBundle` awaits the result so an

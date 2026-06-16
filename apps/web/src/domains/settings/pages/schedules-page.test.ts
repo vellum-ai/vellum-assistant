@@ -10,6 +10,7 @@ import {
 import { createElement } from "react";
 import type { ReactElement } from "react";
 
+import * as daemonSdk from "@/generated/daemon/sdk.gen";
 import * as schedulesApi from "@/domains/settings/api/schedules";
 import { routes } from "@/utils/routes";
 
@@ -43,21 +44,91 @@ const fetchScheduleUsageSummaryMock = mock(
     _range: ScheduleUsageSummaryRange,
   ): Promise<ScheduleUsageSummary[]> => [],
 );
-const fetchConsolidationRunsMock = mock(
-  async (
-    _assistantId: string,
-    _limit?: number,
-    _before?: number,
-  ): Promise<ScheduleRunsPage> => ({
+function createDaemonConfigMock(callSites: Record<string, unknown> = {}) {
+  return {
+    llm: {
+      activeProfile: "balanced",
+      profiles: {
+        balanced: { label: "Balanced" },
+        "cost-optimized": { label: "Cost optimized" },
+      },
+      callSites,
+    },
+  };
+}
+
+let daemonConfigMock: unknown = createDaemonConfigMock();
+let conversationInferenceProfilesMock: Record<string, string | null> = {};
+const callSiteCatalogMock = {
+  domains: [],
+  callSites: [
+    {
+      id: "mainAgent",
+      displayName: "Main assistant",
+      description: "",
+      domain: "chat",
+      defaultProfile: "balanced",
+    },
+    {
+      id: "heartbeatAgent",
+      displayName: "Heartbeat",
+      description: "",
+      domain: "system",
+      defaultProfile: "cost-optimized",
+    },
+    {
+      id: "memoryV2Consolidation",
+      displayName: "Memory consolidation",
+      description: "",
+      domain: "system",
+      defaultProfile: "balanced",
+    },
+    {
+      id: "memoryRetrospective",
+      displayName: "Memory retrospective",
+      description: "",
+      domain: "system",
+      defaultProfile: "cost-optimized",
+    },
+  ],
+};
+const configGetOptionsMock = mock(
+  (options: { path: { assistant_id: string } }) => ({
+    queryKey: [{ _id: "configGet", path: options.path }],
+    queryFn: async () => daemonConfigMock,
+  }),
+);
+const configLlmCallsitesGetOptionsMock = mock(
+  (options: { path: { assistant_id: string } }) => ({
+    queryKey: [{ _id: "configLlmCallsitesGet", path: options.path }],
+    queryFn: async () => callSiteCatalogMock,
+  }),
+);
+const conversationsByIdGetOptionsMock = mock(
+  (options: { path: { assistant_id: string; id: string } }) => ({
+    queryKey: [{ _id: "conversationsByIdGet", path: options.path }],
+    queryFn: async () => ({
+      conversation: {
+        id: options.path.id,
+        inferenceProfile:
+          conversationInferenceProfilesMock[options.path.id] ?? null,
+      },
+    }),
+  }),
+);
+// SDK-level mocks for system-task runs used by SystemTaskDetailView
+// (which now calls generated infinite options → SDK functions directly).
+const consolidationRunsGetMock = mock(async () => ({
+  data: {
     runs: [
       {
         id: "consolidation-run-1",
-        jobId: "consolidation",
-        status: "ok",
+        scheduledFor: 1_761_792_000_000,
         startedAt: 1_761_792_000_000,
         finishedAt: 1_761_792_003_000,
         durationMs: 3000,
-        output: null,
+        status: "ok",
+        skipReason: null,
         error: null,
         conversationId: "conv-consolidation-1",
         conversationExists: true,
@@ -67,42 +138,50 @@ const fetchConsolidationRunsMock = mock(
       },
     ],
     nextCursor: null,
-  }),
-);
-const fetchHeartbeatRunsMock = mock(
-  async (
-    _assistantId: string,
-    _limit?: number,
-    _before?: number,
-  ): Promise<ScheduleRunsPage> => ({ runs: [], nextCursor: null }),
-);
-const fetchRetrospectiveRunsMock = mock(
-  async (
-    _assistantId: string,
-    _limit?: number,
-    _before?: number,
-  ): Promise<ScheduleRunsPage> => ({
+  },
+  error: undefined,
+  response: { ok: true, status: 200 },
+}));
+
+const heartbeatRunsGetMock = mock(async () => ({
+  data: { runs: [], nextCursor: null },
+  error: undefined,
+  response: { ok: true, status: 200 },
+}));
+
+const retrospectiveRunsGetMock = mock(async () => ({
+  data: {
     runs: [
       {
         id: "retro-run-1",
-        jobId: "retrospective",
-        status: "ok",
+        scheduledFor: 1_761_792_000_000,
         startedAt: 1_761_792_000_000,
         finishedAt: 1_761_792_004_000,
         durationMs: 4000,
-        output: null,
+        status: "ok",
+        skipReason: null,
         error: null,
         conversationId: "conv-retro-1",
         conversationExists: true,
         conversationArchivedAt: null,
         estimatedCostUsd: 0.0456,
         createdAt: 1_761_792_000_000,
+        kind: "fork",
         title: "Planning chat (Retrospective)",
       },
     ],
     nextCursor: null,
-  }),
-);
+  },
+  error: undefined,
+  response: { ok: true, status: 200 },
+}));
+
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  ...daemonSdk,
+  consolidationRunsGet: consolidationRunsGetMock,
+  heartbeatRunsGet: heartbeatRunsGetMock,
+  retrospectiveRunsGet: retrospectiveRunsGetMock,
+}));
 const fetchScheduleRunsMock = mock(
   async (
     _assistantId: string,
@@ -122,11 +201,17 @@ let nowSpy: ReturnType<typeof spyOn> | null = null;
 mock.module("@/domains/settings/api/schedules", () => ({
   ...schedulesApi,
   createSchedule: createScheduleMock,
-  fetchConsolidationRuns: fetchConsolidationRunsMock,
-  fetchHeartbeatRuns: fetchHeartbeatRunsMock,
-  fetchRetrospectiveRuns: fetchRetrospectiveRunsMock,
   fetchScheduleRuns: fetchScheduleRunsMock,
   fetchScheduleUsageSummary: fetchScheduleUsageSummaryMock,
+}));
+const daemonQueryGen = await import(
+  "@/generated/daemon/@tanstack/react-query.gen"
+);
+mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
+  ...daemonQueryGen,
+  configGetOptions: configGetOptionsMock,
+  configLlmCallsitesGetOptions: configLlmCallsitesGetOptionsMock,
+  conversationsByIdGetOptions: conversationsByIdGetOptionsMock,
 }));
 
 const {
@@ -163,11 +248,16 @@ afterEach(() => {
   cleanup();
   navigateCalls.length = 0;
   createScheduleMock.mockClear();
-  fetchConsolidationRunsMock.mockClear();
-  fetchHeartbeatRunsMock.mockClear();
-  fetchRetrospectiveRunsMock.mockClear();
+  consolidationRunsGetMock.mockClear();
+  heartbeatRunsGetMock.mockClear();
+  retrospectiveRunsGetMock.mockClear();
   fetchScheduleRunsMock.mockClear();
   fetchScheduleUsageSummaryMock.mockClear();
+  configGetOptionsMock.mockClear();
+  configLlmCallsitesGetOptionsMock.mockClear();
+  conversationsByIdGetOptionsMock.mockClear();
+  daemonConfigMock = createDaemonConfigMock();
+  conversationInferenceProfilesMock = {};
   nowSpy?.mockRestore();
   nowSpy = null;
 });
@@ -412,11 +502,14 @@ describe("scheduleUsageSummaryQueryOptions", () => {
     nowSpy = spyOn(Date, "now").mockReturnValue(firstNow);
     const options = scheduleUsageSummaryQueryOptions("assistant-1", "UTC");
 
-    expect(options.queryKey).toEqual([
-      "schedule-usage-summary",
-      "assistant-1",
-      "UTC",
-    ]);
+    expect(options.queryKey).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          _id: "schedulesUsagesummaryGet",
+          path: { assistant_id: "assistant-1" },
+        }),
+      ]),
+    );
 
     await options.queryFn();
     nowSpy.mockReturnValue(secondNow);
@@ -469,9 +562,7 @@ describe("SystemTaskDetailView", () => {
     );
 
     await waitFor(() =>
-      expect(fetchConsolidationRunsMock.mock.calls).toEqual([
-        ["assistant-1", RUNS_PAGE_SIZE, undefined],
-      ]),
+      expect(consolidationRunsGetMock).toHaveBeenCalled(),
     );
 
     await waitFor(() =>
@@ -515,9 +606,7 @@ describe("SystemTaskDetailView", () => {
     );
 
     await waitFor(() =>
-      expect(fetchConsolidationRunsMock.mock.calls).toEqual([
-        ["assistant-1", RUNS_PAGE_SIZE, undefined],
-      ]),
+      expect(consolidationRunsGetMock).toHaveBeenCalled(),
     );
 
     expect(document.body.textContent).toContain(
@@ -980,6 +1069,139 @@ describe("ScheduleDetailView", () => {
       ]),
     );
   });
+
+  test("shows the default model profile for schedules without a pinned profile", async () => {
+    renderWithQueryClient(
+      createElement(ScheduleDetailView, {
+        schedule: schedule({
+          id: "execute-schedule-123",
+          name: "Daily digest",
+          description: "Summarize the day",
+          cadenceDescription: "Daily",
+          mode: "execute",
+          script: null,
+          inferenceProfile: null,
+          enabled: true,
+          nextRunAt: 1_761_792_000_000,
+          lastRunAt: null,
+          lastStatus: null,
+        }),
+        assistantId: "assistant-1",
+        onBack: () => {},
+        onDeleted: () => {},
+        onUpdated: () => {},
+      }),
+    );
+
+    expect(screen.getByText("Model profile")).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByText("Default (Balanced)")).toBeTruthy(),
+    );
+
+    await waitFor(() =>
+      expect(fetchScheduleRunsMock.mock.calls).toEqual([
+        ["assistant-1", "execute-schedule-123", RUNS_PAGE_SIZE, undefined],
+      ]),
+    );
+  });
+
+  test("uses the target conversation profile for unpinned wake schedules", async () => {
+    conversationInferenceProfilesMock = {
+      "conv-wake-target": "cost-optimized",
+    };
+
+    renderWithQueryClient(
+      createElement(ScheduleDetailView, {
+        schedule: schedule({
+          id: "wake-schedule-123",
+          name: "Follow up",
+          description: "Resume the conversation later",
+          cadenceDescription: "One-time",
+          mode: "wake",
+          wakeConversationId: "conv-wake-target",
+          inferenceProfile: null,
+          enabled: true,
+          nextRunAt: 1_761_792_000_000,
+          lastRunAt: null,
+          lastStatus: null,
+        }),
+        assistantId: "assistant-1",
+        onBack: () => {},
+        onDeleted: () => {},
+        onUpdated: () => {},
+      }),
+    );
+
+    expect(screen.getByText("Model profile")).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByText("Cost optimized")).toBeTruthy(),
+    );
+
+    expect(conversationsByIdGetOptionsMock.mock.calls[0]).toEqual([
+      { path: { assistant_id: "assistant-1", id: "conv-wake-target" } },
+    ]);
+  });
+
+  test("hides the model profile for non-LLM schedules without a pinned profile", async () => {
+    renderWithQueryClient(
+      createElement(ScheduleDetailView, {
+        schedule: schedule({
+          id: "script-schedule-123",
+          name: "Local cleanup",
+          description: "Clean up local generated files",
+          cadenceDescription: "Daily",
+          mode: "script",
+          script: "bun run cleanup",
+          inferenceProfile: null,
+          enabled: true,
+          nextRunAt: 1_761_792_000_000,
+          lastRunAt: null,
+          lastStatus: null,
+        }),
+        assistantId: "assistant-1",
+        onBack: () => {},
+        onDeleted: () => {},
+        onUpdated: () => {},
+      }),
+    );
+
+    expect(screen.queryByText("Model profile")).toBeNull();
+
+    await waitFor(() =>
+      expect(fetchScheduleRunsMock.mock.calls).toEqual([
+        ["assistant-1", "script-schedule-123", RUNS_PAGE_SIZE, undefined],
+      ]),
+    );
+  });
+
+  test("shows pinned legacy profiles for non-LLM schedules", async () => {
+    renderWithQueryClient(
+      createElement(ScheduleDetailView, {
+        schedule: schedule({
+          id: "script-schedule-legacy",
+          name: "Local cleanup",
+          description: "Clean up local generated files",
+          cadenceDescription: "Daily",
+          mode: "script",
+          script: "bun run cleanup",
+          inferenceProfile: "cost-optimized",
+          enabled: true,
+          nextRunAt: 1_761_792_000_000,
+          lastRunAt: null,
+          lastStatus: null,
+        }),
+        assistantId: "assistant-1",
+        onBack: () => {},
+        onDeleted: () => {},
+        onUpdated: () => {},
+      }),
+    );
+
+    expect(screen.getByText("Model profile")).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByText("Cost optimized")).toBeTruthy(),
+    );
+  });
 });
 
 describe("SystemTaskRow", () => {
@@ -1088,12 +1310,14 @@ describe("system task toggles", () => {
     );
 
     await waitFor(() =>
-      expect(fetchHeartbeatRunsMock.mock.calls).toEqual([
-        ["assistant-1", RUNS_PAGE_SIZE, undefined],
-      ]),
+      expect(heartbeatRunsGetMock).toHaveBeenCalled(),
     );
 
     expect(document.body.textContent).toContain("Disabled");
+    expect(screen.getByText("Model profile")).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByText("Default (Cost optimized)")).toBeTruthy(),
+    );
     // Disabling only pauses automatic runs — manual runs stay available.
     expect(
       (screen.getByRole("button", { name: /Run now/i }) as HTMLButtonElement)
@@ -1103,6 +1327,33 @@ describe("system task toggles", () => {
     fireEvent.click(screen.getByLabelText("Toggle Heartbeat"));
 
     expect(toggleCalls).toEqual([true]);
+  });
+
+  test("system task detail shows call-site profile overrides", async () => {
+    daemonConfigMock = createDaemonConfigMock({
+      heartbeatAgent: { profile: "balanced" },
+    });
+
+    renderWithQueryClient(
+      createElement(SystemTaskDetailView, {
+        kind: "heartbeat",
+        assistantId: "assistant-1",
+        name: "Heartbeat",
+        subtitle: "Every 1 hr",
+        enabled: true,
+        nextRunAt: null,
+        lastRunAt: null,
+        isRunning: false,
+        onBack: () => {},
+        onRunNow: () => {},
+        onToggleEnabled: () => {},
+      }),
+    );
+
+    expect(screen.getByText("Model profile")).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByText("Override (Balanced)")).toBeTruthy(),
+    );
   });
 
   test("consolidation never renders an automatic-run toggle", () => {
@@ -1229,9 +1480,7 @@ describe("system task toggles", () => {
     );
 
     await waitFor(() =>
-      expect(fetchRetrospectiveRunsMock.mock.calls).toEqual([
-        ["assistant-1", RUNS_PAGE_SIZE, undefined],
-      ]),
+      expect(retrospectiveRunsGetMock).toHaveBeenCalled(),
     );
 
     // Event-driven task: nothing global to trigger, no scheduled next run.
@@ -1269,9 +1518,7 @@ describe("system task toggles", () => {
     );
 
     await waitFor(() =>
-      expect(fetchConsolidationRunsMock.mock.calls).toEqual([
-        ["assistant-1", RUNS_PAGE_SIZE, undefined],
-      ]),
+      expect(consolidationRunsGetMock).toHaveBeenCalled(),
     );
 
     expect(screen.queryByLabelText("Toggle Consolidation")).toBeNull();

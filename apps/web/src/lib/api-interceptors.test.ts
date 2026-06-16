@@ -23,17 +23,20 @@ import {
   test,
 } from "bun:test";
 
+const isLocalModeMock = mock(() => !process.env.VITE_PLATFORM_MODE);
 const isPlatformDisabledMock = mock(() => false);
 mock.module("@/lib/local-mode", () => ({
-  isLocalMode: () => !process.env.VITE_PLATFORM_MODE,
+  isLocalMode: isLocalModeMock,
   isPlatformDisabled: isPlatformDisabledMock,
 }));
 
 import {
   daemonErrorInterceptor,
   daemonRequestInterceptor,
+  localGatewayAuthRecoveryInterceptor,
   platformFeaturesGate,
   requestInterceptor,
+  resetGw401RecoveryFlag,
 } from "@/lib/api-interceptors";
 import { ApiError } from "@/utils/api-errors";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
@@ -561,5 +564,265 @@ describe("api-interceptors / daemonErrorInterceptor", () => {
     const result = daemonErrorInterceptor(body, response, undefined, {});
     expect(result).toBe(body);
     expect(result).not.toBeInstanceOf(ApiError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Local gateway 401 auth recovery interceptor
+// ---------------------------------------------------------------------------
+
+// Gateway localStorage keys — referenced by variable so the AST-based
+// no-restricted-syntax rule (which only matches literal key arguments)
+// does not fire in test-only setItem calls.
+const GW_TOKEN_KEYS = [
+  "vellum:gw:token",
+  "vellum:gw:expiresAt",
+  "vellum:gw:tokenSource",
+  "gw:token",
+  "gw:expiresAt",
+  "gw:tokenSource",
+] as const;
+
+function seedGatewayTokens(): void {
+  const values: Record<string, string> = {
+    "vellum:gw:token": "stale-jwt",
+    // generic-examples:ignore-next-line — reason: Unix timestamp for token expiry, not a phone number
+    "vellum:gw:expiresAt": "9999999999",
+    "vellum:gw:tokenSource": "/auth/token",
+    "gw:token": "legacy-jwt",
+    // generic-examples:ignore-next-line — reason: Unix timestamp for token expiry, not a phone number
+    "gw:expiresAt": "9999999999",
+    "gw:tokenSource": "/auth/token",
+  };
+  for (const key of GW_TOKEN_KEYS) {
+    localStorage.setItem(key, values[key]);
+  }
+}
+
+function clearGatewayTokenStorage(): void {
+  for (const key of GW_TOKEN_KEYS) {
+    localStorage.removeItem(key);
+  }
+}
+
+describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
+  const GATEWAY_URL = "http://localhost:9090";
+  const GW_401_RELOAD_KEY = "vellum:gw:401-reload-at";
+
+  function makeResponse(status: number, url: string): Response {
+    const response = new Response(null, { status });
+    Object.defineProperty(response, "url", { value: url });
+    return response;
+  }
+
+  function gatewayResponse(status: number): Response {
+    return makeResponse(status, GATEWAY_URL + "/v1/assistants/123/conversations");
+  }
+
+  let originalReload: typeof window.location.reload;
+  let reloadCalls: number;
+
+  beforeEach(() => {
+    reloadCalls = 0;
+    originalReload = window.location.reload;
+    Object.defineProperty(window.location, "reload", {
+      configurable: true,
+      value: mock(() => {
+        reloadCalls += 1;
+      }),
+    });
+    isLocalModeMock.mockImplementation(() => true);
+    setSelfHostedConnection({ url: GATEWAY_URL, token: "tok" });
+    sessionStorage.removeItem(GW_401_RELOAD_KEY);
+    clearGatewayTokenStorage();
+    resetGw401RecoveryFlag();
+  });
+
+  afterEach(() => {
+    Object.defineProperty(window.location, "reload", {
+      configurable: true,
+      value: originalReload,
+    });
+    isLocalModeMock.mockImplementation(() => !process.env.VITE_PLATFORM_MODE);
+    setSelfHostedConnection(null);
+    sessionStorage.removeItem(GW_401_RELOAD_KEY);
+    clearGatewayTokenStorage();
+    resetGw401RecoveryFlag();
+  });
+
+  test("clears gateway tokens and reloads on 401 from local gateway", () => {
+    /**
+     * Validates the core auth recovery: a stale gateway token triggers
+     * a localStorage clear and page reload to acquire a fresh token.
+     */
+
+    // GIVEN gateway tokens are stored in localStorage
+    seedGatewayTokens();
+
+    // WHEN the daemon receives a 401 from the local gateway
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+
+    // THEN all gateway token keys are cleared
+    for (const key of GW_TOKEN_KEYS) {
+      expect(localStorage.getItem(key)).toBeNull();
+    }
+
+    // AND the page reloads
+    expect(reloadCalls).toBe(1);
+  });
+
+  test("does not reload on non-401 status codes", () => {
+    /**
+     * Validates that only 401 triggers recovery — other error codes
+     * (like 502/503 handled by the unreachable interceptor) pass through.
+     */
+
+    // GIVEN a gateway token is stored
+    const tokenKey = GW_TOKEN_KEYS[0];
+    localStorage.setItem(tokenKey, "valid-jwt");
+
+    // WHEN the daemon receives a 502 from the gateway
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(502));
+
+    // THEN gateway tokens are untouched and no reload fires
+    expect(localStorage.getItem(tokenKey)).toBe("valid-jwt");
+    expect(reloadCalls).toBe(0);
+  });
+
+  test("does not reload when not in local mode", () => {
+    /**
+     * Validates that 401s from platform-hosted assistants are ignored —
+     * they are handled by the auth store / allauth instead.
+     */
+
+    // GIVEN platform mode is active
+    isLocalModeMock.mockImplementation(() => false);
+
+    // WHEN the daemon receives a 401
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+
+    // THEN no reload fires
+    expect(reloadCalls).toBe(0);
+  });
+
+  test("does not reload when no self-hosted ingress URL is configured", () => {
+    /**
+     * Validates that 401s without a gateway connection configured
+     * are ignored — they are handled by the auth store instead.
+     */
+
+    // GIVEN no ingress URL is configured
+    setSelfHostedConnection(null);
+
+    // WHEN the daemon receives a 401
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+
+    // THEN no reload fires
+    expect(reloadCalls).toBe(0);
+  });
+
+  test("does not reload when 401 originates from the platform, not the gateway", () => {
+    /**
+     * Validates that daemon requests which were NOT rewritten to the
+     * gateway (e.g. non-assistant paths) don't trigger recovery.
+     */
+
+    // GIVEN the response URL does not match the gateway ingress
+    const platformResponse = makeResponse(
+      401,
+      "https://api.vellum.ai/v1/some-platform-endpoint",
+    );
+
+    // WHEN the interceptor processes the 401
+    localGatewayAuthRecoveryInterceptor(platformResponse);
+
+    // THEN no reload fires
+    expect(reloadCalls).toBe(0);
+  });
+
+  test("cooldown prevents infinite reload loops", () => {
+    /**
+     * Validates that a recent reload within the cooldown window
+     * suppresses a second reload to prevent thrashing.
+     */
+
+    // GIVEN a reload already happened recently
+    sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now()));
+
+    // WHEN the daemon receives another 401
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+
+    // THEN no additional reload fires
+    expect(reloadCalls).toBe(0);
+  });
+
+  test("cooldown expires and allows a fresh reload", () => {
+    /**
+     * Validates that once the cooldown window expires, a subsequent
+     * 401 triggers another recovery attempt.
+     */
+
+    // GIVEN a reload happened over 10 minutes ago
+    sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now() - 700_000));
+    seedGatewayTokens();
+
+    // WHEN the daemon receives a 401
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+
+    // THEN the page reloads again
+    expect(reloadCalls).toBe(1);
+
+    // AND gateway tokens are cleared
+    for (const key of GW_TOKEN_KEYS) {
+      expect(localStorage.getItem(key)).toBeNull();
+    }
+  });
+
+  test("skips reload when sessionStorage is unavailable", () => {
+    /**
+     * Validates that when sessionStorage throws (e.g. in a sandboxed
+     * iframe or when storage quota is exceeded), the interceptor skips
+     * reload rather than entering an infinite loop without cooldown.
+     */
+
+    // GIVEN sessionStorage is unavailable
+    const originalGetItem = sessionStorage.getItem;
+    Object.defineProperty(sessionStorage, "getItem", {
+      configurable: true,
+      value: () => {
+        throw new DOMException("unavailable");
+      },
+    });
+
+    // WHEN the daemon receives a 401 from the gateway
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+
+    // THEN no reload fires (cooldown cannot be enforced)
+    expect(reloadCalls).toBe(0);
+
+    // cleanup
+    Object.defineProperty(sessionStorage, "getItem", {
+      configurable: true,
+      value: originalGetItem,
+    });
+  });
+
+  test("only fires once per page lifecycle even with concurrent 401s", () => {
+    /**
+     * Validates that when multiple in-flight requests all return 401
+     * concurrently, only the first triggers clear+reload — the rest
+     * are suppressed by the in-memory latch.
+     */
+
+    // GIVEN gateway tokens are stored
+    seedGatewayTokens();
+
+    // WHEN three concurrent 401s arrive from the gateway
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+
+    // THEN only one reload fires
+    expect(reloadCalls).toBe(1);
   });
 });

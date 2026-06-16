@@ -40,7 +40,8 @@
  * - {@link PostCompactContext} — passed to `post-compact` hook, fired after
  *   the agent loop compacts a conversation mid-turn to re-apply injections
  * - {@link PreModelCallContext} — passed to `pre-model-call` hook, fired
- *   before each provider call to edit the request / defer output streaming
+ *   before each provider call to edit the request, route it to a different
+ *   inference profile, or defer output streaming
  * - {@link PostToolUseContext} — passed to `post-tool-use` hook, fired once
  *   per tool result before it joins the provider-bound history
  * - {@link StopContext} — passed to `stop` hook, the definitive terminal hook

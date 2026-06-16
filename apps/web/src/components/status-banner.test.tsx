@@ -52,7 +52,10 @@ let refetchOperationalStatusMock = mock(async () => {});
 let wakeLocalAssistantHostMock = mock(async (_assistantId: string) => ({
   ok: true,
 }));
-let StatusBanner: ComponentType<{ className?: string }>;
+let StatusBanner: ComponentType<{
+  className?: string;
+  placement?: "web" | "electron";
+}>;
 
 mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => isNativePlatformMock,
@@ -134,28 +137,6 @@ mock.module("@/stores/resolved-assistants-store", () => ({
   },
 }));
 
-mock.module("@vellumai/design-library/components/notice", () => ({
-  Notice: (props: {
-    title: ReactNode;
-    tone?: string;
-    icon?: ReactNode;
-    children?: ReactNode;
-    actions?: ReactNode;
-    className?: string;
-  }) => (
-    <div
-      data-testid="notice"
-      data-tone={props.tone}
-      data-class-name={props.className}
-    >
-      {props.icon}
-      {props.title}
-      {props.children}
-      {props.actions}
-    </div>
-  ),
-}));
-
 mock.module("@vellumai/design-library/components/button", () => ({
   Button: (props: {
     children: ReactNode;
@@ -232,6 +213,36 @@ describe("StatusBanner", () => {
 
     expect(html).toContain("Assistant is restarting");
     expect(html).toContain('data-tone="warning"');
+    expect(html).toContain("bg-[var(--system-mid-weak)]");
+    expect(html).toContain("text-[color:var(--system-mid-strong)]");
+  });
+
+  test("uses the full-width web banner sizing by default", () => {
+    operationalStatusQueryMock = {
+      data: { state: "restarting" },
+      isError: false,
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner />);
+
+    expect(html).toContain('data-placement="web"');
+    expect(html).toContain("min-h-10");
+    expect(html).toContain("py-[10px]");
+    expect(html).toContain("rounded-none");
+  });
+
+  test("uses compact rounded sizing for Electron placement", () => {
+    operationalStatusQueryMock = {
+      data: { state: "restarting" },
+      isError: false,
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner placement="electron" />);
+
+    expect(html).toContain('data-placement="electron"');
+    expect(html).toContain("min-h-8");
+    expect(html).toContain("py-[7px]");
+    expect(html).toContain("rounded-[6px]");
   });
 
   test("uses lifecycle operation assistant id when present", () => {
@@ -258,9 +269,47 @@ describe("StatusBanner", () => {
 
       expect(html).toContain(title);
       expect(html).toContain('data-tone="error"');
+      expect(html).toContain("bg-[var(--system-negative-weak)]");
+      expect(html).toContain("lucide-triangle-alert");
       expect(html).toContain("Go to Doctor");
       expect(html).toContain("/assistant/settings/debug?tab=doctor");
     }
+  });
+
+  test("uses blue for platform activity states from the status guide", () => {
+    for (const state of [
+      "upgrading_assistant_version",
+      "resizing_machine",
+      "resizing_storage",
+      "initializing",
+      "provisioning",
+    ] as const) {
+      operationalStatusQueryMock = {
+        data: { state },
+        isError: false,
+      };
+
+      const html = renderToStaticMarkup(<StatusBanner />);
+
+      expect(html).toContain('data-tone="info"');
+      expect(html).toContain("bg-[var(--system-info-weak)]");
+      expect(html).toContain("text-[color:var(--system-info-strong)]");
+      expect(html).toContain("animate-spin");
+    }
+  });
+
+  test("uses a blue pulsing dot for waking", () => {
+    operationalStatusQueryMock = {
+      data: { state: "waking" },
+      isError: false,
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner />);
+
+    expect(html).toContain("Assistant is waking");
+    expect(html).toContain('data-tone="info"');
+    expect(html).toContain("busy-indicator");
+    expect(html).not.toContain("animate-spin");
   });
 
   test("does not render Doctor action for local assistant operational errors", () => {
@@ -301,6 +350,7 @@ describe("StatusBanner", () => {
 
     expect(sleepingHtml).toContain("Assistant is sleeping");
     expect(sleepingHtml).toContain('data-tone="neutral"');
+    expect(sleepingHtml).toContain("bg-[var(--surface-active)]");
 
     operationalStatusQueryMock = {
       data: { state: "maintenance_mode" },
@@ -310,7 +360,7 @@ describe("StatusBanner", () => {
     const maintenanceHtml = renderToStaticMarkup(<StatusBanner />);
 
     expect(maintenanceHtml).toContain("Assistant is in maintenance mode");
-    expect(maintenanceHtml).toContain('data-tone="info"');
+    expect(maintenanceHtml).toContain('data-tone="warning"');
     expect(maintenanceHtml).toContain("Resume Assistant");
   });
 
@@ -324,7 +374,7 @@ describe("StatusBanner", () => {
     const html = renderToStaticMarkup(<StatusBanner />);
 
     expect(html).toContain("Assistant is in maintenance mode");
-    expect(html).toContain('data-tone="info"');
+    expect(html).toContain('data-tone="warning"');
     expect(html).toContain("Resume Assistant");
   });
 
@@ -371,7 +421,13 @@ describe("StatusBanner", () => {
       expect(html).toContain("Your assistant is asleep");
       expect(html).toContain("Wake up");
       expect(html).toContain('data-tone="neutral"');
+      expect(html).toContain("bg-[var(--surface-active)]");
       expect(html).toContain("items-center");
+      expect(html).toContain("[&amp;_[data-slot=button]]:uppercase");
+      expect(html).not.toContain(
+        "[&amp;_[data-slot=button]]:hover:bg-[color-mix(in_srgb,var(--status-banner-action-color)_12%,transparent)]",
+      );
+      expect(html).not.toContain("[&amp;_[data-slot=button]]:hover:opacity-90");
     });
 
     test("renders unreachable local health as an asleep fallback", () => {
@@ -455,7 +511,8 @@ describe("StatusBanner", () => {
 
       expect(html).toContain("Your assistant is waking up");
       expect(html).not.toContain("Wake up");
-      expect(html).toContain('data-tone="neutral"');
+      expect(html).toContain('data-tone="info"');
+      expect(html).toContain("busy-indicator");
     });
 
     test("renders a warning banner when the local assistant is unhealthy", () => {
@@ -475,6 +532,7 @@ describe("StatusBanner", () => {
       const html = renderToStaticMarkup(<StatusBanner />);
 
       expect(html).toContain("offline");
+      expect(html).toContain('data-tone="error"');
       expect(html).not.toContain("asleep");
     });
 
@@ -522,6 +580,7 @@ describe("StatusBanner", () => {
       const html = renderToStaticMarkup(<StatusBanner />);
 
       expect(html).toContain("offline");
+      expect(html).toContain('data-tone="error"');
       expect(html).not.toContain("crash looping");
     });
   });
@@ -545,6 +604,7 @@ describe("StatusBanner", () => {
       const html = renderToStaticMarkup(<StatusBanner />);
 
       expect(html).toContain("offline");
+      expect(html).toContain('data-tone="error"');
       expect(html).not.toContain("crash looping");
     });
 
@@ -560,6 +620,8 @@ describe("StatusBanner", () => {
 
       expect(html).toContain("Trying to reach Vellum");
       expect(html).toContain("Retry now");
+      expect(html).toContain('data-tone="error"');
+      expect(html).toContain("lucide-cloud-off");
       expect(html).not.toContain("crash looping");
     });
 

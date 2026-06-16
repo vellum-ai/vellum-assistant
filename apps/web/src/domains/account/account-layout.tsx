@@ -19,9 +19,9 @@ import { useOnboardingWindowSize } from "@/hooks/use-onboarding-window-size";
 export function AccountLayout() {
   useOnboardingWindowSize();
   // The account screens render before authentication, outside RootLayout (which
-  // owns the post-auth flag sync). Sync client flags here too so flag-gated
-  // sign-up (experiment-activation-flow-2026-06-03 → personal-page) can be
-  // served to anonymous visitors. Failures degrade to registry defaults.
+  // owns the post-auth flag sync). Sync client flags here too so any flag-gated
+  // pre-auth UI is served to anonymous visitors. Failures degrade to registry
+  // defaults.
   useClientFeatureFlagSync(true);
   return <Outlet />;
 }

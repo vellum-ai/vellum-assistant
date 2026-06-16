@@ -80,15 +80,17 @@ function getStatusConfig(status: string | undefined) {
   return STATUS_CONFIG[status ?? ""] ?? DEFAULT_STATUS;
 }
 
-// Once the overall task is `completed`, treat any lingering `failed` step as
-// recovered: a recoverable step (e.g. a Gmail reconnect) can be left `failed`
-// with no corrective per-step update, which would otherwise show a permanent red
-// glyph on a successful flow.
+// Once the overall task is `completed`, no step should still read as unfinished:
+// a model can mark the card done while leaving a step `in_progress` (a spinner),
+// `waiting`, `pending`, or `failed` with no corrective per-step update, which
+// would otherwise show a perpetual spinner or red glyph under a "Completed"
+// header. The card's own `completed` status is the model's terminal assertion,
+// so any lingering step resolves to `completed`.
 function effectiveStepStatus(
   stepStatus: string | undefined,
   taskCompleted: boolean,
 ): string | undefined {
-  if (taskCompleted && stepStatus === "failed") {
+  if (taskCompleted && stepStatus !== "completed") {
     return "completed";
   }
   return stepStatus;
@@ -262,6 +264,32 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
             <StatusBadge status={status} />
           </div>
           <TaskStepList steps={steps} taskCompleted={status === "completed"} />
+        </div>
+      </SurfaceContainer>
+    );
+  }
+
+  // A card the model has shown but not yet populated (e.g. an interim
+  // "building the app" placeholder emitted as `data: {}`) carries nothing
+  // renderable. Rather than a bare bordered box with only a title, show a
+  // loading affordance until real content arrives. A `completed` card is
+  // terminal, so it falls through to the normal render even when empty.
+  const hasRenderableContent =
+    normalizedTitle(data.body).length > 0 ||
+    !!data.subtitle ||
+    (data.metadata?.length ?? 0) > 0 ||
+    (surface.actions?.length ?? 0) > 0 ||
+    !!isWeather ||
+    isTaskProgress;
+
+  if (!hasRenderableContent && !surface.completed) {
+    return (
+      <SurfaceContainer surface={surface} onAction={onAction} hideTitle>
+        <div className="flex items-center gap-2.5">
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[var(--content-tertiary)]" />
+          <span className="text-body-medium-default text-[var(--content-tertiary)]">
+            {cardTitle || "Working…"}
+          </span>
         </div>
       </SurfaceContainer>
     );

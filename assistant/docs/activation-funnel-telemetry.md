@@ -1,6 +1,6 @@
 # Activation Funnel Telemetry — Runbook + Analytics Handoff
 
-> **Linear:** JARVIS-1102 (event emission) — gates JARVIS-1092 (10% rollout) and JARVIS-1093 (dashboard).
+> **Linear:** event emission ticket — gates rollout and dashboard tickets.
 > **Funnel version:** `activation_v1_2026_06`
 > **LD flag:** `experiment-activation-flow-2026-06-03`
 > **Cohort arm tag:** `ab_variant = "variant-a"` (treatment); `control` = the no-rail arm.
@@ -261,9 +261,9 @@ collapses it earliest-wins).
 
 ---
 
-## 7. Canonical handoff blurb (paste-ready for the final JARVIS-1102 PR description)
+## 7. Canonical handoff blurb (paste-ready for the final PR description)
 
-> **Activation funnel telemetry — handoff for JARVIS-1093.** The activation rail
+> **Activation funnel telemetry — handoff for dashboard ticket.** The activation rail
 > now emits five milestone funnel events into the existing onboarding telemetry
 > substrate (`type: "onboarding"` → `/v1/telemetry/ingest/` → GCS NDJSON →
 > `vellum-ai-prod.telemetry.onboarding_raw`), so no new event type, ingest
@@ -290,7 +290,7 @@ collapses it earliest-wins).
 
 ## 8. Notes
 
-- **JARVIS-1102 "naming check" (resolved).** Events fire **deterministically on
+- **"naming check" (resolved).** Events fire **deterministically on
   the real user commit of a `ui_show` surface, not every text turn**. The model
   passively tags the surface for a rail move with `activation_moment`; the daemon
   records the milestone in `handleSurfaceAction` when the user commits that

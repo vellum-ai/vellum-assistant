@@ -35,6 +35,8 @@ export { runHatch } from "./hatch";
 export type { HatchResult } from "./hatch";
 export { runRetire } from "./retire";
 export type { RetireResult } from "./retire";
+export { runSleep } from "./sleep";
+export type { SleepResult } from "./sleep";
 export { runWake } from "./wake";
 export type { WakeOptions, WakeResult } from "./wake";
 export { getLocalAssistantStatus } from "./status";

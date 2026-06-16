@@ -33,11 +33,11 @@ import {
 import { patchConversation } from "@/utils/conversation-cache";
 import { createConcurrencyLimiter } from "@/utils/concurrency-limiter";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
   archivedConversationsQueryKey,
-  conversationGroupsQueryKey,
   originChannelListPrefix,
-} from "@/lib/sync/query-tags";
+} from "@/utils/conversation-list-fetchers";
 import { getClientId } from "@/lib/telemetry/client-identity";
 import {
   parseConversationSyncTag,
@@ -182,7 +182,7 @@ function scheduleConversationListRefetch(
       queryKey: originChannelListPrefix(assistantId),
     });
     void queryClient.invalidateQueries({
-      queryKey: conversationGroupsQueryKey(assistantId),
+      queryKey: groupsGetQueryKey({ path: { assistant_id: assistantId ?? "" } }),
     });
   }, CONVERSATION_LIST_DEBOUNCE_MS);
 }

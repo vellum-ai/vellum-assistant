@@ -267,7 +267,7 @@ public final class AuthManager {
 
     private func performWebAuth(url: URL, callbackScheme: String) async throws -> URL {
         try await withCheckedThrowingContinuation { continuation in
-            let session = ASWebAuthenticationSession(url: url, callbackURLScheme: callbackScheme) { [weak self] callbackURL, error in
+            let session = ASWebAuthenticationSession(url: url, callback: .customScheme(callbackScheme)) { [weak self] callbackURL, error in
                 self?.webAuthSession = nil
                 if let error {
                     continuation.resume(throwing: error)

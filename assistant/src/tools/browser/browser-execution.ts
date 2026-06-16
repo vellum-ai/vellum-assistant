@@ -1093,7 +1093,7 @@ export async function executeBrowserNavigate(
           }
         } else {
           // Login / 2FA / OAuth - the agent should handle these itself
-          // using browser operations + credential_store. Don't hand off.
+          // using browser operations + stored credentials. Don't hand off.
           lines.push("");
           lines.push(formatAuthChallenge(challenge));
           lines.push("");

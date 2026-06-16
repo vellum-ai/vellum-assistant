@@ -12,7 +12,7 @@ import type { TagTone } from "@vellumai/design-library/components/tag";
 
 import { fetchScheduleUsageSummary } from "@/domains/settings/api/schedules";
 import { resolveScheduleUsageWindow } from "@/domains/settings/utils/schedule-usage-window";
-import { assistantScheduleUsageSummaryQueryKey } from "@/lib/sync/query-tags";
+
 
 // ---------------------------------------------------------------------------
 // Timestamp / duration / cost formatting
@@ -284,8 +284,15 @@ export function scheduleUsageSummaryQueryOptions(
   tz: string,
   enabled = true,
 ) {
+  // Stable key: only assistant + timezone identify this cache entry. The exact
+  // time window changes every millisecond (Date.now()), so including it in the
+  // key would create a new cache entry on every render. The queryFn computes
+  // the fresh window at fetch time; staleTime controls refetch cadence.
+  const stableKey = [
+    { _id: "schedulesUsagesummaryGet" as const, path: { assistant_id: assistantId ?? "" }, _tz: tz },
+  ];
   return {
-    queryKey: assistantScheduleUsageSummaryQueryKey(assistantId, tz),
+    queryKey: stableKey,
     queryFn: () => {
       if (!assistantId) {
         return Promise.resolve<ScheduleUsageSummary[]>([]);
@@ -332,4 +339,19 @@ export function summarizeRunsForUsage(
     }, 0),
     eventCount: 0,
   };
+}
+
+export function totalUsageCost(
+  summaries: ScheduleUsageSummary[] | undefined,
+): number {
+  return (summaries ?? []).reduce((total, summary) => {
+    const cost = summary.totalEstimatedCostUsd;
+    return Number.isFinite(cost) ? total + cost : total;
+  }, 0);
+}
+
+export function systemTaskUsageCost(usage: ScheduleRowUsage): number {
+  return usage.status === "ready"
+    ? usage.summary.totalEstimatedCostUsd || 0
+    : 0;
 }

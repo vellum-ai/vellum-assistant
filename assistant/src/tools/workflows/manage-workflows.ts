@@ -1,29 +1,25 @@
 /**
- * `manage_workflows` core tool — thin reads/controls over
+ * `manage_workflows` core implementation — thin reads/controls over
  * {@link WorkflowRunManager}: check a run's status, abort a run, or list recent
- * runs. All state lives in the run manager / journal; this tool only delegates
- * and compacts the result to JSON.
+ * runs. All state lives in the run manager / journal; this delegates and
+ * compacts the result to JSON.
  *
- * NOTE: this tool runs in-process and returns a `runId`-keyed, deliberately
- * trimmed projection for the model — a DIFFERENT contract from the HTTP wire
- * shape (`id`-keyed `toWireRun`/`workflowRunSchema` in
+ * NOTE: this runs in-process and returns a `runId`-keyed, deliberately trimmed
+ * projection for the model — a DIFFERENT contract from the HTTP wire shape
+ * (`id`-keyed `toWireRun`/`workflowRunSchema` in
  * `runtime/routes/workflow-routes.ts`). The two are intentionally not unified:
  * converging on `toWireRun` here would change this tool's emitted JSON. Both
  * project from the same `WorkflowRun` source type, so field renames are caught
  * by the type checker.
  */
 
+import { loadConfig } from "../../config/loader.js";
 import { callerOwnsWorkflowRun } from "../../workflows/capabilities.js";
 import type { WorkflowRun } from "../../workflows/journal-store.js";
 import { getWorkflowRunManager } from "../../workflows/run-manager.js";
-import {
-  RiskLevel,
-  type ToolContext,
-  type ToolDefinition,
-  type ToolExecutionResult,
-} from "../types.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
-async function executeManageWorkflows(
+export async function executeManageWorkflows(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
@@ -65,6 +61,34 @@ async function executeManageWorkflows(
           inputTokens: run.inputTokens,
           outputTokens: run.outputTokens,
           error: run.error,
+        }),
+        isError: false,
+      };
+    }
+    case "get_result": {
+      if (!runId) {
+        return {
+          content: '"run_id" is required for action "get_result".',
+          isError: true,
+        };
+      }
+      // The full result payload rides on the run record (journal getRun);
+      // `status` omits it to stay lightweight, so this action returns it in
+      // full. The completion-summary wake truncates large results and points
+      // the assistant here for the complete value.
+      const run = manager.status(runId);
+      if (!run || !ownsRun(run)) {
+        return {
+          content: JSON.stringify({ runId, found: false }),
+          isError: false,
+        };
+      }
+      return {
+        content: JSON.stringify({
+          runId: run.id,
+          status: run.status,
+          result: run.result ?? null,
+          error: run.error ?? null,
         }),
         isError: false,
       };
@@ -134,43 +158,26 @@ async function executeManageWorkflows(
         isError: false,
       };
     }
+    case "list_profiles": {
+      // Mirror the `config/llm/profiles` route: sorted profile names plus the
+      // workspace-wide active profile. Read-only — leaves use this to pick a
+      // valid `profile` for `run_workflow` (an unknown profile throws).
+      const { llm } = loadConfig();
+      const profiles = llm?.profiles ?? {};
+      return {
+        content: JSON.stringify({
+          profiles: Object.keys(profiles).sort(),
+          activeProfile:
+            typeof llm?.activeProfile === "string" ? llm.activeProfile : null,
+        }),
+        isError: false,
+      };
+    }
     default:
       return {
         content:
-          'Unknown action. Use one of: "status", "abort", "resume", "list_runs".',
+          'Unknown action. Use one of: "status", "get_result", "abort", "resume", "list_runs", "list_profiles".',
         isError: true,
       };
   }
 }
-
-export const manageWorkflowsTool = {
-  name: "manage_workflows",
-  description:
-    'Inspect or control workflow runs started by run_workflow. action="status" (requires run_id) returns a run\'s status and counts; action="abort" (requires run_id) signals an in-flight run to stop; action="resume" (requires run_id) restarts an interrupted run (one orphaned by an assistant restart), replaying its journaled prefix and continuing from the first unfinished step; action="list_runs" returns recent runs newest-first.',
-  // Low risk by default: status/list are pure reads; abort only signals an
-  // existing run to stop; resuming a READ-ONLY run replays a journaled prefix
-  // and continues under the same structural agent cap. Resuming a run whose
-  // STORED manifest granted side-effecting tools/host functions is promoted to
-  // require fresh interactive approval in the executor (see executor.ts) —
-  // resume restarts unfinished side-effecting leaves and is reachable by any
-  // actor who can list/guess the run id, so it must not silently reuse the
-  // launch-time consent.
-  defaultRiskLevel: RiskLevel.Low,
-  input_schema: {
-    type: "object",
-    properties: {
-      action: {
-        type: "string",
-        enum: ["status", "abort", "resume", "list_runs"],
-        description: "What to do.",
-      },
-      run_id: {
-        type: "string",
-        description:
-          'Target run id (required for "status", "abort", and "resume").',
-      },
-    },
-    required: ["action"],
-  },
-  execute: executeManageWorkflows,
-} satisfies ToolDefinition;

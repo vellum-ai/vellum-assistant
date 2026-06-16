@@ -215,6 +215,11 @@ export async function runAgentLoopImpl(
      * spawns).
      */
     overrideProfile?: string;
+    /**
+     * Float `overrideProfile` above call-site layers for non-main-agent call
+     * sites. Used when a caller explicitly pins a background run to a profile.
+     */
+    forceOverrideProfile?: boolean;
   },
 ): Promise<void> {
   if (!ctx.abortController) {
@@ -290,6 +295,7 @@ export async function runAgentLoopImpl(
   ctx.toolRoutedProfile = undefined;
 
   const turnOverrideProfile = userExplicitOverride;
+  const forceOverrideProfile = options?.forceOverrideProfile === true;
 
   const readCurrentOverrideProfile = (): string | undefined =>
     options?.overrideProfile ??
@@ -300,6 +306,7 @@ export async function runAgentLoopImpl(
     llm: config.llm,
     callSite: turnCallSite,
     overrideProfile: turnOverrideProfile ?? undefined,
+    forceOverrideProfile,
     selectionSeed: ctx.conversationId,
   });
   let currentEffectiveContextWindow: EffectiveContextWindow =
@@ -307,6 +314,7 @@ export async function runAgentLoopImpl(
   let currentContextWindowConfig = contextWindowConfigFromEffective(
     resolveCallSiteConfig(turnCallSite, config.llm, {
       overrideProfile: turnOverrideProfile ?? undefined,
+      forceOverrideProfile,
       selectionSeed: ctx.conversationId,
     }).contextWindow,
     currentEffectiveContextWindow,
@@ -322,11 +330,13 @@ export async function runAgentLoopImpl(
         llm: config.llm,
         callSite: turnCallSite,
         overrideProfile: currentOverrideProfile,
+        forceOverrideProfile,
         selectionSeed: ctx.conversationId,
       });
       currentContextWindowConfig = contextWindowConfigFromEffective(
         resolveCallSiteConfig(turnCallSite, config.llm, {
           overrideProfile: currentOverrideProfile,
+          forceOverrideProfile,
           selectionSeed: ctx.conversationId,
         }).contextWindow,
         currentEffectiveContextWindow,
@@ -901,6 +911,7 @@ export async function runAgentLoopImpl(
         callSite: turnCallSite,
         trust: loopTrust,
         overrideProfile: turnOverrideProfile,
+        ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
         resolveOverrideProfile: resolveCurrentOverrideProfile,
         resolveContextWindow,
         compactInPlace,
@@ -1657,10 +1668,10 @@ function collapseRawResponses(rawResponses?: unknown[]): unknown | undefined {
 
 /**
  * Matches any runtime-injection tag that should never appear inside a
- * generated summary. If the regex hits, either the compaction strip logic
- * failed to drop an injected block from the summarizer input, or the
- * summarizer invented tag-like text on its own — both are quality bugs
- * worth surfacing via telemetry.
+ * generated summary. A hit means the summary echoed an injection tag —
+ * either parroted from history the summarizer read or invented outright.
+ * The durable summary should be clean prose, so the match is surfaced via
+ * telemetry.
  */
 const SUMMARY_MEMORY_ECHO_PATTERN =
   /<(?:memory|memory_context|memory_image|turn_context|workspace|workspace_top_level|knowledge_base|pkb|system_reminder|now_scratchpad|NOW\.md|active_thread|active_subagents|active_workspace|active_dynamic_page|channel_capabilities|transport_hints|system_notice|non_interactive_context|temporal_context|guardian_context|inbound_actor_context|channel_turn_context|interface_turn_context|channel_command_context|voice_call_control)\b/i;
