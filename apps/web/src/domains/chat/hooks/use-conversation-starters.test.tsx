@@ -5,12 +5,10 @@
  * project convention of:
  *   1. Mocking `@tanstack/react-query`'s `useQuery` to capture the options
  *      object the hook passes in.
- *   2. Stubbing the daemon client (`./conversation-starters`) so we can
- *      shape the response without hitting the network.
- *   3. Driving the hook by `renderToStaticMarkup`-ing a tiny test component
+ *   2. Driving the hook by `renderToStaticMarkup`-ing a tiny test component
  *      that calls it. The component publishes the latest hook return into
  *      a module-level holder so each test can assert on it.
- *   4. Exercising the `refetchInterval` callback captured from `useQuery`
+ *   3. Exercising the `refetchInterval` callback captured from `useQuery`
  *      options — this is the load-bearing piece that verifies polling
  *      decisions without `vi.useFakeTimers` (which bun:test does not
  *      provide).
@@ -23,8 +21,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type {
   ConversationStarter,
   ConversationStartersStatus,
-  ListConversationStartersResult,
 } from "@/domains/chat/utils/conversation-starters";
+import type { ConversationstartersGetResponse } from "@/generated/daemon/types.gen";
 
 // ---------------------------------------------------------------------------
 // Captured query config + currently-served stub data.
@@ -36,14 +34,14 @@ interface CapturedQueryOptions {
   enabled: boolean;
   staleTime: number;
   refetchInterval: (query: {
-    state: { data: ListConversationStartersResult | undefined };
+    state: { data: ConversationstartersGetResponse | undefined };
   }) => number | false;
 }
 
 let lastCapturedOptions: CapturedQueryOptions | null = null;
 
 interface UseQueryStub {
-  data: ListConversationStartersResult | undefined;
+  data: ConversationstartersGetResponse | undefined;
   isLoading: boolean;
   refetch: () => Promise<void>;
 }
@@ -59,32 +57,6 @@ mock.module("@tanstack/react-query", () => ({
   useQuery: (options: CapturedQueryOptions) => {
     lastCapturedOptions = options;
     return useQueryStub;
-  },
-}));
-
-// ---------------------------------------------------------------------------
-// Daemon client mock — captures calls + returns whatever the test seeds.
-// ---------------------------------------------------------------------------
-
-interface DaemonCall {
-  assistantId: string;
-  opts: { limit?: number; offset?: number; scopeId?: string } | undefined;
-}
-
-const daemonCalls: DaemonCall[] = [];
-let daemonResponse: ListConversationStartersResult = {
-  starters: [],
-  total: 0,
-  status: "ready",
-};
-
-mock.module("@/domains/chat/utils/conversation-starters", () => ({
-  listConversationStarters: (
-    assistantId: string,
-    opts?: { limit?: number; offset?: number; scopeId?: string },
-  ) => {
-    daemonCalls.push({ assistantId, opts });
-    return Promise.resolve(daemonResponse);
   },
 }));
 
@@ -109,10 +81,6 @@ interface HookHarnessProps {
 
 function HookHarness({ assistantId, collect }: HookHarnessProps): null {
   const result = useConversationStarters(assistantId);
-  // Publishing the hook result through a callback prop is the standard
-  // bun:test workaround for not having `@testing-library/react`'s
-  // `renderHook`. We're inside `renderToStaticMarkup`, so this fires
-  // exactly once per `runHook` call.
   collect(result);
   return null;
 }
@@ -137,8 +105,6 @@ function runHook(
 
 beforeEach(() => {
   lastCapturedOptions = null;
-  daemonCalls.length = 0;
-  daemonResponse = { starters: [], total: 0, status: "ready" };
   useQueryStub = {
     data: undefined,
     isLoading: true,
@@ -171,10 +137,10 @@ describe("useConversationStarters — idle state", () => {
     expect(result.status).toBe("idle");
   });
 
-  test("idle refetch resolves and does NOT call the daemon", async () => {
+  test("idle refetch resolves and does NOT trigger a query", async () => {
     const result = runHook(null);
     await result.refetch();
-    expect(daemonCalls).toHaveLength(0);
+    expect(lastCapturedOptions?.enabled).toBe(false);
   });
 
   test("disables the query when no assistantId is given", () => {
@@ -189,13 +155,20 @@ describe("useConversationStarters — idle state", () => {
 // ---------------------------------------------------------------------------
 
 describe("useConversationStarters — query wiring", () => {
-  test("query key is namespaced and includes the assistant id", () => {
+  test("query key uses the generated object-based format", () => {
     runHook("asst-1");
     expect(lastCapturedOptions).not.toBeNull();
-    expect(lastCapturedOptions!.queryKey).toEqual([
-      "conversation-starters",
-      "asst-1",
-    ]);
+
+    const key = lastCapturedOptions!.queryKey;
+    expect(key).toHaveLength(1);
+    const keyObj = key[0] as Record<string, unknown>;
+    expect(keyObj._id).toBe("conversationstartersGet");
+    expect(keyObj.path).toEqual({ assistant_id: "asst-1" });
+    expect(keyObj.query).toEqual({
+      limit: 4,
+      offset: 0,
+      scope_id: "default",
+    });
   });
 
   test("enables the query when an assistantId is supplied", () => {
@@ -206,15 +179,6 @@ describe("useConversationStarters — query wiring", () => {
   test("staleTime is 60s so re-mounts within a minute don't re-fetch", () => {
     runHook("asst-1");
     expect(lastCapturedOptions!.staleTime).toBe(60_000);
-  });
-
-  test("queryFn calls the daemon with the chip-cap limit", async () => {
-    runHook("asst-1");
-    await lastCapturedOptions!.queryFn();
-
-    expect(daemonCalls).toHaveLength(1);
-    expect(daemonCalls[0]!.assistantId).toBe("asst-1");
-    expect(daemonCalls[0]!.opts).toEqual({ limit: 4 });
   });
 });
 
