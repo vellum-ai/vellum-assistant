@@ -22,8 +22,9 @@ export interface ModelCapability {
    */
   familyRank: number;
   /**
-   * Monotonic version. Tiered families encode `major + minor / 10` so that
-   * 4.8 > 4.6 > 4.5; single-tier lineages use the bare release integer.
+   * Monotonic version. Tiered families encode `major + minor / 100` so that
+   * 4.8 > 4.6 > 4.5 and a two-digit minor (4.10) stays within its major;
+   * single-tier lineages use the bare release integer.
    */
   version: number;
 }
@@ -59,7 +60,9 @@ const SINGLE_TIER_VERSION_PATTERN_DASHED = /-(\d+)/;
 const SINGLE_TIER_VERSION_PATTERN_DOTTED = /(\d+)\.(\d+)/;
 
 function encodeVersion(major: number, minor: number): number {
-  return major + minor / 10;
+  // Divide by 100 (not 10) so a two-digit minor (e.g. `4.10`) stays within its
+  // major (4.10, not 5.0) and never collides with the next major release.
+  return major + minor / 100;
 }
 
 /**
@@ -105,6 +108,10 @@ function parseSingleTierVersion(id: string): number | null {
  */
 export function parseModelCapability(modelId: string): ModelCapability | null {
   const id = modelId.toLowerCase();
+
+  // Require an explicit Claude marker so custom/BYOK ids that merely contain a
+  // family word (e.g. "my-sonnet-finetune") aren't mistaken for Claude models.
+  if (!id.includes("claude")) return null;
 
   for (const family of Object.keys(CLAUDE_FAMILY_RANK)) {
     if (id.includes(family)) {

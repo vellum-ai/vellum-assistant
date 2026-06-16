@@ -11,12 +11,12 @@ describe("parseModelCapability", () => {
     expect(parseModelCapability("claude-opus-4-8")).toEqual({
       lineage: "claude",
       familyRank: CLAUDE_FAMILY_RANK.opus!,
-      version: 4.8,
+      version: 4.08,
     });
     expect(parseModelCapability("claude-sonnet-4-6")).toEqual({
       lineage: "claude",
       familyRank: CLAUDE_FAMILY_RANK.sonnet!,
-      version: 4.6,
+      version: 4.06,
     });
   });
 
@@ -24,7 +24,7 @@ describe("parseModelCapability", () => {
     expect(parseModelCapability("claude-haiku-4-5-20251001")).toEqual({
       lineage: "claude",
       familyRank: CLAUDE_FAMILY_RANK.haiku!,
-      version: 4.5,
+      version: 4.05,
     });
   });
 
@@ -32,7 +32,7 @@ describe("parseModelCapability", () => {
     expect(parseModelCapability("Claude-Opus-4-8")).toEqual({
       lineage: "claude",
       familyRank: CLAUDE_FAMILY_RANK.opus!,
-      version: 4.8,
+      version: 4.08,
     });
   });
 
@@ -40,17 +40,17 @@ describe("parseModelCapability", () => {
     expect(parseModelCapability("anthropic/claude-opus-4.8")).toEqual({
       lineage: "claude",
       familyRank: CLAUDE_FAMILY_RANK.opus!,
-      version: 4.8,
+      version: 4.08,
     });
     expect(parseModelCapability("anthropic/claude-sonnet-4.6")).toEqual({
       lineage: "claude",
       familyRank: CLAUDE_FAMILY_RANK.sonnet!,
-      version: 4.6,
+      version: 4.06,
     });
     expect(parseModelCapability("anthropic/claude-haiku-4.5")).toEqual({
       lineage: "claude",
       familyRank: CLAUDE_FAMILY_RANK.haiku!,
-      version: 4.5,
+      version: 4.05,
     });
   });
 
