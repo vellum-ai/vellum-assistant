@@ -69,16 +69,16 @@ describe("FeatureFlagsPanel", () => {
   test("PATCHes an assistant-scoped flag to the active assistant when toggled", () => {
     renderPanel();
 
-    // `memory-retrospective-fork` is an assistant-scoped boolean flag that
-    // defaults off — its row renders with the "... is off" label.
+    // `voice-mode` is an assistant-scoped boolean flag that defaults off — its
+    // row renders with the "... is off" label.
     const toggle = screen.getByRole("switch", {
-      name: "Fork-based memory retrospective is off",
+      name: "Voice Mode is off",
     });
     fireEvent.click(toggle);
 
     const request = patchMock.mock.calls[0]?.[0];
     expect(request).toMatchObject({
-      url: "/v1/assistants/assistant-1/feature-flags/memory-retrospective-fork",
+      url: "/v1/assistants/assistant-1/feature-flags/voice-mode",
       body: { enabled: true },
       throwOnError: false,
     });
