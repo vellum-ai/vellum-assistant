@@ -257,6 +257,13 @@ export const installDeepLinks = (): void => {
   });
 };
 
+/**
+ * Whether any deep links have been buffered before the renderer
+ * drained them. Used by the move-to-Applications guard to skip
+ * the prompt when the launch was triggered by a deep link.
+ */
+export const hasPendingDeepLinks = (): boolean => pending.length > 0;
+
 // Test seam — exported only for unit-test setup. Production code
 // uses `installDeepLinks` instead.
 export const __resetForTesting = (): void => {
