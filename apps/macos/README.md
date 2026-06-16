@@ -129,7 +129,7 @@ whichever Swift channel you have around.
   process of its own. Each local assistant runs its own processes, spawned and
   managed by the `vellum` CLI; the main process only invokes the CLI as a
   subprocess for lifecycle ops (hatch, retire, token). Packaging the CLI
-  runtime so this works in distributed builds is tracked in LUM-2085.
+  runtime so this works in distributed builds is a known gap.
 
 ## Native macOS integration
 
