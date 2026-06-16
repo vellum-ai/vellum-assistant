@@ -8,13 +8,9 @@ import { availableParallelism, cpus, totalmem } from "node:os";
 import { z } from "zod";
 
 import { getCpuLimit, getIsPlatform } from "../../config/env-registry.js";
-import { resolveCallSiteConfig } from "../../config/llm-resolver.js";
-import { getConfig } from "../../config/loader.js";
 import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getProfilerRuntimeStatus } from "../../daemon/profiler-run-store.js";
 import { getMaxMigrationVersion } from "../../memory/migrations/registry.js";
-import { buildSystemPrompt } from "../../prompts/system-prompt.js";
-import { getConfiguredProvider } from "../../providers/provider-send-message.js";
 import { getCesClient } from "../../security/secure-keys.js";
 import {
   getDiskUsageInfo,
@@ -27,15 +23,8 @@ import { resolveHatchedAtReadOnly } from "../../workspace/hatched-date.js";
 import { WORKSPACE_MIGRATIONS } from "../../workspace/migrations/registry.js";
 import { getLastWorkspaceMigrationId } from "../../workspace/migrations/runner.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { runBtwSidechain } from "../btw-sidechain.js";
 import { NotFoundError } from "./errors.js";
-import {
-  getCachedIntro,
-  readWorkspaceGreetings,
-  readWorkspaceIdentityIntro,
-  setCachedIntro,
-} from "./identity-intro-cache.js";
-import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+import type { RouteDefinition } from "./types.js";
 
 interface MemoryInfo {
   currentMb: number;
@@ -405,256 +394,6 @@ function resolveIdentityCreatedAt(identityPath: string): string | undefined {
   return resolveHatchedAtReadOnly(identityPath);
 }
 
-const FALLBACK_GREETINGS = [
-  "What are we working on?",
-  "I'm here whenever you need me.",
-  "What's on your mind?",
-  "Ready when you are.",
-];
-
-const GENERATED_GREETING_LIMIT = 5;
-const GREETING_GENERATION_TIMEOUT_MS = 10_000;
-const GREETING_GENERATION_FAILURE_COOLDOWN_MS = 60_000;
-const EMPTY_STATE_GREETING_CALLSITE = "emptyStateGreeting" as const;
-const EXPLICIT_TIME_OF_DAY_PATTERN =
-  /\b(?:morning|afternoon|evening|tonight|midnight|noon|sunrise|sunset)\b/i;
-
-type IdentityIntroSource = "workspace" | "cache" | "fallback";
-
-interface IdentityIntroResponse {
-  greetings: string[];
-  text: string;
-  source: IdentityIntroSource;
-  refreshing: boolean;
-}
-
-let greetingGenerationInFlight: Promise<void> | null = null;
-let lastGreetingGenerationFailureAt = 0;
-
-function identityIntroResponse(
-  greetings: string[],
-  source: IdentityIntroSource,
-  refreshing = false,
-): IdentityIntroResponse {
-  return {
-    greetings,
-    text: greetings[0] ?? "",
-    source,
-    refreshing,
-  };
-}
-
-function getIdentityIntro({
-  queryParams = {},
-}: RouteHandlerArgs = {}): IdentityIntroResponse {
-  const localTimeContext = buildLocalTimeContext(queryParams);
-
-  // 1. User-defined greetings from SOUL.md `## Greetings`
-  const workspaceGreetings = readWorkspaceGreetings();
-  if (workspaceGreetings) {
-    return identityIntroResponse(workspaceGreetings, "workspace");
-  }
-
-  // 2. Cached LLM-generated greetings
-  const cached = getCachedIntro();
-  if (cached) {
-    return identityIntroResponse(cached.greetings, "cache");
-  }
-
-  // 3. Identity intro tagline from `## Identity Intro` in IDENTITY.md
-  //    (written during onboarding by BOOTSTRAP.md instructions)
-  const identityIntro = readWorkspaceIdentityIntro();
-  if (identityIntro) {
-    // Still trigger background generation so the next request gets
-    // LLM-generated greetings instead of the static tagline.
-    const refreshing = triggerEmptyStateGreetingGeneration(localTimeContext);
-    return identityIntroResponse(
-      [identityIntro, ...FALLBACK_GREETINGS],
-      "workspace",
-      refreshing,
-    );
-  }
-
-  // 4. Trigger fresh generation without blocking the empty-state UI.
-  const refreshing = triggerEmptyStateGreetingGeneration(localTimeContext);
-
-  // 5. Generic fallback only when generation is unavailable.
-  return identityIntroResponse(FALLBACK_GREETINGS, "fallback", refreshing);
-}
-
-function buildLocalTimeContext(
-  queryParams: Record<string, string>,
-): string | null {
-  const rawHour = queryParams.localHour;
-  const rawMinute = queryParams.localMinute;
-  if (rawHour === undefined || rawMinute === undefined) {
-    return null;
-  }
-
-  const hour = Number(rawHour);
-  const minute = Number(rawMinute);
-  if (
-    !Number.isInteger(hour) ||
-    !Number.isInteger(minute) ||
-    hour < 0 ||
-    hour > 23 ||
-    minute < 0 ||
-    minute > 59
-  ) {
-    return null;
-  }
-
-  const period =
-    hour >= 5 && hour < 12
-      ? "morning"
-      : hour >= 12 && hour < 17
-        ? "afternoon"
-        : hour >= 17 && hour < 21
-          ? "evening"
-          : "late night";
-  const paddedHour = String(hour).padStart(2, "0");
-  const paddedMinute = String(minute).padStart(2, "0");
-  return `${period} (${paddedHour}:${paddedMinute})`;
-}
-
-function triggerEmptyStateGreetingGeneration(
-  localTimeContext: string | null,
-): boolean {
-  if (greetingGenerationInFlight) {
-    return true;
-  }
-
-  if (
-    lastGreetingGenerationFailureAt > 0 &&
-    Date.now() - lastGreetingGenerationFailureAt <
-      GREETING_GENERATION_FAILURE_COOLDOWN_MS
-  ) {
-    return false;
-  }
-
-  greetingGenerationInFlight = new Promise<void>((resolve) => {
-    queueMicrotask(() => {
-      void generateEmptyStateGreetings(localTimeContext)
-        .then((greetings) => {
-          lastGreetingGenerationFailureAt = greetings === null ? Date.now() : 0;
-        })
-        .finally(() => {
-          greetingGenerationInFlight = null;
-          resolve();
-        });
-    });
-  });
-
-  return true;
-}
-
-async function generateEmptyStateGreetings(
-  localTimeContext: string | null,
-): Promise<string[] | null> {
-  try {
-    const provider = await getConfiguredProvider(EMPTY_STATE_GREETING_CALLSITE);
-    if (!provider) {
-      return null;
-    }
-
-    const resolved = resolveCallSiteConfig(
-      EMPTY_STATE_GREETING_CALLSITE,
-      getConfig().llm,
-    );
-    const systemPrompt = buildSystemPrompt({
-      excludeBootstrap: true,
-      excludeCustomPrefix: true,
-    });
-    const localTimeInstruction = localTimeContext
-      ? ` Current user-local time for subtle tone only: ${localTimeContext}.`
-      : "";
-    const result = await runBtwSidechain({
-      content:
-        `Generate ${GENERATED_GREETING_LIMIT} short first-person greeting options for the empty new-chat screen. ` +
-        "Use the assistant identity, voice, and relationship guidance from IDENTITY.md and SOUL.md. " +
-        "Each greeting should feel personal and inviting, not like a generic assistant introduction. " +
-        "Return only a JSON array of strings. No markdown, keys, or explanation. " +
-        "Generated greetings are cached for 4 hours, so do not mention the current time " +
-        "or use explicit time-of-day words like morning, afternoon, evening, or tonight." +
-        localTimeInstruction,
-      provider,
-      systemPrompt,
-      messages: [],
-      tools: [],
-      callSite: EMPTY_STATE_GREETING_CALLSITE,
-      maxTokens: resolved.maxTokens,
-      timeoutMs: GREETING_GENERATION_TIMEOUT_MS,
-    });
-
-    const greetings = parseGeneratedGreetings(result.text);
-    if (greetings.length === 0) {
-      return null;
-    }
-
-    setCachedIntro(greetings);
-    return greetings;
-  } catch (err) {
-    getLogger("identity").warn(
-      { err },
-      "Failed to generate empty-state greetings",
-    );
-    return null;
-  }
-}
-
-function parseGeneratedGreetings(text: string): string[] {
-  const cleaned = text
-    .trim()
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/i, "")
-    .trim();
-
-  try {
-    const parsed = JSON.parse(cleaned) as unknown;
-    if (Array.isArray(parsed)) {
-      return normalizeGeneratedGreetings(parsed);
-    }
-    if (
-      parsed &&
-      typeof parsed === "object" &&
-      Array.isArray((parsed as { greetings?: unknown }).greetings)
-    ) {
-      return normalizeGeneratedGreetings(
-        (parsed as { greetings: unknown[] }).greetings,
-      );
-    }
-  } catch {
-    // Fall through to line parsing for non-JSON model output.
-  }
-
-  return normalizeGeneratedGreetings(cleaned.split("\n"));
-}
-
-function normalizeGeneratedGreetings(values: unknown[]): string[] {
-  const greetings: string[] = [];
-  const seen = new Set<string>();
-
-  for (const value of values) {
-    if (typeof value !== "string") continue;
-    const greeting = value
-      .trim()
-      .replace(/^(?:[-*+]\s+|\d+[.)]\s+)/, "")
-      .replace(/^["'`]+|["'`]+$/g, "")
-      .trim();
-    if (!greeting) continue;
-    if (EXPLICIT_TIME_OF_DAY_PATTERN.test(greeting)) continue;
-
-    const key = greeting.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    greetings.push(greeting);
-
-    if (greetings.length >= GENERATED_GREETING_LIMIT) break;
-  }
-
-  return greetings;
-}
-
 // ---------------------------------------------------------------------------
 // Zod schemas for profiler health metadata
 // ---------------------------------------------------------------------------
@@ -785,40 +524,6 @@ export const ROUTES: RouteDefinition[] = [
       home: z.string(),
       version: z.string(),
       createdAt: z.string().optional(),
-    }),
-  },
-  {
-    operationId: "identity_intro",
-    endpoint: "identity/intro",
-    method: "GET",
-    policy: {
-      requiredScopes: ["settings.read"],
-      allowedPrincipalTypes: ACTOR_PRINCIPALS,
-    },
-    handler: getIdentityIntro,
-    summary: "Get identity greetings",
-    description:
-      "Returns greetings sourced from SOUL.md, the generated cache, or generic fallbacks while background generation refreshes the cache.",
-    tags: ["identity"],
-    queryParams: [
-      {
-        name: "localHour",
-        schema: { type: "integer", minimum: 0, maximum: 23 },
-        description:
-          "Optional client-local hour of day used only when refreshing generated greetings.",
-      },
-      {
-        name: "localMinute",
-        schema: { type: "integer", minimum: 0, maximum: 59 },
-        description:
-          "Optional client-local minute used only when refreshing generated greetings.",
-      },
-    ],
-    responseBody: z.object({
-      greetings: z.array(z.string()),
-      text: z.string(),
-      source: z.enum(["workspace", "cache", "fallback"]),
-      refreshing: z.boolean(),
     }),
   },
 ];

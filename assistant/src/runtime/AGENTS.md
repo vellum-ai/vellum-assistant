@@ -22,7 +22,6 @@ GET handlers must be safe and side-effect-free — they must not enqueue backgro
 
 Accepted exceptions (stale-while-revalidate caches): a GET handler may kick off a bounded, fire-and-forget background refresh of a generated-content cache when no fresh cache exists, provided the handler itself stays read-only and returns immediately with cached/fallback copy, the refresh is single-flight (concurrent GETs share one regeneration), and a TTL bounds regeneration frequency. Current instances:
 
-- `GET /v1/identity/intro` — refreshes the generated greeting cache; the background prompt may only depend on static identity/soul context plus caller-supplied local hour/minute.
 - `GET /v1/home/feed` — refreshes the personalized home greeting and suggested-prompt caches via `revalidateHomeContentInBackground()`, which publishes `home_feed_updated` when fresh content lands so clients refetch. This is intentional: home content is generated on demand (when a user actually views Home), never at daemon startup or on a timer.
 - `GET /v1/conversation-starters` — enqueues a `generate_conversation_starters` memory job when the starter set is stale, cooldown-gated and deduped against in-flight jobs.
 

@@ -197,11 +197,7 @@ struct IdentityPanel: View {
                     isBootstrapActive = fileResponse != nil
 
                     if !isBootstrapActive && introText == nil {
-                        if let soulIntro = await IdentityInfo.loadIdentityIntroAsync() {
-                            introText = soulIntro
-                        } else {
-                            generateIntro()
-                        }
+                        generateIntro()
                     }
                 }
             }
@@ -215,7 +211,7 @@ struct IdentityPanel: View {
         introTask?.cancel()
 
         introTask = Task {
-            let key = "identity-intro"
+            let key = "profile-intro"
             let nameInstruction = hasRealName
                 ? "Use your configured name, \"\(assistantDisplayName)\", exactly."
                 : "If you do not have a configured name yet, do not invent one."

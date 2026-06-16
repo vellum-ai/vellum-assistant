@@ -1,8 +1,8 @@
 /**
  * Bus consumer for assistant-level resource cache invalidation.
  *
- * Routes `sync_changed` tags (avatar, identity, identity intro, config,
- * sounds, schedules, apps) and discrete SSE events (`home_feed_updated`,
+ * Routes `sync_changed` tags (avatar, identity, config, sounds, schedules,
+ * apps) and discrete SSE events (`home_feed_updated`,
  * `relationship_state_updated`, `identity_changed`, `avatar_updated`) into
  * TanStack Query cache invalidations.
  *
@@ -32,7 +32,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   configGetQueryKey,
   identityGetQueryKey,
-  identityIntroGetQueryKey,
   schedulesGetQueryKey,
   soundsAvailableGetQueryKey,
   soundsConfigGetQueryKey,
@@ -75,14 +74,6 @@ export function useAssistantResourceSync(
             case SYNC_TAGS.assistantIdentity:
               void queryClient.invalidateQueries({
                 queryKey: identityGetQueryKey(pathOpts),
-              });
-              void queryClient.invalidateQueries({
-                queryKey: identityIntroGetQueryKey(pathOpts),
-              });
-              break;
-            case SYNC_TAGS.assistantIdentityIntro:
-              void queryClient.invalidateQueries({
-                queryKey: identityIntroGetQueryKey(pathOpts),
               });
               break;
             case SYNC_TAGS.assistantConfig:
@@ -157,9 +148,6 @@ export function useAssistantResourceSync(
     });
     void queryClient.invalidateQueries({
       queryKey: identityGetQueryKey(pathOpts),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: identityIntroGetQueryKey(pathOpts),
     });
     void queryClient.invalidateQueries({
       queryKey: configGetQueryKey(pathOpts),

@@ -27,17 +27,10 @@ import {
   setCachedEmptyStateGreeting,
 } from "./empty-state-greeting-cache.js";
 import { BadRequestError, ServiceUnavailableError } from "./errors.js";
-import {
-  getCachedIntro,
-  readWorkspaceGreetings,
-  setCachedIntro,
-} from "./identity-intro-cache.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+import { readWorkspaceGreetings } from "./workspace-greetings.js";
 
 const log = getLogger("btw-routes");
-
-/** Conversation key used by the client for identity intro generation. */
-const IDENTITY_INTRO_KEY = "identity-intro";
 
 /** Conversation key used by the client for empty-state greeting generation. */
 const GREETING_KEY = "greeting";
@@ -71,15 +64,6 @@ async function handleBtw({
   }
 
   const trimmedContent = content.trim();
-
-  // ----- Cached identity intro fast-path -----
-  if (conversationKey === IDENTITY_INTRO_KEY) {
-    const fastText = getCachedIntro()?.greetings[0];
-    if (fastText) {
-      log.debug("Returning identity intro fast-path");
-      return streamText(fastText);
-    }
-  }
 
   // ----- Empty-state greeting fast-path -----
   // User-authored `## Greetings` win; otherwise replay a cached greeting when
@@ -126,7 +110,6 @@ async function handleBtw({
     start(controller) {
       (async () => {
         try {
-          const isIntroRequest = conversationKey === IDENTITY_INTRO_KEY;
           const isGreeting = conversationKey === GREETING_KEY;
           const result = await runBtwSidechain({
             content: effectiveContent,
@@ -151,15 +134,6 @@ async function handleBtw({
               },
               "btw side-chain completed with no text deltas",
             );
-          }
-
-          if (isIntroRequest && result.text) {
-            try {
-              setCachedIntro([result.text]);
-              log.debug("Cached identity intro text");
-            } catch {
-              // Non-fatal — next request will regenerate.
-            }
           }
 
           if (isGreeting && result.text) {
