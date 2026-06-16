@@ -542,13 +542,18 @@ const ADVISOR_TOOL_NAME = "advisor";
  * cannot rank.
  */
 export function advisorActiveForConversation(
+  executorCallSite: LLMCallSite,
   overrideProfile: string | undefined,
   conversationId: string | undefined,
 ): boolean {
   try {
     const llm = getConfig().llm;
     if (!llm) return false;
-    const executor = resolveCallSiteConfig("mainAgent", llm, {
+    // Resolve the executor against the call site actually serving this turn
+    // (e.g. heartbeatAgent/filingAgent can use a different profile than the
+    // chat model), not always mainAgent, so the tier comparison matches the
+    // model the executor is really running.
+    const executor = resolveCallSiteConfig(executorCallSite, llm, {
       overrideProfile,
       selectionSeed: conversationId,
     });
@@ -686,6 +691,7 @@ export function isToolActiveForContext(
   }
   if (name === ADVISOR_TOOL_NAME) {
     return advisorActiveForConversation(
+      ctx.currentCallSite ?? "mainAgent",
       ctx.currentTurnOverrideProfile,
       ctx.conversationId,
     );

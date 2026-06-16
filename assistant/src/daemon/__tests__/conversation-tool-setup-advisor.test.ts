@@ -47,6 +47,7 @@ function makeLlmConfig(
   executorModel: string,
   advisorModel: string,
   overrideProfiles: Record<string, string> = {},
+  extraCallSites: Record<string, unknown> = {},
 ): LLMConfig {
   return {
     default: { model: executorModel },
@@ -63,6 +64,7 @@ function makeLlmConfig(
     callSites: {
       mainAgent: { model: executorModel },
       advisor: { profile: "advisor" },
+      ...extraCallSites,
     },
   } as unknown as LLMConfig;
 }
@@ -156,6 +158,24 @@ describe("advisor gate — per-turn override re-evaluation", () => {
       isToolActiveForContext(
         "advisor",
         makeCtx({ currentTurnOverrideProfile: "lowTier" }),
+      ),
+    ).toBe(true);
+  });
+
+  test("gates against the actual turn call site, not always mainAgent", () => {
+    // mainAgent is top-tier (== advisor), but this turn runs under
+    // heartbeatAgent, which uses a lower-tier model — so the advisor IS a
+    // genuine upgrade for the turn and must be exposed.
+    getConfigSpy = stubConfig(
+      makeLlmConfig(OPUS, OPUS, {}, { heartbeatAgent: { model: HAIKU } }),
+    );
+    // Default call site is mainAgent (== advisor) → hidden.
+    expect(isToolActiveForContext("advisor", makeCtx())).toBe(false);
+    // The actual turn call site (heartbeatAgent, HAIKU) → exposed.
+    expect(
+      isToolActiveForContext(
+        "advisor",
+        makeCtx({ currentCallSite: "heartbeatAgent" }),
       ),
     ).toBe(true);
   });
