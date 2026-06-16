@@ -17681,6 +17681,7 @@ paths:
               properties:
                 deliveryId:
                   type: string
+                  minLength: 1
                   description: Notification delivery ID
                 success:
                   type: boolean
