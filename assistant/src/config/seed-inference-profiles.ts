@@ -433,6 +433,21 @@ export function seedInferenceProfiles(
     }
   }
 
+  // Pin the advisor call-site to the advisor profile so the advisor tool's
+  // model stays independent of the user's active or per-conversation chat
+  // profile. Seeded here rather than via a workspace migration because
+  // migrations run before profile seeding, so a migration could not yet
+  // reference the advisor profile. Only set when absent so user edits to
+  // `llm.callSites.advisor` survive subsequent boots.
+  const callSites = readObject(llm.callSites) ?? {};
+  if (
+    readObject(callSites.advisor) === null &&
+    readString(readObject(profiles.advisor)?.model) !== undefined
+  ) {
+    callSites.advisor = { profile: "advisor" };
+    llm.callSites = callSites;
+  }
+
   saveRawConfig(config);
 }
 
