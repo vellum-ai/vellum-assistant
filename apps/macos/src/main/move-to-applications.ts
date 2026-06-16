@@ -1,70 +1,48 @@
-import { app, dialog } from "electron";
-import Store from "electron-store";
+import { app } from "electron";
 
 import log from "./logger";
 
-interface LifecycleStore {
-  moveToApplicationsDeclined?: boolean;
-}
-
-let store: Store<LifecycleStore> | null = null;
-
-const getStore = (): Store<LifecycleStore> => {
-  if (!store) {
-    store = new Store<LifecycleStore>({ name: "app-lifecycle" });
-  }
-  return store;
-};
-
 /**
- * Offer to move the app to /Applications when running from a non-standard
- * location (e.g. a mounted DMG or ~/Downloads). Uses Electron's built-in
- * `app.moveToApplicationsFolder()` which copies the .app, relaunches from
- * /Applications, and terminates the current process.
+ * Relocate the app into /Applications on first launch when it is running from
+ * somewhere else (a mounted DMG, ~/Downloads, etc.), then relaunch from the
+ * new location.
  *
- * No-op when:
- *  - Running an unpackaged dev build
- *  - Already in /Applications
- *  - The user previously declined the prompt
+ * This is the "double-click to install" half of the DMG installer flow: the
+ * DMG ships a single app icon under "Install Vellum / Double click the icon
+ * below" with no Applications alias, and the app installs itself here instead
+ * of asking the user to drag it. It also resolves macOS app translocation —
+ * an app launched from a quarantined DMG runs from a randomized read-only path
+ * until it is moved into /Applications via the Finder, and
+ * `moveToApplicationsFolder()` performs that move programmatically.
  *
- * Returns `true` if the app is being moved (caller should bail out of
- * further initialization), `false` if startup should continue normally.
+ * The move is silent (no confirmation dialog) to match a lightweight installer
+ * feel. It is a no-op when:
+ *  - running an unpackaged dev build, or
+ *  - already in /Applications.
  *
- * @see https://www.electronjs.org/docs/latest/api/app#appmoveToApplicationsFolderoptions-macos
+ * Returns `true` if the app is being relocated — the caller must bail out of
+ * further initialization because the process is about to quit and relaunch.
+ * Returns `false` if startup should continue from the current location.
+ *
+ * @see https://www.electronjs.org/docs/latest/api/app#appmovetoapplicationsfolderoptions-macos
  */
-export async function offerMoveToApplications(): Promise<boolean> {
+export function relocateToApplicationsFolder(): boolean {
   if (!app.isPackaged) return false;
   if (app.isInApplicationsFolder()) return false;
-  if (getStore().get("moveToApplicationsDeclined")) return false;
-
-  const { response } = await dialog.showMessageBox({
-    type: "question",
-    buttons: ["Move to Applications", "Not Now"],
-    defaultId: 0,
-    cancelId: 1,
-    message: "Move to Applications folder?",
-    detail:
-      "Vellum works best when installed in the Applications folder. " +
-      "Would you like to move it there now?",
-  });
-
-  if (response === 1) {
-    getStore().set("moveToApplicationsDeclined", true);
-    return false;
-  }
 
   try {
     return app.moveToApplicationsFolder({
       conflictHandler: (conflictType) => {
         if (conflictType === "existsAndRunning") {
-          dialog.showErrorBox(
-            "Cannot move Vellum",
-            "Another copy of Vellum is already running from the Applications " +
-              "folder. Please quit it first, then try again.",
+          // Another copy is already installed and running. Leave it be and
+          // keep running from the current location for this session rather
+          // than nagging — the user clearly already has Vellum installed.
+          log.info(
+            "[move-to-applications] /Applications copy already running; skipping move",
           );
           return false;
         }
-        // "exists" — overwrite the stale copy
+        // "exists" — a stale copy is present but not running; overwrite it.
         return true;
       },
     });

@@ -62,7 +62,7 @@ import {
   toggleVisibility as toggleMainWindowVisibility,
 } from "./main-window";
 import { installApplicationMenu, refreshCliPathMenuState } from "./menu";
-import { offerMoveToApplications } from "./move-to-applications";
+import { relocateToApplicationsFolder } from "./move-to-applications";
 import { installNativeAuth } from "./native-auth";
 import { installConnectivityProbe } from "./connectivity-probe";
 import { installNotifications } from "./notifications";
@@ -332,12 +332,13 @@ const forwardPlatformRequest = async (
 app
   .whenReady()
   .then(async () => {
-    // Offer to move the app to /Applications before any other setup.
-    // If accepted, the process terminates and relaunches from /Applications.
-    // Skip the prompt when a file or deep link triggered the launch — those
-    // events are buffered in-process and would be lost during the relaunch.
+    // Install into /Applications before any other setup. On the first packaged
+    // launch from a mounted DMG (or ~/Downloads), the app silently moves itself
+    // there and relaunches — the "double-click to install" half of the DMG flow.
+    // Skip it when a file or deep link triggered the launch: those events are
+    // buffered in-process and would be lost during the relaunch.
     if (!hasPendingFiles() && !hasPendingDeepLinks()) {
-      if (await offerMoveToApplications()) return;
+      if (relocateToApplicationsFolder()) return;
     }
 
     if (!isDev) {
