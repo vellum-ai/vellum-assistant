@@ -116,7 +116,9 @@ export function SidebarShell({
       </div>
 
       {electron ? (
-        <StatusBanner placement="electron" className="mb-4 px-0 pt-0" />
+        <div className="shrink-0 pb-4 empty:hidden">
+          <StatusBanner placement="electron" className="px-0 pt-0" />
+        </div>
       ) : null}
 
       {/* Card chrome — desktop only */}
