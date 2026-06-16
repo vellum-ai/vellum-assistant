@@ -1045,6 +1045,32 @@ function formatNullableTimestamp(value: number | null): string {
 }
 
 function formatDuration(value: number | null): string {
-  if (value == null || !Number.isFinite(value)) return "—";
-  return `${value}ms`;
+  if (value == null || !Number.isFinite(value) || value < 0) return "—";
+  if (value < 1000) return `${Math.round(value)}ms`;
+
+  // Keep one decimal of precision only in the sub-minute range, where it's
+  // meaningful; coarser units round to whole seconds. Working in tenths of a
+  // second lets the tier boundary (e.g. 59.97s) round up cleanly to "1m".
+  const tenths = Math.round(value / 100);
+  if (tenths < 600) {
+    const seconds = tenths / 10;
+    return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)}s`;
+  }
+
+  const totalSeconds = Math.round(value / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) {
+    return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const remMinutes = minutes % 60;
+  if (hours < 24) {
+    return remMinutes > 0 ? `${hours}h ${remMinutes}m` : `${hours}h`;
+  }
+
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return remHours > 0 ? `${days}d ${remHours}h` : `${days}d`;
 }
