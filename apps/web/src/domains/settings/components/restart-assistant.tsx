@@ -2,7 +2,7 @@ import { Loader2, RotateCcw } from "lucide-react";
 import { useState } from "react";
 
 import { restartAssistant } from "@/assistant/api";
-import { isLocalMode } from "@/lib/local-mode";
+import { getLockfile, isLocalAssistant, isLocalMode } from "@/lib/local-mode";
 import {
   sleepLocalAssistantHost,
   wakeLocalAssistantHost,
@@ -33,7 +33,12 @@ export function RestartAssistant({ assistantId }: { assistantId: string }) {
     setConfirmOpen(false);
     setRestarting(true);
     try {
-      if (isLocalMode()) {
+      const lockfileEntry = isLocalMode()
+        ? getLockfile().assistants.find((a) => a.assistantId === assistantId)
+        : undefined;
+      const isCli = !!lockfileEntry && isLocalAssistant(lockfileEntry);
+
+      if (isCli) {
         const result = await restartLocalAssistant(assistantId);
         if (result.ok) {
           toast.success("Assistant is restarting.");
