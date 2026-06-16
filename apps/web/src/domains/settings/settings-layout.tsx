@@ -1,10 +1,10 @@
-import { LogOut } from "lucide-react";
+import { LogIn, LogOut } from "lucide-react";
 import { useMemo } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
 
+import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { handleLogout } from "@/lib/auth/handle-logout";
-import { isLocalMode } from "@/lib/local-mode";
 import { isElectron } from "@/runtime/is-electron";
 import { useHasPlatformSession } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
@@ -28,9 +28,9 @@ export function SettingsLayout() {
   const billingGate = usePlatformGate();
   const { pathname } = useLocation();
   const navigate = useNavigate();
-  // Hide logout in pure local mode unless a platform session exists.
+  // Show Log Out when a platform session exists, Log In otherwise.
   const hasPlatformSession = useHasPlatformSession();
-  const showLogout = !isLocalMode() || hasPlatformSession;
+  const { login } = useOnboardingLogin();
 
   const filteredItems = useMemo(
     () =>
@@ -69,17 +69,24 @@ export function SettingsLayout() {
     if (settingsDeveloperNav) {
       items.push(...SETTINGS_SIDEBAR.filter((item) => item.id === "developer"));
     }
-    // Log Out is pinned to the very bottom of the nav as an action item.
-    if (showLogout) {
-      items.push({
-        id: "logout",
-        label: "Log Out",
-        icon: LogOut,
-        onSelect: () => void handleLogout(navigate),
-      });
-    }
+    // The auth action is pinned to the very bottom of the nav.
+    items.push(
+      hasPlatformSession
+        ? {
+            id: "logout",
+            label: "Log Out",
+            icon: LogOut,
+            onSelect: () => void handleLogout(navigate),
+          }
+        : {
+            id: "login",
+            label: "Log In",
+            icon: LogIn,
+            onSelect: () => void login(),
+          },
+    );
     return items;
-  }, [settingsDeveloperNav, showLogout, navigate]);
+  }, [settingsDeveloperNav, hasPlatformSession, navigate, login]);
 
   const pageTitle = useMemo(() => {
     if (pathname === routes.settings.root) return "Settings";
