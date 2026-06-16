@@ -125,11 +125,14 @@ describe("remote web pairing verification", () => {
     expect(limited.headers.get("Retry-After")).toBeTruthy();
 
     const challenge = await createChallenge();
-    const approved = await handleVerifyRemoteWebPairingChallenge(
+    const blockedValidCode = await handleVerifyRemoteWebPairingChallenge(
       makeVerificationRequest({ userCode: challenge.userCode }),
       CLIENT_IP,
     );
 
-    expect(approved.status).toBe(200);
+    expect(blockedValidCode.status).toBe(429);
+    expect(
+      getRemoteWebPairingChallengeForTests(challenge.userCode)?.status,
+    ).toBe("pending");
   });
 });

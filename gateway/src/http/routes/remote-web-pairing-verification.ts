@@ -98,6 +98,9 @@ export async function handleVerifyRemoteWebPairingChallenge(
     );
   }
 
+  const rateLimited = checkFailureRateLimit(clientIp);
+  if (rateLimited) return rateLimited;
+
   const result = approveRemoteWebPairingChallenge(userCode);
   if (result.status === "invalid") {
     return failedAttemptResponse(
