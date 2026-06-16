@@ -6,7 +6,6 @@ import {
 } from "@/domains/chat/components/voice-input-button";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { useDictationOverlaySync } from "@/domains/chat/hooks/use-dictation-overlay-sync";
-import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { formatVoiceError } from "@/domains/chat/utils/chat";
 import { postDictation } from "@/domains/chat/voice/dictation-api";
 import { getPushToTalkTarget } from "@/domains/chat/voice/push-to-talk-target";
@@ -18,6 +17,7 @@ import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-sto
 import { insertTextIntoFrontApp } from "@/runtime/text-insertion";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
+import { createDraftConversationId } from "@/utils/conversation-draft-id";
 import { toast } from "@vellumai/design-library/components/toast";
 
 interface GlobalPushToTalkBridgeProps {

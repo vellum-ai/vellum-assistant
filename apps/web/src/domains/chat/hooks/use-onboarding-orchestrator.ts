@@ -25,7 +25,7 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { useConversationStore } from "@/stores/conversation-store";
 import { type PreChatOnboardingContext } from "@/domains/onboarding/prechat";
-import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
+import { createDraftConversationId } from "@/utils/conversation-draft-id";
 import { routes } from "@/utils/routes";
 
 export interface UseOnboardingOrchestratorResult {

@@ -54,7 +54,9 @@ import type {
     UsageTotals,
 } from "@/domains/logs/usage-types";
 import { assistantSchedulesQueryKey } from "@/lib/sync/query-tags";
-import { storePendingInitialMessage } from "@/utils/initial-message-launch";
+import { useConversationStore } from "@/stores/conversation-store";
+import { useViewerStore } from "@/stores/viewer-store";
+import { createDraftConversationId } from "@/utils/conversation-draft-id";
 import { routes } from "@/utils/routes";
 import { fetchSchedules, type AssistantSchedule } from "@/utils/schedules";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
@@ -124,10 +126,17 @@ export function UsageTab({ assistantId }: UsageTabProps) {
     staleTime: 10_000,
   });
 
-  const startCostConversation = (message: string) => {
-    storePendingInitialMessage(message);
-    void navigate(routes.assistant);
-  };
+  const startCostConversation = useCallback(
+    (message: string) => {
+      const draftConversationId = createDraftConversationId();
+      useViewerStore.getState().setMainView("chat");
+      useConversationStore.getState().setActiveConversationId(draftConversationId);
+      void navigate(
+        `${routes.conversation(draftConversationId)}?prompt=${encodeURIComponent(message)}`,
+      );
+    },
+    [navigate],
+  );
 
   const handleRangeChange = useCallback(
     (nextRange: UsageTimeRange) => {

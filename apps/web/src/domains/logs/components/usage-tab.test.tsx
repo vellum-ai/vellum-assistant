@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement, type ReactElement } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 
@@ -123,6 +123,16 @@ mock.module("@/domains/logs/usage-api", () => ({
   fetchUsageSeries: fetchUsageSeriesMock,
   fetchUsageTotals: fetchUsageTotalsMock,
 }));
+mock.module("@/domains/logs/call-site-metadata", () => ({
+  buildCallSiteMetadataMap: () => ({}),
+  fetchUsageCallSiteCatalog: async () => ({ domains: [], callSites: [] }),
+}));
+mock.module("@/domains/logs/profile-metadata", () => ({
+  fetchUsageProfileMetadata: async () => ({}),
+}));
+mock.module("@/utils/conversation-draft-id", () => ({
+  createDraftConversationId: () => "draft-cost-analysis",
+}));
 
 const { UsageTab } = await import("./usage-tab");
 
@@ -148,6 +158,14 @@ function renderUsageTab(initialEntry: string) {
         path: "/assistant/logs/usage",
         element: createElement(UsageTab, { assistantId: "assistant-1" }),
       },
+      {
+        path: "/assistant",
+        element: createElement("div", null, "Assistant route"),
+      },
+      {
+        path: "/assistant/conversations/:conversationId",
+        element: createElement("div", null, "Chat route"),
+      },
     ],
     { initialEntries: [initialEntry] },
   );
@@ -157,7 +175,7 @@ function renderUsageTab(initialEntry: string) {
     createElement(RouterProvider, { router }),
   );
 
-  return render(element);
+  return { ...render(element), router };
 }
 
 function readLegendItems(container: HTMLElement) {
@@ -231,5 +249,45 @@ describe("UsageTab", () => {
       "active",
       "inactive",
     ]);
+  });
+
+  test("starts a draft chat with the cost analysis prompt", async () => {
+    const { router } = renderUsageTab("/assistant/logs/usage?range=7d");
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Analyze costs with assistant",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(
+        "/assistant/conversations/draft-cost-analysis",
+      ),
+    );
+    expect(router.state.location.search).toContain("prompt=");
+    expect(
+      decodeURIComponent(router.state.location.search),
+    ).toContain("llm-cost-optimizer skill");
+  });
+
+  test("starts a draft chat with the cost optimization prompt", async () => {
+    const { router } = renderUsageTab("/assistant/logs/usage?range=7d");
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Optimize settings",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(
+        "/assistant/conversations/draft-cost-analysis",
+      ),
+    );
+    expect(router.state.location.search).toContain("prompt=");
+    expect(
+      decodeURIComponent(router.state.location.search),
+    ).toContain("safest cost-optimization changes");
   });
 });

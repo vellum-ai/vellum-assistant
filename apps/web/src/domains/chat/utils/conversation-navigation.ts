@@ -7,7 +7,7 @@ import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useViewerStore } from "@/stores/viewer-store";
-import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
+import { createDraftConversationId } from "@/utils/conversation-draft-id";
 
 /**
  * Navigate to an existing conversation, resetting subagent state and updating

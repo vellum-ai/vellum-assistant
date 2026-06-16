@@ -6,8 +6,8 @@
  * accept either `conversationKey` (external-key lookup; materializes a
  * row on first use) or `conversationId` (direct internal-id lookup;
  * 404 on miss). Web mints draft conversation ids locally — see
- * `createDraftConversationId()` in
- * `domains/chat/utils/conversation-selection.ts` — and uses them as URL
+ * `createDraftConversationId()` in `utils/conversation-draft-id.ts` — and
+ * uses them as URL
  * keys before the daemon has minted anything, so the strict-lookup
  * `conversationId` path is unsafe for the first message of a new chat.
  * The gate stays parked above the current daemon version until the

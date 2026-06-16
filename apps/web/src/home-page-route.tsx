@@ -4,7 +4,6 @@ import { useNavigate } from "react-router";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
-import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { HomePage } from "@/domains/home/home-page";
 import {
     useBackgroundConversationListQuery,
@@ -15,6 +14,7 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { mergeConversationLists } from "@/utils/conversation-cache";
+import { createDraftConversationId } from "@/utils/conversation-draft-id";
 import { routes } from "@/utils/routes";
 import { Typography } from "@vellumai/design-library";
 

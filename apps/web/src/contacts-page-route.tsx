@@ -1,10 +1,10 @@
 import { useNavigate } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
-import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { useConversationStore } from "@/stores/conversation-store";
 import { ContactsPage } from "@/domains/contacts/contacts-page";
 import { useViewerStore } from "@/stores/viewer-store";
+import { createDraftConversationId } from "@/utils/conversation-draft-id";
 import { routes } from "@/utils/routes";
 
 export function ContactsPageRoute() {

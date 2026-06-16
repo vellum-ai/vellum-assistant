@@ -11,10 +11,8 @@ import {
     useRef,
 } from "react";
 
-import {
-    createDraftConversationId,
-    resolveBootstrappedConversationId,
-} from "@/domains/chat/utils/conversation-selection";
+import { resolveBootstrappedConversationId } from "@/domains/chat/utils/conversation-selection";
+import { createDraftConversationId } from "@/utils/conversation-draft-id";
 import {
     loadLastViewedConversationId,
     saveLastViewedConversationId,
