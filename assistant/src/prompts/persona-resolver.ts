@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 import {
-  findContactByChannelExternalId,
+  findContactByAddress,
   findGuardianForChannel,
   listGuardianChannels,
 } from "../contacts/contact-store.js";
@@ -88,7 +88,7 @@ function resolveUserFilename(
       }
     } else if (trustContext.requesterExternalUserId) {
       // Channel-routed request — look up contact by channel identity
-      const contactWithChannels = findContactByChannelExternalId(
+      const contactWithChannels = findContactByAddress(
         trustContext.sourceChannel,
         trustContext.requesterExternalUserId,
       );
