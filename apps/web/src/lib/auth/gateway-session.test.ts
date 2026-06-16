@@ -4,6 +4,8 @@ import {
   GatewayTokenError,
   clearGatewayToken,
   ensureGatewayToken,
+  isGatewayAuthEnabled,
+  isGatewayAuthMode,
   isRepairableGatewayTokenError,
 } from "@/lib/auth/gateway-session";
 
@@ -16,8 +18,18 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  window.__VELLUM_CONFIG__ = undefined;
   globalThis.fetch = realFetch;
   clearGatewayToken();
+});
+
+describe("remote gateway mode", () => {
+  test("does not require a stored gateway token", () => {
+    window.__VELLUM_CONFIG__ = { mode: "remote-gateway" };
+
+    expect(isGatewayAuthEnabled()).toBe(true);
+    expect(isGatewayAuthMode()).toBe(true);
+  });
 });
 
 describe("ensureGatewayToken mint failure", () => {

@@ -42,4 +42,35 @@ describe("reconcileSnapshot", () => {
     // THEN the streamed local content is kept
     expect(messageText(result[0])).toBe("AAA");
   });
+
+  test("takes the snapshot authoritatively when the reconnect flag is set", () => {
+    /**
+     * On a reconnect the live frontier can overstate what was applied (events
+     * evicted from the daemon's replay ring left a hole), so the `authoritative`
+     * flag makes the snapshot win even though it sits behind the frontier —
+     * healing the transcript instead of preserving the holey local rows.
+     */
+    // GIVEN the stream has carried the conversation to frontier 10
+    const local = [
+      makeLocal({ id: "a1", role: "assistant", ...textBody("AAA"), timestamp: 1000 }),
+    ];
+    const server = [
+      makeServerMessage({
+        id: "a1",
+        role: "assistant",
+        ...wireTextBody("BBB"),
+        timestamp: wireTimestamp(1000),
+      }),
+    ];
+
+    // WHEN a snapshot behind the frontier is reconciled authoritatively
+    const result = reconcileSnapshot(local, server, {
+      serverSeq: 5,
+      localSeq: 10,
+      authoritative: true,
+    });
+
+    // THEN the snapshot content wins
+    expect(messageText(result[0])).toBe("BBB");
+  });
 });

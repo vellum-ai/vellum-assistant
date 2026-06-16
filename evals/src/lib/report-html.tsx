@@ -135,6 +135,18 @@ function formatRecordedAt(value: string | undefined): string {
 }
 
 /**
+ * Render a single request's round-trip latency compactly: `840ms` under a
+ * second, one-decimal seconds (`2.3s`) above it. Distinct from
+ * `formatDuration` (whole-second run wall-clock) because a per-request figure
+ * is small enough that the sub-second tenths carry signal.
+ */
+function formatRequestDuration(ms: number | undefined): string {
+  if (ms === undefined) return "—";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+/**
  * Render a metric `score` using its declared unit.
  *
  * `MetricResult.unit` defaults to `"fraction"` — the score is a 0-1
@@ -351,6 +363,7 @@ pre.log { max-height: 480px; overflow: auto; padding: 16px; border-radius: 16px;
 .cost-req-table th, .cost-req-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
 .cost-req-table th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; }
 .cost-req-table tbody:hover { background: rgba(255,255,255,.02); }
+.req-duration { color: var(--muted); font-size: 12px; }
 .cost-req-table .payload-row td { padding: 0 10px 8px; border-bottom: 1px solid var(--border); }
 .payload-details > summary { cursor: pointer; color: var(--muted); font-size: 12px; list-style: none; padding: 4px 0; }
 .payload-details > summary::-webkit-details-marker { display: none; }
@@ -1868,7 +1881,14 @@ function CostRequestsTable({ usage }: { usage: UsageSummary }) {
               <tr>
                 <td>{chronologicalIndex}</td>
                 <td>
-                  {formatRecordedAt(readRecordString(record, "recorded_at"))}
+                  {formatRecordedAt(readRecordString(record, "recorded_at"))}{" "}
+                  <span className="req-duration">
+                    (
+                    {formatRequestDuration(
+                      readRecordNumber(record, "duration_ms"),
+                    )}
+                    )
+                  </span>
                 </td>
                 <td>{readRecordString(record, "model") ?? "—"}</td>
                 <td>

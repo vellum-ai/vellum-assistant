@@ -6,7 +6,56 @@ entirely by the `vellum` CLI, which the app invokes as a subprocess — the
 Electron app is a GUI client, not a process manager.
 
 This package is the macOS distribution surface (outside the App Store).
-Code signing, notarization, and auto-update wiring live in follow-up tickets.
+
+## Web content delivery
+
+**What:** The web UI (`apps/web/`) is bundled as static files inside the
+`.app` package. The Electron main process serves them via a custom
+[`app://` protocol](https://www.electronjs.org/docs/latest/api/protocol#protocolhandlescheme-handler)
+— the `BrowserWindow` loads `app://vellum.ai/assistant`, which resolves
+to files on disk at `process.resourcesPath/web-dist`.
+
+**How:** At build time, `bun run build:web` runs `vite build` in
+`apps/web/`, then copies `apps/web/dist/` into `resources/web-dist`.
+`electron-builder` packs that directory into the app's `extraResources`
+(see `electron-builder.config.cjs`). No network request is involved at
+runtime — the protocol handler reads files from the local bundle and
+falls back to `index.html` for client-side routes.
+
+**Why local bundle, not a remote URL:**
+
+- **Security** — loading remote content into Electron's renderer is
+  discouraged because the renderer has privileged IPC access to the main
+  process. The `app://` scheme keeps the origin local and avoids MITM /
+  supply-chain attack surface. See Electron's
+  [security checklist](https://www.electronjs.org/docs/latest/tutorial/security).
+- **Offline** — the UI loads without a network connection. The assistant
+  still needs its backend services for functionality, but the shell
+  renders instantly.
+- **Startup speed** — local file reads are ~instant; no DNS / TLS / CDN
+  roundtrip.
+- **Version coherence** — the web UI and Electron main process are
+  tightly coupled via IPC (`window.vellum.*`). Bundling them together
+  guarantees they are always compatible.
+
+## Auto-update
+
+The packaged app updates over the wire via
+[`electron-updater`](https://www.electron.build/auto-update).
+Configuration lives in `src/main/auto-update.ts`:
+
+- **Feed URL** — a cloud storage bucket per environment and architecture
+  (see `electron-builder.config.cjs`'s `publish` config).
+- **`autoDownload: true`** — updates download silently in the background.
+- **`autoInstallOnAppQuit: true`** — installs on next quit, not mid-session.
+- **Poll interval** — checks on launch, then every 4 hours.
+- **Manual trigger** — users can check via the `Vellum > Check for Updates…`
+  menu item (packaged builds only), or the renderer can invoke
+  `vellum:update:check` / `vellum:update:install` over IPC.
+
+Because the web UI is bundled locally, **web changes require an Electron
+release** to reach users. The update typically lands within hours (next
+app restart or the 4-hour poll), not instantly.
 
 > **Note on workflow filenames.** This directory is `apps/macos/` to match the
 > platform-named convention used by `apps/ios/`, but the CI workflow files are
@@ -72,20 +121,15 @@ separate from the Swift `Vellum.app`, `Vellum Local.app`, and
 `Vellum Dev.app` installs — running this locally won't clobber
 whichever Swift channel you have around.
 
-You don't have to ship a DMG to try it. Packaging (DMG, signing,
-notarization, auto-update) lands in follow-up tickets once we actually
-need a distributable artifact.
-
 - **Dev (vel up)** — Electron loads `http://localhost:3000/assistant` (edge proxy + the path apps/web's Vite is configured for).
 - **Dev (standalone)** — Electron loads `http://localhost:5173/assistant` (our Vite, same path).
-- **Prod (future)** — A custom `app://vellum.ai/` protocol serves the
-  static `apps/web/dist/` bundle. Same-origin policy treats `app://` as
-  a secure standard scheme.
+- **Prod** — A custom `app://vellum.ai/` protocol serves the bundled
+  `web-dist/` files. See [Web content delivery](#web-content-delivery).
 - **Assistant process** — The app does not run or supervise any background
   process of its own. Each local assistant runs its own processes, spawned and
   managed by the `vellum` CLI; the main process only invokes the CLI as a
   subprocess for lifecycle ops (hatch, retire, token). Packaging the CLI
-  runtime so this works in distributed builds is tracked in LUM-2085.
+  runtime so this works in distributed builds is a known gap.
 
 ## Native macOS integration
 

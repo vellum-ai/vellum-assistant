@@ -246,7 +246,7 @@ async function resolveUserInfoUncached(
   try {
     const result = findContactChannel({
       channelType: "slack",
-      externalUserId: userId,
+      address: userId,
     });
     if (result) {
       contactDisplayName = result.contact.displayName;

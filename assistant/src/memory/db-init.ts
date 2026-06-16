@@ -68,7 +68,9 @@ import {
   migrateChannelInboundDeliveryAttempts,
   migrateChannelInteractionColumns,
   migrateContactChannelsAccessFields,
+  migrateContactChannelsRenormalizeAddresses,
   migrateContactChannelsTypeChatIdIndex,
+  migrateContactChannelsUniqueExtUser,
   migrateContactsAssistantId,
   migrateContactsNotesColumn,
   migrateContactsRolePrincipal,
@@ -193,6 +195,7 @@ import {
   migrateRenameVerificationSessionIdColumn,
   migrateRenameVerificationTable,
   migrateRenameVoiceToPhone,
+  migrateScheduleCapabilities,
   migrateScheduleDescription,
   migrateScheduleInferenceProfile,
   migrateScheduleOneShotRouting,
@@ -514,6 +517,9 @@ export function initializeDb(): void {
     migrateWorkflowRunTrust,
     migrateConversationOriginChannelIndex,
     migrateBackfillOriginChannelFromBindings,
+    migrateContactChannelsUniqueExtUser,
+    migrateScheduleCapabilities,
+    migrateContactChannelsRenormalizeAddresses,
   ];
 
   // Run each migration step, catching and logging individual failures so one

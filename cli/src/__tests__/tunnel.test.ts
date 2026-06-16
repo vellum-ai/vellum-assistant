@@ -74,6 +74,19 @@ function writeLockfile(entry: AssistantEntry): void {
   );
 }
 
+function mockEnabledFlagFetch() {
+  const fetchMock = mock(async (_input: string, _init?: RequestInit) => {
+    return new Response(
+      JSON.stringify({
+        flags: [{ key: "web-remote-ingress", enabled: true }],
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  });
+  globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+  return fetchMock;
+}
+
 describe("tunnel nginx ingress feature flag", () => {
   beforeEach(() => {
     process.argv = ["bun", "vellum", "tunnel"];
@@ -113,6 +126,28 @@ describe("tunnel nginx ingress feature flag", () => {
     );
 
     expect(runNgrokTunnelMock).not.toHaveBeenCalled();
+    expect(runCloudflareTunnelMock).not.toHaveBeenCalled();
+  });
+
+  test("checks the nginx flag through the local gateway for ngrok", async () => {
+    const entry = makeLocalEntry();
+    entry.runtimeUrl = "https://stale-tunnel.ngrok-free.dev";
+    writeLockfile(entry);
+    process.argv = ["bun", "vellum", "tunnel", "--provider", "ngrok"];
+    const fetchMock = mockEnabledFlagFetch();
+
+    await tunnel();
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(
+      "http://127.0.0.1:7830/v1/assistants/assistant-1/feature-flags",
+    );
+    expect(init?.method).toBe("GET");
+    expect(runNgrokTunnelMock).toHaveBeenCalledWith({
+      port: 7830,
+      workspaceDir: join(entry.resources!.instanceDir, ".vellum", "workspace"),
+      preferNginxIngress: true,
+    });
     expect(runCloudflareTunnelMock).not.toHaveBeenCalled();
   });
 

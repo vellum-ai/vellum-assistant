@@ -55,7 +55,7 @@ The `claude-agent-acp` adapter requires a Claude OAuth token. Store it once in t
 assistant credentials set --service acp --field claude_oauth_token <token>
 ```
 
-When the token is missing, do NOT ask the user to paste it into chat. Collect it via the secret-request flow instead: `credential_store` with action `prompt`, service `acp`, field `claude_oauth_token`. That prompts the user through a secure UI so the token never enters the conversation or the workspace config. Users generate the token by running `claude setup-token` on a machine where they are logged in to Claude.
+When the token is missing, do NOT ask the user to paste it into chat. Collect it via the secure prompt instead: `assistant credentials prompt --service acp --field claude_oauth_token --label "Claude OAuth Token"`. That prompts the user through a secure UI so the token never enters the conversation or the workspace config. Users generate the token by running `claude setup-token` on a machine where they are logged in to Claude.
 
 ## Codex setup
 
@@ -78,7 +78,7 @@ Gemini CLI speaks ACP natively (`gemini --acp`) - there is no separate adapter b
 assistant credentials set --service acp --field gemini_api_key <key>
 ```
 
-Or collect the key via the secret-request flow: `credential_store` with action `prompt`, service `acp`, field `gemini_api_key`. Either way the key never appears in chat or workspace config, and every spawn injects it as `GEMINI_API_KEY` automatically. The key is optional - a spawn proceeds without it when the vault has no entry.
+Or collect the key via the secure prompt: `assistant credentials prompt --service acp --field gemini_api_key --label "Gemini API Key"`. Either way the key never appears in chat or workspace config, and every spawn injects it as `GEMINI_API_KEY` automatically. The key is optional - a spawn proceeds without it when the vault has no entry.
 
 The alternative is browser OAuth: run `gemini` once interactively and complete the sign-in flow. This is impractical on hosted assistants (no browser), so prefer the credential store there.
 

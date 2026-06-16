@@ -111,13 +111,13 @@ describe("snapshotConversationCaches + restoreConversationCaches", () => {
     expect(getScheduled(qc)).toEqual(sched);
   });
 
-  test("snapshot captures undefined for uninitialized caches", () => {
+  test("snapshot is empty when no caches have been initialized", () => {
     const snapshot = snapshotConversationCaches(qc, ASSISTANT_ID);
 
-    expect(snapshot).toHaveLength(4);
-    for (const [, data] of snapshot) {
-      expect(data).toBeUndefined();
-    }
+    // Prefix-based discovery only captures caches that have been
+    // initialized (setQueryData). No caches = empty snapshot, which
+    // restores as a no-op (correct for rollback).
+    expect(snapshot).toHaveLength(0);
   });
 
   test("restore with undefined removes the cache entry", () => {

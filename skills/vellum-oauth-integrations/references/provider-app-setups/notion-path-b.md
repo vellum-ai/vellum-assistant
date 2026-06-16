@@ -55,22 +55,17 @@ Tell the user:
 
 After the user sends the secret:
 
-```
-credential_store prompt:
-  service: "notion"
-  field: "internal_secret"
-  label: "Notion Internal Integration Secret"
-  description: "Paste the Internal Integration Secret."
-  placeholder: "ntn_..."
+```bash
+assistant credentials prompt --service notion --field internal_secret \
+  --label "Notion Internal Integration Secret" \
+  --placeholder "ntn_..." \
+  --description "Paste the Internal Integration Secret."
 ```
 
-If using `credential_store store` instead (when the user sent it as plaintext):
+If using `assistant credentials set` instead (when the user sent it as plaintext):
 
-```
-credential_store store:
-  service: "notion"
-  field: "internal_secret"
-  value: "<the secret the user sent>"
+```bash
+assistant credentials set "<the secret the user sent>" --service notion --field internal_secret
 ```
 
 ## Path B Step 4: Grant Page Access

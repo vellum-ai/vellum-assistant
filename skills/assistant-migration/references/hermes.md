@@ -101,8 +101,8 @@ For archives that exceed the current channel's attachment limit, split the bundl
 The archive carries no secrets. Each of these must be re-established through Vellum before the migrated assistant can act:
 
 - **Inference providers** (one per row in `providers.json`):
-  `assistant oauth connect <provider>` for managed providers, or `credential_store action=prompt` for raw API keys
-- **MCP servers** (one per entry in `mcp.json`): walk the connect flow for each; bearer tokens go through `credential_store action=prompt`
+  `assistant oauth connect <provider>` for managed providers, or `assistant credentials prompt` for raw API keys
+- **MCP servers** (one per entry in `mcp.json`): walk the connect flow for each; bearer tokens go through `assistant credentials prompt`
 - **Gateway channels** (one per binding in `gateway/accounts.json`): re-OAuth or paste bot token via secure prompt — **never via chat text**
 - **Cron / schedule notifications**: any schedule that delivers via a channel needs the channel rebound first
 

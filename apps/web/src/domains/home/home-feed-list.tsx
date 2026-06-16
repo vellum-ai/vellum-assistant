@@ -1,5 +1,7 @@
-import { ChevronRight } from "lucide-react";
+import { Bell, ChevronRight } from "lucide-react";
 import { useState } from "react";
+
+import { HomeEmptyState } from "./components/home-empty-state";
 
 import type {
     FeedItem,
@@ -88,14 +90,20 @@ export function HomeFeedList({
       />
 
       {grouped.size === 0 ? (
-        <Typography
-          variant="body-medium-lighter"
-          className="py-[var(--app-spacing-xl)] text-center text-[var(--content-disabled)]"
-        >
-          {effectiveFilter
-            ? "No items match the selected filter."
-            : "No items to show."}
-        </Typography>
+        effectiveFilter ? (
+          <Typography
+            variant="body-medium-lighter"
+            className="py-[var(--app-spacing-xl)] text-center text-[var(--content-disabled)]"
+          >
+            No items match the selected filter.
+          </Typography>
+        ) : (
+          <HomeEmptyState
+            icon={Bell}
+            title="No notifications yet"
+            description="Updates and activity from your assistant will appear here."
+          />
+        )
       ) : (
         [...grouped.entries()].map(([group, groupItems]) => (
           <section

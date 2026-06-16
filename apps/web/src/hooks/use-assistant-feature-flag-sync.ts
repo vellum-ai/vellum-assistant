@@ -1,8 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { client } from "@/generated/daemon/client.gen";
-import { assertHasResponse } from "@/utils/api-errors";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import {
   ASSISTANT_FLAG_DEFAULTS,
@@ -10,22 +8,13 @@ import {
   flagKeyToStoreKey,
 } from "@/lib/feature-flags/feature-flag-catalog";
 import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
-import { assistantFlagValuesQueryKey } from "@/lib/sync/query-tags";
-
-interface FeatureFlagEntry {
-  key: string;
-  enabled: boolean | string;
-  label: string;
-  defaultEnabled: boolean | string;
-  description: string;
-}
-
-interface AssistantFlagValuesResponse {
-  flags: FeatureFlagEntry[];
-}
+import { assistantFeatureFlagsGetOptions } from "@/generated/gateway/@tanstack/react-query.gen";
+import type { AssistantFeatureFlagsGetResponse } from "@/generated/gateway/types.gen";
 
 const VALID_BOOL_KEYS = new Set(Object.keys(ASSISTANT_FLAG_DEFAULTS));
 const VALID_STRING_KEYS = new Set(Object.keys(ASSISTANT_STRING_FLAG_DEFAULTS));
+
+type FeatureFlagEntry = AssistantFeatureFlagsGetResponse["flags"][number];
 
 function mapFlags(
   entries: FeatureFlagEntry[],
@@ -41,30 +30,6 @@ function mapFlags(
     }
   }
   return { boolFlags, stringFlags };
-}
-
-export async function fetchAssistantFlagValues(
-  assistantId: string,
-): Promise<AssistantFlagValuesResponse> {
-  const { data, error, response } = await client.get<
-    AssistantFlagValuesResponse,
-    Record<string, unknown>,
-    false
-  >({
-    url: `/v1/assistants/${assistantId}/feature-flags`,
-    throwOnError: false,
-  });
-  assertHasResponse(
-    response,
-    error,
-    "Failed to fetch assistant feature flags",
-  );
-  if (!response.ok) {
-    throw new Error(
-      `Failed to fetch assistant feature flags: ${response.status}`,
-    );
-  }
-  return data as AssistantFlagValuesResponse;
 }
 
 /**
@@ -87,8 +52,9 @@ export function useAssistantFeatureFlagSync(assistantId: string | null) {
 
   const freshness = useFlagQueryFreshness();
   const { data } = useQuery({
-    queryKey: assistantFlagValuesQueryKey(assistantId),
-    queryFn: () => fetchAssistantFlagValues(assistantId!),
+    ...assistantFeatureFlagsGetOptions({
+      path: { assistant_id: assistantId ?? "" },
+    }),
     enabled,
     ...freshness,
     retry: 1,

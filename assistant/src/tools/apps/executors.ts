@@ -12,6 +12,7 @@ import { compileApp } from "../../bundler/app-compiler.js";
 import { generateAppIcon } from "../../media/app-icon-generator.js";
 import type { AppDefinition } from "../../memory/app-store.js";
 import { getAppDirPath } from "../../memory/app-store.js";
+import { getLogger } from "../../util/logger.js";
 
 // ---------------------------------------------------------------------------
 // Shared result type
@@ -55,6 +56,11 @@ export interface AppStoreWriter {
   ): AppDefinition;
   deleteApp(id: string): void;
   writeAppFile(appId: string, path: string, content: string): void;
+  /**
+   * Associate a freshly created app with the conversation that created it.
+   * Optional so test doubles need not implement it; the real store does.
+   */
+  addAppConversationId?(appId: string, conversationId: string): boolean;
 }
 
 export type AppStore = AppStoreReader & AppStoreWriter;
@@ -158,6 +164,7 @@ export async function executeAppCreate(
   input: AppCreateInput,
   store: AppStore,
   proxyToolResolver?: ProxyResolver,
+  conversationId?: string,
 ): Promise<ExecutorResult> {
   // The model sometimes omits a name; resolve a sensible one rather than
   // erroring out so the build still succeeds. Users can rename via app_update.
@@ -212,6 +219,22 @@ export async function executeAppCreate(
     htmlDefinition: "",
     formatVersion: 2,
   });
+
+  // Associate the app with its conversation at creation so subsequent
+  // `app_*` calls in the same turn can resolve it even when the model omits
+  // `app_id` (see resolveAppId). Without this the link is only formed at
+  // `app_open`, leaving the create→update→refresh gap unresolvable.
+  // Best-effort: a failed association must never fail the create.
+  if (conversationId && store.addAppConversationId) {
+    try {
+      store.addAppConversationId(app.id, conversationId);
+    } catch (err) {
+      getLogger("app-executors").debug(
+        { err, appId: app.id, conversationId },
+        "Failed to associate app with conversation at create",
+      );
+    }
+  }
 
   // Scaffold multifile app with src/ files and compile to dist/
   const htmlSafeName = name

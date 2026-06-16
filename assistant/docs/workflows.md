@@ -8,12 +8,14 @@ from each of a hundred documents, draft-then-verify a batch — and you want the
 results orchestrated deterministically and reported back when the whole run
 finishes.
 
-Workflows are gated behind the `workflows` feature flag (default **off**). When it
-is off, the `run_workflow` / `manage_workflows` tools are absent, the management
-routes 404, and the scheduler rejects `workflow`-mode jobs.
+Workflows are gated behind the `workflows` feature flag (default **off**). The
+`run_workflow` / `manage_workflows` tools are served by the flag-gated `workflows`
+bundled skill rather than as always-on tools — load it with `skill_load` and invoke
+its tools via `skill_execute`. When the flag is off, the skill is absent, the
+management routes 404, and the scheduler rejects `workflow`-mode jobs.
 
 - Engine code: `assistant/src/workflows/`
-- Launching tools: `assistant/src/tools/workflows/`
+- Skill (tool surface): `assistant/src/config/bundled-skills/workflows/`
 - Architecture overview: [`ARCHITECTURE.md` § Workflow Orchestration Engine](../../ARCHITECTURE.md#workflow-orchestration-engine)
 - Manual e2e runbook: [`workflows-testing.md`](./workflows-testing.md)
 
@@ -222,7 +224,7 @@ minus a forbidden set.
   launch approval, so it carries only read-only tools. `web_fetch` is **not**
   here — it is classified as a side-effect tool (its URL can exfiltrate read data
   or trigger external actions), so a run that needs it must declare it (which
-  forces the launch approval gate).
+  arms the threshold-aware launch approval gate).
 - **Declared tools** must exist in the tool registry — an unknown name is a hard
   authoring error, not a silent drop.
 - **Forbidden tools** can never be granted, even if declared (declaring one is a
@@ -239,6 +241,28 @@ minus a forbidden set.
 Side-effecting tools (`file_write`, sends, shell, …) and `persona` are **not** in
 the baseline; a run must declare them. Once declared, every leaf may use them with
 no further prompting.
+
+### Launch and resume approval are threshold-aware
+
+Declaring any side-effecting tool or host function arms a **launch approval**: the
+single point at which the user consents to the whole run. It is threshold-aware —
+at the full-access posture (auto-approve threshold `high`) it does **not** prompt;
+in normal posture it prompts once. A read-only run (no declared side effects)
+never prompts.
+
+The same posture gates **resume** of a run whose stored manifest granted side
+effects, since resuming restarts the unfinished side-effecting leaves:
+
+- **Conversationally** (`manage_workflows` action `resume`): full access bypasses;
+  normal posture re-prompts for fresh approval.
+- **Over HTTP** (`POST /v1/workflows/runs/:id/resume`, and the
+  `vellum workflows resume` CLI on top of it): full access proceeds; normal
+  posture is **refused** (403) and the caller is directed to resume through the
+  assistant, since the route has no prompt channel.
+
+A read-only run resumes freely regardless of posture. The check is
+`isFullAccessThreshold` in `assistant/src/permissions/threshold.ts`, applied in
+`permission-checker.ts` and `workflow-routes.ts`.
 
 ---
 
@@ -385,32 +409,43 @@ call `workflow()` — nesting deeper than one level throws.
 ### Scheduler `workflow` mode
 
 A scheduled job can trigger a saved workflow by name (e.g. "triage the inbox every
-morning"). In v1 the scheduler runs the workflow with **only the read-only
-baseline** — a scheduled run cannot be granted side-effecting tools. The trigger
-records success once the run starts; completion/failure is surfaced out-of-band
-via workflow events and the completion wake.
+morning"). Each `workflow`-mode schedule carries a **persisted capability manifest**
+(`capabilities_json` on `cron_jobs`), consented to **once at schedule creation**:
+`schedule_create` accepts a `capabilities` manifest, validates it against the same
+forbidden/unknown checks `run_workflow` applies, and — if it grants side effects —
+arms the threshold-aware approval at creation time. Both firing paths (the
+scheduler's auto-fire and the run-now `POST /v1/schedules/:id/run` route) execute
+the run under that stored manifest. Legacy or null-manifest schedules fall back to
+the read-only baseline. The trigger records success once the run starts;
+completion/failure is surfaced out-of-band via workflow events and the completion
+wake.
 
 ---
 
 ## Tools, routes, and CLI
 
-### Tools (flag-gated)
+### Tools (served by the `workflows` skill)
+
+Reached via the skill (`skill_load` then `skill_execute`), not as always-on tools.
 
 - **`run_workflow`** — `{ script?, name?, args?, capabilities?, label? }` (exactly
   one of `script`/`name`). Returns `{ runId }` immediately; the run is
   asynchronous and you are notified in the conversation when it completes. **Do
   not poll.**
-- **`manage_workflows`** — `{ action: "status" | "abort" | "list_runs", run_id? }`.
-  `status`/`abort` require `run_id`.
+- **`manage_workflows`** — `{ action: "status" | "abort" | "resume" | "list_runs"
+| "list_profiles", run_id? }`. `status`/`abort`/`resume` require `run_id`.
+  `list_profiles` returns `{ profiles, activeProfile }` — the defined LLM profile
+  names plus the workspace active profile, used to pick a valid leaf `profile`.
 
-### Routes (read/abort, all 404 when the flag is off)
+### Routes (read/abort/resume, all 404 when the flag is off)
 
-| Method | Path                           | Purpose                                               |
-| ------ | ------------------------------ | ----------------------------------------------------- |
-| `GET`  | `/v1/workflows`                | List saved (named) workflows.                         |
-| `GET`  | `/v1/workflows/runs`           | List recent runs (newest first); `?limit`, `?status`. |
-| `GET`  | `/v1/workflows/runs/:id`       | Get one run.                                          |
-| `POST` | `/v1/workflows/runs/:id/abort` | Signal an in-flight run to abort.                     |
+| Method | Path                            | Purpose                                                                                              |
+| ------ | ------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `GET`  | `/v1/workflows`                 | List saved (named) workflows.                                                                        |
+| `GET`  | `/v1/workflows/runs`            | List recent runs (newest first); `?limit`, `?status`.                                                |
+| `GET`  | `/v1/workflows/runs/:id`        | Get one run.                                                                                         |
+| `POST` | `/v1/workflows/runs/:id/abort`  | Signal an in-flight run to abort.                                                                    |
+| `POST` | `/v1/workflows/runs/:id/resume` | Resume an interrupted run (refuses a side-effecting run in normal posture; proceeds at full access). |
 
 ### CLI
 
@@ -419,6 +454,7 @@ vellum workflows list              # saved (named) workflows
 vellum workflows runs              # recent runs  (--limit, --status)
 vellum workflows show <run-id>     # one run's status + counts
 vellum workflows abort <run-id>    # abort an in-flight run
+vellum workflows resume <run-id>   # resume an interrupted run
 ```
 
 All subcommands accept `--assistant <name>` to target a specific instance.
@@ -440,7 +476,7 @@ Engine caps live under `workflows.*` in assistant config:
 
 ## Persistence and resume
 
-Run state lives in two tables (migration 282):
+Run state lives in two tables (migration 284):
 
 - **`workflow_runs`** — one row per run: status (`running` / `completed` /
   `failed` / `aborted` / `cap_exceeded` / `interrupted`), agent/token counts,

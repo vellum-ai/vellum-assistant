@@ -76,7 +76,7 @@ export class CredentialBroker {
         reason:
           `Tool "${request.toolName}" is not allowed to use credential ${request.service}/${request.field}. ` +
           (tools.length === 0
-            ? "No tools are currently allowed - update the credential with allowed_tools via credential_store."
+            ? "No tools are currently allowed - update the credential's allowed_tools via `assistant credentials set`."
             : `Allowed tools: ${tools.join(", ")}.`),
       };
     }
@@ -186,7 +186,7 @@ export class CredentialBroker {
         reason:
           `Tool "${request.toolName}" is not allowed to use credential ${request.service}/${request.field}. ` +
           (tools.length === 0
-            ? "No tools are currently allowed - update the credential with allowed_tools via credential_store."
+            ? "No tools are currently allowed - update the credential's allowed_tools via `assistant credentials set`."
             : `Allowed tools: ${tools.join(", ")}.`),
       };
     }
@@ -282,7 +282,7 @@ export class CredentialBroker {
         reason:
           `Tool "${request.toolName}" is not allowed to use credential ${request.service}/${request.field}. ` +
           (tools.length === 0
-            ? "No tools are currently allowed - update the credential with allowed_tools via credential_store."
+            ? "No tools are currently allowed - update the credential's allowed_tools via `assistant credentials set`."
             : `Allowed tools: ${tools.join(", ")}.`),
       };
     }
@@ -365,7 +365,7 @@ export class CredentialBroker {
         reason:
           `Tool "${request.requestingTool}" is not allowed to use credential ${metadata.service}/${metadata.field}. ` +
           (tools.length === 0
-            ? "No tools are currently allowed - update the credential with allowed_tools via credential_store."
+            ? "No tools are currently allowed - update the credential's allowed_tools via `assistant credentials set`."
             : `Allowed tools: ${tools.join(", ")}.`),
       };
     }

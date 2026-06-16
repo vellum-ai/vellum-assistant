@@ -16,6 +16,7 @@ import { z } from "zod";
 import { createGuardianBinding } from "../../auth/guardian-bootstrap.js";
 import { assistantDbQuery } from "../../db/assistant-db-proxy.js";
 import { getLogger } from "../../logger.js";
+import { canonicalizeInboundIdentity } from "../../verification/identity.js";
 
 const log = getLogger("guardian-channel-create");
 
@@ -25,8 +26,8 @@ const log = getLogger("guardian-channel-create");
 
 const GuardianChannelRequestSchema = z.object({
   type: z.string().trim().toLowerCase(),
-  address: z.string().trim().toLowerCase(),
-  externalUserId: z.string().trim().toLowerCase(),
+  address: z.string().trim(),
+  externalUserId: z.string().trim(),
   status: z.literal("active"),
 });
 
@@ -43,7 +44,9 @@ interface GuardianRow {
  * Find the existing guardian contact (any channel). Returns null if no
  * guardian has been verified yet or if the guardian has no principal_id.
  */
-async function findGuardian(): Promise<(GuardianRow & { principal_id: string }) | null> {
+async function findGuardian(): Promise<
+  (GuardianRow & { principal_id: string }) | null
+> {
   const rows = await assistantDbQuery<GuardianRow>(
     `SELECT id, principal_id FROM contacts WHERE role = 'guardian' LIMIT 1`,
   );
@@ -78,15 +81,21 @@ export function createGuardianChannelHandler() {
       );
     }
 
-    const body = parsed.data;
+    const raw = parsed.data;
+    const body = {
+      ...raw,
+      address:
+        canonicalizeInboundIdentity(raw.type, raw.address) ?? raw.address,
+      externalUserId:
+        canonicalizeInboundIdentity(raw.type, raw.externalUserId) ??
+        raw.externalUserId,
+    };
 
     // ── Find existing guardian ─────────────────────────────────────
 
     const guardian = await findGuardian();
     if (!guardian) {
-      log.warn(
-        "No guardian contact exists — cannot create guardian channel",
-      );
+      log.warn("No guardian contact exists — cannot create guardian channel");
       return Response.json(
         {
           error:
@@ -114,10 +123,7 @@ export function createGuardianChannelHandler() {
         verifiedVia: "platform_auto_register",
       });
     } catch (err) {
-      log.error(
-        { err },
-        "Failed to create guardian channel binding",
-      );
+      log.error({ err }, "Failed to create guardian channel binding");
       return Response.json(
         { error: "Failed to create guardian channel" },
         { status: 500 },

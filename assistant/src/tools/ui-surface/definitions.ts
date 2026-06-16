@@ -35,6 +35,22 @@ function proxyExecute(toolName: string) {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> => {
+    if (toolName === "ui_show" && isEmptyDynamicPage(input)) {
+      return {
+        content:
+          "Error: ui_show dynamic_page requires non-empty HTML in `data.html`. The surface was not displayed because no content was provided — the user would see a blank box. Resend ui_show with the full HTML markup in `data.html`.",
+        isError: true,
+      };
+    }
+
+    if (toolName === "ui_show" && isEmptyCard(input)) {
+      return {
+        content:
+          "Error: ui_show card requires content — provide `data.body`, a `template` (e.g. task_progress with steps), `data.metadata`, or `actions`. The surface was not displayed because it carried only a title, which renders as a blank box. Resend ui_show with populated card content.",
+        isError: true,
+      };
+    }
+
     if (toolName === "ui_show" && isDynamicPageAppSubstitute(input)) {
       return {
         content:
@@ -49,8 +65,81 @@ function proxyExecute(toolName: string) {
         isError: true,
       };
     }
-    return context.proxyToolResolver(toolName, input);
+    const result = await context.proxyToolResolver(toolName, input);
+    if (
+      toolName === "ui_show" &&
+      !result.isError &&
+      typeof result.content === "string" &&
+      isTaskProgressCardShow(input)
+    ) {
+      return {
+        ...result,
+        content: `${result.content}\n\n${TASK_PROGRESS_UPDATE_HINT}`,
+      };
+    }
+    return result;
   };
+}
+
+/**
+ * Worked ui_update example, appended to a successful task_progress `ui_show`
+ * result so the model learns the update pattern at the point of use (with the
+ * real surface_id in hand) rather than carrying it in the always-present tool
+ * description.
+ */
+const TASK_PROGRESS_UPDATE_HINT =
+  'As each step finishes, call ui_update with this surface_id to advance it — e.g. ui_update { surface_id: "<the surface_id above>", data: { templateData: { steps: [{ label: "Scaffold project", status: "completed" }, { label: "Wire up commands", status: "in_progress" }] } } }';
+
+function isTaskProgressCardShow(input: Record<string, unknown>): boolean {
+  if (input.template === "task_progress") {
+    return true;
+  }
+  const data = asRecord(input.data);
+  return data?.template === "task_progress";
+}
+
+function isEmptyDynamicPage(input: Record<string, unknown>): boolean {
+  if (input.surface_type !== "dynamic_page") {
+    return false;
+  }
+  const data = asRecord(input.data);
+  const html = data?.html;
+  return typeof html !== "string" || html.trim().length === 0;
+}
+
+/**
+ * A `card` ui_show carrying no renderable content — only a title (or nothing)
+ * — renders as a blank bordered box. A declared `template` (task_progress,
+ * weather_forecast, …) renders its own shell, and `body`/`subtitle`/`metadata`/
+ * `actions` are real content; any of those passes. The model places these
+ * either nested in `data` or at the top level, so both are checked. Title is
+ * intentionally not content: a title-only card is the blank box.
+ */
+function isEmptyCard(input: Record<string, unknown>): boolean {
+  if (input.surface_type !== "card") {
+    return false;
+  }
+  const data = asRecord(input.data) ?? {};
+
+  const template =
+    nonEmptyString(input.template) ?? nonEmptyString(data.template);
+  if (template) {
+    return false;
+  }
+
+  const hasBody = !!(nonEmptyString(input.body) ?? nonEmptyString(data.body));
+  const hasSubtitle = !!nonEmptyString(data.subtitle);
+  const hasMetadata = Array.isArray(data.metadata) && data.metadata.length > 0;
+  const actions = input.actions ?? data.actions;
+  const hasActions = Array.isArray(actions) && actions.length > 0;
+
+  return !(hasBody || hasSubtitle || hasMetadata || hasActions);
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0
+    ? value
+    : undefined;
 }
 
 function isDynamicPageAppSubstitute(input: Record<string, unknown>): boolean {
@@ -137,7 +226,7 @@ export const uiShowTool = {
     "- file_upload: { prompt, acceptedTypes?, maxFiles? }\n" +
     "- task_preferences: {} (no data needed — categories are rendered client-side)\n" +
     '- work_result: { eyebrow?, status?: "completed"|"partial"|"failed"|"in_progress", summary?, metrics?: [{ label, value, detail?, tone?: "neutral"|"positive"|"warning"|"negative" }], sections?: [{ id?, title, description?, type?: "items"|"timeline"|"diff"|"artifacts"|"warnings", items?: [{ id?, title, description?, status?, tone?, metadata?: [{ label, value }], href? }], diffs?: [{ label?, before?, after? }] }] }. Shows a structured receipt after real work: what changed, what was skipped, proof points, and next actions. Keep display-only unless explicit follow-up buttons are needed.\n\n' +
-    "Emit a task_progress card BEFORE your first tool call on any multi-step, long-running, or post-form turn (web searches, file operations, research), and keep its steps updated as work progresses. Skills that estimate >30s of work should declare progress upfront with concrete step labels (and counts when known).",
+    "For multi-step or long-running turns (web searches, file operations, research), show a task_progress card early and keep its steps updated as work progresses. Coarse steps are fine, and you can add or revise them as the work takes shape — a rough card beats no signal.",
   category: "ui-surface",
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "host",

@@ -31,7 +31,9 @@ function HoverIconButton({
           onClick();
         }}
         className={cn(
-          "cursor-pointer text-[var(--content-disabled)] transition-colors hover:text-[var(--content-secondary)]",
+          "flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md",
+          "text-[var(--content-secondary)] transition-colors",
+          "hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
           className,
         )}
       >
@@ -84,13 +86,13 @@ export function HomeRecapRow({
       onMouseEnter={() => setIsHovering(true)}
       onMouseLeave={() => setIsHovering(false)}
       className={cn(
-        "flex w-full cursor-pointer items-center gap-[var(--app-spacing-sm)]",
+        "flex min-h-[48px] w-full cursor-pointer items-center gap-[var(--app-spacing-sm)]",
         "rounded-[var(--radius-md)] px-[var(--app-spacing-md)] py-[var(--app-spacing-sm)]",
         "transition-[background-color,opacity] duration-150",
         isActive
           ? "bg-[var(--surface-active)]"
           : isHovering
-            ? "bg-[var(--surface-lift)]"
+            ? "bg-[var(--surface-hover)]"
             : "bg-[var(--surface-overlay)]",
         !isUnread && !isActive && "opacity-70",
       )}
@@ -128,9 +130,9 @@ export function HomeRecapRow({
               onClick={() => onToggleRead(item.id, isUnread ? "seen" : "new")}
             >
               {isUnread ? (
-                <MailOpen width={14} height={14} />
+                <MailOpen width={16} height={16} />
               ) : (
-                <Mail width={14} height={14} />
+                <Mail width={16} height={16} />
               )}
             </HoverIconButton>
           )}
@@ -147,20 +149,20 @@ export function HomeRecapRow({
                   onGoToThread(item.conversationId!);
                 }}
               >
-                <MessageSquare width={14} height={14} />
+                <MessageSquare width={16} height={16} />
               </HoverIconButton>
             )}
           <HoverIconButton label="Dismiss" onClick={() => onDismiss(item.id)}>
-            <Trash2 width={14} height={14} />
+            <Trash2 width={16} height={16} />
           </HoverIconButton>
         </span>
       ) : isHovering && isRestore ? (
         <HoverIconButton
           label="Restore"
           onClick={() => onDismiss(item.id)}
-          className="flex shrink-0 items-center gap-[var(--app-spacing-xs)]"
+          className="w-auto gap-[var(--app-spacing-xs)] px-2"
         >
-          <RotateCcw width={14} height={14} aria-hidden="true" />
+          <RotateCcw width={16} height={16} aria-hidden="true" />
           <span className="text-body-small-default">Restore</span>
         </HoverIconButton>
       ) : (

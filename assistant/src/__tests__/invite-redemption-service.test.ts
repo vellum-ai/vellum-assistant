@@ -83,7 +83,7 @@ describe("invite-redemption-service", () => {
 
     const result = findContactChannel({
       channelType: "telegram",
-      externalUserId: "user-1",
+      address: "user-1",
     });
 
     expect(result).not.toBeNull();
@@ -112,7 +112,7 @@ describe("invite-redemption-service", () => {
 
     const result = findContactChannel({
       channelType: "telegram",
-      externalUserId: "code-user-1",
+      address: "code-user-1",
     });
 
     expect(result).not.toBeNull();
@@ -325,7 +325,7 @@ describe("invite-redemption-service", () => {
     // Verify the redeemer's Telegram ID is now bound to Mom's contact
     const result = findContactChannel({
       channelType: "telegram",
-      externalUserId: "guardian-tg-id",
+      address: "guardian-tg-id",
     });
     expect(result).not.toBeNull();
     expect(result!.contact.id).toBe(momContact.id);
@@ -417,7 +417,7 @@ describe("invite-redemption-service", () => {
     // Verify the redeemer's Telegram ID is now bound to Mom's contact
     const result = findContactChannel({
       channelType: "telegram",
-      externalUserId: "guardian-code-id",
+      address: "guardian-code-id",
     });
     expect(result).not.toBeNull();
     expect(result!.contact.id).toBe(momContact.id);

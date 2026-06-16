@@ -24,7 +24,7 @@ Before you begin, understand how each Twilio value is stored:
 | Phone Number | Config     | `assistant config set twilio.phoneNumber`                       | No      |
 
 - **Config values** (Account SID, Phone Number) are non-sensitive identifiers. Collect them via normal conversation -- the user can paste them in chat or you can use `AskUserQuestion`.
-  **Auth Token** is a secret. Collect it securely via `credential_store` prompt -- never accept it pasted in plaintext chat.
+  **Auth Token** is a secret. Collect it securely via `assistant credentials prompt` -- never accept it pasted in plaintext chat.
 
 ## Retrieving Twilio Credentials
 
@@ -86,7 +86,13 @@ assistant config set twilio.accountSid "<Account SID from user>"
 
 Ask the user for their Auth Token. This IS a secret value, so the user should be prompted to enter the value securely. Do NOT ask them to provide it in the chat. Once they have, store it as a credential:
 
-- Call `credential_store` with `action: "prompt"`, `service: "twilio"`, `field: "auth_token"`, `label: "Twilio Auth Token"`, `description: "Enter your Auth Token from the Twilio Console dashboard (click 'Show' to reveal it)"`, `placeholder: "your_auth_token"`.
+- Run (via the bash tool):
+
+  ```bash
+  assistant credentials prompt --service twilio --field auth_token \
+    --label "Twilio Auth Token" --placeholder "your_auth_token" \
+    --description "Enter your Auth Token from the Twilio Console dashboard (click 'Show' to reveal it)"
+  ```
 
 Confirm it has been stored successfully:
 

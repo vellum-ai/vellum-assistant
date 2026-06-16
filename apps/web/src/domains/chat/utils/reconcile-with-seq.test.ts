@@ -57,6 +57,49 @@ describe("reconcileMessagesWithSeq", () => {
     expect(result[0]!.id).toBe("a1");
   });
 
+  test("takes the server snapshot wholesale on a reconnect even when the snapshot is behind (L > S)", () => {
+    /**
+     * The reconnect heal: after a tab is suspended past the daemon's replay
+     * ring the live stream resumes mid-response and advances `L` across the
+     * evicted events, so `L > S` while the local transcript is missing the
+     * beginning. The keep-local rule would preserve that holey row; the
+     * `authoritative` flag (set only by the reconnect reconcile) overrides it
+     * so the durable snapshot — which carries the full text — wins.
+     */
+    // GIVEN a local row whose beginning was never delivered (holey tail)
+    const local = [
+      makeRow({
+        id: "a1",
+        role: "assistant",
+        ...textBody("the end of the answer"),
+        timestamp: 1000,
+      }),
+    ];
+
+    // AND a durable snapshot carrying the complete row
+    const server = [
+      makeRow({
+        id: "a1",
+        role: "assistant",
+        ...textBody("the beginning and the end of the answer"),
+        timestamp: 1000,
+      }),
+    ];
+
+    // WHEN the snapshot is behind the local frontier (S < L) but authoritative
+    const result = reconcileMessagesWithSeq(local, server, {
+      serverSeq: 5,
+      localSeq: 10,
+      authoritative: true,
+    });
+
+    // THEN the snapshot heals the transcript instead of being discarded
+    expect(result).toHaveLength(1);
+    expect(messageText(result[0])).toBe(
+      "the beginning and the end of the answer",
+    );
+  });
+
   test("takes the server row wholesale when the snapshot is fresh (S >= L)", () => {
     /**
      * A snapshot that has seen everything the stream applied is authoritative,

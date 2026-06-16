@@ -35,6 +35,7 @@ import {
   deliverReplyViaCallback,
   findAssistantReplyMessageIdForTurn,
 } from "./channel-reply-delivery.js";
+import { finalizeEventDelivery } from "./finalize-event-delivery.js";
 import { deliverChannelReply } from "./gateway-client.js";
 import type { MessageProcessor } from "./http-types.js";
 import { createSlackDmTextDeliveryController } from "./slack-dm-text-delivery.js";
@@ -154,7 +155,7 @@ export async function sweepFailedEvents(
       parseInterfaceId(payload.sourceChannel) ??
       "web";
     const sourceMetadata = payload.sourceMetadata as
-      | Record<string, unknown>
+      | import("@vellumai/gateway-client").SourceMetadata
       | undefined;
     const assistantId =
       typeof payload.assistantId === "string" ? payload.assistantId : undefined;
@@ -334,46 +335,23 @@ export async function sweepFailedEvents(
       continue;
     }
 
-    if (replyCallbackUrl) {
-      if (externalChatId) {
-        try {
-          if (slackDmTextDelivery) {
-            await slackDmTextDelivery.waitForPendingDeliveries();
-          }
-          // processMessage above generated a fresh assistant response, so any
-          // previously tracked final-delivery progress belongs to the old
-          // response and must not carry over. Use live Slack DM progress as
-          // the new baseline before final delivery so delivery-only retries do
-          // not duplicate text if the callback fails before reporting progress.
-          const liveDeliveryResumeOptions =
-            slackDmTextDelivery?.getFinalDeliveryResumeOptions(replyMessageId);
-          const finalDeliveryStartFromSegment =
-            liveDeliveryResumeOptions?.startFromSegment ?? 0;
-          updateDeliveredSegmentCount(event.id, finalDeliveryStartFromSegment);
-          await deliverReplyViaCallback(
-            event.conversationId,
-            externalChatId,
-            replyCallbackUrl,
-            assistantId,
-            {
-              messageId: replyMessageId,
-              sinceMessageId: userMessageId,
-              startFromSegment: finalDeliveryStartFromSegment,
-              ...(liveDeliveryResumeOptions?.messageTs
-                ? { messageTs: liveDeliveryResumeOptions.messageTs }
-                : {}),
-              onSegmentDelivered: (count) =>
-                updateDeliveredSegmentCount(event.id, count),
-            },
-          );
-          markDeliveryDelivered(event.id);
-        } catch (err) {
-          log.error(
-            { err, eventId: event.id },
-            "Retry delivery failed for channel event",
-          );
-          recordDeliveryFailure(event.id, err);
-        }
+    if (replyCallbackUrl && externalChatId) {
+      try {
+        await finalizeEventDelivery({
+          eventId: event.id,
+          conversationId: event.conversationId,
+          externalChatId,
+          replyCallbackUrl,
+          assistantId,
+          replyMessageId,
+          userMessageId,
+          slackDmTextDelivery,
+        });
+      } catch (err) {
+        log.error(
+          { err, eventId: event.id },
+          "Retry delivery failed for channel event",
+        );
       }
     }
   }

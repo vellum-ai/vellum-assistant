@@ -29,7 +29,7 @@ Automatically checks for plain text keys and secrets before allowing a commit.
 4. **ESLint** — Runs `eslint` on staged source files in `assistant/`, `cli/`, `gateway/`, and `apps/web/`
 5. **TypeScript type-check** — Runs `tsc --noEmit` on `assistant/` and `apps/web/` when `.ts`/`.tsx` files are staged (skipped in worktrees for performance)
 6. **Message contract verification** — When message contract files are staged, verifies generated Swift models, inventory snapshot, and decoder sync are up to date
-7. **Tool registration guard** — Blocks new tool registrations in `assistant/src/tools/` (requires Team Jarvis approval, see `assistant/src/tools/AGENTS.md`)
+7. **Tool registration guard** — Blocks new tool registrations in `assistant/src/tools/` (requires core team approval, see `assistant/src/tools/AGENTS.md`)
 
 **Behavior:**
 - Blocks commits containing potential secrets

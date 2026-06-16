@@ -440,9 +440,8 @@ export async function setSlackChannelConfig(
  * the bot_token, app_token, oauth_connection row, and Slack config metadata
  * untouched so the Socket Mode connection stays up. Returns a
  * `SlackChannelConfigResult` reflecting the remaining state. A `not-found`
- * delete outcome is reported as a failure to match the credential_store
- * delete semantics (callers and automation rely on missing-credential
- * detection).
+ * delete outcome is reported as a failure to match the credential delete
+ * semantics (callers and automation rely on missing-credential detection).
  */
 export async function clearSlackUserToken(): Promise<SlackChannelConfigResult> {
   const result = await deleteSecureKeyAsync(

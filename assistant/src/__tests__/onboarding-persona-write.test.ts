@@ -59,7 +59,7 @@ mock.module("../util/platform.js", () => ({
 }));
 
 mock.module("../contacts/contact-store.js", () => ({
-  findContactByChannelExternalId: () => null,
+  findContactByAddress: () => null,
   findGuardianForChannel: (channelType: string) =>
     channelType === "vellum" ? mockVellumGuardian : null,
   listGuardianChannels: () => null,

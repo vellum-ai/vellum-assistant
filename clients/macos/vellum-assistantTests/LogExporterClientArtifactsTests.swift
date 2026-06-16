@@ -40,14 +40,14 @@ struct LogExporterClientArtifactsTests {
                         "command": "codex",
                         "args": ["acp"],
                         "env": [
-                            "OPENAI_API_KEY": "sk-proj-synthetic-test-value-1234567890",
+                            "OPENAI_API_KEY": "openai-v",
                             "EMPTY_VAR": ""
                         ]
                     ]
                 ]
             ],
             "apiKeys": [
-                "anthropic": "sk-ant-synthetic-test-value"
+                "anthropic": "ant-v"
             ],
             "model": "some-model"
         ]
@@ -83,8 +83,8 @@ struct LogExporterClientArtifactsTests {
         // No plaintext secrets anywhere in the serialized output
         let data = try JSONSerialization.data(withJSONObject: sanitized)
         let json = String(decoding: data, as: UTF8.self)
-        #expect(!json.contains("sk-proj-synthetic-test-value-1234567890"))
-        #expect(!json.contains("sk-ant-synthetic-test-value"))
+        #expect(!json.contains("openai-v"))
+        #expect(!json.contains("ant-v"))
     }
 
     @Test
@@ -123,7 +123,7 @@ struct LogExporterClientArtifactsTests {
                     "codex": [
                         "command": "codex",
                         "env": [
-                            "OPENAI_API_KEY": "sk-proj-synthetic-test-value-1234567890"
+                            "OPENAI_API_KEY": "openai-v"
                         ]
                     ]
                 ]
@@ -150,7 +150,7 @@ struct LogExporterClientArtifactsTests {
         // No plaintext secrets anywhere in the serialized output
         let data = try JSONSerialization.data(withJSONObject: sanitized)
         let json = String(decoding: data, as: UTF8.self)
-        #expect(!json.contains("sk-proj-synthetic-test-value-1234567890"))
+        #expect(!json.contains("openai-v"))
     }
 
     // MARK: - All Artifacts Present
@@ -163,7 +163,7 @@ struct LogExporterClientArtifactsTests {
                     "assistantId": "assistant-123",
                     "runtimeUrl": "http://127.0.0.1:7830",
                     "bearerToken": "bearer-token",
-                    "guardianBootstrapSecret": "bootstrap-secret-value",
+                    "guardianBootstrapSecret": "gbs-v",
                     "cloud": "local"
                 ]
             ]
@@ -185,7 +185,7 @@ struct LogExporterClientArtifactsTests {
 
         let data = try JSONSerialization.data(withJSONObject: sanitized)
         let json = String(decoding: data, as: UTF8.self)
-        #expect(!json.contains("bootstrap-secret-value"))
+        #expect(!json.contains("gbs-v"))
         #expect(!json.contains("bearer-token"))
     }
 

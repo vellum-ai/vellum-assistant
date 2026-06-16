@@ -856,8 +856,6 @@ export async function initializeTools(): Promise<void> {
     explicitTools,
     getCesToolsIfEnabled,
     cesTools,
-    getWorkflowToolsIfEnabled,
-    workflowTools,
   } = await import("./tool-manifest.js");
 
   // Capture tool names already in the registry before any manifest
@@ -904,12 +902,6 @@ export async function initializeTools(): Promise<void> {
     registerTool(tool);
   }
 
-  // Workflow tools - registered only when the `workflows` feature flag is on.
-  const activeWorkflowTools = getWorkflowToolsIfEnabled();
-  for (const tool of activeWorkflowTools) {
-    registerTool(tool);
-  }
-
   registerUiSurfaceTools();
   registerAppTools();
   registerSystemTools();
@@ -932,7 +924,6 @@ export async function initializeTools(): Promise<void> {
       ...extEntries.map(({ tool }) => tool.name),
       ...hostTools.map((t) => t.name!),
       ...cesTools.map((t) => t.name!),
-      ...workflowTools.map((t) => t.name!),
       ...allUiSurfaceTools.map((t) => t.name!),
       ...coreAppProxyTools.map((t) => t.name!),
     ]);
@@ -965,8 +956,8 @@ export async function initializeTools(): Promise<void> {
 }
 
 /**
- * Register any feature-flag-gated tools (CES `ces-tools`, `workflows`) that are
- * enabled but not yet in the registry. Idempotent and safe to call repeatedly.
+ * Register any feature-flag-gated tools (CES `ces-tools`) that are enabled but
+ * not yet in the registry. Idempotent and safe to call repeatedly.
  *
  * `initializeTools()` registers the gated tools once at startup, but feature-flag
  * overrides are fetched from the gateway ASYNCHRONOUSLY and non-blocking (see
@@ -984,9 +975,8 @@ export async function initializeTools(): Promise<void> {
  */
 export async function syncFlagGatedTools(): Promise<void> {
   try {
-    const { getCesToolsIfEnabled, getWorkflowToolsIfEnabled } =
-      await import("./tool-manifest.js");
-    const enabled = [...getCesToolsIfEnabled(), ...getWorkflowToolsIfEnabled()];
+    const { getCesToolsIfEnabled } = await import("./tool-manifest.js");
+    const enabled = [...getCesToolsIfEnabled()];
     const added: string[] = [];
     for (const tool of enabled) {
       if (tool.name && !tools.has(tool.name)) {
