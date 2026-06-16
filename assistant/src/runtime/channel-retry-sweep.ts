@@ -154,7 +154,7 @@ export async function sweepFailedEvents(
       parseInterfaceId(payload.sourceChannel) ??
       "web";
     const sourceMetadata = payload.sourceMetadata as
-      | Record<string, unknown>
+      | import("@vellumai/gateway-client").SourceMetadata
       | undefined;
     const assistantId =
       typeof payload.assistantId === "string" ? payload.assistantId : undefined;
