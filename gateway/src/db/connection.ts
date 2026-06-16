@@ -262,7 +262,7 @@ export async function initGatewayDb(): Promise<void> {
       SET address = external_user_id
       WHERE external_user_id IS NOT NULL
         AND address != external_user_id
-        AND type != 'email'
+        AND type NOT IN ('email', 'phone', 'whatsapp')
     `);
     raw.exec(/*sql*/ `
       UPDATE OR IGNORE contact_channels
