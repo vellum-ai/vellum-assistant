@@ -11,7 +11,9 @@ export interface PendingRemoteWebPairingChallenge {
   userCodeHash: string;
   publicBaseUrl: string;
   verificationUri: string;
+  status: "pending" | "approved";
   expiresAtMs: number;
+  approvedAtMs?: number;
 }
 
 export interface CreatedRemoteWebPairingChallenge {
@@ -22,6 +24,15 @@ export interface CreatedRemoteWebPairingChallenge {
   expiresInSeconds: number;
   intervalSeconds: number;
 }
+
+export type ApproveRemoteWebPairingChallengeResult =
+  | {
+      status: "approved";
+      verificationUri: string;
+      expiresAt: string;
+    }
+  | { status: "expired" }
+  | { status: "invalid" };
 
 const challengesByUserCodeHash = new Map<
   string,
@@ -76,6 +87,7 @@ export function createRemoteWebPairingChallenge(
     userCodeHash,
     publicBaseUrl,
     verificationUri,
+    status: "pending",
     expiresAtMs,
   });
 
@@ -86,6 +98,28 @@ export function createRemoteWebPairingChallenge(
     expiresAt: new Date(expiresAtMs).toISOString(),
     expiresInSeconds: Math.ceil(CODE_TTL_MS / 1000),
     intervalSeconds: POLL_INTERVAL_SECONDS,
+  };
+}
+
+export function approveRemoteWebPairingChallenge(
+  userCode: string,
+): ApproveRemoteWebPairingChallengeResult {
+  const userCodeHash = hashSecret(normalizeUserCode(userCode));
+  const challenge = challengesByUserCodeHash.get(userCodeHash);
+  if (!challenge) return { status: "invalid" };
+
+  const now = nowMs();
+  if (challenge.expiresAtMs <= now) {
+    challengesByUserCodeHash.delete(userCodeHash);
+    return { status: "expired" };
+  }
+
+  challenge.status = "approved";
+  challenge.approvedAtMs = now;
+  return {
+    status: "approved",
+    verificationUri: challenge.verificationUri,
+    expiresAt: new Date(challenge.expiresAtMs).toISOString(),
   };
 }
 

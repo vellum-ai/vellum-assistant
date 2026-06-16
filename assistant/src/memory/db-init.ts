@@ -230,6 +230,7 @@ import {
   runLateMigrations,
   validateMigrationState,
 } from "./migrations/index.js";
+import { runMigrationSteps } from "./migrations/run-migrations.js";
 
 // ---------------------------------------------------------------------------
 // Test DB template — run migrations once, reuse across test files
@@ -524,25 +525,12 @@ export function initializeDb(): void {
 
   // Run each migration step, catching and logging individual failures so one
   // broken migration doesn't prevent independent later ones from succeeding.
-  const failures: string[] = [];
-  for (const step of migrationSteps) {
-    try {
-      log.debug({ migration: step.name }, `Starting migration: ${step.name}`);
-      step(database);
-      log.debug({ migration: step.name }, `Migration succeeded: ${step.name}`);
-    } catch (err) {
-      failures.push(step.name);
-      log.error(
-        { err, migration: step.name },
-        `Migration failed: ${step.name}`,
-      );
-    }
-  }
+  const { failed } = runMigrationSteps(database, migrationSteps);
 
-  if (failures.length > 0) {
+  if (failed.length > 0) {
     log.error(
-      { failedMigrations: failures, count: failures.length },
-      `DB initialization completed with ${failures.length} failed migration(s)`,
+      { failedMigrations: failed, count: failed.length },
+      `DB initialization completed with ${failed.length} failed migration(s)`,
     );
   }
 
