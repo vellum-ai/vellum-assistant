@@ -354,8 +354,32 @@ export class FileRiskClassifier implements RiskClassifier<
     // destination escalation, and an approval grants the destination. Only
     // to_sandbox transfers set `sandboxPath`, so every other case is unchanged.
     const subjectPath = input.sandboxPath ?? filePath;
-    const allowlistOptions = subjectPath
-      ? buildFileAllowlistOptions(toolName, subjectPath)
+    // Canonicalize the subject the same way the executor resolves it, so
+    // allowlist grants and user-override lookups key on the actual target file
+    // rather than a `/workspace` alias or relative string. The same literal
+    // path resolves to different files under different working dirs, so keying
+    // on the raw string would let a rule saved from a benign directory match —
+    // and downgrade — a later write that resolves into an escalated dir.
+    const isSandboxFileTool =
+      toolName === "file_read" ||
+      toolName === "file_write" ||
+      toolName === "file_edit";
+    let resolvedSubjectPath = subjectPath;
+    if (subjectPath) {
+      if (input.sandboxPath) {
+        resolvedSubjectPath = resolveSandboxPath(
+          input.sandboxPath,
+          input.sandboxWorkingDir ?? workingDir,
+        );
+      } else if (isSandboxFileTool) {
+        resolvedSubjectPath = resolveSandboxPath(filePath, workingDir);
+      } else {
+        // Host tools operate on real host paths (no /workspace remapping).
+        resolvedSubjectPath = resolve(filePath);
+      }
+    }
+    const allowlistOptions = resolvedSubjectPath
+      ? buildFileAllowlistOptions(toolName, resolvedSubjectPath)
       : [];
 
     // Run normal classification first (including all security escalations),
@@ -520,7 +544,10 @@ export class FileRiskClassifier implements RiskClassifier<
       const ruleCache = getTrustRuleCache();
       let result = assessment!;
 
-      const primaryOverride = ruleCache.findToolOverride(toolName, subjectPath);
+      const primaryOverride = ruleCache.findToolOverride(
+        toolName,
+        resolvedSubjectPath,
+      );
       if (
         primaryOverride &&
         (primaryOverride.userModified ||
@@ -536,7 +563,10 @@ export class FileRiskClassifier implements RiskClassifier<
       }
 
       if (input.sandboxPath) {
-        const sourceOverride = ruleCache.findToolOverride(toolName, filePath);
+        const sourceOverride = ruleCache.findToolOverride(
+          toolName,
+          resolve(filePath),
+        );
         if (
           sourceOverride &&
           (sourceOverride.userModified ||

@@ -97,6 +97,59 @@ describe("FileRiskClassifier user overrides", () => {
     expect(result.matchType).toBe("user_rule");
   });
 
+  test("a low rule on a /workspace alias from a benign dir does not downgrade a tools-dir write", async () => {
+    // "/workspace/skill_load.ts" resolves differently per working dir. A low
+    // rule whose resolved key is a benign path must NOT match a write that
+    // resolves into the tools dir (toolsDir = /tmp/test-tools).
+    store.create({
+      tool: "file_write",
+      pattern: "/home/user/project/skill_load.ts",
+      risk: "low",
+      description: "Trusted benign path",
+    });
+
+    initTrustRuleCache(store);
+
+    const classifier = new FileRiskClassifier();
+    const result = await classifier.classify(
+      {
+        toolName: "file_write",
+        filePath: "/workspace/skill_load.ts",
+        workingDir: "/tmp/test-tools",
+      },
+      dummyFileContext,
+    );
+
+    expect(result.riskLevel).toBe("high");
+    expect(result.reason).toBe("Writes to workspace tools directory");
+  });
+
+  test("a rule keyed on the resolved path applies even when the call uses a /workspace alias", async () => {
+    // The user explicitly trusted the actual file; canonicalization lets the
+    // alias-addressed write find that rule and lower the risk.
+    store.create({
+      tool: "file_write",
+      pattern: "/tmp/test-tools/skill_load.ts",
+      risk: "low",
+      description: "Explicitly trusted tools file",
+    });
+
+    initTrustRuleCache(store);
+
+    const classifier = new FileRiskClassifier();
+    const result = await classifier.classify(
+      {
+        toolName: "file_write",
+        filePath: "/workspace/skill_load.ts",
+        workingDir: "/tmp/test-tools",
+      },
+      dummyFileContext,
+    );
+
+    expect(result.riskLevel).toBe("low");
+    expect(result.matchType).toBe("user_rule");
+  });
+
   test("to_sandbox transfer honors a high-risk rule on the host source", async () => {
     // The host source carries a sensitive-source rule; the sandbox destination
     // is benign. The transfer must take the higher (source) risk rather than
