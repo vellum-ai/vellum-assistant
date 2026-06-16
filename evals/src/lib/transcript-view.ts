@@ -25,10 +25,22 @@
 import type { AgentEvent } from "./adapter";
 import type { TranscriptTurn } from "./transcript";
 
+/**
+ * Wall-clock span a block occupied in the event stream, as ISO stamps.
+ * `startedAt` is the first contributing event, `endedAt` the last — for a
+ * coalesced text/thinking block that is its first and last delta, and for a
+ * tool call its `tool_use_start` and resolving `tool_result`. Both are absent
+ * on legacy artifact dirs whose events carry no `emittedAt`.
+ */
+export interface BlockTiming {
+  startedAt?: string;
+  endedAt?: string;
+}
+
 export type AssistantBlock =
-  | { kind: "thinking"; thinking: string }
-  | { kind: "text"; text: string }
-  | {
+  | ({ kind: "thinking"; thinking: string } & BlockTiming)
+  | ({ kind: "text"; text: string } & BlockTiming)
+  | ({
       kind: "tool_call";
       toolName: string;
       toolUseId?: string;
@@ -36,12 +48,24 @@ export type AssistantBlock =
       result?: string;
       isError?: boolean;
       status: "running" | "completed";
-    }
-  | { kind: "surface"; surfaceType: string; title?: string; data?: unknown };
+    } & BlockTiming)
+  | ({
+      kind: "surface";
+      surfaceType: string;
+      title?: string;
+      data?: unknown;
+    } & BlockTiming);
 
 export interface AssistantMessageView {
   role: "assistant";
   emittedAt?: string;
+  /**
+   * The last contributing event's stamp — the moment the agent stopped
+   * producing this message. Distinct from `emittedAt` (the first), so the
+   * transcript can show when a streamed answer *finished* rather than when its
+   * first delta landed, which on a long build can be many minutes earlier.
+   */
+  endedAt?: string;
   blocks: AssistantBlock[];
 }
 
@@ -61,12 +85,16 @@ export type TranscriptViewItem = SimulatorTurnView | AssistantMessageView;
  */
 function blockForEvent(event: AgentEvent): AssistantBlock | undefined {
   const msg = event.message;
+  const timing: BlockTiming = {
+    startedAt: event.emittedAt,
+    endedAt: event.emittedAt,
+  };
   const text = msg.text ?? msg.chunk;
   if (typeof text === "string" && text.length > 0) {
-    return { kind: "text", text };
+    return { kind: "text", text, ...timing };
   }
   if (typeof msg.thinking === "string" && msg.thinking.length > 0) {
-    return { kind: "thinking", thinking: msg.thinking };
+    return { kind: "thinking", thinking: msg.thinking, ...timing };
   }
   if (msg.type === "tool_use_start") {
     return {
@@ -75,6 +103,7 @@ function blockForEvent(event: AgentEvent): AssistantBlock | undefined {
       toolUseId: typeof msg.toolUseId === "string" ? msg.toolUseId : undefined,
       input: msg.input,
       status: "running",
+      ...timing,
     };
   }
   if (msg.type === "ui_surface_show") {
@@ -84,6 +113,7 @@ function blockForEvent(event: AgentEvent): AssistantBlock | undefined {
         typeof msg.surfaceType === "string" ? msg.surfaceType : "surface",
       title: typeof msg.title === "string" ? msg.title : undefined,
       data: msg.data,
+      ...timing,
     };
   }
   return undefined;
@@ -108,22 +138,28 @@ function applyToolResult(blocks: AssistantBlock[], event: AgentEvent): void {
   );
   if (!target) return;
   target.status = "completed";
+  target.endedAt = event.emittedAt ?? target.endedAt;
   if (typeof msg.result === "string") target.result = msg.result;
   if (typeof msg.isError === "boolean") target.isError = msg.isError;
 }
 
 /**
  * Coalesce a delta block into the message, web-chat style: extend the
- * trailing block when it is the same kind, else append a new block.
+ * trailing block when it is the same kind, else append a new block. A
+ * coalesced block keeps its first delta's `startedAt` and advances its
+ * `endedAt` to the latest delta, so its span covers the whole stream of
+ * fragments rather than a single instant.
  */
 function appendBlock(message: AssistantMessageView, block: AssistantBlock) {
   const tail = message.blocks[message.blocks.length - 1];
   if (block.kind === "text" && tail?.kind === "text") {
     tail.text += block.text;
+    tail.endedAt = block.endedAt ?? tail.endedAt;
     return;
   }
   if (block.kind === "thinking" && tail?.kind === "thinking") {
     tail.thinking += block.thinking;
+    tail.endedAt = block.endedAt ?? tail.endedAt;
     return;
   }
   message.blocks.push(block);
@@ -157,7 +193,15 @@ export function buildTranscriptView(
         : {
             role: "assistant",
             emittedAt: turn.emittedAt,
-            blocks: [{ kind: "text", text: turn.content }],
+            endedAt: turn.emittedAt,
+            blocks: [
+              {
+                kind: "text",
+                text: turn.content,
+                startedAt: turn.emittedAt,
+                endedAt: turn.emittedAt,
+              },
+            ],
           },
     );
   }
@@ -185,7 +229,10 @@ export function buildTranscriptView(
     flushSimulatorTurnsBefore(event.emittedAt);
 
     if (event.message.type === "tool_result") {
-      if (current) applyToolResult(current.blocks, event);
+      if (current) {
+        applyToolResult(current.blocks, event);
+        current.endedAt = event.emittedAt ?? current.endedAt;
+      }
       continue;
     }
 
@@ -193,10 +240,16 @@ export function buildTranscriptView(
     if (!block) continue;
 
     if (!current) {
-      current = { role: "assistant", emittedAt: event.emittedAt, blocks: [] };
+      current = {
+        role: "assistant",
+        emittedAt: event.emittedAt,
+        endedAt: event.emittedAt,
+        blocks: [],
+      };
       items.push(current);
     }
     appendBlock(current, block);
+    current.endedAt = block.endedAt ?? current.endedAt;
   }
 
   flushSimulatorTurnsBefore(undefined);

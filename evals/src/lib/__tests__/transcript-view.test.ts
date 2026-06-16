@@ -34,7 +34,15 @@ describe("buildTranscriptView", () => {
       {
         role: "assistant",
         emittedAt: "2026-01-01T00:00:05Z",
-        blocks: [{ kind: "text", text: "Here you go" }],
+        endedAt: "2026-01-01T00:00:05Z",
+        blocks: [
+          {
+            kind: "text",
+            text: "Here you go",
+            startedAt: "2026-01-01T00:00:05Z",
+            endedAt: "2026-01-01T00:00:05Z",
+          },
+        ],
       },
     ]);
   });
@@ -66,9 +74,20 @@ describe("buildTranscriptView", () => {
     expect(items[1]).toEqual({
       role: "assistant",
       emittedAt: "2026-01-01T00:00:01Z",
+      endedAt: "2026-01-01T00:00:04Z",
       blocks: [
-        { kind: "thinking", thinking: "Let me think." },
-        { kind: "text", text: "Hello there" },
+        {
+          kind: "thinking",
+          thinking: "Let me think.",
+          startedAt: "2026-01-01T00:00:01Z",
+          endedAt: "2026-01-01T00:00:02Z",
+        },
+        {
+          kind: "text",
+          text: "Hello there",
+          startedAt: "2026-01-01T00:00:03Z",
+          endedAt: "2026-01-01T00:00:04Z",
+        },
       ],
     });
   });
@@ -130,6 +149,37 @@ describe("buildTranscriptView", () => {
           input: { skill: "app-builder" },
           result: "Skill loaded",
           status: "completed",
+        },
+      ],
+    });
+  });
+
+  test("GIVEN a tool call WHEN it resolves THEN its span runs start→result and the message end advances", () => {
+    // GIVEN a tool call that starts at :01 and resolves at :04
+    const items = buildTranscriptView(
+      [simTurn("hi", "2026-01-01T00:00:00Z")],
+      [
+        event(
+          { type: "tool_use_start", toolName: "bash", toolUseId: "tool-1" },
+          "2026-01-01T00:00:01Z",
+        ),
+        event(
+          { type: "tool_result", toolUseId: "tool-1", result: "ok" },
+          "2026-01-01T00:00:04Z",
+        ),
+      ],
+    );
+
+    // THEN the block's span covers the call, and the message ends at the result
+    expect(items[1]).toMatchObject({
+      role: "assistant",
+      emittedAt: "2026-01-01T00:00:01Z",
+      endedAt: "2026-01-01T00:00:04Z",
+      blocks: [
+        {
+          kind: "tool_call",
+          startedAt: "2026-01-01T00:00:01Z",
+          endedAt: "2026-01-01T00:00:04Z",
         },
       ],
     });

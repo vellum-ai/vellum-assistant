@@ -310,6 +310,160 @@ describe("report html", () => {
     expect(html).toContain('href="/sessions/session-1"');
   });
 
+  test("execution page renders assistant text as Markdown", () => {
+    // GIVEN an assistant answer streamed as Markdown (a bold lead + a list)
+    const run: ReportRunDetail = {
+      ...executionDetail,
+      transcript: [
+        {
+          role: "assistant",
+          content: "**Labor** is the top category:\n\n- Labor\n- Food",
+          emittedAt: "2026-05-15T12:00:01.000Z",
+        },
+      ],
+      assistantEvents: [
+        {
+          message: {
+            type: "assistant_text_delta",
+            text: "**Labor** is the top category:\n\n- Labor\n- Food",
+          },
+          emittedAt: "2026-05-15T12:00:01.000Z",
+        },
+      ],
+    };
+
+    // WHEN the execution page renders
+    const html = renderReportPage({ kind: "execution", run });
+
+    // THEN the Markdown is rendered to real elements, not shown as raw syntax
+    expect(html).toContain('<div class="md">');
+    expect(html).toContain("<strong>Labor</strong>");
+    expect(html).toContain("<li>Labor</li>");
+    // AND the rendered transcript block carries no raw Markdown markers (the
+    // raw event log legitimately still echoes the source delta verbatim)
+    const md = html.slice(
+      html.indexOf('<div class="md">'),
+      html.indexOf("</div>", html.indexOf('<div class="md">')),
+    );
+    expect(md).not.toContain("**Labor**");
+  });
+
+  test("execution page escapes raw HTML in assistant Markdown", () => {
+    // GIVEN an assistant answer containing raw HTML
+    const run: ReportRunDetail = {
+      ...executionDetail,
+      transcript: [
+        {
+          role: "assistant",
+          content: "<img src=x onerror=alert(1)> done",
+          emittedAt: "2026-05-15T12:00:01.000Z",
+        },
+      ],
+      assistantEvents: [
+        {
+          message: {
+            type: "assistant_text_delta",
+            text: "<img src=x onerror=alert(1)> done",
+          },
+          emittedAt: "2026-05-15T12:00:01.000Z",
+        },
+      ],
+    };
+
+    // WHEN the execution page renders
+    const html = renderReportPage({ kind: "execution", run });
+
+    // THEN the raw tag is escaped, never emitted as live markup
+    expect(html).toContain("&lt;img");
+    expect(html).not.toMatch(/<img\b/i);
+  });
+
+  test("execution page renders Markdown images as inert links, not auto-loading <img>", () => {
+    // GIVEN an assistant answer with a Markdown image pointing at an external URL
+    const run: ReportRunDetail = {
+      ...executionDetail,
+      transcript: [
+        {
+          role: "assistant",
+          content: "Here it is: ![the chart](https://tracker.example/p.png)",
+          emittedAt: "2026-05-15T12:00:01.000Z",
+        },
+      ],
+      assistantEvents: [
+        {
+          message: {
+            type: "assistant_text_delta",
+            text: "Here it is: ![the chart](https://tracker.example/p.png)",
+          },
+          emittedAt: "2026-05-15T12:00:01.000Z",
+        },
+      ],
+    };
+
+    // WHEN the execution page renders
+    const html = renderReportPage({ kind: "execution", run });
+
+    // THEN the image becomes a link carrying the alt text and destination
+    expect(html).toContain(
+      '<a class="md-image-link" href="https://tracker.example/p.png"',
+    );
+    expect(html).toContain(">the chart</a>");
+    // AND no <img> element is emitted, so opening the report fetches nothing
+    expect(html).not.toMatch(/<img\b/i);
+  });
+
+  test("execution page stamps each turn with its end time at the foot", () => {
+    // GIVEN an answer whose deltas stream over a span (first 12:00:01, last 12:00:09)
+    const run: ReportRunDetail = {
+      ...executionDetail,
+      transcript: [],
+      simulatorMessages: [{ content: "which category?" }],
+      assistantEvents: [
+        {
+          message: { type: "assistant_text_delta", text: "Labor " },
+          emittedAt: "2026-05-15T12:00:01.000Z",
+        },
+        {
+          message: { type: "assistant_text_delta", text: "leads." },
+          emittedAt: "2026-05-15T12:00:09.000Z",
+        },
+      ],
+    };
+
+    // WHEN the execution page renders
+    const html = renderReportPage({ kind: "execution", run });
+
+    // THEN the turn's foot timestamp reads the LAST delta (12:00:09), not the
+    // first (12:00:01) — closing the gap where a long answer showed its start
+    expect(html).toContain('<div class="turn-time">12:00:09Z</div>');
+  });
+
+  test("execution page exposes per-chunk run time with a start-time tooltip", () => {
+    // GIVEN a streamed answer spanning 8 seconds
+    const run: ReportRunDetail = {
+      ...executionDetail,
+      transcript: [],
+      assistantEvents: [
+        {
+          message: { type: "assistant_text_delta", text: "Labor " },
+          emittedAt: "2026-05-15T12:00:01.000Z",
+        },
+        {
+          message: { type: "assistant_text_delta", text: "leads." },
+          emittedAt: "2026-05-15T12:00:09.000Z",
+        },
+      ],
+    };
+
+    // WHEN the execution page renders
+    const html = renderReportPage({ kind: "execution", run });
+
+    // THEN the chunk shows its 8.0s run time, with the start time in its title
+    expect(html).toContain('class="chunk-duration"');
+    expect(html).toContain("8.0s");
+    expect(html).toContain('title="started 12:00:01Z"');
+  });
+
   test("not-found page links back to the index", () => {
     const html = renderReportPage({
       kind: "not-found",
