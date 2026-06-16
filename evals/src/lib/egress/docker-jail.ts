@@ -158,6 +158,31 @@ export const DEFAULT_INFRA_ALLOW_HOSTS = [
 ];
 
 /**
+ * Hosts the Vellum assistant downloads its on-device embedding stack from
+ * at daemon startup, when a profile leaves memory on the default local
+ * embedder (`Xenova/bge-small-en-v1.5`). The daemon's
+ * `EmbeddingRuntimeManager` fetches the ONNX runtime + transformers
+ * tarballs from npm, then transformers.js pulls the model weights from
+ * HuggingFace (large files redirect to its Xet/CloudFront CDN). Without
+ * these the embedder can't initialize in the fail-closed jail, dense
+ * memory recall silently degrades, and a long-memory benchmark scores
+ * near zero for reasons unrelated to the model under test.
+ *
+ * These are bulk asset downloads, **not** model-inference endpoints: they
+ * are deliberately kept out of the recording proxy's TLS interception
+ * (`RECORDING_TLS_HOSTS_RE` in `recording/entrypoint.sh`) so the embedding
+ * worker validates each origin's genuine certificate, and out of
+ * `DEFAULT_MODEL_ALLOW_HOSTS` so the addon never tries to parse usage out
+ * of a model-weight blob.
+ */
+export const DEFAULT_EMBEDDING_ALLOW_HOSTS = [
+  "registry.npmjs.org",
+  "huggingface.co",
+  "cas-bridge.xethub.hf.co",
+  "us.aws.cdn.hf.co",
+];
+
+/**
  * The default allowlist applied when `applyDockerEgressJail` is called
  * without an explicit `allowHosts`. Concatenation order doesn't matter
  * — the iptables script (`apply-recording-jail.sh`) iterates and adds
@@ -166,6 +191,7 @@ export const DEFAULT_INFRA_ALLOW_HOSTS = [
 export const DEFAULT_ALLOW_HOSTS = [
   ...DEFAULT_MODEL_ALLOW_HOSTS,
   ...DEFAULT_INFRA_ALLOW_HOSTS,
+  ...DEFAULT_EMBEDDING_ALLOW_HOSTS,
 ];
 
 const DEFAULT_RECORDING_IMAGE = "vellum-evals-recording-jail:local";

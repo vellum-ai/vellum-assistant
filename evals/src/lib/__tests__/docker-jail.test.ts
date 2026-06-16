@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   DEFAULT_ALLOW_HOSTS,
+  DEFAULT_EMBEDDING_ALLOW_HOSTS,
   DEFAULT_INFRA_ALLOW_HOSTS,
   DEFAULT_MODEL_ALLOW_HOSTS,
   applyDockerEgressJail,
@@ -177,7 +178,7 @@ describe("docker egress jail", () => {
     expect(runner.runs[4]?.args).not.toContain("-p");
   });
 
-  test("owner mode defaults to the combined model+infra allowlist", async () => {
+  test("owner mode defaults to the combined model+infra+embedding allowlist", async () => {
     // GIVEN a recording dir
     const runner = new FakeRunner();
     const dir = `.runs/test-allowlist-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -233,19 +234,42 @@ describe("docker egress jail", () => {
   });
 
   test("DEFAULT_MODEL_ALLOW_HOSTS stays bounded to recognized model providers", () => {
-    // The mitmproxy addon (addon.py) only parses usage for the
-    // providers it recognizes (Anthropic today); other model hosts
-    // flow through unparsed. Adding a non-model host here would be dead
-    // code in the addon at best, so new infra hosts belong in
-    // DEFAULT_INFRA_ALLOW_HOSTS. Fireworks is a genuine model provider
-    // (open-weight models over an OpenAI-compatible API), so it belongs
-    // here even though its usage isn't parsed yet.
+    // The mitmproxy addon (addon.py) parses usage for the providers it
+    // recognizes (Anthropic, plus OpenAI/Fireworks via the shared
+    // chat-completions parser); Gemini flows through unparsed. Adding a
+    // non-model host here would be dead code in the addon at best, so
+    // new infra hosts belong in DEFAULT_INFRA_ALLOW_HOSTS and bulk asset
+    // downloads in DEFAULT_EMBEDDING_ALLOW_HOSTS.
     expect(DEFAULT_MODEL_ALLOW_HOSTS.sort()).toEqual([
       "api.anthropic.com",
       "api.fireworks.ai",
       "api.openai.com",
       "generativelanguage.googleapis.com",
     ]);
+  });
+
+  test("DEFAULT_EMBEDDING_ALLOW_HOSTS covers the local embedder download surface", () => {
+    // The default local embedder (Xenova/bge-small-en-v1.5) downloads its
+    // ONNX runtime + transformers tarballs from npm and its model weights
+    // from HuggingFace (large files redirect to the Xet/CloudFront CDN) at
+    // daemon startup. Dropping any of these in the fail-closed jail leaves
+    // the embedder uninitialized and silently degrades dense memory recall,
+    // which tanks a long-memory benchmark for reasons unrelated to the
+    // model under test.
+    expect(DEFAULT_EMBEDDING_ALLOW_HOSTS.sort()).toEqual([
+      "cas-bridge.xethub.hf.co",
+      "huggingface.co",
+      "registry.npmjs.org",
+      "us.aws.cdn.hf.co",
+    ]);
+    for (const host of DEFAULT_EMBEDDING_ALLOW_HOSTS) {
+      expect(DEFAULT_ALLOW_HOSTS).toContain(host);
+    }
+    // These are bulk asset downloads, not model-inference endpoints, so
+    // they stay out of the addon's provider-recognition allowlist.
+    for (const host of DEFAULT_EMBEDDING_ALLOW_HOSTS) {
+      expect(DEFAULT_MODEL_ALLOW_HOSTS).not.toContain(host);
+    }
   });
 
   test("an explicit allowHosts override still wins over the default", async () => {
