@@ -462,9 +462,9 @@ export interface ContextCompacted {
    * - `summaryCharCount`: length of the produced summary text.
    * - `summaryHeaderCount`: number of `## ` section headers in the summary.
    * - `summaryHadMemoryEcho`: `true` if the summary contains any runtime
-   *   injection tag (e.g. `<memory`, `<turn_context>`, `<workspace>`).
-   *   Should always be `false` — `true` indicates the compaction strip
-   *   logic failed to remove an injected block from the summarizer input.
+   *   injection tag (e.g. `<memory`, `<turn_context>`, `<workspace>`). The
+   *   durable summary should be clean prose, so `true` flags an echoed or
+   *   invented tag worth investigating.
    */
   summaryCharCount?: number;
   summaryHeaderCount?: number;

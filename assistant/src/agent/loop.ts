@@ -761,8 +761,10 @@ export class AgentLoop {
   /**
    * Compact the running history in place when the budget gate trips.
    *
-   * Calls the default compaction plugin on the stripped history, then
-   * re-applies injections via the supplied hooks. When `overflowSignal` is
+   * Calls the default compaction plugin, then re-applies injections via the
+   * supplied hooks. The budget path summarizes the injected `history` (so the
+   * summary call reuses the agent's warm prefix cache); overflow recovery runs
+   * on the injection-stripped history. When `overflowSignal` is
    * supplied the plugin routes through the manager's reduction ladder (which
    * advances one rung per call and reports `exhausted` / `autoCompressApplied`
    * / `injectionMode`); otherwise it runs ordinary forced compaction. Returns
@@ -795,8 +797,11 @@ export class AgentLoop {
       startedAt,
       messages: history,
     });
-    // Strip runtime injections so the compactor summarizes the raw persistent
-    // messages.
+    // Injection-stripped history for overflow recovery's reduction ladder and
+    // the post-compaction re-injection base below. The budget-path summarizer
+    // instead runs on the injected `history` so its prompt prefix matches the
+    // agent's warm prefix cache and the summary call is a cache read, not a
+    // fresh cache write.
     const rawHistory = stripInjectionsForCompaction(history);
     // Record the history-stripped marker right after stripping, before the
     // pipeline runs.
@@ -812,7 +817,7 @@ export class AgentLoop {
     // routes the request through the reduction ladder when present.
     const compactResult = await defaultCompact({
       conversationId: this.conversationId,
-      messages: rawHistory,
+      messages: overflowSignal != null ? rawHistory : history,
       signal,
       force: true,
       actorTrustClass: trust.trustClass,
