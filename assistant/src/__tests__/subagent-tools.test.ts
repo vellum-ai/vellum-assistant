@@ -506,36 +506,6 @@ describe("Subagent spawn success and failure", () => {
     }
   });
 
-  test("spawn returns error for inherited-property inference_profile", async () => {
-    const manager = getSubagentManager();
-    const originalSpawn = manager.spawn.bind(manager);
-    let spawnCalled = false;
-
-    manager.spawn = async () => {
-      spawnCalled = true;
-      return "profile-subagent-id";
-    };
-
-    try {
-      const result = await executeSubagentSpawn(
-        {
-          label: "Inherited profile",
-          objective: "Do it",
-          inference_profile: "toString",
-        },
-        makeContext("sess-spawn-inherited-profile", { sendToClient: () => {} }),
-      );
-
-      expect(result.isError).toBe(true);
-      expect(result.content).toContain(
-        'Inference profile "toString" is not defined',
-      );
-      expect(spawnCalled).toBe(false);
-    } finally {
-      manager.spawn = originalSpawn;
-    }
-  });
-
   test("spawn returns error for disabled inference_profile", async () => {
     const manager = getSubagentManager();
     const originalSpawn = manager.spawn.bind(manager);

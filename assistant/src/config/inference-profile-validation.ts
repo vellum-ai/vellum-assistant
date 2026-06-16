@@ -10,7 +10,8 @@ export function validateInferenceProfileKey(profile: string): string | null {
     return "inferenceProfile must be a non-empty string";
   }
   const profiles = getConfigReadOnly().llm?.profiles ?? {};
-  if (!Object.prototype.hasOwnProperty.call(profiles, profile)) {
+  const entry = profiles[profile];
+  if (entry === undefined) {
     const available = Object.keys(profiles).sort();
     const hint =
       available.length > 0
@@ -18,7 +19,6 @@ export function validateInferenceProfileKey(profile: string): string | null {
         : " No profiles defined in llm.profiles.";
     return `Inference profile "${profile}" is not defined in llm.profiles.${hint}`;
   }
-  const entry = profiles[profile]!;
   if (entry.status === "disabled") {
     return `Inference profile "${profile}" is disabled.`;
   }
