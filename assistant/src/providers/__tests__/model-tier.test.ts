@@ -36,6 +36,38 @@ describe("parseModelCapability", () => {
     });
   });
 
+  test("parses dotted, provider-prefixed OpenRouter ids", () => {
+    expect(parseModelCapability("anthropic/claude-opus-4.8")).toEqual({
+      lineage: "claude",
+      familyRank: CLAUDE_FAMILY_RANK.opus!,
+      version: 4.8,
+    });
+    expect(parseModelCapability("anthropic/claude-sonnet-4.6")).toEqual({
+      lineage: "claude",
+      familyRank: CLAUDE_FAMILY_RANK.sonnet!,
+      version: 4.6,
+    });
+    expect(parseModelCapability("anthropic/claude-haiku-4.5")).toEqual({
+      lineage: "claude",
+      familyRank: CLAUDE_FAMILY_RANK.haiku!,
+      version: 4.5,
+    });
+  });
+
+  test("dashed and dotted forms of the same model encode equal capability", () => {
+    expect(parseModelCapability("anthropic/claude-opus-4.8")).toEqual(
+      parseModelCapability("claude-opus-4-8")!,
+    );
+  });
+
+  test("parses a dotted, provider-prefixed single-tier id", () => {
+    expect(parseModelCapability("anthropic/claude-fable-5")).toEqual({
+      lineage: "fable",
+      familyRank: 0,
+      version: 5,
+    });
+  });
+
   test("parses single-tier lineages with familyRank 0", () => {
     expect(parseModelCapability("claude-fable-5")).toEqual({
       lineage: "fable",
@@ -107,6 +139,46 @@ describe("isStrictlyMoreCapable", () => {
     expect(isStrictlyMoreCapable("claude-mythos-5", "claude-opus-4-8")).toBe(
       false,
     );
+  });
+
+  test("ranks dotted, provider-prefixed OpenRouter ids", () => {
+    expect(
+      isStrictlyMoreCapable(
+        "anthropic/claude-opus-4.8",
+        "anthropic/claude-sonnet-4.6",
+      ),
+    ).toBe(true);
+    expect(
+      isStrictlyMoreCapable(
+        "anthropic/claude-sonnet-4.6",
+        "anthropic/claude-opus-4.8",
+      ),
+    ).toBe(false);
+  });
+
+  test("dashed and dotted forms of the same model are equal (neither more capable)", () => {
+    expect(
+      isStrictlyMoreCapable("claude-opus-4-8", "anthropic/claude-opus-4.8"),
+    ).toBe(false);
+    expect(
+      isStrictlyMoreCapable("anthropic/claude-opus-4.8", "claude-opus-4-8"),
+    ).toBe(false);
+  });
+
+  test("a dotted single-tier id is cross-lineage-false vs opus", () => {
+    expect(parseModelCapability("anthropic/claude-fable-5")).not.toBeNull();
+    expect(
+      isStrictlyMoreCapable(
+        "anthropic/claude-fable-5",
+        "anthropic/claude-opus-4.8",
+      ),
+    ).toBe(false);
+    expect(
+      isStrictlyMoreCapable(
+        "anthropic/claude-opus-4.8",
+        "anthropic/claude-fable-5",
+      ),
+    ).toBe(false);
   });
 
   test("unknown or non-Claude model on either side is false", () => {

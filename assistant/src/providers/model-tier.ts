@@ -38,14 +38,54 @@ export const CLAUDE_FAMILY_RANK: Record<string, number> = {
 /** Single-tier Claude lineages, each its own non-comparable namespace. */
 const CLAUDE_SINGLE_TIER_LINEAGES = ["fable", "mythos"] as const;
 
-/** First `-<major>-<minor>` pair, e.g. `claude-opus-4-8` → major 4, minor 8. */
-const VERSION_PATTERN = /-(\d+)-(\d+)/;
+/**
+ * First `-<major>-<minor>` pair, e.g. `claude-opus-4-8` → major 4, minor 8.
+ * Matches the dashed ids used by first-party Anthropic configs.
+ */
+const VERSION_PATTERN_DASHED = /-(\d+)-(\d+)/;
 
-/** Single-tier lineages encode version as a bare trailing integer, e.g. `-5`. */
-const SINGLE_TIER_VERSION_PATTERN = /-(\d+)/;
+/**
+ * First `<major>.<minor>` pair, e.g. `anthropic/claude-opus-4.8` → major 4,
+ * minor 8. Matches the dotted, provider-prefixed ids OpenRouter exposes.
+ */
+const VERSION_PATTERN_DOTTED = /(\d+)\.(\d+)/;
+
+/**
+ * Single-tier lineages encode version as a trailing integer. Accepts both the
+ * dashed (`claude-fable-5`, also matches `anthropic/claude-fable-5`) and dotted
+ * (`claude-fable-5.2`) forms.
+ */
+const SINGLE_TIER_VERSION_PATTERN_DASHED = /-(\d+)/;
+const SINGLE_TIER_VERSION_PATTERN_DOTTED = /(\d+)\.(\d+)/;
 
 function encodeVersion(major: number, minor: number): number {
   return major + minor / 10;
+}
+
+/**
+ * Parse a tiered family's version from either the dashed (`-4-8`) or dotted
+ * (`4.8`) form, returning the same monotonic encoding for both so that the two
+ * spellings of one model compare equal. `null` when neither form is present.
+ */
+function parseTieredVersion(id: string): number | null {
+  const dashed = id.match(VERSION_PATTERN_DASHED);
+  if (dashed) return encodeVersion(Number(dashed[1]), Number(dashed[2]));
+  const dotted = id.match(VERSION_PATTERN_DOTTED);
+  if (dotted) return encodeVersion(Number(dotted[1]), Number(dotted[2]));
+  return null;
+}
+
+/**
+ * Parse a single-tier lineage's version from the bare trailing integer
+ * (`-5`, also matches a `provider/` prefix) or the dotted form (`5.2`).
+ * `null` when neither form is present.
+ */
+function parseSingleTierVersion(id: string): number | null {
+  const dotted = id.match(SINGLE_TIER_VERSION_PATTERN_DOTTED);
+  if (dotted) return encodeVersion(Number(dotted[1]), Number(dotted[2]));
+  const dashed = id.match(SINGLE_TIER_VERSION_PATTERN_DASHED);
+  if (dashed) return Number(dashed[1]);
+  return null;
 }
 
 /**
@@ -57,9 +97,8 @@ export function parseModelCapability(modelId: string): ModelCapability | null {
 
   for (const family of Object.keys(CLAUDE_FAMILY_RANK)) {
     if (id.includes(family)) {
-      const match = id.match(VERSION_PATTERN);
-      if (!match) return null;
-      const version = encodeVersion(Number(match[1]), Number(match[2]));
+      const version = parseTieredVersion(id);
+      if (version === null) return null;
       return {
         lineage: "claude",
         familyRank: CLAUDE_FAMILY_RANK[family]!,
@@ -70,9 +109,9 @@ export function parseModelCapability(modelId: string): ModelCapability | null {
 
   for (const lineage of CLAUDE_SINGLE_TIER_LINEAGES) {
     if (id.includes(lineage)) {
-      const match = id.match(SINGLE_TIER_VERSION_PATTERN);
-      if (!match) return null;
-      return { lineage, familyRank: 0, version: Number(match[1]) };
+      const version = parseSingleTierVersion(id);
+      if (version === null) return null;
+      return { lineage, familyRank: 0, version };
     }
   }
 
