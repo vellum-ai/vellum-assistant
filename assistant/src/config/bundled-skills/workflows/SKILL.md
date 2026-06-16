@@ -156,11 +156,17 @@ Use `manage_workflows` to inspect and control runs:
 
 | Action          | Requires   | Purpose                                                          |
 | --------------- | ---------- | ---------------------------------------------------------------- |
-| `status`        | `run_id`   | Status + agent/token counts for one run.                        |
+| `status`        | `run_id`   | Status + agent/token counts for one run (NOT the result).       |
+| `get_result`    | `run_id`   | The full result of a finished run.                              |
 | `list_runs`     | —          | Recent runs, newest first.                                      |
 | `abort`         | `run_id`   | Signal an in-flight run to abort.                               |
 | `resume`        | `run_id`   | Resume an `interrupted` run (see below).                        |
 | `list_profiles` | —          | List defined profiles + the active profile (for leaf `profile`).|
+
+The completion notification injected when a run finishes carries a **truncated**
+preview of the result (large results are cut off). To read the complete result,
+call `manage_workflows` with action `get_result` and the `run_id` — `status`
+deliberately omits the result to stay lightweight.
 
 ### Crash recovery / resume
 

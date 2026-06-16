@@ -540,7 +540,9 @@ function buildCompletionSummary(
       `Tokens: ${result.inputTokens} in / ${result.outputTokens} out.`,
   ];
   if (result.status === "completed") {
-    lines.push(`Result: ${truncateForSummary(stringifyResult(result.result))}`);
+    lines.push(
+      `Result: ${truncateForSummary(stringifyResult(result.result), runId)}`,
+    );
   } else {
     lines.push(`Outcome: ${run?.error ?? result.status}`);
   }
@@ -557,12 +559,13 @@ function buildCompletionSummary(
 const MAX_SUMMARY_RESULT_CHARS = 2000;
 
 /** Bound a result tail for the summary; the full value stays on the run row. */
-function truncateForSummary(s: string): string {
+function truncateForSummary(s: string, runId: string): string {
   if (s.length <= MAX_SUMMARY_RESULT_CHARS) return s;
   const omitted = s.length - MAX_SUMMARY_RESULT_CHARS;
   return (
     `${s.slice(0, MAX_SUMMARY_RESULT_CHARS)}… ` +
-    `[truncated ${omitted} chars; full result on the workflow run record]`
+    `[truncated ${omitted} chars — fetch the full result with manage_workflows ` +
+    `{ action: "get_result", run_id: "${runId}" }]`
   );
 }
 

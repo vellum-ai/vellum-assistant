@@ -52,7 +52,7 @@
     },
     {
       "name": "manage_workflows",
-      "description": "Inspect or control workflow runs started by run_workflow: status, abort, resume, list_runs, and list_profiles. See SKILL.md for details.",
+      "description": "Inspect or control workflow runs started by run_workflow: status, get_result (the full result of a finished run — the completion notification truncates large results), abort, resume, list_runs, and list_profiles. See SKILL.md for details.",
       "category": "workflow",
       "risk": "low",
       "input_schema": {
@@ -60,12 +60,19 @@
         "properties": {
           "action": {
             "type": "string",
-            "enum": ["status", "abort", "resume", "list_runs", "list_profiles"],
+            "enum": [
+              "status",
+              "get_result",
+              "abort",
+              "resume",
+              "list_runs",
+              "list_profiles"
+            ],
             "description": "What to do."
           },
           "run_id": {
             "type": "string",
-            "description": "Target run id (required for \"status\", \"abort\", and \"resume\")."
+            "description": "Target run id (required for \"status\", \"get_result\", \"abort\", and \"resume\")."
           }
         },
         "required": ["action"]

@@ -65,6 +65,34 @@ export async function executeManageWorkflows(
         isError: false,
       };
     }
+    case "get_result": {
+      if (!runId) {
+        return {
+          content: '"run_id" is required for action "get_result".',
+          isError: true,
+        };
+      }
+      // The full result payload rides on the run record (journal getRun);
+      // `status` omits it to stay lightweight, so this action returns it in
+      // full. The completion-summary wake truncates large results and points
+      // the assistant here for the complete value.
+      const run = manager.status(runId);
+      if (!run || !ownsRun(run)) {
+        return {
+          content: JSON.stringify({ runId, found: false }),
+          isError: false,
+        };
+      }
+      return {
+        content: JSON.stringify({
+          runId: run.id,
+          status: run.status,
+          result: run.result ?? null,
+          error: run.error ?? null,
+        }),
+        isError: false,
+      };
+    }
     case "abort": {
       if (!runId) {
         return {
@@ -148,7 +176,7 @@ export async function executeManageWorkflows(
     default:
       return {
         content:
-          'Unknown action. Use one of: "status", "abort", "resume", "list_runs", "list_profiles".',
+          'Unknown action. Use one of: "status", "get_result", "abort", "resume", "list_runs", "list_profiles".',
         isError: true,
       };
   }

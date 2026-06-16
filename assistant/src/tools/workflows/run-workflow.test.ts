@@ -276,6 +276,43 @@ describe("manage_workflows", () => {
     expect(JSON.parse(res.content).found).toBe(false);
   });
 
+  test("get_result requires run_id and returns the full result", async () => {
+    const missing = await executeManageWorkflows(
+      { action: "get_result" },
+      makeContext(),
+    );
+    expect(missing.isError).toBe(true);
+
+    // not-found / not-owned reports cleanly, without leaking a result
+    const notFound = await executeManageWorkflows(
+      { action: "get_result", run_id: "nope" },
+      makeContext(),
+    );
+    expect(notFound.isError).toBe(false);
+    expect(JSON.parse(notFound.content).found).toBe(false);
+
+    // an owned, finished run returns the full (untruncated) result payload
+    statusMock.mockReturnValueOnce({
+      id: "r5",
+      conversationId: "conv-1",
+      status: "completed",
+      result: { scores: [1, 2, 3], note: "the full result lives here" },
+      error: null,
+    } as unknown);
+    const ok = await executeManageWorkflows(
+      { action: "get_result", run_id: "r5" },
+      makeContext(),
+    );
+    expect(ok.isError).toBe(false);
+    const parsed = JSON.parse(ok.content);
+    expect(parsed.runId).toBe("r5");
+    expect(parsed.status).toBe("completed");
+    expect(parsed.result).toEqual({
+      scores: [1, 2, 3],
+      note: "the full result lives here",
+    });
+  });
+
   test("resume requires run_id and delegates to resume()", async () => {
     const missing = await executeManageWorkflows(
       { action: "resume" },
