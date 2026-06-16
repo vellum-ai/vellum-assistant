@@ -1,17 +1,17 @@
-name: PR Electron Checks
+name: CI/CD Main macOS
 
 on:
-  pull_request:
-    types: [synchronize, opened, reopened]
+  push:
+    branches: [main]
     paths:
       - 'apps/macos/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
-      - '.github/workflows/pr-electron.yaml'
+      - '.github/workflows/ci-main-macos.yaml'
       - '.github/actions/install-shared-packages/**'
 
 concurrency:
-  group: pr-electron-${{ github.event.pull_request.number }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -110,7 +110,7 @@ jobs:
           echo "Test:       $TEST"
           for r in "$TYPECHECK" "$BUILD" "$TEST"; do
             if [ "$r" != "success" ]; then
-              echo "::error::At least one electron CI job failed."
+              echo "::error::At least one macOS CI job failed."
               exit 1
             fi
           done
