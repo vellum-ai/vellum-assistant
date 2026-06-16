@@ -8,7 +8,7 @@ import {
     Loader2,
     Trash2,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 
 import {
@@ -231,6 +231,7 @@ export function SkillDetail({
             </div>
           ) : activeFile ? (
             <SkillFileContent
+              key={`${skill.id}/${activeFile.path}`}
               assistantId={assistantId}
               skillId={skill.id}
               fileName={activeFile.name}
@@ -277,26 +278,19 @@ function SkillFileContent({
   const [isEditing, setIsEditing] = useState(false);
   const [editableContent, setEditableContent] = useState("");
 
-  useEffect(() => {
-    setIsEditing(false);
-    setEditableContent("");
-  }, [skillId, filePath]);
-
   const workspacePath = `skills/${skillId}/${filePath}`;
 
   const saveMutation = useWorkspaceWritePostMutation({
-    onSuccess: (_data, variables) => {
-      if (variables.body?.path === workspacePath) {
-        setIsEditing(false);
-        setEditableContent("");
-      }
+    onSuccess: () => {
+      setIsEditing(false);
+      setEditableContent("");
       void queryClient.invalidateQueries({
         queryKey: [{ _id: "skillsByIdFilesContentGet" }],
       });
       void queryClient.invalidateQueries({
         queryKey: [{ _id: "skillsByIdFilesGet" }],
       });
-      if (variables.body?.path?.endsWith("/SKILL.md")) {
+      if (filePath === "SKILL.md") {
         void queryClient.invalidateQueries({
           queryKey: [{ _id: "skillsGet" }],
         });
