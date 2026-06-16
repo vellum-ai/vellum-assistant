@@ -4,7 +4,6 @@ import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
-import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import {
   estimatePromptTokensRaw,
   estimatePromptTokensWithTools,
@@ -333,12 +332,14 @@ export type AgentEvent =
        * `stripInjectionsForCompaction`.
        *
        * The daemon's event dispatcher commits the stripped pre-compaction
-       * base as the conversation's durable message state, so re-injection
-       * (the post-compaction hook) re-applies injections onto the stripped
-       * base rather than stacking on top of the still-injected messages.
-       * When `compacted` is set it additionally commits the durable
-       * compaction result (DB-record fields, graph-memory side effects, SSE)
-       * and projects Slack provenance from the pre-compaction base.
+       * base as the conversation's durable message state. Re-injection (the
+       * post-compaction hook) strips runtime injections before re-applying
+       * them, so it is idempotent whether the loop continues from the
+       * stripped compaction result or from the unchanged injected history.
+       * When `compacted` is set the dispatcher additionally commits the
+       * durable compaction result (DB-record fields, graph-memory side
+       * effects, SSE) and projects Slack provenance from the pre-compaction
+       * base.
        *
        * Treated as a critical event: a failed durable commit re-throws so the
        * turn aborts rather than re-injecting against half-applied state.
@@ -358,13 +359,14 @@ export type AgentEvent =
     } & ContextWindowResult)
   | {
       /**
-       * Emitted right after the loop strips runtime injections from the
-       * running history, before the compaction pipeline runs. The daemon's
-       * event dispatcher records the history-stripped marker — a Conversation
-       * DB-record field read back at load time to strip embedded injection
-       * prefixes from pre-strip messages. Best-effort: a transient marker
-       * write must not abort the turn, so unlike `compaction_completed` this
-       * event is not treated as critical.
+       * Emitted during the loop's compaction ceremony, before the pipeline
+       * runs. The daemon's event dispatcher commits the stripped
+       * pre-compaction base as the durable history and records the
+       * history-stripped marker — a Conversation DB-record field read back at
+       * load time to strip embedded injection prefixes from pre-strip
+       * messages. Best-effort: a transient marker write must not abort the
+       * turn, so unlike `compaction_completed` this event is not treated as
+       * critical.
        */
       type: "history_stripped";
     }
@@ -797,14 +799,9 @@ export class AgentLoop {
       startedAt,
       messages: history,
     });
-    // Injection-stripped history for overflow recovery's reduction ladder and
-    // the post-compaction re-injection base below. The budget-path summarizer
-    // instead runs on the injected `history` so its prompt prefix matches the
-    // agent's warm prefix cache and the summary call is a cache read, not a
-    // fresh cache write.
-    const rawHistory = stripInjectionsForCompaction(history);
-    // Record the history-stripped marker right after stripping, before the
-    // pipeline runs.
+    // The durable pre-compaction base is stripped by the event dispatcher
+    // (re-derived from the start event), so record the history-stripped
+    // marker for this compaction before the pipeline runs.
     await onEvent({ type: "history_stripped" });
     // The compaction module owns the per-conversation manager; pass the
     // conversation id and let `defaultCompact` resolve it from the store.
@@ -817,7 +814,7 @@ export class AgentLoop {
     // routes the request through the reduction ladder when present.
     const compactResult = await defaultCompact({
       conversationId: this.conversationId,
-      messages: overflowSignal != null ? rawHistory : history,
+      messages: history,
       signal,
       force: true,
       actorTrustClass: trust.trustClass,
@@ -853,15 +850,17 @@ export class AgentLoop {
     if (overflowSignal == null && exhausted) {
       return { history: null, exhausted, autoCompressApplied };
     }
-    // Re-inject onto the same base the `compaction_completed` dispatch commits.
-    // The overflow ladder transforms the history on every rung (truncation /
+    // The POST_COMPACT hook strips runtime injections from this base and
+    // re-applies them, so continuing from injected history is safe. The
+    // overflow ladder transforms the history on every rung (truncation /
     // media stubbing / injection downgrade) regardless of whether the summary
     // ran, so continue from its reduced messages; the ordinary path continues
-    // from the compacted messages only when the pipeline actually compacted.
+    // from the compacted messages when the pipeline compacted, otherwise from
+    // the unchanged injected history.
     const base =
       overflowSignal != null || compactResult.compacted
         ? compactResult.messages
-        : rawHistory;
+        : history;
     const postCompactCtx: PostCompactContext = {
       history: base,
       requestId,
