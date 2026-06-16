@@ -61,6 +61,10 @@ We do **not** pin: `apt-get` packages (Debian rotates), `brew install` formulae 
 
 `dev-release.yaml` and `release.yml` share inline logic (e.g. "Compute migration ceilings"). When changing logic that lives in both, update both in the same PR.
 
+### Docker build cache
+
+Docker `cache-to: type=gha` must set `ignore-error=true`. The GHA cache is a build-speed optimization, not part of the artifact, so a cache-export failure (e.g. `error writing layer blob: not_found` from an evicted scope) must never fail the build-push step or gate a release. See [Docker cache backends](https://docs.docker.com/build/cache/backends/).
+
 ### iOS release
 
 The Capacitor iOS source-of-truth lives in [`apps/ios/`](./apps/ios/) and is built locally from `apps/web/` via `bun run ios:open`. See [`apps/ios/README.md`](./apps/ios/README.md) for the local build flow and full release pipeline mapping.
