@@ -32,6 +32,8 @@
  *
  * - {@link assistantEventHub} — the assistant's pub/sub hub for runtime events
  * - {@link getSecureKeyAsync} — read a secret from secure storage
+ * - {@link getModelProfiles} — list the workspace inference profiles a plugin
+ *   can route to (e.g. a model router building its category → profile map)
  *
  * - {@link PluginInitContext} — passed to `init` hook at bootstrap
  * - {@link PluginShutdownContext} — passed to `shutdown` hook at teardown
@@ -80,6 +82,7 @@ export type {
 } from "../providers/types.js";
 export type {
   AgentLoopExitReason,
+  ModelProfileInfo,
   PluginHookFn,
   PluginInitContext,
   PluginLogger,
@@ -111,3 +114,4 @@ export type {
 } from "../runtime/assistant-event-hub.js";
 export { assistantEventHub } from "../runtime/assistant-event-hub.js";
 export { getSecureKeyAsync } from "../security/secure-keys.js";
+export { getModelProfiles } from "./model-profiles.js";
