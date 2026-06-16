@@ -55,6 +55,15 @@ module.exports = {
       role: "Viewer",
     },
   ],
+  dmg: {
+    // The app offers to move itself to /Applications on first launch, so the
+    // DMG only needs the .app — no Applications alias. Users who prefer to
+    // drag-install can still open the DMG in Finder and copy manually.
+    contents: [{ x: 270, y: 190, type: "file" }],
+    window: { width: 540, height: 380 },
+    // lzfse compression (macOS 10.11+) for smaller output than default zlib.
+    format: "ULFO",
+  },
   mac: {
     icon: "build/icon.icns",
     category: "public.app-category.productivity",

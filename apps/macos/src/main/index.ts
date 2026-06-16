@@ -61,6 +61,7 @@ import {
   toggleVisibility as toggleMainWindowVisibility,
 } from "./main-window";
 import { installApplicationMenu, refreshCliPathMenuState } from "./menu";
+import { offerMoveToApplications } from "./move-to-applications";
 import { installNativeAuth } from "./native-auth";
 import { installConnectivityProbe } from "./connectivity-probe";
 import { installNotifications } from "./notifications";
@@ -330,6 +331,10 @@ const forwardPlatformRequest = async (
 app
   .whenReady()
   .then(async () => {
+    // Offer to move the app to /Applications before any other setup.
+    // If accepted, the process terminates and relaunches from /Applications.
+    if (await offerMoveToApplications()) return;
+
     if (!isDev) {
       registerAppProtocol();
     }
