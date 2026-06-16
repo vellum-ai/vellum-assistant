@@ -255,6 +255,11 @@ the user-facing `mainAgent` call the named profile sits at the top of resolution
 precedence (above the workspace's active profile), so the hook's choice wins; a
 key that names no profile falls through unchanged.
 
+Context-window sizing and overflow recovery for a call are computed from the
+profile resolved before the hook runs, so routing a near-budget conversation to
+a profile with a smaller context window relies on the loop's overflow recovery
+(compact and retry) rather than proactive compaction.
+
 ```ts
 // hooks/pre-model-call.ts — route the user-facing reply by classified intent
 import type { PreModelCallContext } from "@vellumai/plugin-api";

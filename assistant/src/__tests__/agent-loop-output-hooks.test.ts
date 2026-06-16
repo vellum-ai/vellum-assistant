@@ -425,6 +425,15 @@ describe("agent loop output hooks", () => {
     expect(calls[0].options?.config?.overrideProfile).toBeUndefined();
   });
 
+  // Context-window sizing and overflow recovery read the profile resolved
+  // before the hook runs, so a hook routing to a smaller-window profile does
+  // not resize the budget gate for that call. Tracked for a follow-up that
+  // resolves the routed profile ahead of the context-sizing gate.
+  test.todo(
+    "pre-model-call routing resizes the context-window budget for the routed profile",
+    () => {},
+  );
+
   test("fail-open: a hook that mutates in place AND then throws cannot corrupt the persisted content", async () => {
     // The hook mutates the array it receives before throwing. If the loop
     // handed the hook the real `assistantMessage.content` array, the

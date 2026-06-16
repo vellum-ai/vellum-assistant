@@ -468,6 +468,11 @@ export interface PreModelCallContext {
    * profile), so the hook's choice wins; a key with no matching profile falls
    * through unchanged (no throw). Honored only when {@link callSite} is set.
    * Set to `null` to apply no override.
+   *
+   * Context-window sizing and overflow recovery for this call are computed from
+   * the profile resolved before the hook runs. Routing a near-budget
+   * conversation to a profile with a smaller context window relies on the loop's
+   * overflow recovery (compact and retry) rather than proactive compaction.
    */
   modelProfile: string | null;
   /**
