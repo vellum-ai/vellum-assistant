@@ -3,9 +3,7 @@
  *
  * The macOS Dock and the menu-bar (Tray) present the same assistant avatar
  * clipped to different shapes — the Dock to a rounded square ("squircle") and
- * the Tray to a circle — matching the native app, which clips the avatar with
- * `NSBezierPath(roundedRect:xRadius:)` for the Dock and a circular layer mask
- * for the menu bar (`clients/macos/.../Features/Avatar/AvatarAppearanceManager.swift`).
+ * the Tray to a circle.
  *
  * Clipping is expressed as a coverage function: for each pixel center it
  * returns how much of the pixel lies inside the shape, in `[0, 1]`. Edge

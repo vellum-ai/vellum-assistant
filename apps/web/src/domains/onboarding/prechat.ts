@@ -1,18 +1,15 @@
 /**
  * Pre-chat onboarding context handoff.
  *
- * Mirrors the macOS shared model
- * `vellum-assistant/clients/shared/Models/PreChatOnboardingContext.swift`
- * exactly: structured context collected by the native pre-chat onboarding
- * flow, serialized to JSON and forwarded with the first chat message so the
- * assistant can personalize its opener.
+ * Structured context collected by the pre-chat onboarding flow, serialized to
+ * JSON and forwarded with the first chat message so the assistant can
+ * personalize its opener.
  *
  * Storage choice: `sessionStorage` rather than `localStorage`. The handoff
  * is meant to bridge a single tab navigation (onboarding screen → first
- * chat) and should naturally clear on tab close, matching macOS
- * `UserDefaults` semantics for a transient, session-scoped value. Using
- * `sessionStorage` also avoids leaking a stale context into another
- * window's chat if the user opens onboarding in two tabs concurrently.
+ * chat) and should naturally clear on tab close — a transient, session-scoped
+ * value. Using `sessionStorage` also avoids leaking a stale context into
+ * another window's chat if the user opens onboarding in two tabs concurrently.
  *
  * Storage-error handling matches the pattern in
  * `@/domains/onboarding/prefs` (e.g. `readSelectedVersion`) and

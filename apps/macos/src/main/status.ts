@@ -14,12 +14,7 @@ import log from "./logger";
 
 /**
  * Assistant connection status driving the menu-bar (Tray) indicator.
- *
- * Mirrors the Swift app's `AssistantStatus` enum
- * (`clients/macos/vellum-assistant/App/AppDelegateTypes.swift`): the same
- * five states, the same colors, the same "thinking pulses" behavior, so a
- * user switching from the native app to the Electron build sees the same
- * menu-bar language.
+ * Five states, each with its own color and "thinking pulses" behavior.
  *
  * The renderer is the source of truth — it holds the live gateway/auth
  * connection and publishes transitions over the `vellum:status:connection`
@@ -29,8 +24,7 @@ import log from "./logger";
 export { ASSISTANT_STATUSES, type AssistantStatus };
 
 /**
- * Tooltip / menu-header text per status, matching the Swift app's
- * `AssistantStatus.menuTitle(assistantName:)`. `assistantName` falls back to
+ * Tooltip / menu-header text per status. `assistantName` falls back to
  * "Assistant" so the line reads naturally before the renderer has published
  * an identity.
  */

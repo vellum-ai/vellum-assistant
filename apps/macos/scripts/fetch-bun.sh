@@ -2,8 +2,6 @@
 # fetch-bun.sh — Download the bun binary pinned in .tool-versions into
 # apps/macos/resources/bun for bundling via electron-builder.
 #
-# Mirrors the pattern in clients/macos/build.sh (fetch_bundled_bun).
-#
 # Usage:
 #   bash scripts/fetch-bun.sh [--arch <aarch64|x64|universal>]
 #

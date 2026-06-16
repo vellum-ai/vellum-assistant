@@ -1,8 +1,7 @@
 // Trimmed model-provider catalog for the onboarding "Connect a Model Provider"
-// step. Ported from the daemon/macOS catalog
-// (clients/shared/Resources/llm-provider-catalog.json), limited to the
-// providers the web daemon client supports (see ConnectionProvider in
-// domains/settings) and to the fields the onboarding UI needs.
+// step. Limited to the providers the web daemon client supports (see
+// ConnectionProvider in domains/settings) and to the fields the onboarding
+// UI needs.
 
 export type OnboardingProviderId =
   | "anthropic"

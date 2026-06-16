@@ -9,9 +9,7 @@ export type { VellumCommand };
 export type VellumCommandKind = VellumCommand["kind"];
 
 /**
- * Default accelerators per command, matching the Swift app's
- * `UserDefaults` defaults from
- * `clients/macos/vellum-assistant/App/AppDelegate+MenuBar.swift`.
+ * Default accelerators per command.
  *
  * Populated lazily at menu-build time by merging with `settings.hotkeys`
  * (rather than via the electron-store schema `default` block, which would

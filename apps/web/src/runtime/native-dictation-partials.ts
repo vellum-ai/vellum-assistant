@@ -5,8 +5,7 @@
  * transcriptions — the dictation overlay's live-text source when daemon
  * streaming STT is unreachable (platform-managed assistants whose runtime
  * traffic rides the platform proxy have no gateway WebSocket the renderer
- * could stream against). The same role the native recognizer played in the
- * legacy Swift client.
+ * could stream against).
  *
  * Audio source: when the caller provides the recording `MediaStream` (and
  * the shell supports it), this PUSHES the renderer's own PCM to the helper

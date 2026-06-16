@@ -2,10 +2,9 @@
  * Streaming dictation partials over the daemon's `/v1/stt/stream` WebSocket.
  *
  * Web Speech API partials are dead inside the Electron shell (Chromium ships
- * the binding without the speech service behind it), so dictation there had
- * no live transcript at all — the legacy Swift client solved this by
- * streaming mic audio to the daemon's STT stream session and rendering its
- * `partial` events. This module is that client for the web renderer.
+ * the binding without the speech service behind it), so dictation there has
+ * no live transcript on its own. This module streams mic audio to the
+ * daemon's STT stream session and renders its `partial` events.
  *
  * Scope: **interim display only.** The session runs alongside the existing
  * `MediaRecorder` → batch `/v1/stt/transcribe` flow in
