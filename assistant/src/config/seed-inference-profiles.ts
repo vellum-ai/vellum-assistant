@@ -167,10 +167,13 @@ export type SeedInferenceProfilesOptions = {
  *
  * Runs on every daemon startup. Two responsibilities:
  *
- * 1. **Managed profiles** (`balanced`, `quality-optimized`, `cost-optimized`):
- *    overwritten on every boot so Vellum can push model/config updates to
- *    customers. Each carries `provider_connection: "anthropic-managed"`.
- *    Platform overlays (`preserveProfileNames`) take precedence.
+ * 1. **Managed profiles** (`balanced`, `quality-optimized`, `cost-optimized`,
+ *    `balanced-economy`): reconciled from the code templates on every boot —
+ *    on-platform and off-platform alike — so Vellum can push model/config
+ *    updates to customers in a release without a workspace migration. The
+ *    templates own all profile content; only `label` and `status` are
+ *    user-overridable and survive reseeds. Platform overlays
+ *    (`preserveProfileNames`) take precedence for the boot they are supplied.
  *
  * 2. **User profiles** (`custom-balanced`, `custom-quality-optimized`,
  *    `custom-cost-optimized`): materialized once at hatch time for
@@ -208,22 +211,25 @@ export function seedInferenceProfiles(
   // subsequent boot.
   const isByokMode = !isPlatform;
 
-  // 1. Managed profiles. Off-platform: overwrite on every boot so Vellum can
-  //    push model/config updates in new releases. On-platform: insert only if
-  //    absent — the platform controls profiles through overlays, and the
-  //    overlay fragment is authoritative even when it omits fields the local
-  //    template carries (e.g. an overlay supplying only provider/model/label
-  //    must not get its maxTokens/thinking polluted from the template). The
-  //    legacy migration-052 backfill that seeds label-less Anthropic
-  //    defaults is healed by workspace migration 082
-  //    (`backfill-managed-profile-labels`) rather than the seeder, so
-  //    this skip path stays simple.
+  // 1. Managed profiles. Reconciled from the code templates on every boot —
+  //    on-platform and off-platform alike — so Vellum can push model/config
+  //    updates in new releases just by editing `MANAGED_PROFILE_TEMPLATES` /
+  //    `model-intents.ts` and shipping a release, with no workspace migration.
+  //    The templates are the single source of truth for profile *content*
+  //    (model, maxTokens, effort, thinking, description, provider/connection).
   //
-  //    Two user-editable fields survive the overwrite: `label` (display
-  //    rename) and `status` (active/disabled toggle). The PUT route
-  //    `/v1/config/llm/profiles/:name` lets users patch these on managed
-  //    profiles without duplicating; we have to honor those edits across
-  //    reseeds or they'd silently revert on every boot. Carry by
+  //    Platform overlays (`preserveProfileNames`) still take precedence for the
+  //    boot they are supplied: a profile named in the overlay is skipped here so
+  //    the overlay fragment lands verbatim and is never polluted by template
+  //    fields it omits. The overlay is a one-time hatch input (archived after
+  //    its first merge), so on subsequent boots the templates reconcile content
+  //    as usual.
+  //
+  //    Two user-editable fields survive the reconcile: `label` (display
+  //    rename) and `status` (active/disabled toggle) — the only fields a user
+  //    may override. The PUT route `/v1/config/llm/profiles/:name` lets users
+  //    patch these on managed profiles without duplicating; we honor those
+  //    edits across reseeds or they'd silently revert on every boot. Carry by
   //    key-presence rather than truthiness so an explicit `null` (user
   //    cleared the label) survives too.
   //
@@ -249,7 +255,6 @@ export function seedInferenceProfiles(
 
   for (const [name, template] of Object.entries(MANAGED_PROFILE_TEMPLATES)) {
     if (preservedProfileNames.has(name)) continue;
-    if (isPlatform && readObject(profiles[name]) !== null) continue;
 
     const previous = readObject(profiles[name]);
     const effectiveTemplate: ManagedProfileTemplate = isByokMode
