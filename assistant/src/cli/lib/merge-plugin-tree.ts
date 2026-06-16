@@ -178,9 +178,6 @@ async function threeWayMergeFile(
     // place. `--ours`/`--theirs` auto-resolve conflicting hunks toward that
     // side; with neither (the `assistant` strategy) git writes conflict
     // markers, labelled via `-L` so the assistant can tell the sides apart.
-    // `git merge-file` exits non-zero when conflicts remain — impossible with a
-    // resolving flag — but stdout still carries the merged bytes either way, so
-    // capture it from the error too and treat a non-zero exit as "conflicted".
     const args = ["merge-file", "-p"];
     if (strategy === "ours" || strategy === "theirs") {
       args.push(`--${strategy}`);
@@ -197,15 +194,28 @@ async function threeWayMergeFile(
       });
       return { content: stdout, conflicted: false, binaryConflicted: false };
     } catch (err) {
-      const stdout = (err as { stdout?: Buffer }).stdout;
-      if (Buffer.isBuffer(stdout)) {
-        // A resolving flag never leaves conflicts, so a non-zero exit there is
-        // a genuine git failure; only `assistant` can legitimately conflict.
-        return {
-          content: stdout,
-          conflicted: strategy === "assistant",
-          binaryConflicted: false,
-        };
+      // `git merge-file` exits with the (positive) conflict count when markers
+      // were left, still printing the full merged bytes to stdout — that is the
+      // only rejection we may install. A killed process (timeout) or a
+      // `maxBuffer` overflow also rejects here, but with truncated/partial
+      // stdout we must NOT install it, or a large conflicted file would be
+      // silently corrupted; surface those as errors. A resolving flag never
+      // leaves conflicts, so any non-zero exit there is likewise a real
+      // failure.
+      const e = err as {
+        stdout?: Buffer;
+        code?: unknown;
+        killed?: boolean;
+        signal?: string | null;
+      };
+      const isConflictExit =
+        strategy === "assistant" &&
+        e.killed !== true &&
+        e.signal == null &&
+        typeof e.code === "number" &&
+        e.code > 0;
+      if (isConflictExit && Buffer.isBuffer(e.stdout)) {
+        return { content: e.stdout, conflicted: true, binaryConflicted: false };
       }
       throw err;
     }

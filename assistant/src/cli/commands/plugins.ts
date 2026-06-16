@@ -630,9 +630,12 @@ function formatUpgrade(result: PluginUpgradeResult): string[] {
       const hasConflicts =
         result.conflicts.length > 0 || result.binaryConflicts.length > 0;
 
-      // Under `assistant`, an unresolved merge leaves conflict markers in the
-      // tree — the plugin would fail to load until they're resolved, so the
-      // usual "restart now" guidance is replaced with resolution instructions.
+      // Under `assistant`, an unresolved merge leaves conflicts in the tree —
+      // the plugin would fail to load while any remain, so the usual "restart
+      // now" guidance is replaced with resolution instructions. Most conflicts
+      // carry git markers, but a modify/delete divergence (a file edited on one
+      // side and deleted on the other) keeps the surviving content with no
+      // markers, so the guidance covers both rather than assuming markers.
       if (result.strategy === "assistant" && hasConflicts) {
         const lines = [
           `Merged "${name}" ${move} with conflicts`,
@@ -642,7 +645,7 @@ function formatUpgrade(result: PluginUpgradeResult): string[] {
         if (result.conflicts.length > 0) {
           lines.push(
             "",
-            `Resolve git conflict markers in ${result.conflicts.length} file${result.conflicts.length === 1 ? "" : "s"}:`,
+            `Resolve ${result.conflicts.length} conflicted file${result.conflicts.length === 1 ? "" : "s"} (open each: resolve its git conflict markers, or — if a modify/delete divergence kept the file with none — decide whether to keep or remove it):`,
             ...result.conflicts.map((p) => `  ${p}`),
           );
         }
