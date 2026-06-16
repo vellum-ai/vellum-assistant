@@ -43,6 +43,11 @@ mock.module("@/domains/onboarding/cast/send-research-message", () => ({
   sendCastResearchMessage: sendResearchMock,
 }));
 
+const persistNameMock = mock(async (..._args: unknown[]) => {});
+mock.module("@/domains/onboarding/cast/persist-assistant-name", () => ({
+  persistCastAssistantName: persistNameMock,
+}));
+
 // --- prechat (optimistic pending name) --------------------------------------
 const setPendingAssistantNameMock = mock((_name: string) => {});
 mock.module("@/domains/onboarding/prechat", () => ({
@@ -210,6 +215,7 @@ beforeEach(() => {
   startMock.mockClear();
   awaitReadyMock.mockClear();
   sendResearchMock.mockClear();
+  persistNameMock.mockClear();
   setPendingAssistantNameMock.mockClear();
   getAssistantMock.mockClear();
   checkAssistantMock.mockClear();
@@ -259,6 +265,8 @@ describe("CastOnboardingFlow handoff", () => {
     expect(setSelectedAssistantMock).toHaveBeenCalledWith("asst-ready");
     expect(upsertFromApiMock).toHaveBeenCalledTimes(1);
     expect(setPendingAssistantNameMock).toHaveBeenCalledWith("Pixel");
+    // The chosen name is also persisted durably to the daemon IDENTITY.md.
+    expect(persistNameMock).toHaveBeenCalledWith("asst-ready", "Pixel");
   });
 
   test("completion awaits hatch readiness before navigating", async () => {

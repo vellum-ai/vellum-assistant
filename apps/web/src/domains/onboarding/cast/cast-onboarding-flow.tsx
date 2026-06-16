@@ -46,6 +46,7 @@ import {
   CAST_RESEARCH_DIRECTIVE,
 } from "@/domains/onboarding/cast/cast-prechat-mapping";
 import { sendCastResearchMessage } from "@/domains/onboarding/cast/send-research-message";
+import { persistCastAssistantName } from "@/domains/onboarding/cast/persist-assistant-name";
 import { useBackgroundHatch } from "@/domains/onboarding/cast/use-background-hatch";
 import { setPendingAssistantName } from "@/domains/onboarding/prechat";
 import {
@@ -548,8 +549,12 @@ function CastFlowBody({
     if (fetched.ok) {
       useResolvedAssistantsStore.getState().upsertFromApi(fetched.data);
     }
-    // The chosen cast name rides as the optimistic pending name for display.
+    // The chosen cast name rides as the optimistic pending name for display
+    // (covers the window before the identity fetch), AND is written durably to
+    // the daemon's IDENTITY.md now that it's known — the early research first
+    // message couldn't carry it (sent before the starter/name step).
     setPendingAssistantName(data.name);
+    await persistCastAssistantName(id, data.name);
     await lifecycleService.checkAssistant(id);
     // Land the user in the conversation the research message already opened.
     void navigate(routes.conversation(conversationId), { replace: true });
