@@ -115,7 +115,11 @@ export function SidebarShell({
         <div className="h-10 w-10 shrink-0" aria-hidden="true" />
       </div>
 
-      <StatusBanner className="px-0 pt-0" />
+      {electron ? (
+        <div className="shrink-0 pb-4 empty:hidden">
+          <StatusBanner placement="electron" className="px-0 pt-0" />
+        </div>
+      ) : null}
 
       {/* Card chrome — desktop only */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:rounded-[12px] md:border md:border-[var(--border-base)] md:bg-[var(--surface-overlay)]">

@@ -1,11 +1,25 @@
-import { CloudOff, LoaderCircle, Moon, WifiOff, Wrench } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import {
+  CircleAlert,
+  CircleCheck,
+  CloudOff,
+  Info,
+  LoaderCircle,
+  Moon,
+  OctagonX,
+  WifiOff,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
+import {
+  type ComponentProps,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
 import { Link } from "react-router";
 import { Button } from "@vellumai/design-library/components/button";
-import {
-  Notice,
-  type NoticeTone,
-} from "@vellumai/design-library/components/notice";
+import { type NoticeTone } from "@vellumai/design-library/components/notice";
 
 import {
   type LocalAssistantHealth,
@@ -39,6 +53,157 @@ interface BannerConfig {
 }
 
 const LOCAL_WAKE_SETTLING_MS = 60_000;
+
+export type StatusBannerPlacement = "web" | "electron";
+
+interface StatusToneClasses {
+  container: string;
+  icon: string;
+  action: string;
+  DefaultIcon: LucideIcon | null;
+}
+
+const STATUS_TONE_CLASSES: Record<NoticeTone, StatusToneClasses> = {
+  info: {
+    container: "bg-[var(--surface-overlay)]",
+    icon: "text-[color:var(--content-secondary)]",
+    action: "[--status-banner-action-color:var(--primary-base)]",
+    DefaultIcon: Info,
+  },
+  success: {
+    container: "bg-[var(--system-positive-weak)]",
+    icon: "text-[color:var(--system-positive-strong)]",
+    action: "[--status-banner-action-color:var(--system-positive-strong)]",
+    DefaultIcon: CircleCheck,
+  },
+  warning: {
+    container: "bg-[var(--system-mid-weak)]",
+    icon: "text-[color:var(--system-mid-strong)]",
+    action: "[--status-banner-action-color:var(--system-mid-strong)]",
+    DefaultIcon: CircleAlert,
+  },
+  error: {
+    container: "bg-[var(--system-negative-weak)]",
+    icon: "text-[color:var(--system-negative-strong)]",
+    action: "[--status-banner-action-color:var(--system-negative-strong)]",
+    DefaultIcon: OctagonX,
+  },
+  neutral: {
+    container: "bg-[var(--surface-overlay)]",
+    icon: "text-[color:var(--content-secondary)]",
+    action: "[--status-banner-action-color:var(--primary-base)]",
+    DefaultIcon: null,
+  },
+};
+
+const STATUS_BANNER_PLACEMENT_CLASSES: Record<StatusBannerPlacement, string> = {
+  web: "min-h-10 rounded-none px-4 py-[10px]",
+  electron: "min-h-8 rounded-[6px] px-2 py-[7px]",
+};
+
+export interface StatusBannerNoticeProps
+  extends Omit<ComponentProps<"div">, "title" | "children"> {
+  tone: NoticeTone;
+  title: ReactNode;
+  children?: ReactNode;
+  icon?: ReactNode;
+  actions?: ReactNode;
+  placement?: StatusBannerPlacement;
+}
+
+export function StatusBannerNotice({
+  tone,
+  title,
+  children,
+  icon,
+  actions,
+  placement = "web",
+  className,
+  ref,
+  ...rest
+}: StatusBannerNoticeProps) {
+  const toneClasses = STATUS_TONE_CLASSES[tone];
+  const role = tone === "error" ? "alert" : "status";
+  const titleClassName =
+    placement === "web"
+      ? "text-body-medium-default leading-5"
+      : "text-body-small-default leading-[18px]";
+  const resolvedIcon =
+    icon === undefined
+      ? toneClasses.DefaultIcon
+        ? <toneClasses.DefaultIcon aria-hidden="true" />
+        : null
+      : icon;
+
+  return (
+    <div
+      {...rest}
+      ref={ref}
+      role={role}
+      data-slot="status-banner-notice"
+      data-placement={placement}
+      data-tone={tone}
+      className={cn(
+        "flex w-full shrink-0 items-center justify-between gap-3 overflow-hidden",
+        "text-[color:var(--content-default)]",
+        STATUS_BANNER_PLACEMENT_CLASSES[placement],
+        toneClasses.container,
+        className,
+      )}
+    >
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        {resolvedIcon ? (
+          <span
+            className={cn(
+              "flex size-3.5 shrink-0 items-center justify-center [&_svg]:size-3.5",
+              toneClasses.icon,
+            )}
+          >
+            {resolvedIcon}
+          </span>
+        ) : null}
+        <div className="min-w-0">
+          <div
+            className={cn(
+              "truncate text-[color:var(--content-emphasised)]",
+              titleClassName,
+            )}
+          >
+            {title}
+          </div>
+          {children ? (
+            <div className="text-body-small-default leading-4 text-[color:var(--content-secondary)]">
+              {children}
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {actions ? (
+        <div
+          className={cn(
+            "flex shrink-0 items-center border-l border-[color-mix(in_srgb,var(--content-default)_14%,transparent)] text-label-medium-default",
+            "text-[color:var(--status-banner-action-color)]",
+            toneClasses.action,
+            placement === "web"
+              ? "gap-2 pl-4 leading-5"
+              : "gap-1.5 pl-2 leading-[18px]",
+            "[&_[data-slot=button]]:h-auto [&_[data-slot=button]]:border-0 [&_[data-slot=button]]:bg-transparent",
+            "[&_[data-slot=button]]:-mx-1 [&_[data-slot=button]]:rounded-sm [&_[data-slot=button]]:px-1 [&_[data-slot=button]]:py-0",
+            "[&_[data-slot=button]]:text-label-medium-default [&_[data-slot=button]]:uppercase",
+            "[&_[data-slot=button]]:leading-[inherit] [&_[data-slot=button]]:shadow-none",
+            "[&_[data-slot=button]]:[--vbtn-fg:var(--status-banner-action-color)]",
+            "[&_[data-slot=button]]:hover:!bg-transparent [&_[data-slot=button]]:hover:!opacity-100",
+            "[&_[data-slot=button]]:hover:[--vbtn-fg:var(--status-banner-action-color)]",
+            "[&_[data-slot=button]]:focus-visible:ring-2 [&_[data-slot=button]]:focus-visible:ring-[var(--ring)] [&_[data-slot=button]]:focus-visible:ring-offset-0",
+          )}
+        >
+          {actions}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 const OPERATIONAL_STATUS_TITLES: Record<AssistantOperationalState, string> = {
   initializing: "Assistant is initializing",
@@ -164,24 +329,28 @@ function canWakeLocalHealth(health: LocalAssistantHealth | null): boolean {
 function BannerNotice({
   banner,
   className,
+  placement,
 }: {
   banner: BannerConfig;
   className?: string;
+  placement: StatusBannerPlacement;
 }) {
   return (
-    <div className={cn("px-4 pt-2", className)}>
-      <Notice
+    <div
+      className={cn(
+        placement === "electron" ? "px-4 pt-2" : "px-0 pt-0",
+        className,
+      )}
+    >
+      <StatusBannerNotice
         tone={banner.tone}
         title={banner.title}
         icon={banner.icon}
         actions={banner.actions}
-        className={cn(
-          !banner.children &&
-            "items-center [&>span:first-child]:mt-0",
-        )}
+        placement={placement}
       >
         {banner.children}
-      </Notice>
+      </StatusBannerNotice>
     </div>
   );
 }
@@ -466,8 +635,16 @@ function useAssistantBannerConfig(): BannerConfig | null {
   };
 }
 
-export function StatusBanner({ className }: { className?: string }) {
+export function StatusBanner({
+  className,
+  placement = isElectron() ? "electron" : "web",
+}: {
+  className?: string;
+  placement?: StatusBannerPlacement;
+}) {
   const banner = useAssistantBannerConfig();
 
-  return banner ? <BannerNotice banner={banner} className={className} /> : null;
+  return banner ? (
+    <BannerNotice banner={banner} className={className} placement={placement} />
+  ) : null;
 }

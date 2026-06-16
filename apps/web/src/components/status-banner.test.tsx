@@ -52,7 +52,10 @@ let refetchOperationalStatusMock = mock(async () => {});
 let wakeLocalAssistantHostMock = mock(async (_assistantId: string) => ({
   ok: true,
 }));
-let StatusBanner: ComponentType<{ className?: string }>;
+let StatusBanner: ComponentType<{
+  className?: string;
+  placement?: "web" | "electron";
+}>;
 
 mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => isNativePlatformMock,
@@ -134,28 +137,6 @@ mock.module("@/stores/resolved-assistants-store", () => ({
   },
 }));
 
-mock.module("@vellumai/design-library/components/notice", () => ({
-  Notice: (props: {
-    title: ReactNode;
-    tone?: string;
-    icon?: ReactNode;
-    children?: ReactNode;
-    actions?: ReactNode;
-    className?: string;
-  }) => (
-    <div
-      data-testid="notice"
-      data-tone={props.tone}
-      data-class-name={props.className}
-    >
-      {props.icon}
-      {props.title}
-      {props.children}
-      {props.actions}
-    </div>
-  ),
-}));
-
 mock.module("@vellumai/design-library/components/button", () => ({
   Button: (props: {
     children: ReactNode;
@@ -232,6 +213,34 @@ describe("StatusBanner", () => {
 
     expect(html).toContain("Assistant is restarting");
     expect(html).toContain('data-tone="warning"');
+  });
+
+  test("uses the full-width web banner sizing by default", () => {
+    operationalStatusQueryMock = {
+      data: { state: "restarting" },
+      isError: false,
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner />);
+
+    expect(html).toContain('data-placement="web"');
+    expect(html).toContain("min-h-10");
+    expect(html).toContain("py-[10px]");
+    expect(html).toContain("rounded-none");
+  });
+
+  test("uses compact rounded sizing for Electron placement", () => {
+    operationalStatusQueryMock = {
+      data: { state: "restarting" },
+      isError: false,
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner placement="electron" />);
+
+    expect(html).toContain('data-placement="electron"');
+    expect(html).toContain("min-h-8");
+    expect(html).toContain("py-[7px]");
+    expect(html).toContain("rounded-[6px]");
   });
 
   test("uses lifecycle operation assistant id when present", () => {
@@ -372,6 +381,11 @@ describe("StatusBanner", () => {
       expect(html).toContain("Wake up");
       expect(html).toContain('data-tone="neutral"');
       expect(html).toContain("items-center");
+      expect(html).toContain("[&amp;_[data-slot=button]]:uppercase");
+      expect(html).not.toContain(
+        "[&amp;_[data-slot=button]]:hover:bg-[color-mix(in_srgb,var(--status-banner-action-color)_12%,transparent)]",
+      );
+      expect(html).not.toContain("[&amp;_[data-slot=button]]:hover:opacity-90");
     });
 
     test("renders unreachable local health as an asleep fallback", () => {
