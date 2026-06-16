@@ -22,7 +22,6 @@ export const ALLOWED_PACKAGES: readonly string[] = [
   "lodash-es",
   "zod",
   "clsx",
-  "lucide",
 ] as const;
 
 const INSTALL_TIMEOUT_MS = 10_000;

@@ -196,7 +196,7 @@ render(<App />, document.getElementById("app")!);
 2. **`file_write`** each real file, one per tool call, overwriting the placeholders and adding components.
 3. **`app_refresh`** ONCE at the end to compile.
 
-**Allowed packages** (esbuild-resolved, no CDN): `date-fns`, `chart.js`, `lodash-es`, `zod`, `clsx`, `lucide` (use `lucide`, NOT `lucide-react`).
+**Allowed packages** (esbuild-resolved, no CDN): `date-fns`, `chart.js`, `lodash-es`, `zod`, `clsx`. For icons, write inline `<svg>` markup directly — no icon package is bundled.
 
 **Constraints:** Preact not React. No CDN imports. No external fonts/images (system fonts, inline CSS/SVG). Responsive only, no fixed-pixel widths. The WebView blocks navigation — `href` and form `action` don't work.
 
