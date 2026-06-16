@@ -65,7 +65,14 @@ export function deriveCliNameFromAnalysis(
       args.length > 0 &&
       spec.nonExecFlags.includes(args[0]!);
     if (isNonExecMode) break;
-    const inner = getWrappedProgramWithArgs({ program, args });
+    // Pass the path-stripped wrapper name: getWrappedProgramWithArgs matches
+    // wrapper names exactly (e.g. skips `FOO=bar` for env, the duration for
+    // timeout), so a path-qualified `/usr/bin/env` must be normalized first or
+    // its env-assignment args get mistaken for the wrapped program.
+    const inner = getWrappedProgramWithArgs({
+      program: program.split("/").pop() ?? program,
+      args,
+    });
     if (!inner) break;
     program = inner.program;
     args = inner.args;

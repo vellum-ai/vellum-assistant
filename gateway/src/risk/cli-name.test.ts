@@ -33,6 +33,14 @@ describe("deriveCliName", () => {
     expect(await deriveCliName("sudo git push")).toBe("git");
     expect(await deriveCliName("env FOO=bar npm run build")).toBe("npm");
     expect(await deriveCliName("sudo sudo rm foo")).toBe("rm");
+    expect(await deriveCliName("timeout 5 git status")).toBe("git");
+  });
+
+  test("unwraps path-qualified wrappers", async () => {
+    // The wrapper itself is path-qualified — its name must be stripped before
+    // the wrapped-program extraction so env assignments / durations are skipped.
+    expect(await deriveCliName("/usr/bin/env FOO=bar npm install")).toBe("npm");
+    expect(await deriveCliName("/usr/bin/timeout 5 git status")).toBe("git");
   });
 
   test("ignores setup prefixes like cd/export", async () => {
