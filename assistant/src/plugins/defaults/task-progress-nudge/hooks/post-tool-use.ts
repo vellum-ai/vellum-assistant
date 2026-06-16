@@ -123,7 +123,9 @@ function scanTurn(messages: ReadonlyArray<Message>): {
     const message = messages[i];
     if (message.role === "user") {
       const carriesToolResult = message.content.some(
-        (block: ContentBlock) => block.type === "tool_result",
+        (block: ContentBlock) =>
+          block.type === "tool_result" ||
+          block.type === "web_search_tool_result",
       );
       if (!carriesToolResult) break; // genuine user prompt — turn boundary
       continue;
