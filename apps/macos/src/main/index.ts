@@ -338,7 +338,7 @@ app
     // Skip it when a file or deep link triggered the launch: those events are
     // buffered in-process and would be lost during the relaunch.
     if (!hasPendingFiles() && !hasPendingDeepLinks()) {
-      if (relocateToApplicationsFolder()) return;
+      if (await relocateToApplicationsFolder()) return;
     }
 
     if (!isDev) {
