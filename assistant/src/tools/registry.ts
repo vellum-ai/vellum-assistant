@@ -854,6 +854,7 @@ export async function initializeTools(): Promise<void> {
     loadEagerModules,
     eagerModuleToolNames,
     explicitTools,
+    getAdvisorTool,
     getCesToolsIfEnabled,
     cesTools,
   } = await import("./tool-manifest.js");
@@ -896,6 +897,14 @@ export async function initializeTools(): Promise<void> {
     registerTool(tool);
   }
 
+  // Always-on advisor tool. It is registered unconditionally as a core tool;
+  // its per-turn visibility is gated in the conversation tool-projection layer
+  // (createResolveToolsCallback / isToolActiveForContext), which exposes it to
+  // the model only when a strictly-more-capable model is configured for the
+  // conversation's current executor.
+  const advisorTool = getAdvisorTool();
+  registerTool(advisorTool);
+
   // CES tools - registered only when the CES feature flag is enabled.
   const activeCesTools = getCesToolsIfEnabled();
   for (const tool of activeCesTools) {
@@ -923,6 +932,7 @@ export async function initializeTools(): Promise<void> {
       ...explicitTools.map((t) => t.name!),
       ...extEntries.map(({ tool }) => tool.name),
       ...hostTools.map((t) => t.name!),
+      advisorTool.name,
       ...cesTools.map((t) => t.name!),
       ...allUiSurfaceTools.map((t) => t.name!),
       ...coreAppProxyTools.map((t) => t.name!),
