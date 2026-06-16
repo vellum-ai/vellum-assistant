@@ -64,19 +64,19 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("text-body-small-default");
   });
 
-  test("inline code in table cells gets whitespace-pre-wrap to wrap at token boundaries", () => {
+  test("inline code in table cells gets whitespace-nowrap to prevent wrapping", () => {
     const html = renderToStaticMarkup(
       createElement(MarkdownMessage, {
         content: "| Function | Usage |\n| --- | --- |\n| `useState` | `const [s, setS] = useState(v)` |",
       }),
     );
 
-    // Both <td> and <th> carry the descendant variant that preserves
-    // whitespace. Static markup HTML-encodes `&` → `&amp;`.
+    // Both <td> and <th> carry the descendant variant that prevents code
+    // wrapping. Static markup HTML-encodes `&` → `&amp;`.
     const tdMatches = html.match(/<td\b[^>]*class="([^"]*)"/g) ?? [];
     const thMatches = html.match(/<th\b[^>]*class="([^"]*)"/g) ?? [];
     for (const match of [...tdMatches, ...thMatches]) {
-      expect(match).toContain("whitespace-pre-wrap");
+      expect(match).toContain("whitespace-nowrap");
     }
     // Code elements inside cells are still inline code (not block).
     expect(html).toContain("<code");
