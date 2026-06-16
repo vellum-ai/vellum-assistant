@@ -5,25 +5,29 @@ import { createElement, type ReactNode } from "react";
 
 import type { AssistantState } from "@/assistant/types";
 
-const clientGetMock = mock(async () => ({
+const sdkMock = mock(async () => ({
   data: {
     state: "active",
-    detail_state: null,
-    poll_after_ms: null,
+    detail_state: "",
+    poll_after_ms: 5000,
     updated_at: "2026-06-10T00:00:00Z",
+    state_started_at: null,
     active_operation: null,
+    assistant: { id: "a-1", status: "active", machine_id: null, vembda_cluster_id: null },
+    pod: { phase: "Running", ready: true, container_state: "running", restart_count: 0, checked_at: null },
+    runtime: { version: "1.0.0", release_channel: "stable" },
+    storage: null,
+    detail: { reason: null, message: null },
   },
-  error: null,
+  error: undefined,
   response: new Response(null, { status: 200 }),
 }));
 const isLocalModeMock = mock(() => false);
 const isPlatformDisabledMock = mock(() => false);
 let isOrgReadyMock = true;
 
-mock.module("@/generated/api/client.gen", () => ({
-  client: {
-    get: clientGetMock,
-  },
+mock.module("@/generated/api/sdk.gen", () => ({
+  assistantsOperationalStatusDetailRead: sdkMock,
 }));
 
 mock.module("@/lib/local-mode", () => ({
@@ -73,7 +77,7 @@ async function settleQueries() {
 }
 
 beforeEach(() => {
-  clientGetMock.mockClear();
+  sdkMock.mockClear();
   isLocalModeMock.mockImplementation(() => false);
   isPlatformDisabledMock.mockImplementation(() => false);
   isOrgReadyMock = true;
@@ -100,7 +104,7 @@ describe("useAssistantOperationalStatus", () => {
     });
     await settleQueries();
 
-    expect(clientGetMock).not.toHaveBeenCalled();
+    expect(sdkMock).not.toHaveBeenCalled();
   });
 
   test("fetches for active platform-hosted assistants", async () => {
@@ -111,7 +115,7 @@ describe("useAssistantOperationalStatus", () => {
     });
 
     await waitFor(() => {
-      expect(clientGetMock).toHaveBeenCalledTimes(1);
+      expect(sdkMock).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -123,7 +127,7 @@ describe("useAssistantOperationalStatus", () => {
     });
 
     await waitFor(() => {
-      expect(clientGetMock).toHaveBeenCalledTimes(1);
+      expect(sdkMock).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -135,6 +139,6 @@ describe("useAssistantOperationalStatus", () => {
     });
     await settleQueries();
 
-    expect(clientGetMock).not.toHaveBeenCalled();
+    expect(sdkMock).not.toHaveBeenCalled();
   });
 });
