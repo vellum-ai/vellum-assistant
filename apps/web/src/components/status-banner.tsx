@@ -190,11 +190,11 @@ export function StatusBannerNotice({
               : "gap-1.5 pl-2 leading-[18px]",
             "[&_[data-slot=button]]:h-auto [&_[data-slot=button]]:border-0 [&_[data-slot=button]]:bg-transparent",
             "[&_[data-slot=button]]:-mx-1 [&_[data-slot=button]]:rounded-sm [&_[data-slot=button]]:px-1 [&_[data-slot=button]]:py-0",
-            "[&_[data-slot=button]]:text-label-medium-default [&_[data-slot=button]]:transition-[background-color,color,opacity]",
+            "[&_[data-slot=button]]:text-label-medium-default [&_[data-slot=button]]:uppercase",
             "[&_[data-slot=button]]:leading-[inherit] [&_[data-slot=button]]:shadow-none",
             "[&_[data-slot=button]]:[--vbtn-fg:var(--status-banner-action-color)]",
+            "[&_[data-slot=button]]:hover:!bg-transparent [&_[data-slot=button]]:hover:!opacity-100",
             "[&_[data-slot=button]]:hover:[--vbtn-fg:var(--status-banner-action-color)]",
-            "[&_[data-slot=button]]:hover:bg-[color-mix(in_srgb,var(--status-banner-action-color)_12%,transparent)] [&_[data-slot=button]]:hover:opacity-90",
             "[&_[data-slot=button]]:focus-visible:ring-2 [&_[data-slot=button]]:focus-visible:ring-[var(--ring)] [&_[data-slot=button]]:focus-visible:ring-offset-0",
           )}
         >
