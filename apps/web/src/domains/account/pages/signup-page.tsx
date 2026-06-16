@@ -1,6 +1,6 @@
 import { useSearchParams } from "react-router";
 
-import { PersonalPageSignupScreen } from "@/domains/account/components/personal-page-signup-screen";
+import { SignupScreen } from "@/domains/account/components/signup-screen";
 
 /**
  * Signup entry. Renders the branded sign-up screen for everyone: a rotating
@@ -12,5 +12,5 @@ export function SignupPage() {
   const [searchParams] = useSearchParams();
   const returnTo = searchParams.get("returnTo");
 
-  return <PersonalPageSignupScreen returnTo={returnTo} />;
+  return <SignupScreen returnTo={returnTo} />;
 }

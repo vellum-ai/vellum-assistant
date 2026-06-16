@@ -7,7 +7,7 @@ import {
   AccountInput,
 } from "@/components/account/account-form";
 import { AccountShell } from "@/components/account/account-shell";
-import { PersonalPageShell } from "@/domains/account/components/personal-page-shell";
+import { SignupShell } from "@/domains/account/components/signup-shell";
 import {
   getProviderSignup,
   isConflict,
@@ -154,7 +154,7 @@ export function ProviderSignupPage() {
   if (email && username) {
     const canSubmit = occupation.trim().length > 0 && !isSubmitting;
     return (
-      <PersonalPageShell>
+      <SignupShell>
         <form onSubmit={onPersonalPageSubmit} className="signup-details__thread">
           <h2 className="signup-details__heading">
             Almost there,
@@ -217,7 +217,7 @@ export function ProviderSignupPage() {
             </button>
           </div>
         </form>
-      </PersonalPageShell>
+      </SignupShell>
     );
   }
 

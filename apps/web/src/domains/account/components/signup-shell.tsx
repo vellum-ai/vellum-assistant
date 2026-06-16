@@ -3,7 +3,7 @@ import { type ReactNode } from "react";
 
 import { publicAsset } from "@/utils/public-asset";
 
-import "@/domains/account/components/personal-page-signup.css";
+import "@/domains/account/components/signup.css";
 
 /**
  * Two-column sign-up shell: brand + form on the left, a full-bleed looping
@@ -11,7 +11,7 @@ import "@/domains/account/components/personal-page-signup.css";
  * screen and the post-OAuth name/occupation step so the experience stays
  * visually consistent across the flow.
  */
-export function PersonalPageShell({ children }: { children: ReactNode }) {
+export function SignupShell({ children }: { children: ReactNode }) {
   return (
     // Force the dark palette regardless of the app theme — the demo always sits
     // on a dark surface. `data-theme="dark"` re-declares the design tokens for
