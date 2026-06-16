@@ -1,13 +1,13 @@
 import type { InterfaceId } from "../channels/types.js";
 import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
-import { INTERNAL_PROFILE_NAMES } from "../config/seed-inference-profiles.js";
 import {
   getConfig,
   invalidateConfigCache,
   loadRawConfig,
   saveRawConfig,
 } from "../config/loader.js";
+import { INTERNAL_PROFILE_NAMES } from "../config/seed-inference-profiles.js";
 import { getConversationOverrideProfile } from "../memory/conversation-crud.js";
 import { getConfiguredProviders } from "../providers/provider-availability.js";
 import { getVisibleProviderCatalog } from "../providers/provider-catalog-visibility.js";
