@@ -2,6 +2,7 @@ import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { DetailCard } from "@/components/detail-card";
+import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { useUserDeletionRequestCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
 import {
     useActiveAssistantLifecycleIsLoading,
@@ -13,7 +14,6 @@ import { clearConsentForUser } from "@/utils/onboarding-cleanup";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
-import { Notice } from "@vellumai/design-library/components/notice";
 import { toast } from "@vellumai/design-library/components/toast";
 
 export function DeleteAccountSection() {
@@ -81,9 +81,9 @@ export function DeleteAccountSection() {
         variant="danger"
       >
         {platformGate === "disabled" ? (
-          <Notice tone="info">
+          <PlatformLoginNotice>
             Log in to the Vellum platform to delete your account.
-          </Notice>
+          </PlatformLoginNotice>
         ) : (
           <div className="flex items-center gap-2">
             <Button

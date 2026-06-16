@@ -2,13 +2,13 @@
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { useState } from "react";
 
+import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen";
 import {
     useActiveAssistantLifecycleIsLoading,
     usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { Button } from "@vellumai/design-library";
-import { Notice } from "@vellumai/design-library/components/notice";
 
 interface MaintenanceModeBannerProps {
   assistantId: string;
@@ -90,9 +90,9 @@ export function MaintenanceModeBanner({
       </div>
       {showExitAction ? (
         platformGate === "disabled" ? (
-          <Notice tone="info">
+          <PlatformLoginNotice>
             Log in to the Vellum platform to exit Recovery Mode.
-          </Notice>
+          </PlatformLoginNotice>
         ) : (
           <Button
             variant="primary"

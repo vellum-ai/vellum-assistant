@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { type Assistant, getAssistant } from "@/assistant/api";
+import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { AssistantBackups } from "@/domains/settings/components/assistant-backups";
 import { RecoveryModeControls } from "@/domains/settings/components/recovery-mode-controls";
 import { RestartAssistant } from "@/domains/settings/components/restart-assistant";
@@ -12,7 +13,6 @@ import { useAuthStore } from "@/stores/auth-store";
 import { clearConsentForUser } from "@/utils/onboarding-cleanup";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
-import { Notice } from "@vellumai/design-library/components/notice";
 import { toast } from "@vellumai/design-library/components/toast";
 
 function isInternalUser(email: string | null, isAdmin: boolean): boolean {
@@ -88,9 +88,9 @@ export function DebugControlsPanel() {
       ) : assistant ? (
         <div className="space-y-4">
           {platformGate === "disabled" && (
-            <Notice tone="info">
+            <PlatformLoginNotice>
               Log in to the Vellum platform to manage backups.
-            </Notice>
+            </PlatformLoginNotice>
           )}
           {platformGate !== "disabled" && (
             <div className="rounded-lg border border-[var(--border-base)] px-4 py-3 dark:border-[var(--border-base)]">

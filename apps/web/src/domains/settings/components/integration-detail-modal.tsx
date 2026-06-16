@@ -11,10 +11,10 @@ import {
 import type { OAuthConnection } from "@/generated/api/types.gen";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
-import { Notice } from "@vellumai/design-library/components/notice";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
+import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { useOAuthConnect } from "@/hooks/use-oauth-connect";
 import type { PlatformGateState } from "@/hooks/use-platform-gate";
 import { extractErrorMessage } from "@/utils/api-errors";
@@ -205,9 +205,9 @@ export function IntegrationDetailModal({
 
           {activeTab === "managed" && platformGate !== "gated" ? (
             platformGate === "disabled" ? (
-              <Notice tone="info">
+              <PlatformLoginNotice>
                 Log in to the Vellum platform to manage OAuth connections.
-              </Notice>
+              </PlatformLoginNotice>
             ) : (
               <ManagedTab
                 displayName={displayName}

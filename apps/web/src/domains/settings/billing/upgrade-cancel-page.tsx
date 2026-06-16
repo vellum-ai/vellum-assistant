@@ -2,6 +2,7 @@ import { useEffect } from "react";
 
 import { Navigate, useNavigate } from "react-router";
 
+import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import {
     useActiveAssistantIsPlatformHosted,
     useActiveAssistantLifecycleIsLoading,
@@ -69,9 +70,9 @@ export function UpgradeCancelPage() {
   if (platformGate === "disabled") {
     return (
       <div className="max-w-4xl space-y-6">
-        <Notice tone="info">
+        <PlatformLoginNotice>
           Log in to the Vellum platform to manage billing and usage.
-        </Notice>
+        </PlatformLoginNotice>
       </div>
     );
   }

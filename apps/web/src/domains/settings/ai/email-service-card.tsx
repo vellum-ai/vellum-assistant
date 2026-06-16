@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import {
     assistantsListOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
@@ -19,7 +20,6 @@ import { useEnvironmentStore } from "@/stores/environment-store";
 import { shouldRetryDaemonError } from "@/utils/daemon-errors";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
-import { Notice } from "@vellumai/design-library/components/notice";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { ByoServiceCard, SaveButton, ServiceCard } from "@/domains/settings/ai/shared-ui";
@@ -194,9 +194,9 @@ export function EmailServiceCard() {
       {mode === "managed" ? (
         <div className="space-y-4">
           {platformGate === "disabled" ? (
-            <Notice tone="info">
+            <PlatformLoginNotice>
               Log in to the Vellum platform to manage email settings.
-            </Notice>
+            </PlatformLoginNotice>
           ) : (
             <EmailManagedContent
               assistantId={assistantId}
