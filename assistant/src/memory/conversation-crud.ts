@@ -129,7 +129,7 @@ export const messageMetadataSchema = z
      * and read gate (conversation history loading) to enforce trust-aware access.
      */
     provenanceTrustClass: z
-      .enum(["guardian", "trusted_contact", "unknown"])
+      .enum(["guardian", "trusted_contact", "unverified_contact", "unknown"])
       .optional(),
     provenanceSourceChannel: channelIdSchema.optional(),
     provenanceGuardianExternalUserId: z.string().optional(),
@@ -2575,12 +2575,17 @@ export function getConversationOriginInterface(
  * in the given conversation, or `undefined` if none is found.
  *
  * Used by the pointer message trust resolver to detect conversations
- * whose audience is a guardian or trusted_contact outside desktop-origin
- * conversations.
+ * whose audience is a guardian, trusted_contact, or unverified_contact
+ * outside desktop-origin conversations.
  */
 export function getConversationRecentProvenanceTrustClass(
   conversationId: string,
-): "guardian" | "trusted_contact" | "unknown" | undefined {
+):
+  | "guardian"
+  | "trusted_contact"
+  | "unverified_contact"
+  | "unknown"
+  | undefined {
   const row = rawGet<{ metadata: string | null }>(
     `SELECT metadata FROM messages
      WHERE conversation_id = ? AND role = 'user' AND metadata IS NOT NULL
