@@ -2361,12 +2361,15 @@ jobs:
 
           # The Electron DMGs are required. A missing DMG here fails the
           # release rather than publishing without it.
+          # The arm64 build is published under the canonical vellum-assistant.dmg
+          # name — the production desktop download URL and scripts/production-release.sh
+          # both resolve the release asset by that exact name.
           ELECTRON_DMG=$(find electron-artifacts -name "vellum-assistant-electron.dmg" -type f | grep -m1 .)
           if [ -z "$ELECTRON_DMG" ]; then
             echo "::error::Electron arm64 DMG missing"
             exit 1
           fi
-          ASSETS+=("$ELECTRON_DMG#vellum-assistant-electron.dmg")
+          ASSETS+=("$ELECTRON_DMG#vellum-assistant.dmg")
           ELECTRON_X64_DMG=$(find electron-artifacts-x64 -name "vellum-assistant-electron-x64.dmg" -type f | grep -m1 .)
           if [ -z "$ELECTRON_X64_DMG" ]; then
             echo "::error::Electron x64 DMG missing"
