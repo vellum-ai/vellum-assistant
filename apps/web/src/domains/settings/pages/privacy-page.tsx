@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { ChannelPolicyCard } from "@/components/channel-policy/channel-policy-card";
 import { DetailCard } from "@/components/detail-card";
 import { SystemPermissionsCard } from "@/components/system-permissions-card";
 import { AccessConsentSetting } from "@/domains/settings/components/access-consent-setting";
@@ -98,6 +99,7 @@ export function PrivacyPage() {
       <BiometricSettingsCard />
       <SystemPermissionsCard />
       <TrustRules />
+      <ChannelPolicyCard />
       <RiskToleranceSettings />
       <DetailCard title="Privacy">
         <div className="space-y-4">
