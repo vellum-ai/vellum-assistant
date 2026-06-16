@@ -267,6 +267,32 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
     );
   }
 
+  // A card the model has shown but not yet populated (e.g. an interim
+  // "building the app" placeholder emitted as `data: {}`) carries nothing
+  // renderable. Rather than a bare bordered box with only a title, show a
+  // loading affordance until real content arrives. A `completed` card is
+  // terminal, so it falls through to the normal render even when empty.
+  const hasRenderableContent =
+    normalizedTitle(data.body).length > 0 ||
+    !!data.subtitle ||
+    (data.metadata?.length ?? 0) > 0 ||
+    (surface.actions?.length ?? 0) > 0 ||
+    !!isWeather ||
+    isTaskProgress;
+
+  if (!hasRenderableContent && !surface.completed) {
+    return (
+      <SurfaceContainer surface={surface} onAction={onAction} hideTitle>
+        <div className="flex items-center gap-2.5">
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[var(--content-tertiary)]" />
+          <span className="text-body-medium-default text-[var(--content-tertiary)]">
+            {cardTitle || "Working…"}
+          </span>
+        </div>
+      </SurfaceContainer>
+    );
+  }
+
   const bodyMarkdown = (
     <ChatMarkdownMessage
       content={data.body}

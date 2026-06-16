@@ -43,6 +43,14 @@ function proxyExecute(toolName: string) {
       };
     }
 
+    if (toolName === "ui_show" && isEmptyCard(input)) {
+      return {
+        content:
+          "Error: ui_show card requires content — provide `data.body`, a `template` (e.g. task_progress with steps), `data.metadata`, or `actions`. The surface was not displayed because it carried only a title, which renders as a blank box. Resend ui_show with populated card content.",
+        isError: true,
+      };
+    }
+
     if (toolName === "ui_show" && isDynamicPageAppSubstitute(input)) {
       return {
         content:
@@ -97,6 +105,41 @@ function isEmptyDynamicPage(input: Record<string, unknown>): boolean {
   const data = asRecord(input.data);
   const html = data?.html;
   return typeof html !== "string" || html.trim().length === 0;
+}
+
+/**
+ * A `card` ui_show carrying no renderable content — only a title (or nothing)
+ * — renders as a blank bordered box. A declared `template` (task_progress,
+ * weather_forecast, …) renders its own shell, and `body`/`subtitle`/`metadata`/
+ * `actions` are real content; any of those passes. The model places these
+ * either nested in `data` or at the top level, so both are checked. Title is
+ * intentionally not content: a title-only card is the blank box.
+ */
+function isEmptyCard(input: Record<string, unknown>): boolean {
+  if (input.surface_type !== "card") {
+    return false;
+  }
+  const data = asRecord(input.data) ?? {};
+
+  const template =
+    nonEmptyString(input.template) ?? nonEmptyString(data.template);
+  if (template) {
+    return false;
+  }
+
+  const hasBody = !!(nonEmptyString(input.body) ?? nonEmptyString(data.body));
+  const hasSubtitle = !!nonEmptyString(data.subtitle);
+  const hasMetadata = Array.isArray(data.metadata) && data.metadata.length > 0;
+  const actions = input.actions ?? data.actions;
+  const hasActions = Array.isArray(actions) && actions.length > 0;
+
+  return !(hasBody || hasSubtitle || hasMetadata || hasActions);
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0
+    ? value
+    : undefined;
 }
 
 function isDynamicPageAppSubstitute(input: Record<string, unknown>): boolean {
