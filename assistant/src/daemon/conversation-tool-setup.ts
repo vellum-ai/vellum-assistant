@@ -26,7 +26,10 @@ import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
 } from "../tools/schema-transforms.js";
-import { resolveSkillExecuteInput } from "../tools/skills/execute.js";
+import {
+  augmentSkillExecuteError,
+  resolveSkillExecuteInput,
+} from "../tools/skills/execute.js";
 import { resolveToolInvocationAlias } from "../tools/tool-name-aliases.js";
 import {
   isDiskPressureCleanupToolName,
@@ -320,7 +323,12 @@ export function createToolExecutor(
       const innerRejection = rejectNonAllowlistedTool(toolName);
       if (innerRejection) return innerRejection;
 
-      const result = await executor.execute(toolName, toolInput, toolContext);
+      const rawResult = await executor.execute(
+        toolName,
+        toolInput,
+        toolContext,
+      );
+      const result = augmentSkillExecuteError(toolName, toolInput, rawResult);
       if (toolContext.approvedViaPrompt) {
         ctx.approvedViaPromptThisTurn = true;
       }
