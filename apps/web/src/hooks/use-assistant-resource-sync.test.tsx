@@ -6,20 +6,17 @@ import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import {
   appsGetQueryKey,
+  configGetQueryKey,
   homeFeedGetQueryKey,
   homeStateGetQueryKey,
+  identityIntroGetQueryKey,
+  schedulesGetQueryKey,
+  soundsConfigGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { AssistantEvent } from "@/types/event-types";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
-import {
-  assistantDaemonConfigQueryKey,
-  assistantIdentityQueryKey,
-  assistantIdentityIntroQueryKey,
-  assistantScheduleUsageSummaryQueryKey,
-  assistantSchedulesQueryKey,
-  assistantSoundsConfigQueryKey,
-  avatarQueryKey,
-} from "@/lib/sync/query-tags";
+import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init";
+import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import { SYNC_TAGS } from "@/lib/sync/types";
 import type { SyncChangedEvent } from "@/lib/sync/types";
 import { __resetForTesting, publish } from "@/lib/event-bus";
@@ -118,7 +115,7 @@ describe("useAssistantResourceSync", () => {
       expect(queryKeys).toEqual(
         expect.arrayContaining([
           assistantIdentityQueryKey("asst-1"),
-          assistantIdentityIntroQueryKey("asst-1"),
+          identityIntroGetQueryKey({ path: { assistant_id: "asst-1" } }),
         ]) as never
       );
     });
@@ -138,7 +135,7 @@ describe("useAssistantResourceSync", () => {
     );
     await waitFor(() => {
       expect(spy).toHaveBeenCalledWith({
-        queryKey: assistantIdentityIntroQueryKey("asst-1"),
+        queryKey: identityIntroGetQueryKey({ path: { assistant_id: "asst-1" } }),
       });
     });
   });
@@ -164,12 +161,13 @@ describe("useAssistantResourceSync", () => {
       const queryKeys = calls.map(
         ([arg]) => (arg as { queryKey: readonly unknown[] }).queryKey
       );
+      const pathOpts = { path: { assistant_id: "asst-1" } };
       expect(queryKeys).toEqual(
         expect.arrayContaining([
-          assistantDaemonConfigQueryKey("asst-1"),
-          assistantSoundsConfigQueryKey("asst-1"),
-          assistantSchedulesQueryKey("asst-1"),
-          assistantScheduleUsageSummaryQueryKey("asst-1"),
+          configGetQueryKey(pathOpts),
+          soundsConfigGetQueryKey(pathOpts),
+          schedulesGetQueryKey(pathOpts),
+          [{ _id: "schedulesUsagesummaryGet", path: { assistant_id: "asst-1" } }],
         ]) as never
       );
     });

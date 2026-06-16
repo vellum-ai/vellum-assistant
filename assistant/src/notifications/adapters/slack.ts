@@ -22,11 +22,11 @@ import {
   isSlackDmConversation,
   type ParsedAccessRequestPayload,
 } from "../access-request-copy.js";
-import { isConversationSeedSane } from "../conversation-seed-composer.js";
 import {
   nonEmpty,
   sanitizeIdentityField,
   sanitizeMessagePreview,
+  truncate,
 } from "../notification-utils.js";
 import type {
   ChannelAdapter,
@@ -37,35 +37,9 @@ import type {
   DeliveryResult,
   NotificationChannel,
 } from "../types.js";
+import { resolveMessageText } from "./shared.js";
 
 const log = getLogger("notif-adapter-slack");
-
-// ---------------------------------------------------------------------------
-// Text resolution
-// ---------------------------------------------------------------------------
-
-function resolveSlackMessageText(payload: ChannelDeliveryPayload): string {
-  const deliveryText = nonEmpty(payload.copy.deliveryText);
-  if (deliveryText) return deliveryText;
-
-  if (isConversationSeedSane(payload.copy.conversationSeedMessage)) {
-    return payload.copy.conversationSeedMessage.trim();
-  }
-
-  const body = nonEmpty(payload.copy.body);
-  if (body) return body;
-
-  const title = nonEmpty(payload.copy.title);
-  if (title) return title;
-
-  return payload.sourceEventName.replace(/[._]/g, " ");
-}
-
-/** Truncate to `maxLength`, appending "…" when exceeded. */
-function truncate(text: string, maxLength: number): string {
-  if (text.length <= maxLength) return text;
-  return text.slice(0, maxLength - 1) + "…";
-}
 
 // ---------------------------------------------------------------------------
 // Slack Card block builders for approval notifications
@@ -344,7 +318,7 @@ export class SlackAdapter implements ChannelAdapter {
       };
     }
 
-    const messageText = resolveSlackMessageText(payload);
+    const messageText = resolveMessageText(payload);
 
     try {
       const result = payload.approvalContext

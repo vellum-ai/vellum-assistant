@@ -121,6 +121,20 @@ export function compareFingerprint(
 }
 
 /**
+ * Whether two fingerprints cover the same files with identical digests. Used to
+ * confirm a re-materialized tree faithfully reproduces a recorded baseline
+ * before it is trusted as a merge base.
+ */
+export function fingerprintsEqual(a: Fingerprint, b: Fingerprint): boolean {
+  const aKeys = Object.keys(a.files);
+  if (aKeys.length !== Object.keys(b.files).length) return false;
+  for (const key of aKeys) {
+    if (a.files[key] !== b.files[key]) return false;
+  }
+  return true;
+}
+
+/**
  * Parse a fingerprint from already-decoded JSON. Lenient by design — any shape
  * problem yields `null` so an older or hand-edited sidecar simply reports "no
  * recorded baseline" rather than throwing.

@@ -213,6 +213,8 @@ describe("StatusBanner", () => {
 
     expect(html).toContain("Assistant is restarting");
     expect(html).toContain('data-tone="warning"');
+    expect(html).toContain("bg-[var(--system-mid-weak)]");
+    expect(html).toContain("text-[color:var(--system-mid-strong)]");
   });
 
   test("uses the full-width web banner sizing by default", () => {
@@ -267,9 +269,47 @@ describe("StatusBanner", () => {
 
       expect(html).toContain(title);
       expect(html).toContain('data-tone="error"');
+      expect(html).toContain("bg-[var(--system-negative-weak)]");
+      expect(html).toContain("lucide-triangle-alert");
       expect(html).toContain("Go to Doctor");
       expect(html).toContain("/assistant/settings/debug?tab=doctor");
     }
+  });
+
+  test("uses blue for platform activity states from the status guide", () => {
+    for (const state of [
+      "upgrading_assistant_version",
+      "resizing_machine",
+      "resizing_storage",
+      "initializing",
+      "provisioning",
+    ] as const) {
+      operationalStatusQueryMock = {
+        data: { state },
+        isError: false,
+      };
+
+      const html = renderToStaticMarkup(<StatusBanner />);
+
+      expect(html).toContain('data-tone="info"');
+      expect(html).toContain("bg-[var(--system-info-weak)]");
+      expect(html).toContain("text-[color:var(--system-info-strong)]");
+      expect(html).toContain("animate-spin");
+    }
+  });
+
+  test("uses a blue pulsing dot for waking", () => {
+    operationalStatusQueryMock = {
+      data: { state: "waking" },
+      isError: false,
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner />);
+
+    expect(html).toContain("Assistant is waking");
+    expect(html).toContain('data-tone="info"');
+    expect(html).toContain("busy-indicator");
+    expect(html).not.toContain("animate-spin");
   });
 
   test("does not render Doctor action for local assistant operational errors", () => {
@@ -310,6 +350,7 @@ describe("StatusBanner", () => {
 
     expect(sleepingHtml).toContain("Assistant is sleeping");
     expect(sleepingHtml).toContain('data-tone="neutral"');
+    expect(sleepingHtml).toContain("bg-[var(--surface-active)]");
 
     operationalStatusQueryMock = {
       data: { state: "maintenance_mode" },
@@ -319,7 +360,7 @@ describe("StatusBanner", () => {
     const maintenanceHtml = renderToStaticMarkup(<StatusBanner />);
 
     expect(maintenanceHtml).toContain("Assistant is in maintenance mode");
-    expect(maintenanceHtml).toContain('data-tone="info"');
+    expect(maintenanceHtml).toContain('data-tone="warning"');
     expect(maintenanceHtml).toContain("Resume Assistant");
   });
 
@@ -333,7 +374,7 @@ describe("StatusBanner", () => {
     const html = renderToStaticMarkup(<StatusBanner />);
 
     expect(html).toContain("Assistant is in maintenance mode");
-    expect(html).toContain('data-tone="info"');
+    expect(html).toContain('data-tone="warning"');
     expect(html).toContain("Resume Assistant");
   });
 
@@ -380,6 +421,7 @@ describe("StatusBanner", () => {
       expect(html).toContain("Your assistant is asleep");
       expect(html).toContain("Wake up");
       expect(html).toContain('data-tone="neutral"');
+      expect(html).toContain("bg-[var(--surface-active)]");
       expect(html).toContain("items-center");
       expect(html).toContain("[&amp;_[data-slot=button]]:uppercase");
       expect(html).not.toContain(
@@ -469,7 +511,8 @@ describe("StatusBanner", () => {
 
       expect(html).toContain("Your assistant is waking up");
       expect(html).not.toContain("Wake up");
-      expect(html).toContain('data-tone="neutral"');
+      expect(html).toContain('data-tone="info"');
+      expect(html).toContain("busy-indicator");
     });
 
     test("renders a warning banner when the local assistant is unhealthy", () => {
@@ -489,6 +532,7 @@ describe("StatusBanner", () => {
       const html = renderToStaticMarkup(<StatusBanner />);
 
       expect(html).toContain("offline");
+      expect(html).toContain('data-tone="error"');
       expect(html).not.toContain("asleep");
     });
 
@@ -536,6 +580,7 @@ describe("StatusBanner", () => {
       const html = renderToStaticMarkup(<StatusBanner />);
 
       expect(html).toContain("offline");
+      expect(html).toContain('data-tone="error"');
       expect(html).not.toContain("crash looping");
     });
   });
@@ -559,6 +604,7 @@ describe("StatusBanner", () => {
       const html = renderToStaticMarkup(<StatusBanner />);
 
       expect(html).toContain("offline");
+      expect(html).toContain('data-tone="error"');
       expect(html).not.toContain("crash looping");
     });
 
@@ -574,6 +620,8 @@ describe("StatusBanner", () => {
 
       expect(html).toContain("Trying to reach Vellum");
       expect(html).toContain("Retry now");
+      expect(html).toContain('data-tone="error"');
+      expect(html).toContain("lucide-cloud-off");
       expect(html).not.toContain("crash looping");
     });
 

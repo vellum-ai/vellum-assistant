@@ -26,8 +26,9 @@ mock.module("@/assistant/avatar-api", () => ({
 mock.module("@/lib/sentry/capture-error", () => ({
   captureError: () => {},
 }));
-mock.module("@/lib/sync/query-tags", () => ({
-  avatarQueryKey: (id: string) => ["avatar", id],
+mock.module("@/hooks/use-assistant-avatar", () => ({
+  avatarQueryKey: (id: string) => ["assistantAvatar", id],
+  AVATAR_QUERY_KEY_PREFIX: "assistantAvatar",
 }));
 
 const { seedHatchAvatar } = await import("./seed-hatch-avatar");

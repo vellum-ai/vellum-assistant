@@ -28,7 +28,7 @@ import {
   type ScheduleRowUsage,
 } from "@/domains/settings/utils/schedule-formatters";
 import { captureError } from "@/lib/sentry/capture-error";
-import { assistantScheduleRunsQueryKey } from "@/lib/sync/query-tags";
+import { schedulesByIdRunsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { routes } from "@/utils/routes";
 import { Button, Typography, cn } from "@vellumai/design-library";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -221,7 +221,7 @@ export function ScheduleDetailPanel({
 }: ScheduleDetailPanelProps) {
   const navigate = useNavigate();
   const { data: runs, isLoading } = useQuery({
-    queryKey: assistantScheduleRunsQueryKey(assistantId, schedule.id),
+    queryKey: schedulesByIdRunsGetQueryKey({ path: { assistant_id: assistantId, id: schedule.id } }),
     queryFn: () => fetchScheduleRuns(assistantId, schedule.id),
     staleTime: 10_000,
   });

@@ -5,7 +5,7 @@ import {
   Info,
   LoaderCircle,
   Moon,
-  OctagonX,
+  TriangleAlert,
   WifiOff,
   Wrench,
   type LucideIcon,
@@ -58,6 +58,7 @@ export type StatusBannerPlacement = "web" | "electron";
 
 interface StatusToneClasses {
   container: string;
+  content: string;
   icon: string;
   action: string;
   DefaultIcon: LucideIcon | null;
@@ -65,33 +66,38 @@ interface StatusToneClasses {
 
 const STATUS_TONE_CLASSES: Record<NoticeTone, StatusToneClasses> = {
   info: {
-    container: "bg-[var(--surface-overlay)]",
-    icon: "text-[color:var(--content-secondary)]",
-    action: "[--status-banner-action-color:var(--primary-base)]",
+    container: "bg-[var(--system-info-weak)]",
+    content: "text-[color:var(--system-info-strong)]",
+    icon: "text-[color:var(--system-info-strong)]",
+    action: "[--status-banner-action-color:var(--system-info-strong)]",
     DefaultIcon: Info,
   },
   success: {
     container: "bg-[var(--system-positive-weak)]",
+    content: "text-[color:var(--system-positive-strong)]",
     icon: "text-[color:var(--system-positive-strong)]",
     action: "[--status-banner-action-color:var(--system-positive-strong)]",
     DefaultIcon: CircleCheck,
   },
   warning: {
     container: "bg-[var(--system-mid-weak)]",
+    content: "text-[color:var(--system-mid-strong)]",
     icon: "text-[color:var(--system-mid-strong)]",
     action: "[--status-banner-action-color:var(--system-mid-strong)]",
     DefaultIcon: CircleAlert,
   },
   error: {
     container: "bg-[var(--system-negative-weak)]",
+    content: "text-[color:var(--system-negative-strong)]",
     icon: "text-[color:var(--system-negative-strong)]",
     action: "[--status-banner-action-color:var(--system-negative-strong)]",
-    DefaultIcon: OctagonX,
+    DefaultIcon: TriangleAlert,
   },
   neutral: {
-    container: "bg-[var(--surface-overlay)]",
+    container: "bg-[var(--surface-active)]",
+    content: "text-[color:var(--content-secondary)]",
     icon: "text-[color:var(--content-secondary)]",
-    action: "[--status-banner-action-color:var(--primary-base)]",
+    action: "[--status-banner-action-color:var(--content-secondary)]",
     DefaultIcon: null,
   },
 };
@@ -165,7 +171,8 @@ export function StatusBannerNotice({
         <div className="min-w-0">
           <div
             className={cn(
-              "truncate text-[color:var(--content-emphasised)]",
+              "truncate",
+              toneClasses.content,
               titleClassName,
             )}
           >
@@ -182,7 +189,7 @@ export function StatusBannerNotice({
       {actions ? (
         <div
           className={cn(
-            "flex shrink-0 items-center border-l border-[color-mix(in_srgb,var(--content-default)_14%,transparent)] text-label-medium-default",
+            "flex shrink-0 items-center border-l border-[color-mix(in_srgb,var(--status-banner-action-color)_22%,transparent)] text-label-medium-default",
             "text-[color:var(--status-banner-action-color)]",
             toneClasses.action,
             placement === "web"
@@ -225,10 +232,23 @@ const OPERATIONAL_STATUS_TITLES: Record<AssistantOperationalState, string> = {
 
 function maintenanceModeBannerConfig(): BannerConfig {
   return {
-    tone: "info",
+    tone: "warning",
     title: OPERATIONAL_STATUS_TITLES.maintenance_mode,
     icon: <Wrench className="h-4 w-4" aria-hidden="true" />,
   };
+}
+
+function spinnerIcon(): ReactNode {
+  return <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />;
+}
+
+function wakingDotIcon(): ReactNode {
+  return (
+    <span
+      className="busy-indicator inline-block size-2 rounded-full bg-current"
+      aria-hidden="true"
+    />
+  );
 }
 
 function operationalStatusBannerConfig(
@@ -254,13 +274,35 @@ function operationalStatusBannerConfig(
       };
     case "maintenance_mode":
       return maintenanceModeBannerConfig();
+    case "upgrading_assistant_version":
+    case "resizing_machine":
+    case "resizing_storage":
+    case "initializing":
+    case "provisioning":
+      return {
+        tone: "info",
+        title: OPERATIONAL_STATUS_TITLES[status.state],
+        icon: spinnerIcon(),
+      };
+    case "waking":
+      return {
+        tone: "info",
+        title: OPERATIONAL_STATUS_TITLES[status.state],
+        icon: wakingDotIcon(),
+      };
+    case "restarting":
+    case "restoring_backup":
+    case "retiring":
+      return {
+        tone: "warning",
+        title: OPERATIONAL_STATUS_TITLES[status.state],
+        icon: spinnerIcon(),
+      };
     default:
       return {
         tone: "warning",
         title: OPERATIONAL_STATUS_TITLES[status.state],
-        icon: (
-          <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
-        ),
+        icon: spinnerIcon(),
       };
   }
 }
@@ -281,11 +323,9 @@ function localHealthBannerConfig(
       };
     case "starting":
       return {
-        tone: "neutral",
+        tone: "info",
         title: "Your assistant is waking up",
-        icon: (
-          <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
-        ),
+        icon: wakingDotIcon(),
       };
     case "crashed":
       return {
@@ -518,7 +558,7 @@ function useAssistantBannerConfig(): BannerConfig | null {
 
   if (electron && connectivityState === "device-offline") {
     return {
-      tone: "warning",
+      tone: "error",
       title: "You're offline",
       icon: <WifiOff className="h-4 w-4" aria-hidden="true" />,
     };
@@ -526,7 +566,7 @@ function useAssistantBannerConfig(): BannerConfig | null {
 
   if (!electron && isNative && !nativeConnected) {
     return {
-      tone: "warning",
+      tone: "error",
       title: "You're offline",
       icon: <WifiOff className="h-4 w-4" aria-hidden="true" />,
     };
@@ -566,7 +606,7 @@ function useAssistantBannerConfig(): BannerConfig | null {
 
   if (electron && connectivityState === "backend-unreachable") {
     return {
-      tone: "warning",
+      tone: "error",
       title: "Trying to reach Vellum…",
       icon: <CloudOff className="h-4 w-4" aria-hidden="true" />,
       actions: (
