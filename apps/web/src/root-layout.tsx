@@ -16,6 +16,7 @@ import {
 } from "@/stores/auth-store";
 import { handleLogout } from "@/lib/auth/handle-logout";
 import { getSelectedAssistant } from "@/lib/local-mode";
+import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 
 import { routes } from "@/utils/routes";
@@ -152,9 +153,14 @@ export function RootLayout() {
   // Whether the tray "New Assistant…" name-prompt dialog is open.
   const [createOpen, setCreateOpen] = useState(false);
 
+  const { login } = useOnboardingLogin();
+
   useVellumCommands({
     openSettings: () => {
       void navigate(routes.settings.root);
+    },
+    login: () => {
+      void login();
     },
     logout: () => {
       void handleLogout(navigate);
