@@ -371,7 +371,7 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_SWIFT_DECL_LINE='public let clientSecret: String?'
     SAFE_DOC_PLACEHOLDER_LINE='  oauth2ClientSecret: "<optional>",'
     SAFE_DESC_PLACEHOLDER_LINE='client_secret: "<the extracted Client Secret>"'
-    SAFE_DESC_PLACEHOLDER_LINE2='  "authToken": "<value from credential_store for twilio/auth_token>"'
+    SAFE_DESC_PLACEHOLDER_LINE2='  "authToken": "<value from assistant credentials reveal for twilio/auth_token>"'
     UNSAFE_ANGLEBRACKET_SECRET='clientSecret: "<abcDEF1234567890>"'
     UNSAFE_PASSPHRASE_SECRET='client_secret: "<correct horse battery staple>"'
     # TS: clientSecret with union type annotation (false positive to whitelist)
@@ -620,7 +620,7 @@ if [ "${1:-}" = "--self-test" ]; then
         exit 1
     fi
     if matches_secret_pattern "$SAFE_DESC_PLACEHOLDER_LINE2" && ! matches_safe_line_pattern "$SAFE_DESC_PLACEHOLDER_LINE2"; then
-        echo -e "${RED}Self-test failed:${NC} descriptive doc placeholder '<value from credential_store ...>' false positive"
+        echo -e "${RED}Self-test failed:${NC} descriptive doc placeholder '<value from assistant credentials ...>' false positive"
         exit 1
     fi
     if matches_secret_pattern "$UNSAFE_ANGLEBRACKET_SECRET" && matches_safe_line_pattern "$UNSAFE_ANGLEBRACKET_SECRET"; then

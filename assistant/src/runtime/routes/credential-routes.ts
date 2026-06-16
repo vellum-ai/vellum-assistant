@@ -20,6 +20,7 @@ import {
   fetchManagedCatalog,
   type ManagedCredentialDescriptor,
 } from "../../credential-execution/managed-catalog.js";
+import { clearSlackUserToken } from "../../daemon/handlers/config-slack-channel.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import {
   disconnectOAuthProvider,
@@ -141,7 +142,9 @@ interface CredentialLookup {
  * Resolve a credential lookup from service+field or UUID.
  * Throws BadRequestError when neither is provided or the UUID is not found.
  */
-function resolveCredentialLookup(body: Record<string, unknown>): CredentialLookup {
+function resolveCredentialLookup(
+  body: Record<string, unknown>,
+): CredentialLookup {
   const { service, field, id } = body as {
     service?: string;
     field?: string;
@@ -243,8 +246,9 @@ async function handleCredentialsInspect({ body }: RouteHandlerArgs) {
   }
 
   const lookup = resolveCredentialLookup(body);
-  const { value: secret, unreachable } =
-    await getSecureKeyResultAsync(lookup.storageKey);
+  const { value: secret, unreachable } = await getSecureKeyResultAsync(
+    lookup.storageKey,
+  );
 
   if (!lookup.metadata && (secret == null || secret.length === 0)) {
     if (unreachable) {
@@ -290,8 +294,9 @@ async function handleCredentialsReveal({ body }: RouteHandlerArgs) {
   }
 
   const lookup = resolveCredentialLookup(body);
-  const { value: secret, unreachable } =
-    await getSecureKeyResultAsync(lookup.storageKey);
+  const { value: secret, unreachable } = await getSecureKeyResultAsync(
+    lookup.storageKey,
+  );
 
   if (secret == null || secret.length === 0) {
     if (unreachable) {
@@ -372,11 +377,25 @@ async function handleCredentialsDelete({ body }: RouteHandlerArgs) {
 
   assertMetadataWritable();
 
+  // The Slack user_token only grants read access to channels the bot isn't a
+  // member of; Socket Mode itself runs on the bot + app tokens. Deleting just
+  // the user_token must leave the oauth_connection intact — disconnecting the
+  // provider here would flap the integration's connected state until the next
+  // sync. Delete it surgically and skip the OAuth teardown below.
+  if (service === "slack_channel" && field === "user_token") {
+    const cleared = await clearSlackUserToken();
+    if (!cleared.success) {
+      throw new InternalError(
+        cleared.error ?? "Failed to delete Slack user token",
+      );
+    }
+    return { service, field };
+  }
+
   const key = credentialKey(service, field);
   const existing = await getSecureKeyAsync(key);
-  const deleteResult = existing != null
-    ? await deleteSecureKeyAsync(key)
-    : "not-found";
+  const deleteResult =
+    existing != null ? await deleteSecureKeyAsync(key) : "not-found";
 
   if (deleteResult === "error") {
     throw new InternalError(
@@ -437,8 +456,12 @@ export const ROUTES: RouteDefinition[] = [
       search: z.string().optional().describe("Filter by substring match"),
     }),
     responseBody: z.object({
-      credentials: z.array(z.unknown()).describe("Local credentials with metadata"),
-      managedCredentials: z.array(z.unknown()).describe("Platform-managed credentials"),
+      credentials: z
+        .array(z.unknown())
+        .describe("Local credentials with metadata"),
+      managedCredentials: z
+        .array(z.unknown())
+        .describe("Platform-managed credentials"),
     }),
     handler: handleCredentialsList,
   },
@@ -507,8 +530,14 @@ export const ROUTES: RouteDefinition[] = [
       field: z.string().describe("Field name (e.g. client_secret)"),
       value: z.string().describe("Secret value to store"),
       label: z.string().optional().describe("Human-friendly label"),
-      description: z.string().optional().describe("What this credential is used for"),
-      allowedTools: z.array(z.string()).optional().describe("Tool names that may use this credential"),
+      description: z
+        .string()
+        .optional()
+        .describe("What this credential is used for"),
+      allowedTools: z
+        .array(z.string())
+        .optional()
+        .describe("Tool names that may use this credential"),
     }),
     responseBody: z.object({
       credentialId: z.string(),

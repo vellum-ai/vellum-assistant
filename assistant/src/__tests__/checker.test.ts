@@ -790,9 +790,6 @@ describe("Permission Checker", () => {
       const workingDir = join(homedir(), "projects", "myapp");
       expect(generateScopeOptions(workingDir, "web_fetch")).toHaveLength(0);
       expect(generateScopeOptions(workingDir, "skill_load")).toHaveLength(0);
-      expect(generateScopeOptions(workingDir, "credential_store")).toHaveLength(
-        0,
-      );
       expect(
         generateScopeOptions(workingDir, "computer_use_click"),
       ).toHaveLength(0);

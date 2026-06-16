@@ -136,7 +136,6 @@ describe("secure tool installation is separate from credential grants", () => {
   test("manage_secure_command_tool does not share tool name with grant tools", () => {
     // The tool name must not collide with existing credential grant tools
     const grantToolNames = [
-      "credential_store",
       "credential_grant",
       "credential_revoke",
       "credential_list",
