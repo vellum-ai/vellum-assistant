@@ -98,6 +98,13 @@ export function cancelGeneration(conversationId: string): boolean {
   // being cancelled, so enqueuing synthetic messages would trigger
   // unwanted model activity after the user pressed stop.
   getSubagentManager().abortAllForParent(conversationId);
+  // Clear the processing flag so every client stops rendering the thinking
+  // indicator. abort() only signals the AbortController, so a turn that never
+  // observes the signal leaves `processing` latched true; clearing it here
+  // publishes the metadata sync invalidation that drives clients to the
+  // authoritative state. The agent-loop `finally` clears the same flag on a
+  // normal unwind, so the repeated clear is a no-op.
+  conversation.setProcessing(false);
   return true;
 }
 
