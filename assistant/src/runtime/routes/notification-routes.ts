@@ -11,7 +11,10 @@ import { bufferIfDeferred } from "../../notifications/deferred-emit.js";
 import { editNotification } from "../../notifications/edit-notification.js";
 import { emitNotificationSignal } from "../../notifications/emit-signal.js";
 import { listEvents } from "../../notifications/events-store.js";
-import type { AttentionHints } from "../../notifications/signal.js";
+import {
+  type AttentionHints,
+  NOTIFICATION_SOURCE_CHANNEL_IDS,
+} from "../../notifications/signal.js";
 import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -63,15 +66,7 @@ const AttentionHintsSchema = z.object({
 
 const EmitSignalParams = z.object({
   sourceEventName: z.string().min(1),
-  sourceChannel: z.enum([
-    "assistant_tool",
-    "vellum",
-    "phone",
-    "telegram",
-    "slack",
-    "scheduler",
-    "watcher",
-  ]),
+  sourceChannel: z.enum(NOTIFICATION_SOURCE_CHANNEL_IDS),
   sourceContextId: z.string().min(1),
   attentionHints: AttentionHintsSchema,
   contextPayload: z.record(z.string(), z.unknown()).optional(),
