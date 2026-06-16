@@ -76,6 +76,7 @@ import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-s
 import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
 import { getMemoryV3SelectionForInspectorByMessageIds } from "../../plugins/defaults/memory-v3-shadow/selection-log-store.js";
+import { runProviderConnectionsBackfill } from "../../providers/inference/backfill.js";
 import {
   createConnection,
   listConnections,
@@ -774,6 +775,12 @@ async function commitConfigWrite(
   );
 
   clearEmbeddingBackendCache();
+  // Materialize provider connections for any profile whose provider was set
+  // without an explicit provider_connection (e.g. `config set
+  // llm.profiles.x.provider fireworks`). Mirrors the boot-time backfill so a
+  // newly configured provider gets its connection wired here instead of
+  // falling back to a stale binding at dispatch.
+  runProviderConnectionsBackfill(getDb());
   invalidateConfigCache();
   // Reinitialize providers so the live registry reflects the new config.
   // Suppress disk writes inside loadConfig() — we just wrote the raw config

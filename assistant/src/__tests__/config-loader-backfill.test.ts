@@ -81,6 +81,7 @@ import { migrateCreateProviderConnections } from "../memory/migrations/243-provi
 import { migrateProviderConnectionStatusLabel } from "../memory/migrations/244-provider-connection-status-label.js";
 import { migrateProviderConnectionBaseUrlAndModels } from "../memory/migrations/250-provider-connection-base-url-and-models.js";
 import * as schema from "../memory/schema.js";
+import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
 import { getConnection } from "../providers/inference/connections.js";
 import { getConfigQuarantineNoticePath } from "../util/platform.js";
 import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
@@ -1281,5 +1282,112 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     expect(config.llm.profiles.balanced?.status).toBe("active");
     // Label is still suffixed (Vellum can push label updates).
     expect(config.llm.profiles.balanced?.label).toBe("Balanced (Managed)");
+  });
+});
+
+describe("runProviderConnectionsBackfill — profiles added after boot", () => {
+  beforeEach(() => {
+    ensureTestDir();
+    const resetPaths = [
+      CONFIG_PATH,
+      join(WORKSPACE_DIR, "default-config.json"),
+      join(WORKSPACE_DIR, "hatch-overlay.json"),
+      join(WORKSPACE_DIR, "keys.enc"),
+      join(WORKSPACE_DIR, "data"),
+      join(WORKSPACE_DIR, "data", "memory"),
+    ];
+    for (const path of resetPaths) {
+      if (existsSync(path)) {
+        rmSync(path, { recursive: true, force: true });
+      }
+    }
+    ensureTestDir();
+    setStorePathForTesting(join(WORKSPACE_DIR, "keys.enc"));
+    delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
+    delete process.env.IS_PLATFORM;
+    invalidateConfigCache();
+  });
+
+  afterEach(() => {
+    setStorePathForTesting(null);
+    delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
+    delete process.env.IS_PLATFORM;
+    invalidateConfigCache();
+  });
+
+  test("materializes a personal connection for a BYOK profile added after boot", () => {
+    /**
+     * Reproduces the eval `assistant config set llm.profiles.minimax.provider
+     * fireworks` flow: a profile gains a new provider with no
+     * provider_connection after the daemon already booted. The backfill must
+     * create that provider's personal connection and wire it so dispatch
+     * doesn't inherit an incompatible managed connection.
+     */
+    // GIVEN an off-platform install whose config gained a fireworks profile
+    // with no provider_connection (boot only seeded anthropic-personal)
+    writeConfig({
+      llm: {
+        default: {
+          provider: "anthropic",
+          provider_connection: "anthropic-personal",
+          model: "claude-sonnet-4-6",
+        },
+        profiles: {
+          minimax: {
+            provider: "fireworks",
+            model: "accounts/fireworks/models/minimax-m3",
+          },
+        },
+        activeProfile: "minimax",
+      },
+    });
+    const db = createProviderConnectionsDb();
+
+    // WHEN the connection backfill runs (as commitConfigWrite invokes it)
+    runProviderConnectionsBackfill(db);
+
+    // THEN the fireworks personal connection exists with api_key auth
+    const connection = getConnection(db, "fireworks-personal");
+    expect(connection).not.toBeNull();
+    expect(connection?.provider).toBe("fireworks");
+    expect(connection?.auth.type).toBe("api_key");
+    // AND the profile is wired to it on disk
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.profiles.minimax.provider_connection).toBe(
+      "fireworks-personal",
+    );
+  });
+
+  test("is idempotent — re-running leaves the wired connection untouched", () => {
+    /**
+     * The backfill runs after every config write, so a second pass over an
+     * already-wired profile must not recreate the connection or rewrite the
+     * provider_connection field.
+     */
+    // GIVEN a fireworks profile that was already backfilled once
+    writeConfig({
+      llm: {
+        profiles: {
+          minimax: {
+            provider: "fireworks",
+            model: "accounts/fireworks/models/minimax-m3",
+          },
+        },
+      },
+    });
+    const db = createProviderConnectionsDb();
+    runProviderConnectionsBackfill(db);
+    const first = getConnection(db, "fireworks-personal");
+
+    // WHEN the backfill runs a second time
+    runProviderConnectionsBackfill(db);
+
+    // THEN the connection is the same row and the profile stays wired
+    const second = getConnection(db, "fireworks-personal");
+    expect(second?.createdAt).toBe(first?.createdAt);
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.profiles.minimax.provider_connection).toBe(
+      "fireworks-personal",
+    );
   });
 });

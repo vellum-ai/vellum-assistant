@@ -56,6 +56,13 @@ mock.module("../../../memory/embedding-backend.js", () => ({
   },
 }));
 
+// Connection backfill is exercised in config-loader-backfill.test.ts and its
+// own integration test; stub it here so config writes don't mutate the mocked
+// loader's saved-config fixture out from under these assertions.
+mock.module("../../../providers/inference/backfill.js", () => ({
+  runProviderConnectionsBackfill: () => {},
+}));
+
 import type { ConversationCreateType } from "../../../memory/conversation-crud.js";
 import { getDb } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";

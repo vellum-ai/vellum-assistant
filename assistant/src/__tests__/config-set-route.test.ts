@@ -18,6 +18,7 @@ mock.module("../util/logger.js", () => ({
 
 let savedRaw: Record<string, unknown> | null = null;
 let rawConfig: Record<string, unknown> = {};
+let backfillCalls = 0;
 
 mock.module("../config/loader.js", () => ({
   loadRawConfig: () => structuredClone(rawConfig),
@@ -58,12 +59,24 @@ mock.module("../memory/embedding-backend.js", () => ({
   clearEmbeddingBackendCache: () => {},
 }));
 
+// Spy on the connection backfill so we can assert config writes trigger it,
+// without the real backfill querying the database or re-saving the mocked
+// loader's fixture (the mechanism is covered in config-loader-backfill.test.ts).
+mock.module("../providers/inference/backfill.js", () => ({
+  runProviderConnectionsBackfill: () => {
+    backfillCalls += 1;
+  },
+}));
+
 // ---------------------------------------------------------------------------
 // Mock the allowlist module so we can drive throw / return paths
 // ---------------------------------------------------------------------------
 
 let mockAllowlistResult:
-  | { kind: "ok"; value: Array<{ index: number; pattern: string; message: string }> | null }
+  | {
+      kind: "ok";
+      value: Array<{ index: number; pattern: string; message: string }> | null;
+    }
   | { kind: "throw"; error: Error } = { kind: "ok", value: null };
 
 mock.module("../security/secret-allowlist.js", () => ({
@@ -202,6 +215,21 @@ describe("config_set route - request validation", () => {
     expect(
       (memory.cleanup as Record<string, unknown>).llmRequestLogRetentionMs,
     ).toBe(86400000);
+  });
+
+  test("re-runs the provider-connections backfill after a config write", async () => {
+    // GIVEN a config whose minimax profile has no provider yet
+    rawConfig = { llm: { profiles: {} } };
+    savedRaw = null;
+    backfillCalls = 0;
+    // WHEN config_set points the profile at a new provider with no
+    // provider_connection (the eval `assistant config set` path)
+    await configSetRoute.handler({
+      body: { path: "llm.profiles.minimax.provider", value: "fireworks" },
+    });
+    // THEN the connection backfill runs so the new provider materializes its
+    // personal connection and wires provider_connection before dispatch.
+    expect(backfillCalls).toBe(1);
   });
 
   test("preserves all top-level keys when setting a nested path", async () => {
