@@ -40,8 +40,13 @@ import {
   uninstallPlugin,
 } from "../lib/uninstall-plugin.js";
 import {
+  DEFAULT_PLUGIN_UPGRADE_STRATEGY,
+  PLUGIN_UPGRADE_STRATEGIES,
+  PluginMergeBaselineError,
   PluginNotUpgradableError,
   type PluginUpgradeResult,
+  type PluginUpgradeStrategy,
+  PluginUpgradeStrategyUnsupportedError,
   upgradePlugin,
 } from "../lib/upgrade-plugin.js";
 import { getCliLogger } from "../logger.js";
@@ -69,6 +74,8 @@ Examples:
   $ assistant plugins diff example --json
   $ assistant plugins upgrade example
   $ assistant plugins upgrade example --dry-run
+  $ assistant plugins upgrade example --strategy ours
+  $ assistant plugins upgrade example --strategy theirs
   $ assistant plugins search example
   $ assistant plugins search "^example"
   $ assistant plugins search example --json
@@ -401,12 +408,36 @@ Examples:
           "--dry-run",
           "Show what would change without modifying the install",
         )
+        .option(
+          "--strategy <strategy>",
+          `How to reconcile local edits with the pin: ${PLUGIN_UPGRADE_STRATEGIES.join(", ")} (default: ${DEFAULT_PLUGIN_UPGRADE_STRATEGY})`,
+        )
         .option("--json", "Emit machine-readable JSON instead of a summary")
         .action(
-          async (name: string, opts: { dryRun?: boolean; json?: boolean }) => {
+          async (
+            name: string,
+            opts: { dryRun?: boolean; strategy?: string; json?: boolean },
+          ) => {
+            const strategy = opts.strategy;
+            if (
+              strategy !== undefined &&
+              !(PLUGIN_UPGRADE_STRATEGIES as readonly string[]).includes(
+                strategy,
+              )
+            ) {
+              console.error(
+                `Invalid --strategy "${strategy}". Expected one of: ${PLUGIN_UPGRADE_STRATEGIES.join(", ")}.`,
+              );
+              process.exitCode = 1;
+              return;
+            }
             try {
               const result = await upgradePlugin(
-                { name, dryRun: opts.dryRun },
+                {
+                  name,
+                  dryRun: opts.dryRun,
+                  strategy: strategy as PluginUpgradeStrategy | undefined,
+                },
                 { fetch: globalThis.fetch.bind(globalThis) },
               );
 
@@ -434,6 +465,8 @@ Examples:
               if (
                 err instanceof PluginNotInstalledError ||
                 err instanceof PluginNotUpgradableError ||
+                err instanceof PluginUpgradeStrategyUnsupportedError ||
+                err instanceof PluginMergeBaselineError ||
                 err instanceof InvalidPluginNameError
               ) {
                 console.error(err.message);
@@ -595,12 +628,17 @@ function formatUpgrade(result: PluginUpgradeResult): string[] {
         result.fileCount === null
           ? ""
           : `(${result.fileCount} file${result.fileCount === 1 ? "" : "s"}) `;
+      const mergeNote =
+        result.strategy === "ours" || result.strategy === "theirs"
+          ? `Local edits were merged (--strategy ${result.strategy}).`
+          : null;
       const lines = [
         `Upgraded "${name}" ${move}`,
         "",
         `${count}→ ${result.target}`,
         "Restart the assistant to pick up the upgrade.",
       ];
+      if (mergeNote) lines.push(mergeNote);
       if (provenanceNote) lines.push(provenanceNote);
       return lines;
     }
