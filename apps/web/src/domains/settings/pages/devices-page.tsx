@@ -4,6 +4,7 @@ import { Navigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 
 import { DetailCard } from "@/components/detail-card";
+import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { DeviceRow } from "@/domains/settings/components/device-row";
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import type { Assistant } from "@/generated/api/types.gen";
@@ -34,9 +35,9 @@ export function DevicesPage() {
   if (platformGate === "disabled") {
     return (
       <div className="space-y-4">
-        <Notice tone="info">
+        <PlatformLoginNotice>
           Log in to the Vellum platform to manage self-hosted assistants.
-        </Notice>
+        </PlatformLoginNotice>
       </div>
     );
   }

@@ -1,6 +1,7 @@
 import { Loader2, Wrench } from "lucide-react";
 import { useCallback, useState } from "react";
 
+import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import {
     assistantsMaintenanceModeEnterCreate,
     assistantsMaintenanceModeExitCreate,
@@ -144,9 +145,9 @@ export function RecoveryModeControls({
       </div>
 
       {platformGate === "disabled" && (
-        <Notice tone="info">
+        <PlatformLoginNotice>
           Log in to the Vellum platform to {isActive ? "exit" : "enter"} Recovery Mode.
-        </Notice>
+        </PlatformLoginNotice>
       )}
       {error && <Notice tone="error">{error}</Notice>}
     </div>

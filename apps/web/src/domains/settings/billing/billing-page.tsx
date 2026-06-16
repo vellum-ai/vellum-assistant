@@ -5,6 +5,7 @@ import { Navigate, useNavigate, useSearchParams } from "react-router";
 
 import { useQueryClient } from "@tanstack/react-query";
 
+import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { BillingOnboardingModal } from "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal";
 import { AdjustPlanModal } from "@/domains/settings/components/adjust-plan-modal";
 import { BillingPanel } from "@/domains/settings/components/billing-panel";
@@ -98,9 +99,9 @@ export function BillingPage() {
   if (billingGate === "disabled") {
     return (
       <div className="space-y-4">
-        <Notice tone="info">
+        <PlatformLoginNotice>
           Log in to the Vellum platform to manage billing and usage.
-        </Notice>
+        </PlatformLoginNotice>
       </div>
     );
   }

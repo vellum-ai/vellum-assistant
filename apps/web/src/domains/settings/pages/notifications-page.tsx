@@ -12,6 +12,7 @@ import { Navigate } from "react-router";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import {
     SNOOZE_OPTIONS,
     formatRelativeDate,
@@ -587,9 +588,9 @@ export function NotificationsPage() {
             </p>
           </div>
         </div>
-        <Notice tone="info">
+        <PlatformLoginNotice>
           Log in to the Vellum platform to view notifications.
-        </Notice>
+        </PlatformLoginNotice>
       </div>
     );
   }

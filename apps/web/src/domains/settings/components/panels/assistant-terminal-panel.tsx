@@ -2,6 +2,7 @@ import { Terminal } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { getAssistant } from "@/assistant/api";
+import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { TerminalPanel } from "@/components/terminal-panel";
 import type { MaintenanceMode } from "@/generated/api/types.gen";
 import {
@@ -11,7 +12,6 @@ import {
 import { captureError } from "@/lib/sentry/capture-error";
 import { toast } from "@vellumai/design-library";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
-import { Notice } from "@vellumai/design-library/components/notice";
 
 type TerminalService = "assistant" | "gateway" | "credential-executor";
 
@@ -118,9 +118,9 @@ export function AssistantTerminalPanel() {
       </div>
 
       {platformGate === "disabled" ? (
-        <Notice tone="info">
+        <PlatformLoginNotice>
           Log in to the Vellum platform to open a terminal session.
-        </Notice>
+        </PlatformLoginNotice>
       ) : showLoading ? (
         <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
           <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--border-element)] border-t-[var(--content-secondary)]" />

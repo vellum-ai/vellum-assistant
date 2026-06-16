@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 
+import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import {
     assistantsAccessConsentRetrieveOptions,
     assistantsAccessConsentRetrieveSetQueryData,
@@ -11,7 +12,6 @@ import {
     useActiveAssistantLifecycleIsLoading,
     usePlatformGate,
 } from "@/hooks/use-platform-gate";
-import { Notice } from "@vellumai/design-library/components/notice";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
@@ -132,9 +132,9 @@ export function AccessConsentSetting() {
         </div>
       </div>
       {platformGate === "disabled" && (
-        <Notice tone="info" className="mt-3">
+        <PlatformLoginNotice className="mt-3">
           Log in to the Vellum platform to manage admin data access.
-        </Notice>
+        </PlatformLoginNotice>
       )}
     </div>
   );

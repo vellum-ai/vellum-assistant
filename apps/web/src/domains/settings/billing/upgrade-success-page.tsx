@@ -5,6 +5,7 @@ import { Navigate, useNavigate } from "react-router";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import {
     organizationsBillingSubscriptionRetrieveOptions,
     organizationsBillingSubscriptionRetrieveQueryKey,
@@ -137,9 +138,9 @@ export function UpgradeSuccessPage() {
   if (platformGate === "disabled") {
     return (
       <div className="max-w-4xl space-y-6">
-        <Notice tone="info">
+        <PlatformLoginNotice>
           Log in to the Vellum platform to manage billing and usage.
-        </Notice>
+        </PlatformLoginNotice>
       </div>
     );
   }

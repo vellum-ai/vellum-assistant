@@ -5,6 +5,7 @@ import { useNavigate } from "react-router";
 import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor";
 import { DetailCard } from "@/components/detail-card";
 import { DiskPressureBanner, type DiskPressureBannerMode } from "@/components/disk-pressure-banner";
+import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { ProfileCard } from "@/components/profile-card";
 import { AssistantPicker } from "@/domains/settings/components/assistant-picker";
 import { AssistantSleepPolicy } from "@/domains/settings/components/assistant-sleep-policy";
@@ -22,7 +23,6 @@ import { PreviewReleaseChannel } from "@/domains/settings/components/preview-rel
 import { ResizeCard } from "@/domains/settings/components/resize-card";
 import { RetireAssistant } from "@/domains/settings/components/retire-assistant";
 import { TimezonePicker } from "@/domains/settings/components/timezone-picker";
-import { Notice } from "@vellumai/design-library/components/notice";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -296,9 +296,9 @@ export function GeneralPage() {
           title="Compute & Resources"
           subtitle="Monitor resource usage and manage your assistant's compute profile."
         >
-          <Notice tone="info">
+          <PlatformLoginNotice>
             Log in to the Vellum platform to manage compute resources.
-          </Notice>
+          </PlatformLoginNotice>
         </DetailCard>
       )}
 
@@ -332,9 +332,9 @@ export function GeneralPage() {
       )}
       {infraGate === "disabled" && (
         <DetailCard title="Software Updates">
-          <Notice tone="info">
+          <PlatformLoginNotice>
             Log in to the Vellum platform to manage software updates.
-          </Notice>
+          </PlatformLoginNotice>
         </DetailCard>
       )}
 
@@ -353,9 +353,9 @@ export function GeneralPage() {
           title="Sleep Policy"
           subtitle="Control how long this assistant stays awake when idle."
         >
-          <Notice tone="info">
+          <PlatformLoginNotice>
             Log in to the Vellum platform to manage sleep policy.
-          </Notice>
+          </PlatformLoginNotice>
         </DetailCard>
       )}
 
@@ -380,9 +380,9 @@ export function GeneralPage() {
           title="Retire Assistant"
           subtitle="Permanently retire this assistant and delete all associated data."
         >
-          <Notice tone="info">
+          <PlatformLoginNotice>
             Log in to the Vellum platform to retire this assistant.
-          </Notice>
+          </PlatformLoginNotice>
         </DetailCard>
       )}
 
