@@ -25,6 +25,14 @@ mock.module("../../config/loader.js", () => ({
     if (configThrows) throw new Error("config not loaded");
     return {} as ReturnType<typeof realLoader.getConfig>;
   },
+  // manage_workflows `list_profiles` reads profiles via loadConfig().
+  loadConfig: () =>
+    ({
+      llm: {
+        profiles: { "cost-optimized": {}, balanced: {} },
+        activeProfile: "balanced",
+      },
+    }) as unknown as ReturnType<typeof realLoader.loadConfig>,
 }));
 
 const realFlags = await import("../../config/assistant-feature-flags.js");
@@ -69,7 +77,6 @@ mock.module("../../workflows/run-manager.js", () => ({
 }));
 
 // Imports AFTER mocks so the mocked modules are picked up.
-const { getWorkflowToolsIfEnabled } = await import("../tool-manifest.js");
 const { runWorkflowTool } = await import("./run-workflow.js");
 const { manageWorkflowsTool } = await import("./manage-workflows.js");
 const { WORKFLOW_READONLY_BASELINE } =
@@ -97,22 +104,28 @@ beforeEach(() => {
   resumeMock.mockClear();
 });
 
-describe("workflow tool registration gating", () => {
-  test("registers both tools when the workflows flag is enabled", () => {
-    flagEnabled = true;
-    const names = getWorkflowToolsIfEnabled().map((t) => t.name);
-    expect(names).toContain("run_workflow");
-    expect(names).toContain("manage_workflows");
-  });
-
-  test("registers nothing when the workflows flag is disabled", () => {
-    flagEnabled = false;
-    expect(getWorkflowToolsIfEnabled()).toEqual([]);
-  });
-
-  test("registers nothing when config is not yet loaded", () => {
-    configThrows = true;
-    expect(getWorkflowToolsIfEnabled()).toEqual([]);
+describe("workflow tools are served by the workflows skill", () => {
+  // The cutover moved run_workflow / manage_workflows out of the always-on tool
+  // manifest into the flag-gated `workflows` bundled skill (loaded via
+  // skill_load, invoked via skill_execute). The skill manifest is the
+  // source of truth; assert it declares both as in-process host tools.
+  test("the workflows skill TOOLS.json declares both host-executed tools", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const manifest = JSON.parse(
+      readFileSync(
+        join(
+          import.meta.dir,
+          "../../config/bundled-skills/workflows/TOOLS.json",
+        ),
+        "utf-8",
+      ),
+    ) as {
+      tools: Array<{ name: string; execution_target: string }>;
+    };
+    const byName = new Map(manifest.tools.map((t) => [t.name, t]));
+    expect(byName.get("run_workflow")?.execution_target).toBe("host");
+    expect(byName.get("manage_workflows")?.execution_target).toBe("host");
   });
 });
 
@@ -291,6 +304,17 @@ describe("manage_workflows", () => {
     );
     expect(res.isError).toBe(true);
     expect(res.content).toContain("not resumable");
+  });
+
+  test("list_profiles returns sorted profile names and the active profile", async () => {
+    const res = await manageWorkflowsTool.execute(
+      { action: "list_profiles" },
+      makeContext(),
+    );
+    expect(res.isError).toBe(false);
+    const parsed = JSON.parse(res.content);
+    expect(parsed.profiles).toEqual(["balanced", "cost-optimized"]);
+    expect(parsed.activeProfile).toBe("balanced");
   });
 
   test("rejects an unknown action", async () => {

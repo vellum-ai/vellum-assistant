@@ -13,6 +13,7 @@
  * by the type checker.
  */
 
+import { loadConfig } from "../../config/loader.js";
 import { callerOwnsWorkflowRun } from "../../workflows/capabilities.js";
 import type { WorkflowRun } from "../../workflows/journal-store.js";
 import { getWorkflowRunManager } from "../../workflows/run-manager.js";
@@ -134,10 +135,25 @@ export async function executeManageWorkflows(
         isError: false,
       };
     }
+    case "list_profiles": {
+      // Mirror the `config/llm/profiles` route: sorted profile names plus the
+      // workspace-wide active profile. Read-only — leaves use this to pick a
+      // valid `profile` for `run_workflow` (an unknown profile throws).
+      const { llm } = loadConfig();
+      const profiles = llm?.profiles ?? {};
+      return {
+        content: JSON.stringify({
+          profiles: Object.keys(profiles).sort(),
+          activeProfile:
+            typeof llm?.activeProfile === "string" ? llm.activeProfile : null,
+        }),
+        isError: false,
+      };
+    }
     default:
       return {
         content:
-          'Unknown action. Use one of: "status", "abort", "resume", "list_runs".',
+          'Unknown action. Use one of: "status", "abort", "resume", "list_runs", "list_profiles".',
         isError: true,
       };
   }
@@ -146,7 +162,7 @@ export async function executeManageWorkflows(
 export const manageWorkflowsTool = {
   name: "manage_workflows",
   description:
-    'Inspect or control workflow runs started by run_workflow. action="status" (requires run_id) returns a run\'s status and counts; action="abort" (requires run_id) signals an in-flight run to stop; action="resume" (requires run_id) restarts an interrupted run (one orphaned by an assistant restart), replaying its journaled prefix and continuing from the first unfinished step; action="list_runs" returns recent runs newest-first.',
+    'Inspect or control workflow runs started by run_workflow. action="status" (requires run_id) returns a run\'s status and counts; action="abort" (requires run_id) signals an in-flight run to stop; action="resume" (requires run_id) restarts an interrupted run (one orphaned by an assistant restart), replaying its journaled prefix and continuing from the first unfinished step; action="list_runs" returns recent runs newest-first; action="list_profiles" returns the defined LLM profile names plus the active profile (use to pick a valid leaf `profile`).',
   // Low risk by default: status/list are pure reads; abort only signals an
   // existing run to stop; resuming a READ-ONLY run replays a journaled prefix
   // and continues under the same structural agent cap. Resuming a run whose
@@ -161,7 +177,7 @@ export const manageWorkflowsTool = {
     properties: {
       action: {
         type: "string",
-        enum: ["status", "abort", "resume", "list_runs"],
+        enum: ["status", "abort", "resume", "list_runs", "list_profiles"],
         description: "What to do.",
       },
       run_id: {

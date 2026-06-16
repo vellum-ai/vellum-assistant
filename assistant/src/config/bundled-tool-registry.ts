@@ -129,6 +129,9 @@ import * as subagentSpawn from "./bundled-skills/subagent/tools/subagent-spawn.j
 import * as subagentStatus from "./bundled-skills/subagent/tools/subagent-status.js";
 // ── transcribe ─────────────────────────────────────────────────────────────────
 import * as transcribeMedia from "./bundled-skills/transcribe/tools/transcribe-media.js";
+// ── workflows ──────────────────────────────────────────────────────────────────
+import * as manageWorkflows from "./bundled-skills/workflows/tools/manage-workflows.js";
+import * as runWorkflow from "./bundled-skills/workflows/tools/run-workflow.js";
 
 // ─── Registry ────────────────────────────────────────────────────────────────
 
@@ -274,4 +277,8 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
 
   // transcribe
   ["transcribe:tools/transcribe-media.ts", transcribeMedia],
+
+  // workflows
+  ["workflows:tools/run-workflow.ts", runWorkflow],
+  ["workflows:tools/manage-workflows.ts", manageWorkflows],
 ]);
