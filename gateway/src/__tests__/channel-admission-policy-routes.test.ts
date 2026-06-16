@@ -14,7 +14,12 @@ import {
   createChannelAdmissionPolicySetHandler,
 } from "../http/routes/channel-admission-policy.js";
 import { CHANNEL_IDS } from "../channels/types.js";
+import { isAdmissionPolicyExemptChannel } from "@vellumai/gateway-client";
 import "./test-preload.js";
+
+const NON_EXEMPT_CHANNEL_IDS = CHANNEL_IDS.filter(
+  (channel) => !isAdmissionPolicyExemptChannel(channel),
+);
 
 // ---------------------------------------------------------------------------
 // Setup / teardown
@@ -59,7 +64,7 @@ function jsonRequest(url: string, method: string, body?: unknown): Request {
 // ---------------------------------------------------------------------------
 
 describe("GET /v1/channel-admission-policy", () => {
-  test("returns every channel id, with defaults for unconfigured channels", async () => {
+  test("returns every non-exempt channel id, with defaults for unconfigured channels", async () => {
     const handler = createChannelAdmissionPolicyListHandler();
     const res = await handler(
       jsonRequest("http://localhost/v1/channel-admission-policy", "GET"),
@@ -74,14 +79,14 @@ describe("GET /v1/channel-admission-policy", () => {
         updatedAt: number | null;
       }>;
     };
-    expect(body.policies).toHaveLength(CHANNEL_IDS.length);
+    expect(body.policies).toHaveLength(NON_EXEMPT_CHANNEL_IDS.length);
     for (const p of body.policies) {
       expect(p.policy).toBe(ADMISSION_POLICY_DEFAULT);
       expect(p.note).toBeNull();
       expect(p.updatedAt).toBeNull();
     }
     const seen = new Set(body.policies.map((p) => p.channelType));
-    for (const channel of CHANNEL_IDS) {
+    for (const channel of NON_EXEMPT_CHANNEL_IDS) {
       expect(seen.has(channel)).toBe(true);
     }
   });
@@ -101,7 +106,7 @@ describe("GET /v1/channel-admission-policy", () => {
         updatedAt: number | null;
       }>;
     };
-    expect(body.policies).toHaveLength(CHANNEL_IDS.length);
+    expect(body.policies).toHaveLength(NON_EXEMPT_CHANNEL_IDS.length);
     const tg = body.policies.find((p) => p.channelType === "telegram");
     expect(tg?.policy).toBe("no_one");
     expect(tg?.note).toBe("off");
@@ -110,6 +115,25 @@ describe("GET /v1/channel-admission-policy", () => {
     const phone = body.policies.find((p) => p.channelType === "phone");
     expect(phone?.policy).toBe(ADMISSION_POLICY_DEFAULT);
     expect(phone?.updatedAt).toBeNull();
+  });
+
+  test("§8.1: omits exempt channels (`vellum`, `a2a`) from the response even when persisted", async () => {
+    // Belt-and-suspenders: the store accepts these values today, but the
+    // route filters them out so the client UI never surfaces a control
+    // that the PUT handler would 403 on.
+    store.set("vellum", "no_one", "manually persisted (should not surface)");
+    store.set("a2a", "guardian_only");
+
+    const handler = createChannelAdmissionPolicyListHandler();
+    const res = await handler(
+      jsonRequest("http://localhost/v1/channel-admission-policy", "GET"),
+    );
+    const body = (await res.json()) as {
+      policies: Array<{ channelType: string }>;
+    };
+    const seen = new Set(body.policies.map((p) => p.channelType));
+    expect(seen.has("vellum")).toBe(false);
+    expect(seen.has("a2a")).toBe(false);
   });
 });
 
@@ -200,5 +224,33 @@ describe("PUT /v1/channel-admission-policy/:channelType", () => {
       policy: { note: string | null };
     };
     expect(body.policy.note).toBeNull();
+  });
+
+  test("§8.1: rejects PUT for exempt channel `vellum` with 403", async () => {
+    const handler = createChannelAdmissionPolicySetHandler();
+    const res = await handler(
+      jsonRequest("http://localhost/v1/channel-admission-policy/vellum", "PUT", {
+        policy: "no_one",
+      }),
+      "vellum",
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: string; channelType: string };
+    expect(body.error).toMatch(/internal channels are exempt/);
+    expect(body.channelType).toBe("vellum");
+    // Defense in depth: nothing was persisted.
+    expect(store.get("vellum")).toBe(ADMISSION_POLICY_DEFAULT);
+  });
+
+  test("§8.1: rejects PUT for exempt channel `a2a` with 403", async () => {
+    const handler = createChannelAdmissionPolicySetHandler();
+    const res = await handler(
+      jsonRequest("http://localhost/v1/channel-admission-policy/a2a", "PUT", {
+        policy: "guardian_only",
+      }),
+      "a2a",
+    );
+    expect(res.status).toBe(403);
+    expect(store.get("a2a")).toBe(ADMISSION_POLICY_DEFAULT);
   });
 });

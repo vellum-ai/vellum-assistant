@@ -11,6 +11,7 @@
  */
 
 import { z } from "zod";
+import { isAdmissionPolicyExemptChannel } from "@vellumai/gateway-client";
 import {
   ADMISSION_POLICY_DEFAULT,
   ADMISSION_POLICY_VALUES,
@@ -79,7 +80,12 @@ export function createChannelAdmissionPolicyListHandler() {
         rows.map((r) => [r.channelType, r]),
       );
 
-      const policies: PolicyView[] = CHANNEL_IDS.map((channel) => {
+      // §8.1: internal channels (`vellum`, `platform`, `a2a`) are not
+      // policy-configurable. Omit them from the client-facing list so the
+      // UI never surfaces a control that would 403 on PUT anyway.
+      const policies: PolicyView[] = CHANNEL_IDS.filter(
+        (channel) => !isAdmissionPolicyExemptChannel(channel),
+      ).map((channel) => {
         const row = byChannel.get(channel);
         return row ? rowToView(row) : defaultView(channel);
       });
@@ -104,6 +110,21 @@ export function createChannelAdmissionPolicySetHandler() {
           error: `Unknown channelType: "${channelType}". Must be one of: ${CHANNEL_IDS.join(", ")}`,
         },
         { status: 400 },
+      );
+    }
+
+    // §8.1: internal channels are exempt from admission policy. Reject the
+    // PUT with 403 — guardians configuring `no_one` on `vellum` would lock
+    // themselves out of their own client. Defense in depth alongside the
+    // runtime exempt-channel short-circuit and the gateway kill switch.
+    if (isAdmissionPolicyExemptChannel(channelType)) {
+      return Response.json(
+        {
+          error:
+            "internal channels are exempt from admission policy",
+          channelType,
+        },
+        { status: 403 },
       );
     }
 

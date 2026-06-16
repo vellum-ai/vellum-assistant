@@ -58,6 +58,22 @@ export type TrustClass =
   | "unverified_contact"
   | "unknown";
 
+/**
+ * Trust-class ordinal used by the per-channel admission policy floor check.
+ * Higher rank = more trusted. Blocked/revoked never reach classification —
+ * their effective rank is 0 and is enforced by the inbound ACL stage's
+ * member-status short-circuit, not via this table.
+ *
+ * See `wave-b-plan.md` §2.4. Paired with `ADMISSION_FLOOR` from
+ * `@vellumai/gateway-client` — both tables move together.
+ */
+export const TRUST_CLASS_RANK: Record<TrustClass, number> = {
+  guardian: 4,
+  trusted_contact: 3,
+  unverified_contact: 2,
+  unknown: 1,
+};
+
 /** Returns `true` for actors that are not fully trusted (i.e. not the guardian). */
 export function isUntrustedTrustClass(
   trustClass: TrustClass | undefined,

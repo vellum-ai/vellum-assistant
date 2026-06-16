@@ -1,10 +1,14 @@
 import { existsSync } from "node:fs";
-import type { SourceMetadata } from "@vellumai/gateway-client";
+import {
+  isAdmissionPolicyExemptChannel,
+  type SourceMetadata,
+} from "@vellumai/gateway-client";
 import type { GatewayConfig } from "../config.js";
 import { ipcCallAssistant } from "../ipc/assistant-client.js";
 import { resolveIpcSocketPath } from "../ipc/socket-path.js";
 import { ContactStore } from "../db/contact-store.js";
 import { getLogger } from "../logger.js";
+import { getAdmissionPolicyCache } from "../risk/admission-policy-cache.js";
 import { canonicalizeInboundIdentity } from "../verification/identity.js";
 import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
 import type { RouteResult } from "../routing/types.js";
@@ -87,6 +91,35 @@ export async function handleInbound(
 
   const displayName = event.actor.displayName || event.actor.username;
 
+  // ── Admission policy: `no_one` kill switch ──
+  // Hard-deny pre-forward when the channel is configured `no_one`. Runs
+  // BEFORE `tryTextVerificationIntercept` because the kill switch admits
+  // nobody — verification-code redemption during a `no_one` lockout would
+  // upgrade an actor on a channel the guardian has explicitly turned off.
+  //
+  // Defense in depth: the §8.1 exempt set (vellum/platform/a2a) skips this
+  // check so a guardian can never lock themselves out of the desktop client
+  // via the admission UI. The same exemption is enforced PUT-side in
+  // channel-admission-policy.ts and at the runtime admission stage.
+  const admissionPolicy = isAdmissionPolicyExemptChannel(event.sourceChannel)
+    ? null
+    : getAdmissionPolicyCache().get(event.sourceChannel);
+  if (admissionPolicy === "no_one") {
+    log.info(
+      {
+        sourceChannel: event.sourceChannel,
+        conversationExternalId: event.message.conversationExternalId,
+        actorExternalId: event.actor.actorExternalId,
+      },
+      "Inbound event hard-denied by admission policy 'no_one'",
+    );
+    return {
+      forwarded: false,
+      rejected: true,
+      rejectionReason: "admission_no_one",
+    };
+  }
+
   // ── Text verification intercept ──
   // Must run before forwardToRuntime so the assistant never sees
   // verification code messages. Both success and failure short-circuit.
@@ -158,6 +191,11 @@ export async function handleInbound(
           isRestricted: event.actor.isRestricted,
           ...(transportHints.length > 0 ? { hints: transportHints } : {}),
           ...(transportUxBrief ? { uxBrief: transportUxBrief } : {}),
+          // Floor for the runtime admission stage. Exempt channels send no
+          // value; the runtime's own exempt-channel short-circuit then
+          // admits unconditionally. Non-exempt channels always carry the
+          // cache value (default `trusted_contacts` when the row is absent).
+          ...(admissionPolicy ? { admissionPolicy } : {}),
           ...(options?.sourceMetadata ?? {}),
         },
         ...(options?.attachmentIds?.length

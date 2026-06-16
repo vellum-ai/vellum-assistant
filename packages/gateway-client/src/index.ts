@@ -44,3 +44,15 @@ export type {
   RuntimeInboundPayload,
   SourceMetadata,
 } from "./inbound-contract.js";
+
+export {
+  ADMISSION_FLOOR,
+  ADMISSION_POLICY_DEFAULT,
+  ADMISSION_POLICY_EXEMPT_CHANNELS,
+  ADMISSION_POLICY_VALUES,
+  AdmissionPolicySchema,
+  isAdmissionPolicy,
+  isAdmissionPolicyExemptChannel,
+} from "./admission-policy-contract.js";
+
+export type { AdmissionPolicy } from "./admission-policy-contract.js";

@@ -1,4 +1,11 @@
 import { eq, sql } from "drizzle-orm";
+import {
+  ADMISSION_FLOOR as ADMISSION_FLOOR_CONTRACT,
+  ADMISSION_POLICY_DEFAULT as ADMISSION_POLICY_DEFAULT_CONTRACT,
+  ADMISSION_POLICY_VALUES as ADMISSION_POLICY_VALUES_CONTRACT,
+  type AdmissionPolicy,
+  isAdmissionPolicy as isAdmissionPolicyContract,
+} from "@vellumai/gateway-client";
 import { type GatewayDb, getGatewayDb } from "./connection.js";
 import { channelAdmissionPolicy } from "./schema.js";
 import { type ChannelId, isChannelId } from "../channels/types.js";
@@ -11,24 +18,18 @@ import { type ChannelId, isChannelId } from "../channels/types.js";
  * Per-channel inbound admission policy — ordered from most-restrictive
  * (`no_one`, hard kill switch) to most-permissive (`strangers`, admits any
  * sender). See plan section 2.3.
+ *
+ * Vocabulary is centralized in `@vellumai/gateway-client` so the gateway
+ * (storage + kill switch) and the runtime (admission stage) share one
+ * canonical type.
  */
-export type AdmissionPolicy =
-  | "no_one"
-  | "guardian_only"
-  | "trusted_contacts"
-  | "any_contact"
-  | "strangers";
+export type { AdmissionPolicy } from "@vellumai/gateway-client";
 
-export const ADMISSION_POLICY_VALUES: ReadonlyArray<AdmissionPolicy> = [
-  "no_one",
-  "guardian_only",
-  "trusted_contacts",
-  "any_contact",
-  "strangers",
-];
+export const ADMISSION_POLICY_VALUES: ReadonlyArray<AdmissionPolicy> =
+  ADMISSION_POLICY_VALUES_CONTRACT;
 
 export const VALID_ADMISSION_POLICY_VALUES: ReadonlySet<string> = new Set(
-  ADMISSION_POLICY_VALUES,
+  ADMISSION_POLICY_VALUES_CONTRACT,
 );
 
 /**
@@ -36,7 +37,8 @@ export const VALID_ADMISSION_POLICY_VALUES: ReadonlySet<string> = new Set(
  * today's effective semantics: guardian + active contacts admitted,
  * strangers denied. See plan section 2.2.
  */
-export const ADMISSION_POLICY_DEFAULT: AdmissionPolicy = "trusted_contacts";
+export const ADMISSION_POLICY_DEFAULT: AdmissionPolicy =
+  ADMISSION_POLICY_DEFAULT_CONTRACT;
 
 /**
  * Minimum trust rank required for each policy. Higher rank = more trusted.
@@ -44,13 +46,8 @@ export const ADMISSION_POLICY_DEFAULT: AdmissionPolicy = "trusted_contacts";
  * admitted. See plan section 2.4 for the rank table (guardian=4,
  * trusted_contact=3, unverified_contact=2, unknown=1; blocked/revoked=0).
  */
-export const ADMISSION_FLOOR: Record<AdmissionPolicy, number> = {
-  no_one: 5,
-  guardian_only: 4,
-  trusted_contacts: 3,
-  any_contact: 2,
-  strangers: 1,
-};
+export const ADMISSION_FLOOR: Record<AdmissionPolicy, number> =
+  ADMISSION_FLOOR_CONTRACT;
 
 export interface AdmissionPolicyRow {
   channelType: ChannelId;
@@ -64,7 +61,7 @@ export interface AdmissionPolicyRow {
 // ---------------------------------------------------------------------------
 
 export function isAdmissionPolicy(value: unknown): value is AdmissionPolicy {
-  return typeof value === "string" && VALID_ADMISSION_POLICY_VALUES.has(value);
+  return isAdmissionPolicyContract(value);
 }
 
 function coercePolicy(value: string): AdmissionPolicy {
