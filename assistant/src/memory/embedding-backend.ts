@@ -7,6 +7,13 @@ import { PLATFORM_PROVIDER_META } from "../providers/platform-proxy/constants.js
 import { resolveManagedProxyContext } from "../providers/platform-proxy/context.js";
 import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
+import {
+  EmbeddingBillingBlockError,
+  extractHttpStatus,
+  isEmbeddingBillingBreakerOpen,
+  recordBillingBlock,
+  recordBillingSuccess,
+} from "./embedding-billing-breaker.js";
 import { GeminiEmbeddingBackend } from "./embedding-gemini.js";
 import { OllamaEmbeddingBackend } from "./embedding-ollama.js";
 import { OpenAIEmbeddingBackend } from "./embedding-openai.js";
@@ -499,6 +506,12 @@ export async function embedWithBackend(
   model: string;
   vectors: number[][];
 }> {
+  // Fail-fast when the billing breaker is open — avoids burning a network
+  // round-trip on every caller (embed lane jobs, activation recompute, etc.).
+  if (isEmbeddingBillingBreakerOpen()) {
+    throw new EmbeddingBillingBlockError();
+  }
+
   const selection = await selectEmbeddingBackend(config);
   if (!selection.backend) {
     throw new Error(
@@ -612,6 +625,10 @@ export async function embedWithBackend(
         );
       }
 
+      // A successful backend call proves billing is active — close the
+      // breaker if it was in the probe window.
+      recordBillingSuccess();
+
       if (isPrimary) {
         const merged = [...cached] as number[][];
         for (let i = 0; i < uncachedIndices.length; i++) {
@@ -626,6 +643,12 @@ export async function embedWithBackend(
       return { provider: backend.provider, model: backend.model, vectors };
     } catch (err) {
       lastErr = err;
+      // If ANY backend in the chain returns 402, trip the billing breaker
+      // immediately — fallbacks will hit the same depleted balance.
+      if (extractHttpStatus(err) === 402) {
+        recordBillingBlock();
+        throw err;
+      }
       if (backends.length > 1) {
         log.warn(
           { err, provider: backend.provider },
