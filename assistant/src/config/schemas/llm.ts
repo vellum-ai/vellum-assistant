@@ -41,6 +41,7 @@ type LLMProvider = z.infer<typeof LLMProvider>;
 export const LLMCallSiteEnum = z.enum([
   "mainAgent",
   "subagentSpawn",
+  "advisor",
   "heartbeatAgent",
   "filingAgent",
   "compactionAgent",

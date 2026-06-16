@@ -62,6 +62,22 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },
+  // Profile consulted by the advisor tool. Owns the full advisor tuning so it
+  // stays the single, user-editable source of truth (the `advisor` call-site
+  // default is intentionally bare). Output is capped at 2048 tokens since the
+  // advisor returns a focused recommendation, not a long generation.
+  advisor: {
+    intent: "quality-optimized",
+    provider: "anthropic",
+    connectionName: "anthropic-managed",
+    source: "managed",
+    label: "Advisor",
+    description: "Higher-tier model consulted by the advisor tool",
+    maxTokens: 2048,
+    effort: "high",
+    thinking: { enabled: true, streamThinking: false },
+    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+  },
   "cost-optimized": {
     intent: "latency-optimized",
     provider: "anthropic",
@@ -120,6 +136,21 @@ const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     maxTokens: 32000,
     effort: "high",
     thinking: { enabled: true, streamThinking: true },
+    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+  },
+  // BYOK counterpart of the managed `advisor` profile (the resolver falls back
+  // to `custom-advisor` when `advisor` is unavailable). Mirrors the advisor
+  // tuning, including the 2048-token output cap.
+  "custom-advisor": {
+    intent: "quality-optimized",
+    provider: "anthropic",
+    connectionName: "",
+    source: "user",
+    label: "Advisor",
+    description: "Higher-tier model consulted by the advisor tool",
+    maxTokens: 2048,
+    effort: "high",
+    thinking: { enabled: true, streamThinking: false },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },
   "custom-cost-optimized": {
