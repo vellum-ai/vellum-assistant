@@ -168,6 +168,8 @@ export function bridgeConfirmationRequestToGuardian(
       requesterIdentifier: senderLabel,
       toolName,
       questionText,
+      riskLevel: canonicalRequest.riskLevel ?? undefined,
+      commandPreview: canonicalRequest.commandPreview ?? undefined,
     },
     dedupeKey: `tc-confirmation-request:${canonicalRequest.id}`,
     onConversationCreated: (info) => {
