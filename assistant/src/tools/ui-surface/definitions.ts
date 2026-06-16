@@ -154,7 +154,9 @@ export const uiShowTool = {
     "- file_upload: { prompt, acceptedTypes?, maxFiles? }\n" +
     "- task_preferences: {} (no data needed — categories are rendered client-side)\n" +
     '- work_result: { eyebrow?, status?: "completed"|"partial"|"failed"|"in_progress", summary?, metrics?: [{ label, value, detail?, tone?: "neutral"|"positive"|"warning"|"negative" }], sections?: [{ id?, title, description?, type?: "items"|"timeline"|"diff"|"artifacts"|"warnings", items?: [{ id?, title, description?, status?, tone?, metadata?: [{ label, value }], href? }], diffs?: [{ label?, before?, after? }] }] }. Shows a structured receipt after real work: what changed, what was skipped, proof points, and next actions. Keep display-only unless explicit follow-up buttons are needed.\n\n' +
-    "Emit a task_progress card BEFORE your first tool call on any multi-step, long-running, or post-form turn (web searches, file operations, research), and keep its steps updated as work progresses. Skills that estimate >30s of work should declare progress upfront with concrete step labels (and counts when known).",
+    "For multi-step or long-running turns (web searches, file operations, research), show a task_progress card early and keep its steps updated as work progresses. Coarse steps are fine, and you can add or revise them as the work takes shape — a rough card beats no signal. Example:\n" +
+    '  ui_show { surface_type: "card", template: "task_progress", templateData: { title: "Building CLI", status: "in_progress", steps: [{ label: "Scaffold project", status: "in_progress" }, { label: "Wire up commands", status: "pending" }] } }\n' +
+    '  then as a step finishes, reuse the returned surface_id: ui_update { surface_id: "<id from ui_show>", data: { templateData: { steps: [{ label: "Scaffold project", status: "completed" }, { label: "Wire up commands", status: "in_progress" }] } } }',
   category: "ui-surface",
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "host",
