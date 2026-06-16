@@ -8,10 +8,16 @@ const workspaceFileGetMock = mock(async () => ({
   data: fileContent === null ? undefined : { content: fileContent, isBinary: false },
   response: { ok: getOk, status: getOk ? 200 : 404 },
 }));
-const workspaceWritePostMock = mock(async () => ({
-  data: undefined,
-  response: { ok: true, status: 200 },
-}));
+const workspaceWritePostMock = mock(
+  async (_opts: {
+    path: { assistant_id: string };
+    body: { path: string; content: string };
+    throwOnError?: boolean;
+  }) => ({
+    data: undefined,
+    response: { ok: true, status: 200 },
+  }),
+);
 mock.module("@/generated/daemon/sdk.gen", () => ({
   workspaceFileGet: workspaceFileGetMock,
   workspaceWritePost: workspaceWritePostMock,
@@ -23,10 +29,7 @@ const { persistCastAssistantName } = await import(
 );
 
 function lastWrittenContent(): string {
-  const call = workspaceWritePostMock.mock.calls.at(-1)![0] as {
-    body: { content: string };
-  };
-  return call.body.content;
+  return workspaceWritePostMock.mock.calls.at(-1)![0].body.content;
 }
 
 beforeEach(() => {
