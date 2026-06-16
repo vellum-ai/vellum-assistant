@@ -97,7 +97,6 @@ function seedTrustedContact(policy: "allow" | "escalate" = "allow"): void {
       {
         type: "telegram",
         address: "telegram-user-1",
-        externalUserId: "telegram-user-1",
         status: "active",
         policy,
       },
@@ -244,7 +243,6 @@ describe("channel inbound disk pressure gate", () => {
         {
           type: "slack",
           address: "slack-user-1",
-          externalUserId: "slack-user-1",
           status: "active",
           policy: "allow",
         },

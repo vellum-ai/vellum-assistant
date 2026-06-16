@@ -108,7 +108,7 @@ describe("trusted contact verification → member activation", () => {
     expect(contactResult).not.toBeNull();
     expect(contactResult!.channel.status).toBe("active");
     expect(contactResult!.channel.policy).toBe("allow");
-    expect(contactResult!.channel.externalUserId).toBe("requester-user-123");
+    expect(contactResult!.channel.address).toBe("requester-user-123");
     expect(contactResult!.channel.externalChatId).toBe("requester-chat-123");
     expect(contactResult!.contact.displayName).toBe("Requester Name");
     expect(contactResult!.channel.type).toBe("telegram");
@@ -390,9 +390,7 @@ describe("trusted contact verification → member activation", () => {
     // The original guardian binding should remain intact
     const guardianResult = findGuardianForChannel("telegram");
     expect(guardianResult).not.toBeNull();
-    expect(guardianResult!.channel.externalUserId).toBe(
-      "guardian-user-original",
-    );
+    expect(guardianResult!.channel.address).toBe("guardian-user-original");
   });
 
   test("guardian inbound verification succeeds but does not create binding", async () => {

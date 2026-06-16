@@ -127,7 +127,6 @@ export const contactChannels = sqliteTable(
     isPrimary: integer("is_primary", { mode: "boolean" })
       .notNull()
       .default(false),
-    externalUserId: text("external_user_id"),
     externalChatId: text("external_chat_id"),
     status: text("status").notNull().default("unverified"),
     policy: text("policy").notNull().default("allow"),

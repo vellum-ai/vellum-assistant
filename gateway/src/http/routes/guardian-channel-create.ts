@@ -106,12 +106,6 @@ export function createGuardianChannelHandler() {
     }
 
     // ── Create guardian channel binding ────────────────────────────
-    // CRITICAL: deliveryChatId MUST be set to body.externalUserId (not
-    // body.address) — the ACL lookup in findContactChannel
-    // (contact-store.ts:780) queries on external_user_id and
-    // external_chat_id, NOT address. For email, all three values are
-    // typically the same email string, but the param mapping must be
-    // explicit.
 
     try {
       await createGuardianBinding({

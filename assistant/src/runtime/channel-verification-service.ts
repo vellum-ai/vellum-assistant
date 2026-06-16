@@ -333,8 +333,7 @@ export function getGuardianBinding(
       id: result.channel.id,
       assistantId,
       channel,
-      guardianExternalUserId:
-        result.channel.externalUserId ?? result.channel.address ?? "",
+      guardianExternalUserId: result.channel.address ?? "",
       guardianDeliveryChatId: result.channel.externalChatId ?? "",
       guardianPrincipalId: result.contact.principalId ?? "",
       status: "active" as const,

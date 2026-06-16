@@ -116,7 +116,6 @@ function parseChannel(
     type: row.type,
     address: row.address,
     isPrimary: row.isPrimary,
-    externalUserId: row.externalUserId,
     externalChatId: row.externalChatId,
     status: row.status as ContactChannel["status"],
     policy: row.policy as ContactChannel["policy"],
@@ -162,7 +161,6 @@ interface SyncChannelData {
   type: string;
   address: string;
   isPrimary?: boolean;
-  externalUserId?: string | null;
   externalChatId?: string | null;
   status?: ChannelStatus;
   policy?: ChannelPolicy;
@@ -386,8 +384,6 @@ function syncChannels(
       // Self-heal legacy lowercased addresses to canonical form.
       if (existing.address !== ch.address) updateSet.address = ch.address;
       if (ch.isPrimary !== undefined) updateSet.isPrimary = ch.isPrimary;
-      if (ch.externalUserId !== undefined)
-        updateSet.externalUserId = ch.externalUserId;
       if (ch.externalChatId !== undefined)
         updateSet.externalChatId = ch.externalChatId;
       if (!isBlocked) {
@@ -428,8 +424,6 @@ function syncChannels(
           contactId,
           updatedAt: now,
         };
-        if (ch.externalUserId !== undefined)
-          reassignSet.externalUserId = ch.externalUserId;
         if (ch.externalChatId !== undefined)
           reassignSet.externalChatId = ch.externalChatId;
         if (!isBlocked) {
@@ -462,7 +456,6 @@ function syncChannels(
         type: ch.type,
         address: ch.address,
         isPrimary: ch.isPrimary ?? false,
-        externalUserId: ch.externalUserId ?? null,
         externalChatId: ch.externalChatId ?? null,
         status: ch.status ?? "unverified",
         policy: ch.policy ?? "allow",
@@ -743,7 +736,7 @@ export function findContactByAddress(
 
 /**
  * Find a contact by channel external chat ID. This is the fallback lookup path
- * when externalUserId is not available — matches by (type, externalChatId).
+ * when address is not available — matches by (type, externalChatId).
  * No unique constraint exists on externalChatId, so ORDER BY is needed.
  */
 function findContactByChannelExternalChatId(
@@ -978,7 +971,6 @@ export function updateContactPrincipalAndChannel(
     db.update(contactChannels)
       .set({
         address: newPrincipalId,
-        externalUserId: newPrincipalId,
         updatedAt: now,
       })
       .where(eq(contactChannels.id, channelId))

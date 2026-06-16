@@ -164,12 +164,7 @@ export function redeemInvite(params: {
     // Sentinel error used to trigger a transaction rollback when the invite
     // was concurrently revoked/expired between pre-validation and write time.
     const STALE_INVITE = Symbol("stale_invite");
-    const canonicalMemberId = existingChannel.externalUserId
-      ? canonicalizeInboundIdentity(
-          sourceChannel as ChannelId,
-          existingChannel.externalUserId,
-        )
-      : null;
+    const canonicalMemberId = existingChannel.address;
     const canonicalCallerId = externalUserId
       ? canonicalizeInboundIdentity(sourceChannel as ChannelId, externalUserId)
       : null;
@@ -542,12 +537,7 @@ export function redeemInviteByCode(params: {
   // an invite use atomically.
   if (existingChannel && !targetMismatch) {
     const STALE_INVITE_REACTIVATE = Symbol("stale_invite_reactivate");
-    const canonicalMemberId = existingChannel.externalUserId
-      ? canonicalizeInboundIdentity(
-          sourceChannel as ChannelId,
-          existingChannel.externalUserId,
-        )
-      : null;
+    const canonicalMemberId = existingChannel.address;
     const canonicalCallerId = externalUserId
       ? canonicalizeInboundIdentity(sourceChannel as ChannelId, externalUserId)
       : null;

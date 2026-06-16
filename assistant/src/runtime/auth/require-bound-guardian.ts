@@ -28,8 +28,8 @@ export function requireBoundGuardian(
     return null;
   }
   if (
-    (guardianResult.channel.externalUserId ??
-      guardianResult.contact.principalId) !== authContext.actorPrincipalId
+    (guardianResult.channel.address ?? guardianResult.contact.principalId) !==
+    authContext.actorPrincipalId
   ) {
     return httpError(
       "FORBIDDEN",

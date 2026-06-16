@@ -87,7 +87,6 @@ const contactChannelSchema = z.object({
   type: z.string(),
   address: z.string(),
   isPrimary: z.boolean(),
-  externalUserId: z.string().nullable(),
   status: z.string(),
   policy: z.string(),
   verifiedAt: z.number().nullable(),

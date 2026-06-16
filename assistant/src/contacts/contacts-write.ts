@@ -73,7 +73,7 @@ export function upsertContactChannel(params: {
     return null;
   }
 
-  let displayName = params.displayName ?? params.externalUserId ?? "Unknown";
+  let displayName = params.displayName ?? params.externalUserId ?? address;
 
   // When binding a channel to a specific contact (invite redemption), preserve
   // the target contact's curated displayName instead of overwriting it
@@ -93,7 +93,6 @@ export function upsertContactChannel(params: {
       {
         type: params.sourceChannel,
         address,
-        externalUserId: params.externalUserId ? address : null,
         externalChatId: params.externalChatId ?? null,
         status: (params.status as ChannelStatus) ?? undefined,
         policy: (params.policy as ChannelPolicy) ?? undefined,
