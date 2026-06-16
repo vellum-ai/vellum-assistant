@@ -1,28 +1,23 @@
-import {
-    useMutation,
-    useQuery,
-    useQueryClient,
-} from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
     ArrowDownToLine,
     ArrowLeft,
-    Check,
-    Copy,
-    Download,
     ExternalLink,
     FileText,
     Folder,
     Loader2,
-    Pencil,
     Trash2,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 
 import {
-    FileMarkdown,
-    isMarkdown,
-} from "@/components/file-markdown";
+    ContentActionBar,
+    EditFooter,
+    FileTextarea,
+    SourcePre,
+} from "@/components/file-editor";
+import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
 import { SkillIcon } from "@/domains/intelligence/components/skills/skill-icon";
 import { SkillOriginBadge } from "@/domains/intelligence/components/skills/skill-origin-badge";
 import {
@@ -34,9 +29,10 @@ import {
 import {
     skillsByIdFilesContentGetOptions,
     skillsByIdFilesGetOptions,
+    useWorkspaceWritePostMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { SkillsByIdFilesContentGetResponse } from "@/generated/daemon/types.gen";
-import { workspaceWritePost } from "@/generated/daemon/sdk.gen";
+import { captureError } from "@/lib/sentry/capture-error";
 import { routes } from "@/utils/routes";
 import { Button, Card } from "@vellumai/design-library";
 
@@ -258,13 +254,6 @@ export function SkillDetail({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Skill file content viewer/editor
-// ---------------------------------------------------------------------------
-
-const MONO_FONT =
-  "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace";
-
 function SkillFileContent({
   assistantId,
   skillId,
@@ -287,87 +276,56 @@ function SkillFileContent({
 
   const [isEditing, setIsEditing] = useState(false);
   const [editableContent, setEditableContent] = useState("");
-  const [copied, setCopied] = useState(false);
-  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Reset edit state when switching files
   useEffect(() => {
     setIsEditing(false);
     setEditableContent("");
   }, [filePath]);
 
-  useEffect(() => {
-    return () => {
-      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
-    };
-  }, []);
-
   const workspacePath = `skills/${skillId}/${filePath}`;
 
-  const saveMutation = useMutation({
-    mutationFn: async (newContent: string) => {
-      const { error, response } = await workspaceWritePost({
-        path: { assistant_id: assistantId },
-        body: { path: workspacePath, content: newContent, encoding: "utf8" },
-        throwOnError: false,
-      });
-      if (!response?.ok || error) {
-        throw new Error("Failed to save file");
-      }
-    },
+  const saveMutation = useWorkspaceWritePostMutation({
     onSuccess: () => {
       setIsEditing(false);
       setEditableContent("");
       void queryClient.invalidateQueries({
-        queryKey: ["skillsByIdFilesContentGet"],
+        queryKey: [{ _id: "skillsByIdFilesContentGet" }],
       });
       void queryClient.invalidateQueries({
-        queryKey: ["skillsByIdFilesGet"],
+        queryKey: [{ _id: "skillsByIdFilesGet" }],
       });
+      if (filePath === "SKILL.md") {
+        void queryClient.invalidateQueries({
+          queryKey: [{ _id: "skillsGet" }],
+        });
+      }
+    },
+    onError: (error) => {
+      captureError(error, { context: "skill-file-save", bestEffort: true });
     },
   });
 
   const isDirty = isEditing && editableContent !== (content ?? "");
 
   const handleSave = useCallback(() => {
-    if (isDirty && !saveMutation.isPending) {
-      saveMutation.mutate(editableContent);
-    }
-  }, [isDirty, saveMutation, editableContent]);
+    if (!isDirty || saveMutation.isPending) return;
+    saveMutation.mutate({
+      path: { assistant_id: assistantId },
+      body: { path: workspacePath, content: editableContent, encoding: "utf8" },
+    });
+  }, [isDirty, saveMutation, assistantId, workspacePath, editableContent]);
 
   const startEditing = useCallback(() => {
     setIsEditing(true);
     setEditableContent(content ?? "");
-  }, [content]);
+    saveMutation.reset();
+  }, [content, saveMutation]);
 
   const stopEditing = useCallback(() => {
     setIsEditing(false);
     setEditableContent("");
-  }, []);
-
-  const handleCopy = useCallback(() => {
-    if (!content) return;
-    void navigator.clipboard.writeText(content).then(() => {
-      setCopied(true);
-      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
-      copyTimerRef.current = setTimeout(() => setCopied(false), 1500);
-    });
-  }, [content]);
-
-  const handleDownload = useCallback(() => {
-    if (!content) return;
-    const blob = new Blob([content], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = fileName;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [content, fileName]);
-
-  const handleOpenInWorkspace = useCallback(() => {
-    navigate(`${routes.workspace}?file=${encodeURIComponent(workspacePath)}`);
-  }, [navigate, workspacePath]);
+    saveMutation.reset();
+  }, [saveMutation]);
 
   if (isBinary) {
     return (
@@ -391,82 +349,36 @@ function SkillFileContent({
     );
   }
 
-  const actionBar = !isEditing && (
-    <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-md bg-[var(--surface-primary)] shadow-sm">
-      {editable && (
-        <Button
-          variant="ghost"
-          size="regular"
-          iconOnly={<Pencil aria-hidden />}
-          onClick={startEditing}
-          aria-label="Edit file"
-          className="hover:bg-[var(--surface-base)]"
-        />
-      )}
-      {editable && (
-        <Button
-          variant="ghost"
-          size="regular"
-          iconOnly={<ExternalLink aria-hidden />}
-          onClick={handleOpenInWorkspace}
-          aria-label="Open in Workspace"
-          className="hover:bg-[var(--surface-base)]"
-        />
-      )}
-      <Button
-        variant="ghost"
-        size="regular"
-        iconOnly={copied ? <Check aria-hidden /> : <Copy aria-hidden />}
-        onClick={handleCopy}
-        aria-label={copied ? "Copied" : "Copy file contents"}
-        className="hover:bg-[var(--surface-base)]"
-      />
-      <Button
-        variant="ghost"
-        size="regular"
-        iconOnly={<Download aria-hidden />}
-        onClick={handleDownload}
-        aria-label="Download file"
-        className="hover:bg-[var(--surface-base)]"
-      />
-    </div>
-  );
-
-  const editFooter = isEditing && (
-    <div
-      className="flex items-center justify-end gap-2 border-t px-3 py-2"
-      style={{ borderColor: "var(--border-element)" }}
-    >
-      <Button
-        variant="ghost"
-        size="compact"
-        disabled={saveMutation.isPending}
-        onClick={stopEditing}
-      >
-        Discard
-      </Button>
-      {saveMutation.isPending && (
-        <Loader2
-          className="h-4 w-4 animate-spin"
-          style={{ color: "var(--content-tertiary)" }}
-        />
-      )}
-      <Button
-        variant="primary"
-        size="compact"
-        disabled={!isDirty || saveMutation.isPending}
-        onClick={handleSave}
-      >
-        Save
-      </Button>
-    </div>
-  );
+  const openInWorkspaceButton = editable ? (
+    <Button
+      variant="ghost"
+      size="regular"
+      iconOnly={<ExternalLink aria-hidden />}
+      onClick={() =>
+        navigate(
+          `${routes.workspace}?file=${encodeURIComponent(workspacePath)}`,
+        )
+      }
+      aria-label="Open in Workspace"
+      className="hover:bg-[var(--surface-base)]"
+    />
+  ) : undefined;
 
   if (isMarkdown(fileName, undefined) && !isEditing) {
     return (
       <div className="relative flex h-full flex-col">
-        <div className="relative flex-1 overflow-auto px-6 py-4" style={{ color: "var(--content-default)" }}>
-          {actionBar}
+        <div
+          className="relative flex-1 overflow-auto px-6 py-4"
+          style={{ color: "var(--content-default)" }}
+        >
+          <ContentActionBar
+            content={content}
+            fileName={fileName}
+            showEdit={editable}
+            isEditing={false}
+            onToggleEdit={startEditing}
+            extraActions={openInWorkspaceButton}
+          />
           <FileMarkdown content={content} />
         </div>
       </div>
@@ -476,36 +388,37 @@ function SkillFileContent({
   return (
     <div className="flex h-full flex-col">
       <div className="relative flex-1 overflow-hidden">
-        {actionBar}
+        <ContentActionBar
+          content={isEditing ? editableContent : content}
+          fileName={fileName}
+          showEdit={editable}
+          isEditing={isEditing}
+          onToggleEdit={() => (isEditing ? stopEditing() : startEditing())}
+          extraActions={openInWorkspaceButton}
+        />
         {isEditing ? (
-          <textarea
-            className="m-0 h-full w-full resize-none overflow-auto border-none bg-transparent p-4 text-body-medium-lighter leading-relaxed outline-none"
-            style={{ color: "var(--content-default)", fontFamily: MONO_FONT }}
+          <FileTextarea
             value={editableContent}
-            onChange={(e) => setEditableContent(e.target.value)}
-            onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-                e.preventDefault();
-                handleSave();
-              }
-            }}
-            spellCheck={false}
+            onChange={setEditableContent}
+            onSave={handleSave}
           />
         ) : (
-          <pre
-            className={`m-0 h-full overflow-auto p-4 text-body-medium-lighter leading-relaxed${editable ? " cursor-text" : ""}`}
-            style={{
-              color: "var(--content-default)",
-              fontFamily: MONO_FONT,
-              whiteSpace: "pre-wrap",
-            }}
-            onClick={editable ? startEditing : undefined}
-          >
-            {content}
-          </pre>
+          <SourcePre
+            content={content}
+            readOnly={!editable}
+            onStartEdit={startEditing}
+          />
         )}
       </div>
-      {editFooter}
+      {isEditing && (
+        <EditFooter
+          isDirty={isDirty}
+          isSaving={saveMutation.isPending}
+          error={saveMutation.isError ? "Save failed" : null}
+          onSave={handleSave}
+          onDiscard={stopEditing}
+        />
+      )}
     </div>
   );
 }

@@ -3,7 +3,7 @@
  * mobile behind a drawer) and a file viewer pane side-by-side.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { useSearchParams } from "react-router";
 
@@ -34,36 +34,31 @@ function getAncestorPaths(filePath: string): Set<string> {
 }
 
 export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [showHidden, setShowHidden] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
+
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => {
+    const filePath = searchParams.get("file");
+    return filePath ? getAncestorPaths(filePath) : new Set<string>();
+  });
+  const [selectedPath, setSelectedPath] = useState<string | null>(
+    () => searchParams.get("file"),
+  );
+  const [showHidden, setShowHidden] = useState(false);
   const [sortMode, setSortMode] = useState<WorkspaceSortMode>(() =>
     searchParams.get("sort") === "size" ? "size" : "name",
   );
   const [viewMode, setViewMode] = useState<WorkspaceViewMode>("preview");
 
-  // Deep-link: ?file=path/to/file auto-selects and expands ancestors on mount
-  const deepLinked = useRef(false);
+  // Clear ?file= param after bootstrapping state from it
   useEffect(() => {
-    if (deepLinked.current) return;
-    const filePath = searchParams.get("file");
-    if (!filePath) return;
-    deepLinked.current = true;
-    setSelectedPath(filePath);
-    setExpandedPaths((prev) => {
-      const ancestors = getAncestorPaths(filePath);
-      const merged = new Set(prev);
-      for (const a of ancestors) merged.add(a);
-      return merged;
-    });
-    // Clear the param so it doesn't persist on navigation
+    if (!searchParams.get("file")) return;
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       next.delete("file");
       return next;
     }, { replace: true });
-  }, [searchParams, setSearchParams]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleToggleExpand = useCallback((path: string) => {
     setExpandedPaths((prev) => {
