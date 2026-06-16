@@ -1,5 +1,6 @@
 import { LogIn } from "lucide-react";
 import { type ReactNode } from "react";
+import { useLocation } from "react-router";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -29,7 +30,14 @@ export function PlatformLoginNotice({
   children,
   className,
 }: PlatformLoginNoticeProps) {
-  const { loading, login, cancel } = useOnboardingLogin();
+  // Return to the full current URL (including query/hash) after login so
+  // params these surfaces depend on — e.g. billing's `?session_id` /
+  // `?billing_status` — survive the auth round-trip. `useOnboardingLogin`
+  // otherwise derives the return target from `pathname` only.
+  const { pathname, search, hash } = useLocation();
+  const { loading, login, cancel } = useOnboardingLogin(
+    `${pathname}${search}${hash}`,
+  );
   return (
     <Notice
       tone="info"
