@@ -1,13 +1,23 @@
-import { useQuery } from "@tanstack/react-query";
+import {
+    useMutation,
+    useQuery,
+    useQueryClient,
+} from "@tanstack/react-query";
 import {
     ArrowDownToLine,
     ArrowLeft,
+    Check,
+    Copy,
+    Download,
+    ExternalLink,
     FileText,
     Folder,
     Loader2,
+    Pencil,
     Trash2,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 
 import {
     FileMarkdown,
@@ -26,6 +36,8 @@ import {
     skillsByIdFilesGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { SkillsByIdFilesContentGetResponse } from "@/generated/daemon/types.gen";
+import { workspaceWritePost } from "@/generated/daemon/sdk.gen";
+import { routes } from "@/utils/routes";
 import { Button, Card } from "@vellumai/design-library";
 
 interface SkillDetailProps {
@@ -222,10 +234,14 @@ export function SkillDetail({
               />
             </div>
           ) : activeFile ? (
-            <FileContent
+            <SkillFileContent
+              assistantId={assistantId}
+              skillId={skill.id}
               fileName={activeFile.name}
+              filePath={activeFile.path}
               content={fileContentQuery.data?.content ?? null}
               isBinary={Boolean(fileContentQuery.data?.isBinary)}
+              editable={skill.kind === "installed"}
             />
           ) : (
             <p
@@ -242,15 +258,117 @@ export function SkillDetail({
   );
 }
 
-function FileContent({
+// ---------------------------------------------------------------------------
+// Skill file content viewer/editor
+// ---------------------------------------------------------------------------
+
+const MONO_FONT =
+  "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace";
+
+function SkillFileContent({
+  assistantId,
+  skillId,
   fileName,
+  filePath,
   content,
   isBinary,
+  editable,
 }: {
+  assistantId: string;
+  skillId: string;
   fileName: string;
+  filePath: string;
   content: string | null;
   isBinary: boolean;
+  editable: boolean;
 }) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [editableContent, setEditableContent] = useState("");
+  const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Reset edit state when switching files
+  useEffect(() => {
+    setIsEditing(false);
+    setEditableContent("");
+  }, [filePath]);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
+
+  const workspacePath = `skills/${skillId}/${filePath}`;
+
+  const saveMutation = useMutation({
+    mutationFn: async (newContent: string) => {
+      const { error, response } = await workspaceWritePost({
+        path: { assistant_id: assistantId },
+        body: { path: workspacePath, content: newContent, encoding: "utf8" },
+        throwOnError: false,
+      });
+      if (!response?.ok || error) {
+        throw new Error("Failed to save file");
+      }
+    },
+    onSuccess: () => {
+      setIsEditing(false);
+      setEditableContent("");
+      void queryClient.invalidateQueries({
+        queryKey: ["skillsByIdFilesContentGet"],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["skillsByIdFilesGet"],
+      });
+    },
+  });
+
+  const isDirty = isEditing && editableContent !== (content ?? "");
+
+  const handleSave = useCallback(() => {
+    if (isDirty && !saveMutation.isPending) {
+      saveMutation.mutate(editableContent);
+    }
+  }, [isDirty, saveMutation, editableContent]);
+
+  const startEditing = useCallback(() => {
+    setIsEditing(true);
+    setEditableContent(content ?? "");
+  }, [content]);
+
+  const stopEditing = useCallback(() => {
+    setIsEditing(false);
+    setEditableContent("");
+  }, []);
+
+  const handleCopy = useCallback(() => {
+    if (!content) return;
+    void navigator.clipboard.writeText(content).then(() => {
+      setCopied(true);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setCopied(false), 1500);
+    });
+  }, [content]);
+
+  const handleDownload = useCallback(() => {
+    if (!content) return;
+    const blob = new Blob([content], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [content, fileName]);
+
+  const handleOpenInWorkspace = useCallback(() => {
+    navigate(`${routes.workspace}?file=${encodeURIComponent(workspacePath)}`);
+  }, [navigate, workspacePath]);
+
   if (isBinary) {
     return (
       <p
@@ -273,23 +391,121 @@ function FileContent({
     );
   }
 
-  if (isMarkdown(fileName, undefined)) {
-    return (
-      <div
-        className="h-full overflow-auto px-6 py-4"
-        style={{ color: "var(--content-default)" }}
+  const actionBar = !isEditing && (
+    <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-md bg-[var(--surface-primary)] shadow-sm">
+      {editable && (
+        <Button
+          variant="ghost"
+          size="regular"
+          iconOnly={<Pencil aria-hidden />}
+          onClick={startEditing}
+          aria-label="Edit file"
+          className="hover:bg-[var(--surface-base)]"
+        />
+      )}
+      {editable && (
+        <Button
+          variant="ghost"
+          size="regular"
+          iconOnly={<ExternalLink aria-hidden />}
+          onClick={handleOpenInWorkspace}
+          aria-label="Open in Workspace"
+          className="hover:bg-[var(--surface-base)]"
+        />
+      )}
+      <Button
+        variant="ghost"
+        size="regular"
+        iconOnly={copied ? <Check aria-hidden /> : <Copy aria-hidden />}
+        onClick={handleCopy}
+        aria-label={copied ? "Copied" : "Copy file contents"}
+        className="hover:bg-[var(--surface-base)]"
+      />
+      <Button
+        variant="ghost"
+        size="regular"
+        iconOnly={<Download aria-hidden />}
+        onClick={handleDownload}
+        aria-label="Download file"
+        className="hover:bg-[var(--surface-base)]"
+      />
+    </div>
+  );
+
+  const editFooter = isEditing && (
+    <div
+      className="flex items-center justify-end gap-2 border-t px-3 py-2"
+      style={{ borderColor: "var(--border-element)" }}
+    >
+      <Button
+        variant="ghost"
+        size="compact"
+        disabled={saveMutation.isPending}
+        onClick={stopEditing}
       >
-        <FileMarkdown content={content} />
+        Discard
+      </Button>
+      {saveMutation.isPending && (
+        <Loader2
+          className="h-4 w-4 animate-spin"
+          style={{ color: "var(--content-tertiary)" }}
+        />
+      )}
+      <Button
+        variant="primary"
+        size="compact"
+        disabled={!isDirty || saveMutation.isPending}
+        onClick={handleSave}
+      >
+        Save
+      </Button>
+    </div>
+  );
+
+  if (isMarkdown(fileName, undefined) && !isEditing) {
+    return (
+      <div className="relative flex h-full flex-col">
+        <div className="relative flex-1 overflow-auto px-6 py-4" style={{ color: "var(--content-default)" }}>
+          {actionBar}
+          <FileMarkdown content={content} />
+        </div>
       </div>
     );
   }
 
   return (
-    <pre
-      className="h-full overflow-auto p-4 font-mono text-body-small-default"
-      style={{ color: "var(--content-default)" }}
-    >
-      {content}
-    </pre>
+    <div className="flex h-full flex-col">
+      <div className="relative flex-1 overflow-hidden">
+        {actionBar}
+        {isEditing ? (
+          <textarea
+            className="m-0 h-full w-full resize-none overflow-auto border-none bg-transparent p-4 text-body-medium-lighter leading-relaxed outline-none"
+            style={{ color: "var(--content-default)", fontFamily: MONO_FONT }}
+            value={editableContent}
+            onChange={(e) => setEditableContent(e.target.value)}
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+                e.preventDefault();
+                handleSave();
+              }
+            }}
+            spellCheck={false}
+          />
+        ) : (
+          <pre
+            className={`m-0 h-full overflow-auto p-4 text-body-medium-lighter leading-relaxed${editable ? " cursor-text" : ""}`}
+            style={{
+              color: "var(--content-default)",
+              fontFamily: MONO_FONT,
+              whiteSpace: "pre-wrap",
+            }}
+            onClick={editable ? startEditing : undefined}
+          >
+            {content}
+          </pre>
+        )}
+      </div>
+      {editFooter}
+    </div>
   );
 }
