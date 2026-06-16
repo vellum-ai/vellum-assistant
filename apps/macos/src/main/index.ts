@@ -30,10 +30,11 @@ import {
 import {
   extractDeepLinkFromArgv,
   handleDeepLink,
+  hasPendingDeepLinks,
   installDeepLinks,
 } from "./deep-links";
 import { handleBundleFile, installBundleFlow } from "./bundle-flow";
-import { handleFileOpen, installFileOpen, onFileOpen } from "./file-open";
+import { handleFileOpen, hasPendingFiles, installFileOpen, onFileOpen } from "./file-open";
 import { installAvatarIpc } from "./avatar";
 import { installCommandPaletteWindow } from "./command-palette-window";
 import { installDictationOverlay } from "./dictation-overlay-window";
@@ -333,7 +334,11 @@ app
   .then(async () => {
     // Offer to move the app to /Applications before any other setup.
     // If accepted, the process terminates and relaunches from /Applications.
-    if (await offerMoveToApplications()) return;
+    // Skip the prompt when a file or deep link triggered the launch — those
+    // events are buffered in-process and would be lost during the relaunch.
+    if (!hasPendingFiles() && !hasPendingDeepLinks()) {
+      if (await offerMoveToApplications()) return;
+    }
 
     if (!isDev) {
       registerAppProtocol();

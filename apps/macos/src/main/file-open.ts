@@ -109,6 +109,13 @@ export const installFileOpen = (): void => {
   });
 };
 
+/**
+ * Whether any `.vellum` file paths have been buffered before the
+ * renderer drained them. Used by the move-to-Applications guard to
+ * skip the prompt when the launch was triggered by a file open.
+ */
+export const hasPendingFiles = (): boolean => pending.length > 0;
+
 export const __resetForTesting = (): void => {
   installed = false;
   subscribers.clear();
