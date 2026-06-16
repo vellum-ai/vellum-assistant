@@ -57,8 +57,37 @@ function proxyExecute(toolName: string) {
         isError: true,
       };
     }
-    return context.proxyToolResolver(toolName, input);
+    const result = await context.proxyToolResolver(toolName, input);
+    if (
+      toolName === "ui_show" &&
+      !result.isError &&
+      typeof result.content === "string" &&
+      isTaskProgressCardShow(input)
+    ) {
+      return {
+        ...result,
+        content: `${result.content}\n\n${TASK_PROGRESS_UPDATE_HINT}`,
+      };
+    }
+    return result;
   };
+}
+
+/**
+ * Worked ui_update example, appended to a successful task_progress `ui_show`
+ * result so the model learns the update pattern at the point of use (with the
+ * real surface_id in hand) rather than carrying it in the always-present tool
+ * description.
+ */
+const TASK_PROGRESS_UPDATE_HINT =
+  'As each step finishes, call ui_update with this surface_id to advance it — e.g. ui_update { surface_id: "<the surface_id above>", data: { templateData: { steps: [{ label: "Scaffold project", status: "completed" }, { label: "Wire up commands", status: "in_progress" }] } } }';
+
+function isTaskProgressCardShow(input: Record<string, unknown>): boolean {
+  if (input.template === "task_progress") {
+    return true;
+  }
+  const data = asRecord(input.data);
+  return data?.template === "task_progress";
 }
 
 function isEmptyDynamicPage(input: Record<string, unknown>): boolean {
@@ -154,9 +183,7 @@ export const uiShowTool = {
     "- file_upload: { prompt, acceptedTypes?, maxFiles? }\n" +
     "- task_preferences: {} (no data needed — categories are rendered client-side)\n" +
     '- work_result: { eyebrow?, status?: "completed"|"partial"|"failed"|"in_progress", summary?, metrics?: [{ label, value, detail?, tone?: "neutral"|"positive"|"warning"|"negative" }], sections?: [{ id?, title, description?, type?: "items"|"timeline"|"diff"|"artifacts"|"warnings", items?: [{ id?, title, description?, status?, tone?, metadata?: [{ label, value }], href? }], diffs?: [{ label?, before?, after? }] }] }. Shows a structured receipt after real work: what changed, what was skipped, proof points, and next actions. Keep display-only unless explicit follow-up buttons are needed.\n\n' +
-    "For multi-step or long-running turns (web searches, file operations, research), show a task_progress card early and keep its steps updated as work progresses. Coarse steps are fine, and you can add or revise them as the work takes shape — a rough card beats no signal. Example:\n" +
-    '  ui_show { surface_type: "card", template: "task_progress", templateData: { title: "Building CLI", status: "in_progress", steps: [{ label: "Scaffold project", status: "in_progress" }, { label: "Wire up commands", status: "pending" }] } }\n' +
-    '  then as a step finishes, reuse the returned surface_id: ui_update { surface_id: "<id from ui_show>", data: { templateData: { steps: [{ label: "Scaffold project", status: "completed" }, { label: "Wire up commands", status: "in_progress" }] } } }',
+    "For multi-step or long-running turns (web searches, file operations, research), show a task_progress card early and keep its steps updated as work progresses. Coarse steps are fine, and you can add or revise them as the work takes shape — a rough card beats no signal.",
   category: "ui-surface",
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "host",
