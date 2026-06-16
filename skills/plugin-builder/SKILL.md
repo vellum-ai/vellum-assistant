@@ -106,13 +106,15 @@ The manifest is a normal `package.json` with three watched fields:
 - `peerDependencies["@vellumai/plugin-api"]`: required while the API is in beta. Pin a real range. Mismatches are logged but do not yet block load; they will harden into a hard reject before 1.0.
 - `vellum`: reserved.
 
-Install locally to test before pushing to the catalog. The CLI clones the directory into `<workspaceDir>/plugins/<name>/` and the loader picks it up on the next daemon start:
+To exercise the plugin locally before pushing to the catalog, drop the directory into the path the loader scans. The host walks `<workspaceDir>/plugins/<name>/` on each daemon start:
 
 ```
-assistant plugins install --local /path/to/my-plugin
+cp -R my-plugin "$(assistant daemon workspace)/plugins/my-plugin"
 ```
 
-✓ Checkpoint: directory tree and manifest written. Local install succeeds. `assistant plugins list` shows your plugin with status `ok`.
+(or copy into the path your runtime resolves for `<workspaceDir>`, then restart the daemon). Install by name is reserved for catalog-published plugins shipped through `marketplace.json`.
+
+✓ Checkpoint: directory tree and manifest written. Plugin directory copied into the workspace's `plugins/<name>/`, daemon restarted, `assistant plugins list` shows your plugin with status `ok`.
 
 ## Recipe 1: a tool the model can call
 
@@ -160,23 +162,21 @@ Field reference (every field is optional; defaults fill in):
 
 ## Recipe 2: a lifecycle hook
 
-A hook is a default-exported async function from `hooks/<name>.ts`. The filename must match a wired hook name: `init.ts`, `user-prompt-submit.ts`, `pre-model-call.ts`, `post-model-call.ts`, `post-tool-use.ts`, `post-compact.ts`, `stop.ts`. The full set lives in the `HOOKS` constant; reference hooks by constant, not free-form strings.
+A hook is an async function default-exported from `hooks/<name>.ts`. The filename wires the file to a specific event, so `init.ts`, `user-prompt-submit.ts`, `pre-model-call.ts`, `post-model-call.ts`, `post-tool-use.ts`, `post-compact.ts`, and `stop.ts` are the recognized names. The default export must be the hook function itself; the host's `loadHooks()` rejects anything whose `typeof` is not `"function"`. Reference event names with the `HOOKS` constant from `plugin-api` when you need them inside the function body, not when you import the file.
 
 The minimum useful hook:
 
 ```ts
-import { HOOKS, type PluginHookFn } from "@vellumai/plugin-api";
+import type { PluginHookFn } from "@vellumai/plugin-api";
 
-const onPrompt: PluginHookFn = async (ctx) => {
+const onUserPromptSubmit: PluginHookFn = async (ctx) => {
   if (ctx.isNonInteractive) return;
   const last = ctx.latestMessages[ctx.latestMessages.length - 1];
   if (!last || last.role !== "user") return;
   ctx.logger.info({ conversationId: ctx.conversationId }, "turn started");
 };
 
-export default {
-  [HOOKS.USER_PROMPT_SUBMIT]: onPrompt,
-};
+export default onUserPromptSubmit;
 ```
 
 Hook reference (the ones that matter for plugins shipping today):
@@ -219,7 +219,7 @@ Everything you import against the host goes through [`@vellumai/plugin-api`](htt
 
 What to import:
 
-- Hook context types and the `HOOKS` constant. Reference hooks by constant.
+- Hook context types and the `HOOKS` constant, when you need to refer to event names inside a hook body.
 - `ToolDefinition`, `ToolContext`, `ToolExecutionResult`, `RiskLevel`.
 - `PluginLogger` (Pino-compatible, scoped to your plugin, threaded onto contexts).
 - Runtime handles: `assistantEventHub` (the pub/sub hub for runtime events) and `getSecureKeyAsync` (read a secret by key). Both rebind to the assistant's live singletons via a boot-time shim; do not wrap them.
@@ -281,7 +281,7 @@ The install is not hot-loaded. The user restarts their assistant to pick up the 
 
 Local verification in order:
 
-1. `assistant plugins install --local /path/to/my-plugin` succeeds.
+1. Plugin directory copied into the workspace's `plugins/<name>/` and the daemon restarted cleanly. No `error` row, no `skipped` row in `assistant plugins list`.
 2. `assistant plugins list` shows your plugin with status `ok` (not `error`, not `skipped`).
 3. `assistant plugins inspect <name>` reports `up-to-date` and `drift: none`.
 4. The plugin loads inside the 10-second import budget. Anything slower is treated as a load failure and skipped.
@@ -290,7 +290,7 @@ Local verification in order:
 
 Common failure modes, by surface:
 
-- "broken surface" in `assistant plugins list` → your file default-exported something the loader could not read. Check syntax and that you used `export default`.
+- "broken surface" in `assistant plugins list` → your file default-exported something the loader could not read. Hook files in particular must default-export a function, not an object keyed by `HOOKS.*`.
 - "load timeout" → `init` is too slow or imports cycle back into the host.
 - Tool never gets called → empty `description`. The model matches on text, not on `input_schema`.
 - Hook fires twice unexpectedly → `pre-model-call` and friends fire once per loop iteration. Your transformation must be idempotent.
