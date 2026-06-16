@@ -15,6 +15,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import { Link } from "react-router";
@@ -408,6 +409,34 @@ function useAssistantBannerConfig(): BannerConfig | null {
     }, 60_000);
     return () => clearTimeout(timeout);
   }, [wasRecentlySleeping, operationalStatus?.state]);
+
+  // Suppress the brief "unreachable" flash during the active → sleeping
+  // transition. When the pod is shutting down, healthz fails before the
+  // backend registers the sleep, causing a transient unreachable state.
+  const prevOperationalStateRef = useRef(operationalStatus?.state);
+  const [recentlyLeftActive, setRecentlyLeftActive] = useState(false);
+  useEffect(() => {
+    const prev = prevOperationalStateRef.current;
+    const current = operationalStatus?.state;
+    prevOperationalStateRef.current = current;
+
+    if (prev === "active" && current === "unreachable") {
+      setRecentlyLeftActive(true);
+    } else if (current !== "unreachable") {
+      setRecentlyLeftActive(false);
+    }
+  }, [operationalStatus?.state]);
+
+  // Auto-clear after 15s so a genuinely unreachable assistant surfaces.
+  useEffect(() => {
+    if (!recentlyLeftActive || operationalStatus?.state !== "unreachable") {
+      return;
+    }
+    const timeout = setTimeout(() => {
+      setRecentlyLeftActive(false);
+    }, 15_000);
+    return () => clearTimeout(timeout);
+  }, [recentlyLeftActive, operationalStatus?.state]);
   const [isExitingMaintenanceMode, setIsExitingMaintenanceMode] =
     useState(false);
   const [maintenanceModeExitError, setMaintenanceModeExitError] = useState<
@@ -596,10 +625,15 @@ function useAssistantBannerConfig(): BannerConfig | null {
   // assistant is in the final phase of waking (pod ready per k8s but the
   // application healthz hasn't responded ok yet). Show "waking" so the user
   // sees a smooth sleeping → waking → active progression.
+  // Conversely, when the status transitions from active directly to
+  // unreachable, the pod is shutting down for sleep. Show "sleeping" so
+  // the user sees a smooth active → sleeping progression.
   const effectiveStatus =
     operationalStatus?.state === "unreachable" && wasRecentlySleeping
       ? { ...operationalStatus, state: "waking" as AssistantOperationalState }
-      : operationalStatus;
+      : operationalStatus?.state === "unreachable" && recentlyLeftActive
+        ? { ...operationalStatus, state: "sleeping" as AssistantOperationalState }
+        : operationalStatus;
 
   const operationalBanner = shouldUseLifecycleMaintenanceMode
     ? maintenanceModeBannerConfig()

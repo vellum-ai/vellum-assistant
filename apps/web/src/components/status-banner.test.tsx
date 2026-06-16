@@ -323,6 +323,29 @@ describe("StatusBanner", () => {
     expect(maintenanceHtml).toContain("Resume Assistant");
   });
 
+  test("shows sleeping banner instead of unreachable when transitioning from active to unreachable", async () => {
+    // GIVEN the operational status is active
+    operationalStatusQueryMock = {
+      data: { state: "active" },
+      isError: false,
+    };
+
+    const { rerender } = render(<StatusBanner />);
+
+    // WHEN the operational status transitions directly to unreachable
+    operationalStatusQueryMock = {
+      data: { state: "unreachable" },
+      isError: false,
+    };
+    rerender(<StatusBanner />);
+
+    // THEN the banner shows "sleeping" instead of "unreachable"
+    await waitFor(() => {
+      expect(screen.getByText("Assistant is sleeping")).toBeTruthy();
+    });
+    expect(screen.queryByText("Assistant is unreachable")).toBeNull();
+  });
+
   test("renders maintenance mode from lifecycle state when operational status is absent", () => {
     assistantStateMock = {
       kind: "active",
