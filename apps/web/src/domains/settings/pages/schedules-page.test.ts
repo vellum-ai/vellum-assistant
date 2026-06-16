@@ -58,6 +58,7 @@ function createDaemonConfigMock(callSites: Record<string, unknown> = {}) {
 }
 
 let daemonConfigMock: unknown = createDaemonConfigMock();
+let conversationInferenceProfilesMock: Record<string, string | null> = {};
 const callSiteCatalogMock = {
   domains: [],
   callSites: [
@@ -101,6 +102,18 @@ const configLlmCallsitesGetOptionsMock = mock(
   (options: { path: { assistant_id: string } }) => ({
     queryKey: [{ _id: "configLlmCallsitesGet", path: options.path }],
     queryFn: async () => callSiteCatalogMock,
+  }),
+);
+const conversationsByIdGetOptionsMock = mock(
+  (options: { path: { assistant_id: string; id: string } }) => ({
+    queryKey: [{ _id: "conversationsByIdGet", path: options.path }],
+    queryFn: async () => ({
+      conversation: {
+        id: options.path.id,
+        inferenceProfile:
+          conversationInferenceProfilesMock[options.path.id] ?? null,
+      },
+    }),
   }),
 );
 // SDK-level mocks for system-task runs used by SystemTaskDetailView
@@ -198,6 +211,7 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   ...daemonQueryGen,
   configGetOptions: configGetOptionsMock,
   configLlmCallsitesGetOptions: configLlmCallsitesGetOptionsMock,
+  conversationsByIdGetOptions: conversationsByIdGetOptionsMock,
 }));
 
 const {
@@ -241,7 +255,9 @@ afterEach(() => {
   fetchScheduleUsageSummaryMock.mockClear();
   configGetOptionsMock.mockClear();
   configLlmCallsitesGetOptionsMock.mockClear();
+  conversationsByIdGetOptionsMock.mockClear();
   daemonConfigMock = createDaemonConfigMock();
+  conversationInferenceProfilesMock = {};
   nowSpy?.mockRestore();
   nowSpy = null;
 });
@@ -1084,6 +1100,43 @@ describe("ScheduleDetailView", () => {
         ["assistant-1", "execute-schedule-123", RUNS_PAGE_SIZE, undefined],
       ]),
     );
+  });
+
+  test("uses the target conversation profile for unpinned wake schedules", async () => {
+    conversationInferenceProfilesMock = {
+      "conv-wake-target": "cost-optimized",
+    };
+
+    renderWithQueryClient(
+      createElement(ScheduleDetailView, {
+        schedule: schedule({
+          id: "wake-schedule-123",
+          name: "Follow up",
+          description: "Resume the conversation later",
+          cadenceDescription: "One-time",
+          mode: "wake",
+          wakeConversationId: "conv-wake-target",
+          inferenceProfile: null,
+          enabled: true,
+          nextRunAt: 1_761_792_000_000,
+          lastRunAt: null,
+          lastStatus: null,
+        }),
+        assistantId: "assistant-1",
+        onBack: () => {},
+        onDeleted: () => {},
+        onUpdated: () => {},
+      }),
+    );
+
+    expect(screen.getByText("Model profile")).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByText("Cost optimized")).toBeTruthy(),
+    );
+
+    expect(conversationsByIdGetOptionsMock.mock.calls[0]).toEqual([
+      { path: { assistant_id: "assistant-1", id: "conv-wake-target" } },
+    ]);
   });
 
   test("hides the model profile for non-LLM schedules without a pinned profile", async () => {

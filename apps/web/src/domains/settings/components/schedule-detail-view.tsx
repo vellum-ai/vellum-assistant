@@ -1,4 +1,4 @@
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
   BarChart3,
@@ -30,6 +30,7 @@ import {
   MIN_SCRIPT_TIMEOUT_SECONDS,
   MODE_TONE,
 } from "@/domains/settings/utils/schedule-formatters";
+import { conversationsByIdGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { assistantScheduleRunsQueryKey } from "@/lib/sync/query-tags";
 import { routes } from "@/utils/routes";
@@ -219,8 +220,27 @@ export function ScheduleDetailView({
 
   const sourceConversationId =
     getOpenableScheduleSourceConversationId(schedule);
+  const shouldResolveWakeConversationProfile =
+    schedule.mode === "wake" &&
+    schedule.inferenceProfile == null &&
+    schedule.wakeConversationId != null;
+  const { data: wakeConversationData } = useQuery({
+    ...conversationsByIdGetOptions({
+      path: {
+        assistant_id: assistantId,
+        id: schedule.wakeConversationId ?? "",
+      },
+    }),
+    enabled: Boolean(assistantId) && shouldResolveWakeConversationProfile,
+    staleTime: 60_000,
+  });
+  const effectivePinnedProfile =
+    schedule.inferenceProfile ??
+    (shouldResolveWakeConversationProfile
+      ? (wakeConversationData?.conversation.inferenceProfile ?? null)
+      : null);
   const showsModelProfile =
-    schedule.inferenceProfile != null ||
+    effectivePinnedProfile != null ||
     schedule.mode === "execute" ||
     schedule.mode === "wake";
 
@@ -314,7 +334,7 @@ export function ScheduleDetailView({
           {showsModelProfile ? (
             <ModelProfileRow
               assistantId={assistantId}
-              pinnedProfile={schedule.inferenceProfile}
+              pinnedProfile={effectivePinnedProfile}
               defaultCallSite="mainAgent"
             />
           ) : null}
