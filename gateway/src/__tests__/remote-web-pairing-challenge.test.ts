@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
+const { handleCreateRemoteWebPairingChallenge } =
+  await import("../http/routes/remote-web-pairing-challenge.js");
 const {
   getRemoteWebPairingChallengeForTests,
-  handleCreateRemoteWebPairingChallenge,
   resetRemoteWebPairingChallengesForTests,
   setRemoteWebPairingChallengeNowForTests,
-} = await import("../http/routes/remote-web-pairing-challenge.js");
+} = await import("../remote-web/pairing-challenge-store.js");
 
 const LOOPBACK_IP = "127.0.0.1";
 const PUBLIC_BASE_URL = "https://paired.example.com";
