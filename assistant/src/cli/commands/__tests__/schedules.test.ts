@@ -297,6 +297,29 @@ describe("schedules get", () => {
     ]);
   });
 
+  test("inspect alias resolves to the same getSchedule handler", async () => {
+    // GIVEN the daemon returns a schedule for the requested ID
+    mockIpcResult = { ok: true, result: { schedule: scheduleFixture } };
+
+    // WHEN the user invokes the `inspect` alias instead of `get`
+    const { exitCode } = await runCommand([
+      "schedules",
+      "inspect",
+      "schedule-1",
+    ]);
+
+    // THEN it calls the same getSchedule IPC method with the ID path param
+    expect(exitCode).toBe(0);
+    expect(ipcCalls).toEqual([
+      {
+        method: "getSchedule",
+        params: { pathParams: { id: "schedule-1" } },
+      },
+    ]);
+    // AND it renders the same human-readable detail view
+    expect(logLines.join("\n")).toContain("run heartbeat");
+  });
+
   test("renders a detail view for human output", async () => {
     mockIpcResult = { ok: true, result: { schedule: scheduleFixture } };
 

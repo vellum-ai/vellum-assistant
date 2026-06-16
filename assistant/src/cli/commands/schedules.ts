@@ -206,6 +206,7 @@ Examples:
 
       schedules
         .command("get <id>")
+        .alias("inspect")
         .description("Show full details for a single schedule")
         .option("--json", "Machine-readable compact JSON output")
         .addHelpText(
@@ -223,9 +224,11 @@ Behavior:
   message or script body, inference profile (shown as 'default (mainAgent)'
   when none is pinned), routing intent, and retry policy. Works for
   deferred schedules that 'assistant schedules list' hides by default.
+  Aliased as 'inspect'.
 
 Examples:
   $ assistant schedules get 9f2c4f3a-3f1a-41e4-88e7-abc123
+  $ assistant schedules inspect 9f2c4f3a-3f1a-41e4-88e7-abc123
   $ assistant schedules get 9f2c4f3a-3f1a-41e4-88e7-abc123 --json`,
         )
         .action(async (id: string, opts: { json?: boolean }, cmd: Command) => {
