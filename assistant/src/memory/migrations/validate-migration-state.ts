@@ -6,6 +6,7 @@ import {
   MIGRATION_REGISTRY,
   type MigrationValidationResult,
 } from "./registry.js";
+import { clearMigrationStepCheckpoints } from "./run-migrations.js";
 
 const log = getLogger("memory-db");
 
@@ -260,7 +261,9 @@ export function validateMigrationState(
  * **Checkpoint state**: Each rolled-back migration's checkpoint is deleted
  * from `memory_checkpoints`. If the process crashes mid-rollback, the
  * `"rolling_back"` marker is detected and cleared by
- * `recoverCrashedMigrations` on the next startup.
+ * `recoverCrashedMigrations` on the next startup. The forward-step checkpoints
+ * recorded by the migration runner are also discarded so a later upgrade
+ * re-applies (and re-validates) every step.
  *
  * **Warning — data loss**: Some down() migrations may not fully restore the
  * original state (e.g., DROP TABLE migrations recreate the table but cannot
@@ -302,6 +305,16 @@ export function rollbackMemoryMigration(
   const toRollback = MIGRATION_REGISTRY.filter(
     (entry) => entry.version > targetVersion && completedKeys.has(entry.key),
   ).sort((a, b) => b.version - a.version); // reverse version order
+
+  // Forward-step checkpoints recorded by the migration runner gate whether each
+  // step re-runs on the next upgrade. A rolled-back registry-backed step clears
+  // its own memory_checkpoints entry via down(), so its step checkpoint must be
+  // discarded too — otherwise the runner skips the step on re-upgrade and the
+  // rolled-back schema is never restored. Clearing before the loop keeps this
+  // correct even if the process crashes partway through the rollback.
+  if (toRollback.length > 0) {
+    clearMigrationStepCheckpoints(database);
+  }
 
   const rolledBack: string[] = [];
 

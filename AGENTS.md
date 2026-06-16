@@ -147,7 +147,7 @@ We have real users — maintain backwards compatibility for all interfaces, pers
 
 Migrations must be **idempotent** (safe to re-run if interrupted) and **append-only** (never reorder or remove existing entries). Test migrations — see `assistant/src/__tests__/workspace-migration-*.test.ts` and `assistant/src/__tests__/db-*.test.ts` for patterns. Flag breaking changes in PR descriptions. If a migration is infeasible, call it out explicitly for human review.
 
-DB migration steps registered in `db-init.ts` are checkpointed by function name and run at most once per database, so each step needs a stable, non-empty name. A step that must run on **every** boot — crash recovery, or an aggregator that dispatches to a registry whose membership grows release to release — must be listed in the `alwaysRun` set at the `runMigrationSteps` call site; otherwise it is checkpointed and skipped after its first success.
+DB migration steps registered in `db-init.ts` are checkpointed by function name and run at most once per database, so each step needs a stable, non-empty name. A step that must run on **every** boot — crash recovery, or an aggregator that dispatches to a registry whose membership grows release to release — must be listed in the `alwaysRun` set at the `runMigrationSteps` call site; otherwise it is checkpointed and skipped after its first success. Rolling a migration back (`rollbackMemoryMigration`) discards all step checkpoints, so a later upgrade re-runs every step and restores any schema a `down()` reversed.
 
 ## Multi-Client Assistant State Sync
 

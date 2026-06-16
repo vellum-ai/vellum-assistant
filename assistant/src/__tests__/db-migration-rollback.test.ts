@@ -16,7 +16,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { getSqliteFrom } from "../memory/db-connection.js";
+import { type DrizzleDb, getSqliteFrom } from "../memory/db-connection.js";
 import { downJobDeferrals } from "../memory/migrations/001-job-deferrals.js";
 import { downMemoryEntityRelationDedup } from "../memory/migrations/004-entity-relation-dedup.js";
 import { downMemoryItemsFingerprintScopeUnique } from "../memory/migrations/005-fingerprint-scope-unique.js";
@@ -66,7 +66,9 @@ import {
   type MigrationValidationResult,
   rollbackMemoryMigration,
   validateMigrationState,
+  withCrashRecovery,
 } from "../memory/migrations/index.js";
+import { runMigrationSteps } from "../memory/migrations/run-migrations.js";
 import * as schema from "../memory/schema.js";
 
 // ---------------------------------------------------------------------------
@@ -1024,6 +1026,72 @@ describe("rollbackMemoryMigration", () => {
       .get() as { value: string } | null;
     expect(cp1000).toBeTruthy();
     expect(cp1000!.value).toBe("1");
+  });
+
+  test("clears forward-step checkpoints so a re-upgrade re-applies a rolled-back registry-backed step", () => {
+    /**
+     * A registry-backed migration that is also a named forward step is tracked
+     * in both memory_checkpoints (via withCrashRecovery) and the runner's
+     * migration_step_checkpoints. Rolling it back must clear the step checkpoint
+     * too, otherwise the next upgrade skips the step and never restores the
+     * rolled-back schema.
+     */
+    saveRegistry();
+
+    const db = createTestDb();
+    const raw = getRaw(db);
+    bootstrapCheckpointsTable(raw);
+
+    const hasTable = () =>
+      raw
+        .query(
+          `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'test_step_rollback_data'`,
+        )
+        .get() !== null;
+
+    // GIVEN a registry-backed migration whose forward body is a named step that
+    // creates a table, guarded by withCrashRecovery.
+    const checkpointKey = "test_step_rollback_v4000";
+    function migrateTestStepRollback(database: DrizzleDb): void {
+      withCrashRecovery(database, checkpointKey, () => {
+        getSqliteFrom(database).exec(
+          `CREATE TABLE IF NOT EXISTS test_step_rollback_data (id TEXT PRIMARY KEY)`,
+        );
+      });
+    }
+
+    // AND the migration is registered with a down() that drops that table.
+    MIGRATION_REGISTRY.push({
+      key: checkpointKey,
+      version: 4000,
+      description: "test step rollback",
+      down: (database) => {
+        getSqliteFrom(database).exec(
+          `DROP TABLE IF EXISTS test_step_rollback_data`,
+        );
+      },
+    });
+
+    // AND the step has run once through the runner, recording both checkpoints.
+    runMigrationSteps(db, [migrateTestStepRollback]);
+    expect(hasTable()).toBe(true);
+    expect(
+      raw
+        .query(
+          `SELECT step FROM migration_step_checkpoints WHERE step = 'migrateTestStepRollback'`,
+        )
+        .get(),
+    ).toBeTruthy();
+
+    // AND the migration has since been rolled back below its version.
+    rollbackMemoryMigration(db, 3999);
+    expect(hasTable()).toBe(false);
+
+    // WHEN the runner executes the forward steps again on a later upgrade.
+    runMigrationSteps(db, [migrateTestStepRollback]);
+
+    // THEN the rolled-back step re-applies instead of being skipped.
+    expect(hasTable()).toBe(true);
   });
 
   test("handles transaction failure in down() — rolls back and preserves checkpoint", () => {

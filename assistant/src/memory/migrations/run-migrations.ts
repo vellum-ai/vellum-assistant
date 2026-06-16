@@ -107,3 +107,18 @@ export function runMigrationSteps(
 
   return { failed, skipped };
 }
+
+/**
+ * Discard every forward-step checkpoint so the next {@link runMigrationSteps}
+ * call re-runs and re-records all steps.
+ *
+ * Migration rollback calls this. A rolled-back step whose body is registry-backed
+ * (guarded by `withCrashRecovery`) clears its own `memory_checkpoints` entry when
+ * its `down()` runs; the step checkpoint recorded here must be discarded in the
+ * same operation, otherwise the runner skips the step on the next upgrade and the
+ * rolled-back schema is never restored. Dropping the whole table is safe because
+ * the runner recreates it on demand.
+ */
+export function clearMigrationStepCheckpoints(database: DrizzleDb): void {
+  getSqliteFrom(database).run(`DROP TABLE IF EXISTS ${CHECKPOINT_TABLE}`);
+}
