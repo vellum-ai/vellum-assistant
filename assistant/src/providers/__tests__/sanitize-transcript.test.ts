@@ -4,92 +4,52 @@ import { sanitizeTranscriptForNestedInference } from "../sanitize-transcript.js"
 import type { Message } from "../types.js";
 
 describe("sanitizeTranscriptForNestedInference", () => {
-  test("drops a trailing dangling tool_use and the now-empty message", () => {
+  test("drops a trailing dangling tool_use with no matching tool_result", () => {
     const messages: Message[] = [
-      { role: "user", content: [{ type: "text", text: "do the thing" }] },
+      { role: "user", content: [{ type: "text", text: "hi" }] },
       {
         role: "assistant",
         content: [
-          { type: "text", text: "working on it" },
-          { type: "tool_use", id: "tu_done", name: "search", input: {} },
-        ],
-      },
-      {
-        role: "user",
-        content: [
-          {
-            type: "tool_result",
-            tool_use_id: "tu_done",
-            content: "found it",
-          },
-        ],
-      },
-      {
-        role: "assistant",
-        content: [
-          { type: "tool_use", id: "tu_inflight", name: "advisor", input: {} },
+          { type: "text", text: "calling a tool" },
+          { type: "tool_use", id: "call_1", name: "search", input: {} },
         ],
       },
     ];
 
     const result = sanitizeTranscriptForNestedInference(messages);
 
-    expect(result).toHaveLength(3);
-    expect(result[1].content).toEqual([
-      { type: "text", text: "working on it" },
-      { type: "tool_use", id: "tu_done", name: "search", input: {} },
+    expect(result).toEqual([
+      { role: "user", content: [{ type: "text", text: "hi" }] },
+      { role: "assistant", content: [{ type: "text", text: "calling a tool" }] },
     ]);
-    expect(result[2].role).toBe("user");
-    const allToolUseIds = result.flatMap((m) =>
-      m.content
-        .filter((b) => b.type === "tool_use")
-        .map((b) => (b as { id: string }).id),
-    );
-    expect(allToolUseIds).toEqual(["tu_done"]);
   });
 
-  test("dropToolUseId removes a matched tool_use too", () => {
+  test("drops a message left empty after removing its only tool_use", () => {
     const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "hi" }] },
       {
         role: "assistant",
-        content: [
-          { type: "text", text: "calling advisor" },
-          { type: "tool_use", id: "tu_advisor", name: "advisor", input: {} },
-        ],
-      },
-      {
-        role: "user",
-        content: [
-          {
-            type: "tool_result",
-            tool_use_id: "tu_advisor",
-            content: "advice",
-          },
-        ],
+        content: [{ type: "tool_use", id: "call_1", name: "search", input: {} }],
       },
     ];
 
-    const result = sanitizeTranscriptForNestedInference(messages, {
-      dropToolUseId: "tu_advisor",
-    });
+    const result = sanitizeTranscriptForNestedInference(messages);
 
-    expect(result[0].content).toEqual([
-      { type: "text", text: "calling advisor" },
+    expect(result).toEqual([
+      { role: "user", content: [{ type: "text", text: "hi" }] },
     ]);
   });
 
-  test("preserves a tool_use with a matching tool_result in a later message", () => {
+  test("keeps a completed tool_use/tool_result pair untouched", () => {
     const messages: Message[] = [
       {
         role: "assistant",
-        content: [
-          { type: "tool_use", id: "tu_ok", name: "search", input: { q: "x" } },
-        ],
+        content: [{ type: "tool_use", id: "call_1", name: "search", input: {} }],
       },
       {
         role: "user",
         content: [
-          { type: "tool_result", tool_use_id: "tu_ok", content: "result" },
+          { type: "tool_result", tool_use_id: "call_1", content: "result" },
         ],
       },
     ];
@@ -99,23 +59,131 @@ describe("sanitizeTranscriptForNestedInference", () => {
     expect(result).toEqual(messages);
   });
 
-  test("does not mutate the input", () => {
+  test("removes paired tool_result when dropToolUseId targets a completed call", () => {
     const messages: Message[] = [
       { role: "user", content: [{ type: "text", text: "hi" }] },
       {
         role: "assistant",
         content: [
           { type: "text", text: "thinking" },
-          { type: "tool_use", id: "tu_inflight", name: "advisor", input: {} },
+          { type: "tool_use", id: "advisor_call", name: "advisor", input: {} },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "advisor_call",
+            content: "advice",
+          },
         ],
       },
     ];
-    const snapshot = structuredClone(messages);
 
-    sanitizeTranscriptForNestedInference(messages, {
-      dropToolUseId: "tu_inflight",
+    const result = sanitizeTranscriptForNestedInference(messages, {
+      dropToolUseId: "advisor_call",
     });
 
+    // The assistant tool_use is gone, its text survives, and the user message
+    // that held only the paired tool_result is dropped entirely — no orphan.
+    expect(result).toEqual([
+      { role: "user", content: [{ type: "text", text: "hi" }] },
+      { role: "assistant", content: [{ type: "text", text: "thinking" }] },
+    ]);
+
+    const orphanResults = result.flatMap((m) =>
+      m.content.filter((b) => b.type === "tool_result"),
+    );
+    expect(orphanResults).toEqual([]);
+  });
+
+  test("removes only the targeted pair, leaving sibling pairs intact", () => {
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "call_keep", name: "search", input: {} },
+          { type: "tool_use", id: "call_drop", name: "advisor", input: {} },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "call_keep", content: "kept" },
+          { type: "tool_result", tool_use_id: "call_drop", content: "dropped" },
+        ],
+      },
+    ];
+
+    const result = sanitizeTranscriptForNestedInference(messages, {
+      dropToolUseId: "call_drop",
+    });
+
+    expect(result).toEqual([
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "call_keep", name: "search", input: {} },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "call_keep", content: "kept" },
+        ],
+      },
+    ]);
+  });
+
+  test("does not mutate the input messages or their content arrays", () => {
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "thinking" },
+          { type: "tool_use", id: "call_1", name: "search", input: {} },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "call_1", content: "result" },
+        ],
+      },
+    ];
+    const snapshot = JSON.parse(JSON.stringify(messages));
+
+    sanitizeTranscriptForNestedInference(messages, { dropToolUseId: "call_1" });
+
     expect(messages).toEqual(snapshot);
+  });
+
+  test("leaves other block types untouched", () => {
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "hmm", signature: "sig" },
+          { type: "server_tool_use", id: "srv_1", name: "web_search", input: {} },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "web_search_tool_result",
+            tool_use_id: "srv_1",
+            content: "opaque",
+          },
+        ],
+      },
+    ];
+
+    const result = sanitizeTranscriptForNestedInference(messages, {
+      dropToolUseId: "nonexistent",
+    });
+
+    expect(result).toEqual(messages);
   });
 });
