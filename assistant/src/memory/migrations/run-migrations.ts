@@ -17,12 +17,6 @@ export interface RunMigrationStepsOptions {
    * never skipped, so work added inside them on a later release still runs.
    */
   alwaysRun?: ReadonlySet<string>;
-  /**
-   * Re-run every step even when a prior run already applied it. Restores the
-   * implicit self-healing of re-running idempotent DDL guards (e.g.
-   * `CREATE TABLE IF NOT EXISTS`) against a manually drifted schema.
-   */
-  forceRerun?: boolean;
 }
 
 export interface MigrationRunResult {
@@ -58,7 +52,7 @@ export function runMigrationSteps(
   steps: MigrationStep[],
   options: RunMigrationStepsOptions = {},
 ): MigrationRunResult {
-  const { alwaysRun, forceRerun = false } = options;
+  const { alwaysRun } = options;
   const raw = getSqliteFrom(database);
 
   raw.run(
@@ -86,7 +80,7 @@ export function runMigrationSteps(
     const name = step.name;
     const checkpointable = name !== "" && !(alwaysRun?.has(name) ?? false);
 
-    if (checkpointable && !forceRerun && applied.has(name)) {
+    if (checkpointable && applied.has(name)) {
       skipped.push(name);
       log.debug({ migration: name }, `Skipping applied migration: ${name}`);
       continue;

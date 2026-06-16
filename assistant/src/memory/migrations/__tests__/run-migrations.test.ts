@@ -103,29 +103,6 @@ describe("runMigrationSteps — checkpointing", () => {
     expect(calls).toEqual({ once: 1, always: 2 });
   });
 
-  test("re-runs every step when forceRerun is set", () => {
-    /**
-     * The `forceRerun` escape hatch restores the self-healing of re-running
-     * idempotent DDL guards against a manually drifted schema.
-     */
-
-    // GIVEN a database already migrated once
-    const calls = { a: 0 };
-    const steps: MigrationStep[] = [
-      function dummyMigrationA() {
-        calls.a++;
-      },
-    ];
-    const db = createTestDb();
-    runMigrationSteps(db, steps);
-
-    // WHEN the same steps run again with forceRerun
-    runMigrationSteps(db, steps, { forceRerun: true });
-
-    // THEN the applied step executes again
-    expect(calls).toEqual({ a: 2 });
-  });
-
   test("does not checkpoint a failed step so it retries on the next boot", () => {
     /**
      * A step whose body throws is reported in `failed` and left uncheckpointed,

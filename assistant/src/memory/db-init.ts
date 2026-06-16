@@ -537,7 +537,6 @@ export function initializeDb(): void {
   // broken migration doesn't prevent independent later ones from succeeding.
   const { failed, skipped } = runMigrationSteps(database, migrationSteps, {
     alwaysRun,
-    forceRerun: process.env.VELLUM_MIGRATIONS_FORCE_RERUN === "1",
   });
 
   log.debug(
