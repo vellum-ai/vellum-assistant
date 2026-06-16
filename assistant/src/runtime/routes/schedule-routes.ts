@@ -42,6 +42,7 @@ import {
 import { getScheduleUsageSummaries } from "../../schedule/schedule-usage-store.js";
 import { areCoreToolsInitialized } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
+import { normalizeCapabilityManifest } from "../../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../../workflows/run-manager.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { parseEpochMillisRange } from "./epoch-millis-range.js";
@@ -974,10 +975,6 @@ async function handleRunScheduleNow(id: string) {
         },
         "Triggering workflow schedule manually (run now)",
       );
-      // V1 LIMITATION: scheduled workflows run with the read-only baseline
-      // manifest only (no tools / host functions / persona), exactly as the
-      // scheduler's automatic firing path does — the schedule record carries no
-      // capability manifest.
       const { runId: workflowRunId } = getWorkflowRunManager().start({
         name: schedule.workflowName,
         args: schedule.workflowArgs ?? {},
@@ -989,7 +986,10 @@ async function handleRunScheduleNow(id: string) {
           schedule.wakeConversationId ??
           schedule.createdFromConversationId ??
           undefined,
-        manifest: { tools: [], hostFunctions: [], persona: false },
+        // The schedule's persisted capability manifest scopes the run, mirroring
+        // the scheduler's firing path; a legacy schedule with null
+        // `capabilities` normalizes to the read-only baseline.
+        manifest: normalizeCapabilityManifest(schedule.capabilities),
         trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
       });
       // `start` launches the run fire-and-forget and returns synchronously;
