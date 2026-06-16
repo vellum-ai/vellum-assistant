@@ -30,7 +30,7 @@ falls back to `index.html` for client-side routes.
   supply-chain attack surface. See Electron's
   [security checklist](https://www.electronjs.org/docs/latest/tutorial/security).
 - **Offline** — the UI loads without a network connection. The assistant
-  still needs the daemon and gateway for functionality, but the shell
+  still needs its backend services for functionality, but the shell
   renders instantly.
 - **Startup speed** — local file reads are ~instant; no DNS / TLS / CDN
   roundtrip.
@@ -44,15 +44,14 @@ The packaged app updates over the wire via
 [`electron-updater`](https://www.electron.build/auto-update).
 Configuration lives in `src/main/auto-update.ts`:
 
-- **Feed URL** — a generic GCS bucket per environment and architecture:
-  `https://storage.googleapis.com/vellum-ai-{env}-releases/mac-electron/{arch}/`
-  (mirrored in `electron-builder.config.cjs`'s `publish` config).
+- **Feed URL** — a cloud storage bucket per environment and architecture
+  (see `electron-builder.config.cjs`'s `publish` config).
 - **`autoDownload: true`** — updates download silently in the background.
 - **`autoInstallOnAppQuit: true`** — installs on next quit, not mid-session.
 - **Poll interval** — checks on launch, then every 4 hours.
-- **Manual trigger** — users can check via the `Help > Check for Updates`
-  menu item, or the renderer can invoke `vellum:update:check` /
-  `vellum:update:install` over IPC.
+- **Manual trigger** — users can check via the `Vellum > Check for Updates…`
+  menu item (packaged builds only), or the renderer can invoke
+  `vellum:update:check` / `vellum:update:install` over IPC.
 
 Because the web UI is bundled locally, **web changes require an Electron
 release** to reach users. The update typically lands within hours (next

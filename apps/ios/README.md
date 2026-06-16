@@ -15,14 +15,9 @@ placeholder HTML page that is never shown at runtime.
 [`server.url`](https://capacitorjs.com/docs/guides/server-url) to the
 environment-appropriate origin. `cap sync ios` bakes that URL into the
 native `capacitor.config.json`. At launch, `WKWebView` navigates
-straight to it. The environment is selected by setting
-`VELLUM_ENVIRONMENT` before sync:
-
-| Environment | `server.url` |
-|-------------|----------------------------------------------|
-| production  | `https://www.vellum.ai/assistant`            |
-| staging     | `https://staging-assistant.vellum.ai/assistant` |
-| dev         | `https://dev-assistant.vellum.ai/assistant`  |
+straight to it. Each environment (production, staging, dev) has its own
+origin — set `VELLUM_ENVIRONMENT` before `bunx cap sync ios` to select
+which URL is baked into the build.
 
 **Why remote URL, not a local bundle (like the Electron app):**
 
@@ -46,8 +41,8 @@ straight to it. The environment is selected by setting
   [server.url guide](https://capacitorjs.com/docs/guides/server-url).
 
 **Tradeoff:** The app requires a network connection to load the UI. This
-is acceptable because the assistant needs the backend (daemon/gateway)
-for all functionality anyway — there is no useful offline state.
+is acceptable because the assistant needs its backend services for all
+functionality anyway — there is no useful offline state.
 
 ## Prerequisites
 
