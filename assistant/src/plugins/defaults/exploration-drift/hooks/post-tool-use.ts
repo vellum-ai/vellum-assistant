@@ -58,6 +58,7 @@
 import type { PluginHookFn, PostToolUseContext } from "@vellumai/plugin-api";
 
 import type { Message } from "../../../../providers/types.js";
+import { WEAK_OPEN_MODEL_PATTERN } from "../../../../providers/weak-open-model.js";
 
 /**
  * Canonical long-dig notice. Module-level constant so tests and wrapping
@@ -94,13 +95,11 @@ export const EXPLORATION_NUDGE_THRESHOLD = 25;
 export const EXPLORATION_LOOP_REPEAT_THRESHOLD = 3;
 
 /**
- * Models that get the early loop trigger: Kimi K2.6 and MiniMax M3, matched
- * across provider naming conventions (Fireworks spells the dot as `p`, e.g.
- * `accounts/fireworks/models/kimi-k2p6`; OpenRouter reports
- * `moonshotai/kimi-k2.6` and `minimax/minimax-m3`). Extend the pattern as
- * other models exhibit the same re-exploration looping.
+ * Models that get the early loop trigger — the shared weak-open-model set
+ * (Kimi K2.6, MiniMax M3), which exhibits the re-exploration looping this
+ * trigger catches.
  */
-const LOOP_PRONE_MODEL_PATTERN = /kimi-k2[p.]6|minimax-m3/i;
+const LOOP_PRONE_MODEL_PATTERN = WEAK_OPEN_MODEL_PATTERN;
 
 /** Read-only exploration tools whose unbroken runs indicate inline drift. */
 const EXPLORATION_TOOL_NAMES: ReadonlySet<string> = new Set([

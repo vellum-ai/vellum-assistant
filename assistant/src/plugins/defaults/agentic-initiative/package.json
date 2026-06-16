@@ -1,0 +1,15 @@
+{
+  "name": "default-agentic-initiative",
+  "version": "1.0.0",
+  "description": "First-party default plugin contributing a pre-model-call hook that appends verify-before-asserting and attempt-don't-ask coaching to the user-facing system prompt on weak open models.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "main": "./register.ts",
+  "engines": {
+    "node": ">=20.12.0"
+  },
+  "peerDependencies": {
+    "@vellumai/plugin-api": "^0.8.0"
+  }
+}

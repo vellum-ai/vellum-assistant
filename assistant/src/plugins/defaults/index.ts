@@ -26,6 +26,8 @@
 
 import { registerPlugin, resetPluginRegistryForTests } from "../registry.js";
 import { type Plugin, PluginExecutionError } from "../types.js";
+import agenticInitiativePreModelCall from "./agentic-initiative/hooks/pre-model-call.js";
+import agenticInitiativePkg from "./agentic-initiative/package.json" with { type: "json" };
 import compactionPkg from "./compaction/package.json" with { type: "json" };
 import emptyResponsePostModelCall from "./empty-response/hooks/post-model-call.js";
 import emptyResponseStop from "./empty-response/hooks/stop.js";
@@ -240,6 +242,21 @@ export const defaultExplorationDriftPlugin: Plugin = {
 };
 
 /**
+ * `agentic-initiative` — a `pre-model-call` hook that appends
+ * verify-before-asserting and attempt-don't-ask coaching to the user-facing
+ * system prompt when the resolved main-agent model is a weak open model.
+ */
+export const defaultAgenticInitiativePlugin: Plugin = {
+  manifest: {
+    name: agenticInitiativePkg.name,
+    version: agenticInitiativePkg.version,
+  },
+  hooks: {
+    "pre-model-call": agenticInitiativePreModelCall,
+  },
+};
+
+/**
  * `tool-result-truncate` — a `post-tool-use` hook that tail-drops an oversized
  * tool result down to a character budget derived from the model's context
  * window before the result is sent to the provider.
@@ -268,6 +285,7 @@ function getAllDefaultPlugins(): readonly Plugin[] {
     defaultMaxTokensContinuePlugin,
     defaultToolErrorPlugin,
     defaultExplorationDriftPlugin,
+    defaultAgenticInitiativePlugin,
     defaultHistoryRepairPlugin,
     defaultImageRecoveryPlugin,
     defaultCompactionPlugin,
