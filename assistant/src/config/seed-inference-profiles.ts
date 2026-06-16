@@ -62,22 +62,6 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },
-  // Profile consulted by the advisor tool. Owns the full advisor tuning so it
-  // stays the single, user-editable source of truth (the `advisor` call-site
-  // default is intentionally bare). Output is capped at 2048 tokens since the
-  // advisor returns a focused recommendation, not a long generation.
-  advisor: {
-    intent: "quality-optimized",
-    provider: "anthropic",
-    connectionName: "anthropic-managed",
-    source: "managed",
-    label: "Advisor",
-    description: "Higher-tier model consulted by the advisor tool",
-    maxTokens: 2048,
-    effort: "high",
-    thinking: { enabled: true, streamThinking: false },
-    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-  },
   "cost-optimized": {
     intent: "latency-optimized",
     provider: "anthropic",
@@ -138,21 +122,6 @@ const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },
-  // BYOK counterpart of the managed `advisor` profile (the resolver falls back
-  // to `custom-advisor` when `advisor` is unavailable). Mirrors the advisor
-  // tuning, including the 2048-token output cap.
-  "custom-advisor": {
-    intent: "quality-optimized",
-    provider: "anthropic",
-    connectionName: "",
-    source: "user",
-    label: "Advisor",
-    description: "Higher-tier model consulted by the advisor tool",
-    maxTokens: 2048,
-    effort: "high",
-    thinking: { enabled: true, streamThinking: false },
-    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-  },
   "custom-cost-optimized": {
     intent: "latency-optimized",
     provider: "anthropic",
@@ -178,18 +147,6 @@ export const AUTO_PROFILE_KEY = "auto";
 export const MANAGED_PROFILE_NAMES = new Set([
   ...Object.keys(MANAGED_PROFILE_TEMPLATES),
   AUTO_PROFILE_KEY,
-]);
-
-/**
- * Profiles that exist only to back an internal call site (the `advisor` tool's
- * model) rather than to be selected as a chat model. They are seeded and stay
- * editable in profile settings, but the model picker filters them out so users
- * never pick them as their conversation model. Keep in sync with the `advisor`
- * and `custom-advisor` profile templates above.
- */
-export const INTERNAL_PROFILE_NAMES: ReadonlySet<string> = new Set([
-  "advisor",
-  "custom-advisor",
 ]);
 
 export type SeedInferenceProfilesOptions = {
@@ -445,16 +402,15 @@ export function seedInferenceProfiles(
     }
   }
 
-  // NB: do NOT seed `llm.callSites.advisor` here. The advisor call site
-  // resolves through `CALL_SITE_DEFAULTS.advisor` (a bare `{ profile: "advisor" }`),
-  // which routes via `effectiveDefault` and so inherits the `custom-*` fallback:
-  // on BYOK installs where the managed `advisor` profile is disabled, the
-  // advisor call site correctly falls back to the user's `custom-advisor`
-  // profile. Seeding `llm.callSites.advisor` would bypass that fallback and pin
-  // BYOK users to the disabled managed route. The advisor is always resolved
-  // WITHOUT an `overrideProfile` (both the toggle gate and the executor resolve
-  // it with no per-conversation override), so the call-site layer already pins
-  // the advisor profile above `activeProfile` without an explicit entry.
+  // NB: do NOT seed `llm.callSites.advisor` here. The advisor call site has no
+  // profile of its own — `CALL_SITE_DEFAULTS.advisor` points at the existing
+  // `quality-optimized` profile and routes via `effectiveDefault`, which keeps
+  // the `custom-*` fallback: on BYOK installs where `quality-optimized` is
+  // disabled, the advisor falls back to the user's `custom-quality-optimized`
+  // profile (personal connection). Seeding `llm.callSites.advisor` here would
+  // bypass that fallback. A user who picks a different advisor profile in
+  // settings writes `llm.callSites.advisor.profile` themselves, and that
+  // explicit choice is honored by the resolver.
 
   saveRawConfig(config);
 }

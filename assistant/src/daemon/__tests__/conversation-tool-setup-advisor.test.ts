@@ -38,10 +38,11 @@ const SONNET = "claude-sonnet-4-6";
 const HAIKU = "claude-haiku-4-5";
 
 /**
- * Build an `llm` config whose `mainAgent` resolves to `executorModel` and
- * whose `advisor` call-site resolves to `advisorModel`. The advisor call-site
- * points at the `advisor` profile (mirroring the seeded default); the
- * executor model comes from the `mainAgent` call-site override.
+ * Build an `llm` config whose `mainAgent` resolves to `executorModel` and whose
+ * `advisor` call-site resolves to `advisorModel`. The advisor has no profile of
+ * its own: `CALL_SITE_DEFAULTS.advisor` points at `quality-optimized`, so this
+ * stub defines that profile. The executor model comes from the `mainAgent`
+ * call-site override.
  */
 function makeLlmConfig(
   executorModel: string,
@@ -53,7 +54,7 @@ function makeLlmConfig(
     default: { model: executorModel },
     activeProfile: undefined,
     profiles: {
-      advisor: { model: advisorModel },
+      "quality-optimized": { model: advisorModel },
       ...Object.fromEntries(
         Object.entries(overrideProfiles).map(([name, model]) => [
           name,
@@ -63,7 +64,6 @@ function makeLlmConfig(
     },
     callSites: {
       mainAgent: { model: executorModel },
-      advisor: { profile: "advisor" },
       ...extraCallSites,
     },
   } as unknown as LLMConfig;

@@ -7,7 +7,6 @@ import {
   loadRawConfig,
   saveRawConfig,
 } from "../config/loader.js";
-import { INTERNAL_PROFILE_NAMES } from "../config/seed-inference-profiles.js";
 import { getConversationOverrideProfile } from "../memory/conversation-crud.js";
 import { getConfiguredProviders } from "../providers/provider-availability.js";
 import { getVisibleProviderCatalog } from "../providers/provider-catalog-visibility.js";
@@ -141,21 +140,14 @@ function orderedProfileNames(
   const order = profileOrder ?? [];
   const seen = new Set<string>();
   const ordered: string[] = [];
-  // Internal call-site profiles (e.g. `advisor`) are excluded from the picker;
-  // they stay editable in settings and resolvable by call sites, just not
-  // selectable as a chat model.
   for (const name of order) {
-    if (
-      profiles[name] != null &&
-      !INTERNAL_PROFILE_NAMES.has(name) &&
-      !seen.has(name)
-    ) {
+    if (profiles[name] != null && !seen.has(name)) {
       ordered.push(name);
       seen.add(name);
     }
   }
   const tail = Object.keys(profiles)
-    .filter((n) => !seen.has(n) && !INTERNAL_PROFILE_NAMES.has(n))
+    .filter((n) => !seen.has(n))
     .sort();
   return [...ordered, ...tail];
 }
@@ -205,12 +197,6 @@ async function resolveModelCommand(
     return {
       kind: "unknown",
       message: `Profile \`${target}\` not found.${hint}`,
-    };
-  }
-  if (INTERNAL_PROFILE_NAMES.has(target)) {
-    return {
-      kind: "unknown",
-      message: `Profile \`${target}\` is used internally and can't be selected as a chat model.`,
     };
   }
   if (profiles[target].status === "disabled") {
