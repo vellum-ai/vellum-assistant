@@ -59,16 +59,21 @@ export async function executeAdvisorConsult(
     : `Review the work so far and advise on the best next step or any course-correction.\n\n${nudge}`;
   const messages: Message[] = [...base, userMessage(ask)];
 
-  const provider = await getConfiguredProvider("advisor");
-  if (!provider) {
-    return {
-      content:
-        "Advisor unavailable: no higher-tier model is configured or reachable.",
-      isError: false,
-    };
-  }
-
   try {
+    // Provider resolution stays inside the soft-fail path: a misconfigured
+    // advisor call site (stale provider_connection, DB lookup failure, invalid
+    // profile) can make getConfiguredProvider throw, and the advisor must never
+    // abort the executor's turn — degrade to isError:false like every other
+    // failure mode here.
+    const provider = await getConfiguredProvider("advisor");
+    if (!provider) {
+      return {
+        content:
+          "Advisor unavailable: no higher-tier model is configured or reachable.",
+        isError: false,
+      };
+    }
+
     const response = await provider.sendMessage(messages, {
       systemPrompt: ADVISOR_SYSTEM_PROMPT,
       config: { callSite: "advisor" },

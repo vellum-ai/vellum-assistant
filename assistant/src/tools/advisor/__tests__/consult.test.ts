@@ -25,6 +25,7 @@ let mockMessages: Message[] = [];
 let conversationExists = true;
 
 let providerResult: { sendMessage: typeof sendMessageMock } | null = null;
+let providerResolveThrows = false;
 let lastSendMessages: Message[] | null = null;
 let lastSendOptions: SendMessageOptions | undefined;
 
@@ -53,7 +54,10 @@ const realProviderSend = await import(
 );
 mock.module("../../../providers/provider-send-message.js", () => ({
   ...realProviderSend,
-  getConfiguredProvider: async () => providerResult,
+  getConfiguredProvider: async () => {
+    if (providerResolveThrows) throw new Error("stale provider_connection");
+    return providerResult;
+  },
 }));
 
 // Imports AFTER mocks so the mocked modules are picked up.
@@ -87,6 +91,7 @@ beforeEach(() => {
   mockMessages = [];
   conversationExists = true;
   providerResult = { sendMessage: sendMessageMock };
+  providerResolveThrows = false;
   lastSendMessages = null;
   lastSendOptions = undefined;
   sendMessageImpl = async () => textResponse("default advice");
@@ -163,6 +168,17 @@ describe("executeAdvisorConsult", () => {
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain("no higher-tier model");
+    expect(sendMessageMock).not.toHaveBeenCalled();
+  });
+
+  test("provider resolution throws: degrades as isError:false and does not throw", async () => {
+    mockMessages = [userText("hi")];
+    providerResolveThrows = true;
+
+    const result = await executeAdvisorConsult({}, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Advisor consult failed");
     expect(sendMessageMock).not.toHaveBeenCalled();
   });
 
