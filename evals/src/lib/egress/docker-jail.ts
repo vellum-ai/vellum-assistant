@@ -174,6 +174,13 @@ export const DEFAULT_INFRA_ALLOW_HOSTS = [
  * worker validates each origin's genuine certificate, and out of
  * `DEFAULT_MODEL_ALLOW_HOSTS` so the addon never tries to parse usage out
  * of a model-weight blob.
+ *
+ * They are **Vellum-specific**: only the Vellum adapter runs the on-device
+ * embedder, so only `VELLUM_ALLOW_HOSTS` folds them in. They are kept out
+ * of `DEFAULT_ALLOW_HOSTS` so a Hermes run — which never embeds locally —
+ * can't make unmetered npm/HuggingFace egress, preserving the honest
+ * model-provider-only allowlist that keeps cross-species cost comparisons
+ * fair.
  */
 export const DEFAULT_EMBEDDING_ALLOW_HOSTS = [
   "registry.npmjs.org",
@@ -184,13 +191,30 @@ export const DEFAULT_EMBEDDING_ALLOW_HOSTS = [
 
 /**
  * The default allowlist applied when `applyDockerEgressJail` is called
- * without an explicit `allowHosts`. Concatenation order doesn't matter
- * — the iptables script (`apply-recording-jail.sh`) iterates and adds
- * each host independently.
+ * without an explicit `allowHosts`. Scoped to model-inference providers
+ * plus the Vellum platform infra every species needs, so it is the honest
+ * cross-species baseline: a Hermes run reaches exactly the model providers
+ * a Vellum run does and nothing more. Species with extra egress needs (the
+ * Vellum on-device embedder — see `VELLUM_ALLOW_HOSTS`) opt in explicitly
+ * rather than widening this shared default. Concatenation order doesn't
+ * matter — the iptables script (`apply-recording-jail.sh`) iterates and
+ * adds each host independently.
  */
 export const DEFAULT_ALLOW_HOSTS = [
   ...DEFAULT_MODEL_ALLOW_HOSTS,
   ...DEFAULT_INFRA_ALLOW_HOSTS,
+];
+
+/**
+ * The allowlist the Vellum adapter passes to `applyDockerEgressJail`. It
+ * extends the shared `DEFAULT_ALLOW_HOSTS` with the on-device embedder's
+ * download hosts (`DEFAULT_EMBEDDING_ALLOW_HOSTS`), which the Vellum daemon
+ * needs to initialize dense memory recall in the jail. Hermes intentionally
+ * does not use this — it never embeds locally — so its jail stays on the
+ * model-provider-only `DEFAULT_ALLOW_HOSTS`.
+ */
+export const VELLUM_ALLOW_HOSTS = [
+  ...DEFAULT_ALLOW_HOSTS,
   ...DEFAULT_EMBEDDING_ALLOW_HOSTS,
 ];
 

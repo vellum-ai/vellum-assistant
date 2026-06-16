@@ -8,6 +8,7 @@ import {
   DEFAULT_EMBEDDING_ALLOW_HOSTS,
   DEFAULT_INFRA_ALLOW_HOSTS,
   DEFAULT_MODEL_ALLOW_HOSTS,
+  VELLUM_ALLOW_HOSTS,
   applyDockerEgressJail,
   installRecordingCa,
   dockerEgressJailContainerName,
@@ -178,7 +179,13 @@ describe("docker egress jail", () => {
     expect(runner.runs[4]?.args).not.toContain("-p");
   });
 
-  test("owner mode defaults to the combined model+infra+embedding allowlist", async () => {
+  test("owner mode defaults to the model+infra allowlist, without embedder hosts", async () => {
+    // The default is the species-neutral baseline: model providers plus
+    // Vellum platform infra, and nothing else. A species that downloads
+    // extra assets (the Vellum on-device embedder) opts in explicitly via
+    // its own allowlist rather than widening this shared default, so a
+    // Hermes run can't make unmetered npm/HuggingFace egress.
+    //
     // GIVEN a recording dir
     const runner = new FakeRunner();
     const dir = `.runs/test-allowlist-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -191,12 +198,19 @@ describe("docker egress jail", () => {
       recordingDir: dir,
     });
 
-    // THEN it wires up the full default allowlist. runs[4] is the
+    // THEN it wires up the default allowlist. runs[4] is the
     // `docker run -d` (rm / network rm / build / network create precede).
     expect(DEFAULT_MODEL_ALLOW_HOSTS).toContain("api.anthropic.com");
     expect(runner.runs[4]?.args).toContain(
       `ALLOW_HOSTS=${DEFAULT_ALLOW_HOSTS.join(",")}`,
     );
+    // AND the embedder download hosts are absent from that default.
+    const allowHostsArg = runner.runs[4]?.args.find((arg) =>
+      arg.startsWith("ALLOW_HOSTS="),
+    );
+    for (const host of DEFAULT_EMBEDDING_ALLOW_HOSTS) {
+      expect(allowHostsArg).not.toContain(host);
+    }
   });
 
   test("default infra allowlist excludes github hosts (mock-github handler catches them instead)", () => {
@@ -240,7 +254,7 @@ describe("docker egress jail", () => {
     // non-model host here would be dead code in the addon at best, so
     // new infra hosts belong in DEFAULT_INFRA_ALLOW_HOSTS and bulk asset
     // downloads in DEFAULT_EMBEDDING_ALLOW_HOSTS.
-    expect(DEFAULT_MODEL_ALLOW_HOSTS.sort()).toEqual([
+    expect([...DEFAULT_MODEL_ALLOW_HOSTS].sort()).toEqual([
       "api.anthropic.com",
       "api.fireworks.ai",
       "api.openai.com",
@@ -256,19 +270,37 @@ describe("docker egress jail", () => {
     // the embedder uninitialized and silently degrades dense memory recall,
     // which tanks a long-memory benchmark for reasons unrelated to the
     // model under test.
-    expect(DEFAULT_EMBEDDING_ALLOW_HOSTS.sort()).toEqual([
+    expect([...DEFAULT_EMBEDDING_ALLOW_HOSTS].sort()).toEqual([
       "cas-bridge.xethub.hf.co",
       "huggingface.co",
       "registry.npmjs.org",
       "us.aws.cdn.hf.co",
     ]);
+    // They belong to the Vellum-specific allowlist, not the species-neutral
+    // default — only the Vellum adapter runs the on-device embedder.
     for (const host of DEFAULT_EMBEDDING_ALLOW_HOSTS) {
-      expect(DEFAULT_ALLOW_HOSTS).toContain(host);
+      expect(VELLUM_ALLOW_HOSTS).toContain(host);
+      expect(DEFAULT_ALLOW_HOSTS).not.toContain(host);
     }
     // These are bulk asset downloads, not model-inference endpoints, so
     // they stay out of the addon's provider-recognition allowlist.
     for (const host of DEFAULT_EMBEDDING_ALLOW_HOSTS) {
       expect(DEFAULT_MODEL_ALLOW_HOSTS).not.toContain(host);
+    }
+  });
+
+  test("VELLUM_ALLOW_HOSTS extends the default with exactly the embedder hosts", () => {
+    // The Vellum adapter passes this allowlist so the on-device embedder
+    // can download its runtime + weights, while every other host stays
+    // identical to the shared default. Keeping the delta to precisely the
+    // embedder hosts ensures the Vellum jail never silently widens beyond
+    // what the local embedder genuinely needs.
+    expect(VELLUM_ALLOW_HOSTS).toEqual([
+      ...DEFAULT_ALLOW_HOSTS,
+      ...DEFAULT_EMBEDDING_ALLOW_HOSTS,
+    ]);
+    for (const host of DEFAULT_ALLOW_HOSTS) {
+      expect(VELLUM_ALLOW_HOSTS).toContain(host);
     }
   });
 

@@ -5,6 +5,10 @@ import { describe, expect, test } from "bun:test";
 
 import type { AgentEvent } from "../adapter";
 import { VellumAgent, normalizeVellumEventStream } from "../adapters/vellum";
+import {
+  DEFAULT_EMBEDDING_ALLOW_HOSTS,
+  VELLUM_ALLOW_HOSTS,
+} from "../egress/docker-jail";
 import { runArtifacts } from "../metrics";
 import type { Profile } from "../profile";
 import type {
@@ -152,6 +156,16 @@ describe("VellumAgent", () => {
     expect(runner.runs[4].args).toContain("NET_ADMIN");
     expect(runner.runs[4].args).toContain("evals.vellum.ai/egress-recording=1");
     expect(runner.runs[4].args).toContain("-p");
+    // The Vellum jail allowlists the on-device embedder's npm/HuggingFace
+    // download hosts on top of the model-provider baseline, so dense memory
+    // recall can initialize inside the fail-closed jail.
+    const allowHostsArg = runner.runs[4].args.find((arg) =>
+      arg.startsWith("ALLOW_HOSTS="),
+    );
+    expect(allowHostsArg).toBe(`ALLOW_HOSTS=${VELLUM_ALLOW_HOSTS.join(",")}`);
+    for (const host of DEFAULT_EMBEDDING_ALLOW_HOSTS) {
+      expect(allowHostsArg).toContain(host);
+    }
 
     // hatch comes AFTER the jail and joins the assistant/gateway/CES
     // into the jail's namespace, trusting its CA from process start.
