@@ -1,3 +1,6 @@
+import { Calendar } from "lucide-react";
+
+import { HomeEmptyState } from "@/domains/home/components/home-empty-state";
 import { HomeScheduleRow } from "@/domains/home/components/home-schedule-row";
 import { Notice } from "@vellumai/design-library/components/notice";
 
@@ -73,9 +76,11 @@ export function HomeSchedulesPanel({
 
     if (recurring.length === 0 && oneTime.length === 0) {
       return (
-        <p className="text-body-small-default text-[var(--content-tertiary)]">
-          No schedules yet
-        </p>
+        <HomeEmptyState
+          icon={Calendar}
+          title="No schedules yet"
+          description="Tasks your assistant runs for you on a schedule will appear here."
+        />
       );
     }
 
