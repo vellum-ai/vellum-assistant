@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import {
   fetchSchedules,
@@ -36,6 +36,9 @@ export function useHomeSchedulesData(
   assistantId: string | undefined,
 ): HomeSchedulesData {
   const tz = useEffectiveTimezone();
+  // Stable per-mount timestamp for grouping one-time schedules (calling
+  // Date.now() directly during render is impure). Matches the Settings page.
+  const [now] = useState(() => Date.now());
 
   const {
     data: schedules,
@@ -56,12 +59,12 @@ export function useHomeSchedulesData(
   } = useQuery(scheduleUsageSummaryQueryOptions(assistantId, tz, true));
 
   const { recurring, oneTime } = useMemo(() => {
-    const grouped = groupSchedules(schedules ?? [], Date.now());
+    const grouped = groupSchedules(schedules ?? [], now);
     return {
       recurring: grouped.recurring,
       oneTime: [...grouped.upcomingOneTime, ...grouped.pastOneTime],
     };
-  }, [schedules]);
+  }, [now, schedules]);
 
   const usageSummaryByScheduleId = useMemo(
     () =>
