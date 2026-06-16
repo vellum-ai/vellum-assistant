@@ -19,11 +19,17 @@ type CallSiteDefaultConfig = {
 export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   mainAgent: { profile: "balanced" },
   subagentSpawn: { profile: "balanced" },
-  // Bare on purpose: all advisor tuning (model, effort, thinking, the 2048
-  // output cap) lives in the managed `advisor` profile so the profile stays
-  // the single, user-editable source of truth. Re-setting maxTokens/effort
-  // here would sit ABOVE the resolved profile and silently override a user who
-  // edits the advisor profile.
+  // Bare on purpose, for two reasons:
+  //  1. All advisor tuning (model, effort, thinking, the 2048 output cap) lives
+  //     in the managed `advisor` profile so the profile stays the single,
+  //     user-editable source of truth. Re-setting maxTokens/effort here would
+  //     sit ABOVE the resolved profile and silently override a user who edits it.
+  //  2. Routing through this default (rather than a seeded `llm.callSites.advisor`
+  //     entry) keeps the resolver's `custom-*` fallback: on BYOK installs where
+  //     the managed `advisor` profile is disabled, the advisor call site falls
+  //     back to the user's `custom-advisor` profile. The advisor is always
+  //     resolved WITHOUT an `overrideProfile`, so the call-site layer still pins
+  //     the advisor profile above `activeProfile`.
   advisor: { profile: "advisor" },
   compactionAgent: { profile: "balanced" },
   analyzeConversation: { profile: "balanced" },

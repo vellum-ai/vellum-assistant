@@ -923,7 +923,7 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.effort).toBe("max");
   });
 
-  test("advisor call site resolves its own profile independent of activeProfile and overrideProfile", () => {
+  test("advisor call site resolves the advisor profile via CALL_SITE_DEFAULTS, above activeProfile", () => {
     const llm = LLMSchema.parse({
       default: fullDefault,
       profiles: {
@@ -931,27 +931,49 @@ describe("resolveCallSiteConfig", () => {
         balanced: { model: "claude-haiku-4-5-20251001" },
       },
       activeProfile: "balanced",
-      // `seedInferenceProfiles` seeds this on disk in production. A bare
-      // `CALL_SITE_DEFAULTS.advisor` would have its `profile` stripped under an
-      // `overrideProfile`, so the seeded call-site entry is what pins the
-      // advisor profile above both activeProfile and overrideProfile.
-      callSites: { advisor: { profile: "advisor" } },
+      // No `callSites.advisor` is seeded in production: the bare
+      // `CALL_SITE_DEFAULTS.advisor` routes through `effectiveDefault`, which
+      // pins the advisor profile above `activeProfile` (the call-site layer) AND
+      // preserves the `custom-*` BYOK fallback below. The advisor is always
+      // resolved WITHOUT an overrideProfile (the toggle gate and executor both
+      // resolve it with no per-conversation override), so the call-site layer
+      // wins without an explicit `callSites.advisor` entry.
+      callSites: {},
     });
 
-    // The seeded `advisor` call site pins the `advisor` profile, so the advisor
-    // model wins even though the workspace's active (and lower-tier) profile is
-    // `balanced`.
     const resolved = resolveCallSiteConfig("advisor", llm);
     expect(resolved.model).toBe("claude-opus-4-8");
-    // maxTokens is sourced from the profile, since the call-site entry is bare.
+    // maxTokens is sourced from the profile, since the call-site default is bare.
     expect(resolved.maxTokens).toBe(2048);
+  });
 
-    // A per-turn executor override (the chat profile) must not bleed into the
-    // advisor call site — it still resolves the advisor profile's model.
-    expect(
-      resolveCallSiteConfig("advisor", llm, { overrideProfile: "balanced" })
-        .model,
-    ).toBe("claude-opus-4-8");
+  test("advisor call site falls back to custom-advisor on BYOK when the managed advisor profile is disabled", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        // Managed advisor profile materialized but disabled (BYOK hatch).
+        advisor: {
+          model: "claude-opus-4-8",
+          maxTokens: 2048,
+          status: "disabled",
+        },
+        // The user's personal BYOK advisor profile.
+        "custom-advisor": {
+          model: "claude-opus-4-8",
+          maxTokens: 2048,
+          provider_connection: "my-anthropic",
+        },
+      },
+      callSites: {},
+    });
+
+    // `effectiveDefault` sees `advisor` disabled and falls back to
+    // `custom-advisor`, so the advisor call site resolves the user's personal
+    // connection — NOT the disabled managed route. Seeding `callSites.advisor`
+    // would have bypassed this fallback (see CALL_SITE_DEFAULTS comment).
+    const resolved = resolveCallSiteConfig("advisor", llm);
+    expect(resolved.model).toBe("claude-opus-4-8");
+    expect(resolved.provider_connection).toBe("my-anthropic");
   });
 
   test("profile with provider but no provider_connection inherits stale default connection (JARVIS-861)", () => {

@@ -433,20 +433,16 @@ export function seedInferenceProfiles(
     }
   }
 
-  // Pin the advisor call-site to the advisor profile so the advisor tool's
-  // model stays independent of the user's active or per-conversation chat
-  // profile. Seeded here rather than via a workspace migration because
-  // migrations run before profile seeding, so a migration could not yet
-  // reference the advisor profile. Only set when absent so user edits to
-  // `llm.callSites.advisor` survive subsequent boots.
-  const callSites = readObject(llm.callSites) ?? {};
-  if (
-    readObject(callSites.advisor) === null &&
-    readString(readObject(profiles.advisor)?.model) !== undefined
-  ) {
-    callSites.advisor = { profile: "advisor" };
-    llm.callSites = callSites;
-  }
+  // NB: do NOT seed `llm.callSites.advisor` here. The advisor call site
+  // resolves through `CALL_SITE_DEFAULTS.advisor` (a bare `{ profile: "advisor" }`),
+  // which routes via `effectiveDefault` and so inherits the `custom-*` fallback:
+  // on BYOK installs where the managed `advisor` profile is disabled, the
+  // advisor call site correctly falls back to the user's `custom-advisor`
+  // profile. Seeding `llm.callSites.advisor` would bypass that fallback and pin
+  // BYOK users to the disabled managed route. The advisor is always resolved
+  // WITHOUT an `overrideProfile` (both the toggle gate and the executor resolve
+  // it with no per-conversation override), so the call-site layer already pins
+  // the advisor profile above `activeProfile` without an explicit entry.
 
   saveRawConfig(config);
 }
