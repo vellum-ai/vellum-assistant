@@ -279,11 +279,21 @@
   min-width: 0;
   position: relative;
   overflow: hidden;
-  padding: 40px 40px 40px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Reserve the top header band so the video always sits below the centered
+     logo — prevents the two from overlapping when the window gets short. */
+  padding: 88px 40px 40px 0;
 }
 .signup__video {
   width: 100%;
   height: 100%;
+  /* Cap the rendered box so the 1920x1080 source isn't upscaled past native
+     (avoids pixelation on retina). At 960x540 CSS px the source maps ~1:1 to
+     device pixels on a 2x display. 16:9 box keeps cover from cropping. */
+  max-width: 960px;
+  max-height: 540px;
   object-fit: cover;
   border-radius: var(--radius-xl);
 }

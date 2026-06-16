@@ -3,7 +3,7 @@ import { Link } from "react-router";
 
 import { AppleLogo } from "@/components/icons/apple-logo";
 import { GoogleLogo } from "@/components/icons/google-logo";
-import { PersonalPageShell } from "@/domains/account/components/personal-page-shell";
+import { SignupShell } from "@/domains/account/components/signup-shell";
 import { RotatingWord } from "@/domains/account/components/rotating-word";
 import {
   PROVIDER_ID,
@@ -51,7 +51,7 @@ const BUTTONS: ProviderButton[] = [
   { icon: EmailIcon, label: "Continue with Email" },
 ];
 
-interface PersonalPageSignupScreenProps {
+interface SignupScreenProps {
   returnTo: string | null;
 }
 
@@ -61,9 +61,9 @@ interface PersonalPageSignupScreenProps {
  * to the real WorkOS `startAuthFlow` (`intent: "signup"`); the post-OAuth
  * name/occupation step lives in `ProviderSignupPage`.
  */
-export function PersonalPageSignupScreen({
+export function SignupScreen({
   returnTo,
-}: PersonalPageSignupScreenProps) {
+}: SignupScreenProps) {
   const [error, setError] = useState<string | null>(null);
   const callbackUrl = buildProviderCallbackUrl(returnTo, {
     authIntent: "signup",
@@ -92,9 +92,9 @@ export function PersonalPageSignupScreen({
   };
 
   return (
-    <PersonalPageShell>
+    <SignupShell>
       <h1 className="signup__title">
-        Meet your own
+        Meet your new
         <br />
         <RotatingWord words={HEADLINE_WORDS} />
       </h1>
@@ -131,6 +131,6 @@ export function PersonalPageSignupScreen({
         <AppleLogo size={16} />
         Download for macOS
       </a>
-    </PersonalPageShell>
+    </SignupShell>
   );
 }
