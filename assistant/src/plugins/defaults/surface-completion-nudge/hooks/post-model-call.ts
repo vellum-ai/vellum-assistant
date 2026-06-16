@@ -216,6 +216,10 @@ function hasDanglingProgressSurface(messages: ReadonlyArray<Message>): boolean {
     }
     if (message.role !== "user") continue;
     for (const block of message.content) {
+      // guard:allow-tool-result-only — only the local tool executor's
+      // `tool_result` carries a `ui_show` `surfaceId` to correlate. A
+      // `web_search_tool_result` comes from a `server_tool_use`, never a
+      // `ui_show`, so it can never match a pending show and is correctly skipped.
       if (block.type !== "tool_result") continue;
       if (!pendingShows.has(block.tool_use_id)) continue;
       const initialStatus = pendingShows.get(block.tool_use_id);
