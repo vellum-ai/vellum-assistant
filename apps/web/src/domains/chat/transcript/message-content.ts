@@ -180,6 +180,25 @@ export function groupContentBlocks(
 }
 
 /**
+ * Non-empty reasoning strings for an activity group's items, in order. The
+ * single source of truth for how a group's thinking is projected to text:
+ * `SingleActivity` joins the whole array (one combined "Thought process"), and
+ * the live thinking drawer indexes into it (the Nth `MultiActivityGroup`
+ * thinking pill). Keeping both on this helper means the inline affordance and
+ * the drawer can never show different reasoning for the same group.
+ */
+export function activityThinkingTexts(
+  items: ContentBlockActivityItem[],
+): string[] {
+  return items
+    .filter(
+      (i): i is ConversationThinkingBlock =>
+        i.type === "thinking" && Boolean(i.thinking),
+    )
+    .map((i) => i.thinking);
+}
+
+/**
  * UI surface tools are rendered by the inline surface widget, not as tool-call
  * chips — unless they carry a pending confirmation, in which case the chip must
  * render so the inline confirmation card is visible.

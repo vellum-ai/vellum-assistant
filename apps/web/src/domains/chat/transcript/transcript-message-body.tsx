@@ -21,6 +21,7 @@ import {
   type ToolCallCardItem,
 } from "@/domains/chat/utils/tool-call-card-utils";
 import {
+  activityThinkingTexts,
   type ContentBlockActivityItem,
   groupContentBlocks,
   isSubagentSpawnCall,
@@ -219,15 +220,14 @@ export function TranscriptMessageBody({
   const renderActivityGroup = (
     items: ContentBlockActivityItem[],
     key: string,
+    groupIndex: number,
     isLastGroup: boolean,
   ): ReactNode => {
     const cardItems: ToolCallCardItem[] = [];
     const groupToolCalls: ChatMessageToolCall[] = [];
-    const thinkingContents: string[] = [];
     for (const item of items) {
       if (item.type === "thinking") {
         if (item.thinking) {
-          thinkingContents.push(item.thinking);
           cardItems.push({
             kind: "thinking",
             text: item.thinking,
@@ -270,6 +270,8 @@ export function TranscriptMessageBody({
             <MultiActivityGroup
               toolCalls={groupToolCalls}
               items={cardItems}
+              messageId={message.id}
+              groupIndex={groupIndex}
               onOpenRuleEditor={onOpenRuleEditor}
               onConfirmationSubmit={onConfirmationSubmit}
               onAllowAndCreateRule={onAllowAndCreateRule}
@@ -284,7 +286,7 @@ export function TranscriptMessageBody({
     // No renderable tool call — render the combined thinking as a minimal
     // inline thinking `SingleActivity`, plus any spawn cards. A trailing run
     // reads as still-streaming only while the row is live.
-    const combinedThinking = thinkingContents.join("\n");
+    const combinedThinking = activityThinkingTexts(items).join("\n");
     const showThinking = combinedThinking || (isStreaming && isLastGroup);
     return (
       <Fragment key={key}>
@@ -293,6 +295,8 @@ export function TranscriptMessageBody({
             variant="thinking"
             content={combinedThinking}
             isStreaming={isStreaming && isLastGroup}
+            messageId={message.id}
+            groupIndex={groupIndex}
           />
         )}
         {renderInlineSubagentCards(groupToolCalls)}
@@ -365,7 +369,12 @@ export function TranscriptMessageBody({
     if (group.type === "surface") {
       return renderSurfaceNode(group.surface, `b-surface-${gi}`);
     }
-    return renderActivityGroup(group.items, `b-activity-${gi}`, gi === lastGroupIndex);
+    return renderActivityGroup(
+      group.items,
+      `b-activity-${gi}`,
+      gi,
+      gi === lastGroupIndex,
+    );
   };
 
   const wrapperClass = `group/msg flex ${isUser ? "justify-end" : "justify-start"}`;

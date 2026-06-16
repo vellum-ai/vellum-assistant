@@ -23,7 +23,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type Ref, type ReactNode } from "react";
 
 import { Button, Typography } from "@vellumai/design-library";
 
@@ -34,6 +34,11 @@ import {
     deriveStepLabelFromName,
     type IconName,
 } from "@/domains/chat/components/tool-progress-card/derive-step-label";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import {
+  activityThinkingTexts,
+  groupContentBlocks,
+} from "@/domains/chat/transcript/message-content";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 /**
@@ -126,12 +131,15 @@ function DetailShell({
   headerTrailing,
   onClose,
   children,
+  bodyRef,
 }: {
   Glyph: LucideIcon;
   title: string;
   headerTrailing?: ReactNode;
   onClose: () => void;
   children: ReactNode;
+  /** Ref to the scrollable body, so callers can drive auto-scroll. */
+  bodyRef?: Ref<HTMLDivElement>;
 }) {
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
@@ -163,8 +171,93 @@ function DetailShell({
       </div>
 
       {/* Scrollable body */}
-      <div className="flex-1 overflow-y-auto px-5 py-5">{children}</div>
+      <div ref={bodyRef} className="flex-1 overflow-y-auto px-5 py-5">
+        {children}
+      </div>
     </div>
+  );
+}
+
+/**
+ * Live reasoning text for a thinking payload. Re-derives the text from the
+ * source message's `contentBlocks` on every store change so the drawer streams
+ * in place as `assistant_thinking_delta` events land — keyed by the message +
+ * group (+ item) address the pill captured, never a frozen string. Falls back
+ * to the `thinkingText` snapshot when the source message is no longer in the
+ * store (e.g. after a conversation switch).
+ */
+function useLiveThinkingText(detail: ToolDetailPayload): string {
+  return useChatSessionStore((s) => {
+    const fallback = detail.thinkingText ?? "";
+    const id = detail.thinkingMessageId;
+    if (id == null) return fallback;
+    const message = s.messages.find((m) => m.id === id);
+    if (!message) return fallback;
+    const groups = groupContentBlocks(message.contentBlocks ?? [], {
+      splitInlineThinking: message.role !== "user",
+    });
+    const group = groups[detail.thinkingGroupIndex ?? -1];
+    if (!group || group.type !== "activity") return fallback;
+    const texts = activityThinkingTexts(group.items);
+    if (detail.thinkingItemIndex != null) {
+      return texts[detail.thinkingItemIndex] ?? fallback;
+    }
+    return texts.length > 0 ? texts.join("\n") : fallback;
+  });
+}
+
+/**
+ * Reasoning view of the detail drawer. Streams live thinking
+ * ({@link useLiveThinkingText}) and keeps the latest text in view while it
+ * grows, unless the user has scrolled up to read earlier reasoning.
+ */
+function ThinkingDetail({
+  detail,
+  onClose,
+}: {
+  detail: ToolDetailPayload;
+  onClose: () => void;
+}) {
+  const text = useLiveThinkingText(detail);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  // Whether to pin to the bottom as new reasoning streams in. Starts pinned;
+  // toggled by the user's own scrolling.
+  const stickToBottom = useRef(true);
+  // Previous text, to scroll only when reasoning GROWS. `null` until the first
+  // effect run so opening a completed thought starts at the top, not pinned to
+  // the bottom.
+  const prevText = useRef<string | null>(null);
+
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      stickToBottom.current =
+        el.scrollHeight - el.scrollTop - el.clientHeight < 32;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    const el = bodyRef.current;
+    const prev = prevText.current;
+    prevText.current = text;
+    if (prev === null) return;
+    if (el && stickToBottom.current && text.length > prev.length) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [text]);
+
+  return (
+    <DetailShell
+      Glyph={Brain}
+      title={detail.title}
+      onClose={onClose}
+      bodyRef={bodyRef}
+    >
+      <ChatMarkdownMessage content={text} hardLineBreaks />
+    </DetailShell>
   );
 }
 
@@ -180,11 +273,7 @@ export function ToolDetailPanel({
   // Thinking variant — reuse the same shell/header but render the full
   // reasoning markdown with no input/output sections and no risk badge.
   if (detail.kind === "thinking") {
-    return (
-      <DetailShell Glyph={Brain} title={detail.title} onClose={onClose}>
-        <ChatMarkdownMessage content={detail.thinkingText ?? ""} hardLineBreaks />
-      </DetailShell>
-    );
+    return <ThinkingDetail detail={detail} onClose={onClose} />;
   }
 
   const { iconName } = deriveStepLabelFromName(detail.toolName, detail.input);

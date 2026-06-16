@@ -135,10 +135,27 @@ export interface ToolDetailPayload {
   /**
    * Variant discriminator. Absent or `"tool"` → the standard tool-call detail
    * view (technical details + output). `"thinking"` → the reasoning view that
-   * renders `thinkingText` as markdown with no input/output sections.
+   * renders live reasoning markdown with no input/output sections.
    */
   kind?: "tool" | "thinking";
-  /** Full reasoning markdown rendered when `kind === "thinking"`. */
+  /**
+   * Source address of the reasoning shown in the `kind === "thinking"` view.
+   * The panel re-derives the live text from this message's `contentBlocks` so
+   * the drawer streams in place instead of freezing a snapshot. `thinkingText`
+   * is the snapshot captured at open time, kept only as a fallback for when the
+   * source message is no longer in the store (e.g. after a conversation switch).
+   */
+  thinkingMessageId?: string;
+  /** Index into `groupContentBlocks(message)` of the reasoning's activity group. */
+  thinkingGroupIndex?: number;
+  /**
+   * Index into the group's non-empty thinking items
+   * ({@link activityThinkingTexts}) for a single reasoning run (a
+   * `MultiActivityGroup` pill). Absent → the whole group's combined reasoning
+   * (the `SingleActivity` "Thought process" link).
+   */
+  thinkingItemIndex?: number;
+  /** Snapshot fallback rendered when the source message can't be resolved. */
   thinkingText?: string;
 }
 
@@ -379,7 +396,9 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       active != null &&
       (payload.kind === "thinking"
         ? active.kind === "thinking" &&
-          active.thinkingText === payload.thinkingText
+          active.thinkingMessageId === payload.thinkingMessageId &&
+          active.thinkingGroupIndex === payload.thinkingGroupIndex &&
+          active.thinkingItemIndex === payload.thinkingItemIndex
         : active.kind !== "thinking" &&
           active.toolCallId === payload.toolCallId);
     if (isSameTarget) {

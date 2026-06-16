@@ -62,6 +62,13 @@ export type ToolCallCardStep =
       startedAt?: number;
       /** Epoch-ms end of the reasoning run, when known. */
       completedAt?: number;
+      /**
+       * Index of this run among the group's genuine thinking items, so a pill
+       * can address its live source for the streaming drawer. Present only for
+       * steps built from real reasoning items — web-tool-synthesized "Reading …"
+       * thinking steps have no reasoning source and omit it.
+       */
+      thinkingItemIndex?: number;
     }
   | {
       kind: "web_search";
@@ -764,6 +771,10 @@ export function computeToolCallCardDataFromItems(
   // flowing through the tool/web header derivation, so we don't promote them
   // to a "Thinking" header.
   let trailingThinkingText: string | null = null;
+  // Ordinal of the current genuine thinking item, matching the panel's
+  // `activityThinkingTexts(group.items)` indexing so a pill addresses the right
+  // live reasoning run.
+  let thinkingItemIndex = 0;
   for (const item of items) {
     if (item.kind === "thinking") {
       if (item.text) {
@@ -773,6 +784,7 @@ export function computeToolCallCardDataFromItems(
           text: item.text,
           startedAt: item.startedAt,
           completedAt: item.completedAt,
+          thinkingItemIndex: thinkingItemIndex++,
         });
         trailingThinkingText = item.text;
       }

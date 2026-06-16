@@ -93,6 +93,13 @@ export interface MultiActivityGroupProps {
    * ordered list here.
    */
   items?: ToolCallCardItem[];
+  /**
+   * Source address of the group so a thinking pill can re-derive its live
+   * reasoning from the message for the streaming drawer instead of freezing a
+   * snapshot. `groupIndex` is the index into `groupContentBlocks(message)`.
+   */
+  messageId?: string;
+  groupIndex?: number;
 }
 
 /**
@@ -345,6 +352,8 @@ function UnifiedMultiActivityGroup({
   onOpenRuleEditor,
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
+  messageId,
+  groupIndex,
 }: MultiActivityGroupProps & {
   cardData: ToolCallCardData;
   expanded: boolean;
@@ -467,9 +476,19 @@ function UnifiedMultiActivityGroup({
             // Thinking steps render as a clickable, brain-branded pill that
             // opens the full reasoning in the shared tool-detail drawer.
             if (step.kind === "thinking") {
-              const active =
-                activeDetail?.kind === "thinking" &&
-                activeDetail.thinkingText === step.text;
+              // Genuine reasoning steps carry a `thinkingItemIndex` so the
+              // drawer can stream their live source; web-synthesized "Reading …"
+              // thinking steps omit it and fall back to the static snapshot.
+              const liveAddressed =
+                messageId != null && step.thinkingItemIndex != null;
+              const active = liveAddressed
+                ? activeDetail?.kind === "thinking" &&
+                  activeDetail.thinkingMessageId === messageId &&
+                  activeDetail.thinkingGroupIndex === groupIndex &&
+                  activeDetail.thinkingItemIndex === step.thinkingItemIndex
+                : activeDetail?.kind === "thinking" &&
+                  activeDetail.thinkingMessageId === undefined &&
+                  activeDetail.thinkingText === step.text;
               return (
                 <ToolStepPill
                   iconName="brain"
@@ -491,6 +510,13 @@ function UnifiedMultiActivityGroup({
                       activity: "",
                       input: {},
                       status: "completed",
+                      ...(liveAddressed
+                        ? {
+                            thinkingMessageId: messageId,
+                            thinkingGroupIndex: groupIndex,
+                            thinkingItemIndex: step.thinkingItemIndex,
+                          }
+                        : {}),
                       thinkingText: step.text,
                     });
                   }}

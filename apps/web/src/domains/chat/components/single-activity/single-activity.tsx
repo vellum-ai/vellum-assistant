@@ -67,6 +67,13 @@ export type SingleActivityProps =
       content: string;
       /** Whether the reasoning is still streaming in (drives the glyph + label). */
       isStreaming?: boolean;
+      /**
+       * Source address of the reasoning so the drawer can re-derive it live from
+       * the message instead of freezing `content` at open time. The whole
+       * group's combined reasoning (no item index).
+       */
+      messageId?: string;
+      groupIndex?: number;
     }
   | {
       variant: "tool";
@@ -211,7 +218,7 @@ export function SingleActivity(props: SingleActivityProps) {
   let view: ResolvedView;
 
   if (props.variant === "thinking") {
-    const { content, isStreaming = false } = props;
+    const { content, isStreaming = false, messageId, groupIndex } = props;
     // While streaming, render even before any reasoning text has landed so this
     // link can be the single thinking affordance from the start of the turn.
     // Once settled, an empty thought process has nothing to show, so collapse it.
@@ -229,11 +236,14 @@ export function SingleActivity(props: SingleActivityProps) {
       ),
       label: isStreaming ? "Thinking" : "Thought process",
       tone: "default",
-      // Thinking payloads carry an empty `toolCallId`, so we match on the
-      // thinking text instead (mirrors the in-card thinking pill).
+      // Thinking payloads carry an empty `toolCallId`, so we match on the source
+      // address (message + group) instead — text identity breaks mid-stream as
+      // `content` grows past the opened snapshot.
       active:
         activeDetail?.kind === "thinking" &&
-        activeDetail.thinkingText === content,
+        activeDetail.thinkingMessageId === messageId &&
+        activeDetail.thinkingGroupIndex === groupIndex &&
+        activeDetail.thinkingItemIndex === undefined,
       onClick: () =>
         toggleToolDetail({
           kind: "thinking",
@@ -243,6 +253,8 @@ export function SingleActivity(props: SingleActivityProps) {
           activity: "",
           input: {},
           status: "completed",
+          thinkingMessageId: messageId,
+          thinkingGroupIndex: groupIndex,
           thinkingText: content,
         }),
     };

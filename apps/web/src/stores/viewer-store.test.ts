@@ -305,10 +305,14 @@ describe("toggleToolDetail", () => {
       activity: "",
       input: {},
       status: "completed",
-      thinkingText: "reasoning",
+      thinkingMessageId: "msg-1",
+      thinkingGroupIndex: 0,
+      // Text grows as reasoning streams, but the source address is unchanged —
+      // toggling the same target still closes the drawer.
+      thinkingText: "reasoning so far",
     };
     getState().openToolDetail(thinking);
-    getState().toggleToolDetail(thinking);
+    getState().toggleToolDetail({ ...thinking, thinkingText: "reasoning so far + more" });
     const state = getState();
     expect(state.mainView).toBe("chat");
     expect(state.activeToolDetail).toBeNull();
@@ -323,10 +327,16 @@ describe("toggleToolDetail", () => {
       activity: "",
       input: {},
       status: "completed",
+      thinkingMessageId: "msg-1",
+      thinkingGroupIndex: 0,
       thinkingText: "reasoning A",
     };
     getState().openToolDetail(thinking);
-    getState().toggleToolDetail({ ...thinking, thinkingText: "reasoning B" });
+    getState().toggleToolDetail({
+      ...thinking,
+      thinkingGroupIndex: 2,
+      thinkingText: "reasoning B",
+    });
     const state = getState();
     expect(state.mainView).toBe("tool-detail");
     expect(state.activeToolDetail?.thinkingText).toBe("reasoning B");

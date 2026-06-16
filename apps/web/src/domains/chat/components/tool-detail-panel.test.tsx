@@ -6,9 +6,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
 import { ToolDetailPanel } from "@/domains/chat/components/tool-detail-panel";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 const noop = () => {};
@@ -39,7 +41,18 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  act(() => {
+    useChatSessionStore.getState().setMessages([]);
+  });
 });
+
+function assistantThinkingMessage(thinking: string): DisplayMessage {
+  return {
+    id: "msg-1",
+    role: "assistant",
+    contentBlocks: [{ type: "thinking", thinking }],
+  };
+}
 
 describe("ToolDetailPanel", () => {
   test("renders the activity title, friendly tool name, input JSON and output", () => {
@@ -133,6 +146,86 @@ describe("ToolDetailPanel", () => {
     expect(queryByText("Output")).toBeNull();
     // No risk badge.
     expect(queryByText("Subagent Spawn")).toBeNull();
+  });
+
+  test("thinking variant streams live as the source message's reasoning grows", () => {
+    act(() => {
+      useChatSessionStore
+        .getState()
+        .setMessages([assistantThinkingMessage("First thought.")]);
+    });
+    const detail = makeDetail({
+      kind: "thinking",
+      title: "Thought process",
+      thinkingMessageId: "msg-1",
+      thinkingGroupIndex: 0,
+      // The snapshot is stale on purpose — the live message is the source.
+      thinkingText: "First thought.",
+    });
+    const { container } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+    expect(container.textContent ?? "").toContain("First thought.");
+
+    // A new `assistant_thinking_delta` lands: the drawer reflects it without a
+    // re-open.
+    act(() => {
+      useChatSessionStore
+        .getState()
+        .setMessages([
+          assistantThinkingMessage("First thought.\nSecond thought."),
+        ]);
+    });
+    expect(container.textContent ?? "").toContain("Second thought.");
+  });
+
+  test("thinking variant indexes a single run for a MultiActivityGroup pill", () => {
+    act(() => {
+      useChatSessionStore.getState().setMessages([
+        {
+          id: "msg-1",
+          role: "assistant",
+          // Two reasoning runs split by a tool call — the panel must show only
+          // the addressed run, not the joined group.
+          contentBlocks: [
+            { type: "thinking", thinking: "Run one." },
+            {
+              type: "tool_use",
+              toolCall: { id: "tc-1", name: "bash", input: {} },
+            },
+            { type: "thinking", thinking: "Run two." },
+          ],
+        },
+      ]);
+    });
+    const detail = makeDetail({
+      kind: "thinking",
+      title: "Thinking",
+      thinkingMessageId: "msg-1",
+      thinkingGroupIndex: 0,
+      thinkingItemIndex: 1,
+      thinkingText: "Run two.",
+    });
+    const { container } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+    const text = container.textContent ?? "";
+    expect(text).toContain("Run two.");
+    expect(text).not.toContain("Run one.");
+  });
+
+  test("thinking variant falls back to the snapshot when the message is gone", () => {
+    const detail = makeDetail({
+      kind: "thinking",
+      title: "Thought process",
+      thinkingMessageId: "missing",
+      thinkingGroupIndex: 0,
+      thinkingText: "Snapshot reasoning.",
+    });
+    const { container } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+    expect(container.textContent ?? "").toContain("Snapshot reasoning.");
   });
 
   test("thinking variant close button fires onClose", () => {
