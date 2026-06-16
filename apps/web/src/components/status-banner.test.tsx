@@ -240,7 +240,7 @@ describe("StatusBanner", () => {
     expect(html).toContain('data-placement="electron"');
     expect(html).toContain("min-h-8");
     expect(html).toContain("py-[7px]");
-    expect(html).toContain("rounded-lg");
+    expect(html).toContain("rounded-[6px]");
   });
 
   test("uses lifecycle operation assistant id when present", () => {

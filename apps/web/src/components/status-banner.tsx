@@ -98,7 +98,7 @@ const STATUS_TONE_CLASSES: Record<NoticeTone, StatusToneClasses> = {
 
 const STATUS_BANNER_PLACEMENT_CLASSES: Record<StatusBannerPlacement, string> = {
   web: "min-h-10 rounded-none px-4 py-[10px]",
-  electron: "min-h-8 rounded-lg px-2 py-[7px]",
+  electron: "min-h-8 rounded-[6px] px-2 py-[7px]",
 };
 
 export interface StatusBannerNoticeProps
