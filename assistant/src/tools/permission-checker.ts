@@ -130,19 +130,36 @@ export class PermissionChecker {
       computePreviewDiff,
     );
 
-    if (name === "bash" || name === "host_bash") {
-      const { cli } = await classifyRisk(
-        name,
-        input,
-        context.workingDir,
-        undefined,
-        undefined,
-        context.signal,
-      );
-      if (cli != null) return { ...decision, cli };
-    }
+    const cli = await this.resolveCli(name, input, context);
+    if (cli != null) return { ...decision, cli };
 
     return decision;
+  }
+
+  /**
+   * Resolve the normalized top-level CLI for a shell tool invocation (e.g.
+   * `git`), for telemetry grouping. Returns null for non-shell tools and for
+   * commands that aren't a single recognized CLI. Served from the classifyRisk
+   * cache when the command was already classified this turn.
+   *
+   * Exposed so callers that bypass the full permission check (e.g. the
+   * executor's grant-consumed path) can still attach the CLI dimension.
+   */
+  async resolveCli(
+    name: string,
+    input: Record<string, unknown>,
+    context: ToolContext,
+  ): Promise<string | null> {
+    if (name !== "bash" && name !== "host_bash") return null;
+    const { cli } = await classifyRisk(
+      name,
+      input,
+      context.workingDir,
+      undefined,
+      undefined,
+      context.signal,
+    );
+    return cli ?? null;
   }
 
   private async runPermissionCheck(

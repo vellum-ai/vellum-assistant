@@ -263,6 +263,18 @@ export class ToolExecutor {
         // so the record shows how this execution was authorized.
         permApprovalMode = "auto";
         permApprovalReason = "grant_scoped_consumed";
+        // The permission check normally supplies the CLI telemetry dimension;
+        // resolve it directly (best-effort) so grant-consumed shell commands
+        // still bucket by CLI instead of falling back to "other".
+        try {
+          permCli = await this.permissionChecker.resolveCli(
+            name,
+            input,
+            context,
+          );
+        } catch {
+          // Telemetry only — never let classification block a granted run.
+        }
       }
 
       // Execute the tool. Tools that forward to an external resolver
@@ -501,6 +513,7 @@ export class ToolExecutor {
         requestId: context.requestId,
         riskLevel,
         matchedTrustRuleId: permMatchedTrustRuleId,
+        cli: permCli,
         decision: "error",
         durationMs,
         errorMessage: msg,
