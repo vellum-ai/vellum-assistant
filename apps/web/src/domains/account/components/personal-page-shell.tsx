@@ -6,10 +6,10 @@ import { publicAsset } from "@/utils/public-asset";
 import "@/domains/account/components/personal-page-signup.css";
 
 /**
- * Two-column activation-flow shell ported from the cast prototype: brand + form
- * on the left, a full-bleed looping product video on the right (hidden under
- * 768px). Used by both the sign-up screen and the post-OAuth name/occupation
- * step so the experience stays visually consistent across the flow.
+ * Two-column sign-up shell: brand + form on the left, a full-bleed looping
+ * product video on the right (hidden under 768px). Used by both the sign-up
+ * screen and the post-OAuth name/occupation step so the experience stays
+ * visually consistent across the flow.
  */
 export function PersonalPageShell({ children }: { children: ReactNode }) {
   return (
@@ -19,13 +19,13 @@ export function PersonalPageShell({ children }: { children: ReactNode }) {
     // read correctly even when the app is in light mode.
     <motion.div
       data-theme="dark"
-      className="cast-login"
+      className="signup"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
     >
-      <div className="cast-login__left">
-        <div className="cast-login__logo">
+      <div className="signup__left">
+        <div className="signup__logo">
           <img
             src={publicAsset("/vellum-logo-white.svg")}
             alt="Vellum"
@@ -33,18 +33,18 @@ export function PersonalPageShell({ children }: { children: ReactNode }) {
             height={25}
           />
         </div>
-        <div className="cast-login__form">{children}</div>
+        <div className="signup__form">{children}</div>
       </div>
 
       <motion.div
-        className="cast-login__right"
+        className="signup__right"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.6, delay: 0.15 }}
         aria-hidden
       >
         <video
-          className="cast-login__video"
+          className="signup__video"
           src={publicAsset("/vellum-scene-cut.mp4")}
           autoPlay
           loop

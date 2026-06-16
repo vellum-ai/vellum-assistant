@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { Link } from "react-router";
 
 import { AppleLogo } from "@/components/icons/apple-logo";
@@ -9,7 +9,8 @@ import {
   PROVIDER_ID,
   buildProviderCallbackUrl,
 } from "@/domains/account/login-flow";
-import { startAuthFlow } from "@/runtime/native-auth";
+import { isElectron } from "@/runtime/is-electron";
+import { isNativePlatform, startAuthFlow } from "@/runtime/native-auth";
 import { routes } from "@/utils/routes";
 
 const HEADLINE_WORDS = [
@@ -52,78 +53,81 @@ const BUTTONS: ProviderButton[] = [
 
 interface PersonalPageSignupScreenProps {
   returnTo: string | null;
-  /** Surfaces an auth-flow failure to the host page. */
-  onError?: (message: string) => void;
 }
 
 /**
- * Personal-page activation sign-up screen, matching the cast prototype demo: a
- * brand-left / full-bleed-video-right layout with a rotating headline and
- * Google / Apple / Email buttons. Unlike the prototype's mock buttons, each
- * hands off to the real WorkOS `startAuthFlow` (`intent: "signup"`); the
- * post-OAuth name/occupation step lives in `ProviderSignupPage` (same flag).
+ * Branded sign-up screen: a brand-left / full-bleed-video-right layout with a
+ * rotating headline and Google / Apple / Email buttons. Each button hands off
+ * to the real WorkOS `startAuthFlow` (`intent: "signup"`); the post-OAuth
+ * name/occupation step lives in `ProviderSignupPage`.
  */
 export function PersonalPageSignupScreen({
   returnTo,
-  onError,
 }: PersonalPageSignupScreenProps) {
+  const [error, setError] = useState<string | null>(null);
   const callbackUrl = buildProviderCallbackUrl(returnTo, {
     authIntent: "signup",
   });
 
   const start = (providerHint?: string) => {
-    // A direct provider hint (Apple/Google) goes straight to the social
-    // connection — match the proven /account/login wiring and do NOT also send
-    // the signup `intent` (WorkOS rejects a sign-up screen_hint combined with a
-    // direct provider redirect → error.workos.com/sso). Email (no hint) keeps
-    // `intent: "signup"` so AuthKit shows its hosted sign-up screen. Either way
-    // the post-OAuth routing to the name/occupation step is driven by
-    // `authIntent=signup` in `callbackUrl`, and a first-time social login still
-    // triggers the provider-signup flow.
+    setError(null);
+    // On WEB, a direct provider hint (Apple/Google) goes straight to the social
+    // connection and must NOT also send the signup `intent` — WorkOS hosted
+    // AuthKit rejects a sign-up screen_hint combined with a direct provider
+    // redirect (error.workos.com/sso); post-OAuth signup routing is driven by
+    // `authIntent=signup` in `callbackUrl` instead. Native (Capacitor) and
+    // Electron, however, pick the signup destination from `options.intent`, not
+    // the callback URL, so they must send `intent` even alongside a provider
+    // hint or the user lands in the login destination. Email (no hint) always
+    // sends `intent` so AuthKit shows its hosted sign-up screen.
+    const omitIntent = !!providerHint && !isNativePlatform() && !isElectron();
     startAuthFlow(PROVIDER_ID, callbackUrl, {
       returnTo,
-      ...(providerHint ? { providerHint } : { intent: "signup" }),
+      ...(providerHint ? { providerHint } : {}),
+      ...(omitIntent ? {} : { intent: "signup" }),
     }).catch((err) => {
       console.error("[signup] auth flow failed:", err);
-      onError?.("Something went wrong. Please try again.");
+      setError("Something went wrong. Please try again.");
     });
   };
 
   return (
     <PersonalPageShell>
-      <h1 className="cast-login__title">
+      <h1 className="signup__title">
         Meet your own
         <br />
         <RotatingWord words={HEADLINE_WORDS} />
       </h1>
-      <p className="cast-login__subtitle">
+      <p className="signup__subtitle">
         The most powerful assistant that can handle your work and life admin
         tasks.
       </p>
 
-      <div className="cast-login__buttons">
+      <div className="signup__buttons">
         {BUTTONS.map((btn, i) => (
           <button
             key={btn.label}
             type="button"
-            className="cast-login__btn"
+            className="signup__btn"
             onClick={() => start(btn.providerHint)}
           >
-            {i === 0 && <span className="cast-login__tag">Most used</span>}
+            {i === 0 && <span className="signup__tag">Most used</span>}
             {btn.icon}
             {btn.label}
           </button>
         ))}
       </div>
 
-      <p className="cast-login__footer">
+      {error && <p className="signup__error">{error}</p>}
+
+      <p className="signup__footer">
         Already have an account?{" "}
-        <Link to={routes.account.login} className="cast-login__link">
+        <Link to={routes.account.login} className="signup__link">
           Sign in
         </Link>
       </p>
 
-      <a className="cast-login__download" href="/downloads">
+      <a className="signup__download" href="/downloads">
         <AppleLogo size={16} />
         Download for macOS
       </a>
