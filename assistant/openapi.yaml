@@ -19584,9 +19584,12 @@ paths:
         mirroring `plugins install`''s curation boundary. A no-op (`outcome: "already-up-to-date"`) when the installed
         commit already equals the pin; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching
         the install. Installs lacking provenance are re-pinned to the current SHA. The assistant must be restarted to
-        load the upgraded code. This does not gate on local edits — callers should consult `GET
-        /v1/plugins/:name/inspect` (`local.localChanges`) first and confirm before overwriting. Mirrors the CLI''s
-        `assistant plugins upgrade <name>`.'
+        load the upgraded code. `strategy` controls how local edits are reconciled: `overwrite` (default) discards them
+        and re-installs the pin wholesale; `ours`/`theirs` perform a three-way merge against the re-materialized install
+        commit, carrying non-conflicting edits from both sides forward and resolving conflicting hunks toward the local
+        edit or the pin respectively; `assistant` is not yet supported (400). A merge strategy whose install-time
+        baseline cannot be reconstructed returns 409. Mirrors the CLI''s `assistant plugins upgrade <name> [--strategy
+        <s>]`.'
       tags:
         - plugins
       parameters:
@@ -19605,6 +19608,17 @@ paths:
                 dryRun:
                   description: Report what would change without modifying the install. Defaults to false.
                   type: boolean
+                strategy:
+                  description:
+                    How to reconcile local edits with the pin. `overwrite` (default) discards local edits and re-installs the
+                    pin; `ours`/`theirs` three-way merge, resolving conflicting hunks toward the local edit or the pin
+                    respectively; `assistant` is not yet supported.
+                  type: string
+                  enum:
+                    - ours
+                    - theirs
+                    - overwrite
+                    - assistant
       responses:
         "200":
           description: Successful response
@@ -19656,6 +19670,14 @@ paths:
                   dryRun:
                     type: boolean
                     description: Whether this was a dry run (no changes made).
+                  strategy:
+                    type: string
+                    enum:
+                      - ours
+                      - theirs
+                      - overwrite
+                      - assistant
+                    description: Conflict-resolution strategy the upgrade applied.
                   provenanceWasUnknown:
                     type: boolean
                     description:
@@ -19671,14 +19693,19 @@ paths:
                   - target
                   - fileCount
                   - dryRun
+                  - strategy
                   - provenanceWasUnknown
                 additionalProperties: false
         "400":
-          description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
+          description:
+            The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters), or the
+            `assistant` strategy was requested (not yet supported).
         "404":
           description: No copy of the plugin is installed, or its source resolves to nothing.
         "409":
-          description: The install exists but has no marketplace entry to advance to.
+          description:
+            The install exists but has no marketplace entry to advance to, or a merge strategy was requested whose
+            install-time baseline cannot be reconstructed.
         "503":
           description: The plugin source (GitHub) was temporarily unavailable; the upgrade is retryable.
   /v1/plugins/install:
