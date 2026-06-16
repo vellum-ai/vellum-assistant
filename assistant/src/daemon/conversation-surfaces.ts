@@ -180,6 +180,18 @@ export function flushSurfaceDataPersist(surfaceId: string): void {
 }
 
 /**
+ * Discard (without writing) any pending debounced persist for `surfaceId`.
+ * Called on dismissal so an in-flight `ui_update` snapshot cannot land after
+ * the surface block has been removed.
+ */
+export function cancelSurfaceDataPersist(surfaceId: string): void {
+  const pending = pendingSurfacePersists.get(surfaceId);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pendingSurfacePersists.delete(surfaceId);
+}
+
+/**
  * Cancel all pending debounced persists. Called on conversation
  * teardown to avoid timers firing against torn-down state.
  *
@@ -275,6 +287,60 @@ export function markSurfaceCompleted(
     }
   } catch (err) {
     log.warn({ err, surfaceId }, "Failed to persist surface completion to DB");
+  }
+}
+
+/**
+ * Remove a `ui_surface` content block from history so a passively dismissed
+ * surface does not survive a reload. The live client drops a dismissed surface
+ * entirely; this converges persisted state with that behaviour. Cancels any
+ * pending debounced data persist first so a late `ui_update` snapshot cannot
+ * re-add the block, then strips the block from in-memory messages and the DB.
+ */
+export function removeSurfaceBlock(
+  ctx: { conversationId: string; messages?: Array<{ content: unknown }> },
+  surfaceId: string,
+): void {
+  cancelSurfaceDataPersist(surfaceId);
+
+  if (ctx.messages) {
+    for (let i = ctx.messages.length - 1; i >= 0; i--) {
+      const msg = ctx.messages[i];
+      if (!Array.isArray(msg.content)) continue;
+      const idx = msg.content.findIndex((block) => {
+        const b = block as Record<string, unknown>;
+        return b.type === "ui_surface" && b.surfaceId === surfaceId;
+      });
+      if (idx !== -1) {
+        msg.content.splice(idx, 1);
+        break;
+      }
+    }
+  }
+
+  try {
+    const rows = getMessages(ctx.conversationId);
+    for (let r = rows.length - 1; r >= 0; r--) {
+      let parsed: unknown[];
+      try {
+        const result = JSON.parse(rows[r].content);
+        if (!Array.isArray(result)) continue;
+        parsed = result;
+      } catch {
+        continue;
+      }
+      const idx = parsed.findIndex((pb) => {
+        const rb = pb as Record<string, unknown>;
+        return rb.type === "ui_surface" && rb.surfaceId === surfaceId;
+      });
+      if (idx !== -1) {
+        parsed.splice(idx, 1);
+        updateMessageContent(rows[r].id, JSON.stringify(parsed));
+        return;
+      }
+    }
+  } catch (err) {
+    log.warn({ err, surfaceId }, "Failed to remove dismissed surface from DB");
   }
 }
 const TASK_PROGRESS_TEMPLATE_FIELDS = ["title", "status", "steps"] as const;
@@ -2858,6 +2924,15 @@ export async function surfaceProxyResolver(
         conversationId: ctx.conversationId,
         surfaceId,
       });
+      // The live client drops a dismissed surface entirely. Mirror that in
+      // persisted state: pull it from the pending turn snapshot (appended to
+      // the message at turn completion) and strip any already-persisted block,
+      // so a reload does not resurrect a half-finished progress card.
+      const turnIdx = ctx.currentTurnSurfaces.findIndex(
+        (s) => s.surfaceId === surfaceId,
+      );
+      if (turnIdx !== -1) ctx.currentTurnSurfaces.splice(turnIdx, 1);
+      removeSurfaceBlock(ctx, surfaceId);
     }
     ctx.pendingSurfaceActions.delete(surfaceId);
     ctx.surfaceState.delete(surfaceId);
