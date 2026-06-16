@@ -570,7 +570,6 @@ describe("command-registry", () => {
         "sequence",
         "skills",
         "stt",
-        "task",
         "trust",
         "tts",
         "ui",

@@ -644,7 +644,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-16T19:29:01.000Z"
+      "updatedAt": "2026-06-16T19:50:46.000Z"
     },
     {
       "id": "public-ingress",
@@ -825,28 +825,6 @@
         "vellum": {
           "category": "commerce",
           "display-name": "Stripe Link Wallet"
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
-    },
-    {
-      "id": "tasks",
-      "name": "tasks",
-      "description": "Two-layer task system with reusable templates and a prioritized work queue",
-      "metadata": {
-        "icon": "assets/icon.svg",
-        "emoji": "✅",
-        "vellum": {
-          "category": "productivity",
-          "display-name": "Tasks",
-          "activation-hints": [
-            "User wants to add, check, or manage items on their to-do list or task queue",
-            "For one-off action items, not recurring automations (use schedule for those)"
-          ],
-          "avoid-when": [
-            "User wants recurring/scheduled automation — use the schedule skill instead"
-          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
