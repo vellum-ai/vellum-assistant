@@ -45,6 +45,14 @@ export interface CesTransport {
   isAlive(): boolean;
   /** Tear down the transport connection. */
   close(): void;
+  /**
+   * Register a callback that fires once when the transport dies (its read side
+   * ends, the process exits, or the socket closes). Lets the client fail-fast
+   * any in-flight requests instead of letting each wait out its timeout.
+   * Optional: a transport that doesn't implement it falls back to
+   * timeout-based failure.
+   */
+  onClose?(handler: () => void): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -155,6 +163,16 @@ export function createCesRpcClient(
 
   const pending = new Map<string, PendingRequest>();
 
+  /** Reject and clear every in-flight request. Shared by `close()` and the
+   *  transport-death handler. */
+  function rejectAllPending(error: Error): void {
+    for (const [id, entry] of pending) {
+      clearTimeout(entry.timer);
+      pending.delete(id);
+      entry.reject(error);
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Incoming message dispatch
   // -------------------------------------------------------------------------
@@ -207,6 +225,15 @@ export function createCesRpcClient(
       }
       return;
     }
+  });
+
+  // Fail-fast on transport death: when the transport's read side ends (e.g. a
+  // spurious stdout EOF on a CES bounce) or the connection closes, reject every
+  // in-flight request immediately. The response can never arrive on a dead
+  // transport, so without this a pending call hangs until `requestTimeoutMs`
+  // (observed: 30s stalls on credential reads that raced a CES restart).
+  transport.onClose?.(() => {
+    rejectAllPending(new CesTransportError("CES transport closed"));
   });
 
   // -------------------------------------------------------------------------
@@ -384,11 +411,7 @@ export function createCesRpcClient(
     },
 
     close(): void {
-      for (const [id, entry] of pending) {
-        clearTimeout(entry.timer);
-        entry.reject(new CesTransportError("CES client closed"));
-        pending.delete(id);
-      }
+      rejectAllPending(new CesTransportError("CES client closed"));
       ready = false;
       transport.close();
     },

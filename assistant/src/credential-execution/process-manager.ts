@@ -313,13 +313,50 @@ function buildLocalCesEnv(): Record<string, string | undefined> {
 }
 
 // ---------------------------------------------------------------------------
+// Close notification (shared by both transports)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tracks the transport `alive` state and notifies registered handlers exactly
+ * once when the transport dies, so the RPC client can fail-fast any in-flight
+ * calls instead of waiting out their timeouts.
+ */
+function createCloseNotifier(): {
+  isAlive: () => boolean;
+  markDead: () => void;
+  onClose: (handler: () => void) => void;
+} {
+  let alive = true;
+  let notified = false;
+  const handlers: Array<() => void> = [];
+  return {
+    isAlive: () => alive,
+    markDead() {
+      alive = false;
+      if (notified) return;
+      notified = true;
+      for (const handler of handlers) {
+        try {
+          handler();
+        } catch {
+          // a close handler must never throw back into the transport
+        }
+      }
+    },
+    onClose(handler) {
+      handlers.push(handler);
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Stdio transport (local mode)
 // ---------------------------------------------------------------------------
 
 function createStdioTransport(proc: Subprocess): CesTransport {
   const messageHandlers: Array<(message: string) => void> = [];
   let buffer = "";
-  let alive = true;
+  const death = createCloseNotifier();
 
   // Read stdout line by line — narrow past `number` union arm from Subprocess type
   if (proc.stdout && typeof proc.stdout !== "number") {
@@ -350,9 +387,9 @@ function createStdioTransport(proc: Subprocess): CesTransport {
         endReason = "error";
         readError = err;
       } finally {
-        // Preserve existing semantics: the transport reports dead the moment
-        // the stdout stream ends, regardless of why.
-        alive = false;
+        // Report dead the moment the stdout stream ends (regardless of why),
+        // and notify the client so it can fail-fast any in-flight calls.
+        death.markDead();
 
         // DIAGNOSTIC (observation only). The reconnection path (secure-keys.ts)
         // bounces CES whenever isAlive() goes false. This classifies WHY the
@@ -384,7 +421,7 @@ function createStdioTransport(proc: Subprocess): CesTransport {
 
   // Track process exit
   void proc.exited.then((exitCode) => {
-    alive = false;
+    death.markDead();
     log.info(
       { pid: proc.pid, exitCode },
       "CES stdio transport: process exited",
@@ -393,7 +430,7 @@ function createStdioTransport(proc: Subprocess): CesTransport {
 
   return {
     write(line: string): void {
-      if (!alive || !proc.stdin || typeof proc.stdin === "number") {
+      if (!death.isAlive() || !proc.stdin || typeof proc.stdin === "number") {
         throw new Error("CES stdio transport is not alive");
       }
       proc.stdin.write(line + "\n");
@@ -404,11 +441,13 @@ function createStdioTransport(proc: Subprocess): CesTransport {
     },
 
     isAlive(): boolean {
-      return alive;
+      return death.isAlive();
     },
 
+    onClose: death.onClose,
+
     close(): void {
-      alive = false;
+      death.markDead();
       if (proc.stdin && typeof proc.stdin !== "number") {
         proc.stdin.end();
       }
@@ -423,7 +462,7 @@ function createStdioTransport(proc: Subprocess): CesTransport {
 function createSocketTransport(socket: Socket): CesTransport {
   const messageHandlers: Array<(message: string) => void> = [];
   let buffer = "";
-  let alive = true;
+  const death = createCloseNotifier();
 
   const decoder = new StringDecoder("utf8");
 
@@ -442,17 +481,17 @@ function createSocketTransport(socket: Socket): CesTransport {
   });
 
   socket.on("close", () => {
-    alive = false;
+    death.markDead();
   });
 
   socket.on("error", (err) => {
     log.warn({ err }, "CES socket transport error");
-    alive = false;
+    death.markDead();
   });
 
   return {
     write(line: string): void {
-      if (!alive || socket.destroyed) {
+      if (!death.isAlive() || socket.destroyed) {
         throw new Error("CES socket transport is not alive");
       }
       socket.write(line + "\n");
@@ -463,11 +502,13 @@ function createSocketTransport(socket: Socket): CesTransport {
     },
 
     isAlive(): boolean {
-      return alive && !socket.destroyed;
+      return death.isAlive() && !socket.destroyed;
     },
 
+    onClose: death.onClose,
+
     close(): void {
-      alive = false;
+      death.markDead();
       socket.destroy();
     },
   };
