@@ -104,6 +104,11 @@ function advanceToNextLocalMidnight(
   hourFor: (ms: number) => number,
 ): number {
   let cursor = ms;
+  // Already at local midnight (the daily cap has just reset), so this instant is
+  // itself the start of the next local day — return it without skipping ahead.
+  if (hourFor(cursor) === 0) {
+    return cursor;
+  }
   // Step forward until the hour wraps to 0. Bounded to one full day.
   for (let i = 0; i < 24; i++) {
     cursor += HOUR_MS;

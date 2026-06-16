@@ -119,6 +119,22 @@ describe("computeNextEligibleRunAt", () => {
     expect(result).toBe(DAY_START + (24 + 8) * HOUR_MS);
   });
 
+  test("daily-cap-reached returns current midnight when candidate already lands on it", () => {
+    const from = DAY_START + 23 * HOUR_MS; // 23:00, local hour 23
+    const result = computeNextEligibleRunAt(
+      baseInput({
+        from,
+        intervalMs: HOUR_MS, // candidate = 00:00, exactly local midnight
+        dailyCapReached: true,
+      }),
+    );
+    // The cap resets at this midnight, so 00:00 itself is eligible — the
+    // calculator must return it, not skip a full day to midnight + 24h.
+    expect(utcHourFor(result)).toBe(0);
+    expect(result).toBe(DAY_START + 24 * HOUR_MS);
+    expect(result).not.toBe(DAY_START + 48 * HOUR_MS);
+  });
+
   test("timezone-driven hour extraction via injected getHourFor", () => {
     const from = DAY_START + 17 * HOUR_MS;
     // A resolver that reports every step as inside the window proves the
