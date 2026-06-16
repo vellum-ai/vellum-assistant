@@ -4,6 +4,51 @@ Native iOS wrapper around `dev-assistant.vellum.ai` built with [Capacitor](https
 This is _not_ a port of the web app — it's a thin `WKWebView` shell in
 `server.url` mode that loads the live web app directly over HTTPS.
 
+## Web content delivery
+
+**What:** The iOS app loads the web UI live over HTTPS from the deployed
+web origin (e.g. `https://www.vellum.ai/assistant`). No web assets are
+bundled in the IPA — the `webDir` (`capacitor-shell/`) contains only a
+placeholder HTML page that is never shown at runtime.
+
+**How:** `capacitor.config.ts` sets
+[`server.url`](https://capacitorjs.com/docs/guides/server-url) to the
+environment-appropriate origin. `cap sync ios` bakes that URL into the
+native `capacitor.config.json`. At launch, `WKWebView` navigates
+straight to it. The environment is selected by setting
+`VELLUM_ENVIRONMENT` before sync:
+
+| Environment | `server.url` |
+|-------------|----------------------------------------------|
+| production  | `https://www.vellum.ai/assistant`            |
+| staging     | `https://staging-assistant.vellum.ai/assistant` |
+| dev         | `https://dev-assistant.vellum.ai/assistant`  |
+
+**Why remote URL, not a local bundle (like the Electron app):**
+
+- **Instant web updates** — deploying to the web origin is immediately
+  live for every iOS user on their next app load. No App Store review,
+  no TestFlight build, no update prompt. This decouples web deploy
+  frequency from the native release cycle.
+- **App Store review avoidance** — Apple's review process can take hours
+  to days. Bundling web assets would gate every web change behind that
+  process. With `server.url`, only native shell changes (Swift code,
+  entitlements, Capacitor plugin updates) require a store submission.
+- **Thin native surface** — the IPC bridge between the WKWebView and
+  native code is minimal (two plugins: `NativeAuthPlugin` and
+  `NativeBiometricPlugin`), so version skew risk between the web app
+  and native shell is low. Contrast with the Electron app, where the
+  `window.vellum.*` IPC surface is broad and tightly coupled.
+- **WKWebView security model** — unlike Electron's renderer, `WKWebView`
+  runs in a full iOS process sandbox with no access to native APIs
+  outside the Capacitor bridge. Loading remote content is the standard
+  pattern for Capacitor apps — see Capacitor's
+  [server.url guide](https://capacitorjs.com/docs/guides/server-url).
+
+**Tradeoff:** The app requires a network connection to load the UI. This
+is acceptable because the assistant needs the backend (daemon/gateway)
+for all functionality anyway — there is no useful offline state.
+
 ## Prerequisites
 
 - macOS with **Xcode 16+** (16 or newer is required for the Icon
@@ -187,17 +232,10 @@ breakpoint.
 
 ### `server.url` mode, not static export
 
-`capacitor.config.ts` sets `server.url` to
-`https://dev-assistant.vellum.ai/assistant` by default; setting
-`VELLUM_ENVIRONMENT=production` before `bunx cap sync ios` bakes
-`https://www.vellum.ai/assistant` instead — that's how TestFlight /
-App Store builds get pointed at prod. The `/assistant` suffix is
-deliberate — booting on the bare host lands on the marketing page,
-whose CTA redirects to `www.vellum.ai/assistant` and bounces non-prod
-shells off their own host. At launch, the
-WebView navigates straight to that URL — the bundled
-`capacitor-shell/index.html` is just a placeholder Capacitor requires
-for `webDir`, never actually shown.
+See [Web content delivery](#web-content-delivery) for the full
+what / how / why. The `/assistant` path suffix is deliberate — booting
+on the bare host lands on the marketing page, whose CTA redirects to
+`www.vellum.ai/assistant` and bounces non-prod shells off their own host.
 
 **Do not** switch to a static `vite build` output that bundles web
 assets into the IPA. We deliberately serve from the live web origin
@@ -430,11 +468,9 @@ on completion (`if: always()`). Failures surface in `#build-alerts` via
 
 ### Why no `bun run build` before `cap sync`
 
-The Capacitor `webDir` is `capacitor-shell/` — a static placeholder
-containing only a "Loading…" HTML page. The app uses
-[`server.url` mode](https://capacitorjs.com/docs/guides/server-url):
-at runtime, `WKWebView` loads the live web app over HTTPS. No web
-assets are bundled in the IPA, so no build step is needed.
+No web assets are bundled in the IPA (see
+[Web content delivery](#web-content-delivery)), so no web build step
+is needed before `cap sync`.
 
 ### IPA validation before upload
 
