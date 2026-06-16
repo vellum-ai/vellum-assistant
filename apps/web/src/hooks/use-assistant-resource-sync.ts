@@ -1,8 +1,8 @@
 /**
  * Bus consumer for assistant-level resource cache invalidation.
  *
- * Routes `sync_changed` tags (avatar, identity, identity intro, config,
- * sounds, schedules, apps) and discrete SSE events (`home_feed_updated`,
+ * Routes `sync_changed` tags (avatar, identity, config, sounds, schedules,
+ * apps) and discrete SSE events (`home_feed_updated`,
  * `relationship_state_updated`, `identity_changed`, `avatar_updated`) into
  * TanStack Query cache invalidations.
  *
@@ -34,7 +34,6 @@ import { getClientId } from "@/lib/telemetry/client-identity";
 import {
   assistantDaemonConfigQueryKey,
   assistantIdentityQueryKey,
-  assistantIdentityIntroQueryKey,
   assistantScheduleRunsQueryKey,
   assistantScheduleUsageSummaryQueryKey,
   assistantSchedulesQueryKey,
@@ -76,14 +75,6 @@ export function useAssistantResourceSync(
             case SYNC_TAGS.assistantIdentity:
               void queryClient.invalidateQueries({
                 queryKey: assistantIdentityQueryKey(assistantId),
-              });
-              void queryClient.invalidateQueries({
-                queryKey: assistantIdentityIntroQueryKey(assistantId),
-              });
-              break;
-            case SYNC_TAGS.assistantIdentityIntro:
-              void queryClient.invalidateQueries({
-                queryKey: assistantIdentityIntroQueryKey(assistantId),
               });
               break;
             case SYNC_TAGS.assistantConfig:
@@ -158,9 +149,6 @@ export function useAssistantResourceSync(
     });
     void queryClient.invalidateQueries({
       queryKey: assistantIdentityQueryKey(assistantId),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: assistantIdentityIntroQueryKey(assistantId),
     });
     void queryClient.invalidateQueries({
       queryKey: assistantDaemonConfigQueryKey(assistantId),

@@ -267,11 +267,6 @@ struct IdentityInfo: Codable, Equatable {
         return (identity, AssistantMetadata.from(remote: remote))
     }
 
-    /// Async loading via the gateway identity/intro endpoint.
-    static func loadIdentityIntroAsync() async -> String? {
-        await IdentityClient().fetchIdentityIntro()
-    }
-
     /// Async loading via the gateway workspace API (fetches SOUL.md content).
     static func loadGreetingsAsync() async -> [String] {
         guard let content = await WorkspaceClient().fetchWorkspaceFile(path: "SOUL.md", showHidden: false)?.content else {

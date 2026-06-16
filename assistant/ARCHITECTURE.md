@@ -772,7 +772,7 @@ The macOS `SpeechRecognizerAdapter` protocol in `clients/macos/vellum-assistant/
 
 ### On-Demand Home Content Generation
 
-LLM-generated content shown by clients (personalized home greeting, suggested prompts, conversation starters, identity intro) is produced on demand, never at daemon startup or on unconditional timers.
+LLM-generated content shown by clients (personalized home greeting, suggested prompts, conversation starters) is produced on demand, never at daemon startup or on unconditional timers.
 
 **Data flow (home greeting + suggested prompts):**
 
