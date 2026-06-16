@@ -68,6 +68,13 @@ let riskOverride: string = "high";
 /** Scope options override — controls whether persistent decisions are offered. */
 let scopeOptionsOverride: ScopeOption[] | undefined;
 
+/**
+ * Auto-approve threshold returned to the permission checker. "high" is the
+ * full-access posture under which the requireFreshApproval promotion is
+ * skipped; every lower value still promotes allow → prompt.
+ */
+let thresholdOverride: "none" | "low" | "medium" | "high" = "medium";
+
 mock.module("../config/loader.js", () => ({
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
@@ -124,7 +131,7 @@ mock.module("../tools/registry.js", () => ({
 }));
 
 mock.module("../permissions/gateway-threshold-reader.js", () => ({
-  getAutoApproveThreshold: async () => "medium",
+  getAutoApproveThreshold: async () => thresholdOverride,
   // Refresh failure ("null") keeps the original decision — these tests
   // exercise the cached-threshold paths only.
   refreshAutoApproveThreshold: async () => null,
@@ -186,6 +193,7 @@ describe("requireFreshApproval: non-interactive guardian denial", () => {
     checkResultOverride = undefined;
     scopeOptionsOverride = undefined;
     riskOverride = "high";
+    thresholdOverride = "medium";
   });
 
   afterEach(() => {});
@@ -335,6 +343,7 @@ describe("requireFreshApproval: persistent decisions disabled", () => {
     checkResultOverride = undefined;
     scopeOptionsOverride = undefined;
     riskOverride = "high";
+    thresholdOverride = "medium";
   });
 
   afterEach(() => {});
@@ -398,6 +407,7 @@ describe("requireFreshApproval: grant-consumed does not skip permission check", 
     checkResultOverride = undefined;
     scopeOptionsOverride = undefined;
     riskOverride = "high";
+    thresholdOverride = "medium";
   });
 
   afterEach(() => {});
@@ -450,6 +460,7 @@ describe("requireFreshApproval: context flag propagation", () => {
     checkResultOverride = undefined;
     scopeOptionsOverride = undefined;
     riskOverride = "high";
+    thresholdOverride = "medium";
   });
 
   afterEach(() => {});
@@ -503,6 +514,7 @@ describe("requireFreshApproval: workflow capability grants", () => {
     checkResultOverride = undefined;
     scopeOptionsOverride = undefined;
     riskOverride = "low";
+    thresholdOverride = "medium";
     fakeWorkflowRun = null;
   });
 
@@ -536,6 +548,104 @@ describe("requireFreshApproval: workflow capability grants", () => {
 
     expect(ctx.requireFreshApproval).toBe(true);
     expect(state.prompted).toBe(true);
+    expect(result.isError).toBe(false);
+  });
+
+  test.each(["none", "low", "medium"] as const)(
+    "run_workflow side-effecting launch prompts at the %s threshold (non-full-access posture)",
+    async (threshold) => {
+      checkResultOverride = { decision: "allow", reason: "allowed" };
+      thresholdOverride = threshold;
+      const state = { prompted: false };
+      const executor = new ToolExecutor(trackingPrompter(state));
+      const ctx = makeContext();
+
+      const result = await executor.execute(
+        "run_workflow",
+        { script: "export const meta={};", capabilities: { tools: ["bash"] } },
+        ctx,
+      );
+
+      expect(ctx.requireFreshApproval).toBe(true);
+      expect(state.prompted).toBe(true);
+      expect(result.isError).toBe(false);
+    },
+  );
+
+  test("run_workflow side-effecting launch does NOT prompt at full access (high)", async () => {
+    // Full-access posture auto-approves even high-risk tools, so the
+    // requireFreshApproval promotion is skipped — the grant auto-allows.
+    checkResultOverride = { decision: "allow", reason: "allowed" };
+    thresholdOverride = "high";
+    const state = { prompted: false };
+    const executor = new ToolExecutor(trackingPrompter(state));
+    const ctx = makeContext();
+
+    const result = await executor.execute(
+      "run_workflow",
+      { script: "export const meta={};", capabilities: { tools: ["bash"] } },
+      ctx,
+    );
+
+    // requireFreshApproval is still SET on the context (launch is
+    // side-effecting); only the allow → prompt promotion is suppressed.
+    expect(ctx.requireFreshApproval).toBe(true);
+    expect(state.prompted).toBe(false);
+    expect(result.isError).toBe(false);
+  });
+
+  test("a deny rule still blocks a side-effecting launch at full access (high)", async () => {
+    // Full access skips the fresh-approval promotion but never overrides an
+    // explicit deny — deny rules win regardless of posture.
+    checkResultOverride = { decision: "deny", reason: "blocked by rule" };
+    thresholdOverride = "high";
+    const state = { prompted: false };
+    const executor = new ToolExecutor(trackingPrompter(state));
+    const ctx = makeContext();
+
+    const result = await executor.execute(
+      "run_workflow",
+      { script: "export const meta={};", capabilities: { tools: ["bash"] } },
+      ctx,
+    );
+
+    expect(state.prompted).toBe(false);
+    expect(result.isError).toBe(true);
+  });
+
+  test("a deny rule still blocks a side-effecting launch at a normal threshold", async () => {
+    checkResultOverride = { decision: "deny", reason: "blocked by rule" };
+    thresholdOverride = "medium";
+    const state = { prompted: false };
+    const executor = new ToolExecutor(trackingPrompter(state));
+    const ctx = makeContext();
+
+    const result = await executor.execute(
+      "run_workflow",
+      { script: "export const meta={};", capabilities: { tools: ["bash"] } },
+      ctx,
+    );
+
+    expect(state.prompted).toBe(false);
+    expect(result.isError).toBe(true);
+  });
+
+  test("a read-only launch (no requireFreshApproval) is unaffected by a normal threshold", async () => {
+    // No requireFreshApproval means the allow stands untouched at any posture.
+    checkResultOverride = { decision: "allow", reason: "allowed" };
+    thresholdOverride = "medium";
+    const state = { prompted: false };
+    const executor = new ToolExecutor(trackingPrompter(state));
+    const ctx = makeContext();
+
+    const result = await executor.execute(
+      "run_workflow",
+      { script: "export const meta={};", capabilities: {} },
+      ctx,
+    );
+
+    expect(ctx.requireFreshApproval).toBeUndefined();
+    expect(state.prompted).toBe(false);
     expect(result.isError).toBe(false);
   });
 
