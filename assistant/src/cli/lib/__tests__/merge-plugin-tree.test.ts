@@ -221,6 +221,48 @@ describe("mergePluginTree", () => {
     expect(readFileSync(join(destDir, "img.bin")).equals(theirs)).toBe(true);
   });
 
+  test("keeps a one-sided binary change rather than resolving by strategy", async () => {
+    // GIVEN a binary file the pin updated but the local install left untouched
+    const base = Buffer.from([0x00, 0x01, 0x02]);
+    const theirs = Buffer.from([0x00, 0xcc, 0xdd]);
+    writeTree(baseDir, { "img.bin": base });
+    writeTree(oursDir, { "img.bin": base });
+    writeTree(theirsDir, { "img.bin": theirs });
+
+    // WHEN merged with `ours` (which only governs true conflicts)
+    await mergePluginTree({
+      baseDir,
+      oursDir,
+      theirsDir,
+      destDir,
+      strategy: "ours",
+    });
+
+    // THEN the upstream-only update survives instead of being dropped
+    expect(readFileSync(join(destDir, "img.bin")).equals(theirs)).toBe(true);
+  });
+
+  test("keeps a one-sided local binary edit under the theirs strategy", async () => {
+    // GIVEN a binary file edited locally but unchanged in the pin
+    const base = Buffer.from([0x00, 0x01, 0x02]);
+    const ours = Buffer.from([0x00, 0xaa, 0xbb]);
+    writeTree(baseDir, { "img.bin": base });
+    writeTree(oursDir, { "img.bin": ours });
+    writeTree(theirsDir, { "img.bin": base });
+
+    // WHEN merged with `theirs` (which only governs true conflicts)
+    await mergePluginTree({
+      baseDir,
+      oursDir,
+      theirsDir,
+      destDir,
+      strategy: "theirs",
+    });
+
+    // THEN the local-only edit survives instead of being reverted to the pin
+    expect(readFileSync(join(destDir, "img.bin")).equals(ours)).toBe(true);
+  });
+
   test("excludes the provenance sidecar from the merge", async () => {
     // GIVEN an install-meta sidecar present on every side with differing content
     writeTree(baseDir, {

@@ -85,8 +85,10 @@ function writeInto(destDir: string, rel: string, content: Buffer): void {
 /**
  * Line-merge three blobs with `git merge-file`, resolving conflicting hunks
  * toward `strategy`. Non-conflicting hunks from both sides are always kept.
- * Binary input cannot be line-merged, so the whole `strategy` side is taken
- * instead of producing a marker-corrupted blob.
+ * Binary input cannot be line-merged: a side that matches the base did not
+ * change, so the other side's edit is taken; only a blob changed on *both*
+ * sides is a true conflict resolved whole-file by `strategy`, avoiding a
+ * marker-corrupted blob.
  */
 async function threeWayMergeFile(
   ours: Buffer,
@@ -95,6 +97,8 @@ async function threeWayMergeFile(
   strategy: MergeConflictStrategy,
 ): Promise<Buffer> {
   if (isBinary(ours) || isBinary(base) || isBinary(theirs)) {
+    if (ours.equals(base)) return theirs;
+    if (theirs.equals(base)) return ours;
     return strategy === "ours" ? ours : theirs;
   }
 
