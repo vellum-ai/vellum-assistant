@@ -2,15 +2,15 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 const { handleCreateRemoteWebPairingChallenge } =
   await import("../http/routes/remote-web-pairing-challenge.js");
-const {
-  handleVerifyRemoteWebPairingChallenge,
-  resetRemoteWebPairingVerificationRateLimiterForTests,
-} = await import("../http/routes/remote-web-pairing-verification.js");
+const { handleVerifyRemoteWebPairingChallenge } =
+  await import("../http/routes/remote-web-pairing-verification.js");
 const {
   getRemoteWebPairingChallengeForTests,
   resetRemoteWebPairingChallengesForTests,
   setRemoteWebPairingChallengeNowForTests,
 } = await import("../remote-web/pairing-challenge-store.js");
+const { resetRemoteWebPairingVerificationRateLimiterForTests } =
+  await import("../remote-web/pairing-verification-rate-limit-store.js");
 
 const CLIENT_IP = "203.0.113.10";
 const LOOPBACK_IP = "127.0.0.1";

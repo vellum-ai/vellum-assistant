@@ -1,33 +1,18 @@
 import { approveRemoteWebPairingChallenge } from "../../remote-web/pairing-challenge-store.js";
-
-const RATE_LIMIT_MAX_FAILURES = 10;
-const RATE_LIMIT_WINDOW_MS = 60_000;
-
-interface RateLimitEntry {
-  timestamps: number[];
-}
-
-const failureRateLimitByIp = new Map<string, RateLimitEntry>();
+import {
+  checkRemoteWebPairingVerificationRateLimit,
+  clearRemoteWebPairingVerificationFailures,
+  recordRemoteWebPairingVerificationFailure,
+  type RemoteWebPairingVerificationRateLimit,
+} from "../../remote-web/pairing-verification-rate-limit-store.js";
 
 function jsonError(code: string, message: string, status: number): Response {
   return Response.json({ error: { code, message } }, { status });
 }
 
-function checkFailureRateLimit(clientIp: string): Response | null {
-  const now = Date.now();
-  const windowStart = now - RATE_LIMIT_WINDOW_MS;
-  const entry = failureRateLimitByIp.get(clientIp);
-  if (!entry) return null;
-
-  entry.timestamps = entry.timestamps.filter((t) => t > windowStart);
-  if (entry.timestamps.length === 0) {
-    failureRateLimitByIp.delete(clientIp);
-    return null;
-  }
-  if (entry.timestamps.length < RATE_LIMIT_MAX_FAILURES) return null;
-
-  const resetAtMs = entry.timestamps[0] + RATE_LIMIT_WINDOW_MS;
-  const retryAfter = Math.max(1, Math.ceil((resetAtMs - now) / 1000));
+function rateLimitedResponse(
+  rateLimit: RemoteWebPairingVerificationRateLimit,
+): Response {
   return Response.json(
     {
       error: {
@@ -35,35 +20,18 @@ function checkFailureRateLimit(clientIp: string): Response | null {
         message: "too many invalid pairing verification attempts",
       },
     },
-    { status: 429, headers: { "Retry-After": String(retryAfter) } },
+    {
+      status: 429,
+      headers: { "Retry-After": String(rateLimit.retryAfterSeconds) },
+    },
   );
 }
 
-function recordFailure(clientIp: string): void {
-  const now = Date.now();
-  const windowStart = now - RATE_LIMIT_WINDOW_MS;
-  let entry = failureRateLimitByIp.get(clientIp);
-  if (!entry) {
-    entry = { timestamps: [] };
-    failureRateLimitByIp.set(clientIp, entry);
-  }
-  entry.timestamps = entry.timestamps.filter((t) => t > windowStart);
-  entry.timestamps.push(now);
-}
-
-function clearFailures(clientIp: string): void {
-  failureRateLimitByIp.delete(clientIp);
-}
-
 function failedAttemptResponse(clientIp: string, response: Response): Response {
-  const rateLimited = checkFailureRateLimit(clientIp);
-  if (rateLimited) return rateLimited;
-  recordFailure(clientIp);
+  const rateLimited = checkRemoteWebPairingVerificationRateLimit(clientIp);
+  if (rateLimited) return rateLimitedResponse(rateLimited);
+  recordRemoteWebPairingVerificationFailure(clientIp);
   return response;
-}
-
-export function resetRemoteWebPairingVerificationRateLimiterForTests(): void {
-  failureRateLimitByIp.clear();
 }
 
 export async function handleVerifyRemoteWebPairingChallenge(
@@ -98,8 +66,8 @@ export async function handleVerifyRemoteWebPairingChallenge(
     );
   }
 
-  const rateLimited = checkFailureRateLimit(clientIp);
-  if (rateLimited) return rateLimited;
+  const rateLimited = checkRemoteWebPairingVerificationRateLimit(clientIp);
+  if (rateLimited) return rateLimitedResponse(rateLimited);
 
   const result = approveRemoteWebPairingChallenge(userCode);
   if (result.status === "invalid") {
@@ -115,6 +83,6 @@ export async function handleVerifyRemoteWebPairingChallenge(
     );
   }
 
-  clearFailures(clientIp);
+  clearRemoteWebPairingVerificationFailures(clientIp);
   return Response.json(result, { headers: { "Cache-Control": "no-store" } });
 }
