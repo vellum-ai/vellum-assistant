@@ -27,13 +27,28 @@ import {
   SYSTEM_TASK_URL_IDS,
   summarizeRunsForUsage,
 } from "@/domains/settings/utils/schedule-formatters";
-import { resolveScheduleUsageWindow } from "@/domains/settings/utils/schedule-usage-window";
+import {
+  type ScheduleUsageWindow,
+  resolveScheduleUsageWindow,
+} from "@/domains/settings/utils/schedule-usage-window";
 import { captureError } from "@/lib/sentry/capture-error";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import type { SystemTaskKind } from "@/domains/settings/types/schedules";
+import type { ScheduleRun, SystemTaskKind } from "@/domains/settings/types/schedules";
 
 const STALE_TIME = 10_000;
+
+function deriveUsage(
+  isLoading: boolean,
+  isError: boolean,
+  urlId: string,
+  runs: ScheduleRun[] | undefined,
+  range: ScheduleUsageWindow,
+): ScheduleRowUsage {
+  if (isLoading) return { status: "loading" };
+  if (isError) return { status: "error" };
+  return { status: "ready", summary: summarizeRunsForUsage(urlId, runs, range) };
+}
 
 /**
  * Composes all TanStack Query state + mutations for system tasks (heartbeat,
@@ -135,59 +150,20 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
     [tz],
   );
 
-  const heartbeatUsage: ScheduleRowUsage = useMemo(() => {
-    if (isHeartbeatStatsLoading) return { status: "loading" };
-    if (isHeartbeatStatsError) return { status: "error" };
-    return {
-      status: "ready",
-      summary: summarizeRunsForUsage(
-        SYSTEM_TASK_URL_IDS.heartbeat,
-        heartbeatRunsForStats,
-        systemStatsRange,
-      ),
-    };
-  }, [
-    heartbeatRunsForStats,
-    isHeartbeatStatsError,
-    isHeartbeatStatsLoading,
-    systemStatsRange,
-  ]);
+  const heartbeatUsage: ScheduleRowUsage = useMemo(
+    () => deriveUsage(isHeartbeatStatsLoading, isHeartbeatStatsError, SYSTEM_TASK_URL_IDS.heartbeat, heartbeatRunsForStats, systemStatsRange),
+    [heartbeatRunsForStats, isHeartbeatStatsError, isHeartbeatStatsLoading, systemStatsRange],
+  );
 
-  const consolidationUsage: ScheduleRowUsage = useMemo(() => {
-    if (isConsolidationStatsLoading) return { status: "loading" };
-    if (isConsolidationStatsError) return { status: "error" };
-    return {
-      status: "ready",
-      summary: summarizeRunsForUsage(
-        SYSTEM_TASK_URL_IDS.consolidation,
-        consolidationRunsForStats,
-        systemStatsRange,
-      ),
-    };
-  }, [
-    consolidationRunsForStats,
-    isConsolidationStatsError,
-    isConsolidationStatsLoading,
-    systemStatsRange,
-  ]);
+  const consolidationUsage: ScheduleRowUsage = useMemo(
+    () => deriveUsage(isConsolidationStatsLoading, isConsolidationStatsError, SYSTEM_TASK_URL_IDS.consolidation, consolidationRunsForStats, systemStatsRange),
+    [consolidationRunsForStats, isConsolidationStatsError, isConsolidationStatsLoading, systemStatsRange],
+  );
 
-  const retrospectiveUsage: ScheduleRowUsage = useMemo(() => {
-    if (isRetrospectiveStatsLoading) return { status: "loading" };
-    if (isRetrospectiveStatsError) return { status: "error" };
-    return {
-      status: "ready",
-      summary: summarizeRunsForUsage(
-        SYSTEM_TASK_URL_IDS.retrospective,
-        retrospectiveRunsForStats,
-        systemStatsRange,
-      ),
-    };
-  }, [
-    retrospectiveRunsForStats,
-    isRetrospectiveStatsError,
-    isRetrospectiveStatsLoading,
-    systemStatsRange,
-  ]);
+  const retrospectiveUsage: ScheduleRowUsage = useMemo(
+    () => deriveUsage(isRetrospectiveStatsLoading, isRetrospectiveStatsError, SYSTEM_TASK_URL_IDS.retrospective, retrospectiveRunsForStats, systemStatsRange),
+    [retrospectiveRunsForStats, isRetrospectiveStatsError, isRetrospectiveStatsLoading, systemStatsRange],
+  );
 
   // ---------------------------------------------------------------------------
   // Mutations
@@ -195,27 +171,26 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
 
   const invalidateSystemTaskQueries = (kind: SystemTaskKind) => {
     if (!assistantId) return;
-    const configKey =
-      kind === "heartbeat"
-        ? heartbeatConfigGetOptions(pathOpts).queryKey
-        : kind === "consolidation"
-          ? consolidationConfigGetOptions(pathOpts).queryKey
-          : retrospectiveConfigGetOptions(pathOpts).queryKey;
-    const runsKey =
-      kind === "heartbeat"
-        ? heartbeatRunsGetOptions(statsOpts).queryKey
-        : kind === "consolidation"
-          ? consolidationRunsGetOptions(statsOpts).queryKey
-          : retrospectiveRunsGetOptions(statsOpts).queryKey;
-    const infiniteRunsKey =
-      kind === "heartbeat"
-        ? heartbeatRunsGetInfiniteQueryKey(pathOpts)
-        : kind === "consolidation"
-          ? consolidationRunsGetInfiniteQueryKey(pathOpts)
-          : retrospectiveRunsGetInfiniteQueryKey(pathOpts);
-    void queryClient.invalidateQueries({ queryKey: configKey });
-    void queryClient.invalidateQueries({ queryKey: runsKey });
-    void queryClient.invalidateQueries({ queryKey: infiniteRunsKey });
+    const keysForKind = {
+      heartbeat: {
+        config: heartbeatConfigGetOptions(pathOpts).queryKey,
+        runs: heartbeatRunsGetOptions(statsOpts).queryKey,
+        infinite: heartbeatRunsGetInfiniteQueryKey(pathOpts),
+      },
+      consolidation: {
+        config: consolidationConfigGetOptions(pathOpts).queryKey,
+        runs: consolidationRunsGetOptions(statsOpts).queryKey,
+        infinite: consolidationRunsGetInfiniteQueryKey(pathOpts),
+      },
+      retrospective: {
+        config: retrospectiveConfigGetOptions(pathOpts).queryKey,
+        runs: retrospectiveRunsGetOptions(statsOpts).queryKey,
+        infinite: retrospectiveRunsGetInfiniteQueryKey(pathOpts),
+      },
+    }[kind];
+    void queryClient.invalidateQueries({ queryKey: keysForKind.config });
+    void queryClient.invalidateQueries({ queryKey: keysForKind.runs });
+    void queryClient.invalidateQueries({ queryKey: keysForKind.infinite });
   };
 
   const heartbeatRunNow = useHeartbeatRunnowPostMutation({
@@ -263,18 +238,18 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
   // Handlers
   // ---------------------------------------------------------------------------
 
-  const handleRunNow = (kind: SystemTaskKind) => {
+  const runHeartbeatNow = () => {
     if (!assistantId) return;
-    if (kind === "heartbeat") {
-      heartbeatRunNow.mutate({ path: { assistant_id: assistantId } });
-    } else if (kind === "consolidation") {
-      consolidationRunNow.mutate({ path: { assistant_id: assistantId } });
-    }
-    // Retrospectives are event-driven per conversation — no run-now exists.
+    heartbeatRunNow.mutate({ path: { assistant_id: assistantId } });
   };
 
-  const handleToggle = (kind: SystemTaskKind, enabled: boolean) => {
-    if (!assistantId || kind !== "heartbeat") return;
+  const runConsolidationNow = () => {
+    if (!assistantId) return;
+    consolidationRunNow.mutate({ path: { assistant_id: assistantId } });
+  };
+
+  const toggleHeartbeat = (enabled: boolean) => {
+    if (!assistantId) return;
     heartbeatToggle.mutate({
       body: { enabled },
       path: { assistant_id: assistantId },
@@ -315,8 +290,9 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
     refetchHeartbeat,
     refetchConsolidation,
     refetchRetrospective,
-    handleRunNow,
-    handleToggle,
+    runHeartbeatNow,
+    runConsolidationNow,
+    toggleHeartbeat,
     refetchAll,
   };
 }

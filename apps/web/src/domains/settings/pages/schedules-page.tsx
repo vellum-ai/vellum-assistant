@@ -240,9 +240,9 @@ export function SchedulesPage() {
         lastRunAt={systemTasks.heartbeatConfig.lastRunAt}
         isRunning={systemTasks.isHeartbeatRunning}
         onBack={navigateToSchedules}
-        onRunNow={() => void systemTasks.handleRunNow("heartbeat")}
+        onRunNow={() => void systemTasks.runHeartbeatNow()}
         onToggleEnabled={(enabled) =>
-          void systemTasks.handleToggle("heartbeat", enabled)
+          void systemTasks.toggleHeartbeat(enabled)
         }
       />
     );
@@ -264,7 +264,7 @@ export function SchedulesPage() {
         lastRunAt={systemTasks.consolidationConfig.lastRunAt}
         isRunning={systemTasks.isConsolidationRunning}
         onBack={navigateToSchedules}
-        onRunNow={() => void systemTasks.handleRunNow("consolidation")}
+        onRunNow={() => void systemTasks.runConsolidationNow()}
         onOpenMemorySettings={
           canOpenMemorySettings ? navigateToMemorySettings : undefined
         }
