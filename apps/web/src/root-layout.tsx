@@ -19,6 +19,7 @@ import { getSelectedAssistant } from "@/lib/local-mode";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 
 import { routes } from "@/utils/routes";
+import { shouldSuppressRootStatusBanner } from "@/utils/status-banner-visibility";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
 import { useBookmarksSync } from "@/hooks/use-bookmarks-sync";
@@ -246,6 +247,10 @@ export function RootLayout() {
     keyboardOpen && visibleViewport ? visibleViewport.offsetTop : 0;
   const electron = isElectron();
   const isPopout = location.search.includes("popout=1");
+  const suppressStatusBanner = shouldSuppressRootStatusBanner(
+    location.pathname,
+    location.search,
+  );
 
   return (
     <div
@@ -271,7 +276,9 @@ export function RootLayout() {
       }}
     >
       <UpdateToast />
-      {!electron && !isPopout ? <StatusBanner placement="web" /> : null}
+      {!electron && !isPopout && !suppressStatusBanner ? (
+        <StatusBanner placement="web" />
+      ) : null}
       <div className="flex min-w-0 flex-col overflow-hidden w-full" style={{ flex: "1 1 0%", minHeight: 0 }}>
         <Outlet />
       </div>
