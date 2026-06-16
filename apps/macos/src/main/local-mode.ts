@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import {
   getGuardianAccessToken,
+  isActiveAssistant,
   getLockfileData,
   getLocalAssistantStatus,
   replacePlatformAssistants,
@@ -167,9 +168,14 @@ async function wake(
 const upgradingLocalAssistantIds = new Set<string>();
 
 async function upgrade(
+  lockfilePaths: string[],
   assistantId: string,
   options?: UpgradeOptions,
 ): Promise<UpgradeResult> {
+  if (!isActiveAssistant(lockfilePaths, assistantId)) {
+    return { ok: false, error: "Can only upgrade the active local assistant" };
+  }
+
   if (upgradingLocalAssistantIds.has(assistantId)) {
     return {
       ok: false,
@@ -177,14 +183,16 @@ async function upgrade(
     };
   }
 
+  upgradingLocalAssistantIds.add(assistantId);
+
   let invocation: CliInvocation;
   try {
     invocation = await resolveCliInvocation();
   } catch (err) {
+    upgradingLocalAssistantIds.delete(assistantId);
     return { ok: false, error: (err as Error).message };
   }
 
-  upgradingLocalAssistantIds.add(assistantId);
   try {
     const result = await runUpgrade(invocation, assistantId, options);
     if (!result.ok) return { ok: false, error: result.error };
@@ -310,7 +318,7 @@ export const installLocalMode = (): void => {
 
   handle("vellum:localMode:upgrade", upgradeArgs, ([assistantId, options]) => {
     if (!assistantId) return { ok: false, error: "Missing assistantId" };
-    return upgrade(assistantId, options);
+    return upgrade(lockfilePaths, assistantId, options);
   });
 
   handle("vellum:localMode:status", assistantIdArgs, ([assistantId]) => {
