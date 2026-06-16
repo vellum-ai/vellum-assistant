@@ -38,7 +38,7 @@ describe("remote web pairing challenge", () => {
     setRemoteWebPairingChallengeNowForTests(() => 1_000);
 
     const res = await handleCreateRemoteWebPairingChallenge(
-      makeRequest({ publicBaseUrl: `${PUBLIC_BASE_URL}/assistant/` }),
+      makeRequest({ publicBaseUrl: `${PUBLIC_BASE_URL}/` }),
       LOOPBACK_IP,
     );
 
@@ -61,6 +61,30 @@ describe("remote web pairing challenge", () => {
     expect(body.intervalSeconds).toBe(5);
   });
 
+  test("preserves path-prefixed public base URLs in the verification URI", async () => {
+    const publicBaseUrl = "https://velay.example.test/assistant-123/";
+
+    const res = await handleCreateRemoteWebPairingChallenge(
+      makeRequest({ publicBaseUrl }),
+      LOOPBACK_IP,
+    );
+
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as {
+      verificationUri: string;
+      userCode: string;
+    };
+    expect(body.verificationUri).toBe(
+      "https://velay.example.test/assistant-123/assistant/pair",
+    );
+
+    const record = getRemoteWebPairingChallengeForTests(body.userCode);
+    expect(record?.publicBaseUrl).toBe(
+      "https://velay.example.test/assistant-123",
+    );
+  });
+
   test("stores only hashed challenge secrets", async () => {
     const res = await handleCreateRemoteWebPairingChallenge(
       makeRequest(),
@@ -76,7 +100,7 @@ describe("remote web pairing challenge", () => {
     expect(record).toBeDefined();
     expect(record?.deviceCodeHash).not.toBe(body.deviceCode);
     expect(record?.userCodeHash).not.toBe(body.userCode);
-    expect(record?.publicOrigin).toBe(PUBLIC_BASE_URL);
+    expect(record?.publicBaseUrl).toBe(PUBLIC_BASE_URL);
   });
 
   test("rejects challenge creation through the nginx edge", async () => {

@@ -11,7 +11,7 @@ const POLL_INTERVAL_SECONDS = 5;
 interface PendingRemoteWebPairingChallenge {
   deviceCodeHash: string;
   userCodeHash: string;
-  publicOrigin: string;
+  publicBaseUrl: string;
   verificationUri: string;
   expiresAtMs: number;
 }
@@ -30,13 +30,14 @@ function hashSecret(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function parsePublicOrigin(value: unknown): string | null {
+function parsePublicBaseUrl(value: unknown): string | null {
   if (typeof value !== "string" || !value.trim()) return null;
   try {
     const url = new URL(value);
     if (url.protocol !== "https:" && url.protocol !== "http:") return null;
     if (!url.host) return null;
-    return url.origin;
+    const pathPrefix = url.pathname.replace(/\/+$/, "");
+    return `${url.origin}${pathPrefix}`;
   } catch {
     return null;
   }
@@ -100,15 +101,15 @@ export async function handleCreateRemoteWebPairingChallenge(
   );
   if (guardError) return guardError;
 
-  let publicOrigin: string | null = null;
+  let publicBaseUrl: string | null = null;
   try {
     const body = (await req.json()) as { publicBaseUrl?: unknown };
-    publicOrigin = parsePublicOrigin(body.publicBaseUrl);
+    publicBaseUrl = parsePublicBaseUrl(body.publicBaseUrl);
   } catch {
     return jsonError("BAD_REQUEST", "invalid JSON body", 400);
   }
 
-  if (!publicOrigin) {
+  if (!publicBaseUrl) {
     return jsonError("BAD_REQUEST", "publicBaseUrl is required", 400);
   }
 
@@ -122,12 +123,12 @@ export async function handleCreateRemoteWebPairingChallenge(
     userCodeHash = hashSecret(normalizeUserCode(userCode));
   }
 
-  const verificationUri = new URL("/assistant/pair", publicOrigin).toString();
+  const verificationUri = `${publicBaseUrl}/assistant/pair`;
   const expiresAtMs = nowMs() + CODE_TTL_MS;
   challengesByUserCodeHash.set(userCodeHash, {
     deviceCodeHash: hashSecret(deviceCode),
     userCodeHash,
-    publicOrigin,
+    publicBaseUrl,
     verificationUri,
     expiresAtMs,
   });
