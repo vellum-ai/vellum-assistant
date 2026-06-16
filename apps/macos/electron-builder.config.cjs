@@ -55,6 +55,22 @@ module.exports = {
       role: "Viewer",
     },
   ],
+  dmg: {
+    // Installer-style DMG: a single app icon sits under "Install Vellum /
+    // Double click the icon below". The app moves itself to /Applications on
+    // first launch (see src/main/move-to-applications.ts), so the DMG needs no
+    // Applications alias and no drag step. The background (+ @2x) is rendered
+    // by scripts/generate-dmg-background.sh during pack — keep its 540x420
+    // canvas in sync with `window` below.
+    title: "Install ${productName}",
+    background: "build/dmg-background.png",
+    contents: [{ x: 270, y: 232, type: "file" }],
+    window: { width: 540, height: 420 },
+    iconSize: 128,
+    iconTextSize: 13,
+    // lzfse compression (macOS 10.11+) for smaller output than default zlib.
+    format: "ULFO",
+  },
   mac: {
     icon: "build/icon.icns",
     category: "public.app-category.productivity",

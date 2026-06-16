@@ -71,6 +71,7 @@ fi
 
 bash scripts/fetch-bun.sh --arch "$BUN_ARCH"
 bash scripts/generate-icon.sh
+bash scripts/generate-dmg-background.sh
 bash scripts/build-mac-helper.sh
 bun run build:web
 bash scripts/generate-cli-lockfile.sh

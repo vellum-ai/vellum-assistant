@@ -30,10 +30,11 @@ import {
 import {
   extractDeepLinkFromArgv,
   handleDeepLink,
+  hasPendingDeepLinks,
   installDeepLinks,
 } from "./deep-links";
 import { handleBundleFile, installBundleFlow } from "./bundle-flow";
-import { handleFileOpen, installFileOpen, onFileOpen } from "./file-open";
+import { handleFileOpen, hasPendingFiles, installFileOpen, onFileOpen } from "./file-open";
 import { installAvatarIpc } from "./avatar";
 import { installCommandPaletteWindow } from "./command-palette-window";
 import { installDictationOverlay } from "./dictation-overlay-window";
@@ -61,6 +62,7 @@ import {
   toggleVisibility as toggleMainWindowVisibility,
 } from "./main-window";
 import { installApplicationMenu, refreshCliPathMenuState } from "./menu";
+import { relocateToApplicationsFolder } from "./move-to-applications";
 import { installNativeAuth } from "./native-auth";
 import { installConnectivityProbe } from "./connectivity-probe";
 import { installNotifications } from "./notifications";
@@ -330,6 +332,15 @@ const forwardPlatformRequest = async (
 app
   .whenReady()
   .then(async () => {
+    // Install into /Applications before any other setup. On the first packaged
+    // launch from a mounted DMG (or ~/Downloads), the app silently moves itself
+    // there and relaunches — the "double-click to install" half of the DMG flow.
+    // Skip it when a file or deep link triggered the launch: those events are
+    // buffered in-process and would be lost during the relaunch.
+    if (!hasPendingFiles() && !hasPendingDeepLinks()) {
+      if (await relocateToApplicationsFolder()) return;
+    }
+
     if (!isDev) {
       registerAppProtocol();
     }

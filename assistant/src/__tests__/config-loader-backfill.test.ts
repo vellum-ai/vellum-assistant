@@ -417,6 +417,24 @@ describe("loadConfig startup behavior", () => {
     expect(raw.memory?.jobs?.workerConcurrency).toBe(4);
   });
 
+  test("strips daemon.reapOrphanedSubprocesses from existing user configs", () => {
+    // `daemon.reapOrphanedSubprocesses` is a deprecated opt-in flag: the
+    // orphan-subprocess reaper runs by default whenever the daemon is PID 1 on
+    // Linux. Existing configs that have it written to disk should load cleanly
+    // with the field silently stripped.
+    writeConfig({
+      provider: "anthropic",
+      daemon: { reapOrphanedSubprocesses: true, standaloneRecording: false },
+    });
+
+    loadConfig();
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.daemon?.reapOrphanedSubprocesses).toBeUndefined();
+    // Sibling fields under daemon are preserved
+    expect(raw.daemon?.standaloneRecording).toBe(false);
+  });
+
   test("still writes a default config on first launch when file is absent", () => {
     // Discoverability: when no config.json exists, write one populated with
     // all schema defaults so users can see and edit available options.
