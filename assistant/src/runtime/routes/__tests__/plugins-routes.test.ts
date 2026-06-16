@@ -75,7 +75,6 @@ import {
   PluginMergeBaselineError,
   PluginNotUpgradableError,
   type PluginUpgradeResult,
-  PluginUpgradeStrategyUnsupportedError,
   type UpgradePluginDeps,
   type UpgradePluginOptions,
 } from "../../../cli/lib/upgrade-plugin.js";
@@ -183,7 +182,6 @@ const upgradeSpy = mock(
 mock.module("../../../cli/lib/upgrade-plugin.js", () => ({
   PluginMergeBaselineError,
   PluginNotUpgradableError,
-  PluginUpgradeStrategyUnsupportedError,
   upgradePlugin: upgradeSpy,
 }));
 
@@ -1109,6 +1107,8 @@ function upgradeResult(
     fileCount: overrides.fileCount === undefined ? 12 : overrides.fileCount,
     dryRun: overrides.dryRun ?? false,
     strategy: overrides.strategy ?? "overwrite",
+    conflicts: overrides.conflicts ?? [],
+    binaryConflicts: overrides.binaryConflicts ?? [],
     provenanceWasUnknown: overrides.provenanceWasUnknown ?? false,
   };
 }
@@ -1124,6 +1124,8 @@ async function invokeUpgrade(args: RouteHandlerArgs = {}): Promise<{
   fileCount: number | null;
   dryRun: boolean;
   strategy: string;
+  conflicts: readonly string[];
+  binaryConflicts: readonly string[];
   provenanceWasUnknown: boolean;
 }> {
   return (await upgradeHandler(args)) as {
@@ -1137,6 +1139,8 @@ async function invokeUpgrade(args: RouteHandlerArgs = {}): Promise<{
     fileCount: number | null;
     dryRun: boolean;
     strategy: string;
+    conflicts: readonly string[];
+    binaryConflicts: readonly string[];
     provenanceWasUnknown: boolean;
   };
 }
@@ -1168,6 +1172,8 @@ describe("POST /v1/plugins/:name/upgrade", () => {
       fileCount: 12,
       dryRun: false,
       strategy: "overwrite",
+      conflicts: [],
+      binaryConflicts: [],
       provenanceWasUnknown: false,
     });
     // AND the name + dryRun are forwarded to the lib (strategy omitted)
@@ -1199,19 +1205,31 @@ describe("POST /v1/plugins/:name/upgrade", () => {
     });
   });
 
-  test("PluginUpgradeStrategyUnsupportedError \u2192 BadRequestError (400)", async () => {
-    // The `assistant` strategy is recognized but not yet implemented: a
-    // well-formed request the server cannot honor.
-    upgradeSpy.mockImplementation(async () => {
-      throw new PluginUpgradeStrategyUnsupportedError("assistant");
+  test("projects conflicts + binaryConflicts from the assistant strategy onto the wire", async () => {
+    // GIVEN upgradePlugin merges with conflict markers under `assistant`
+    upgradeSpy.mockImplementation(async () =>
+      upgradeResult({
+        strategy: "assistant",
+        conflicts: ["hooks/post-model-call.ts"],
+        binaryConflicts: ["assets/icon.png"],
+      }),
+    );
+
+    // WHEN the handler runs with the `assistant` strategy
+    const result = await invokeUpgrade({
+      pathParams: { name: "level-up" },
+      body: { strategy: "assistant" },
     });
 
-    await expect(
-      invokeUpgrade({
-        pathParams: { name: "level-up" },
-        body: { strategy: "assistant" },
-      }),
-    ).rejects.toBeInstanceOf(BadRequestError);
+    // THEN the conflicted paths are surfaced for the assistant to resolve
+    expect(result.strategy).toBe("assistant");
+    expect(result.conflicts).toEqual(["hooks/post-model-call.ts"]);
+    expect(result.binaryConflicts).toEqual(["assets/icon.png"]);
+    expect(upgradeSpy.mock.calls[0]?.[0]).toEqual({
+      name: "level-up",
+      dryRun: undefined,
+      strategy: "assistant",
+    });
   });
 
   test("PluginMergeBaselineError \u2192 ConflictError (409)", async () => {

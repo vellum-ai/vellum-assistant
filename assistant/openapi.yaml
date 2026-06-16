@@ -19585,11 +19585,12 @@ paths:
         commit already equals the pin; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching
         the install. Installs lacking provenance are re-pinned to the current SHA. The assistant must be restarted to
         load the upgraded code. `strategy` controls how local edits are reconciled: `overwrite` (default) discards them
-        and re-installs the pin wholesale; `ours`/`theirs` perform a three-way merge against the re-materialized install
-        commit, carrying non-conflicting edits from both sides forward and resolving conflicting hunks toward the local
-        edit or the pin respectively; `assistant` is not yet supported (400). A merge strategy whose install-time
-        baseline cannot be reconstructed returns 409. Mirrors the CLI''s `assistant plugins upgrade <name> [--strategy
-        <s>]`.'
+        and re-installs the pin wholesale; `ours`/`theirs`/`assistant` perform a three-way merge against the
+        re-materialized install commit, carrying non-conflicting edits from both sides forward and resolving conflicting
+        hunks toward the local edit (`ours`) or the pin (`theirs`), or writing git conflict markers into the file and
+        reporting them in `conflicts`/`binaryConflicts` for the assistant to resolve (`assistant`). A merge strategy
+        whose install-time baseline cannot be reconstructed returns 409. Mirrors the CLI''s `assistant plugins upgrade
+        <name> [--strategy <s>]`.'
       tags:
         - plugins
       parameters:
@@ -19678,6 +19679,20 @@ paths:
                       - overwrite
                       - assistant
                     description: Conflict-resolution strategy the upgrade applied.
+                  conflicts:
+                    type: array
+                    items:
+                      type: string
+                    description:
+                      "Paths left for the assistant to resolve under the `assistant` strategy: text files carry git conflict
+                      markers, modify/delete divergences keep the surviving content. Empty for other strategies."
+                  binaryConflicts:
+                    type: array
+                    items:
+                      type: string
+                    description:
+                      Binary files that conflicted under the `assistant` strategy; the local copy was kept since markers cannot
+                      be written into binary content. Empty for other strategies.
                   provenanceWasUnknown:
                     type: boolean
                     description:
@@ -19694,12 +19709,12 @@ paths:
                   - fileCount
                   - dryRun
                   - strategy
+                  - conflicts
+                  - binaryConflicts
                   - provenanceWasUnknown
                 additionalProperties: false
         "400":
-          description:
-            The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters), or the
-            `assistant` strategy was requested (not yet supported).
+          description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
         "404":
           description: No copy of the plugin is installed, or its source resolves to nothing.
         "409":

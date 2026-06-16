@@ -65,7 +65,6 @@ import {
   PluginMergeBaselineError,
   PluginNotUpgradableError,
   type PluginUpgradeStrategy,
-  PluginUpgradeStrategyUnsupportedError,
   upgradePlugin,
 } from "../../cli/lib/upgrade-plugin.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -468,6 +467,16 @@ const pluginUpgradeResponseSchema = z.object({
   strategy: z
     .enum(["ours", "theirs", "overwrite", "assistant"])
     .describe("Conflict-resolution strategy the upgrade applied."),
+  conflicts: z
+    .array(z.string())
+    .describe(
+      "Paths left for the assistant to resolve under the `assistant` strategy: text files carry git conflict markers, modify/delete divergences keep the surviving content. Empty for other strategies.",
+    ),
+  binaryConflicts: z
+    .array(z.string())
+    .describe(
+      "Binary files that conflicted under the `assistant` strategy; the local copy was kept since markers cannot be written into binary content. Empty for other strategies.",
+    ),
   provenanceWasUnknown: z
     .boolean()
     .describe(
@@ -886,13 +895,12 @@ async function handleUpgradePlugin({
       fileCount: result.fileCount,
       dryRun: result.dryRun,
       strategy: result.strategy,
+      conflicts: result.conflicts,
+      binaryConflicts: result.binaryConflicts,
       provenanceWasUnknown: result.provenanceWasUnknown,
     };
   } catch (err) {
-    if (
-      err instanceof InvalidPluginNameError ||
-      err instanceof PluginUpgradeStrategyUnsupportedError
-    ) {
+    if (err instanceof InvalidPluginNameError) {
       throw new BadRequestError(err.message);
     }
     if (err instanceof PluginNotInstalledError) {
@@ -1168,7 +1176,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Upgrade a plugin to the marketplace pin",
     description:
-      'Move an installed plugin to the marketplace\'s current pinned commit, re-materializing it under `<workspaceDir>/plugins/<name>/`. Always resolves against the curated marketplace pin (no caller-supplied ref), mirroring `plugins install`\'s curation boundary. A no-op (`outcome: "already-up-to-date"`) when the installed commit already equals the pin; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching the install. Installs lacking provenance are re-pinned to the current SHA. The assistant must be restarted to load the upgraded code. `strategy` controls how local edits are reconciled: `overwrite` (default) discards them and re-installs the pin wholesale; `ours`/`theirs` perform a three-way merge against the re-materialized install commit, carrying non-conflicting edits from both sides forward and resolving conflicting hunks toward the local edit or the pin respectively; `assistant` is not yet supported (400). A merge strategy whose install-time baseline cannot be reconstructed returns 409. Mirrors the CLI\'s `assistant plugins upgrade <name> [--strategy <s>]`.',
+      'Move an installed plugin to the marketplace\'s current pinned commit, re-materializing it under `<workspaceDir>/plugins/<name>/`. Always resolves against the curated marketplace pin (no caller-supplied ref), mirroring `plugins install`\'s curation boundary. A no-op (`outcome: "already-up-to-date"`) when the installed commit already equals the pin; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching the install. Installs lacking provenance are re-pinned to the current SHA. The assistant must be restarted to load the upgraded code. `strategy` controls how local edits are reconciled: `overwrite` (default) discards them and re-installs the pin wholesale; `ours`/`theirs`/`assistant` perform a three-way merge against the re-materialized install commit, carrying non-conflicting edits from both sides forward and resolving conflicting hunks toward the local edit (`ours`) or the pin (`theirs`), or writing git conflict markers into the file and reporting them in `conflicts`/`binaryConflicts` for the assistant to resolve (`assistant`). A merge strategy whose install-time baseline cannot be reconstructed returns 409. Mirrors the CLI\'s `assistant plugins upgrade <name> [--strategy <s>]`.',
     tags: ["plugins"],
     pathParams: [
       {
@@ -1183,7 +1191,7 @@ export const ROUTES: RouteDefinition[] = [
     additionalResponses: {
       "400": {
         description:
-          "The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters), or the `assistant` strategy was requested (not yet supported).",
+          "The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).",
       },
       "404": {
         description:
