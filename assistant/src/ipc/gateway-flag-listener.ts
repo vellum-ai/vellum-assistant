@@ -3,10 +3,34 @@ import { connect, type Socket } from "node:net";
 import { refreshOverridesFromGateway } from "../config/assistant-feature-flags.js";
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
+import { syncFlagGatedTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 import { resolveIpcSocketPath } from "./socket-path.js";
 
 const log = getLogger("gateway-flag-listener");
+
+/**
+ * Refresh the flag-overrides cache from the gateway, then register any
+ * registry-gated tools whose flag gate has since opened. Both the
+ * `feature_flags_changed` event and a reconnect only refresh the cache;
+ * `syncFlagGatedTools` registers the CES tools whose flag is enabled so that
+ * enabling a CES-gating flag at runtime surfaces them without a daemon restart.
+ * Workflow tools (`run_workflow` / `manage_workflows`) are not registry-gated:
+ * they live in a flag-gated bundled skill surfaced via `skill_load` against the
+ * live flag cache, so they need no registry sync here. `syncFlagGatedTools` is
+ * idempotent and enable-only, so re-running it on every refresh is safe; it also
+ * never throws (it logs internally).
+ */
+function refreshFlagsAndSyncTools(context: string): void {
+  refreshOverridesFromGateway()
+    .then(() => syncFlagGatedTools())
+    .catch((err) => {
+      log.warn(
+        { err },
+        `Failed to refresh feature flag overrides (${context})`,
+      );
+    });
+}
 
 const MAX_BACKOFF_MS = 30_000;
 const INITIAL_BACKOFF_MS = 1_000;
@@ -29,9 +53,7 @@ function handleData(chunk: Buffer): void {
       const msg = JSON.parse(trimmed) as { event?: string };
       if (msg.event === "feature_flags_changed") {
         log.info("Received feature_flags_changed event — refreshing overrides");
-        refreshOverridesFromGateway().catch((err) => {
-          log.warn({ err }, "Failed to refresh feature flag overrides");
-        });
+        refreshFlagsAndSyncTools("flags-changed event");
         // Fan out to every connected web client so React Query caches
         // for `/v1/feature-flags/client-flag-values/` and
         // `/v1/assistants/:id/feature-flags` invalidate immediately
@@ -72,9 +94,9 @@ function connectToGateway(): void {
     log.info("Connected to gateway IPC for flag events");
     currentBackoffMs = INITIAL_BACKOFF_MS;
     socket = conn;
-    refreshOverridesFromGateway().catch((err) => {
-      log.warn({ err }, "Failed to refresh feature flag overrides on reconnect");
-    });
+    // A reconnect may have missed a flag flip while disconnected, so sync the
+    // gated tools too — not just the cache.
+    refreshFlagsAndSyncTools("reconnect");
   });
 
   let buffer = "";

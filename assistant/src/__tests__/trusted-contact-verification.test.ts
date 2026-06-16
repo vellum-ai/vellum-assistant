@@ -102,7 +102,7 @@ describe("trusted contact verification → member activation", () => {
     // Verify: active member record exists
     const contactResult = findContactChannel({
       channelType: "telegram",
-      externalUserId: "requester-user-123",
+      address: "requester-user-123",
     });
 
     expect(contactResult).not.toBeNull();
@@ -236,7 +236,7 @@ describe("trusted contact verification → member activation", () => {
     // Simulate the ACL check that inbound-message-handler performs
     const contactResult = findContactChannel({
       channelType: "telegram",
-      externalUserId: "requester-user-456",
+      address: "requester-user-456",
     });
 
     expect(contactResult).not.toBeNull();
@@ -274,7 +274,7 @@ describe("trusted contact verification → member activation", () => {
     // Member should be found via contacts
     const contactResult = findContactChannel({
       channelType: "telegram",
-      externalUserId: "user-cross-test",
+      address: "user-cross-test",
     });
     expect(contactResult).not.toBeNull();
     expect(contactResult!.channel.status).toBe("active");
@@ -282,7 +282,7 @@ describe("trusted contact verification → member activation", () => {
     // Member should NOT be found for a different channel type
     const otherChannel = findContactChannel({
       channelType: "slack",
-      externalUserId: "user-cross-test",
+      address: "user-cross-test",
     });
     expect(otherChannel).toBeNull();
   });
@@ -306,7 +306,7 @@ describe("trusted contact verification → member activation", () => {
     // Verify the member is indeed revoked (ACL would reject)
     const revokedResult = findContactChannel({
       channelType: "telegram",
-      externalUserId: "user-revoked",
+      address: "user-revoked",
     });
     expect(revokedResult).not.toBeNull();
     expect(revokedResult!.channel.status).toBe("revoked");
@@ -345,7 +345,7 @@ describe("trusted contact verification → member activation", () => {
     // Verify: member is now active again
     const reactivatedResult = findContactChannel({
       channelType: "telegram",
-      externalUserId: "user-revoked",
+      address: "user-revoked",
     });
     expect(reactivatedResult).not.toBeNull();
     expect(reactivatedResult!.channel.status).toBe("active");

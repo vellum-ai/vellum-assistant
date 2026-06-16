@@ -35,12 +35,7 @@ import {
   type ConversationCandidateSet,
   serializeCandidatesForPrompt,
 } from "./conversation-candidates.js";
-import {
-  composeFallbackCopy,
-  deriveTitle,
-  nonEmpty,
-  readPayloadString,
-} from "./copy-composer.js";
+import { composeFallbackCopy, deriveTitle } from "./copy-composer.js";
 import { createDecision } from "./decisions-store.js";
 import {
   buildGuardianRequestCodeInstruction,
@@ -48,8 +43,10 @@ import {
   resolveGuardianQuestionInstructionMode,
   stripConflictingGuardianRequestInstructions,
 } from "./guardian-question-mode.js";
+import { nonEmpty, readPayloadString } from "./notification-utils.js";
 import { getPreferenceSummary } from "./preference-summary.js";
 import type { NotificationSignal, RoutingIntent } from "./signal.js";
+import { buildToolApprovalSeedContentBlocks } from "./tool-approval-copy.js";
 import type {
   ConversationAction,
   NotificationChannel,
@@ -613,6 +610,49 @@ function enforceGuardianRequestCode(
 }
 
 /**
+ * Inject seedContentBlocks into every channel's copy when not already present.
+ * Used by both tool-approval and access-request guards to ensure Surface cards
+ * render on all decision paths (LLM, assistant_tool, fallback).
+ */
+function ensureSeedContentBlocks(
+  decision: NotificationDecision,
+  blocks: unknown[] | null | undefined,
+): NotificationDecision {
+  if (!blocks) return decision;
+
+  const nextCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {
+    ...decision.renderedCopy,
+  };
+  for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
+    const copy = nextCopy[channel];
+    if (!copy) continue;
+    if (!copy.seedContentBlocks) {
+      nextCopy[channel] = { ...copy, seedContentBlocks: blocks };
+    }
+  }
+
+  return {
+    ...decision,
+    renderedCopy: nextCopy,
+  };
+}
+
+/**
+ * Tool-approval and tool-grant notifications need a Surface card with
+ * Approve/Reject buttons on all decision paths.
+ */
+function enforceToolApprovalSeedBlocks(
+  decision: NotificationDecision,
+  signal: NotificationSignal,
+): NotificationDecision {
+  if (signal.sourceEventName !== "guardian.question") return decision;
+  return ensureSeedContentBlocks(
+    decision,
+    buildToolApprovalSeedContentBlocks(signal.contextPayload),
+  );
+}
+
+/**
  * Access-request notifications require deterministic instruction elements:
  * - Request-code approve/reject directive (when requestCode is present)
  * - Exact "open invite flow" phrase (always required)
@@ -666,24 +706,18 @@ function enforceAccessRequestInstructions(
     }
   }
 
-  // Ensure seedContentBlocks is present on all paths (LLM, assistant_tool,
-  // fallback). The LLM path generates text-only copy; injecting the blocks
-  // here guarantees the Surface card renders regardless of decision source.
-  const seedContentBlocks = buildAccessRequestSeedContentBlocks(
-    signal.contextPayload,
-  );
-  for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
-    const copy = nextCopy[channel];
-    if (!copy) continue;
-    if (!copy.seedContentBlocks) {
-      nextCopy[channel] = { ...copy, seedContentBlocks };
-    }
-  }
-
-  return {
+  let result: NotificationDecision = {
     ...decision,
     renderedCopy: nextCopy,
   };
+
+  // Ensure seedContentBlocks on all paths (LLM, assistant_tool, fallback).
+  result = ensureSeedContentBlocks(
+    result,
+    buildAccessRequestSeedContentBlocks(signal.contextPayload),
+  );
+
+  return result;
 }
 
 function ensureAccessRequestInstructionsInCopy(
@@ -848,6 +882,7 @@ export async function evaluateSignal(
       ...(deepLinkTarget ? { deepLinkTarget } : {}),
     };
     decision = enforceGuardianRequestCode(decision, signal);
+    decision = enforceToolApprovalSeedBlocks(decision, signal);
     decision = enforceAccessRequestInstructions(decision, signal);
     decision = enforceGuardianCallConversationAffinity(decision, signal);
     decision = enforceConversationAffinity(
@@ -865,6 +900,7 @@ export async function evaluateSignal(
     );
     let decision = buildFallbackDecision(signal, availableChannels);
     decision = enforceGuardianRequestCode(decision, signal);
+    decision = enforceToolApprovalSeedBlocks(decision, signal);
     decision = enforceAccessRequestInstructions(decision, signal);
     decision = enforceGuardianCallConversationAffinity(decision, signal);
     decision = enforceConversationAffinity(
@@ -894,6 +930,7 @@ export async function evaluateSignal(
   }
 
   decision = enforceGuardianRequestCode(decision, signal);
+  decision = enforceToolApprovalSeedBlocks(decision, signal);
   decision = enforceAccessRequestInstructions(decision, signal);
   decision = enforceGuardianCallConversationAffinity(decision, signal);
   decision = enforceConversationAffinity(

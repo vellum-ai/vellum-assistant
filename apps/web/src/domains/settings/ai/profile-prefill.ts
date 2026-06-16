@@ -1,4 +1,4 @@
-import { INFERENCE_PROVIDER_DISPLAY_NAMES } from "@/domains/settings/ai/ai-types";
+import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import { toKebabCase } from "@/domains/settings/ai/slugify";
 
 /**
@@ -39,7 +39,7 @@ export function deriveProviderDefaults(
   existingConnectionNames: string[],
 ): { name: string; key: string } {
   return {
-    name: INFERENCE_PROVIDER_DISPLAY_NAMES[providerType] ?? providerType,
+    name: PROVIDER_DISPLAY_NAMES[providerType] ?? providerType,
     key: dedupeKey(slugify(providerType), existingConnectionNames),
   };
 }

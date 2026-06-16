@@ -8,6 +8,7 @@ import {
     visibleProfilesForPicker,
     type ProfilePickerEntry,
 } from "@/assistant/profile-pickers";
+import { useStickyProfiles } from "@/assistant/use-sticky-profiles";
 import { useProfileQuickAdd } from "@/components/profile-quick-add-provider";
 import {
     configGetOptions,
@@ -15,11 +16,7 @@ import {
     conversationsByIdGetOptions,
     conversationsByIdGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
-import {
-    configPatch,
-    conversationsByIdInferenceprofilePut,
-} from "@/generated/daemon/sdk.gen";
-import type { ConfigGetResponse } from "@/generated/daemon/types.gen";
+import { conversationsByIdInferenceprofilePut } from "@/generated/daemon/sdk.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
     deleteConversationOverride,
@@ -29,6 +26,8 @@ import {
     setGlobalThresholds,
 } from "@/lib/threshold-api";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useConversationStore } from "@/stores/conversation-store";
+import { findConversation } from "@/utils/conversation-cache";
 import {
     THRESHOLD_PRESETS,
     overrideAction,
@@ -83,14 +82,13 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
   // Derived server data — read from query cache, no useState copies.
   // ---------------------------------------------------------------------------
 
-  type Profiles = NonNullable<NonNullable<ConfigGetResponse["llm"]>["profiles"]>;
-  const profiles = useMemo<Profiles>(
-    () => configQuery.data?.llm?.profiles ?? {},
-    [configQuery.data],
-  );
-  const profileOrder = useMemo<string[]>(
-    () => configQuery.data?.llm?.profileOrder ?? [],
-    [configQuery.data],
+  // Retain the last non-empty profile list so a transient empty config payload
+  // (e.g. a partial read while the daemon rewrites settings.json) can't blank
+  // the picker until the next good fetch — managed profiles are always seeded,
+  // so an empty profile map is never a legitimate steady state.
+  const { profiles, profileOrder } = useStickyProfiles(
+    configQuery.data?.llm,
+    assistantId,
   );
   const globalActiveProfile = configQuery.data?.llm?.activeProfile ?? null;
   const conversationProfileOverride =
@@ -124,18 +122,35 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
 
   const [optimisticActiveProfile, setOptimisticActiveProfile] = useState<string | null>(null);
   const lastConfirmedProfileRef = useRef<string | null>(null);
-  const profileActiveKey = optimisticActiveProfile ?? serverEffectiveProfile;
+
+  // When a row isn't loaded yet the menu's `conversationId` prop is undefined
+  // while the real/draft id lives in the conversation store. If the user
+  // already picked a model for that id, the selection is stashed there (not
+  // written to the global default) — reflect it so the checkmark survives a
+  // remount and matches what the first message / promotion will apply. See
+  // `pendingDraftProfiles` in `conversation-store`.
+  const activeConversationId = useConversationStore.use.activeConversationId();
+  const pendingDraftProfiles = useConversationStore.use.pendingDraftProfiles();
+  const draftProfileSelection =
+    !conversationId && activeConversationId
+      ? pendingDraftProfiles.get(activeConversationId) ?? null
+      : null;
+
+  const profileActiveKey =
+    optimisticActiveProfile ?? draftProfileSelection ?? serverEffectiveProfile;
 
   // Reset optimistic state on conversation change — the old optimistic values
   // belong to a different conversation context. Uses useLayoutEffect so the
   // stale values are cleared before paint (no flash of previous conversation's
-  // optimistic state).
+  // optimistic state). Also keys on `activeConversationId` so switching between
+  // two unsent drafts (both have an undefined `conversationId` prop) still
+  // clears the prior draft's optimistic checkmark.
   useLayoutEffect(() => {
     setOptimisticActiveProfile(null);
     setOptimisticPreset(null);
     setOptimisticIsOverride(null);
     lastConfirmedProfileRef.current = null;
-  }, [conversationId]);
+  }, [conversationId, activeConversationId]);
 
   // Track confirmed server-effective profile for mutation rollback. Only update
   // when no optimistic mutation is in flight — otherwise the confirmed ref must
@@ -152,6 +167,54 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
   useLayoutEffect(() => {
     conversationIdRef.current = conversationId;
   }, [conversationId]);
+
+  // Promote a stash that was recorded while this conversation's row was still
+  // loading. An existing conversation opened by URL/deep link has an undefined
+  // `conversationId` prop until its row resolves, so a profile picked in that
+  // window gets stashed (handleProfileSelect can't yet tell it apart from a
+  // draft). Once the row loads we know it's a real server conversation, so
+  // persist the stash as a per-conversation override. Draft stubs (`draft:
+  // true`, added optimistically on first send) are skipped — the send path owns
+  // their stash and applies it to the conversation it mints.
+  const promotingProfileRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!conversationId) return;
+    const stashed = pendingDraftProfiles.get(conversationId);
+    if (stashed === undefined) return;
+    if (findConversation(queryClient, assistantId, conversationId)?.draft) return;
+    if (promotingProfileRef.current.has(conversationId)) return;
+    const id = conversationId;
+    promotingProfileRef.current.add(id);
+    void (async () => {
+      try {
+        await conversationsByIdInferenceprofilePut({
+          path: { assistant_id: assistantId, id },
+          body: { profile: stashed },
+          throwOnError: true,
+        });
+        // Finalize only if this promotion is still the latest intent for `id`.
+        // A direct selection made meanwhile clears/replaces the stash and owns
+        // the cache update, so a late promotion must not write its stale value
+        // back or re-invalidate.
+        if (
+          useConversationStore.getState().pendingDraftProfiles.get(id) ===
+          stashed
+        ) {
+          useConversationStore.getState().clearPendingDraftProfile(id);
+          void queryClient.invalidateQueries({
+            queryKey: conversationsByIdGetQueryKey({
+              path: { assistant_id: assistantId, id },
+            }),
+          });
+        }
+      } catch {
+        // Leave the stash so a later interaction can retry; a toast here would
+        // be noisy during navigation/load.
+      } finally {
+        promotingProfileRef.current.delete(id);
+      }
+    })();
+  }, [conversationId, assistantId, pendingDraftProfiles, queryClient]);
 
   // ---------------------------------------------------------------------------
   // Threshold mutation handler
@@ -220,20 +283,44 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
       if (!configQuery.isSuccess) return false;
       const capturedConversationId = conversationIdRef.current;
       setOptimisticActiveProfile(name);
-      try {
-        if (capturedConversationId) {
-          await conversationsByIdInferenceprofilePut({
-            path: { assistant_id: assistantId, id: capturedConversationId },
-            body: { profile: name },
-            throwOnError: true,
-          });
-        } else {
-          await configPatch({
-            path: { assistant_id: assistantId },
-            body: { llm: { activeProfile: name } },
-            throwOnError: true,
-          });
+
+      // No loaded row yet — a brand-new draft, or an existing conversation
+      // still loading. Stash the selection keyed by the active id instead of
+      // overwriting the global default profile (the value the Settings "default
+      // profile" control owns). It is applied by the send path when a draft's
+      // first message mints the conversation, or promoted to a per-conversation
+      // override by the effect above once a real row loads. No network call and
+      // no rollback — the optimistic/stashed value stands until then.
+      if (!capturedConversationId) {
+        const targetConversationId =
+          useConversationStore.getState().activeConversationId;
+        if (targetConversationId) {
+          useConversationStore
+            .getState()
+            .setPendingDraftProfile(targetConversationId, name);
+          lastConfirmedProfileRef.current = name;
+          return true;
         }
+        // Nothing to attach the selection to (no active id) — revert the
+        // optimistic checkmark rather than leave it stranded.
+        setOptimisticActiveProfile(lastConfirmedProfileRef.current);
+        return false;
+      }
+
+      // A direct selection supersedes any stash recorded for this conversation
+      // while it was loading — drop it so an in-flight promotion can't write the
+      // older value back (the promotion also re-checks the stash before
+      // finalizing, so a not-yet-started one simply never fires).
+      useConversationStore
+        .getState()
+        .clearPendingDraftProfile(capturedConversationId);
+
+      try {
+        await conversationsByIdInferenceprofilePut({
+          path: { assistant_id: assistantId, id: capturedConversationId },
+          body: { profile: name },
+          throwOnError: true,
+        });
         if (conversationIdRef.current === capturedConversationId) {
           lastConfirmedProfileRef.current = name;
         }
@@ -245,13 +332,11 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
             current === name ? null : current,
           );
         });
-        if (capturedConversationId) {
-          void queryClient.invalidateQueries({
-            queryKey: conversationsByIdGetQueryKey({
-              path: { assistant_id: assistantId, id: capturedConversationId },
-            }),
-          });
-        }
+        void queryClient.invalidateQueries({
+          queryKey: conversationsByIdGetQueryKey({
+            path: { assistant_id: assistantId, id: capturedConversationId },
+          }),
+        });
         return true;
       } catch {
         if (conversationIdRef.current === capturedConversationId) {

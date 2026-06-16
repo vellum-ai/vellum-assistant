@@ -82,6 +82,28 @@ const GET_FEATURE_FLAGS_DEFAULT: Record<string, boolean> = {
   __test_default__: false,
 };
 
+class FakeIpcCallError extends Error {
+  readonly statusCode?: number;
+  readonly errorCode?: string;
+  readonly errorDetails?: unknown;
+
+  constructor(
+    message: string,
+    fields: {
+      statusCode?: number;
+      errorCode?: string;
+      errorDetails?: unknown;
+    } = {},
+  ) {
+    super(message);
+    this.name = "IpcCallError";
+    if (fields.statusCode !== undefined) this.statusCode = fields.statusCode;
+    if (fields.errorCode !== undefined) this.errorCode = fields.errorCode;
+    if (fields.errorDetails !== undefined)
+      this.errorDetails = fields.errorDetails;
+  }
+}
+
 export function installGatewayIpcMock(): void {
   mock.module("@vellumai/gateway-client/ipc-client", () => ({
     ipcCall: async (
@@ -97,6 +119,7 @@ export function installGatewayIpcMock(): void {
       if (method === "get_feature_flags") return GET_FEATURE_FLAGS_DEFAULT;
       return undefined;
     },
+    IpcCallError: FakeIpcCallError,
     PersistentIpcClient: FakePersistentIpcClient,
   }));
 }

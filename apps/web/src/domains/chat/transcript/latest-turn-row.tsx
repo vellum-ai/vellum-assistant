@@ -21,6 +21,8 @@ import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 export interface LatestTurnRowProps {
   anchorMessage: MessageItem;
   responseItems: TranscriptItem[];
+  /** Conversation id, forwarded to message bodies for the bookmark toggle. */
+  conversationId?: string | null;
   assistantDisplayName?: string | null;
   onSurfaceAction: (
     surfaceId: string,
@@ -61,6 +63,7 @@ export interface LatestTurnRowProps {
 export const LatestTurnRow = memo(function LatestTurnRow({
   anchorMessage,
   responseItems,
+  conversationId,
   assistantDisplayName,
   onSurfaceAction,
   onForkConversation,
@@ -87,6 +90,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
     <div className="flex flex-col" data-latest-turn="true">
       <TranscriptRow
         item={anchorMessage}
+        conversationId={conversationId}
         assistantDisplayName={assistantDisplayName}
         onSurfaceAction={onSurfaceAction}
         onForkConversation={onForkConversation}
@@ -107,6 +111,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
         <Fragment key={response.key}>
           <TranscriptRow
             item={response}
+            conversationId={conversationId}
             assistantDisplayName={assistantDisplayName}
             onSurfaceAction={onSurfaceAction}
             onForkConversation={onForkConversation}

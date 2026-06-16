@@ -35,9 +35,17 @@ type ProfileEntry = NonNullable<
   NonNullable<ConfigGetResponse["llm"]>["profiles"]
 >[string];
 
+/**
+ * @param pendingProfile Profile stashed in the composer for a conversation
+ *   whose row hasn't loaded yet (a draft, or one opened by URL mid-load) — see
+ *   `pendingDraftProfiles` in `conversation-store`. It's the effective profile
+ *   until the row materializes, so capability gating (e.g. image attachments)
+ *   should reflect it. A loaded per-conversation override still wins.
+ */
 export function useActiveProfileModel(
   assistantId: string | null,
   conversationId: string | undefined,
+  pendingProfile?: string | null,
 ): ActiveProfileModel | null {
   const { data: config } = useQuery({
     ...configGetOptions({ path: { assistant_id: assistantId ?? "" } }),
@@ -60,7 +68,7 @@ export function useActiveProfileModel(
 
     const convOverride =
       convData?.conversation.inferenceProfile ?? null;
-    const effective = convOverride ?? globalActive;
+    const effective = convOverride ?? pendingProfile ?? globalActive;
 
     if (!effective) return null;
     const entry: ProfileEntry | undefined = profiles[effective];
@@ -72,5 +80,5 @@ export function useActiveProfileModel(
         ? { supportsVision: entry.supportsVision }
         : {}),
     };
-  }, [config, convData]);
+  }, [config, convData, pendingProfile]);
 }

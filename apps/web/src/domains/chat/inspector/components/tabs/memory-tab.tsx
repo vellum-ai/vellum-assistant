@@ -518,7 +518,7 @@ function MemoryV3Section({
 
       <SectionCard
         title={`Selected pages (${fmt(selection.selections.length)})`}
-        subtitle="Pages the v3 working set selected, tagged by the lane that surfaced them."
+        subtitle="Pages v3 selected, tagged by the lane that surfaced them and the matched section (when a finder lane surfaced one)."
       >
         {selection.selections.length > 0 ? (
           <div className="flex flex-col gap-1">
@@ -553,7 +553,19 @@ function MemoryV3Section({
   );
 }
 
-function V3SelectionRow({ row }: { row: MemoryV3SelectionRow }): ReactNode {
+/**
+ * The persisted v3 selection carries the matched section a finder lane
+ * surfaced. The generated `MemoryV3SelectionRow` type may not yet expose these
+ * fields (the wire schema is built out-of-band from the assistant); the daemon
+ * sends them at runtime, so they are read via this local augmentation until the
+ * generated type catches up.
+ */
+type V3SelectionRowData = MemoryV3SelectionRow & {
+  sectionOrdinal?: number | null;
+  sectionHeading?: string | null;
+};
+
+function V3SelectionRow({ row }: { row: V3SelectionRowData }): ReactNode {
   return (
     <div
       className="flex items-center justify-between gap-3 rounded-md px-3 py-2"
@@ -564,6 +576,11 @@ function V3SelectionRow({ row }: { row: MemoryV3SelectionRow }): ReactNode {
         style={{ color: "var(--content-default)" }}
       >
         {row.slug}
+        {row.sectionHeading ? (
+          <span style={{ color: "var(--content-secondary)" }}>
+            {` § ${row.sectionHeading}`}
+          </span>
+        ) : null}
       </code>
       <div className="flex shrink-0 items-center gap-1.5">
         {row.pinned && <TypeChip label="pinned" />}

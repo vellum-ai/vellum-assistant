@@ -11,7 +11,7 @@ import {
     inferenceProviderconnectionsGet,
 } from "@/generated/daemon/sdk.gen";
 
-import type { ProviderConnection } from "@/domains/settings/ai/provider-connections-client";
+import type { ProviderConnection } from "@/generated/daemon/types.gen";
 
 // ---------------------------------------------------------------------------
 // ChatGPT Subscription OAuth Section

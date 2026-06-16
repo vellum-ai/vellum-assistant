@@ -48,8 +48,36 @@
           },
           "mode": {
             "type": "string",
-            "enum": ["notify", "execute", "script"],
-            "description": "Whether to notify the user, execute autonomously via LLM, or run a shell command directly. Defaults to \"execute\"."
+            "enum": ["notify", "execute", "script", "workflow"],
+            "description": "Whether to notify the user, execute autonomously via LLM, run a shell command directly (script), or run a saved workflow (workflow). Defaults to \"execute\"."
+          },
+          "workflow_name": {
+            "type": "string",
+            "description": "Name of a saved workflow to run when the schedule triggers. Required for workflow mode."
+          },
+          "workflow_args": {
+            "type": "object",
+            "description": "Arguments object passed to the saved workflow as `args`. Optional; only used in workflow mode."
+          },
+          "capabilities": {
+            "type": "object",
+            "description": "Workflow mode only. Per-run capability grant (the single consent point) persisted with the schedule and applied to each triggered run. Leaves get a read-only baseline by default. Declaring any side-effecting tool or host function requires a fresh approval at creation.",
+            "properties": {
+              "tools": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Side-effecting tool names granted to leaves on top of the read-only baseline."
+              },
+              "hostFunctions": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Host-function names the run may invoke."
+              },
+              "persona": {
+                "type": "boolean",
+                "description": "Grant leaves access to persona (identity + memory) context."
+              }
+            }
           },
           "routing_intent": {
             "type": "string",
@@ -159,8 +187,16 @@
           },
           "mode": {
             "type": "string",
-            "enum": ["notify", "execute", "script"],
-            "description": "Whether to notify the user, execute autonomously via LLM, or run a shell command directly"
+            "enum": ["notify", "execute", "script", "workflow"],
+            "description": "Whether to notify the user, execute autonomously via LLM, run a shell command directly (script), or run a saved workflow (workflow)"
+          },
+          "workflow_name": {
+            "type": "string",
+            "description": "Name of a saved workflow to run when the schedule triggers. Required when the schedule's resulting mode is workflow."
+          },
+          "workflow_args": {
+            "type": "object",
+            "description": "Arguments object passed to the saved workflow as `args`. Only used in workflow mode."
           },
           "routing_intent": {
             "type": "string",

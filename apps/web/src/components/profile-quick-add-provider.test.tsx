@@ -50,10 +50,6 @@ mock.module("@/domains/settings/ai/profile-editor-modal", () => ({
       : null,
 }));
 
-mock.module("@/domains/settings/ai/provider-connections-client", () => ({
-  filterFlaggedConnections: (c: unknown) => c,
-}));
-
 const configGetSetQueryDataMock = mock((_client: unknown, _opts: unknown, _data: unknown) => {});
 mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   inferenceProviderconnectionsGetOptions: () => ({

@@ -3,6 +3,7 @@ import { statSync } from "node:fs";
 import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
 import { getDbPath } from "../util/platform.js";
+import { pruneRuns } from "../workflows/journal-store.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
 import { getLastUserMessageTimestamp } from "./conversation-crud.js";
 import { runAsyncSqlite } from "./db-async-query.js";
@@ -55,6 +56,21 @@ async function runDbMaintenance(): Promise<void> {
     },
     "Starting database maintenance",
   );
+
+  // Prune finished workflow runs (and their journals) past the retention
+  // window BEFORE VACUUM so the freed pages are reclaimed in the same pass.
+  // This is a fast bounded DELETE on the small workflow tables, so it runs on
+  // the main connection (`rawRun`) — unlike VACUUM/optimize it doesn't need the
+  // async/subprocess path. The maintenance scheduler below already defers this
+  // whole routine to an idle window.
+  try {
+    const deletedRuns = pruneRuns(getConfig().workflows.journalRetentionDays);
+    if (deletedRuns > 0) {
+      log.info({ deletedRuns }, "Pruned expired workflow runs");
+    }
+  } catch (err) {
+    log.warn({ err }, "Workflow run pruning failed (non-fatal)");
+  }
 
   // VACUUM is the long-running one — minutes on a multi-GB DB. PRAGMA
   // optimize is fast but routed through the same async path for

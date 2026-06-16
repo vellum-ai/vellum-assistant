@@ -6,7 +6,7 @@
  * (loading / error / empty / populated) can be exercised in
  * isolation.
  *
- * Interactive behavior (the Show/Hide summary excerpt toggle) is not
+ * Interactive behavior (the Show/Hide summary text toggle) is not
  * covered here — `useState` doesn't run under `renderToStaticMarkup`.
  * Catch any regression there with the playwright-class harness when
  * it lands.
@@ -80,16 +80,32 @@ function makeEvent(
   return {
     id: "compaction-test-1",
     createdAt: Date.parse("2026-05-26T12:00:00Z"),
-    model: "claude-sonnet-4-5",
-    provider: "anthropic",
-    inputTokens: 180_000,
-    outputTokens: 4_500,
+    trigger: "budget",
+    compacted: true,
+    summaryFailed: false,
+    skipReason: null,
+    contextTokensBefore: 180_000,
+    contextTokensAfter: 60_000,
+    messagesBefore: 120,
+    messagesAfter: 12,
+    compactedMessages: 108,
+    preservedTailMessages: 12,
     durationMs: 8_000,
-    responsePreview: "Summary excerpt for the test event.",
-    requestMessageCount: 120,
-    stopReason: "end_turn",
-    estimatedCostUsd: 0.5,
+    summaryModel: "claude-sonnet-4-5",
+    summaryInputTokens: 3,
+    summaryOutputTokens: 882,
+    summaryText: "Summary text for the test event.",
     ...overrides,
+  };
+}
+
+function populated(events: CompactionTrailEvent[]): HookState {
+  return {
+    data: { conversationId: "conv-1", events },
+    isLoading: false,
+    isError: false,
+    error: null,
+    refetch: () => {},
   };
 }
 
@@ -106,13 +122,19 @@ beforeEach(() => {
 
 describe("CompactionTab — loading state", () => {
   test("renders a loading message while the query is in flight", () => {
+    /** The in-flight query renders the loading placeholder. */
+    // GIVEN the hook reports the query is still loading (the default stub)
+    // WHEN the tab renders
     const html = render();
-    expect(html).toContain("Loading compaction trail");
+    // THEN it shows the loading placeholder
+    expect(html).toContain("Loading compaction");
   });
 });
 
 describe("CompactionTab — error state", () => {
   test("surfaces the underlying error message and a retry control", () => {
+    /** A failed query surfaces the error message and a retry button. */
+    // GIVEN the hook reports an error
     hookStub = {
       data: undefined,
       isLoading: false,
@@ -120,7 +142,9 @@ describe("CompactionTab — error state", () => {
       error: new Error("daemon offline"),
       refetch: () => {},
     };
+    // WHEN the tab renders
     const html = render();
+    // THEN it shows the failure heading, the error message, and a retry control
     expect(html).toContain("Failed to load");
     expect(html).toContain("daemon offline");
     expect(html).toContain("Retry");
@@ -129,223 +153,215 @@ describe("CompactionTab — error state", () => {
 
 describe("CompactionTab — empty state", () => {
   test("renders the call-scoped empty-state copy when no events are returned", () => {
-    hookStub = {
-      data: { conversationId: "conv-1", events: [] },
-      isLoading: false,
-      isError: false,
-      error: null,
-      refetch: () => {},
-    };
+    /** No attributed compaction renders the call-scoped empty copy. */
+    // GIVEN the hook returns an empty event list
+    hookStub = populated([]);
+    // WHEN the tab renders
     const html = render();
-    expect(html).toContain("No compaction ran before this call");
+    // THEN it explains that no compaction is tied to this call
+    expect(html).toContain("No compaction is tied to this call");
   });
 });
 
 describe("CompactionTab — populated state", () => {
-  test("renders aggregate totals and one card per event", () => {
-    hookStub = {
-      data: {
-        conversationId: "conv-1",
-        events: [
-          makeEvent({ id: "e1", inputTokens: 100_000, outputTokens: 5_000 }),
-          makeEvent({
-            id: "e2",
-            inputTokens: 80_000,
-            outputTokens: 4_000,
-            createdAt: Date.parse("2026-05-26T13:00:00Z"),
-          }),
-        ],
-      },
-      isLoading: false,
-      isError: false,
-      error: null,
-      refetch: () => {},
-    };
-
+  test("renders the context-token and message reduction for a compaction", () => {
+    /**
+     * The headline numbers are the context reduction (before → after),
+     * not the summarizer call's own usage.
+     */
+    // GIVEN a completed compaction that shrank the context window
+    hookStub = populated([makeEvent()]);
+    // WHEN the tab renders
     const html = render();
-
-    // Aggregate row shows the rolled-up input-token sum.
+    // THEN the context-token row shows before → after
     expect(html).toContain("180,000");
-    // Each event renders an "Compaction N / total" header.
-    expect(html).toContain("Compaction 1");
-    expect(html).toContain("Compaction 2");
-    // The chronological "/ 2" framing is part of the header.
-    expect(html).toContain("/ 2");
+    expect(html).toContain("60,000");
+    // AND the message-count row shows before → after
+    expect(html).toContain("120");
+    expect(html).toContain("12");
+    // AND the success outcome label is shown
+    expect(html).toContain("Compacted");
   });
 
-  test("renders a compression ratio next to the token row", () => {
-    hookStub = {
-      data: {
-        conversationId: "conv-1",
-        events: [
-          makeEvent({
-            id: "e-compress",
-            inputTokens: 200_000,
-            outputTokens: 5_000,
-          }),
-        ],
-      },
-      isLoading: false,
-      isError: false,
-      error: null,
-      refetch: () => {},
-    };
-
+  test("shows the summarizer's own token usage separately from the context reduction", () => {
+    /**
+     * Regression for the `3 → 882` bug: the summarizer call's own
+     * usage must render on its own row, never as the context tokens.
+     */
+    // GIVEN a compaction whose summarizer call used 3 in / 882 out
+    hookStub = populated([
+      makeEvent({
+        contextTokensBefore: 180_000,
+        contextTokensAfter: 60_000,
+        summaryInputTokens: 3,
+        summaryOutputTokens: 882,
+      }),
+    ]);
+    // WHEN the tab renders
     const html = render();
-    // 200_000 / 5_000 = 40
+    // THEN the summarizer usage appears on the summary-cost row
+    expect(html).toContain("3 in / 882 out");
+    // AND the context row is the reduction, not 3 → 882
+    expect(html).toContain("180,000");
+    expect(html).toContain("60,000");
+  });
+
+  test("renders a reduction ratio next to the context-token row", () => {
+    /** A meaningful shrink annotates the context row with a ratio. */
+    // GIVEN a compaction from 200,000 down to 5,000 context tokens
+    hookStub = populated([
+      makeEvent({ contextTokensBefore: 200_000, contextTokensAfter: 5_000 }),
+    ]);
+    // WHEN the tab renders
+    const html = render();
+    // THEN the 40× reduction is annotated
     expect(html).toContain("40× smaller");
   });
 
-  test("flags non-end_turn stop reasons in the failure count", () => {
-    hookStub = {
-      data: {
-        conversationId: "conv-1",
-        events: [
-          makeEvent({ id: "e-ok", stopReason: "end_turn" }),
-          makeEvent({
-            id: "e-err",
-            stopReason: "provider_error",
-            outputTokens: 0,
-            responsePreview: null,
-          }),
-        ],
-      },
-      isLoading: false,
-      isError: false,
-      error: null,
-      refetch: () => {},
-    };
-
+  test("labels a failed summarizer call as a failed compaction", () => {
+    /** `summaryFailed` drives the failure outcome, not a stop reason. */
+    // GIVEN a compaction whose summarizer call errored
+    hookStub = populated([
+      makeEvent({ summaryFailed: true, compacted: false }),
+    ]);
+    // WHEN the tab renders
     const html = render();
-    expect(html).toContain("1 failed");
-    // The failed event still renders the stop_reason row so engineers
-    // can see why it failed.
-    expect(html).toContain("provider_error");
+    // THEN it is labeled as a failed compaction
+    expect(html).toContain("Compaction failed");
   });
 
-  test("omits the summary excerpt control when responsePreview is null", () => {
-    hookStub = {
-      data: {
-        conversationId: "conv-1",
-        events: [makeEvent({ responsePreview: null })],
-      },
-      isLoading: false,
-      isError: false,
-      error: null,
-      refetch: () => {},
-    };
+  test("labels a no-op compaction as no change with its skip reason", () => {
+    /** A completed-but-not-compacted run reports the skip reason. */
+    // GIVEN a run that completed without compacting
+    hookStub = populated([
+      makeEvent({
+        compacted: false,
+        summaryFailed: false,
+        skipReason: "under-threshold",
+      }),
+    ]);
+    // WHEN the tab renders
     const html = render();
-    expect(html).not.toContain("Show summary excerpt");
+    // THEN it is labeled "No change" and surfaces the skip reason
+    expect(html).toContain("No change");
+    expect(html).toContain("under-threshold");
   });
 
-  test("renders the call-scoped subtitle phrasing", () => {
-    hookStub = {
-      data: {
-        conversationId: "conv-1",
-        events: [makeEvent({ id: "e1" }), makeEvent({ id: "e2" })],
-      },
-      isLoading: false,
-      isError: false,
-      error: null,
-      refetch: () => {},
-    };
+  test("labels a legacy-fallback event with unrecoverable flags as unavailable", () => {
+    /**
+     * The `llm_request_logs` fallback leaves the outcome flags null even
+     * though the row exists only for a compaction that produced a summary,
+     * so the outcome is reported as unavailable, not as a failed/incomplete
+     * run that never recorded a result.
+     */
+    // GIVEN a legacy-projected event whose outcome flags are all null
+    hookStub = populated([
+      makeEvent({
+        compacted: null,
+        summaryFailed: null,
+        skipReason: null,
+        summaryModel: "summary-model",
+        summaryText: "Recovered summary.",
+      }),
+    ]);
+    // WHEN the tab renders
     const html = render();
-    expect(html).toContain("2 compactions before this call");
+    // THEN it reports the outcome as unavailable without claiming failure
+    expect(html).toContain("Outcome unavailable");
+    expect(html).not.toContain("Compaction incomplete");
+    expect(html).not.toContain("never recorded a result");
+  });
+
+  test("indexes each card when more than one compaction is attributed", () => {
+    /** A short cascade renders one card per event with N-of-M framing. */
+    // GIVEN two compactions attributed to the selected call
+    hookStub = populated([
+      makeEvent({ id: "e1" }),
+      makeEvent({ id: "e2", createdAt: Date.parse("2026-05-26T13:00:00Z") }),
+    ]);
+    // WHEN the tab renders
+    const html = render();
+    // THEN each card carries its position in the cascade
+    expect(html).toContain("1 of 2");
+    expect(html).toContain("2 of 2");
+  });
+
+  test("omits the index framing for a single compaction", () => {
+    /** A lone compaction does not show "1 of 1" noise. */
+    // GIVEN a single attributed compaction
+    hookStub = populated([makeEvent()]);
+    // WHEN the tab renders
+    const html = render();
+    // THEN no N-of-M framing is shown
+    expect(html).not.toContain(" of 1");
+  });
+
+  test("offers the summary-text toggle when summaryText is present", () => {
+    /** A stored summary exposes the expand control. */
+    // GIVEN a compaction with summary text
+    hookStub = populated([makeEvent({ summaryText: "Replaced span." })]);
+    // WHEN the tab renders
+    const html = render();
+    // THEN the expand control is offered
+    expect(html).toContain("Show summary text");
+  });
+
+  test("omits the summary-text toggle when summaryText is null", () => {
+    /** Without summary text the expand control is hidden. */
+    // GIVEN a compaction with no summary text
+    hookStub = populated([makeEvent({ summaryText: null })]);
+    // WHEN the tab renders
+    const html = render();
+    // THEN the expand control is absent
+    expect(html).not.toContain("Show summary text");
+  });
+
+  test("renders MISSING_VALUE for fields the legacy fallback can't recover", () => {
+    /**
+     * The legacy `llm_request_logs` projection leaves most fields null;
+     * they must render as the shared sentinel, not blanks or zeros.
+     */
+    // GIVEN a sparse legacy-style event with most fields null
+    hookStub = populated([
+      makeEvent({
+        trigger: null,
+        compacted: null,
+        summaryFailed: null,
+        skipReason: null,
+        contextTokensBefore: null,
+        contextTokensAfter: null,
+        messagesBefore: null,
+        messagesAfter: null,
+        preservedTailMessages: null,
+        durationMs: null,
+        compactedMessages: 42,
+        summaryModel: "summary-model",
+        summaryInputTokens: null,
+        summaryOutputTokens: null,
+        summaryText: null,
+      }),
+    ]);
+    // WHEN the tab renders
+    const html = render();
+    // THEN the recoverable fields render and the rest fall back to the sentinel
+    expect(html).toContain("42 compacted");
+    expect(html).toContain("summary-model");
+    expect(html).toContain("Unavailable");
   });
 });
 
 describe("CompactionTab — call-scoped wiring", () => {
   test("passes the entry id to the hook as callId", () => {
-    hookStub = {
-      data: { conversationId: "conv-1", events: [] },
-      isLoading: false,
-      isError: false,
-      error: null,
-      refetch: () => {},
-    };
+    /** The selected call's id scopes the query key. */
+    // GIVEN a selected call with a known id
+    hookStub = populated([]);
+    // WHEN the tab renders for that entry
     render(makeEntry({ id: "call-scoped-id-42" }));
+    // THEN the hook receives the assistant, conversation, and call ids
     expect(hookCallArgs.length).toBeGreaterThan(0);
     const last = hookCallArgs[hookCallArgs.length - 1]!;
     expect(last.assistantId).toBe("asst-1");
     expect(last.conversationId).toBe("conv-1");
     expect(last.callId).toBe("call-scoped-id-42");
-  });
-});
-
-describe("CompactionTab — null-safe aggregates (Codex P2)", () => {
-  test("does not coerce null aggregate inputs to zero in the SummaryCard", () => {
-    hookStub = {
-      data: {
-        conversationId: "conv-1",
-        events: [
-          // First event has all fields populated.
-          makeEvent({
-            id: "e-full",
-            inputTokens: 100_000,
-            outputTokens: 5_000,
-            estimatedCostUsd: 0.25,
-            durationMs: 8_000,
-          }),
-          // Second event is partial — null tokens / cost / duration.
-          // The aggregate should NOT silently coerce these to zero
-          // and report "100,000 tokens" as a "Total". It should
-          // surface MISSING_VALUE so engineers see that data is
-          // missing rather than an underreported sum.
-          makeEvent({
-            id: "e-partial",
-            inputTokens: null,
-            outputTokens: null,
-            estimatedCostUsd: null,
-            durationMs: null,
-          }),
-        ],
-      },
-      isLoading: false,
-      isError: false,
-      error: null,
-      refetch: () => {},
-    };
-
-    const html = render();
-    // The concrete "100,000" should appear ONCE — in the populated
-    // EventCard. If the bug were present the SummaryCard would also
-    // render "100,000" as the rolled-up total (occurrences === 2).
-    const occurrences = (html.match(/100,000/g) ?? []).length;
-    expect(occurrences).toBe(1);
-    // And the SummaryCard renders the MISSING_VALUE sentinel for the
-    // affected aggregates.
-    expect(html).toContain("Unavailable");
-  });
-
-  test("renders concrete totals when every event has the field", () => {
-    hookStub = {
-      data: {
-        conversationId: "conv-1",
-        events: [
-          makeEvent({
-            id: "e1",
-            inputTokens: 60_000,
-            outputTokens: 2_000,
-            estimatedCostUsd: 0.10,
-            durationMs: 5_000,
-          }),
-          makeEvent({
-            id: "e2",
-            inputTokens: 40_000,
-            outputTokens: 1_500,
-            estimatedCostUsd: 0.08,
-            durationMs: 7_000,
-          }),
-        ],
-      },
-      isLoading: false,
-      isError: false,
-      error: null,
-      refetch: () => {},
-    };
-
-    const html = render();
-    // SummaryCard total of input tokens: 60,000 + 40,000 = 100,000.
-    expect(html).toContain("100,000");
   });
 });

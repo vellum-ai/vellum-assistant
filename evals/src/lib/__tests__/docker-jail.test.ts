@@ -5,10 +5,12 @@ import { describe, expect, test } from "bun:test";
 
 import {
   DEFAULT_ALLOW_HOSTS,
+  DEFAULT_EMBEDDING_ALLOW_HOSTS,
   DEFAULT_INFRA_ALLOW_HOSTS,
   DEFAULT_MODEL_ALLOW_HOSTS,
+  VELLUM_ALLOW_HOSTS,
   applyDockerEgressJail,
-  attachDockerEgressJail,
+  installRecordingCa,
   dockerEgressJailContainerName,
   dockerEgressJailNetworkName,
   findOpenHostPort,
@@ -39,14 +41,14 @@ describe("docker egress jail", () => {
     // WHEN deriving the assistant, jail, and network names
     // THEN each is a deterministic suffix of the run id, so cleanup is
     // idempotent and debuggable across owner/attach modes.
-    expect(vellumDockerAssistantContainer("eval-vellum-bare")).toBe(
-      "eval-vellum-bare-assistant",
+    expect(vellumDockerAssistantContainer("eval-vellum-default")).toBe(
+      "eval-vellum-default-assistant",
     );
-    expect(dockerEgressJailContainerName("eval-vellum-bare")).toBe(
-      "eval-vellum-bare-egress-jail",
+    expect(dockerEgressJailContainerName("eval-vellum-default")).toBe(
+      "eval-vellum-default-egress-jail",
     );
-    expect(dockerEgressJailNetworkName("eval-vellum-bare")).toBe(
-      "eval-vellum-bare-egress-net",
+    expect(dockerEgressJailNetworkName("eval-vellum-default")).toBe(
+      "eval-vellum-default-egress-net",
     );
   });
 
@@ -177,7 +179,13 @@ describe("docker egress jail", () => {
     expect(runner.runs[4]?.args).not.toContain("-p");
   });
 
-  test("owner mode defaults to the combined model+infra allowlist", async () => {
+  test("owner mode defaults to the model+infra allowlist, without embedder hosts", async () => {
+    // The default is the species-neutral baseline: model providers plus
+    // Vellum platform infra, and nothing else. A species that downloads
+    // extra assets (the Vellum on-device embedder) opts in explicitly via
+    // its own allowlist rather than widening this shared default, so a
+    // Hermes run can't make unmetered npm/HuggingFace egress.
+    //
     // GIVEN a recording dir
     const runner = new FakeRunner();
     const dir = `.runs/test-allowlist-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -190,12 +198,19 @@ describe("docker egress jail", () => {
       recordingDir: dir,
     });
 
-    // THEN it wires up the full default allowlist. runs[4] is the
+    // THEN it wires up the default allowlist. runs[4] is the
     // `docker run -d` (rm / network rm / build / network create precede).
     expect(DEFAULT_MODEL_ALLOW_HOSTS).toContain("api.anthropic.com");
     expect(runner.runs[4]?.args).toContain(
       `ALLOW_HOSTS=${DEFAULT_ALLOW_HOSTS.join(",")}`,
     );
+    // AND the embedder download hosts are absent from that default.
+    const allowHostsArg = runner.runs[4]?.args.find((arg) =>
+      arg.startsWith("ALLOW_HOSTS="),
+    );
+    for (const host of DEFAULT_EMBEDDING_ALLOW_HOSTS) {
+      expect(allowHostsArg).not.toContain(host);
+    }
   });
 
   test("default infra allowlist excludes github hosts (mock-github handler catches them instead)", () => {
@@ -233,15 +248,60 @@ describe("docker egress jail", () => {
   });
 
   test("DEFAULT_MODEL_ALLOW_HOSTS stays bounded to recognized model providers", () => {
-    // The mitmproxy addon (addon.py) parses usage out of these hosts'
-    // response bodies. Adding a non-model host here would either be
-    // dead code in the addon or, worse, would trip its parser. New
-    // infra hosts belong in DEFAULT_INFRA_ALLOW_HOSTS.
-    expect(DEFAULT_MODEL_ALLOW_HOSTS.sort()).toEqual([
+    // The mitmproxy addon (addon.py) parses usage for the providers it
+    // recognizes (Anthropic, plus OpenAI/Fireworks via the shared
+    // chat-completions parser); Gemini flows through unparsed. Adding a
+    // non-model host here would be dead code in the addon at best, so
+    // new infra hosts belong in DEFAULT_INFRA_ALLOW_HOSTS and bulk asset
+    // downloads in DEFAULT_EMBEDDING_ALLOW_HOSTS.
+    expect([...DEFAULT_MODEL_ALLOW_HOSTS].sort()).toEqual([
       "api.anthropic.com",
+      "api.fireworks.ai",
       "api.openai.com",
       "generativelanguage.googleapis.com",
     ]);
+  });
+
+  test("DEFAULT_EMBEDDING_ALLOW_HOSTS covers the local embedder download surface", () => {
+    // The default local embedder (Xenova/bge-small-en-v1.5) downloads its
+    // ONNX runtime + transformers tarballs from npm and its model weights
+    // from HuggingFace (large files redirect to the Xet/CloudFront CDN) at
+    // daemon startup. Dropping any of these in the fail-closed jail leaves
+    // the embedder uninitialized and silently degrades dense memory recall,
+    // which tanks a long-memory benchmark for reasons unrelated to the
+    // model under test.
+    expect([...DEFAULT_EMBEDDING_ALLOW_HOSTS].sort()).toEqual([
+      "cas-bridge.xethub.hf.co",
+      "huggingface.co",
+      "registry.npmjs.org",
+      "us.aws.cdn.hf.co",
+    ]);
+    // They belong to the Vellum-specific allowlist, not the species-neutral
+    // default — only the Vellum adapter runs the on-device embedder.
+    for (const host of DEFAULT_EMBEDDING_ALLOW_HOSTS) {
+      expect(VELLUM_ALLOW_HOSTS).toContain(host);
+      expect(DEFAULT_ALLOW_HOSTS).not.toContain(host);
+    }
+    // These are bulk asset downloads, not model-inference endpoints, so
+    // they stay out of the addon's provider-recognition allowlist.
+    for (const host of DEFAULT_EMBEDDING_ALLOW_HOSTS) {
+      expect(DEFAULT_MODEL_ALLOW_HOSTS).not.toContain(host);
+    }
+  });
+
+  test("VELLUM_ALLOW_HOSTS extends the default with exactly the embedder hosts", () => {
+    // The Vellum adapter passes this allowlist so the on-device embedder
+    // can download its runtime + weights, while every other host stays
+    // identical to the shared default. Keeping the delta to precisely the
+    // embedder hosts ensures the Vellum jail never silently widens beyond
+    // what the local embedder genuinely needs.
+    expect(VELLUM_ALLOW_HOSTS).toEqual([
+      ...DEFAULT_ALLOW_HOSTS,
+      ...DEFAULT_EMBEDDING_ALLOW_HOSTS,
+    ]);
+    for (const host of DEFAULT_ALLOW_HOSTS) {
+      expect(VELLUM_ALLOW_HOSTS).toContain(host);
+    }
   });
 
   test("an explicit allowHosts override still wins over the default", async () => {
@@ -312,62 +372,31 @@ describe("docker egress jail", () => {
     expect(dockerRun?.args).not.toContain("PLUGIN_FIXTURES_DIR=/fixtures");
   });
 
-  test("attach mode joins an existing container's netns and installs the CA into it", async () => {
-    // Attach mode is how Hermes runs: it warms up provider SDKs from
-    // PyPI with open egress, then the jail attaches to its already-owned
-    // namespace and patches the trust store post-start (safe because no
-    // model TLS happens until the first turn).
+  test("installRecordingCa patches the jail's CA into a tenant's trust store", async () => {
+    // A tenant born into the owner-mode jail (e.g. Hermes via `--network
+    // container:<jail>`) doesn't get the CA from process start, so it must
+    // be copied in and trusted before the tenant's first model TLS.
     //
     // GIVEN a recording dir pre-staged with the sidecar CA
     const runner = new FakeRunner();
-    const dir = `.runs/test-attach-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const dir = `.runs/test-ca-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "mitmproxy-ca-cert.pem"), "fake-ca-pem");
 
-    // WHEN attaching the jail to an existing container
-    const jail = await attachDockerEgressJail(runner, {
-      runId: "eval-run-ca",
-      containerName: "eval-run-ca-hermes",
-      recordingDir: dir,
-    });
+    // WHEN installing the recording CA into a tenant container
+    await installRecordingCa(runner, dir, "eval-run-ca-hermes");
 
-    // THEN it pre-cleans the jail, builds, and starts sharing the
-    // target container's netns (no network of its own).
-    expect(runner.runs[0]).toEqual({
-      command: "docker",
-      args: ["rm", "-f", "eval-run-ca-egress-jail"],
-    });
-    expect(runner.runs[1]?.args[0]).toBe("build");
-    const dockerRun = runner.runs[2];
-    const networkIdx = dockerRun?.args.indexOf("--network") ?? -1;
-    expect(dockerRun?.args[networkIdx + 1]).toBe(
-      "container:eval-run-ca-hermes",
-    );
-    expect(dockerRun?.args).not.toContain("-p");
-
-    // AND it installs the CA into the target container — cp must precede
-    // update-ca-certificates or the exec sees a stale trust store.
-    const cpRun = runner.runs[3];
-    expect(cpRun?.args[0]).toBe("cp");
-    expect(cpRun?.args[1]).toBe(resolve(dir, "mitmproxy-ca-cert.pem"));
-    expect(cpRun?.args[2]).toBe(
+    // THEN it copies the CA in then refreshes the trust store — the cp must
+    // precede update-ca-certificates or the exec sees a stale store.
+    expect(runner.runs[0]?.args).toEqual([
+      "cp",
+      resolve(dir, "mitmproxy-ca-cert.pem"),
       "eval-run-ca-hermes:/usr/local/share/ca-certificates/vellum-evals-mitmproxy.crt",
-    );
-    expect(runner.runs[4]?.args).toEqual([
+    ]);
+    expect(runner.runs[1]?.args).toEqual([
       "exec",
       "eval-run-ca-hermes",
       "update-ca-certificates",
     ]);
-
-    // AND the target container is reported as the netns owner.
-    expect(jail.netnsContainer).toBe("eval-run-ca-hermes");
-    expect(jail.caCertPath).toBe(resolve(dir, "mitmproxy-ca-cert.pem"));
-
-    // AND teardown removes only the jail (the owner outlives it).
-    await jail.stop();
-    expect(runner.runs.at(-1)).toEqual({
-      command: "docker",
-      args: ["rm", "-f", "eval-run-ca-egress-jail"],
-    });
   });
 });

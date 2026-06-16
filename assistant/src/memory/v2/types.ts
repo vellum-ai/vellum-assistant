@@ -42,17 +42,15 @@ export const ConceptPageFrontmatterSchema = z
     summary: z.string().optional(),
     leaves: z.array(z.string()).optional(),
     // Optional authored `"<target-slug> — <why>"` cross-links. Curated, first-class
-    // edges for the memory-v3 edge lane. Declared here so `.strict()` does not
-    // reject a page that uses `links:`, and so `renderPageContent` round-trips the
-    // field (the edge graph reads it back from the rendered frontmatter).
+    // edges for the memory-v3 edge lane. Declared (rather than left to the
+    // `.passthrough()` catchall below) so it carries a real type and so
+    // `renderPageContent` round-trips the field (the edge graph reads it back
+    // from the rendered frontmatter).
     links: z.array(z.string()).optional(),
     // The memory-v3 wiki-article fields — the shape CONSOLIDATION_PROMPT_V3
-    // teaches and migrated corpora arrive in. Declared for the same two
-    // reasons as `links:`: `.strict()` must not reject them (readPage()
-    // THROWS on schema failure, and a single invalid page in a turn's top-K
-    // no-ops the entire v2 injection block — see frontmatter-sweep.ts), and
-    // `renderPageContent` must round-trip them (a programmatic rewrite must
-    // not strip a page's `status:` draft marker or its display `title`).
+    // teaches and migrated corpora arrive in. Declared (not just tolerated by
+    // the catchall) so `renderPageContent` round-trips them — a programmatic
+    // rewrite must not strip a page's `status:` draft marker or `title`.
     // `kind` and `status` stay free-form strings: their known values today
     // ("index", "cc-draft") are conventions of the article model, not
     // invariants this storage layer should enforce.
@@ -68,7 +66,15 @@ export const ConceptPageFrontmatterSchema = z
     // from `status:` (the article-model draft marker, e.g. "cc-draft").
     current: z.string().optional(),
   })
-  .strict();
+  // `.passthrough()`, NOT `.strict()`: tolerate unknown frontmatter keys instead
+  // of throwing. Migrated/converted corpora carry leaked source-page fields the
+  // article model does not define (`date`, `sources`, `world`, `outcome`,
+  // `as_of`, …). Under `.strict()` every such page failed `readPage()` and was
+  // silently dropped from BOTH the page index and the section dense lane — a far
+  // worse failure than the schema drift strictness guarded against (a bulk
+  // wiki deploy lost ~45% of pages this way). Unknown keys pass through and stay
+  // on disk (loss-proof); the frontmatter sweep still surfaces malformed pages.
+  .passthrough();
 
 export type ConceptPageFrontmatter = z.infer<
   typeof ConceptPageFrontmatterSchema

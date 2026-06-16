@@ -2,12 +2,10 @@ import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { DetailCard } from "@/components/detail-card";
-import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { client } from "@/generated/api/client.gen";
-import { fetchAssistantFlagValues } from "@/hooks/use-assistant-feature-flag-sync";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
-import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
 import {
     ALL_FLAGS,
     flagKeyToStoreKey,
@@ -15,7 +13,6 @@ import {
     type FlagScope,
     type SingleScope,
 } from "@/lib/feature-flags/feature-flag-catalog";
-import { assistantFlagValuesQueryKey } from "@/lib/sync/query-tags";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { cn } from "@vellumai/design-library";
@@ -67,21 +64,14 @@ type FlagDisplayEntry =
     };
 
 export function FeatureFlagsPanel() {
-  const { data: activeAssistant } = useQuery(assistantsActiveRetrieveOptions());
-  const assistantId = activeAssistant?.id ?? null;
-
-  // Same-key observer: TanStack dedups with `useAssistantFeatureFlagSync`'s
-  // root-level query. Kept so the panel stays live while toggling on
-  // older daemons; on push-capable daemons this resolves to a no-op
-  // (`refetchInterval: false`).
-  const freshness = useFlagQueryFreshness();
-  useQuery({
-    queryKey: assistantFlagValuesQueryKey(assistantId),
-    queryFn: () => fetchAssistantFlagValues(assistantId!),
-    enabled: assistantId !== null,
-    ...freshness,
-    retry: 1,
-  });
+  // The panel renders under `ActiveAssistantGate` (routes.tsx), which defers
+  // child rendering until an assistant is resolved — so the id is always
+  // available here. Reading it from the resolved-assistants store (via
+  // `useActiveAssistantId`) rather than the platform `assistants/active` query
+  // is what makes assistant-scoped flag PATCHes work in local mode, where the
+  // platform query has no id and the write was silently dropped. Live flag
+  // updates are owned by the root-level `useAssistantFeatureFlagSync`.
+  const assistantId = useActiveAssistantId();
 
   const isOrgReady = useIsOrgReady();
   const { data: definitions } = useQuery({
@@ -211,12 +201,8 @@ export function FeatureFlagsPanel() {
 
 interface FeatureFlagRowProps {
   flag: FlagDisplayEntry;
-  /**
-   * Active assistant id for PATCH'ing assistant-scoped overrides.
-   * `null` while the active-assistant query is still in-flight; toggle
-   * is still functional client-side, the server PATCH is just skipped.
-   */
-  assistantId: string | null;
+  /** Active assistant id for PATCH'ing assistant-scoped overrides. */
+  assistantId: string;
 }
 
 function ScopeChips({ scope }: { scope: FlagScope }) {
@@ -236,7 +222,7 @@ function BooleanFlagRow({
   assistantId,
 }: {
   flag: Extract<FlagDisplayEntry, { kind: "boolean" }>;
-  assistantId: string | null;
+  assistantId: string;
 }) {
   const clientSetFlag = useClientFeatureFlagStore.use.setFlag();
   const assistantSetFlag = useAssistantFeatureFlagStore.use.setFlag();
@@ -285,7 +271,7 @@ function StringFlagRow({
   assistantId,
 }: {
   flag: Extract<FlagDisplayEntry, { kind: "string" }>;
-  assistantId: string | null;
+  assistantId: string;
 }) {
   const clientSetStringFlag = useClientFeatureFlagStore.use.setStringFlag();
   const assistantSetStringFlag = useAssistantFeatureFlagStore.use.setStringFlag();

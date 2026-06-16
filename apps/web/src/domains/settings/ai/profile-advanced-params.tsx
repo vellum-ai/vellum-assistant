@@ -10,11 +10,11 @@ import {
   DEFAULT_CONTEXT_WINDOW_BUDGET_TOKENS,
   TOKEN_SLIDER_MIN_TOKENS,
   TOKEN_SLIDER_STEP_TOKENS,
-} from "@/domains/settings/ai/ai-types";
+} from "@/domains/settings/ai/constants";
 import {
   clampTokenBudget,
   formatCompactTokens,
-} from "@/domains/settings/ai/ai-utils";
+} from "@/domains/settings/ai/utils";
 import {
   type GeminiThinkingLevel,
   geminiThinkingLevels,

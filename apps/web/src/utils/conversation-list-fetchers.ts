@@ -99,6 +99,7 @@ async function fetchConversationList(
   options: FetchConversationListOptions = {},
 ): Promise<Conversation[]> {
   const all: Conversation[] = [];
+  const seen = new Set<string>();
 
   for (let page = 0; page < CONVERSATION_LIST_MAX_PAGES; page++) {
     const offset = page * CONVERSATION_LIST_PAGE_SIZE;
@@ -107,7 +108,12 @@ async function fetchConversationList(
       offset,
       options,
     );
-    all.push(...conversations);
+    for (const conversation of conversations) {
+      if (!seen.has(conversation.conversationId)) {
+        seen.add(conversation.conversationId);
+        all.push(conversation);
+      }
+    }
 
     if (!hasMore) break;
 

@@ -239,9 +239,35 @@ export default async function preModelCall(
   // ctx.conversationId       — ID of the conversation the call belongs to
   // ctx.callSite             — call site ("mainAgent" for the user-facing reply)
   // ctx.systemPrompt         — system prompt about to be sent; replace to edit it
+  // ctx.modelProfile         — inference profile (key in `llm.profiles`) this call
+  //                            routes to; set it to route to a different profile
   // ctx.deferAssistantOutput — set true to suppress this turn's live text stream
   //                            (a `post-model-call` hook then emits the text)
   // ctx.logger               — turn-scoped; tag log fields with { plugin: <name> }
+}
+```
+
+Setting `ctx.modelProfile` to a profile key (one of the entries in the
+workspace's `llm.profiles`) routes this single call to that profile — the lever a
+**model router** uses to pick a model per message. It is seeded with the call's
+already-resolved override profile; clear it to `null` to send no override. For
+the user-facing `mainAgent` call the named profile sits at the top of resolution
+precedence (above the workspace's active profile), so the hook's choice wins; a
+key that names no profile falls through unchanged.
+
+Context-window sizing and overflow recovery for a call are computed from the
+profile resolved before the hook runs, so routing a near-budget conversation to
+a profile with a smaller context window relies on the loop's overflow recovery
+(compact and retry) rather than proactive compaction.
+
+```ts
+// hooks/pre-model-call.ts — route the user-facing reply by classified intent
+import type { PreModelCallContext } from "@vellumai/plugin-api";
+
+export default function preModelCall(ctx: PreModelCallContext): void {
+  // Only route the user-facing reply; leave background/utility calls untouched.
+  if (ctx.callSite !== "mainAgent") return;
+  ctx.modelProfile = classify(ctx); // e.g. "cost-optimized" | "balanced" | "quality-optimized"
 }
 ```
 

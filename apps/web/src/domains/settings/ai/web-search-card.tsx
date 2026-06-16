@@ -19,16 +19,16 @@ import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import { ResetButton, SaveButton, ServiceCard } from "@/domains/settings/ai/ai-shared-ui";
-import type { ServiceMode } from "@/domains/settings/ai/ai-types";
-import { LS_WEB_SEARCH_MODE, LS_WEB_SEARCH_PROVIDER } from "@/domains/settings/ai/ai-types";
-import { getWebSearchProviderKeyStorage } from "@/domains/settings/ai/ai-utils";
+import { ResetButton, SaveButton, ServiceCard } from "@/domains/settings/ai/shared-ui";
+import { LS_WEB_SEARCH_MODE, LS_WEB_SEARCH_PROVIDER } from "@/domains/settings/ai/local-storage-keys";
+import { getWebSearchProviderKeyStorage, parseServiceMode } from "@/domains/settings/ai/utils";
+import type { ServiceMode } from "@/generated/daemon/types.gen";
 import { useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { configGetOptions, configGetSetQueryData, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useQuery } from "@tanstack/react-query";
 import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
-import { useStoredCredentialPresence } from "@/domains/settings/ai/use-stored-credential-presence";
+import { credentialPresenceQueryKey, useStoredCredentialPresence } from "@/domains/settings/ai/use-stored-credential-presence";
 
 export function WebSearchCard() {
   const assistantId = useActiveAssistantId();
@@ -49,17 +49,22 @@ export function WebSearchCard() {
   // Server values derived from daemon config, falling back to localStorage.
   // When the cache refreshes (after save + invalidation), these update
   // automatically.
-  const { serverWebSearchMode, serverWebSearchProvider } = useMemo(() => {
+  const { serverWebSearchMode, serverWebSearchProvider } = useMemo((): {
+    serverWebSearchMode: ServiceMode;
+    serverWebSearchProvider: string;
+  } => {
     if (!daemonConfig) {
       return {
-        serverWebSearchMode: getLocalSetting(LS_WEB_SEARCH_MODE, "your-own") as ServiceMode,
+        serverWebSearchMode: parseServiceMode(getLocalSetting(LS_WEB_SEARCH_MODE, "your-own"), "your-own"),
         serverWebSearchProvider: getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native"),
       };
     }
     const wsService = daemonConfig.services?.["web-search"];
-    const mode = wsService?.mode;
     return {
-      serverWebSearchMode: (mode === "managed" || mode === "your-own" ? mode : getLocalSetting(LS_WEB_SEARCH_MODE, "your-own")) as ServiceMode,
+      serverWebSearchMode: parseServiceMode(
+        wsService?.mode ?? getLocalSetting(LS_WEB_SEARCH_MODE, "your-own"),
+        "your-own",
+      ),
       serverWebSearchProvider: wsService?.provider || getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native"),
     };
   }, [daemonConfig]);
@@ -71,13 +76,12 @@ export function WebSearchCard() {
   const [webSearchApiKey, setWebSearchApiKey] = useState("");
 
   const requiresProviderCredential = WEB_SEARCH_BYOK_PROVIDER_IDS.has(webSearchProvider);
-  const { hasStoredCredential: webSearchHasStoredKey, queryKey: credentialQueryKey } =
+  const { hasStoredCredential: webSearchHasStoredKey } =
     useStoredCredentialPresence({
       assistantId,
       credentialKind: "api_key",
       credentialName: webSearchProvider,
       enabled: requiresProviderCredential,
-      errorContext: "settings-ai-web-search-read-credential",
     });
 
   // --- Derived state ---
@@ -137,8 +141,13 @@ export function WebSearchCard() {
         }
         // Optimistic update: mark key as stored immediately, then
         // background-refetch confirms server state.
-        queryClient.setQueryData(credentialQueryKey, true);
-        void queryClient.invalidateQueries({ queryKey: credentialQueryKey });
+        const presenceKey = credentialPresenceQueryKey(
+          assistantId,
+          "api_key",
+          webSearchProvider,
+        );
+        queryClient.setQueryData(presenceKey, true);
+        void queryClient.invalidateQueries({ queryKey: presenceKey });
         setWebSearchApiKey("");
       }
       toast.success("Web search settings saved.");
@@ -152,7 +161,6 @@ export function WebSearchCard() {
     provisionProviderKey,
     queryClient,
     assistantId,
-    credentialQueryKey,
     webSearchApiKey,
     webSearchMode,
     webSearchProvider,

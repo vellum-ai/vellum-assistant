@@ -6,6 +6,10 @@ import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
 import { getDb } from "./db-connection.js";
 import {
+  isEmbeddingBillingBreakerOpen,
+  shouldAllowBillingProbe,
+} from "./embedding-billing-breaker.js";
+import {
   isQdrantBreakerOpen,
   shouldAllowQdrantProbe,
 } from "./qdrant-circuit-breaker.js";
@@ -533,24 +537,32 @@ export function claimMemoryJobs(limits: LaneBudgets): MemoryJob[] {
           .all()
       : [];
 
-  // Embed lane: gated by the Qdrant circuit breaker. When the breaker is open,
-  // skip embed jobs entirely — they would just be claimed → fail → deferred,
-  // wasting CPU cycles. Exception: if the cooldown has elapsed (breaker ready
-  // for half-open probe), allow exactly 1 embed job through so the breaker
-  // can self-heal. Note: this gate applies ONLY to the embed lane; slow and
-  // fast lanes run unimpeded.
-  const breakerOpen = isQdrantBreakerOpen();
-  const probeAllowed = breakerOpen && shouldAllowQdrantProbe();
-  const skipEmbedJobs = breakerOpen && !probeAllowed;
+  // Embed lane: gated by both the Qdrant circuit breaker and the billing
+  // breaker. When either breaker is open, skip embed jobs entirely — they
+  // would just be claimed → fail → deferred, wasting CPU cycles. Exception:
+  // if the cooldown has elapsed (breaker ready for probe), allow exactly
+  // 1 embed job through so the breaker can self-heal.
+  const qdrantBreakerOpen = isQdrantBreakerOpen();
+  const qdrantProbeAllowed = qdrantBreakerOpen && shouldAllowQdrantProbe();
+  const billingBreakerOpen = isEmbeddingBillingBreakerOpen();
+  const billingProbeAllowed = !billingBreakerOpen && shouldAllowBillingProbe();
+  const skipEmbedJobs =
+    (qdrantBreakerOpen && !qdrantProbeAllowed) ||
+    (billingBreakerOpen && !billingProbeAllowed);
+  const probeAllowed = qdrantProbeAllowed || billingProbeAllowed;
   const embedLimit = probeAllowed ? Math.min(1, limits.embed) : limits.embed;
 
   if (skipEmbedJobs && limits.embed > 0) {
-    log.debug("Skipping embed job claims — Qdrant circuit breaker is open");
+    if (billingBreakerOpen) {
+      log.debug(
+        "Skipping embed job claims — embedding billing breaker is open",
+      );
+    } else {
+      log.debug("Skipping embed job claims — Qdrant circuit breaker is open");
+    }
   }
   if (probeAllowed && limits.embed > 0) {
-    log.debug(
-      "Allowing 1 embed probe job — Qdrant circuit breaker cooldown elapsed",
-    );
+    log.debug("Allowing 1 embed probe job — breaker cooldown elapsed");
   }
 
   const embedCandidates =

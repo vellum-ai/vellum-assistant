@@ -184,9 +184,9 @@ describe("createGuardianBinding", () => {
     });
   });
 
-  test("repairs an old lowercase Slack address by matching the preserved external user ID", async () => {
+  test("claims an existing Slack channel with matching address", async () => {
     seedGuardianContact();
-    seedSlackContactChannel("u123example");
+    seedSlackContactChannel("U123EXAMPLE");
 
     await createGuardianBinding({
       channel: "slack",
@@ -224,10 +224,9 @@ describe("createGuardianBinding", () => {
     ]);
   });
 
-  test("prefers the cased guardian channel over a lowercase seed duplicate", async () => {
+  test("reactivates a revoked guardian channel instead of creating a new one", async () => {
     seedGuardianContact();
     seedRevokedGuardianSlackChannel();
-    seedSlackContactChannel("u123example");
 
     const result = await createGuardianBinding({
       channel: "slack",
@@ -263,12 +262,6 @@ describe("createGuardianBinding", () => {
         contact_id: "guardian-contact",
         address: "U123EXAMPLE",
         status: "active",
-      },
-      {
-        id: "seed-channel",
-        contact_id: "seed-contact",
-        address: "u123example",
-        status: "unverified",
       },
     ]);
   });

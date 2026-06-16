@@ -175,11 +175,13 @@ const handlers = {
   openAbout: mock(() => undefined),
 };
 
-// Swap in fake interval timers so the pulse loop is deterministic.
+// Swap in fake timers so the pulse loop and deferred restart are deterministic.
 let intervalCallback: (() => void) | null = null;
 const clearIntervalMock = mock((_id: unknown) => undefined);
 const originalSetInterval = globalThis.setInterval;
 const originalClearInterval = globalThis.clearInterval;
+const originalSetTimeout = globalThis.setTimeout;
+let timeoutCallbacks: (() => void)[] = [];
 
 beforeEach(() => {
   __resetForTesting();
@@ -201,11 +203,17 @@ beforeEach(() => {
     return 1 as unknown as ReturnType<typeof setInterval>;
   }) as typeof setInterval;
   globalThis.clearInterval = clearIntervalMock as unknown as typeof clearInterval;
+  timeoutCallbacks = [];
+  globalThis.setTimeout = ((cb: () => void) => {
+    timeoutCallbacks.push(cb);
+    return 2 as unknown as ReturnType<typeof setTimeout>;
+  }) as typeof setTimeout;
 });
 
 afterEach(() => {
   globalThis.setInterval = originalSetInterval;
   globalThis.clearInterval = originalClearInterval;
+  globalThis.setTimeout = originalSetTimeout;
 });
 
 describe("installTray", () => {
@@ -334,6 +342,11 @@ describe("installTray", () => {
     }>;
 
     template.find((i) => i.label === "Restart")?.click?.();
+
+    // The restart is deferred via setTimeout so it runs after the
+    // NSMenu tracking loop unwinds. Flush the captured callback.
+    expect(timeoutCallbacks).toHaveLength(1);
+    timeoutCallbacks[0]!();
 
     expect(appRelaunchMock).toHaveBeenCalledTimes(1);
     expect(appQuitMock).toHaveBeenCalledTimes(1);

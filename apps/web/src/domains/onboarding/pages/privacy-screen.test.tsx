@@ -58,8 +58,18 @@ mock.module("@/domains/onboarding/components/step-indicator-dots", () => ({
 }));
 mock.module("lucide-react", () => ({ EyeOff: () => null }));
 mock.module("@vellumai/design-library/components/button", () => ({
-  Button: ({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) => (
-    <button onClick={onClick}>{children}</button>
+  Button: ({
+    children,
+    onClick,
+    disabled,
+  }: {
+    children: React.ReactNode;
+    onClick?: () => void;
+    disabled?: boolean;
+  }) => (
+    <button onClick={onClick} disabled={disabled}>
+      {children}
+    </button>
   ),
 }));
 mock.module("@vellumai/design-library/components/card", () => ({
@@ -112,4 +122,5 @@ describe("PrivacyScreen — Start navigation", () => {
     expect(saveConsentMock).toHaveBeenCalledTimes(1);
     expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.hatching);
   });
+
 });

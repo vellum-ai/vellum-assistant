@@ -1,125 +1,88 @@
 /**
- * React hook that fetches a personalized empty-state greeting from the daemon.
+ * React hook that streams a personalized empty-state greeting from the daemon.
  *
- * Calls `GET /v1/assistants/{assistant_id}/identity/intro` which returns a
- * list of greetings derived from SOUL.md, cached model output, fresh
- * generation, or generic fallback options. Falls back to
- * {@link DEFAULT_EMPTY_STATE_GREETING} when the assistant ID is missing, the
- * daemon is unreachable, or the response is empty.
- *
- * The query has a long `staleTime` (5 minutes) since the intro text is cached
- * server-side and refreshed in the background.
+ * Mirrors the macOS app: each new empty conversation triggers a single
+ * greeting generated via `POST /v1/btw` (`conversationKey: "greeting"`), which
+ * streams in token-by-token. The daemon owns the prompt, voice, authored
+ * `## Greetings` override, and a configurable cache TTL
+ * (`ui.emptyStateGreetingCacheTtlMs`) — so whether a request hits the LLM or
+ * replays a cached greeting is decided server-side. Falls back to
+ * {@link DEFAULT_EMPTY_STATE_GREETING} until text arrives and on any error.
  */
 
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 
-import { identityIntroGet } from "@/generated/daemon/sdk.gen";
-import { assertHasResponse } from "@/utils/api-errors";
+import { streamEmptyStateGreeting } from "@/domains/chat/api/stream-greeting";
 import { DEFAULT_EMPTY_STATE_GREETING } from "@/domains/chat/utils/empty-state-constants";
-import type { IdentityIntroGetResponse } from "@/generated/daemon/types.gen";
-import { assistantIdentityIntroQueryKey } from "@/lib/sync/query-tags";
 
-const STALE_TIME_MS = 5 * 60 * 1000;
-const FALLBACK_REFRESH_INTERVAL_MS = 1500;
-
-type IdentityIntroResponse = Partial<IdentityIntroGetResponse> & {
-  greetings?: unknown;
-  text?: unknown;
-  source?: unknown;
-  refreshing?: unknown;
-};
-
-interface EmptyStateGreetingQueryResult {
-  candidates: readonly string[];
-  refreshing: boolean;
+export interface EmptyStateGreeting {
+  /** The greeting to render (defaults until the first token streams in). */
+  greeting: string;
+  /** True while generating and no text has arrived yet — render a spinner. */
+  isGenerating: boolean;
 }
 
-async function fetchIdentityIntro(
-  assistantId: string
-): Promise<EmptyStateGreetingQueryResult | null> {
-  try {
-    const { data, error, response } = await identityIntroGet({
-      path: { assistant_id: assistantId },
-      query: buildLocalTimeQuery(),
-      throwOnError: false,
-    });
-    assertHasResponse(response, error, "Failed to fetch identity intro");
+interface UseEmptyStateGreetingParams {
+  assistantId: string | null | undefined;
+  /** Identifies the current empty conversation; a change regenerates. */
+  conversationId: string | null | undefined;
+  /** Only generate while the empty state is actually shown. */
+  enabled?: boolean;
+}
 
-    if (!response.ok || !data || typeof data !== "object") {
-      return null;
+export function useEmptyStateGreeting({
+  assistantId,
+  conversationId,
+  enabled = true,
+}: UseEmptyStateGreetingParams): EmptyStateGreeting {
+  const [greeting, setGreeting] = useState("");
+  // Seed from the initial params so the very first paint shows the spinner
+  // rather than flashing the default greeting before the effect runs.
+  const [isGenerating, setIsGenerating] = useState(() =>
+    Boolean(enabled && assistantId && conversationId),
+  );
+
+  useEffect(() => {
+    if (!enabled || !assistantId || !conversationId) {
+      return;
     }
 
-    const candidates = normalizeIdentityIntroCandidates(data);
-    if (!candidates) {
-      return null;
-    }
+    const controller = new AbortController();
+    let active = true;
+    setGreeting("");
+    setIsGenerating(true);
 
-    return {
-      candidates,
-      refreshing: data.source === "fallback" && data.refreshing === true,
+    streamEmptyStateGreeting({
+      assistantId,
+      signal: controller.signal,
+      onDelta: (text) => {
+        if (active) setGreeting(text);
+      },
+    })
+      .then((text) => {
+        if (!active) return;
+        setGreeting(text.trim() || DEFAULT_EMPTY_STATE_GREETING);
+      })
+      .catch(() => {
+        // Transport error, abort, or generation failure — keep whatever
+        // streamed in, else fall back to a stable default.
+        if (!active) return;
+        setGreeting((current) => current || DEFAULT_EMPTY_STATE_GREETING);
+      })
+      .finally(() => {
+        if (active) setIsGenerating(false);
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
     };
-  } catch {
-    return null;
-  }
-}
+  }, [assistantId, conversationId, enabled]);
 
-function buildLocalTimeQuery(date: Date = new Date()): {
-  localHour: number;
-  localMinute: number;
-} {
   return {
-    localHour: date.getHours(),
-    localMinute: date.getMinutes(),
+    greeting: greeting || DEFAULT_EMPTY_STATE_GREETING,
+    // Only signal "generating" before the first token; once text streams in we
+    // render it directly.
+    isGenerating: isGenerating && greeting.length === 0,
   };
-}
-
-function normalizeIdentityIntroCandidates(
-  data: IdentityIntroResponse
-): readonly string[] | null {
-  if (Array.isArray(data.greetings)) {
-    const greetings = data.greetings
-      .filter((candidate): candidate is string => typeof candidate === "string")
-      .map((candidate) => candidate.trim())
-      .filter(Boolean);
-    if (greetings.length > 0) {
-      return greetings;
-    }
-  }
-
-  const text = typeof data.text === "string" ? data.text.trim() : "";
-  return text ? [text] : null;
-}
-
-function pickGreetingCandidate(
-  candidates: readonly string[] | null | undefined
-): string | null {
-  if (!candidates || candidates.length === 0) return null;
-  const index = Math.min(
-    candidates.length - 1,
-    Math.floor(Math.random() * candidates.length)
-  );
-  return candidates[index] ?? null;
-}
-
-export function useEmptyStateGreeting(
-  assistantId: string | null | undefined
-): string {
-  const enabled = Boolean(assistantId);
-
-  const query = useQuery<EmptyStateGreetingQueryResult | null>({
-    queryKey: assistantIdentityIntroQueryKey(assistantId),
-    queryFn: () => fetchIdentityIntro(assistantId!),
-    enabled,
-    staleTime: STALE_TIME_MS,
-    refetchInterval: (query) =>
-      query.state.data?.refreshing ? FALLBACK_REFRESH_INTERVAL_MS : false,
-  });
-
-  const greeting = useMemo(
-    () => pickGreetingCandidate(query.data?.candidates),
-    [query.data]
-  );
-
-  return greeting ?? DEFAULT_EMPTY_STATE_GREETING;
 }

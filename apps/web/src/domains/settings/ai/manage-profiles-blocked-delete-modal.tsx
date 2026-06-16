@@ -3,7 +3,7 @@ import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-import type { ProfileWithName } from "@/domains/settings/ai/ai-types";
+import type { ProfileWithName } from "@/domains/settings/ai/utils";
 
 // ---------------------------------------------------------------------------
 // Types

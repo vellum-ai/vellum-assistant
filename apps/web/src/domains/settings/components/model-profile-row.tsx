@@ -66,7 +66,7 @@ export function ModelProfileRow({
     staleTime: 60_000,
   });
   const profileMetadata = useMemo(
-    () => extractUsageProfileMetadata(daemonConfig),
+    () => (daemonConfig ? extractUsageProfileMetadata(daemonConfig) : {}),
     [daemonConfig],
   );
   const { data: callSiteCatalog } = useQuery({

@@ -23,7 +23,7 @@ You are helping the user set up and troubleshoot voice features (push-to-talk, t
 - `voice_config_update` - Change any voice setting (PTT key, conversation timeout, TTS voice ID)
 - `open_system_settings` - Open macOS System Settings to a specific privacy pane
 - `navigate_settings_tab` - Open the Vellum settings panel to the Voice tab
-- `credential_store` - Collect API keys securely (for ElevenLabs TTS)
+- `assistant credentials prompt` - Collect API keys securely (for ElevenLabs TTS)
 
 ## Setup Flow
 

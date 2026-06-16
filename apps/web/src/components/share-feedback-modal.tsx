@@ -306,9 +306,9 @@ async function buildClientLogsFile(
   );
   tarParts.push(buildTarEntry("web-debug-flags.json", debugFlagBytes));
 
-  // Capture the live chat debug API state for indicator-stuck reports.
-  // This is a separate file so support can diff it against the main diagnostics
-  // snapshot without cross-contamination.
+  // Capture the live chat debug API state for indicator-stuck and
+  // stuck-prompt reports. This is a separate file so support can diff it
+  // against the main diagnostics snapshot without cross-contamination.
   try {
     const debugApi =
       typeof window !== "undefined"
@@ -319,6 +319,13 @@ async function buildClientLogsFile(
       const triagePayload = {
         clientMessages: debugApi.getClientMessages?.() ?? null,
         transcriptItems: debugApi.getTranscriptItems?.() ?? null,
+        // Ephemeral interaction prompts (secret / confirmation /
+        // contact-request / question) render as transcript trailer rows
+        // outside any message's `contentBlocks`, so they're invisible in
+        // `clientMessages`/`transcriptItems` payloads above. Capture the
+        // interaction-store snapshot to triage stuck-prompt reports. Carries
+        // prompt metadata only — never the entered secret value.
+        pendingInteractions: debugApi.listPendingInteractions?.() ?? null,
         thinkingIndicator: debugApi.thinkingIndicator?.() ?? null,
         streamingRing: debugApi.streamingRing?.() ?? null,
         reconciliationDiagnostics:

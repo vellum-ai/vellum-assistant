@@ -2,17 +2,16 @@
  * Dev cache-freshness guard for apps/web. Runs before vite (wired into the
  * `dev` script).
  *
- * `@vellumai/design-library` is a `file:` dependency consumed with
- * `preserveSymlinks: true` (see vite.config.ts / postinstall.ts), so Vite
- * PREBUNDLES it into `node_modules/.vite/deps/`. Vite's optimizer cache key is
- * derived from the dependency list + lockfile — NOT the file contents of a
- * linked source dep — so a `git pull` (or branch switch) that changes
- * design-library does not invalidate the prebundle. The next `bun run dev`
- * would keep serving the STALE prebundled copy until `.vite` is deleted by
- * hand.
+ * Workspace deps like `@vellumai/design-library` and `@vellumai/assistant-api`
+ * get PREBUNDLED into `node_modules/.vite/deps/`. Vite's optimizer cache key is
+ * derived from the dependency list + lockfile — NOT the file contents of these
+ * deps — so a `git pull` (or branch switch) that changes them does not
+ * invalidate the prebundle. The next `bun run dev` would keep serving the STALE
+ * prebundled copy until `.vite` is deleted by hand (symptom: a runtime
+ * "module does not provide an export named X" SyntaxError + blank page).
  *
- * This guard clears the Vite cache when any design-library source file is newer
- * than the last prebundle, forcing a clean re-optimize on the next start. The
+ * This guard clears the Vite cache when any watched dep's source is newer than
+ * the last prebundle, forcing a clean re-optimize on the next start. The
  * in-session case — editing design-library while the dev server is already
  * running — is handled separately by the `watch-design-library` plugin in
  * vite.config.ts.
@@ -29,7 +28,14 @@ const cacheDir = path.join(webRoot, "node_modules/.vite");
 // (re-)optimize and left untouched on a cache hit, so its mtime is the most
 // precise "when was the prebundle last built" signal.
 const depsMetadata = path.join(cacheDir, "deps/_metadata.json");
-const designLibrarySrc = path.join(repoRoot, "packages/design-library/src");
+// Prebundled workspace deps whose file contents are NOT part of Vite's
+// optimizer cache key. design-library is a `file:` symlink, so compare its real
+// source tree; assistant-api is installed as a plain copy, so compare the
+// installed package directory (refreshed by install when its source changes).
+const prebundledDepSources = [
+  path.join(repoRoot, "packages/design-library/src"),
+  path.join(webRoot, "node_modules/@vellumai/assistant-api"),
+];
 
 function mtimeMsOrZero(p: string): number {
   try {
@@ -63,12 +69,15 @@ try {
     process.exit(0);
   }
 
-  const newestSrc = newestMtimeMs(designLibrarySrc);
+  const newestSrc = Math.max(
+    0,
+    ...prebundledDepSources.map((dir) => newestMtimeMs(dir)),
+  );
   if (newestSrc > prebundleTime) {
     rmSync(cacheDir, { recursive: true, force: true });
     console.log(
-      "[ensure-fresh-vite] design-library changed since the last prebundle — " +
-        "cleared apps/web/node_modules/.vite to force a fresh optimize.",
+      "[ensure-fresh-vite] a prebundled workspace dep changed since the last " +
+        "prebundle — cleared apps/web/node_modules/.vite to force a fresh optimize.",
     );
   }
 } catch (err) {

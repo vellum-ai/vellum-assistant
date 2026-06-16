@@ -18,13 +18,9 @@ import {
     CredentialsGuide,
     ResetButton,
     SaveButton,
-} from "@/domains/settings/ai/ai-shared-ui";
-import {
-    LS_TTS_API_KEY_PREFIX,
-    LS_TTS_PROVIDER,
-    LS_TTS_VOICE_ID_PREFIX,
-    TTS_PROVIDERS,
-} from "@/domains/settings/ai/ai-types";
+} from "@/domains/settings/ai/shared-ui";
+import { LS_TTS_API_KEY_PREFIX, LS_TTS_PROVIDER, LS_TTS_VOICE_ID_PREFIX } from "@/domains/settings/ai/local-storage-keys";
+import { TTS_PROVIDERS } from "@/domains/settings/ai/provider-catalogs";
 
 export function TextToSpeechCard() {
   const assistantId = useActiveAssistantId();

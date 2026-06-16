@@ -294,6 +294,16 @@ export function useSendMessage({
       if (useServerMint) {
         pendingDraftMintRef.current = requestConversationId;
       }
+      // A model profile the user picked in the composer before this
+      // conversation's row was available — a brand-new draft, or an existing
+      // conversation opened by URL while still loading (see
+      // `ComposerSettingsMenu`). Forward it so this turn, and the conversation's
+      // per-conversation override, use the chosen profile instead of the global
+      // default — covering the window before the menu's load-time promotion PUT
+      // lands. Keyed by id, so only this conversation's own stash is read.
+      const inferenceProfileForSend = useConversationStore
+        .getState()
+        .pendingDraftProfiles.get(requestConversationId);
       const postResult = await postChatMessage(
         requestAssistantId,
         useServerMint ? null : requestConversationId,
@@ -301,6 +311,7 @@ export function useSendMessage({
         attachmentIds,
         onboardingContext ?? undefined,
         clientMessageId,
+        inferenceProfileForSend,
       );
       if (
         useServerMint &&
@@ -337,6 +348,15 @@ export function useSendMessage({
       }
       // Success — drain the ref so subsequent messages omit the field.
       pendingOnboardingContextRef.current = null;
+      // The draft's stashed profile (if any) has now been persisted on the
+      // minted conversation; drop this draft's entry so it can't re-apply to a
+      // later send. Cleared only on success — a failed draft send keeps the
+      // stash so a retry still carries the chosen profile.
+      if (inferenceProfileForSend) {
+        useConversationStore
+          .getState()
+          .clearPendingDraftProfile(requestConversationId);
+      }
       if (onboardingDraftConversationIdRef.current === activeConversationId) {
         onboardingDraftConversationIdRef.current = null;
       }

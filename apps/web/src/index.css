@@ -85,6 +85,19 @@ body {
   animation: busy-pulse 1s ease-in-out infinite;
 }
 
+/* Deep-link message highlight — a one-shot background flash applied when the
+ * transcript scrolls to a message (e.g. opening a saved bookmark). Fades from
+ * the active-surface tint back to transparent over 2s. */
+@keyframes message-highlight-flash {
+  0% { background-color: var(--surface-active); }
+  100% { background-color: transparent; }
+}
+
+.message-highlighted {
+  animation: message-highlight-flash 2s ease-out;
+  border-radius: var(--radius-lg);
+}
+
 /* Avatar streaming ring — a semicircular arc that traces the circular avatar's
    edge and spins continuously while the assistant is streaming/loading. Used
    only for custom uploaded-image avatars; character avatars convey streaming

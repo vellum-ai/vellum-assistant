@@ -29,6 +29,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { migrateAddMemoryV3Selections } from "../../../../memory/migrations/268-add-memory-v3-selections.js";
 import { migrateAddMemoryV3EverInjected } from "../../../../memory/migrations/277-add-memory-v3-ever-injected.js";
+import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../memory/migrations/283-memory-v3-selections-message-id-and-sections.js";
 import * as schema from "../../../../memory/schema.js";
 import type { HotSetEntry, HotSetOptions } from "../hot-set.js";
 import type { OrchestrateResult } from "../orchestrate.js";
@@ -154,6 +155,7 @@ function makeDb() {
   testSqlite.exec("PRAGMA journal_mode=WAL");
   const db = drizzle(testSqlite, { schema });
   migrateAddMemoryV3Selections(db);
+  migrateMemoryV3SelectionsMessageIdAndSections(db);
   // The live injector's net-new dedup reads/writes the everInjected store.
   migrateAddMemoryV3EverInjected(db);
   return db;
@@ -386,6 +388,7 @@ const {
 } = await import("../shadow-plugin.js");
 const { memoryV3Injector, resetMemoryV3InjectorStateForTests } =
   await import("../injector.js");
+const { MemoryV3RetrievalUnavailableError } = await import("../pool-select.js");
 
 afterAll(() => {
   shadowMockActive = false;
@@ -545,7 +548,15 @@ describe("memory-v3 shadow plugin", () => {
         finder: [{ slug: "page-core", descriptor: "", lane: "needle" }],
       },
     });
-    expect(rows).toEqual([{ slug: "page-core", source: "core", pinned: 0 }]);
+    expect(rows).toEqual([
+      {
+        slug: "page-core",
+        source: "core",
+        pinned: 0,
+        sectionOrdinal: null,
+        sectionTitle: null,
+      },
+    ]);
   });
 
   test("the turn passed to orchestrate carries the latest user message", async () => {
@@ -793,5 +804,56 @@ describe("memory-v3 shadow plugin", () => {
       const hits = needle.query("kumquat", 5);
       expect(hits.map((h) => h.article)).toContain(CAPABILITY_SLUG);
     });
+  });
+});
+
+describe("memory-v3 infrastructure-failure handling (hard-fail vs swallow)", () => {
+  const throwInfra = () =>
+    orchestrateSpy.mockImplementationOnce(async () => {
+      throw new MemoryV3RetrievalUnavailableError(
+        "selector provider unavailable",
+      );
+    });
+
+  test("LIVE injector HARD-FAILS the turn on an infra failure (no silent memory loss)", async () => {
+    liveEnabled = true;
+    shadowEnabled = false;
+    throwInfra();
+
+    await expect(produce("conv-infra-live", 0)).rejects.toThrow(
+      MemoryV3RetrievalUnavailableError,
+    );
+  });
+
+  test("SHADOW injector swallows an infra failure (v2 fallback) — no throw, no block", async () => {
+    liveEnabled = false;
+    shadowEnabled = true;
+    throwInfra();
+
+    // Shadow mode: v2 retrieval still ran this turn, so the v3 injector returns
+    // null rather than failing the turn.
+    expect(await produce("conv-infra-shadow", 0)).toBeNull();
+  });
+
+  test("runShadowObservation never throws on an infra failure (fire-and-forget)", async () => {
+    liveEnabled = false;
+    shadowEnabled = true;
+    throwInfra();
+
+    await expect(
+      runShadowObservation("conv-infra-obs", 0),
+    ).resolves.toBeUndefined();
+  });
+
+  test("LIVE injector stays NON-fatal on a non-infra error (degrades to no v3 block)", async () => {
+    liveEnabled = true;
+    shadowEnabled = false;
+    orchestrateSpy.mockImplementationOnce(async () => {
+      throw new Error("some unexpected non-infra bug");
+    });
+
+    // Only INFRA failures hard-fail; any other error stays non-fatal so a bug
+    // in one lane can't take every turn down.
+    expect(await produce("conv-nonfatal-live", 0)).toBeNull();
   });
 });

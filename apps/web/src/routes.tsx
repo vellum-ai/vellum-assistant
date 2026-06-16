@@ -192,7 +192,7 @@ export const routeTree = [
             },
             {
               path: "onboarding/prechat",
-              lazy: { Component: () => import("@/domains/onboarding/pages/pre-chat-flow").then((m) => m.PreChatFlow) },
+              lazy: { Component: () => import("@/domains/onboarding/pages/prechat-route").then((m) => m.PreChatRoute) },
             },
             {
               path: "onboarding/hatching",
@@ -219,8 +219,6 @@ export const routeTree = [
                 { path: "general", lazy: { Component: () => import("@/domains/settings/pages/general-page").then((m) => m.GeneralPage) } },
                 { path: "ai", lazy: { Component: () => import("@/domains/settings/ai/ai-page").then((m) => m.AiPage) } },
                 { path: "integrations", lazy: { Component: () => import("@/domains/settings/pages/integrations-page").then((m) => m.IntegrationsPage) } },
-                { path: "schedules", lazy: { Component: () => import("@/domains/settings/pages/schedules-page").then((m) => m.SchedulesPage) } },
-                { path: "schedules/:scheduleId", lazy: { Component: () => import("@/domains/settings/pages/schedules-page").then((m) => m.SchedulesPage) } },
                 { path: "notifications", lazy: { Component: () => import("@/domains/settings/pages/notifications-page").then((m) => m.NotificationsPage) } },
                 { path: "keyboard-shortcuts", lazy: { Component: () => import("@/domains/settings/keyboard-shortcuts/keyboard-shortcuts-page").then((m) => m.KeyboardShortcutsPage) } },
                 { path: "sounds", lazy: { Component: () => import("@/domains/settings/pages/sounds-page").then((m) => m.SoundsPage) } },
@@ -228,6 +226,7 @@ export const routeTree = [
                 { path: "devices", lazy: { Component: () => import("@/domains/settings/pages/devices-page").then((m) => m.DevicesPage) } },
                 { path: "privacy", lazy: { Component: () => import("@/domains/settings/pages/privacy-page").then((m) => m.PrivacyPage) } },
                 { path: "archive", lazy: { Component: () => import("@/domains/settings/pages/archive-page").then((m) => m.ArchivePage) } },
+                { path: "bookmarks", lazy: { Component: () => import("@/domains/settings/pages/bookmarks-page").then((m) => m.BookmarksPage) } },
                 { path: "billing", lazy: { Component: () => import("@/domains/settings/billing/billing-page").then((m) => m.BillingPage) } },
                 { path: "billing/upgrade/cancel", lazy: { Component: () => import("@/domains/settings/billing/upgrade-cancel-page").then((m) => m.UpgradeCancelPage) } },
                 { path: "billing/upgrade/success", lazy: { Component: () => import("@/domains/settings/billing/upgrade-success-page").then((m) => m.UpgradeSuccessPage) } },

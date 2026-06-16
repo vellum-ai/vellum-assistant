@@ -33,6 +33,21 @@ export const TRUNCATION_MARKER = "\u2014 full result:";
 export const TRUNCATION_EXEMPT_TOOLS = new Set<string>(["skill_load"]);
 
 /**
+ * File-read tools that page spooled `.tool-results/` content back into context.
+ * `file_read` reads inside the workspace; `host_file_read` reads anywhere on the
+ * host. Both are (a) exempt from the result-time spool pass — re-stubbing a read
+ * of a spooled file would hand back another stub, so the content could never be
+ * paged back at all — and (b) recognized by {@link derefToolResultReReads}, so a
+ * re-read of a spooled file collapses to a stub instead of duplicating content
+ * already in context. Sharing one set keeps the two passes from drifting if a
+ * new file-read tool is added.
+ */
+export const FILE_READ_TOOL_NAMES = new Set<string>([
+  "file_read",
+  "host_file_read",
+]);
+
+/**
  * Build a map of tool_use_id -> originating tool name by walking the tool_use
  * blocks in assistant messages. A tool_result only carries `tool_use_id`, so
  * this is the only way to recover which tool produced a given result.
@@ -170,16 +185,18 @@ export const REREAD_STUB =
  * Deduplicate re-reads of saved tool results.
  *
  * When `postTurnTruncateToolResults` truncates a large result, it saves the full
- * content to a `.tool-results/` file. If the model later calls `file_read` on that
- * saved file, the result is a second copy of content whose truncated prefix/suffix
- * is already in context. This function detects those re-reads and replaces their
- * tool_result content with a short stub to avoid duplication.
+ * content to a `.tool-results/` file. If the model later calls `file_read` or
+ * `host_file_read` on that saved file, the result is a second copy of content
+ * whose truncated prefix/suffix is already in context. This function detects
+ * those re-reads and replaces their tool_result content with a short stub to
+ * avoid duplication.
  */
 export function derefToolResultReReads(messages: Message[]): {
   messages: Message[];
   dereferencedCount: number;
 } {
-  // Build a set of tool_use_ids that are file_read calls targeting .tool-results/ paths.
+  // Build a set of tool_use_ids that are file-read calls (file_read or
+  // host_file_read) targeting .tool-results/ paths.
   const reReadToolUseIds = new Set<string>();
 
   for (const msg of messages) {
@@ -187,7 +204,7 @@ export function derefToolResultReReads(messages: Message[]): {
     for (const block of msg.content) {
       if (block.type !== "tool_use") continue;
       const tu = block as ToolUseContent;
-      if (tu.name !== "file_read") continue;
+      if (!FILE_READ_TOOL_NAMES.has(tu.name)) continue;
       const filePath = tu.input.path ?? tu.input.file_path;
       if (typeof filePath !== "string") continue;
       if (filePath.includes(`/${TOOL_RESULT_DIR}/`)) {

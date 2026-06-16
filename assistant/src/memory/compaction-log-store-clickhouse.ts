@@ -213,10 +213,12 @@ export class ClickHouseCompactionLogStore {
 
   /**
    * Read all compaction attempts whose `started_at` falls strictly inside
-   * the given window, pairing start/end rows by `compaction_id`. Mirrors
-   * the strict `>` / `<` predicate contract of
-   * `getCompactionLogsBetween` on the llm-request-log sources, so the
-   * route can apply the same ±1ms boundary shifts to both.
+   * the open window `(afterStartedAt, beforeStartedAt)`, pairing start/end
+   * rows by `compaction_id`. Mirrors the strict `>` / `<` predicate
+   * contract of `getCompactionLogsBetween` on the llm-request-log sources
+   * so the compaction route can scope both stores to the same call window
+   * (floor = previous real call's `createdAt`, ceiling = selected call's
+   * `createdAt`).
    */
   async getEventsBetween(
     conversationId: string,

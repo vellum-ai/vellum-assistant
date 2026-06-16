@@ -13,10 +13,12 @@
  *     by `pinned_ids`; out-of-range IDs dropped; selections deduped by slug
  *     (a page can appear as both a card and a finder line; pinned flags OR).
  *   - Omitted `ids` → keep ALL candidates (recall-safe, slug-deduped).
- *   - Explicit `ids: []` → keep none (deliberate abstention).
+ *   - Explicit `ids: []` → keep none (deliberate abstention) — a normal result.
+ *   - Empty candidate pool → keep none (nothing to select).
  *   - Finder snippets are whitespace-collapsed and truncated (~300 chars).
- *   - No provider / missing tool_use / schema mismatch / throw → keep none
- *     (degrade to deterministic lanes), the last three after a re-prompt retry.
+ *   - No provider / missing tool_use / schema mismatch / provider throw → throw
+ *     MemoryV3RetrievalUnavailableError (an INFRA failure, deliberately DISTINCT
+ *     from a deliberate empty selection), the last three after a re-prompt retry.
  *   - One forced-tool `select_pages` call on the v3 L2 call site with
  *     `disableTurnStartCache` (the tail varies per turn — the provider's
  *     auto-anchor would never hit).
@@ -61,7 +63,8 @@ mock.module("../../../../util/logger.js", () => ({
     }),
 }));
 
-const { selectPool } = await import("../pool-select.js");
+const { selectPool, MemoryV3RetrievalUnavailableError } =
+  await import("../pool-select.js");
 type SelectorPool = Parameters<typeof selectPool>[0];
 
 // ---------------------------------------------------------------------------
@@ -226,35 +229,42 @@ describe("selectPool — id mapping", () => {
 });
 
 // ---------------------------------------------------------------------------
-// selectPool — recall-safe fallbacks.
+// selectPool — infrastructure failures THROW (no silent degradation). A
+// deliberate empty selection and an empty pool (covered above) still return
+// normally; only a genuine infra failure throws so the LIVE injector can
+// hard-fail the turn instead of shipping it with no memory.
 // ---------------------------------------------------------------------------
 
-describe("selectPool — degradation on failure", () => {
-  test("no provider → no pages, without calling the provider", async () => {
+describe("selectPool — infrastructure failures throw", () => {
+  test("no provider → throws without calling the provider", async () => {
     providerStub = null;
-    const result = await selectPool(makePool(), makeTurn("x"));
-    expect(result).toEqual([]);
+    await expect(selectPool(makePool(), makeTurn("x"))).rejects.toThrow(
+      MemoryV3RetrievalUnavailableError,
+    );
     expect(providerCalls).toHaveLength(0);
   });
 
-  test("missing tool_use → no pages after retrying", async () => {
+  test("missing tool_use → throws after retrying", async () => {
     providerStub = makeProvider(noToolResponse());
-    const result = await selectPool(makePool(), makeTurn("x"));
-    expect(result).toEqual([]);
+    await expect(selectPool(makePool(), makeTurn("x"))).rejects.toThrow(
+      MemoryV3RetrievalUnavailableError,
+    );
     expect(providerCalls).toHaveLength(3);
   });
 
-  test("schema mismatch → no pages after retrying", async () => {
+  test("schema mismatch → throws after retrying", async () => {
     providerStub = makeProvider(toolUseResponse({ ids: "not-an-array" }));
-    const result = await selectPool(makePool(), makeTurn("x"));
-    expect(result).toEqual([]);
+    await expect(selectPool(makePool(), makeTurn("x"))).rejects.toThrow(
+      MemoryV3RetrievalUnavailableError,
+    );
     expect(providerCalls).toHaveLength(3);
   });
 
-  test("provider throw → no pages after retrying", async () => {
+  test("provider throw → throws after retrying", async () => {
     providerStub = makeThrowingProvider();
-    const result = await selectPool(makePool(), makeTurn("x"));
-    expect(result).toEqual([]);
+    await expect(selectPool(makePool(), makeTurn("x"))).rejects.toThrow(
+      MemoryV3RetrievalUnavailableError,
+    );
     expect(providerCalls).toHaveLength(3);
   });
 

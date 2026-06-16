@@ -1170,6 +1170,66 @@ describe("script timeout override", () => {
   });
 });
 
+// ── Capability manifest ─────────────────────────────────────────────
+
+describe("capability manifest", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run("DELETE FROM cron_runs");
+    db.run("DELETE FROM cron_jobs");
+  });
+
+  const manifest = {
+    tools: ["file_write"],
+    hostFunctions: [],
+    persona: false,
+  };
+
+  test("persists a capability manifest through create/read", () => {
+    const job = createSchedule({
+      name: "Capable schedule",
+      cronExpression: "0 9 * * *",
+      message: "do scoped work",
+      syntax: "cron",
+      capabilities: manifest,
+    });
+
+    expect(job.capabilities).toEqual(manifest);
+    expect(getSchedule(job.id)!.capabilities).toEqual(manifest);
+  });
+
+  test("defaults capabilities to null when not provided", () => {
+    const job = createSchedule({
+      name: "No manifest",
+      cronExpression: "0 9 * * *",
+      message: "unconstrained",
+      syntax: "cron",
+    });
+
+    expect(job.capabilities).toBeNull();
+    expect(getSchedule(job.id)!.capabilities).toBeNull();
+  });
+
+  test("updateSchedule sets and clears the capability manifest", () => {
+    const job = createSchedule({
+      name: "Update manifest",
+      cronExpression: "0 9 * * *",
+      message: "update manifest",
+      syntax: "cron",
+    });
+
+    expect(job.capabilities).toBeNull();
+
+    const updated = updateSchedule(job.id, { capabilities: manifest });
+    expect(updated!.capabilities).toEqual(manifest);
+    expect(getSchedule(job.id)!.capabilities).toEqual(manifest);
+
+    const cleared = updateSchedule(job.id, { capabilities: null });
+    expect(cleared!.capabilities).toBeNull();
+    expect(getSchedule(job.id)!.capabilities).toBeNull();
+  });
+});
+
 // ── listSchedules filters ───────────────────────────────────────────
 
 describe("listSchedules filters", () => {

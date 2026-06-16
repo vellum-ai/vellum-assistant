@@ -1,4 +1,13 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -77,8 +86,14 @@ mock.module("node:fs", () => ({
 // exercise the real shared read/write logic without touching a real config
 // dir. Set before importing the module under test because `installLocalMode`
 // captures the resolved paths once at registration time.
+const previousEnvironment = process.env.VELLUM_ENVIRONMENT;
+const previousLockfileDir = process.env.VELLUM_LOCKFILE_DIR;
+const previousConfigHome = process.env.XDG_CONFIG_HOME;
 const lockfileDir = fs.mkdtempSync(path.join(os.tmpdir(), "vellum-lockfile-"));
+const configHomeDir = fs.mkdtempSync(path.join(os.tmpdir(), "vellum-config-"));
+process.env.VELLUM_ENVIRONMENT = "production";
 process.env.VELLUM_LOCKFILE_DIR = lockfileDir;
+process.env.XDG_CONFIG_HOME = configHomeDir;
 const lockfilePath = path.join(lockfileDir, ".vellum.lock.json");
 
 const { installLocalMode } = await import("./local-mode");
@@ -98,6 +113,29 @@ const allowedEvent = {
 
 beforeAll(() => {
   installLocalMode();
+});
+
+afterAll(() => {
+  if (previousEnvironment === undefined) {
+    delete process.env.VELLUM_ENVIRONMENT;
+  } else {
+    process.env.VELLUM_ENVIRONMENT = previousEnvironment;
+  }
+
+  if (previousLockfileDir === undefined) {
+    delete process.env.VELLUM_LOCKFILE_DIR;
+  } else {
+    process.env.VELLUM_LOCKFILE_DIR = previousLockfileDir;
+  }
+
+  if (previousConfigHome === undefined) {
+    delete process.env.XDG_CONFIG_HOME;
+  } else {
+    process.env.XDG_CONFIG_HOME = previousConfigHome;
+  }
+
+  fs.rmSync(lockfileDir, { recursive: true, force: true });
+  fs.rmSync(configHomeDir, { recursive: true, force: true });
 });
 
 // The dev CLI entry resolved from the default appPath.

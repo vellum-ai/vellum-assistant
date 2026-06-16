@@ -80,6 +80,20 @@ describe("buildPreChatContext — control", () => {
     expect(context.priorAssistants).toEqual(["asst-1"]);
   });
 
+  test("carries a trimmed occupation when provided", () => {
+    const context = buildPreChatContext(
+      baseInput({ occupation: "  Software Engineer  " }),
+    );
+    expect(context.occupation).toBe("Software Engineer");
+  });
+
+  test("omits occupation when absent or blank", () => {
+    expect(buildPreChatContext(baseInput()).occupation).toBeUndefined();
+    expect(
+      buildPreChatContext(baseInput({ occupation: "   " })).occupation,
+    ).toBeUndefined();
+  });
+
   test("uses scopes from the connecting action over stored state", () => {
     const context = buildPreChatContext(
       baseInput({

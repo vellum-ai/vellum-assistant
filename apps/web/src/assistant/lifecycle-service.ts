@@ -43,18 +43,24 @@ import {
   ASSISTANT_QUERY_KEY,
   assistantQueryKey,
 } from "@/assistant/queries";
+import { deriveLocalAssistantHealth } from "@/assistant/local-health";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import type { AssistantState } from "@/assistant/types";
+import type {
+  AssistantState,
+  LocalAssistantHealth,
+} from "@/assistant/types";
 import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
 import {
   getSelectedAssistant,
   getLocalGatewayUrl,
 } from "@/lib/local-mode";
+import { getLocalAssistantStatusHost } from "@/runtime/local-mode-host";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { isAuthenticated, type SessionStatus } from "@/stores/session-status";
 
 const PROBE_RETRY_DELAY_MS = 4_000;
 const PROBE_RETRY_LIMIT_MS = 60_000;
+const LOCAL_HEALTH_POLL_MS = 5_000;
 
 export interface LifecycleServiceInputs {
   sessionStatus: SessionStatus;
@@ -103,6 +109,36 @@ class AssistantLifecycleService {
     selectedPlatformAssistantId: null,
   };
   private probeTimer: ReturnType<typeof setTimeout> | null = null;
+  private healthHeartbeatTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Assistant the heartbeat is running for; null when no heartbeat. */
+  private healthHeartbeatId: string | null = null;
+  /**
+   * Invalidates in-flight heartbeat ticks on cancel/restart. A tick
+   * holds an await across `getAssistantHealthz`; without the token, a
+   * stale tick resolving after a restart would re-arm its own timer
+   * alongside the new heartbeat's and leave two loops running.
+   */
+  private healthHeartbeatToken = 0;
+  /**
+   * Health probes can synchronously emit `assistant_unreachable` through
+   * the API interceptor before their own await path finishes. Track the
+   * assistant ids already being probed so that event can mark the state
+   * degraded without recursively starting another `/healthz` request.
+   */
+  private reachabilityProbeInFlightIds = new Set<string>();
+  /**
+   * Tracks the assistant being actively probed. Non-null when a probe
+   * loop is running (timer pending OR tick in-flight). Prevents
+   * re-entry: the probe's own 502 response fires the unreachable-bus
+   * which calls `triggerReachabilityProbe` again — without this guard
+   * each re-entry creates an orphaned timer that can never be
+   * cancelled, doubling probe traffic on every cycle and consuming CPU.
+   *
+   * Storing the assistantId (rather than a bare boolean) allows a
+   * switch to a different assistant to cancel the stale loop and start
+   * a fresh one.
+   */
+  private probeLoopAssistantId: string | null = null;
   /**
    * Auto-retry for transient (transport-shaped) error states —
    * armed by `transition` on entering such a state, cleared on
@@ -163,6 +199,9 @@ class AssistantLifecycleService {
       useResolvedAssistantsStore.getState().setActiveAssistantId(null);
     }
     this.setOperationalStatusAssistantId(null);
+    this.cancelProbeTimer();
+    this.probeLoopAssistantId = null;
+    this.reachabilityProbeInFlightIds.clear();
     if (this.state.kind !== "loading") {
       this.transition({ kind: "loading" });
     }
@@ -217,7 +256,19 @@ class AssistantLifecycleService {
   // Imperative actions — called from event handlers / consumers
   // ---------------------------------------------------------------------------
 
-  async checkAssistant(): Promise<void> {
+  /**
+   * Force a fresh assistant-status fetch and project it.
+   *
+   * `assistantIdOverride` pins this one refresh to a specific assistant
+   * instead of the multi-assistant selection carried in
+   * `inputs.selectedPlatformAssistantId`. The onboarding handoff uses it so a
+   * just-hatched assistant is the one fetched and projected — otherwise, in a
+   * multi-assistant session where a *different* assistant is already selected,
+   * the refresh would re-fetch that selection and `projectActive` would
+   * overwrite the active id back to it, sending the onboarding payload to the
+   * wrong assistant.
+   */
+  async checkAssistant(assistantIdOverride?: string): Promise<void> {
     if (!this.ready) return;
     if (isGatewayAuthMode()) {
       this.applyGatewayAuthShortCircuit();
@@ -235,7 +286,8 @@ class AssistantLifecycleService {
       // network so a 10s-old cached 404 or initializing result
       // doesn't silently replay. Poll-driven projections go through
       // `applyServerResult` to avoid the read-back loop.
-      const selectedId = this.inputs.selectedPlatformAssistantId ?? null;
+      const selectedId =
+        assistantIdOverride ?? this.inputs.selectedPlatformAssistantId ?? null;
       let result = await this.inputs.queryClient.fetchQuery({
         queryKey: assistantQueryKey(selectedId),
         queryFn: () => getAssistant(selectedId ?? undefined),
@@ -346,6 +398,14 @@ class AssistantLifecycleService {
     if (next.kind !== "initializing" && next.kind !== "active") {
       this.clearExpectingFirstMessage();
     }
+    // Heartbeat edge-trigger: the health heartbeat only lives while
+    // the state is a local assistant. The projectors start it;
+    // leaving for any non-local state stops it.
+    const nextIsLocalAssistant =
+      next.kind === "self_hosted" || (next.kind === "active" && next.isLocal);
+    if (!nextIsLocalAssistant && this.healthHeartbeatId !== null) {
+      this.cancelHealthHeartbeat();
+    }
     // Auto-retry edge-trigger: entering a transient (transport-shaped)
     // error arms the next backoff step — including error → error
     // re-entries, which are how a failed retry schedules the following
@@ -427,6 +487,7 @@ class AssistantLifecycleService {
     result: GetAssistantResult & { ok: true },
   ): void {
     const mm = result.data.maintenance_mode;
+    const isLocal = result.data.is_local ?? false;
     setSelfHostedConnection(null);
     this.setOperationalStatusAssistantId(result.data.id);
     const store = useResolvedAssistantsStore.getState();
@@ -434,10 +495,14 @@ class AssistantLifecycleService {
     store.setActiveAssistantId(result.data.id);
     this.transition({
       kind: "active",
-      isLocal: result.data.is_local ?? false,
+      isLocal,
       maintenanceMode: { enabled: mm?.enabled },
     });
-    void this.probeReachability(result.data.id);
+    if (isLocal) {
+      this.startHealthHeartbeat(result.data.id);
+    } else {
+      void this.probeReachability(result.data.id);
+    }
   }
 
   /**
@@ -470,6 +535,7 @@ class AssistantLifecycleService {
     store.upsertFromApi(result.data);
     store.setActiveAssistantId(result.data.id);
     this.transition({ kind: "self_hosted" });
+    this.startHealthHeartbeat(result.data.id);
   }
 
   private applyGatewayAuthShortCircuit(): void {
@@ -487,6 +553,7 @@ class AssistantLifecycleService {
       .getState()
       .setActiveAssistantId(resolvedAssistantId);
     this.transition({ kind: "active", isLocal: true });
+    this.startHealthHeartbeat(resolvedAssistantId);
   }
 
   private async applyServerStateUpdate(
@@ -540,18 +607,64 @@ class AssistantLifecycleService {
   // ---------------------------------------------------------------------------
 
   private async probeReachability(assistantId: string): Promise<void> {
-    const generation = this.generation;
+    if (this.reachabilityProbeInFlightIds.has(assistantId)) return;
+    this.reachabilityProbeInFlightIds.add(assistantId);
     try {
-      const result = await getAssistantHealthz(assistantId);
+      const generation = this.generation;
+      let health: LocalAssistantHealth;
+      try {
+        health = deriveLocalAssistantHealth(
+          await getAssistantHealthz(assistantId),
+        );
+      } catch {
+        health = "unreachable";
+      }
+      if (health === "unreachable") {
+        const localStatusAssistantId =
+          this.state.kind === "self_hosted" ||
+          (this.state.kind === "active" && this.state.isLocal)
+            ? (getSelectedAssistant()?.assistantId ?? assistantId)
+            : assistantId;
+        const localStatus = await getLocalAssistantStatusHost(
+          localStatusAssistantId,
+        ).catch(() => null);
+        if (localStatus?.ok) {
+          switch (localStatus.state) {
+            case "healthy":
+              health = "healthy";
+              break;
+            case "sleeping":
+            case "starting":
+            case "crashed":
+              health = localStatus.state;
+              break;
+            case "unknown":
+              break;
+          }
+        }
+      }
       if (generation !== this.generation) return;
+      if (
+        useResolvedAssistantsStore.getState().activeAssistantId !== assistantId
+      ) {
+        return;
+      }
+      if (this.state.kind === "self_hosted") {
+        if (this.state.health !== health) {
+          this.transition({ ...this.state, health });
+        }
+        return;
+      }
       if (this.state.kind !== "active") return;
-      if (useResolvedAssistantsStore.getState().activeAssistantId !== assistantId) return;
-      this.transition({ ...this.state, reachable: result.ok });
-    } catch {
-      if (generation !== this.generation) return;
-      if (this.state.kind !== "active") return;
-      if (useResolvedAssistantsStore.getState().activeAssistantId !== assistantId) return;
-      this.transition({ ...this.state, reachable: false });
+      const reachable = health === "healthy" || health === "unhealthy";
+      // Heartbeat ticks re-confirm the same answer most of the time —
+      // don't wake every store subscriber for a no-op.
+      if (this.state.reachable === reachable && this.state.health === health) {
+        return;
+      }
+      this.transition({ ...this.state, reachable, health });
+    } finally {
+      this.reachabilityProbeInFlightIds.delete(assistantId);
     }
   }
 
@@ -563,18 +676,70 @@ class AssistantLifecycleService {
   }
 
   private startProbeLoop(assistantId: string): void {
+    if (this.probeLoopAssistantId === assistantId) return;
     this.cancelProbeTimer();
+    this.probeLoopAssistantId = assistantId;
     const startedAt = Date.now();
+    const exit = () => {
+      this.probeLoopAssistantId = null;
+    };
     const tick = async () => {
-      if (this.state.kind !== "active" || this.state.reachable === true) return;
-      if (Date.now() - startedAt > PROBE_RETRY_LIMIT_MS) return;
+      if (this.state.kind !== "active" || this.state.reachable === true) {
+        exit();
+        return;
+      }
+      if (Date.now() - startedAt > PROBE_RETRY_LIMIT_MS) {
+        exit();
+        return;
+      }
       await this.probeReachability(assistantId);
       const s = this.state;
-      if (s.kind !== "active" || s.reachable === true) return;
-      if (Date.now() - startedAt > PROBE_RETRY_LIMIT_MS) return;
+      if (s.kind !== "active" || s.reachable === true) {
+        exit();
+        return;
+      }
+      if (Date.now() - startedAt > PROBE_RETRY_LIMIT_MS) {
+        exit();
+        return;
+      }
       this.probeTimer = setTimeout(() => void tick(), PROBE_RETRY_DELAY_MS);
     };
     this.probeTimer = setTimeout(() => void tick(), PROBE_RETRY_DELAY_MS);
+  }
+
+  /**
+   * Continuous daemon-health heartbeat for local / self-hosted
+   * assistants. Platform-hosted assistants surface health through the
+   * centralized operational-status API and keep the event-driven
+   * probe; local assistants have no platform-side signal, so the
+   * service polls the daemon's own healthz and projects the result
+   * into `assistantState.health` for the status banner. Stopped by
+   * `transition()`'s edge-trigger when the state leaves local.
+   */
+  private startHealthHeartbeat(assistantId: string): void {
+    if (this.healthHeartbeatId === assistantId) return;
+    this.cancelHealthHeartbeat();
+    this.healthHeartbeatId = assistantId;
+    const token = this.healthHeartbeatToken;
+    const tick = async () => {
+      if (token !== this.healthHeartbeatToken) return;
+      await this.probeReachability(assistantId);
+      if (token !== this.healthHeartbeatToken) return;
+      this.healthHeartbeatTimer = setTimeout(
+        () => void tick(),
+        LOCAL_HEALTH_POLL_MS,
+      );
+    };
+    void tick();
+  }
+
+  private cancelHealthHeartbeat(): void {
+    this.healthHeartbeatToken++;
+    this.healthHeartbeatId = null;
+    if (this.healthHeartbeatTimer) {
+      clearTimeout(this.healthHeartbeatTimer);
+      this.healthHeartbeatTimer = null;
+    }
   }
 
   private onUnreachable(): void {
@@ -587,6 +752,11 @@ class AssistantLifecycleService {
    * `reachable` field updates when the daemon responds. Called
    * internally by the unreachable-bus subscriber and externally
    * by the reachability hook on SSE drops / user retry.
+   *
+   * `health` is deliberately NOT flipped here — it only ever reflects
+   * a completed probe, so the status banner doesn't flash
+   * "unreachable" on every transient SSE bounce while the chat
+   * overlay (driven by `reachable`) handles the acute state.
    */
   triggerReachabilityProbe(): void {
     if (this.state.kind !== "active") return;
@@ -594,6 +764,12 @@ class AssistantLifecycleService {
       useResolvedAssistantsStore.getState().activeAssistantId;
     if (!assistantId) return;
     this.transition({ ...this.state, reachable: false });
+    if (this.healthHeartbeatId === assistantId) {
+      // The heartbeat owns the cadence — just pull the next probe
+      // forward instead of racing a second retry loop against it.
+      void this.probeReachability(assistantId);
+      return;
+    }
     this.startProbeLoop(assistantId);
   }
 
@@ -608,6 +784,9 @@ class AssistantLifecycleService {
       this.initializingTimeout = null;
     }
     this.cancelProbeTimer();
+    this.cancelHealthHeartbeat();
+    this.probeLoopAssistantId = null;
+    this.reachabilityProbeInFlightIds.clear();
     this.clearErrorRetry(true);
     this.state = { kind: "loading" };
     this.generation = 0;

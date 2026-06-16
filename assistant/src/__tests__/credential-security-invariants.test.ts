@@ -95,17 +95,7 @@ import {
 
 describe("Invariant 1: secrets never enter LLM context", () => {
   for (const tc of contextInjectionCases) {
-    if (
-      tc.vector === "tool_output" &&
-      tc.tool === "credential_store" &&
-      tc.input.action === "store"
-    ) {
-      // Store output never includes the value
-      test(`${tc.label}: secret not in output`, () => {
-        expect(tc.forbiddenValue).toBeTruthy();
-        // Actual assertion is in credential-vault.test.ts baseline section
-      });
-    } else if (tc.vector === "confirmation_payload") {
+    if (tc.vector === "confirmation_payload") {
       // PR 23 added redaction to confirmation_request payloads via redactSensitiveFields
       test(`${tc.label}: secret redacted from confirmation payload`, () => {
         const payload = { ...tc.input };
@@ -132,7 +122,7 @@ describe("Invariant 1: secrets never enter LLM context", () => {
         }
       });
     } else {
-      // tool_output cases for list and browser_fill — already passing via baselines
+      // tool_output cases (browser_fill_credential) — already passing via baselines
       test(`${tc.label}: secret not in output`, () => {
         expect(tc.forbiddenValue).toBeTruthy();
       });
@@ -165,7 +155,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
     // Hard boundary: only these production files may import from secure-keys.
     // Any new import must be reviewed for secret-leak risk and added here.
     const ALLOWED_IMPORTERS = new Set([
-      "tools/credentials/vault.ts", // credential store tool
+      "credential-execution/prompted-credential.ts", // shared prompt-action persistence (stores secret via setSecureKeyAsync)
       "tools/credentials/broker.ts", // brokered credential access
       "tools/network/web-search.ts", // web search API key lookup
       "daemon/handlers/config-telegram.ts", // Telegram bot token management

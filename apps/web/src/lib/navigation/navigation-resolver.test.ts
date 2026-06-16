@@ -293,6 +293,13 @@ describe("resolveNavigation", () => {
         to: "/assistant/onboarding/hatching",
       });
     });
+
+    test("redirects a consented no-assistant platform user to hatching", () => {
+      expect(guard(s({ hasAssistants: false }))).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/hatching",
+      });
+    });
   });
 
   // -----------------------------------------------------------------------

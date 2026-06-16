@@ -34,6 +34,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { migrateAddMemoryV3Selections } from "../../../../memory/migrations/268-add-memory-v3-selections.js";
+import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../memory/migrations/283-memory-v3-selections-message-id-and-sections.js";
 import * as schema from "../../../../memory/schema.js";
 import type { PageIndexEntry } from "../../../../memory/v2/page-index.js";
 import type {
@@ -105,6 +106,7 @@ function makeDb() {
   testSqlite.exec("PRAGMA journal_mode=WAL");
   const db = drizzle(testSqlite, { schema });
   migrateAddMemoryV3Selections(db);
+  migrateMemoryV3SelectionsMessageIdAndSections(db);
   return db;
 }
 mock.module("../../../../memory/db-connection.js", () => ({

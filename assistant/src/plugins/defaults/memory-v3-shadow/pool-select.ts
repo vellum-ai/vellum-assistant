@@ -30,15 +30,22 @@
  * stable-prefix card and as a finder line (its current matched section);
  * selections are deduped by slug.
  *
- * Failure handling is recall-safe by construction:
+ * Failure handling distinguishes a DELIBERATE empty selection from an
+ * INFRASTRUCTURE failure — the two are different outcomes, not the same one:
  *   - explicit `ids` → select exactly those candidates,
- *   - explicit empty `ids: []` → select none (deliberate abstention),
+ *   - explicit empty `ids: []` → select none (deliberate abstention) — a
+ *     normal, non-error result; the turn proceeds,
  *   - omitted `ids` → keep ALL candidates (the recall-safe "all of these are
  *     relevant" signal),
- *   - infrastructure failure (provider unavailable, a throw that survived the
- *     provider's own retries, no usable `tool_use`, or a schema mismatch) →
- *     select nothing after a short re-prompt retry, degrading to the
- *     deterministic recall lanes the orchestrator unions in regardless.
+ *   - empty candidate pool → return none (nothing to select),
+ *   - infrastructure failure (selector provider unavailable — e.g. a transient
+ *     CES credential blip drops the API key — or no usable `tool_use` / schema
+ *     mismatch surviving the short re-prompt retry) → throw
+ *     {@link MemoryV3RetrievalUnavailableError}. There is NO deterministic-lane
+ *     fallback: the LIVE injector propagates this to hard-fail the turn
+ *     (retryable) rather than silently shipping it with no `<memory>` block,
+ *     while the shadow/observation path swallows it and lets v2 retrieval serve
+ *     the turn.
  */
 
 import { z } from "zod";
@@ -59,6 +66,24 @@ import { retryForResult } from "./llm-retry.js";
 import type { MemoryRoutingTurn, SelectedPage, Slug } from "./types.js";
 
 const log = getLogger("memory-v3-pool-select");
+
+/**
+ * Thrown when the pool selector cannot produce a selection because of an
+ * INFRASTRUCTURE failure — its LLM provider is unavailable (e.g. a transient
+ * CES credential blip drops the API key), or no usable `tool_use` survives the
+ * re-prompt retry. Deliberately DISTINCT from a deliberate empty selection
+ * (`ids: []`) and an empty candidate pool, both of which return normally.
+ *
+ * The LIVE memory-v3 injector propagates this to hard-fail the turn (a clean,
+ * retryable failure) rather than silently shipping with no memory; the
+ * shadow/observation path catches and swallows it.
+ */
+export class MemoryV3RetrievalUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MemoryV3RetrievalUnavailableError";
+  }
+}
 
 /** A dynamic-tail (finder) candidate: the slug plus the descriptor that
  *  justifies it — a matched section for a needle/dense hit, or a curated link
@@ -213,9 +238,11 @@ export async function selectPool(
   if (!provider) {
     log.warn(
       { candidateCount: ordered.length },
-      "pool selector provider unavailable; degrading to deterministic lanes",
+      "pool selector provider unavailable — failing the turn rather than dropping memory",
     );
-    return [];
+    throw new MemoryV3RetrievalUnavailableError(
+      "memory-v3 pool selector provider unavailable",
+    );
   }
 
   // Two content blocks: the stable prefix (cards) carries the cache
@@ -265,9 +292,11 @@ export async function selectPool(
   if (parsed === null) {
     log.warn(
       { candidateCount: ordered.length },
-      "pool selector could not obtain a selection after retries; degrading to deterministic lanes",
+      "pool selector could not obtain a selection after retries — failing the turn rather than dropping memory",
     );
-    return [];
+    throw new MemoryV3RetrievalUnavailableError(
+      "memory-v3 pool selector returned no usable selection after retries",
+    );
   }
 
   // Omitted `ids` is the recall-safe "keep all candidates" signal.

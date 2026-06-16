@@ -40,6 +40,15 @@ export function formatCost(value: number | null | undefined): string {
   return costFormatter.format(value);
 }
 
+/**
+ * Renders a 0–1 ratio as a whole-number percentage (e.g. `0.42` → `"42%"`).
+ * Returns {@link MISSING_VALUE} when the ratio is absent or non-finite.
+ */
+export function formatPercent(ratio: number | null | undefined): string {
+  if (ratio == null || !Number.isFinite(ratio)) return MISSING_VALUE;
+  return `${Math.round(ratio * 100)}%`;
+}
+
 export function formatCacheTokens(
   created: number | null | undefined,
   read: number | null | undefined,

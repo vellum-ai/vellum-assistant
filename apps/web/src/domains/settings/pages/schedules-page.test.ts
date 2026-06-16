@@ -10,6 +10,7 @@ import {
 import { createElement } from "react";
 import type { ReactElement } from "react";
 
+import * as daemonSdk from "@/generated/daemon/sdk.gen";
 import * as schedulesApi from "@/domains/settings/api/schedules";
 import { routes } from "@/utils/routes";
 
@@ -102,21 +103,19 @@ const configLlmCallsitesGetOptionsMock = mock(
     queryFn: async () => callSiteCatalogMock,
   }),
 );
-const fetchConsolidationRunsMock = mock(
-  async (
-    _assistantId: string,
-    _limit?: number,
-    _before?: number,
-  ): Promise<ScheduleRunsPage> => ({
+// SDK-level mocks for system-task runs used by SystemTaskDetailView
+// (which now calls generated infinite options → SDK functions directly).
+const consolidationRunsGetMock = mock(async () => ({
+  data: {
     runs: [
       {
         id: "consolidation-run-1",
-        jobId: "consolidation",
-        status: "ok",
+        scheduledFor: 1_761_792_000_000,
         startedAt: 1_761_792_000_000,
         finishedAt: 1_761_792_003_000,
         durationMs: 3000,
-        output: null,
+        status: "ok",
+        skipReason: null,
         error: null,
         conversationId: "conv-consolidation-1",
         conversationExists: true,
@@ -126,42 +125,50 @@ const fetchConsolidationRunsMock = mock(
       },
     ],
     nextCursor: null,
-  }),
-);
-const fetchHeartbeatRunsMock = mock(
-  async (
-    _assistantId: string,
-    _limit?: number,
-    _before?: number,
-  ): Promise<ScheduleRunsPage> => ({ runs: [], nextCursor: null }),
-);
-const fetchRetrospectiveRunsMock = mock(
-  async (
-    _assistantId: string,
-    _limit?: number,
-    _before?: number,
-  ): Promise<ScheduleRunsPage> => ({
+  },
+  error: undefined,
+  response: { ok: true, status: 200 },
+}));
+
+const heartbeatRunsGetMock = mock(async () => ({
+  data: { runs: [], nextCursor: null },
+  error: undefined,
+  response: { ok: true, status: 200 },
+}));
+
+const retrospectiveRunsGetMock = mock(async () => ({
+  data: {
     runs: [
       {
         id: "retro-run-1",
-        jobId: "retrospective",
-        status: "ok",
+        scheduledFor: 1_761_792_000_000,
         startedAt: 1_761_792_000_000,
         finishedAt: 1_761_792_004_000,
         durationMs: 4000,
-        output: null,
+        status: "ok",
+        skipReason: null,
         error: null,
         conversationId: "conv-retro-1",
         conversationExists: true,
         conversationArchivedAt: null,
         estimatedCostUsd: 0.0456,
         createdAt: 1_761_792_000_000,
+        kind: "fork",
         title: "Planning chat (Retrospective)",
       },
     ],
     nextCursor: null,
-  }),
-);
+  },
+  error: undefined,
+  response: { ok: true, status: 200 },
+}));
+
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  ...daemonSdk,
+  consolidationRunsGet: consolidationRunsGetMock,
+  heartbeatRunsGet: heartbeatRunsGetMock,
+  retrospectiveRunsGet: retrospectiveRunsGetMock,
+}));
 const fetchScheduleRunsMock = mock(
   async (
     _assistantId: string,
@@ -181,9 +188,6 @@ let nowSpy: ReturnType<typeof spyOn> | null = null;
 mock.module("@/domains/settings/api/schedules", () => ({
   ...schedulesApi,
   createSchedule: createScheduleMock,
-  fetchConsolidationRuns: fetchConsolidationRunsMock,
-  fetchHeartbeatRuns: fetchHeartbeatRunsMock,
-  fetchRetrospectiveRuns: fetchRetrospectiveRunsMock,
   fetchScheduleRuns: fetchScheduleRunsMock,
   fetchScheduleUsageSummary: fetchScheduleUsageSummaryMock,
 }));
@@ -230,9 +234,9 @@ afterEach(() => {
   cleanup();
   navigateCalls.length = 0;
   createScheduleMock.mockClear();
-  fetchConsolidationRunsMock.mockClear();
-  fetchHeartbeatRunsMock.mockClear();
-  fetchRetrospectiveRunsMock.mockClear();
+  consolidationRunsGetMock.mockClear();
+  heartbeatRunsGetMock.mockClear();
+  retrospectiveRunsGetMock.mockClear();
   fetchScheduleRunsMock.mockClear();
   fetchScheduleUsageSummaryMock.mockClear();
   configGetOptionsMock.mockClear();
@@ -539,9 +543,7 @@ describe("SystemTaskDetailView", () => {
     );
 
     await waitFor(() =>
-      expect(fetchConsolidationRunsMock.mock.calls).toEqual([
-        ["assistant-1", RUNS_PAGE_SIZE, undefined],
-      ]),
+      expect(consolidationRunsGetMock).toHaveBeenCalled(),
     );
 
     await waitFor(() =>
@@ -585,9 +587,7 @@ describe("SystemTaskDetailView", () => {
     );
 
     await waitFor(() =>
-      expect(fetchConsolidationRunsMock.mock.calls).toEqual([
-        ["assistant-1", RUNS_PAGE_SIZE, undefined],
-      ]),
+      expect(consolidationRunsGetMock).toHaveBeenCalled(),
     );
 
     expect(document.body.textContent).toContain(
@@ -1254,9 +1254,7 @@ describe("system task toggles", () => {
     );
 
     await waitFor(() =>
-      expect(fetchHeartbeatRunsMock.mock.calls).toEqual([
-        ["assistant-1", RUNS_PAGE_SIZE, undefined],
-      ]),
+      expect(heartbeatRunsGetMock).toHaveBeenCalled(),
     );
 
     expect(document.body.textContent).toContain("Disabled");
@@ -1426,9 +1424,7 @@ describe("system task toggles", () => {
     );
 
     await waitFor(() =>
-      expect(fetchRetrospectiveRunsMock.mock.calls).toEqual([
-        ["assistant-1", RUNS_PAGE_SIZE, undefined],
-      ]),
+      expect(retrospectiveRunsGetMock).toHaveBeenCalled(),
     );
 
     // Event-driven task: nothing global to trigger, no scheduled next run.
@@ -1466,9 +1462,7 @@ describe("system task toggles", () => {
     );
 
     await waitFor(() =>
-      expect(fetchConsolidationRunsMock.mock.calls).toEqual([
-        ["assistant-1", RUNS_PAGE_SIZE, undefined],
-      ]),
+      expect(consolidationRunsGetMock).toHaveBeenCalled(),
     );
 
     expect(screen.queryByLabelText("Toggle Consolidation")).toBeNull();

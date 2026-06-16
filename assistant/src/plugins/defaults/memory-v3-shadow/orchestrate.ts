@@ -383,7 +383,7 @@ export async function orchestrate(
  * when the article or ordinal is not in the index (e.g. the dense store is
  * ahead of the in-memory rebuild).
  */
-function sectionByOrdinal(
+export function sectionByOrdinal(
   index: SectionIndex,
   article: Slug,
   ordinal: number,

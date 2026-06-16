@@ -15,8 +15,6 @@ import {
   hasAccessRequestInstructions,
   hasInviteFlowDirective,
   normalizeForDirectiveMatching,
-  sanitizeIdentityField,
-  sanitizeMessagePreview,
 } from "../notifications/access-request-copy.js";
 import type { ConversationCandidateSet } from "../notifications/conversation-candidates.js";
 import { composeFallbackCopy } from "../notifications/copy-composer.js";
@@ -24,6 +22,10 @@ import {
   enforceGuardianCallConversationAffinity,
   validateConversationActions,
 } from "../notifications/decision-engine.js";
+import {
+  sanitizeIdentityField,
+  sanitizeMessagePreview,
+} from "../notifications/notification-utils.js";
 import type { NotificationSignal } from "../notifications/signal.js";
 import type {
   NotificationChannel,

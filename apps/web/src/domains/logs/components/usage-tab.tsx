@@ -13,13 +13,11 @@ import {
 } from "@/domains/logs/components/usage-trend-chart";
 import { formatCost, formatTokens } from "@/domains/logs/format";
 import { decorateUsageBreakdownGroups } from "@/domains/logs/group-labels";
-import { configLlmCallsitesGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
-import { fetchUsageProfileMetadata } from "@/utils/profile-metadata";
 import {
-    fetchUsageBreakdown,
-    fetchUsageDaily,
-    fetchUsageSeries,
-    fetchUsageTotals,
+    buildUsageBreakdownQuery,
+    buildUsageDailyQuery,
+    buildUsageSeriesQuery,
+    buildUsageTotalsQuery,
 } from "@/domains/logs/usage-api";
 import {
     formatBreakdownTokens,
@@ -51,7 +49,17 @@ import type {
     UsageTimeRange,
     UsageTotals,
 } from "@/domains/logs/usage-types";
+import { usageBreakdownGet } from "@/generated/daemon/sdk.gen";
+import {
+    configGetOptions,
+    configLlmCallsitesGetOptions,
+    usageBreakdownGetQueryKey,
+    usageDailyGetOptions,
+    usageSeriesGetOptions,
+    usageTotalsGetOptions,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 import { assistantSchedulesQueryKey } from "@/lib/sync/query-tags";
+import { extractUsageProfileMetadata } from "@/utils/profile-metadata";
 import { storePendingInitialMessage } from "@/utils/initial-message-launch";
 import { routes } from "@/utils/routes";
 import { fetchSchedules, type AssistantSchedule } from "@/utils/schedules";
@@ -135,55 +143,57 @@ export function UsageTab({ assistantId }: UsageTabProps) {
   );
 
   const totalsQuery = useQuery({
-    queryKey: [
-      "usage-totals",
-      assistantId,
-      rangeWindow.from,
-      rangeWindow.to,
-      scheduleId ?? null,
-    ],
-    queryFn: () =>
-      fetchUsageTotals(assistantId, {
+    ...usageTotalsGetOptions({
+      path: { assistant_id: assistantId },
+      query: buildUsageTotalsQuery({
         from: rangeWindow.from,
         to: rangeWindow.to,
         scheduleId,
       }),
+    }),
   });
 
   const breakdownQuery = useQuery<UsageBreakdownState>({
-    queryKey: [
-      "usage-breakdown",
-      assistantId,
-      rangeWindow.from,
-      rangeWindow.to,
-      groupBy,
-      scheduleId ?? null,
-    ],
-    queryFn: async () => {
+    queryKey: usageBreakdownGetQueryKey({
+      path: { assistant_id: assistantId },
+      query: buildUsageBreakdownQuery({
+        from: rangeWindow.from,
+        to: rangeWindow.to,
+        groupBy,
+        scheduleId,
+      }),
+    }),
+    queryFn: async ({ signal }) => {
       try {
-        return {
-          groupBy,
-          response: await fetchUsageBreakdown(assistantId, {
+        const { data } = await usageBreakdownGet({
+          path: { assistant_id: assistantId },
+          query: buildUsageBreakdownQuery({
             from: rangeWindow.from,
             to: rangeWindow.to,
             groupBy,
             scheduleId,
           }),
-        };
+          signal,
+          throwOnError: true,
+        });
+        return { groupBy, response: data };
       } catch (error) {
         if (!shouldFallbackUsageGroupBy(groupBy, error)) {
           throw error;
         }
 
-        return {
-          groupBy: FALLBACK_USAGE_GROUP_BY,
-          response: await fetchUsageBreakdown(assistantId, {
+        const { data } = await usageBreakdownGet({
+          path: { assistant_id: assistantId },
+          query: buildUsageBreakdownQuery({
             from: rangeWindow.from,
             to: rangeWindow.to,
             groupBy: FALLBACK_USAGE_GROUP_BY,
             scheduleId,
           }),
-        };
+          signal,
+          throwOnError: true,
+        });
+        return { groupBy: FALLBACK_USAGE_GROUP_BY, response: data };
       }
     },
     retry: shouldRetryUsageGroupQuery,
@@ -195,52 +205,33 @@ export function UsageTab({ assistantId }: UsageTabProps) {
     : undefined;
 
   const seriesQuery = useQuery({
-    queryKey: [
-      "usage-series",
-      assistantId,
-      rangeWindow.from,
-      rangeWindow.to,
-      granularity,
-      timezone,
-      effectiveGroupBy,
-      scheduleId ?? null,
-    ],
-    queryFn: () => {
-      if (!seriesGroupBy) {
-        return { buckets: [] };
-      }
-
-      return fetchUsageSeries(assistantId, {
+    ...usageSeriesGetOptions({
+      path: { assistant_id: assistantId },
+      query: buildUsageSeriesQuery({
         from: rangeWindow.from,
         to: rangeWindow.to,
         granularity,
-        groupBy: seriesGroupBy,
+        // Safe default when disabled — query never fires without seriesGroupBy
+        groupBy: seriesGroupBy ?? "actor",
         tz: timezone,
         scheduleId,
-      });
-    },
+      }),
+    }),
     enabled: Boolean(seriesGroupBy),
     retry: shouldRetryUsageGroupQuery,
   });
 
   const dailyQuery = useQuery({
-    queryKey: [
-      "usage-daily",
-      assistantId,
-      rangeWindow.from,
-      rangeWindow.to,
-      granularity,
-      timezone,
-      scheduleId ?? null,
-    ],
-    queryFn: () =>
-      fetchUsageDaily(assistantId, {
+    ...usageDailyGetOptions({
+      path: { assistant_id: assistantId },
+      query: buildUsageDailyQuery({
         from: rangeWindow.from,
         to: rangeWindow.to,
         granularity,
         tz: timezone,
         scheduleId,
       }),
+    }),
     enabled: !seriesGroupBy || seriesQuery.isError,
   });
 
@@ -253,8 +244,10 @@ export function UsageTab({ assistantId }: UsageTabProps) {
   });
 
   const profileMetadataQuery = useQuery({
-    queryKey: ["usage-profile-metadata", assistantId],
-    queryFn: () => fetchUsageProfileMetadata(assistantId),
+    ...configGetOptions({
+      path: { assistant_id: assistantId },
+    }),
+    select: extractUsageProfileMetadata,
     enabled: effectiveGroupBy === "profile",
     staleTime: PROFILE_METADATA_STALE_TIME_MS,
   });

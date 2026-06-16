@@ -6,7 +6,6 @@ import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import type { Conversation } from "@/types/conversation-types";
 import {
-  archivedConversationsQueryKey,
   conversationGroupsQueryKey,
   conversationsQueryKey,
 } from "@/lib/sync/query-tags";
@@ -176,14 +175,16 @@ describe("useConversationSync", () => {
     expect(listFirstPageCalls).toEqual([
       { bucket: "foreground", assistantId: "asst-1" },
     ]);
-    // The full paginated list query is never invalidated.
-    const listCalls = (spy.mock.calls as unknown as Array<[unknown]>).filter(
+    // The foreground list is NOT directly invalidated — it uses the window
+    // merge approach. Only non-paginated caches (archived, channel) get
+    // invalidateQueries calls.
+    const foregroundCalls = (spy.mock.calls as unknown as Array<[unknown]>).filter(
       (call) => {
         const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
-        return arg?.queryKey?.[0] === conversationsQueryKey("asst-1")[0];
+        return arg?.queryKey?.[2] === "foreground";
       },
     );
-    expect(listCalls.length).toBe(0);
+    expect(foregroundCalls.length).toBe(0);
   });
 
   test("merges the fetched first page into the cached foreground window", async () => {
@@ -362,9 +363,7 @@ describe("useConversationSync", () => {
       spy.mock.calls as unknown as Array<[unknown]>
     ).filter((call) => {
       const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
-      return (
-        arg?.queryKey?.[0] === archivedConversationsQueryKey("asst-1")[0]
-      );
+      return arg?.queryKey?.[2] === "archived";
     });
     expect(groupsCalls.length).toBe(1);
     expect(archivedCalls.length).toBe(1);

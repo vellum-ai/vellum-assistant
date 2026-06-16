@@ -1,3 +1,5 @@
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
+import { getConfig } from "../../config/loader.js";
 import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
 import { formatIntegrationSummary } from "../../schedule/integration-status.js";
 import { validateRruleSetLines } from "../../schedule/recurrence-engine.js";
@@ -13,9 +15,13 @@ import {
   formatLocalDate,
   isValidCronExpression,
 } from "../../schedule/schedule-store.js";
+import {
+  CapabilityManifestSchema,
+  resolveCapabilities,
+} from "../../workflows/capabilities.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
-const VALID_MODES: ScheduleMode[] = ["notify", "execute", "script"];
+const VALID_MODES: ScheduleMode[] = ["notify", "execute", "script", "workflow"];
 const VALID_ROUTING_INTENTS: RoutingIntent[] = [
   "single_channel",
   "multi_channel",
@@ -50,7 +56,14 @@ export async function executeScheduleCreate(
   const maxRetries = input.max_retries as number | undefined;
   const retryBackoffMs = input.retry_backoff_ms as number | undefined;
   const timeoutMs = input.timeout_ms as number | undefined;
+  const workflowName =
+    typeof input.workflow_name === "string" ? input.workflow_name.trim() : null;
+  const workflowArgs = input.workflow_args;
   const inferenceProfile = input.inference_profile as string | undefined;
+
+  // Validated workflow capability manifest, resolved only for workflow mode.
+  // Left null for non-workflow modes so `createSchedule` persists no manifest.
+  let capabilities: unknown = null;
 
   if (timeoutMs !== undefined) {
     const timeoutError = validateScriptTimeoutMs(timeoutMs);
@@ -106,6 +119,40 @@ export async function executeScheduleCreate(
           "Error: script is required for script mode and must be a non-empty string",
         isError: true,
       };
+    }
+  } else if (mode === "workflow") {
+    // Workflow mode is gated by the `workflows` flag (a scheduled run would
+    // otherwise hard-fail at trigger time) and requires a saved workflow name —
+    // mirrors the HTTP route's create-side validation so the assistant-facing
+    // path and the settings route enforce the same shape.
+    if (!isAssistantFeatureFlagEnabled("workflows", getConfig())) {
+      return { content: "Error: workflows are not enabled.", isError: true };
+    }
+    if (!workflowName) {
+      return {
+        content:
+          "Error: workflow_name is required for workflow mode and must be a non-empty string",
+        isError: true,
+      };
+    }
+    // A workflow schedule may carry a capability manifest — the single consent
+    // point for its eventual unattended run. Validate and normalize it here so a
+    // schedule can never persist a malformed or forbidden manifest: parse the
+    // declared shape, then run the same forbidden/unknown/host-tool checks
+    // resolveCapabilities applies at launch. A side-effecting manifest forces a
+    // fresh approval at CREATION (see executor.ts).
+    if (input.capabilities !== undefined) {
+      try {
+        const manifest = CapabilityManifestSchema.parse(input.capabilities);
+        resolveCapabilities(manifest);
+        capabilities = manifest;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          content: `Error: invalid capabilities manifest: ${msg}`,
+          isError: true,
+        };
+      }
     }
   } else {
     if (!message || typeof message !== "string") {
@@ -172,6 +219,9 @@ export async function executeScheduleCreate(
         maxRetries,
         retryBackoffMs,
         timeoutMs,
+        workflowName,
+        workflowArgs,
+        capabilities,
         inferenceProfile,
         createdFromConversationId: context.conversationId,
       });
@@ -260,6 +310,9 @@ export async function executeScheduleCreate(
       maxRetries,
       retryBackoffMs,
       timeoutMs,
+      workflowName,
+      workflowArgs,
+      capabilities,
       inferenceProfile,
       createdFromConversationId: context.conversationId,
     });

@@ -1,16 +1,14 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 
+import { memoryV2SimulaterouterPost } from "@/generated/daemon/sdk.gen";
 import {
-  configLlmProfilesGet,
-  memoryV2NowtextGet,
-  memoryV2RouterprompttemplateGet,
-  memoryV2SimulaterouterPost,
-} from "@/generated/daemon/sdk.gen";
+  configLlmProfilesGetOptions,
+  memoryV2NowtextGetOptions,
+  memoryV2RouterprompttemplateGetOptions,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 
 import type {
   ConfigLlmProfilesGetResponse,
-  MemoryV2NowtextGetResponse,
-  MemoryV2RouterprompttemplateGetResponse,
   MemoryV2SimulaterouterPostData,
   MemoryV2SimulaterouterPostResponse,
 } from "@/generated/daemon/types.gen";
@@ -117,123 +115,34 @@ export function useSimulateMemoryRouter(assistantId: string | undefined) {
   });
 }
 
-async function fetchLlmProfiles(
-  assistantId: string,
-  signal?: AbortSignal,
-): Promise<LlmProfilesListResponse> {
-  const { data, response } = await configLlmProfilesGet({
-    path: { assistant_id: assistantId },
-    signal,
-    throwOnError: false,
-  });
-  if (!response || !response.ok) {
-    throw new SimulateMemoryRouterError(
-      response?.status ?? 0,
-      response?.statusText ?? "Failed to load LLM profiles",
-    );
-  }
-  if (!data) {
-    throw new SimulateMemoryRouterError(
-      response.status,
-      "Empty response from profile list endpoint",
-    );
-  }
-  return data;
-}
-
 export function useLlmProfiles(assistantId: string | undefined) {
   return useQuery({
-    queryKey: ["llm-profiles", assistantId] as const,
-    queryFn: async ({ signal }): Promise<LlmProfilesListResponse> => {
-      if (!assistantId) {
-        throw new SimulateMemoryRouterError(0, "Missing assistantId");
-      }
-      return fetchLlmProfiles(assistantId, signal);
-    },
+    ...configLlmProfilesGetOptions({
+      path: { assistant_id: assistantId! },
+    }),
     enabled: Boolean(assistantId),
     staleTime: 60_000,
   });
-}
-
-async function fetchRouterPromptTemplate(
-  assistantId: string,
-  signal?: AbortSignal,
-): Promise<MemoryV2RouterprompttemplateGetResponse> {
-  const { data, response } = await memoryV2RouterprompttemplateGet({
-    path: { assistant_id: assistantId },
-    signal,
-    throwOnError: false,
-  });
-  if (!response || !response.ok) {
-    throw new SimulateMemoryRouterError(
-      response?.status ?? 0,
-      response?.statusText ?? "Failed to load router prompt template",
-    );
-  }
-  if (!data) {
-    throw new SimulateMemoryRouterError(
-      response.status,
-      "Empty response from router prompt template endpoint",
-    );
-  }
-  return data;
 }
 
 export function useDefaultRouterPromptTemplate(
   assistantId: string | undefined,
 ) {
   return useQuery({
-    queryKey: ["router-prompt-template", assistantId] as const,
-    queryFn: async ({
-      signal,
-    }): Promise<MemoryV2RouterprompttemplateGetResponse> => {
-      if (!assistantId) {
-        throw new SimulateMemoryRouterError(0, "Missing assistantId");
-      }
-      return fetchRouterPromptTemplate(assistantId, signal);
-    },
+    ...memoryV2RouterprompttemplateGetOptions({
+      path: { assistant_id: assistantId! },
+    }),
     enabled: Boolean(assistantId),
-    // The template only changes when the daemon ships, so cache aggressively.
     staleTime: 24 * 60 * 60 * 1000,
   });
 }
 
-async function fetchCurrentNowText(
-  assistantId: string,
-  signal?: AbortSignal,
-): Promise<MemoryV2NowtextGetResponse> {
-  const { data, response } = await memoryV2NowtextGet({
-    path: { assistant_id: assistantId },
-    signal,
-    throwOnError: false,
-  });
-  if (!response || !response.ok) {
-    throw new SimulateMemoryRouterError(
-      response?.status ?? 0,
-      response?.statusText ?? "Failed to load NOW.md",
-    );
-  }
-  if (!data) {
-    throw new SimulateMemoryRouterError(
-      response.status,
-      "Empty response from now-text endpoint",
-    );
-  }
-  return data;
-}
-
 export function useCurrentNowText(assistantId: string | undefined) {
   return useQuery({
-    queryKey: ["memory-router-now-text", assistantId] as const,
-    queryFn: async ({ signal }): Promise<MemoryV2NowtextGetResponse> => {
-      if (!assistantId) {
-        throw new SimulateMemoryRouterError(0, "Missing assistantId");
-      }
-      return fetchCurrentNowText(assistantId, signal);
-    },
+    ...memoryV2NowtextGetOptions({
+      path: { assistant_id: assistantId! },
+    }),
     enabled: Boolean(assistantId),
-    // NOW.md only changes when the assistant rewrites it — refresh on
-    // navigation, not on a timer.
     staleTime: Infinity,
   });
 }

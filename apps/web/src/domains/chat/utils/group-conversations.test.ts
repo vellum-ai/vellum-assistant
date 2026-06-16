@@ -681,4 +681,29 @@ describe("groupConversations · surfaced promotion to recents", () => {
     expect(result.recents).toEqual([]);
     expect(result.background).toEqual([]);
   });
+
+  test("duplicate pinned conversations in input produce duplicate pinned entries", () => {
+    // Demonstrates why upstream deduplication (in fetchConversationList)
+    // is necessary: groupConversations trusts its input and does not
+    // deduplicate, so the same pinned conversation appearing twice in
+    // the input produces two entries in the pinned bucket.
+    const result = groupConversations([
+      makeConversation({
+        conversationId: "pinned-1",
+        isPinned: true,
+        lastMessageAt: 5000,
+      }),
+      makeConversation({ conversationId: "regular", lastMessageAt: 4000 }),
+      makeConversation({
+        conversationId: "pinned-1",
+        isPinned: true,
+        lastMessageAt: 5000,
+      }),
+    ]);
+    expect(result.pinned.map((c) => c.conversationId)).toEqual([
+      "pinned-1",
+      "pinned-1",
+    ]);
+    expect(result.recents.map((c) => c.conversationId)).toEqual(["regular"]);
+  });
 });

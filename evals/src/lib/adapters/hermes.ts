@@ -1,4 +1,5 @@
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import type {
   AgentEvent,
@@ -7,10 +8,14 @@ import type {
   BaseAgent,
 } from "../adapter";
 import type { Profile } from "../profile";
-import type { TestSetupCommand } from "../setup-command";
+import type {
+  SeededConversationMessage,
+  TestSetupCommand,
+} from "../setup-command";
 import { runArtifacts } from "../metrics";
 import {
-  attachDockerEgressJail,
+  applyDockerEgressJail,
+  installRecordingCa,
   type DockerEgressJail,
 } from "../egress/docker-jail";
 import {
@@ -18,7 +23,12 @@ import {
   NodeCommandRunner,
   type CommandRunner,
 } from "../runtime/command-runner";
-import { generateHermesEvalSessionId, seedHermesSession } from "./hermes-seed";
+import {
+  generateHermesEvalSessionId,
+  HERMES_RUNTIME_USER,
+  seedHermesSession,
+} from "./hermes-seed";
+import { assertSafeWorkspacePath } from "./workspace-path";
 
 /**
  * Hermes adapter — runs a NousResearch Hermes Agent in Docker for eval runs.
@@ -36,11 +46,16 @@ import { generateHermesEvalSessionId, seedHermesSession } from "./hermes-seed";
  *   - `-e <PROVIDER_KEY>` flags forwarded from the eval process env. Hermes
  *     normally reads keys from `/opt/data/.env`; we run with an ephemeral
  *     `/opt/data` per run so direct `-e` is the only way to get keys in.
- *   - `attachDockerEgressJail` to constrain outbound traffic to the same
- *     model-provider allowlist Vellum runs against. Keeps cross-species
- *     cost comparisons honest. Hermes owns its own network namespace (it
- *     warms up provider SDKs from PyPI before the jail closes), so the
- *     jail attaches to it rather than owning the namespace.
+ *   - `applyDockerEgressJail` to constrain outbound traffic to the same
+ *     model-provider allowlist Vellum runs against, keeping cross-species
+ *     cost comparisons honest. The jail owns the network namespace and is
+ *     created first; Hermes is then born into it via
+ *     `--network container:<jail>`, so its gateway's first outbound TLS is
+ *     already behind the recording proxy and there is no pre-jail window
+ *     for an unrecorded connection to escape. The native Anthropic SDK
+ *     Hermes would otherwise install lazily from PyPI is baked into a
+ *     derived image at build time (see `hermes-image/Dockerfile`), so the
+ *     jailed runtime never needs to reach PyPI.
  *   - `docker exec --env PATH=...` for setup, send, and seed-conversation
  *     actions. The Hermes binary lives at `/opt/hermes/.venv/bin/hermes`;
  *     the official docs note it's NOT on PATH for `docker exec` sessions,
@@ -54,16 +69,19 @@ import { generateHermesEvalSessionId, seedHermesSession } from "./hermes-seed";
  * user message and `events` synthesizes a single `message_chunk` transcript
  * event from that stdout — there is no live event subprocess to drain.
  *
- * **Cross-turn statefulness comes from Hermes's memory subsystem, not a
- * resumed session.** Each `-z` invocation is a fresh, stateless session;
- * `-z` ignores `--resume` entirely. Continuity instead flows through the
- * memory files under `/opt/data/memories/` (e.g. `USER.md`), which every
- * Hermes session auto-loads at start and auto-commits to at the end. The
- * adapter therefore does NOT track or chain session ids between turns —
- * memory is the system of record. (Known limitation: DB-injected seed rows
- * are not auto-indexed into memory, so a seeded prior conversation is not
- * reliably recalled unless the agent autonomously searches history. Tracked
- * as a follow-up; not addressed here.)
+ * **Within-conversation continuity is replayed into each prompt.** Every
+ * `hermes -z` invocation is a fresh, stateless session: it ignores
+ * `--resume`/`--continue` and forks a new session that loads none of the
+ * prior turns. To present one coherent conversation across a test's turns,
+ * the adapter accumulates the turns it has exchanged and prepends them to
+ * each `-z` prompt (see `buildHermesTurnPrompt`), so turn N sees turns
+ * 1..N-1. This is the adapter normalizing Hermes's one-shot model onto the
+ * shared multi-turn `send`/`events` contract; it does not depend on any
+ * Hermes session id, which the adapter therefore never tracks.
+ *
+ * Hermes's memory subsystem (files under `/opt/data/memories/`, auto-loaded
+ * each shot) is a separate, longer-horizon channel for cross-session recall,
+ * not the within-conversation transcript.
  *
  * The docker image, the daemon command, and the in-container CLI command
  * are constructor-overrideable via `dockerImage`, `daemonArgs`, and
@@ -71,19 +89,19 @@ import { generateHermesEvalSessionId, seedHermesSession } from "./hermes-seed";
  *
  * **Conversation seeding is implemented via direct SQLite injection** into
  * the Hermes state DB at `/opt/data/state.db` (post-hatch, while the
- * gateway is running). The previous version of this adapter shelled out
- * to a fake `hermes conversations new --content-file <path>` command;
- * real Hermes has no non-interactive history-import path — `hermes
- * sessions` is read-only (list / browse / export / delete / prune /
- * stats / rename), the gateway is stateless, and `hermes -r <id>`
- * resumes interactively. So `runSetupCommand({ type:
+ * gateway is running). Seeding models a *separate prior session* (e.g. the
+ * timeline-recall memory test), distinct from the live conversation the
+ * adapter replays per turn. Real Hermes has no non-interactive
+ * history-import path — `hermes sessions` is read-only (list / browse /
+ * export / delete / prune / stats / rename), the gateway is stateless, and
+ * `hermes -r <id>` resumes interactively. So `runSetupCommand({ type:
  * "seed-conversation", ... })` opens `state.db` with Python's stdlib
  * sqlite3 via `docker exec -i ... python3 -` and writes one `sessions`
  * row + N `messages` rows in a single BEGIN IMMEDIATE transaction. The
- * FTS5 indexes are auto-populated by upstream triggers, so search
- * inside Hermes keeps working over seeded history. After seeding,
- * `conversationKey` is updated to the new session id so subsequent
- * `send` / `events` calls target it.
+ * FTS5 indexes are auto-populated by upstream triggers, so search inside
+ * Hermes keeps working over seeded history. (Known limitation: DB-injected
+ * seed rows are not auto-indexed into memory, so a seeded prior conversation
+ * is recalled only if the agent autonomously searches history.)
  *
  * @see ./hermes-seed.ts  Seed helper + schema notes.
  */
@@ -98,6 +116,23 @@ import { generateHermesEvalSessionId, seedHermesSession } from "./hermes-seed";
  * so eval reruns are reproducible. Bump intentionally, not by accident.
  */
 export const DEFAULT_HERMES_IMAGE = "nousresearch/hermes-agent:v2026.5.16";
+/**
+ * Tag for the locally-built image derived from {@link DEFAULT_HERMES_IMAGE}.
+ * The derived image bakes Hermes's lazy-installed provider SDKs (see
+ * `hermes-image/Dockerfile`) so a container born inside the fail-closed
+ * egress jail is dependency-complete and never reaches PyPI at request
+ * time. Built on hatch from the base tag; content-cached by Docker.
+ */
+export const DERIVED_HERMES_IMAGE = "vellum-evals-hermes:local";
+
+function adapterDir(): string {
+  return dirname(fileURLToPath(import.meta.url));
+}
+
+/** Directory holding the derived Hermes image's Dockerfile + build context. */
+function hermesImageDockerfileDir(): string {
+  return resolve(adapterDir(), "hermes-image");
+}
 /** Default in-container CLI name. The binary at
  * `/opt/hermes/.venv/bin/hermes` is not on the `docker exec` PATH by
  * default — see `EXEC_PATH` below. */
@@ -113,6 +148,18 @@ export const DEFAULT_HERMES_DAEMON_ARGS = ["gateway", "run"] as const;
  * authors to hardcode the absolute path. */
 export const EXEC_PATH =
   "/opt/hermes/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+
+/**
+ * Working directory every `hermes -z` turn runs in, and the root that
+ * `stage-workspace-file` payloads land under. Hermes's `terminal`/`file`
+ * tools resolve relative paths against the process cwd (`terminal.cwd`
+ * defaults to `.`, the launch directory — see
+ * https://hermes-agent.nousresearch.com/docs), so pinning the exec
+ * `--workdir` here and staging files into the same directory lets a test
+ * reference an uploaded file by bare name. Mirrors the Vellum adapter's
+ * `/workspace` contract so one SPEC discovery hint works across species.
+ */
+export const HERMES_WORKSPACE_DIR = "/workspace";
 
 /**
  * LLM provider env vars forwarded from the eval process env into the Hermes
@@ -193,45 +240,13 @@ export const HERMES_CA_TRUST_ENV_FLAGS = [
  * inherits it: a lazy install then fails fast as `FeatureUnavailable`
  * instead of hanging, so an unmet optional dep degrades gracefully rather
  * than wedging the whole run. Provider SDKs the run genuinely needs are
- * pre-installed before the jail closes — see `HERMES_PROVIDER_WARMUP_FEATURES`.
+ * baked into the derived image at build time (see `hermes-image/Dockerfile`),
+ * so this lock never blocks a provider Hermes actually uses.
  */
 export const HERMES_DISABLE_LAZY_INSTALLS_ENV_FLAGS = [
   "-e",
   "HERMES_DISABLE_LAZY_INSTALLS=1",
 ] as const;
-
-/**
- * Forwarded provider keys whose Hermes provider backend ships as a lazy
- * dependency (not baked into the base image), mapped to the
- * `lazy_deps.LAZY_DEPS` feature name we warm up while egress is still open.
- *
- * Only the native Anthropic SDK is lazy in `nousresearch/hermes-agent`;
- * the OpenAI SDK (used for OpenAI and the OpenAI-compatible Google path)
- * is pre-installed. So a forwarded `ANTHROPIC_API_KEY` is the one case
- * that needs warming — without it Hermes tries to install `anthropic` on
- * its first model call, after the jail has already blocked PyPI.
- */
-export const HERMES_PROVIDER_WARMUP_FEATURES: Readonly<Record<string, string>> =
-  {
-    ANTHROPIC_API_KEY: "provider.anthropic",
-  };
-
-/**
- * The lazy-install feature names to warm up before the jail closes, given
- * the set of provider keys this run forwards into the container. Mirrors
- * `selectProviderEnvFlags` so warm-up and forwarding stay in lockstep.
- */
-export function selectProviderWarmupFeatures(
-  env: Record<string, string | undefined>,
-  names: ReadonlyArray<string> = HERMES_PROVIDER_ENV_VARS,
-): string[] {
-  const features: string[] = [];
-  for (const name of names) {
-    const feature = HERMES_PROVIDER_WARMUP_FEATURES[name];
-    if (feature && env[name]) features.push(feature);
-  }
-  return features;
-}
 
 export interface HermesInferenceSelection {
   provider: string;
@@ -255,8 +270,8 @@ export interface HermesInferenceSelection {
  * Pinning the provider to the forwarded key's native backend keeps every
  * call on an allowlisted host. Hermes requires a model alongside an explicit
  * provider, so we pin one too; the values are the current flagship for each
- * provider, matching the model the stock Vellum daemon uses, so vellum-bare
- * and hermes-bare compare on the same model.
+ * provider, matching the model the stock Vellum daemon uses, so vellum-default
+ * and hermes-default compare on the same model.
  *
  * Only keys with a native API-key backend in the pinned image are mapped.
  * `nousresearch/hermes-agent`'s `PROVIDER_REGISTRY` registers `anthropic`
@@ -315,8 +330,10 @@ export interface HermesAgentOptions {
   testId: string;
   runId?: string;
   runner?: CommandRunner;
-  /** Docker image to run the Hermes agent from. */
+  /** Base Hermes image the derived (provider-SDK-baked) image is built from. */
   dockerImage?: string;
+  /** Tag for the locally-built derived image the container runs from. */
+  derivedImage?: string;
   /** Hermes CLI command name inside the container. */
   cliCommand?: string;
   /** Args passed after the image to start the container in daemon mode.
@@ -378,6 +395,41 @@ export function synthesizeHermesTurnEvent(oneshotStdout: string): AgentEvent {
       chunk: oneshotStdout.replace(/\s+$/, ""),
     },
   };
+}
+
+/**
+ * Render the `hermes -z` prompt for a turn, threading prior turns through.
+ *
+ * A one-shot loads none of the conversation, so the only way to make turn N
+ * aware of turns 1..N-1 is to put them in the prompt. The first turn (no
+ * prior turns) sends the raw message so a single-turn test reads naturally;
+ * later turns get the transcript as context followed by the new message and
+ * an instruction to reply only to it.
+ *
+ * Exported for unit tests.
+ */
+export function buildHermesTurnPrompt(
+  priorTurns: ReadonlyArray<SeededConversationMessage>,
+  userMessage: string,
+): string {
+  if (priorTurns.length === 0) return userMessage;
+  const transcript = priorTurns
+    .map(
+      (turn) =>
+        `${turn.role === "user" ? "User" : "Assistant"}: ${turn.content}`,
+    )
+    .join("\n");
+  return [
+    "You are continuing an ongoing conversation with the user.",
+    "Conversation so far:",
+    "",
+    transcript,
+    "",
+    "The user's new message:",
+    userMessage,
+    "",
+    "Reply to the user's new message, using the conversation above as context. Respond only with your reply — do not prefix it with a role label or restate the transcript.",
+  ].join("\n");
 }
 
 /**
@@ -445,10 +497,10 @@ export class HermesAgent implements BaseAgent {
   private readonly profile: Profile;
   private readonly runner: CommandRunner;
   private readonly cliCommand: string;
-  private readonly dockerImage: string;
+  private readonly baseImage: string;
+  private readonly derivedImage: string;
   private readonly daemonArgs: ReadonlyArray<string>;
   private readonly providerEnvFlags: string[];
-  private readonly providerWarmupFeatures: string[];
   private readonly inferenceSelection: HermesInferenceSelection | undefined;
   private readonly testId: string;
   private readonly containerName: string;
@@ -456,19 +508,18 @@ export class HermesAgent implements BaseAgent {
   private jail?: DockerEgressJail;
   private hatched = false;
   private stopped = false;
+  /** Live conversation turns, replayed into each one-shot prompt for continuity. */
+  private readonly liveTurns: SeededConversationMessage[] = [];
 
   constructor(opts: HermesAgentOptions) {
     this.profile = opts.profile;
     this.testId = opts.testId;
     this.runner = opts.runner ?? new NodeCommandRunner();
     this.cliCommand = opts.cliCommand ?? DEFAULT_HERMES_CLI;
-    this.dockerImage = opts.dockerImage ?? DEFAULT_HERMES_IMAGE;
+    this.baseImage = opts.dockerImage ?? DEFAULT_HERMES_IMAGE;
+    this.derivedImage = opts.derivedImage ?? DERIVED_HERMES_IMAGE;
     this.daemonArgs = opts.daemonArgs ?? DEFAULT_HERMES_DAEMON_ARGS;
     this.providerEnvFlags = selectProviderEnvFlags(
-      opts.processEnv ?? process.env,
-      opts.providerEnvNames,
-    );
-    this.providerWarmupFeatures = selectProviderWarmupFeatures(
       opts.processEnv ?? process.env,
       opts.providerEnvNames,
     );
@@ -492,11 +543,47 @@ export class HermesAgent implements BaseAgent {
 
     let containerStarted = false;
     try {
+      // Bake the derived image first. The build still has open egress, so
+      // Hermes's lazy provider SDKs resolve into the image here rather than
+      // hitting PyPI from inside the fail-closed jail at request time.
+      const build = await this.runner.run(
+        "docker",
+        [
+          "build",
+          "-t",
+          this.derivedImage,
+          "--build-arg",
+          `HERMES_BASE=${this.baseImage}`,
+          hermesImageDockerfileDir(),
+        ],
+        {
+          logPath: join(
+            runArtifacts(this.id).runDir,
+            "subprocess-build-image.log",
+          ),
+          logStep: "build-image",
+        },
+      );
+      assertSuccess(build, `build derived Hermes image ${this.derivedImage}`);
+
+      // The recording jail owns a fresh network namespace and is created
+      // first, with its iptables allowlist + NAT REDIRECT and the
+      // interception CA all in place before any tenant exists. Hermes is
+      // then born into that namespace (`--network container:<jail>`), so
+      // its gateway's very first outbound TLS is already behind the proxy
+      // — there is no pre-jail window for an unrecorded connection to
+      // escape. Because the jail owns the namespace, teardown removes the
+      // Hermes container before `jail.stop()` (the owner must outlive its
+      // tenants — Docker refuses to remove a container whose netns another
+      // still shares).
+      this.jail = await applyDockerEgressJail(this.runner, {
+        runId: this.id,
+        recordingDir: runArtifacts(this.id).runDir,
+      });
+
       // Detached `docker run` so the Hermes gateway stays up across
-      // send/events. The container idles waiting for CLI interactions;
-      // outbound model traffic only happens once the egress jail is in
-      // place because the gateway shouldn't reach out before it receives
-      // its first message.
+      // send/events. The container idles waiting for CLI interactions; the
+      // gateway opens no outbound model TLS until its first message.
       await this.runner
         .run("docker", ["rm", "-f", this.containerName])
         .catch(() => undefined);
@@ -507,13 +594,15 @@ export class HermesAgent implements BaseAgent {
           "-d",
           "--name",
           this.containerName,
+          "--network",
+          `container:${this.jail.netnsContainer}`,
           "--label",
           "evals.vellum.ai/species=hermes",
           ...this.providerEnvFlags,
           ...inferenceEnvFlags(this.inferenceSelection),
           ...HERMES_CA_TRUST_ENV_FLAGS,
           ...HERMES_DISABLE_LAZY_INSTALLS_ENV_FLAGS,
-          this.dockerImage,
+          this.derivedImage,
           ...this.daemonArgs,
         ],
         {
@@ -524,13 +613,17 @@ export class HermesAgent implements BaseAgent {
       assertSuccess(create, `start Hermes container for ${this.profile.id}`);
       containerStarted = true;
 
-      await this.warmUpProviderDeps();
+      // Patch the jail's interception CA into Hermes's trust store before
+      // its first model TLS. The gateway makes no outbound model call until
+      // its first message, so installing it here (before any turn) is in
+      // time; without it the intercepted handshake fails closed.
+      await installRecordingCa(
+        this.runner,
+        runArtifacts(this.id).runDir,
+        this.containerName,
+      );
 
-      this.jail = await attachDockerEgressJail(this.runner, {
-        runId: this.id,
-        containerName: this.containerName,
-        recordingDir: runArtifacts(this.id).runDir,
-      });
+      await this.ensureWorkspaceDir();
 
       for (const [idx, command] of setupCommands(this.profile).entries()) {
         const setup = await this.runner.run(
@@ -555,66 +648,25 @@ export class HermesAgent implements BaseAgent {
 
       this.hatched = true;
     } catch (err) {
-      await this.jail?.stop().catch(() => undefined);
+      // Owner-mode teardown order: remove the tenant before the namespace
+      // owner.
       if (containerStarted) {
         await this.runner
           .run("docker", ["rm", "-f", this.containerName])
           .catch(() => undefined);
       }
+      await this.jail?.stop().catch(() => undefined);
       throw err;
-    }
-  }
-
-  /**
-   * Install the provider SDKs this run needs before the egress jail closes.
-   *
-   * Hermes installs provider/tool backends lazily on first use via an
-   * in-venv install (`tools.lazy_deps.ensure`). The native Anthropic SDK is
-   * one such lazy dep, so a `hermes-bare` run keyed on `ANTHROPIC_API_KEY`
-   * would otherwise reach for PyPI on its first model call — which the
-   * fail-closed jail blocks, hanging the turn until it times out. We invoke
-   * Hermes's own installer here, while egress is still open, so it resolves
-   * the version Hermes pins itself (no hardcoding) into the hermes-owned
-   * venv. We run as `--user hermes` (the same unprivileged user `send`
-   * uses) so the installed files are owned by the user that imports them,
-   * and override the daemon's `HERMES_DISABLE_LAZY_INSTALLS=1` for just
-   * this exec so the warm-up install is permitted while jailed turns stay
-   * locked down.
-   */
-  private async warmUpProviderDeps(): Promise<void> {
-    for (const feature of this.providerWarmupFeatures) {
-      const warm = await this.runner.run(
-        "docker",
-        [
-          "exec",
-          "--user",
-          "hermes",
-          "--env",
-          `PATH=${EXEC_PATH}`,
-          "--env",
-          "PYTHONPATH=/opt/hermes",
-          "--env",
-          "HERMES_DISABLE_LAZY_INSTALLS=0",
-          this.containerName,
-          "/opt/hermes/.venv/bin/python3",
-          "-c",
-          `from tools.lazy_deps import ensure; ensure(${JSON.stringify(feature)})`,
-        ],
-        {
-          logPath: join(
-            runArtifacts(this.id).runDir,
-            `subprocess-warmup-${feature.replace(/\W+/g, "-")}.log`,
-          ),
-          logStep: `warmup-${feature}`,
-        },
-      );
-      assertSuccess(warm, `warm up Hermes provider dependency '${feature}'`);
     }
   }
 
   /**
    * Run one user turn as a single-shot `hermes -z "<prompt>"` and push the
    * synthesized transcript event onto the active `events()` sink.
+   *
+   * The prompt threads prior live turns (see `buildHermesTurnPrompt`) so the
+   * stateless one-shot sees the conversation so far; the new user message and
+   * the model's answer are then appended to `liveTurns` for the next turn.
    *
    * The one-shot runs the full agentic loop to completion and prints only
    * the final assistant text to stdout, so unlike a streaming `send` this
@@ -627,18 +679,21 @@ export class HermesAgent implements BaseAgent {
    */
   async send(message: AgentMessage): Promise<void> {
     this.assertHatched();
+    const prompt = buildHermesTurnPrompt(this.liveTurns, message.content);
     const result = await this.runner.run(
       "docker",
       [
         "exec",
         "--user",
-        "hermes",
+        HERMES_RUNTIME_USER,
         "--env",
         `PATH=${EXEC_PATH}`,
+        "--workdir",
+        HERMES_WORKSPACE_DIR,
         this.containerName,
         this.cliCommand,
         "-z",
-        message.content,
+        prompt,
       ],
       {
         logPath: join(runArtifacts(this.id).runDir, "subprocess-send.log"),
@@ -646,8 +701,11 @@ export class HermesAgent implements BaseAgent {
       },
     );
     assertSuccess(result, `send message to ${this.id}`);
+    const answer = result.stdout ?? "";
+    this.liveTurns.push({ role: "user", content: message.content });
+    this.liveTurns.push({ role: "assistant", content: answer });
     (this.eventSink ??= new HermesEventQueue()).push(
-      synthesizeHermesTurnEvent(result.stdout ?? ""),
+      synthesizeHermesTurnEvent(answer),
     );
   }
 
@@ -671,7 +729,97 @@ export class HermesAgent implements BaseAgent {
         this.conversationKey = sessionId;
         return;
       }
+      case "stage-workspace-file": {
+        await this.stageWorkspaceFile(command);
+        return;
+      }
     }
+  }
+
+  /**
+   * Create the workspace directory turns run in and hand it to the
+   * unprivileged gateway user, so `send`'s `--workdir` always resolves and
+   * staged files (written as `hermes`) can be created under it. Idempotent.
+   */
+  private async ensureWorkspaceDir(): Promise<void> {
+    const ensure = await this.runner.run(
+      "docker",
+      [
+        "exec",
+        "--user",
+        "root",
+        this.containerName,
+        "sh",
+        "-c",
+        `mkdir -p "${HERMES_WORKSPACE_DIR}" && chown ${HERMES_RUNTIME_USER} "${HERMES_WORKSPACE_DIR}"`,
+      ],
+      {
+        logPath: join(
+          runArtifacts(this.id).runDir,
+          "subprocess-workspace-dir.log",
+        ),
+        logStep: "workspace-dir",
+      },
+    );
+    assertSuccess(ensure, `create workspace dir for ${this.id}`);
+  }
+
+  /**
+   * Stage a file into the workspace so a turn can read it by name. Parents
+   * are created first (mirroring the Vellum adapter), then the payload is
+   * piped in over stdin via `cp /dev/stdin <path>` — argv-only, so a path
+   * needs no shell quoting and the content is never echoed to the run log.
+   *
+   * Writes as the gateway's unprivileged `hermes` user (the same user `send`
+   * runs `hermes -z` as) so the agent's `file`/`terminal` tools can read and
+   * rewrite it without a root-owned-file permission wall — the same
+   * ownership discipline the seed step follows.
+   */
+  private async stageWorkspaceFile(input: {
+    path: string;
+    content: string;
+  }): Promise<void> {
+    assertSafeWorkspacePath(input.path);
+    const containerPath = `${HERMES_WORKSPACE_DIR}/${input.path}`;
+    const containerParent = containerPath.slice(
+      0,
+      containerPath.lastIndexOf("/"),
+    );
+    const mkdir = await this.runner.run("docker", [
+      "exec",
+      "--user",
+      HERMES_RUNTIME_USER,
+      this.containerName,
+      "mkdir",
+      "-p",
+      containerParent,
+    ]);
+    assertSuccess(
+      mkdir,
+      `mkdir -p ${containerParent} for ${this.id} workspace file ${input.path}`,
+    );
+    const write = await this.runner.run(
+      "docker",
+      [
+        "exec",
+        "-i",
+        "--user",
+        HERMES_RUNTIME_USER,
+        this.containerName,
+        "cp",
+        "/dev/stdin",
+        containerPath,
+      ],
+      {
+        stdin: input.content,
+        logPath: join(
+          runArtifacts(this.id).runDir,
+          "subprocess-stage-workspace-file.log",
+        ),
+        logStep: "stage-workspace-file",
+      },
+    );
+    assertSuccess(write, `stage workspace file ${input.path} into ${this.id}`);
   }
 
   /**
@@ -708,12 +856,15 @@ export class HermesAgent implements BaseAgent {
     if (this.stopped) return;
     this.stopped = true;
     this.eventSink?.close();
-    await this.jail?.stop().catch(() => undefined);
+    // Owner-mode teardown order: the jail owns the network namespace Hermes
+    // joined, so the tenant is removed before `jail.stop()` (Docker refuses
+    // to remove a container whose netns another container still shares).
     if (this.hatched) {
       await this.runner
         .run("docker", ["rm", "-f", this.containerName])
         .catch(() => undefined);
     }
+    await this.jail?.stop().catch(() => undefined);
   }
 
   private assertHatched(): void {

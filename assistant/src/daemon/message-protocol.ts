@@ -46,6 +46,7 @@ export * from "./message-types/sync.js";
 export * from "./message-types/upgrades.js";
 export * from "./message-types/web-activity.js";
 export * from "./message-types/work-items.js";
+export * from "./message-types/workflows.js";
 export * from "./message-types/workspace.js";
 
 // Import domain-level union aliases for composition
@@ -135,6 +136,7 @@ import type {
   _WorkItemsClientMessages,
   _WorkItemsServerMessages,
 } from "./message-types/work-items.js";
+import type { _WorkflowsServerMessages } from "./message-types/workflows.js";
 import type {
   _WorkspaceClientMessages,
   _WorkspaceServerMessages,
@@ -208,6 +210,7 @@ export type ServerMessage =
   | _UpgradesServerMessages
   | _AcpServerMessages
   | _BookmarksServerMessages
+  | _WorkflowsServerMessages
   | DiskPressureStatusChangedEvent
   | SubagentEvent;
 

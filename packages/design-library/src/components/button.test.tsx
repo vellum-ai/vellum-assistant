@@ -228,10 +228,10 @@ describe("Button class output", () => {
     const html = renderToStaticMarkup(
       <Button variant="ghost" size="compact" iconOnly={<svg />} aria-label="a" />,
     );
-    expect(html).toContain("max-md:h-10");
-    expect(html).toContain("max-md:w-10");
-    expect(html).toContain("max-md:rounded-full");
-    expect(html).toContain("max-md:size-4");
+    expect(html).toContain("touch-mobile:h-10");
+    expect(html).toContain("touch-mobile:w-10");
+    expect(html).toContain("touch-mobile:rounded-full");
+    expect(html).toContain("touch-mobile:size-4");
   });
 
   test("expandOnMobile={false} keeps an icon-only button compact on mobile", () => {
@@ -244,12 +244,12 @@ describe("Button class output", () => {
         aria-label="a"
       />,
     );
-    // Desktop sizing/chrome is preserved on mobile — none of the max-md
-    // expansion classes are emitted.
-    expect(html).not.toContain("max-md:h-10");
-    expect(html).not.toContain("max-md:w-10");
-    expect(html).not.toContain("max-md:rounded-full");
-    expect(html).not.toContain("max-md:size-4");
+    // Desktop sizing is preserved — none of the touch-mobile expansion
+    // classes are emitted.
+    expect(html).not.toContain("touch-mobile:h-10");
+    expect(html).not.toContain("touch-mobile:w-10");
+    expect(html).not.toContain("touch-mobile:rounded-full");
+    expect(html).not.toContain("touch-mobile:size-4");
     // The compact desktop dimensions still apply.
     expect(html).toContain("h-6");
     expect(html).toContain("w-6");

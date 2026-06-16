@@ -438,8 +438,9 @@ export interface StopContext {
  * and compaction work can share a conversation), hooks MUST self-gate on
  * {@link callSite} / {@link conversationId} before acting.
  *
- * A hook may edit the outbound request by replacing {@link systemPrompt}, and may
- * opt this turn into deferred output streaming via {@link deferAssistantOutput}.
+ * A hook may edit the outbound request by replacing {@link systemPrompt}, route
+ * the call to a different inference profile via {@link modelProfile}, and opt
+ * this turn into deferred output streaming via {@link deferAssistantOutput}.
  * Mutate the context in place or return a new one; throwing is contained by the
  * loop (the call proceeds with the original request).
  */
@@ -456,6 +457,24 @@ export interface PreModelCallContext {
    * append a section); the loop sends the resulting value.
    */
   systemPrompt: string | null;
+  /**
+   * Inference profile to route THIS provider call to, named by its key in the
+   * workspace `llm.profiles`. Seeded with the call's already-resolved override
+   * profile, or `null` when none applies. A hook may replace it to select a
+   * different profile per call — the lever a model router uses to map a
+   * classified message onto a profile (model + provider connection + sampling
+   * settings). For the user-facing `mainAgent` call the resolver layers the
+   * named profile at the top of precedence (above the workspace active
+   * profile), so the hook's choice wins; a key with no matching profile falls
+   * through unchanged (no throw). Honored only when {@link callSite} is set.
+   * Set to `null` to apply no override.
+   *
+   * Context-window sizing and overflow recovery for this call are computed from
+   * the profile resolved before the hook runs. Routing a near-budget
+   * conversation to a profile with a smaller context window relies on the loop's
+   * overflow recovery (compact and retry) rather than proactive compaction.
+   */
+  modelProfile: string | null;
   /**
    * Seeded `false`. When a hook sets it `true`, the loop suppresses this turn's
    * live assistant `text_delta` stream; a `post-model-call` hook is then
@@ -493,8 +512,11 @@ export type PostModelCallDecision = "continue" | "stop";
  *   the hook's result as the persisted and streamed message), and
  *   {@link stopReason} carries the provider's stop reason. Fires once per model
  *   call, including tool-bearing turns (a reply can carry both text and
- *   `tool_use`), so a hook should transform only the blocks it owns and leave
- *   others — notably `tool_use` — intact.
+ *   `tool_use`). A hook should leave blocks it does not own untouched, but it
+ *   may **append a `tool_use` block** to invoke a tool as if the model had
+ *   called it — the loop executes whatever the finalized content carries (see
+ *   {@link content}). This is the supported way for a plugin to drive a tool
+ *   (e.g. render a surface via `ui_show`) deterministically after a turn.
  * - **Provider rejection.** The call threw before any reply existed.
  *   {@link error} holds the rejection, {@link content} is empty, and
  *   {@link stopReason} is `null`. A hook that recognizes the rejection may
@@ -518,8 +540,17 @@ export interface PostModelCallContext {
   /** The call site this message serves — `"mainAgent"` for the user-facing reply; `null` when untagged. */
   readonly callSite: LLMCallSite | null;
   /**
-   * The finalized message content. Mutable — transform the text blocks and leave
-   * `tool_use` (and other non-text blocks) intact. Empty on a provider rejection.
+   * The finalized message content. Mutable, and the source of truth for both
+   * persistence and execution: the loop derives the turn's executable tool
+   * calls from this array *after* the hook chain runs. A hook may transform the
+   * text blocks, **append a `tool_use` block** to invoke a tool as if the model
+   * had called it (executed through the normal tool path — trust rules apply,
+   * and its result/surface is appended after any already-streamed text without
+   * discarding it), or drop a `tool_use` block to suppress a call. The host
+   * assigns an id to any appended `tool_use` block whose `id` is empty or
+   * collides. Empty on a provider rejection. Appended `tool_use` blocks are
+   * dropped on a truncated (max-tokens) turn, which short-circuits before the
+   * executor runs and so cannot pair a tool call with a result.
    */
   content: ContentBlock[];
   /**

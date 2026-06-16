@@ -4,7 +4,7 @@
 
 Bun + TypeScript monorepo with multiple packages:
 
-- `apps/` — End-user app surfaces. Currently hosts `apps/web/` (Vite + React Router v7 SPA, mid-migration from `vellum-assistant-platform/web/`), `apps/ios/` (Capacitor iOS shell that loads the web app in a WKWebView), and `apps/macos/` (Electron desktop shell that wraps `apps/web/`; daemon/gateway lifecycle is owned by the `vellum` CLI, which the app invokes as a subprocess; distribution and auto-update wiring still to come — note the CI workflow filenames are still `pr-electron.yaml` / `ci-main-electron.yaml` until the legacy Swift app's `ci-main-macos.yaml` retires). The Chrome extension at `clients/chrome-extension/` will also move here (as `apps/chrome-extension/`) in a follow-up PR; see [`apps/README.md`](apps/README.md) and [`apps/AGENTS.md`](apps/AGENTS.md).
+- `apps/` — End-user app surfaces: `apps/web/` (Vite + React Router v7 SPA), `apps/ios/` (Capacitor iOS shell that loads the web app in a WKWebView), and `apps/macos/` (Electron desktop shell that wraps `apps/web/`; daemon/gateway lifecycle is owned by the `vellum` CLI, which the app invokes as a subprocess; auto-update via `electron-updater`). CI workflow filenames are still `pr-electron.yaml` / `ci-main-electron.yaml` until the legacy Swift app's `ci-main-macos.yaml` retires. See [`apps/README.md`](apps/README.md) and [`apps/AGENTS.md`](apps/AGENTS.md).
 - `assistant/` — Main backend service (Bun + TypeScript)
 - `cli/` — Multi-assistant management CLI (Bun + TypeScript). See `cli/AGENTS.md`.
 - `clients/` — Client apps (macOS, browser extension, etc). See `clients/AGENTS.md` and platform docs like `clients/macos/AGENTS.md`.
@@ -61,6 +61,10 @@ We do **not** pin: `apt-get` packages (Debian rotates), `brew install` formulae 
 
 `dev-release.yaml` and `release.yml` share inline logic (e.g. "Compute migration ceilings"). When changing logic that lives in both, update both in the same PR.
 
+### Docker build cache
+
+Docker `cache-to: type=gha` must set `ignore-error=true`. The GHA cache is a build-speed optimization, not part of the artifact, so a cache-export failure (e.g. `error writing layer blob: not_found` from an evicted scope) must never fail the build-push step or gate a release. See [Docker cache backends](https://docs.docker.com/build/cache/backends/).
+
 ### iOS release
 
 The Capacitor iOS source-of-truth lives in [`apps/ios/`](./apps/ios/) and is built locally from `apps/web/` via `bun run ios:open`. See [`apps/ios/README.md`](./apps/ios/README.md) for the local build flow and full release pipeline mapping.
@@ -105,6 +109,17 @@ Never commit worktree directories or worktree artifacts. Git worktrees are local
 Proactively remove unused code during every change. Remove code your change makes unused, clean up adjacent dead code, delete rather than comment out, check for orphaned files. Ask: "After my change, is there any code that nothing calls, imports, or references?" If yes, delete it.
 
 **Exception — migrations**: Database and data migration files must never be deleted, even when the tables or logic they create have moved elsewhere. Migrations run sequentially on existing installs and skipping an entry breaks the chain. When a migration's responsibility has moved (e.g. a table migrated to another database), keep the file in place and add a comment documenting where the logic now lives.
+
+## Code Comments
+
+**Comments describe the present; PRs describe the history.** Code comments should describe what the code *is* and *does* right now — never how it got there, what it replaced, or what changed in a PR. History and reasoning belong in PR descriptions and commit messages, which are the permanent record of *how we got here*.
+
+- Do NOT use temporal language: "now uses", "no longer", "was previously", "instead of the old approach", "after the refactor".
+- Do NOT describe the diff: "externalUserId is not consulted", "moved from X to Y", "fix for when Z happens".
+- DO describe the code in present tense: "identity is enforced via the (type, address) unique constraint".
+- If a comment only makes sense to someone reading the diff, move it to the PR description.
+
+Default to no comment — bias aggressively toward terseness and rely on good naming. Follow the commenting density of the surrounding code.
 
 ## Generic Examples
 

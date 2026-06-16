@@ -54,6 +54,7 @@ import {
  */
 export function TranscriptMessageBody({
   message,
+  conversationId,
   assistantDisplayName,
   onSurfaceAction,
   onForkConversation,
@@ -379,6 +380,7 @@ export function TranscriptMessageBody({
       <div className="h-6 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100">
         <MessageHoverActions
           message={message}
+          conversationId={conversationId}
           openInSlackUrl={slackMessageUrl}
           onFork={forkHandler}
           onInspect={inspectHandler}
@@ -410,6 +412,7 @@ export function TranscriptMessageBody({
   return (
     <div
       ref={wrapperRef}
+      id={message.id ? `msg-${message.id}` : undefined}
       onClick={handleBubbleClick}
       data-revealed={revealed}
       className={wrapperClass}

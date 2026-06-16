@@ -1,9 +1,11 @@
 import { ArrowLeft } from "lucide-react";
-import { type ReactNode } from "react";
+import { type ReactNode, useCallback, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { Button, Typography } from "@vellumai/design-library";
 
 import { StatusBanner } from "@/components/status-banner";
+import { useEdgeSwipeBack } from "@/hooks/use-edge-swipe-back";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { isElectron } from "@/runtime/is-electron";
 import { routes } from "@/utils/routes";
 
@@ -34,6 +36,20 @@ export function SidebarShell({
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const isMenuRoute = pathname === menuRoute;
+  const isMobile = useIsMobile();
+
+  // Edge-swipe back gesture for mobile subpages.
+  const swipeContainerRef = useRef<HTMLDivElement | null>(null);
+  const mobileBackHref = isMenuRoute ? backHref : menuRoute;
+  const handleSwipeBack = useCallback(() => {
+    navigate(mobileBackHref);
+  }, [navigate, mobileBackHref]);
+  useEdgeSwipeBack({
+    containerRef: swipeContainerRef,
+    onBack: handleSwipeBack,
+    enabled: isMobile && !isMenuRoute,
+    navKey: pathname,
+  });
 
   // In the Electron shell the macOS window controls (traffic lights) sit in an
   // inline title-bar zone at the top of the renderer (see `ChatLayoutHeader` /
@@ -44,7 +60,6 @@ export function SidebarShell({
   // Off Electron it stays at the standard 1rem inset.
   const electron = isElectron();
 
-  const mobileBackHref = isMenuRoute ? backHref : menuRoute;
   const mobileBackLabel = isMenuRoute
     ? `Back from ${title}`
     : `Back to ${title} menu`;
@@ -78,6 +93,7 @@ export function SidebarShell({
 
   return (
     <div
+      ref={swipeContainerRef}
       className="flex h-full min-h-0 w-full flex-1 flex-col gap-4 p-4 sm:p-6 md:gap-0"
       style={{
         paddingTop: electron
@@ -99,7 +115,11 @@ export function SidebarShell({
         <div className="h-10 w-10 shrink-0" aria-hidden="true" />
       </div>
 
-      <StatusBanner className="px-0 pt-0" />
+      {electron ? (
+        <div className="shrink-0 pb-4 empty:hidden">
+          <StatusBanner placement="electron" className="px-0 pt-0" />
+        </div>
+      ) : null}
 
       {/* Card chrome — desktop only */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:rounded-[12px] md:border md:border-[var(--border-base)] md:bg-[var(--surface-overlay)]">

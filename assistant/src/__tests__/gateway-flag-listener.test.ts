@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach,beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Isolated temp directory for the IPC socket
@@ -49,11 +49,22 @@ mock.module("../runtime/sync/sync-publisher.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Track calls to syncFlagGatedTools so we can assert the listener registers
+// newly-enabled flag-gated tools after a runtime refresh (not just the cache).
+// ---------------------------------------------------------------------------
+let syncToolsCallCount = 0;
+
+mock.module("../tools/registry.js", () => ({
+  syncFlagGatedTools: async () => {
+    syncToolsCallCount++;
+  },
+}));
+
+// ---------------------------------------------------------------------------
 // Dynamic imports (after mock.module)
 // ---------------------------------------------------------------------------
-const { startGatewayFlagListener, stopGatewayFlagListener } = await import(
-  "../ipc/gateway-flag-listener.js"
-);
+const { startGatewayFlagListener, stopGatewayFlagListener } =
+  await import("../ipc/gateway-flag-listener.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -104,6 +115,7 @@ describe("gateway-flag-listener", () => {
   beforeEach(() => {
     mkdirSync(testRoot, { recursive: true });
     refreshCallCount = 0;
+    syncToolsCallCount = 0;
     publishedTagSets = [];
     testServer = createTestServer();
   });
@@ -123,7 +135,7 @@ describe("gateway-flag-listener", () => {
     }
   });
 
-  test("refreshes flag cache on connect and on feature_flags_changed event", async () => {
+  test("refreshes flag cache AND syncs gated tools on connect and on feature_flags_changed event", async () => {
     await new Promise<void>((resolve) => {
       testServer.server.listen(socketPath, resolve);
     });
@@ -133,11 +145,17 @@ describe("gateway-flag-listener", () => {
     await new Promise((r) => setTimeout(r, 100));
 
     expect(refreshCallCount).toBe(1);
+    // Connect must also sync gated tools, so a flag flipped while disconnected
+    // registers its tools without waiting for a restart.
+    expect(syncToolsCallCount).toBe(1);
 
     testServer.emit("feature_flags_changed");
     await new Promise((r) => setTimeout(r, 100));
 
     expect(refreshCallCount).toBe(2);
+    // The runtime flag change must register newly-enabled tools too — not just
+    // refresh the cache (the bug: routes pass the gate but tools stay absent).
+    expect(syncToolsCallCount).toBe(2);
   });
 
   test("broadcasts feature-flags sync_changed when flags change", async () => {
@@ -207,8 +225,7 @@ describe("gateway-flag-listener", () => {
     const countAfterReconnect = refreshCallCount;
     expect(countAfterReconnect).toBeGreaterThan(0);
 
-    const payload =
-      JSON.stringify({ event: "feature_flags_changed" }) + "\n";
+    const payload = JSON.stringify({ event: "feature_flags_changed" }) + "\n";
     secondClient!.write(payload);
     await new Promise((r) => setTimeout(r, 200));
 

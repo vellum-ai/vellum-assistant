@@ -1,13 +1,21 @@
 
-import { Check, Copy, ExternalLink, FileCode, GitBranch } from "lucide-react";
+import { Bookmark, Check, Copy, ExternalLink, FileCode, GitBranch } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
+import {
+  useBookmarksEnabled,
+  useBookmarkToggle,
+  useIsBookmarked,
+} from "@/hooks/use-bookmarks";
 
 type MessageHoverActionsProps = {
   /** The message whose text is copied and whose role/timestamp drive the row. */
   message: DisplayMessage;
+  /** Conversation the message belongs to. Required for the bookmark toggle —
+   *  the bookmark API keys on (messageId, conversationId). */
+  conversationId?: string | null;
   /** Slack permalink for the message, shown as a hover action when present. */
   openInSlackUrl?: string;
   /** Callback when "Fork from here" is clicked. */
@@ -80,11 +88,25 @@ function latestMessageActivityTimestamp(
 
 export function MessageHoverActions({
   message,
+  conversationId,
   openInSlackUrl,
   onFork,
   onInspect,
 }: MessageHoverActionsProps) {
   const { role } = message;
+
+  // Bookmarks are feature-flag gated, and only persisted messages qualify —
+  // optimistic/streaming rows carry a client-generated id the daemon can't
+  // resolve. The toggle's data hooks live in `MessageBookmarkButton` so they
+  // only mount (and only touch TanStack Query) for bookmarkable rows; that
+  // keeps the flag-off and no-conversation paths free of any query client.
+  const bookmarksEnabled = useBookmarksEnabled();
+  const canBookmark =
+    bookmarksEnabled &&
+    Boolean(conversationId) &&
+    Boolean(message.id) &&
+    !message.isOptimistic;
+
   // Flat plain-text body derived from the message's text blocks; this is the
   // copy payload and mirrors the daemon's `joinWithSpacing`.
   const content = useMemo(
@@ -156,6 +178,13 @@ export function MessageHoverActions({
         </button>
       )}
 
+      {canBookmark && conversationId && message.id && (
+        <MessageBookmarkButton
+          messageId={message.id}
+          conversationId={conversationId}
+        />
+      )}
+
       {openInSlackUrl && (
         <a
           href={openInSlackUrl}
@@ -191,5 +220,41 @@ export function MessageHoverActions({
         </button>
       )}
     </div>
+  );
+}
+
+/**
+ * Bookmark toggle for a persisted message. Split out from the row so its
+ * TanStack Query hooks only mount for bookmarkable messages — rows without a
+ * conversation, optimistic rows, and flag-off installs never construct a query
+ * observer (and SSR render tests need no QueryClientProvider).
+ */
+function MessageBookmarkButton({
+  messageId,
+  conversationId,
+}: {
+  messageId: string;
+  conversationId: string;
+}) {
+  const isBookmarked = useIsBookmarked(messageId);
+  const toggleBookmark = useBookmarkToggle();
+  const handleToggle = useCallback(() => {
+    void toggleBookmark(messageId, conversationId, isBookmarked);
+  }, [messageId, conversationId, isBookmarked, toggleBookmark]);
+
+  return (
+    <button
+      type="button"
+      onClick={handleToggle}
+      title={isBookmarked ? "Remove bookmark" : "Bookmark"}
+      aria-pressed={isBookmarked}
+      className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
+    >
+      <Bookmark
+        className={`h-3.5 w-3.5 ${
+          isBookmarked ? "fill-current text-[var(--content-default)]" : ""
+        }`}
+      />
+    </button>
   );
 }

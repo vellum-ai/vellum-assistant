@@ -21,11 +21,11 @@ You are helping your user connect a Telegram bot to the Vellum Assistant gateway
 
 | Value          | Type       | Storage method                              | Secret? |
 | -------------- | ---------- | ------------------------------------------- | ------- |
-| Bot Token      | Credential | `credential_store` prompt                   | **Yes** |
+| Bot Token      | Credential | `assistant credentials prompt`              | **Yes** |
 | Bot Username   | Config     | `assistant config set telegram.botUsername` | No      |
 | Webhook Secret | Credential | `assistant credentials set`                 | **Yes** |
 
-- **Bot Token** is a secret. Always collect via `credential_store` prompt - never accept it pasted in plaintext chat.
+- **Bot Token** is a secret. Always collect via `assistant credentials prompt` - never accept it pasted in plaintext chat.
 - **Bot Username** is derived from the token via the Telegram API and stored as config.
 
 # Setup Steps
@@ -36,7 +36,14 @@ Tell the user: **"You'll need a Telegram bot token from @BotFather. Open Telegra
 
 Collect the token through the secure credential prompt:
 
-- Call `credential_store` with `action: "prompt"`, `service: "telegram"`, `field: "bot_token"`, `label: "Telegram Bot Token"`, `description: "Enter the bot token you received from @BotFather"`, `placeholder: "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"`.
+- Run (via the bash tool):
+
+  ```bash
+  assistant credentials prompt --service telegram --field bot_token \
+    --label "Telegram Bot Token" \
+    --placeholder "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11" \
+    --description "Enter the bot token you received from @BotFather"
+  ```
 
 ## Step 2: Validate Token and Configure Bot
 

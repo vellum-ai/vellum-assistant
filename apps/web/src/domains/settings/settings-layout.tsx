@@ -23,6 +23,7 @@ import { SidebarTree, type SidebarItem } from "@/components/sidebar-tree";
 export function SettingsLayout() {
   const settingsDeveloperNav = useAssistantFeatureFlagStore.use.settingsDeveloperNav();
   const platformNotifications = useClientFeatureFlagStore.use.platformNotifications();
+  const bookmarksEnabled = useClientFeatureFlagStore.use.bookmarks();
   const platformGate = usePlatformGate({ platformHostedOnly: true });
   const billingGate = usePlatformGate();
   const { pathname } = useLocation();
@@ -43,6 +44,9 @@ export function SettingsLayout() {
         if (item.id === "billing" && billingGate !== "full") {
           return false;
         }
+        if (item.id === "bookmarks" && !bookmarksEnabled) {
+          return false;
+        }
         if (item.id === "devices" && platformGate === "gated") {
           return false;
         }
@@ -57,7 +61,7 @@ export function SettingsLayout() {
         }
         return true;
       }),
-    [platformNotifications, platformGate, billingGate],
+    [platformNotifications, platformGate, billingGate, bookmarksEnabled],
   );
 
   const bottomItems = useMemo<SidebarItem[]>(() => {

@@ -31,6 +31,8 @@ export interface PreChatOnboardingContext {
   tone: string;
   /** Undefined if the user skipped the name step. */
   userName?: string;
+  /** The user's role / occupation, e.g. "Software Engineer". Undefined if not collected. */
+  occupation?: string;
   /** Undefined if the user kept the default assistant name. */
   assistantName?: string;
   /** e.g. ["chatgpt", "openclaw", "hermes"] */
@@ -156,6 +158,7 @@ export function normalizePreChatOnboardingContext(
 
 export interface PreChatOnboardingProfileFields {
   preferredName?: string;
+  occupation?: string;
   commonWork: string[];
   dailyTools: string[];
 }
@@ -166,6 +169,7 @@ export function preChatOnboardingProfileFields(
   const normalized = normalizePreChatOnboardingContext(ctx);
   return {
     preferredName: normalized.userName?.trim() || undefined,
+    occupation: normalized.occupation?.trim() || undefined,
     commonWork: normalized.tasks,
     dailyTools: normalized.tools,
   };
@@ -225,6 +229,12 @@ function isPreChatOnboardingContext(
   if (
     candidate.userName !== undefined &&
     typeof candidate.userName !== "string"
+  ) {
+    return false;
+  }
+  if (
+    candidate.occupation !== undefined &&
+    typeof candidate.occupation !== "string"
   ) {
     return false;
   }

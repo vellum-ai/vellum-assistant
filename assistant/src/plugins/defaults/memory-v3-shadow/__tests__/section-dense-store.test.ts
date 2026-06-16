@@ -45,6 +45,12 @@ type ScrollPage = {
   next_page_offset: string | number | null;
 };
 
+// A getCollection() response for an existing collection whose single dense
+// vector matches the configured dimension (CONFIG.vectorSize === 4).
+const MATCHING_SECTION_SCHEMA = {
+  config: { params: { vectors: { size: 4, distance: "Cosine" } } },
+};
+
 const state = {
   collectionExists: false,
   collectionExistsCalls: 0,
@@ -54,6 +60,10 @@ const state = {
   upsertCalls: [] as Array<{ wait: boolean; points: MockPoint[] }>,
   deleteCalls: [] as Array<{ wait: boolean; filter: unknown }>,
   createCollectionThrows: null as Error | null,
+  getCollectionCalls: 0,
+  getCollectionInfo: MATCHING_SECTION_SCHEMA as unknown,
+  getCollectionThrows: null as Error | null,
+  deleteCollectionCalls: [] as string[],
   // Programmed `scroll` pages, consumed in order; each `scroll` call shifts one.
   scrollPages: [] as ScrollPage[],
   scrollCalls: [] as Array<{ limit: number; offset: unknown }>,
@@ -70,6 +80,16 @@ class MockQdrantClient {
     state.createCollectionParams = params;
     if (state.createCollectionThrows) throw state.createCollectionThrows;
     state.collectionExists = true;
+    return {};
+  }
+  async getCollection(_name: string) {
+    state.getCollectionCalls++;
+    if (state.getCollectionThrows) throw state.getCollectionThrows;
+    return state.getCollectionInfo;
+  }
+  async deleteCollection(name: string) {
+    state.deleteCollectionCalls.push(name);
+    state.collectionExists = false;
     return {};
   }
   async createPayloadIndex(
@@ -131,6 +151,10 @@ function resetState(): void {
   state.upsertCalls.length = 0;
   state.deleteCalls.length = 0;
   state.createCollectionThrows = null;
+  state.getCollectionCalls = 0;
+  state.getCollectionInfo = MATCHING_SECTION_SCHEMA;
+  state.getCollectionThrows = null;
+  state.deleteCollectionCalls.length = 0;
   state.scrollPages.length = 0;
   state.scrollCalls.length = 0;
   embedState.calls.length = 0;
@@ -195,6 +219,49 @@ describe("memory v3 section-dense-store — collection lifecycle", () => {
     expect(state.createIndexCalls).toEqual([
       { field_name: "article", field_schema: "keyword" },
     ]);
+  });
+
+  test("recreates the collection when its dense vector dimension drifts", async () => {
+    state.collectionExists = true;
+    // Existing collection sized to a different embedding dimension than the
+    // configured 4 (e.g. a 384-dim collection from a prior model). Every upsert
+    // would fail with HTTP 400 until it is recreated; the next backfill
+    // re-embeds the sections.
+    state.getCollectionInfo = {
+      config: { params: { vectors: { size: 384, distance: "Cosine" } } },
+    };
+
+    await ensureSectionCollection(CONFIG);
+
+    expect(state.getCollectionCalls).toBe(1);
+    expect(state.deleteCollectionCalls).toEqual([SECTION_COLLECTION]);
+    expect(state.createCollectionCalls).toBe(1);
+    // The recreated collection is sized to the configured dimension.
+    const params = state.createCollectionParams as {
+      vectors: { size: number };
+    };
+    expect(params.vectors.size).toBe(4);
+  });
+
+  test("leaves a dimension-matched existing collection untouched", async () => {
+    state.collectionExists = true;
+    // Default getCollectionInfo (MATCHING_SECTION_SCHEMA) is size 4 === CONFIG.
+
+    await ensureSectionCollection(CONFIG);
+
+    expect(state.getCollectionCalls).toBe(1);
+    expect(state.deleteCollectionCalls).toEqual([]);
+    expect(state.createCollectionCalls).toBe(0);
+  });
+
+  test("treats a getCollection probe failure as compatible (no destructive recreate)", async () => {
+    state.collectionExists = true;
+    state.getCollectionThrows = new Error("transient REST error");
+
+    await ensureSectionCollection(CONFIG);
+
+    expect(state.deleteCollectionCalls).toEqual([]);
+    expect(state.createCollectionCalls).toBe(0);
   });
 
   test("re-running ensure latches readiness (single existence probe)", async () => {

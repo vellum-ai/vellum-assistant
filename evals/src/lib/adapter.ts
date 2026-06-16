@@ -62,6 +62,21 @@ export interface ConfirmationDecision {
 }
 
 /**
+ * A loadable, self-contained HTML page for an app the agent produced.
+ *
+ * `html` is fully inlined — every script and stylesheet the page needs
+ * is embedded, so it renders identically when handed to
+ * `page.setContent(html)` in an offline browser with no network or
+ * asset server. This keeps app interaction uniform across species: the
+ * harness always drives a single static document regardless of how the
+ * agent built or compiled it.
+ */
+export interface ResolvedAppPage {
+  /** Self-contained HTML with all assets inlined. */
+  html: string;
+}
+
+/**
  * Extract the `requestId` from a pending tool-confirmation event, or
  * `undefined` if the event isn't a `confirmation_request`. A hatched
  * assistant runs headless with no interactive approver, so any tool the
@@ -121,4 +136,15 @@ export interface BaseAgent {
    * this method and skip approval when it's absent.
    */
   confirm?(input: ConfirmationDecision): Promise<void>;
+  /**
+   * Resolve the app the agent built into a single loadable HTML page, or
+   * `undefined` when the agent produced no app this run. Optional
+   * capability: species that can't surface an inspectable app omit it,
+   * and the runner skips the app-interaction phase when it's absent.
+   *
+   * The returned HTML is self-contained (assets inlined), so the runner
+   * can drive any species' app through one uniform static-page path
+   * without knowing how it was built or compiled.
+   */
+  resolveAppPage?(): Promise<ResolvedAppPage | undefined>;
 }

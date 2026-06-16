@@ -95,6 +95,19 @@
 @custom-variant keyboard-focus (&:where(:root:not([data-modality=pointer]) *, :root:not([data-modality=pointer])):focus-visible);
 
 /* ---------------------------------------------------------------------------
+ * Touch-mobile variant — gates on BOTH a narrow viewport AND a coarse (touch)
+ * pointer. Plain `max-md:` fires on any narrow viewport, wrongly enabling
+ * mobile affordances (larger tap targets, circular chrome) on desktop windows
+ * shrunk by DevTools or macOS tiling. The `pointer: coarse` half keeps them to
+ * actual touch devices (iOS, Android), never Electron or desktop browsers.
+ * --------------------------------------------------------------------------- */
+@custom-variant touch-mobile {
+  @media (width < 48rem) and (pointer: coarse) {
+    @slot;
+  }
+}
+
+/* ---------------------------------------------------------------------------
  * @theme bridge — registers CSS variables as Tailwind theme variables so
  * they generate first-class utility classes (e.g. `bg-background`,
  * `text-foreground`, `font-sans`).

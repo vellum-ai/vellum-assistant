@@ -761,8 +761,10 @@ export class AgentLoop {
   /**
    * Compact the running history in place when the budget gate trips.
    *
-   * Calls the default compaction plugin on the stripped history, then
-   * re-applies injections via the supplied hooks. When `overflowSignal` is
+   * Calls the default compaction plugin, then re-applies injections via the
+   * supplied hooks. The budget path summarizes the injected `history` (so the
+   * summary call reuses the agent's warm prefix cache); overflow recovery runs
+   * on the injection-stripped history. When `overflowSignal` is
    * supplied the plugin routes through the manager's reduction ladder (which
    * advances one rung per call and reports `exhausted` / `autoCompressApplied`
    * / `injectionMode`); otherwise it runs ordinary forced compaction. Returns
@@ -795,8 +797,11 @@ export class AgentLoop {
       startedAt,
       messages: history,
     });
-    // Strip runtime injections so the compactor summarizes the raw persistent
-    // messages.
+    // Injection-stripped history for overflow recovery's reduction ladder and
+    // the post-compaction re-injection base below. The budget-path summarizer
+    // instead runs on the injected `history` so its prompt prefix matches the
+    // agent's warm prefix cache and the summary call is a cache read, not a
+    // fresh cache write.
     const rawHistory = stripInjectionsForCompaction(history);
     // Record the history-stripped marker right after stripping, before the
     // pipeline runs.
@@ -812,7 +817,7 @@ export class AgentLoop {
     // routes the request through the reduction ladder when present.
     const compactResult = await defaultCompact({
       conversationId: this.conversationId,
-      messages: rawHistory,
+      messages: overflowSignal != null ? rawHistory : history,
       signal,
       force: true,
       actorTrustClass: trust.trustClass,
@@ -1434,6 +1439,7 @@ export class AgentLoop {
             conversationId: this.conversationId,
             callSite: callSite ?? null,
             systemPrompt: providerOptions.systemPrompt ?? null,
+            modelProfile: effectiveOverrideProfile ?? null,
             deferAssistantOutput: false,
             logger: rlog,
           };
@@ -1443,6 +1449,20 @@ export class AgentLoop {
           );
           providerOptions.systemPrompt =
             finalPreModelCtx.systemPrompt ?? undefined;
+          // Route this call to the hook's chosen inference profile. The
+          // resolver layers `llm.profiles[overrideProfile]` at the top of
+          // precedence for the user-facing call, so a model router can pick
+          // the profile per message; clearing it drops any seeded override.
+          const hookModelProfile = finalPreModelCtx.modelProfile?.trim();
+          if (hookModelProfile) {
+            providerConfig.overrideProfile = hookModelProfile;
+            if (forceOverrideProfile) {
+              providerConfig.forceOverrideProfile = true;
+            }
+          } else {
+            delete providerConfig.overrideProfile;
+            delete providerConfig.forceOverrideProfile;
+          }
           // The hook owns the policy (it sees `callSite`/conversation and
           // self-gates); the loop honors whatever it decides.
           deferAssistantOutput = finalPreModelCtx.deferAssistantOutput;
@@ -1613,8 +1633,10 @@ export class AgentLoop {
           content: response.content,
         };
 
-        // Check for tool use
-        toolUseBlocks = response.content.filter(
+        // The model's own tool calls. The executable set is finalized after
+        // the `post-model-call` hook below, which may add or drop tool calls;
+        // this raw set drives only the completion log and the max-tokens branch.
+        const modelToolUseBlocks = response.content.filter(
           (block): block is Extract<ContentBlock, { type: "tool_use" }> =>
             block.type === "tool_use",
         );
@@ -1624,7 +1646,7 @@ export class AgentLoop {
             turn: toolUseTurns,
             stopReason: response.stopReason,
             contentBlocks: response.content.length,
-            toolUseCount: toolUseBlocks.length,
+            toolUseCount: modelToolUseBlocks.length,
             durationMs: providerDurationMs,
           },
           "LLM call complete",
@@ -1643,7 +1665,7 @@ export class AgentLoop {
               stopReason: response.stopReason,
               contentBlocks: response.content.length,
               safeContentBlocks: safeContent.length,
-              toolUseCount: toolUseBlocks.length,
+              toolUseCount: modelToolUseBlocks.length,
             },
             "LLM response reached output token limit",
           );
@@ -1656,13 +1678,29 @@ export class AgentLoop {
           // no-tool retry below the partial output is kept, not discarded.
           // Otherwise the stop is terminal and the continuation card surfaces.
           const {
-            finalized: safeAssistantMessage,
+            finalized: rawSafeAssistantMessage,
             decision: maxTokensDecision,
             messages: maxTokensMessages,
           } = await finalizeAssistantMessage({
             role: "assistant",
             content: safeContent,
           });
+          // A truncated turn never executes tools — the model's own tool calls
+          // were stripped into `safeContent` above. The hook can still append a
+          // `tool_use` block while transforming the reply, but this branch
+          // short-circuits without an executor pass, so honoring it would
+          // persist a tool call with no matching `tool_result`. Drop hook-added
+          // tool calls here too: tool injection is supported only on the
+          // non-truncated path below, which runs the executor.
+          const safeAssistantMessage: Message = {
+            ...rawSafeAssistantMessage,
+            content: rawSafeAssistantMessage.content.filter(
+              (block) =>
+                block.type !== "tool_use" &&
+                block.type !== "server_tool_use" &&
+                block.type !== "web_search_tool_result",
+            ),
+          };
           emitFinalAssistantText(safeAssistantMessage.content);
           if (
             maxTokensDecision === "continue" &&
@@ -1706,6 +1744,25 @@ export class AgentLoop {
           messages: postModelCallMessages,
         } = await finalizeAssistantMessage(assistantMessage);
         assistantMessage = finalizedAssistantMessage;
+
+        // Execution follows the FINALIZED content, not the raw reply. A
+        // `post-model-call` hook may append a `tool_use` block to run a tool as
+        // if the model had called it (the supported way for a plugin to surface
+        // a card or take a follow-up action), or drop one the model emitted, so
+        // the loop runs whatever the assistant message ends up carrying.
+        // Normalize ids so the executor and tool_result correlation stay 1:1 —
+        // a hook-added block may carry an empty or duplicate id.
+        toolUseBlocks = assistantMessage.content.filter(
+          (block): block is Extract<ContentBlock, { type: "tool_use" }> =>
+            block.type === "tool_use",
+        );
+        const seenToolUseIds = new Set<string>();
+        for (const block of toolUseBlocks) {
+          if (block.id.length === 0 || seenToolUseIds.has(block.id)) {
+            block.id = crypto.randomUUID();
+          }
+          seenToolUseIds.add(block.id);
+        }
 
         // At the no-tool stop boundary the retry decision is actionable: a
         // recovery hook may repair history and ask to re-query (a tool-bearing

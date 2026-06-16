@@ -52,14 +52,31 @@ export interface LlmRequestLogSource {
   getRequestLogsByConversationId(conversationId: string): Promise<LogRow[]>;
 
   /**
+   * Return the `createdAt` of the most recent **non-`compactionAgent`**
+   * LLM call in the conversation that ran strictly before
+   * `beforeCreatedAt`, or `null` when the selected call is the first real
+   * call in the conversation.
+   *
+   * Drives the call-scoped floor for the Inspector's Compaction tab: a
+   * compaction is attributed to the next real call that ran after it, so
+   * the compactions for a given call are those that landed strictly
+   * between the previous real call and the selected call.
+   */
+  getPreviousNonCompactionCallCreatedAt(
+    conversationId: string,
+    beforeCreatedAt: number,
+  ): Promise<number | null>;
+
+  /**
    * Fetch every `callSite = "compactionAgent"` log row in the conversation
    * whose `createdAt` falls in the **open window**
    * `(afterCreatedAt, beforeCreatedAt)`, ordered chronologically.
    *
-   * Drives the Inspector's Compaction tab. The route handler computes
-   * the window from the turn the selected call belongs to via
-   * `getTurnTimeBounds` in `memory/conversation-crud.ts`; this source
-   * method is bound-agnostic. See `getCompactionLogsBetween` in
+   * The legacy fallback for the Inspector's Compaction tab, used when the
+   * ClickHouse compaction log is unavailable. The route handler resolves
+   * the floor from `getPreviousNonCompactionCallCreatedAt` and the ceiling
+   * from the selected call's `createdAt`; this source method is
+   * bound-agnostic. See `getCompactionLogsBetween` in
    * `llm-request-log-store.ts` for the SQL.
    */
   getCompactionLogsBetween(

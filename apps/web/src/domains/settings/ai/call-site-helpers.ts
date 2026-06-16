@@ -1,4 +1,4 @@
-import type { CallSiteOverrideDraft } from "@/domains/settings/ai/ai-types";
+import type { CallSiteOverrideDraft } from "@/generated/daemon/types.gen";
 
 // ---------------------------------------------------------------------------
 // Sentinel value for the "Custom" profile picker option

@@ -8,6 +8,13 @@ metadata:
   vellum:
     category: "productivity"
     display-name: "Notion"
+    activation-hints:
+      - "User asks to read, find, search, or open a page, doc, database, or directory in their Notion (e.g. 'find it in notion', 'look in my Notion', 'this is a notion directory')"
+      - "User references Notion content by name or path and wants its contents pulled"
+      - "User wants to create, update, append to, or query Notion pages or databases"
+      - "User asks anything that requires reading or writing Notion data, including checking a task list or workspace held in Notion"
+    avoid-when:
+      - "User wants to set up, connect, or reconnect the Notion OAuth integration for the first time; load vellum-oauth-integrations instead"
 ---
 
 You have access to the Notion API via the managed OAuth connection or an internal integration secret stored in the credential vault. Both paths inject the Authorization header automatically. Never reveal credential values or echo token values into the shell.
@@ -16,8 +23,8 @@ You have access to the Notion API via the managed OAuth connection or an interna
 
 **Step 1 - Determine connection type:**
 
-```
-credential_store action=list
+```bash
+assistant credentials list
 ```
 
 Look at the results to decide which path to use:
@@ -70,7 +77,7 @@ bash:
       -d '{}'
 ```
 
-Where `<credential_id_from_step_1>` is the `id` field from the matching entry in `credential_store action=list` output.
+Where `<credential_id_from_step_1>` is the `id` field from the matching entry in `assistant credentials list` output.
 
 The credential MUST have:
 

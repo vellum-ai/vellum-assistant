@@ -1,6 +1,10 @@
-import type { ConfigLlmCallsitesGetResponse } from "@/generated/daemon/types.gen";
+/**
+ * Types and transforms for the daemon's LLM call-site catalog.
+ * Used as a TanStack Query `select` transform or inline `buildCallSiteMetadataMap`
+ * on `configLlmCallsitesGetOptions()`.
+ */
 
-type CallSiteCatalogResponse = ConfigLlmCallsitesGetResponse;
+import type { ConfigLlmCallsitesGetResponse } from "@/generated/daemon/types.gen";
 
 export interface UsageCallSiteMetadata {
   id: string;
@@ -12,7 +16,7 @@ export interface UsageCallSiteMetadata {
 export type UsageCallSiteMetadataMap = Record<string, UsageCallSiteMetadata>;
 
 export function buildCallSiteMetadataMap(
-  catalog: CallSiteCatalogResponse | null | undefined,
+  catalog: ConfigLlmCallsitesGetResponse | null | undefined,
 ): UsageCallSiteMetadataMap {
   if (!catalog) {
     return {};

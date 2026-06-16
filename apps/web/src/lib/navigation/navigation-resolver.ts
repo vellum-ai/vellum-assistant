@@ -256,6 +256,7 @@ function requireAssistant(state: NavigationState): NavigationDecision | null {
   if (!hasCompletedOnboarding(state)) {
     return { action: "redirect", to: routes.onboarding.privacy };
   }
+  // A consented user with no assistant goes to the standard hatching screen.
   return { action: "redirect", to: routes.onboarding.hatching };
 }
 

@@ -17,8 +17,8 @@ Vellum assistant web app (chat, settings, library, docs).
   state (API calls, caching, mutations).
 - [HeyAPI](https://heyapi.dev/) for OpenAPI client generation with
   React Query plugin.
-- TypeScript with `NodeNext` module resolution — relative imports use
-  `.js` extensions even for `.tsx` sources.
+- TypeScript with `Bundler` module resolution — no `.js` extensions on
+  imports (bundler-only package; see [`apps/AGENTS.md`](../AGENTS.md)).
 - Bun for dependency management; self-contained `bun.lock` per
   [`apps/AGENTS.md`](../AGENTS.md).
 

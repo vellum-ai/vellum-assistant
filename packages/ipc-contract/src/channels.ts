@@ -56,7 +56,6 @@ export const ICON_SET_AVATAR = "vellum:icon:setAvatar";
 
 // Dock
 export const DOCK_SET_BADGE = "vellum:dock:setBadge";
-export const DOCK_SET_SIGNED_IN = "vellum:dock:setSignedIn";
 
 // Local mode
 export const LOCAL_MODE_HATCH = "vellum:localMode:hatch";
@@ -64,7 +63,9 @@ export const LOCAL_MODE_READ_LOCKFILE = "vellum:localMode:readLockfile";
 export const LOCAL_MODE_SAVE_ASSISTANT = "vellum:localMode:saveLockfileAssistant";
 export const LOCAL_MODE_REPLACE_PLATFORM = "vellum:localMode:replacePlatformAssistants";
 export const LOCAL_MODE_RETIRE = "vellum:localMode:retire";
+export const LOCAL_MODE_SLEEP = "vellum:localMode:sleep";
 export const LOCAL_MODE_WAKE = "vellum:localMode:wake";
+export const LOCAL_MODE_STATUS = "vellum:localMode:status";
 export const LOCAL_MODE_GUARDIAN_TOKEN = "vellum:localMode:guardianToken";
 
 // Menu

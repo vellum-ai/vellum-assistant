@@ -219,6 +219,131 @@ describe("agent loop output hooks", () => {
     });
   });
 
+  test("post-model-call can append a tool_use block to invoke a tool as if the model had called it", async () => {
+    // GIVEN a plugin whose post-model-call hook appends a tool call (with an
+    // empty id, so the host must assign one) to an otherwise text-only reply,
+    // once, so the re-entry turn terminates the run.
+    let injected = false;
+    const executed: Array<{ name: string; input: unknown; id?: string }> = [];
+    registerOutputHookPlugin({
+      postModelCall: (ctx) => {
+        if (injected) return;
+        injected = true;
+        ctx.content = [
+          ...ctx.content,
+          {
+            type: "tool_use",
+            id: "",
+            name: "ui_show",
+            input: { surface: "x" },
+          },
+        ];
+      },
+    });
+    // AND a provider that streams a visible answer, then ends after re-entry.
+    const { provider } = createMockProvider([
+      textResponse("here is your answer"),
+      textResponse("done"),
+    ]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: [
+        {
+          name: "ui_show",
+          description: "",
+          input_schema: { type: "object", properties: {} },
+        },
+      ],
+      toolExecutor: async (name, input, _onOutput, toolUseId) => {
+        executed.push({ name, input, id: toolUseId });
+        return { content: "shown", isError: false };
+      },
+    });
+    const events: AgentEvent[] = [];
+
+    // WHEN the loop runs
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the hook-added call ran through the normal tool path exactly once
+    expect(executed).toHaveLength(1);
+    expect(executed[0]).toMatchObject({
+      name: "ui_show",
+      input: { surface: "x" },
+    });
+    // AND the host backfilled a non-empty id for the empty-id block
+    expect(executed[0].id).toBeTruthy();
+    // AND a tool_use event was emitted for the injected call
+    expect(
+      events.some((e) => e.type === "tool_use" && e.name === "ui_show"),
+    ).toBe(true);
+    // AND the live text reply was preserved, not discarded
+    expect(streamedText(events)).toContain("here is your answer");
+    // AND the persisted assistant turn carries the injected tool call
+    const injectedTurn = history.find(
+      (m) =>
+        m.role === "assistant" &&
+        m.content.some((b) => b.type === "tool_use" && b.name === "ui_show"),
+    );
+    expect(injectedTurn).toBeDefined();
+  });
+
+  test("post-model-call can drop a model tool_use block to suppress the call", async () => {
+    // GIVEN a model reply that carries a tool call the hook decides to remove.
+    const toolAndText: ProviderResponse = {
+      content: [
+        { type: "text", text: "answer" },
+        { type: "tool_use", id: "t1", name: "noop", input: {} },
+      ],
+      model: "mock-model",
+      usage: { inputTokens: 1, outputTokens: 1 },
+      stopReason: "tool_use",
+    };
+    let executions = 0;
+    registerOutputHookPlugin({
+      postModelCall: (ctx) => {
+        ctx.content = ctx.content.filter((b) => b.type !== "tool_use");
+      },
+    });
+    const { provider } = createMockProvider([toolAndText]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: [
+        {
+          name: "noop",
+          description: "",
+          input_schema: { type: "object", properties: {} },
+        },
+      ],
+      toolExecutor: async () => {
+        executions++;
+        return { content: "ok", isError: false };
+      },
+    });
+
+    // WHEN the loop runs
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect([]),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the dropped call never executed and the turn ended on the text reply
+    expect(executions).toBe(0);
+    expect(
+      lastAssistant(history).content.some((b) => b.type === "tool_use"),
+    ).toBe(false);
+  });
+
   test("pre-model-call can edit the outbound system prompt", async () => {
     registerOutputHookPlugin({
       preModelCall: (ctx) => {
@@ -239,6 +364,75 @@ describe("agent loop output hooks", () => {
     });
     expect(calls[0].systemPrompt).toContain("[EDITED]");
   });
+
+  test("pre-model-call routes the call to the hook's chosen inference profile", async () => {
+    // GIVEN a hook that selects an inference profile for the user-facing call
+    registerOutputHookPlugin({
+      preModelCall: (ctx) => {
+        if (ctx.callSite !== "mainAgent") return;
+        ctx.modelProfile = "fast-profile";
+      },
+    });
+    const { provider, calls } = createMockProvider([textResponse("hi")]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the loop issues the user-facing provider call
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect([]),
+      callSite: "mainAgent",
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the provider call carries the hook's profile as the override
+    expect(calls[0].options?.config?.overrideProfile).toBe("fast-profile");
+  });
+
+  test("pre-model-call seeds modelProfile from the resolved override and clearing it drops the override", async () => {
+    // GIVEN a hook that observes the seeded override and then clears it
+    let seeded: string | null | undefined;
+    registerOutputHookPlugin({
+      preModelCall: (ctx) => {
+        seeded = ctx.modelProfile;
+        ctx.modelProfile = null;
+      },
+    });
+    const { provider, calls } = createMockProvider([textResponse("hi")]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the loop runs with an ad-hoc override profile
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect([]),
+      callSite: "mainAgent",
+      overrideProfile: "seed-profile",
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the hook saw the loop's resolved override
+    expect(seeded).toBe("seed-profile");
+    // AND clearing it sends no override on the provider call
+    expect(calls[0].options?.config?.overrideProfile).toBeUndefined();
+  });
+
+  // Context-window sizing and overflow recovery read the profile resolved
+  // before the hook runs, so a hook routing to a smaller-window profile does
+  // not resize the budget gate for that call. Tracked for a follow-up that
+  // resolves the routed profile ahead of the context-sizing gate.
+  test.todo(
+    "pre-model-call routing resizes the context-window budget for the routed profile",
+    () => {},
+  );
 
   test("fail-open: a hook that mutates in place AND then throws cannot corrupt the persisted content", async () => {
     // The hook mutates the array it receives before throwing. If the loop
@@ -309,6 +503,64 @@ describe("agent loop output hooks", () => {
     expect(textOf(lastAssistant(history).content)).toBe("PARTIAL ANSWER");
     // Real stream suppressed; transformed final text emitted once.
     expect(streamedText(events)).toBe("PARTIAL ANSWER");
+  });
+
+  test("max_tokens turn: a hook-added tool_use is dropped, not executed or persisted", async () => {
+    // GIVEN a hook that appends a tool call while transforming a truncated
+    // reply. A max-tokens turn short-circuits before the executor runs, so the
+    // injected call must be dropped rather than persisted without a result.
+    const executed: string[] = [];
+    registerOutputHookPlugin({
+      postModelCall: (ctx) => {
+        ctx.content = [
+          ...ctx.content,
+          { type: "tool_use", id: "", name: "ui_show", input: {} },
+        ];
+      },
+    });
+    // AND a provider whose only reply is truncated at the token limit.
+    const truncated: ProviderResponse = {
+      content: [{ type: "text", text: "partial" }],
+      model: "mock-model",
+      usage: { inputTokens: 1, outputTokens: 1 },
+      stopReason: "max_tokens",
+    };
+    const { provider } = createMockProvider([truncated]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: [
+        {
+          name: "ui_show",
+          description: "",
+          input_schema: { type: "object", properties: {} },
+        },
+      ],
+      toolExecutor: async (name) => {
+        executed.push(name);
+        return { content: "shown", isError: false };
+      },
+    });
+    const events: AgentEvent[] = [];
+
+    // WHEN the loop runs
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the injected call never executed
+    expect(executed).toHaveLength(0);
+    expect(
+      events.some((e) => e.type === "tool_use" && e.name === "ui_show"),
+    ).toBe(false);
+    // AND the persisted truncated turn carries no tool call
+    expect(
+      lastAssistant(history).content.some((b) => b.type === "tool_use"),
+    ).toBe(false);
   });
 
   test("deferred final text passes through sensitive-output substitution", async () => {

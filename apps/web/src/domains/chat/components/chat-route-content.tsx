@@ -422,16 +422,19 @@ export function ChatMainPanel({
     messages.length === 0 &&
     !(assistantState.kind === "active" && assistantState.maintenanceMode?.enabled);
 
+  const showDoctorAction =
+    assistantState.kind === "active" && !assistantState.isLocal;
+
   const genericChatError = shouldShowGenericChatErrorNotice(error) && error
     ? {
         message: error.message,
-        actions: (
+        actions: showDoctorAction ? (
           <Button asChild variant="outlined" size="compact">
             <Link to={`${routes.settings.debug}?tab=doctor`}>
               Go to Doctor
             </Link>
           </Button>
-        ),
+        ) : undefined,
       }
     : null;
 
@@ -463,9 +466,19 @@ export function ChatMainPanel({
   const canSendAttachments =
     attachmentsUploadingCount === 0 && attachmentUploadedIds.length > 0;
 
+  // While a conversation's row hasn't loaded (a draft, or one opened by URL
+  // mid-load), its profile lives in the composer stash, not on a server row —
+  // feed it in so attachment/vision gating reflects the profile the first
+  // message will actually use rather than the global default.
+  const pendingDraftProfiles = useConversationStore.use.pendingDraftProfiles();
+  const activeDraftProfile =
+    !activeConversation && activeConversationId
+      ? pendingDraftProfiles.get(activeConversationId) ?? undefined
+      : undefined;
   const activeProfileModel = useActiveProfileModel(
     assistantId,
     activeConversation?.conversationId,
+    activeDraftProfile,
   );
   const activeModelSupportsVision = activeProfileModel?.supportsVision ?? true;
 
@@ -619,6 +632,7 @@ export function ChatMainPanel({
     emptyStatePlaceholder,
   } = useChatEmptyState({
     assistantId,
+    conversationId: activeConversationId,
     isEmptyConversation,
     avatar,
     mainView,

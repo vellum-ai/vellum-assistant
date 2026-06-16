@@ -115,9 +115,13 @@ export function InvoicesModal({ open, onOpenChange }: InvoicesModalProps) {
   async function downloadAllInvoices(): Promise<void> {
     setIsDownloadingAll(true);
     try {
+      // The generated clients are pinned to `parseAs: "json"` (see
+      // api-interceptors.ts), so blob downloads must opt back into binary
+      // parsing or the zip body is run through JSON.parse and fails.
       const { data, response } =
         await organizationsBillingInvoicesDownloadRetrieve({
           throwOnError: false,
+          parseAs: "blob",
         });
       if (!response?.ok || !(data instanceof Blob)) {
         throw new Error(

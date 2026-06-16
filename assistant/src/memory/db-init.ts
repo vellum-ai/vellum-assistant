@@ -55,6 +55,7 @@ import {
   migrateBackfillContactInteractionStats,
   migrateBackfillGuardianPrincipalId,
   migrateBackfillInlineAttachmentsToDisk,
+  migrateBackfillOriginChannelFromBindings,
   migrateBackfillProviderConnectionLabel,
   migrateBackfillUsageCacheAccounting,
   migrateCallSessionInviteMetadata,
@@ -67,7 +68,9 @@ import {
   migrateChannelInboundDeliveryAttempts,
   migrateChannelInteractionColumns,
   migrateContactChannelsAccessFields,
+  migrateContactChannelsRenormalizeAddresses,
   migrateContactChannelsTypeChatIdIndex,
+  migrateContactChannelsUniqueExtUser,
   migrateContactsAssistantId,
   migrateContactsNotesColumn,
   migrateContactsRolePrincipal,
@@ -77,6 +80,7 @@ import {
   migrateConversationHostAccess,
   migrateConversationInferenceProfileSession,
   migrateConversationLastNotifiedProfile,
+  migrateConversationOriginChannelIndex,
   migrateConversationsArchivedAt,
   migrateConversationsLastMessageAt,
   migrateConversationsSurfacedAt,
@@ -142,6 +146,7 @@ import {
   migrateMemoryV2InjectionEvents,
   migrateMemoryV3AutoEdges,
   migrateMemoryV3Coactivation,
+  migrateMemoryV3SelectionsMessageIdAndSections,
   migrateMessageBookmarks,
   migrateMessagesClientMessageId,
   migrateMessagesConversationCreatedAtIndex,
@@ -190,6 +195,7 @@ import {
   migrateRenameVerificationSessionIdColumn,
   migrateRenameVerificationTable,
   migrateRenameVoiceToPhone,
+  migrateScheduleCapabilities,
   migrateScheduleDescription,
   migrateScheduleInferenceProfile,
   migrateScheduleOneShotRouting,
@@ -200,6 +206,7 @@ import {
   migrateScheduleScriptTimeout,
   migrateScheduleSourceConversation,
   migrateScheduleWakeConversationId,
+  migrateScheduleWorkflowMode,
   migrateSchemaIndexesAndColumns,
   migrateScrubCorruptedImageAttachments,
   migrateSlackCompactionWatermark,
@@ -216,11 +223,14 @@ import {
   migrateUsageLlmCallCount,
   migrateVoiceInviteColumns,
   migrateVoiceInviteDisplayMetadata,
+  migrateWorkflowRuns,
+  migrateWorkflowRunTrust,
   recoverCrashedMigrations,
   runComplexMigrations,
   runLateMigrations,
   validateMigrationState,
 } from "./migrations/index.js";
+import { runMigrationSteps } from "./migrations/run-migrations.js";
 
 // ---------------------------------------------------------------------------
 // Test DB template — run migrations once, reuse across test files
@@ -502,29 +512,25 @@ export function initializeDb(): void {
     migrateConversationsSurfacedAt,
     migrateMemoryRetrospectiveRememberedLog,
     migrateScheduleInferenceProfile,
+    migrateMemoryV3SelectionsMessageIdAndSections,
+    migrateWorkflowRuns,
+    migrateScheduleWorkflowMode,
+    migrateWorkflowRunTrust,
+    migrateConversationOriginChannelIndex,
+    migrateBackfillOriginChannelFromBindings,
+    migrateContactChannelsUniqueExtUser,
+    migrateScheduleCapabilities,
+    migrateContactChannelsRenormalizeAddresses,
   ];
 
   // Run each migration step, catching and logging individual failures so one
   // broken migration doesn't prevent independent later ones from succeeding.
-  const failures: string[] = [];
-  for (const step of migrationSteps) {
-    try {
-      log.debug({ migration: step.name }, `Starting migration: ${step.name}`);
-      step(database);
-      log.debug({ migration: step.name }, `Migration succeeded: ${step.name}`);
-    } catch (err) {
-      failures.push(step.name);
-      log.error(
-        { err, migration: step.name },
-        `Migration failed: ${step.name}`,
-      );
-    }
-  }
+  const { failed } = runMigrationSteps(database, migrationSteps);
 
-  if (failures.length > 0) {
+  if (failed.length > 0) {
     log.error(
-      { failedMigrations: failures, count: failures.length },
-      `DB initialization completed with ${failures.length} failed migration(s)`,
+      { failedMigrations: failed, count: failed.length },
+      `DB initialization completed with ${failed.length} failed migration(s)`,
     );
   }
 

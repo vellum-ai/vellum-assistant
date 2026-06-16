@@ -32,7 +32,7 @@ import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialo
 import { Notice } from "@vellumai/design-library/components/notice";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import { DomainVerificationChip } from "@/domains/settings/ai/ai-shared-ui";
+import { DomainVerificationChip } from "@/domains/settings/ai/shared-ui";
 
 interface EmailManagedContentProps {
   assistantId: string;

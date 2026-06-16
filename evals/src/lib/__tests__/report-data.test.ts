@@ -187,7 +187,10 @@ describe("report data", () => {
       emittedAt: "2026-05-15T12:00:00.000Z",
     });
     await appendAssistantEvents(runId, [
-      { message: { type: "assistant_text_delta", text: "March 14" } },
+      {
+        message: { type: "assistant_text_delta", text: "March 14" },
+        emittedAt: "2026-05-15T12:00:01.000Z",
+      },
     ]);
     await appendSimulatorMessage(runId, { content: "What did I say?" });
     await writeUsage(runId, {
@@ -205,7 +208,8 @@ describe("report data", () => {
       status: "completed",
       metricCount: 2,
       scoreTotal: 0.45,
-      transcriptTurns: 1,
+      assistantResponses: 1,
+      runtimeMs: 2000,
       assistantEventCount: 1,
       simulatorMessageCount: 1,
       totalInputTokens: 10,
@@ -216,6 +220,55 @@ describe("report data", () => {
       "memory",
       "cost",
     ]);
+  });
+
+  test("counts a single streamed answer as one assistant response, not one per delta", async () => {
+    // GIVEN a run whose one exchange is a single answer streamed as many
+    // `assistant_text_delta` events — the shape that made the report read
+    // "10 turns" for what a reader sees as one user↔assistant exchange
+    const runId = await freshRunId("responses");
+    const artifacts = runArtifacts(runId);
+    await writeRunMetadata(runId, {
+      runId,
+      sessionId: `session-${runId}`,
+      profileId: "p1",
+      testId: "t1",
+      status: "completed",
+      startedAt: "2026-05-15T12:00:00.000Z",
+      completedAt: "2026-05-15T12:03:53.000Z",
+      artifactDir: artifacts.runDir,
+    });
+    await appendTranscriptTurn(runId, {
+      role: "simulator",
+      content: "Which category did we spend the most on?",
+      emittedAt: "2026-05-15T12:00:00.000Z",
+    });
+    // AND nine streamed fragments of the one assistant reply
+    const deltas = [
+      "We ",
+      "spent ",
+      "the ",
+      "most ",
+      "on ",
+      "Labor ",
+      "at ",
+      "$48,069",
+      ".",
+    ];
+    await appendAssistantEvents(
+      runId,
+      deltas.map((text, index) => ({
+        message: { type: "assistant_text_delta", text },
+        emittedAt: `2026-05-15T12:00:0${index}.000Z`,
+      })),
+    );
+
+    // WHEN the run is summarized for the report
+    const detail = await readReportRun(runId);
+
+    // THEN the deltas fold into one response and runtime is wall-clock
+    expect(detail.assistantResponses).toBe(1);
+    expect(detail.runtimeMs).toBe(233000);
   });
 
   test("falls back for legacy artifact directories without run.json", async () => {

@@ -1,3 +1,4 @@
+import MarkdownIt from "markdown-it";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type {
@@ -25,6 +26,7 @@ import {
   buildTranscriptView,
   type AssistantBlock,
   type AssistantMessageView,
+  type BlockTiming,
 } from "./transcript-view";
 import type { AgentEvent } from "./adapter";
 import { priceUsageRecord } from "./pricing";
@@ -103,6 +105,19 @@ function formatCostCents(value: number | undefined): string {
   return `$${value.toFixed(2)}`;
 }
 
+/** Wall-clock duration, e.g. `940ms`, `47s`, `2m 53s`, `1h 04m`. */
+function formatDuration(ms: number | undefined): string {
+  if (ms === undefined) return "—";
+  if (ms < 1000) return `${ms}ms`;
+  const totalSeconds = Math.round(ms / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${String(minutes % 60).padStart(2, "0")}m`;
+}
+
 /**
  * Parse an ISO `recorded_at` into epoch milliseconds, or `undefined` when the
  * field is missing or unparseable. Used to order the per-request breakdown by
@@ -119,6 +134,92 @@ function formatRecordedAt(value: string | undefined): string {
   const ms = recordedAtMs(value);
   if (ms === undefined) return "—";
   return `${new Date(ms).toISOString().slice(11, 19)}Z`;
+}
+
+/**
+ * Render a single request's round-trip latency compactly: `840ms` under a
+ * second, one-decimal seconds (`2.3s`) above it. Distinct from
+ * `formatDuration` (whole-second run wall-clock) because a per-request figure
+ * is small enough that the sub-second tenths carry signal.
+ */
+function formatRequestDuration(ms: number | undefined): string {
+  if (ms === undefined) return "—";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+/**
+ * Whole-millisecond span between two ISO stamps, or `undefined` when either is
+ * missing or the pair is non-monotonic. Used to label how long a transcript
+ * chunk (a streamed text/thinking run, or a tool call) occupied the stream.
+ */
+function spanMs(
+  startedAt: string | undefined,
+  endedAt: string | undefined,
+): number | undefined {
+  const start = recordedAtMs(startedAt);
+  const end = recordedAtMs(endedAt);
+  if (start === undefined || end === undefined || end < start) {
+    return undefined;
+  }
+  return end - start;
+}
+
+/**
+ * Markdown renderer for assistant message text. `html: false` escapes any raw
+ * HTML in the model's output, so an answer containing `<script>` or inline
+ * event handlers can't inject live markup into the report — only Markdown
+ * constructs (headings, lists, code, tables, emphasis) become elements.
+ * `linkify` turns bare URLs into links and `breaks` keeps single newlines as
+ * line breaks so chat-style answers render the way they were written.
+ */
+const markdown = new MarkdownIt({
+  html: false,
+  linkify: true,
+  breaks: true,
+});
+
+/**
+ * Render Markdown images as inert links rather than `<img>` elements. The
+ * report is an offline artifact that renders untrusted assistant output and may
+ * be opened or shared outside the eval egress jail, so an auto-loaded
+ * `<img src="https://…">` would make merely opening it fetch a model-supplied
+ * URL — leaking the viewer's IP/metadata. A link carries the same information
+ * (alt text + destination) without any automatic network request, and runs
+ * through the renderer's own `validateLink` so unsafe schemes degrade to plain
+ * text.
+ */
+markdown.renderer.rules.image = (tokens, idx) => {
+  const token = tokens[idx];
+  const src = token.attrGet("src") ?? "";
+  const alt = token.content.length > 0 ? token.content : src;
+  const label = markdown.utils.escapeHtml(alt);
+  if (!markdown.validateLink(src)) {
+    return label;
+  }
+  const href = markdown.utils.escapeHtml(src);
+  return `<a class="md-image-link" href="${href}" rel="noopener noreferrer nofollow">${label}</a>`;
+};
+
+/**
+ * A chunk's run time, shown only on hover of its chunk (CSS reveal) so the
+ * transcript stays uncluttered. The badge's own `title` surfaces the chunk's
+ * start time on hover, so the two timestamps are one interaction apart without
+ * needing client-side script. Renders nothing when the span isn't measurable.
+ */
+function ChunkDuration({ startedAt, endedAt }: BlockTiming) {
+  const ms = spanMs(startedAt, endedAt);
+  if (ms === undefined) {
+    return null;
+  }
+  return (
+    <span
+      className="chunk-duration"
+      title={`started ${formatRecordedAt(startedAt)}`}
+    >
+      {formatRequestDuration(ms)}
+    </span>
+  );
 }
 
 /**
@@ -299,10 +400,34 @@ td .row-link { display: block; }
 .turn.assistant { border-color: rgba(34,211,238,.22); }
 .turn.simulator { border-color: rgba(139,92,246,.24); }
 .turn-head { display: flex; justify-content: space-between; gap: 14px; color: var(--muted); font-size: 12px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; }
+.turn-time { margin-top: 8px; text-align: right; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .turn-body { white-space: pre-wrap; line-height: 1.5; }
 .turn-body + .turn-body, .turn .block-thinking + .turn-body, .turn .block-tool + .turn-body { margin-top: 10px; }
+.chunk { position: relative; }
+.chunk-duration { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; opacity: 0; transition: opacity .12s ease; cursor: help; }
+.chunk:hover .chunk-duration, details[open].chunk > summary .chunk-duration { opacity: 1; }
+.turn-body.chunk > .chunk-duration { position: absolute; top: 4px; right: 6px; }
+.block-thinking > summary .chunk-duration, .block-tool > summary .chunk-duration { margin-left: auto; }
+.md { white-space: normal; line-height: 1.6; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p { margin: 0 0 10px; }
+.md h1, .md h2, .md h3, .md h4 { margin: 16px 0 8px; line-height: 1.3; font-weight: 800; }
+.md h1 { font-size: 20px; } .md h2 { font-size: 17px; } .md h3 { font-size: 15px; } .md h4 { font-size: 13px; }
+.md ul, .md ol { margin: 0 0 10px; padding-left: 22px; }
+.md li { margin: 2px 0; }
+.md a { color: var(--accent2); }
+.md code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; background: rgba(0,0,0,.4); border: 1px solid var(--border); border-radius: 6px; padding: 1px 5px; }
+.md pre { margin: 0 0 10px; padding: 12px 14px; border-radius: 10px; background: rgba(0,0,0,.45); border: 1px solid var(--border); overflow: auto; }
+.md pre code { background: none; border: 0; padding: 0; font-size: 12.5px; line-height: 1.5; }
+.md blockquote { margin: 0 0 10px; padding: 2px 14px; border-left: 3px solid var(--border); color: var(--muted); }
+.md table { border-collapse: collapse; margin: 0 0 10px; font-size: 13px; }
+.md th, .md td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+.md th { background: rgba(255,255,255,.04); font-weight: 800; }
+.md hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 .block-thinking { margin: 8px 0; border: 1px dashed rgba(180,190,255,.24); border-radius: 12px; background: rgba(255,255,255,.025); }
-.block-thinking > summary { cursor: pointer; padding: 8px 12px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; user-select: none; }
+.block-thinking > summary { cursor: pointer; padding: 8px 12px; display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; user-select: none; }
+.block-thinking > summary::-webkit-details-marker { display: none; }
 .block-thinking-body { padding: 0 12px 10px; color: var(--muted); font-size: 13px; line-height: 1.5; white-space: pre-wrap; font-style: italic; }
 .block-tool { margin: 8px 0; border: 1px solid rgba(34,211,238,.2); border-radius: 12px; background: rgba(34,211,238,.04); }
 .block-tool > summary { cursor: pointer; padding: 8px 12px; display: flex; align-items: center; gap: 10px; user-select: none; }
@@ -338,6 +463,7 @@ pre.log { max-height: 480px; overflow: auto; padding: 16px; border-radius: 16px;
 .cost-req-table th, .cost-req-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
 .cost-req-table th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; }
 .cost-req-table tbody:hover { background: rgba(255,255,255,.02); }
+.req-duration { color: var(--muted); font-size: 12px; }
 .cost-req-table .payload-row td { padding: 0 10px 8px; border-bottom: 1px solid var(--border); }
 .payload-details > summary { cursor: pointer; color: var(--muted); font-size: 12px; list-style: none; padding: 4px 0; }
 .payload-details > summary::-webkit-details-marker { display: none; }
@@ -356,15 +482,15 @@ pre.log { max-height: 480px; overflow: auto; padding: 16px; border-radius: 16px;
 .tabpanel { display: none; padding: 24px; border-radius: 24px; background: rgba(0,0,0,.18); border: 1px solid var(--border); }
 .tabpanel h2 { margin: 0 0 14px; font-size: 20px; letter-spacing: -.03em; }
 #exec-tab-score:checked ~ .tabpanels .panel-score,
-#exec-tab-turns:checked ~ .tabpanels .panel-turns,
+#exec-tab-responses:checked ~ .tabpanels .panel-responses,
 #exec-tab-cost:checked ~ .tabpanels .panel-cost,
 #exec-tab-logs:checked ~ .tabpanels .panel-logs { display: block; }
 #exec-tab-score:checked ~ .tablist label[for="exec-tab-score"],
-#exec-tab-turns:checked ~ .tablist label[for="exec-tab-turns"],
+#exec-tab-responses:checked ~ .tablist label[for="exec-tab-responses"],
 #exec-tab-cost:checked ~ .tablist label[for="exec-tab-cost"],
 #exec-tab-logs:checked ~ .tablist label[for="exec-tab-logs"] { border-color: rgba(139,92,246,.7); background: linear-gradient(180deg, rgba(139,92,246,.22), rgba(34,211,238,.08)); }
 #exec-tab-score:focus-visible ~ .tablist label[for="exec-tab-score"],
-#exec-tab-turns:focus-visible ~ .tablist label[for="exec-tab-turns"],
+#exec-tab-responses:focus-visible ~ .tablist label[for="exec-tab-responses"],
 #exec-tab-cost:focus-visible ~ .tablist label[for="exec-tab-cost"],
 #exec-tab-logs:focus-visible ~ .tablist label[for="exec-tab-logs"] { outline: 2px solid var(--accent2); outline-offset: 2px; }
 .log-group { margin-top: 24px; }
@@ -769,12 +895,12 @@ function ProfileSummaryRow({
       </td>
       <td>
         <a href={url} className="row-link muted">
-          {profile.metricCount}
+          {profile.assistantResponses}
         </a>
       </td>
       <td>
         <a href={url} className="row-link muted">
-          {profile.transcriptTurns}
+          {formatDuration(profile.runtimeMs)}
         </a>
       </td>
       <td>
@@ -783,69 +909,6 @@ function ProfileSummaryRow({
         </a>
       </td>
     </tr>
-  );
-}
-
-function MetricSummaryTable({
-  profiles,
-}: {
-  profiles: ReportTestInSession["profiles"];
-}) {
-  // Build a union of metric names across all profiles, ordered by first
-  // occurrence so output order stays stable run-to-run.
-  const order: string[] = [];
-  const seen = new Set<string>();
-  for (const profile of profiles) {
-    for (const metric of profile.metrics) {
-      if (!seen.has(metric.name)) {
-        seen.add(metric.name);
-        order.push(metric.name);
-      }
-    }
-  }
-
-  if (order.length === 0) {
-    return <p className="muted">No metrics recorded yet for this test.</p>;
-  }
-
-  return (
-    <table>
-      <thead>
-        <tr>
-          <th>Metric</th>
-          {profiles.map((profile) => (
-            <th key={profile.profileId}>{profile.profileId}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {order.map((name) => (
-          <tr key={name}>
-            <td>
-              <strong>{name}</strong>
-            </td>
-            {profiles.map((profile) => {
-              const metric = profile.metrics.find((m) => m.name === name);
-              if (!metric) {
-                return (
-                  <td key={profile.profileId} className="muted">
-                    —
-                  </td>
-                );
-              }
-              return (
-                <td
-                  key={profile.profileId}
-                  className={`score ${scoreClass(metric.score)}`}
-                >
-                  {formatScore(metric.score, metric.unit, 2)}
-                </td>
-              );
-            })}
-          </tr>
-        ))}
-      </tbody>
-    </table>
   );
 }
 
@@ -879,8 +942,8 @@ function TestInSessionPage({ test }: { test: ReportTestInSession }) {
               <th>Profile</th>
               <th>Status</th>
               <th>Score</th>
-              <th>Metrics</th>
-              <th>Turns</th>
+              <th>Responses</th>
+              <th>Runtime</th>
               <th>Cost</th>
             </tr>
           </thead>
@@ -895,15 +958,6 @@ function TestInSessionPage({ test }: { test: ReportTestInSession }) {
             ))}
           </tbody>
         </table>
-      </section>
-
-      <section className="section">
-        <h2>Metric breakdown</h2>
-        <p className="section-subtle">
-          Per-metric scores side by side across every profile that ran this
-          test.
-        </p>
-        <MetricSummaryTable profiles={test.profiles} />
       </section>
     </>
   );
@@ -1003,7 +1057,7 @@ function ProfileTestRow({
       </td>
       <td>
         <a href={url} className="row-link muted">
-          {entry.transcriptTurns}
+          {entry.assistantResponses}
         </a>
       </td>
       <td>
@@ -1061,7 +1115,7 @@ function ProfileInSessionPage({
               <th>Status</th>
               <th>Score</th>
               <th>Metrics</th>
-              <th>Turns</th>
+              <th>Responses</th>
               <th>Cost</th>
             </tr>
           </thead>
@@ -1232,11 +1286,12 @@ function ToolCallBlock({
   const statusClassName =
     block.status === "running" ? "warn" : block.isError ? "bad" : "good";
   return (
-    <details className="block-tool">
+    <details className="block-tool chunk">
       <summary>
         <span className="block-tool-glyph">⚙</span>
         <span className="block-tool-name">{block.toolName || "tool"}</span>
         <span className={`chip ${statusClassName}`}>{statusLabel}</span>
+        <ChunkDuration startedAt={block.startedAt} endedAt={block.endedAt} />
       </summary>
       {block.input !== undefined && (
         <div className="block-tool-io">
@@ -1260,15 +1315,30 @@ function AssistantMessage({ message }: { message: AssistantMessageView }) {
       {message.blocks.map((block, index) => {
         if (block.kind === "text") {
           return (
-            <div key={index} className="turn-body">
-              {block.text}
+            <div key={index} className="turn-body chunk">
+              <div
+                className="md"
+                dangerouslySetInnerHTML={{
+                  __html: markdown.render(block.text),
+                }}
+              />
+              <ChunkDuration
+                startedAt={block.startedAt}
+                endedAt={block.endedAt}
+              />
             </div>
           );
         }
         if (block.kind === "thinking") {
           return (
-            <details key={index} className="block-thinking">
-              <summary>Thinking</summary>
+            <details key={index} className="block-thinking chunk">
+              <summary>
+                <span>Thinking</span>
+                <ChunkDuration
+                  startedAt={block.startedAt}
+                  endedAt={block.endedAt}
+                />
+              </summary>
               <div className="block-thinking-body">{block.thinking}</div>
             </details>
           );
@@ -1339,22 +1409,27 @@ function Transcript({
 
   return (
     <div className="transcript">
-      {items.map((item, index) => (
-        <article
-          key={`${item.emittedAt ?? ""}-${index}`}
-          className={`turn ${item.role}`}
-        >
-          <div className="turn-head">
-            <span>{item.role}</span>
-            <span>{item.emittedAt ?? ""}</span>
-          </div>
-          {item.role === "simulator" ? (
-            <div className="turn-body">{item.content}</div>
-          ) : (
-            <AssistantMessage message={item} />
-          )}
-        </article>
-      ))}
+      {items.map((item, index) => {
+        const stamp = item.role === "simulator" ? item.emittedAt : item.endedAt;
+        return (
+          <article
+            key={`${item.emittedAt ?? ""}-${index}`}
+            className={`turn ${item.role}`}
+          >
+            <div className="turn-head">
+              <span>{item.role}</span>
+            </div>
+            {item.role === "simulator" ? (
+              <div className="turn-body">{item.content}</div>
+            ) : (
+              <AssistantMessage message={item} />
+            )}
+            {stamp ? (
+              <div className="turn-time">{formatRecordedAt(stamp)}</div>
+            ) : null}
+          </article>
+        );
+      })}
     </div>
   );
 }
@@ -1660,7 +1735,7 @@ function ExecutionTabs({ run }: { run: ReportRunDetail }) {
         className="tab-input"
         type="radio"
         name="exec-tab"
-        id="exec-tab-turns"
+        id="exec-tab-responses"
       />
       <input
         className="tab-input"
@@ -1681,9 +1756,9 @@ function ExecutionTabs({ run }: { run: ReportRunDetail }) {
             {formatAggregateScore(run.scoreTotal)}
           </span>
         </label>
-        <label className="tab-pill" htmlFor="exec-tab-turns">
-          <span className="tab-pill-label">Turns</span>
-          <span className="tab-pill-value">{run.transcriptTurns}</span>
+        <label className="tab-pill" htmlFor="exec-tab-responses">
+          <span className="tab-pill-label">Responses</span>
+          <span className="tab-pill-value">{run.assistantResponses}</span>
         </label>
         <label className="tab-pill" htmlFor="exec-tab-cost">
           <span className="tab-pill-label">Cost</span>
@@ -1706,7 +1781,7 @@ function ExecutionTabs({ run }: { run: ReportRunDetail }) {
           <MetricReportCard metrics={run.metrics} />
         </section>
 
-        <section className="tabpanel panel-turns">
+        <section className="tabpanel panel-responses">
           <h2>Transcript</h2>
           <p className="section-subtle">
             Simulator turns interleaved with the assistant&apos;s reply — text,
@@ -1927,7 +2002,14 @@ function CostRequestsTable({ usage }: { usage: UsageSummary }) {
               <tr>
                 <td>{chronologicalIndex}</td>
                 <td>
-                  {formatRecordedAt(readRecordString(record, "recorded_at"))}
+                  {formatRecordedAt(readRecordString(record, "recorded_at"))}{" "}
+                  <span className="req-duration">
+                    (
+                    {formatRequestDuration(
+                      readRecordNumber(record, "duration_ms"),
+                    )}
+                    )
+                  </span>
                 </td>
                 <td>{readRecordString(record, "model") ?? "—"}</td>
                 <td>

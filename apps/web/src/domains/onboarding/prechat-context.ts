@@ -39,6 +39,8 @@ export interface BuildPreChatContextInput {
   /** Already resolved: `selectedGroupId ?? recipe?.tone ?? DEFAULT_GROUP_ID`. */
   tone: string;
   userName: string;
+  /** The user's role / occupation. Empty string when not collected. */
+  occupation?: string;
   assistantName: string;
   selfIntroGreetingEnabled: boolean;
   /** Selects the activation rail bootstrap template for experiment users. */
@@ -107,6 +109,8 @@ export function buildPreChatContext(
 
   const trimmedUser = input.userName.trim();
   if (trimmedUser) context.userName = trimmedUser;
+  const trimmedOccupation = input.occupation?.trim();
+  if (trimmedOccupation) context.occupation = trimmedOccupation;
   const trimmedAssistant = input.assistantName.trim();
   if (trimmedAssistant) context.assistantName = trimmedAssistant;
 

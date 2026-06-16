@@ -1,4 +1,19 @@
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { type ComponentType, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -6,6 +21,7 @@ let isNativePlatformMock = false;
 let connectedMock = true;
 let connectivityStateMock: "online" | "device-offline" | "backend-unreachable" =
   "online";
+let retryConnectivityMock = mock(async () => connectivityStateMock);
 let isElectronMock = false;
 let activeAssistantIdMock: string | null = "assistant-123";
 let operationalStatusAssistantIdMock: string | null = null;
@@ -22,7 +38,24 @@ let operationalStatusQueryMock: {
   data: null,
   isError: false,
 };
-let StatusBanner: ComponentType<{ className?: string }>;
+let localHealthMock:
+  | "healthy"
+  | "unhealthy"
+  | "unreachable"
+  | "sleeping"
+  | "starting"
+  | "crashed"
+  | null = null;
+let checkAssistantMock = mock(async () => {});
+let triggerReachabilityProbeMock = mock(() => {});
+let refetchOperationalStatusMock = mock(async () => {});
+let wakeLocalAssistantHostMock = mock(async (_assistantId: string) => ({
+  ok: true,
+}));
+let StatusBanner: ComponentType<{
+  className?: string;
+  placement?: "web" | "electron";
+}>;
 
 mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => isNativePlatformMock,
@@ -36,7 +69,7 @@ mock.module("@/hooks/use-network-status", () => ({
 mock.module("@/hooks/use-connectivity-state", () => ({
   useConnectivityState: () => ({
     connectivityState: connectivityStateMock,
-    retryConnectivity: () => {},
+    retryConnectivity: retryConnectivityMock,
   }),
 }));
 
@@ -57,7 +90,8 @@ mock.module("@/generated/api/sdk.gen", () => ({
 
 mock.module("@/assistant/lifecycle-service", () => ({
   lifecycleService: {
-    checkAssistant: () => Promise.resolve(),
+    checkAssistant: () => checkAssistantMock(),
+    triggerReachabilityProbe: () => triggerReachabilityProbeMock(),
   },
 }));
 
@@ -72,9 +106,18 @@ mock.module("@/assistant/operational-status", () => ({
     requestedOperationalStatusAssistantId = assistantId;
     return {
       ...operationalStatusQueryMock,
-      refetch: operationalStatusQueryMock.refetch ?? (() => {}),
+      refetch: operationalStatusQueryMock.refetch ?? refetchOperationalStatusMock,
     };
   },
+}));
+
+mock.module("@/assistant/local-health", () => ({
+  useLocalAssistantHealth: () => localHealthMock,
+}));
+
+mock.module("@/runtime/local-mode-host", () => ({
+  wakeLocalAssistantHost: (assistantId: string) =>
+    wakeLocalAssistantHostMock(assistantId),
 }));
 
 mock.module("@/assistant/lifecycle-store", () => ({
@@ -94,24 +137,21 @@ mock.module("@/stores/resolved-assistants-store", () => ({
   },
 }));
 
-mock.module("@vellumai/design-library/components/notice", () => ({
-  Notice: (props: {
-    title: ReactNode;
-    tone?: string;
-    icon?: ReactNode;
-    actions?: ReactNode;
-  }) => (
-    <div data-testid="notice" data-tone={props.tone}>
-      {props.icon}
-      {props.title}
-      {props.actions}
-    </div>
-  ),
-}));
-
 mock.module("@vellumai/design-library/components/button", () => ({
-  Button: (props: { children: ReactNode }) => (
-    <button data-testid="button">{props.children}</button>
+  Button: (props: {
+    children: ReactNode;
+    disabled?: boolean;
+    leftIcon?: ReactNode;
+    onClick?: () => void;
+  }) => (
+    <button
+      data-testid="button"
+      disabled={props.disabled}
+      onClick={props.onClick}
+    >
+      {props.leftIcon}
+      {props.children}
+    </button>
   ),
 }));
 
@@ -123,6 +163,7 @@ beforeEach(() => {
   isNativePlatformMock = false;
   connectedMock = true;
   connectivityStateMock = "online";
+  retryConnectivityMock = mock(async () => connectivityStateMock);
   isElectronMock = false;
   activeAssistantIdMock = "assistant-123";
   operationalStatusAssistantIdMock = null;
@@ -132,6 +173,17 @@ beforeEach(() => {
     data: null,
     isError: false,
   };
+  localHealthMock = null;
+  checkAssistantMock = mock(async () => {});
+  triggerReachabilityProbeMock = mock(() => {});
+  refetchOperationalStatusMock = mock(async () => {});
+  wakeLocalAssistantHostMock = mock(async (_assistantId: string) => ({
+    ok: true,
+  }));
+});
+
+afterEach(() => {
+  cleanup();
 });
 
 describe("StatusBanner", () => {
@@ -161,6 +213,34 @@ describe("StatusBanner", () => {
 
     expect(html).toContain("Assistant is restarting");
     expect(html).toContain('data-tone="warning"');
+  });
+
+  test("uses the full-width web banner sizing by default", () => {
+    operationalStatusQueryMock = {
+      data: { state: "restarting" },
+      isError: false,
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner />);
+
+    expect(html).toContain('data-placement="web"');
+    expect(html).toContain("min-h-10");
+    expect(html).toContain("py-[10px]");
+    expect(html).toContain("rounded-none");
+  });
+
+  test("uses compact rounded sizing for Electron placement", () => {
+    operationalStatusQueryMock = {
+      data: { state: "restarting" },
+      isError: false,
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner placement="electron" />);
+
+    expect(html).toContain('data-placement="electron"');
+    expect(html).toContain("min-h-8");
+    expect(html).toContain("py-[7px]");
+    expect(html).toContain("rounded-[6px]");
   });
 
   test("uses lifecycle operation assistant id when present", () => {
@@ -281,6 +361,160 @@ describe("StatusBanner", () => {
 
     expect(html).toContain("Assistant status is unavailable");
     expect(html).not.toContain("Go to Doctor");
+  });
+
+  describe("local assistant health", () => {
+    test("renders nothing when the local assistant is healthy", () => {
+      localHealthMock = "healthy";
+
+      const html = renderToStaticMarkup(<StatusBanner />);
+
+      expect(html).toBe("");
+    });
+
+    test("renders an asleep banner with a wake action when the local assistant is sleeping", () => {
+      localHealthMock = "sleeping";
+
+      const html = renderToStaticMarkup(<StatusBanner />);
+
+      expect(html).toContain("Your assistant is asleep");
+      expect(html).toContain("Wake up");
+      expect(html).toContain('data-tone="neutral"');
+      expect(html).toContain("items-center");
+      expect(html).toContain("[&amp;_[data-slot=button]]:uppercase");
+      expect(html).not.toContain(
+        "[&amp;_[data-slot=button]]:hover:bg-[color-mix(in_srgb,var(--status-banner-action-color)_12%,transparent)]",
+      );
+      expect(html).not.toContain("[&amp;_[data-slot=button]]:hover:opacity-90");
+    });
+
+    test("renders unreachable local health as an asleep fallback", () => {
+      localHealthMock = "unreachable";
+
+      const html = renderToStaticMarkup(<StatusBanner />);
+
+      expect(html).toContain("Your assistant is asleep");
+      expect(html).toContain("Wake up");
+      expect(html).toContain('data-tone="neutral"');
+      expect(html).not.toContain("Your assistant is unreachable");
+    });
+
+    test("wakes the active local assistant from the banner action", async () => {
+      localHealthMock = "sleeping";
+
+      render(<StatusBanner />);
+      fireEvent.click(screen.getByRole("button", { name: "Wake up" }));
+
+      await waitFor(() => {
+        expect(wakeLocalAssistantHostMock).toHaveBeenCalledWith("assistant-123");
+      });
+      expect(refetchOperationalStatusMock).toHaveBeenCalledTimes(1);
+      expect(retryConnectivityMock).toHaveBeenCalledTimes(1);
+      expect(checkAssistantMock).toHaveBeenCalledTimes(1);
+      expect(triggerReachabilityProbeMock).toHaveBeenCalledTimes(1);
+    });
+
+    test("keeps showing waking after wake succeeds if the next health value is briefly crashed", async () => {
+      localHealthMock = "sleeping";
+      const wakeResolver: {
+        current?: (value: { ok: true }) => void;
+      } = {};
+      wakeLocalAssistantHostMock = mock(
+        () =>
+          new Promise<{ ok: true }>((resolve) => {
+            wakeResolver.current = resolve;
+          }),
+      );
+
+      const { rerender } = render(<StatusBanner />);
+      fireEvent.click(screen.getByRole("button", { name: "Wake up" }));
+
+      await waitFor(() => {
+        expect(wakeLocalAssistantHostMock).toHaveBeenCalledWith(
+          "assistant-123",
+        );
+      });
+
+      localHealthMock = "crashed";
+      rerender(<StatusBanner />);
+      expect(screen.getByText("Your assistant is waking up")).toBeTruthy();
+      expect(screen.queryByText("Your assistant crashed")).toBeNull();
+
+      const resolveWake = wakeResolver.current;
+      if (!resolveWake) throw new Error("wake promise was not started");
+      resolveWake({ ok: true });
+      await waitFor(() => {
+        expect(triggerReachabilityProbeMock).toHaveBeenCalledTimes(1);
+      });
+
+      rerender(<StatusBanner />);
+      expect(screen.getByText("Your assistant is waking up")).toBeTruthy();
+      expect(screen.queryByText("Your assistant crashed")).toBeNull();
+    });
+
+    test("renders a distinct crashed banner for local assistant crashes", () => {
+      localHealthMock = "crashed";
+
+      const html = renderToStaticMarkup(<StatusBanner />);
+
+      expect(html).toContain("Your assistant crashed");
+      expect(html).toContain("Wake up");
+      expect(html).toContain('data-tone="error"');
+    });
+
+    test("renders a waking banner while the local assistant is starting", () => {
+      localHealthMock = "starting";
+
+      const html = renderToStaticMarkup(<StatusBanner />);
+
+      expect(html).toContain("Your assistant is waking up");
+      expect(html).not.toContain("Wake up");
+      expect(html).toContain('data-tone="neutral"');
+    });
+
+    test("renders a warning banner when the local assistant is unhealthy", () => {
+      localHealthMock = "unhealthy";
+
+      const html = renderToStaticMarkup(<StatusBanner />);
+
+      expect(html).toContain("Assistant is unhealthy");
+      expect(html).toContain('data-tone="warning"');
+    });
+
+    test("renders device-offline banner before local health", () => {
+      isElectronMock = true;
+      connectivityStateMock = "device-offline";
+      localHealthMock = "sleeping";
+
+      const html = renderToStaticMarkup(<StatusBanner />);
+
+      expect(html).toContain("offline");
+      expect(html).not.toContain("asleep");
+    });
+
+    test("renders local health before Electron backend-unreachable connectivity", () => {
+      isElectronMock = true;
+      connectivityStateMock = "backend-unreachable";
+      localHealthMock = "sleeping";
+
+      const html = renderToStaticMarkup(<StatusBanner />);
+
+      expect(html).toContain("Your assistant is asleep");
+      expect(html).toContain("Wake up");
+      expect(html).not.toContain("Trying to reach Vellum");
+      expect(html).not.toContain("Retry now");
+    });
+
+    test("renders local waking before Electron backend-unreachable connectivity", () => {
+      isElectronMock = true;
+      connectivityStateMock = "backend-unreachable";
+      localHealthMock = "starting";
+
+      const html = renderToStaticMarkup(<StatusBanner />);
+
+      expect(html).toContain("Your assistant is waking up");
+      expect(html).not.toContain("Trying to reach Vellum");
+    });
   });
 
   describe("Capacitor iOS", () => {

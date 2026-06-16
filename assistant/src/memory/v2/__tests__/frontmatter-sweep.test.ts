@@ -4,8 +4,8 @@
  * Coverage:
  *   - v2 disabled → returns early, no warns, no throw.
  *   - Empty workspace → no warns, no throw.
- *   - One bad page (unknown frontmatter key) → exactly one warn carrying
- *     `errCode: "unrecognized_keys"` and the offending slug.
+ *   - One bad page (malformed frontmatter — wrong type on a declared field) →
+ *     exactly one warn carrying `errCode: "invalid_type"` and the offending slug.
  *   - Two bad + one good page → two warns; good page produces nothing.
  *   - Malformed YAML → a warn surfaces; the sweep does not crash.
  */
@@ -59,7 +59,11 @@ function makeWorkspace(pages: Record<string, string>): string {
 }
 
 const goodPage = `---\nedges: []\nref_files: []\n---\nbody\n`;
-const badPage = `---\nedges: []\nref_files: []\nbogus_field: 1\n---\nbody\n`;
+// Malformed: `edges` is a declared `z.array(z.string())` field, so a scalar
+// value fails the schema with `invalid_type`. (An *unknown* key would NOT be
+// bad — the schema is `.passthrough()`, so unknown keys are tolerated; the
+// sweep only surfaces genuinely malformed pages that `readPage` would throw on.)
+const badPage = `---\nedges: not-a-list\nref_files: []\n---\nbody\n`;
 
 describe("sweepConceptPageFrontmatter", () => {
   beforeEach(() => {
@@ -86,14 +90,14 @@ describe("sweepConceptPageFrontmatter", () => {
     }
   });
 
-  test("one bad page emits exactly one unrecognized_keys warn", async () => {
+  test("one bad page emits exactly one invalid_type warn", async () => {
     const dir = makeWorkspace({ "bad-one": badPage });
     try {
       await sweepConceptPageFrontmatter(v2On, dir);
       expect(warnCalls).toHaveLength(1);
       expect(warnCalls[0].data.slug).toBe("bad-one");
-      expect(warnCalls[0].data.errCode).toBe("unrecognized_keys");
-      expect(warnCalls[0].data.errKeys).toEqual(["bogus_field"]);
+      expect(warnCalls[0].data.errCode).toBe("invalid_type");
+      expect(warnCalls[0].data.errPath).toEqual(["edges"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -110,7 +114,7 @@ describe("sweepConceptPageFrontmatter", () => {
       const slugs = warnCalls.map((c) => c.data.slug).sort();
       expect(slugs).toEqual(["bad-a", "bad-b"]);
       for (const call of warnCalls) {
-        expect(call.data.errCode).toBe("unrecognized_keys");
+        expect(call.data.errCode).toBe("invalid_type");
       }
     } finally {
       rmSync(dir, { recursive: true, force: true });

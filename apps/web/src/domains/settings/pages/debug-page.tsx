@@ -27,9 +27,8 @@ export function DebugPage() {
   const tabs = useMemo(
     () =>
       ALL_TABS.filter((tab) => {
-        // Terminal is platform-routed — hide the tab entirely on self-hosted
-        // assistants so users don't land on an empty panel.
         if (tab.id === "terminal" && platformGate === "gated") return false;
+        if (tab.id === "doctor" && platformGate === "gated") return false;
         return true;
       }),
     [platformGate],
