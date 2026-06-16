@@ -5,7 +5,7 @@ compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🧩"
   vellum:
-    category: "extensibility"
+    category: "development"
     display-name: "Plugin Builder"
     activation-hints:
       - "User wants to build, scaffold, or author a Vellum plugin"
@@ -29,12 +29,14 @@ Plugins are in beta. The peer-dep range you declare is what gets you load. Treat
 ## When to use this skill
 
 USE THIS SKILL WHEN:
+
 - The user wants to build a plugin for their assistant, even if they have not said "plugin" by name. Any "extend my assistant so it can do X automatically" request that implies shipping a capability is in scope.
 - The user has existing skills, hooks, or tools scattered in their workspace and wants to bundle them.
 - The user wants to publish a GitHub repo into the Vellum plugin marketplace.
 - The user is exploring the surfaces (hooks, tools, skills) for the first time and needs a guided scaffold.
 
 DO NOT use this skill when:
+
 - The user only wants to install a plugin (`assistant plugins install <name>` is a 30-second CLI call, no skill needed).
 - The user only wants a single SKILL.md authored (skill-management is the right skill).
 - The user wants to add a webhook or user route (`assistant routes` is the right skill).
@@ -58,11 +60,11 @@ You have an alignment problem if the user cannot answer questions 1 and 2. Push 
 
 A plugin is a directory with a manifest and zero or more surface subdirectories. The host walks the directory on load and discovers what the plugin contributes. Missing directories are silently skipped, so a plugin contributes only what it ships. A broken surface file fails only itself; sibling plugins keep loading.
 
-| Surface | Lives in          | When it fires                                                                                                  |
-| ------- | ----------------- | -------------------------------------------------------------------------------------------------------------- |
-| Tools   | `tools/<name>.ts` | When the model decides to call the tool.                                                                       |
+| Surface | Lives in          | When it fires                                                                                                 |
+| ------- | ----------------- | ------------------------------------------------------------------------------------------------------------- |
+| Tools   | `tools/<name>.ts` | When the model decides to call the tool.                                                                      |
 | Hooks   | `hooks/<name>.ts` | At fixed lifecycle events (init, user-prompt-submit, pre/post-model-call, post-tool-use, post-compact, stop). |
-| Skills  | `skills/<name>/`  | When the conversation matches the skill's `description` and activation hints.                                  |
+| Skills  | `skills/<name>/`  | When the conversation matches the skill's `description` and activation hints.                                 |
 
 Everything else inside the plugin directory (`src/`, `utils/`, `schemas/`) is yours and is not walked by the loader. Put shared helpers there.
 
