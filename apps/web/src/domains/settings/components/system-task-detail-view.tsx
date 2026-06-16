@@ -94,7 +94,9 @@ export function SystemTaskDetailView({
     useInfiniteQuery({
       queryKey: infiniteOpts.queryKey,
       queryFn: infiniteOpts.queryFn,
-      initialPageParam: 0,
+      // Object page param — the generated queryFn merges it into the base
+      // query without adding a `before` cursor, fetching the most recent runs.
+      initialPageParam: { path: opts.path, query: {} },
       getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
       staleTime: 10_000,
     });

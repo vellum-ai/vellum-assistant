@@ -3,11 +3,14 @@ import { useMemo } from "react";
 
 import {
   consolidationConfigGetOptions,
+  consolidationRunsGetInfiniteQueryKey,
   consolidationRunsGetOptions,
   heartbeatConfigGetOptions,
   heartbeatConfigGetSetQueryData,
+  heartbeatRunsGetInfiniteQueryKey,
   heartbeatRunsGetOptions,
   retrospectiveConfigGetOptions,
+  retrospectiveRunsGetInfiniteQueryKey,
   retrospectiveRunsGetOptions,
   useConsolidationRunnowPostMutation,
   useHeartbeatConfigPutMutation,
@@ -91,6 +94,7 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
     data: heartbeatRunsForStats,
     isLoading: isHeartbeatStatsLoading,
     isError: isHeartbeatStatsError,
+    refetch: refetchHeartbeatStats,
   } = useQuery({
     ...heartbeatRunsGetOptions(statsOpts),
     select: selectHeartbeatRuns,
@@ -102,6 +106,7 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
     data: consolidationRunsForStats,
     isLoading: isConsolidationStatsLoading,
     isError: isConsolidationStatsError,
+    refetch: refetchConsolidationStats,
   } = useQuery({
     ...consolidationRunsGetOptions(statsOpts),
     select: selectConsolidationRuns,
@@ -113,6 +118,7 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
     data: retrospectiveRunsForStats,
     isLoading: isRetrospectiveStatsLoading,
     isError: isRetrospectiveStatsError,
+    refetch: refetchRetrospectiveStats,
   } = useQuery({
     ...retrospectiveRunsGetOptions(statsOpts),
     select: selectRetrospectiveRuns,
@@ -201,8 +207,15 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
         : kind === "consolidation"
           ? consolidationRunsGetOptions(statsOpts).queryKey
           : retrospectiveRunsGetOptions(statsOpts).queryKey;
+    const infiniteRunsKey =
+      kind === "heartbeat"
+        ? heartbeatRunsGetInfiniteQueryKey(pathOpts)
+        : kind === "consolidation"
+          ? consolidationRunsGetInfiniteQueryKey(pathOpts)
+          : retrospectiveRunsGetInfiniteQueryKey(pathOpts);
     void queryClient.invalidateQueries({ queryKey: configKey });
     void queryClient.invalidateQueries({ queryKey: runsKey });
+    void queryClient.invalidateQueries({ queryKey: infiniteRunsKey });
   };
 
   const heartbeatRunNow = useHeartbeatRunnowPostMutation({
@@ -276,6 +289,9 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
     void refetchHeartbeat();
     void refetchConsolidation();
     void refetchRetrospective();
+    void refetchHeartbeatStats();
+    void refetchConsolidationStats();
+    void refetchRetrospectiveStats();
   };
 
   return {
