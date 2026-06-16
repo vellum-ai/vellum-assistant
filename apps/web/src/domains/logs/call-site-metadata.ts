@@ -1,13 +1,10 @@
 /**
- * Fetch wrapper for the daemon's LLM call-site catalog endpoint.
- * Consumes the generated daemon SDK; the catalog response type is derived
- * from the route's declared schema.
+ * Types and transforms for the daemon's LLM call-site catalog.
+ * Used as a TanStack Query `select` transform or inline `buildCallSiteMetadataMap`
+ * on `configLlmCallsitesGetOptions()`.
  */
 
-import { configLlmCallsitesGet } from "@/generated/daemon/sdk.gen";
 import type { ConfigLlmCallsitesGetResponse } from "@/generated/daemon/types.gen";
-
-type CallSiteCatalogResponse = ConfigLlmCallsitesGetResponse;
 
 export interface UsageCallSiteMetadata {
   id: string;
@@ -19,7 +16,7 @@ export interface UsageCallSiteMetadata {
 export type UsageCallSiteMetadataMap = Record<string, UsageCallSiteMetadata>;
 
 export function buildCallSiteMetadataMap(
-  catalog: CallSiteCatalogResponse | null | undefined,
+  catalog: ConfigLlmCallsitesGetResponse | null | undefined,
 ): UsageCallSiteMetadataMap {
   if (!catalog) {
     return {};
@@ -40,23 +37,4 @@ export function buildCallSiteMetadataMap(
   }
 
   return map;
-}
-
-export async function fetchUsageCallSiteCatalog(
-  assistantId: string,
-): Promise<CallSiteCatalogResponse> {
-  const { data, response } = await configLlmCallsitesGet({
-    path: { assistant_id: assistantId },
-    throwOnError: false,
-  });
-  if (!response?.ok) {
-    const text = await response
-      ?.clone()
-      .text()
-      .catch(() => "");
-    throw new Error(
-      text || response?.statusText || "Failed to load LLM call-site metadata.",
-    );
-  }
-  return data ?? { domains: [], callSites: [] };
 }
