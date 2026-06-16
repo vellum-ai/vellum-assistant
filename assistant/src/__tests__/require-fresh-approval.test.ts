@@ -685,6 +685,94 @@ describe("requireFreshApproval: workflow capability grants", () => {
     expect(result.isError).toBe(false);
   });
 
+  test("workflow-mode schedule_create granting side-effecting tools prompts at creation", async () => {
+    checkResultOverride = { decision: "allow", reason: "allowed" };
+    const state = { prompted: false };
+    const executor = new ToolExecutor(trackingPrompter(state));
+    const ctx = makeContext();
+
+    const result = await executor.execute(
+      "schedule_create",
+      {
+        name: "Nightly writeback",
+        mode: "workflow",
+        workflow_name: "nightly-report",
+        capabilities: { tools: ["bash"] },
+      },
+      ctx,
+    );
+
+    expect(ctx.requireFreshApproval).toBe(true);
+    expect(state.prompted).toBe(true);
+    expect(result.isError).toBe(false);
+  });
+
+  test("workflow-mode schedule_create granting host functions prompts at creation", async () => {
+    checkResultOverride = { decision: "allow", reason: "allowed" };
+    const state = { prompted: false };
+    const executor = new ToolExecutor(trackingPrompter(state));
+    const ctx = makeContext();
+
+    await executor.execute(
+      "schedule_create",
+      {
+        name: "Nightly notify",
+        mode: "workflow",
+        workflow_name: "nightly-report",
+        capabilities: { hostFunctions: ["notify"] },
+      },
+      ctx,
+    );
+
+    expect(ctx.requireFreshApproval).toBe(true);
+    expect(state.prompted).toBe(true);
+  });
+
+  test("workflow-mode schedule_create with a read-only manifest stays silent", async () => {
+    checkResultOverride = { decision: "allow", reason: "allowed" };
+    const state = { prompted: false };
+    const executor = new ToolExecutor(trackingPrompter(state));
+    const ctx = makeContext();
+
+    const result = await executor.execute(
+      "schedule_create",
+      {
+        name: "Read-only schedule",
+        mode: "workflow",
+        workflow_name: "nightly-report",
+        capabilities: {},
+      },
+      ctx,
+    );
+
+    expect(ctx.requireFreshApproval).toBeUndefined();
+    expect(state.prompted).toBe(false);
+    expect(result.isError).toBe(false);
+  });
+
+  test("non-workflow schedule_create never gates even with a side-effecting capabilities blob", async () => {
+    // The capabilities field is workflow-mode only; an execute-mode schedule
+    // must not be promoted to a fresh approval by a stray capabilities object.
+    checkResultOverride = { decision: "allow", reason: "allowed" };
+    const state = { prompted: false };
+    const executor = new ToolExecutor(trackingPrompter(state));
+    const ctx = makeContext();
+
+    await executor.execute(
+      "schedule_create",
+      {
+        name: "Execute schedule",
+        mode: "execute",
+        message: "do the thing",
+        capabilities: { tools: ["bash"] },
+      },
+      ctx,
+    );
+
+    expect(ctx.requireFreshApproval).toBeUndefined();
+    expect(state.prompted).toBe(false);
+  });
+
   test("manage_workflows resume of a side-effecting run requires fresh approval", async () => {
     // The target run's STORED manifest granted tools, so resuming it (which
     // restarts unfinished side-effecting leaves) must re-prompt.
