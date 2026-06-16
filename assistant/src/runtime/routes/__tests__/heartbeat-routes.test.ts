@@ -152,16 +152,41 @@ describe("heartbeat run caps", () => {
     expect(readConfig()).toEqual({ heartbeat: { maxConsecutiveRuns: null } });
   });
 
-  test("request schema rejects non-positive and non-integer cap values", () => {
-    const requestBody = findRoute("updateHeartbeatConfig").requestBody;
-    if (!requestBody || !("parse" in requestBody)) {
-      throw new Error("expected a zod requestBody schema");
-    }
-    expect(() => requestBody.parse({ maxDailyRuns: 0 })).toThrow();
-    expect(() => requestBody.parse({ maxConsecutiveRuns: -1 })).toThrow();
-    expect(() => requestBody.parse({ maxDailyRuns: 1.5 })).toThrow();
-    expect(() => requestBody.parse({ maxDailyRuns: 3 })).not.toThrow();
-    expect(() => requestBody.parse({ maxConsecutiveRuns: null })).not.toThrow();
+  test("PUT handler rejects invalid cap values instead of coercing to null", async () => {
+    writeFileSync(configPath, JSON.stringify({}, null, 2) + "\n");
+    const put = findHandler("updateHeartbeatConfig");
+
+    // A string must be rejected, not silently coerced to null (which the
+    // heartbeat service treats as "unlimited", disabling the cost cap).
+    await expect(put({ body: { maxDailyRuns: "6" } })).rejects.toThrow(
+      /maxDailyRuns/,
+    );
+    await expect(put({ body: { maxConsecutiveRuns: "5" } })).rejects.toThrow(
+      /maxConsecutiveRuns/,
+    );
+    await expect(put({ body: { maxDailyRuns: 0 } })).rejects.toThrow();
+    await expect(put({ body: { maxConsecutiveRuns: -1 } })).rejects.toThrow();
+    await expect(put({ body: { maxDailyRuns: 1.5 } })).rejects.toThrow();
+
+    // No invalid write should have reached disk.
+    expect(readConfig()).toEqual({});
+  });
+
+  test("PUT handler accepts a positive integer and null cap values", async () => {
+    writeFileSync(configPath, JSON.stringify({}, null, 2) + "\n");
+    const put = findHandler("updateHeartbeatConfig");
+
+    const okResult = (await put({ body: { maxDailyRuns: 6 } })) as {
+      maxDailyRuns: number | null;
+    };
+    expect(okResult.maxDailyRuns).toBe(6);
+    expect(readConfig()).toEqual({ heartbeat: { maxDailyRuns: 6 } });
+
+    const nullResult = (await put({ body: { maxDailyRuns: null } })) as {
+      maxDailyRuns: number | null;
+    };
+    expect(nullResult.maxDailyRuns).toBeNull();
+    expect(readConfig()).toEqual({ heartbeat: { maxDailyRuns: null } });
   });
 
   test("reconfigure() is invoked after a successful write", async () => {

@@ -40,6 +40,21 @@ const log = getLogger("heartbeat-routes");
 // Handlers (transport-agnostic)
 // ---------------------------------------------------------------------------
 
+/**
+ * Validate a heartbeat run-cap value from a PUT body. A cap is either `null`
+ * (clears the cap — unlimited) or a positive integer. The HTTP adapter does
+ * not enforce the route's zod `requestBody` schema at runtime, so any present
+ * value must be checked here rather than coerced — coercing an invalid value
+ * to `null` would silently disable a cost cap.
+ */
+function validateRunCap(field: string, value: unknown): number | null {
+  if (value === null) return null;
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    throw new BadRequestError(`${field} must be a positive integer or null`);
+  }
+  return value;
+}
+
 function handleListRuns(queryParams: Record<string, string>) {
   const limit = parseRunsLimit(queryParams, 20);
   const before = parseRunsBeforeCursor(queryParams);
@@ -318,13 +333,15 @@ export const ROUTES: RouteDefinition[] = [
         heartbeatPatch.timezone =
           typeof body.timezone === "string" ? body.timezone : null;
       if ("maxConsecutiveRuns" in body)
-        heartbeatPatch.maxConsecutiveRuns =
-          typeof body.maxConsecutiveRuns === "number"
-            ? body.maxConsecutiveRuns
-            : null;
+        heartbeatPatch.maxConsecutiveRuns = validateRunCap(
+          "maxConsecutiveRuns",
+          body.maxConsecutiveRuns,
+        );
       if ("maxDailyRuns" in body)
-        heartbeatPatch.maxDailyRuns =
-          typeof body.maxDailyRuns === "number" ? body.maxDailyRuns : null;
+        heartbeatPatch.maxDailyRuns = validateRunCap(
+          "maxDailyRuns",
+          body.maxDailyRuns,
+        );
 
       try {
         const raw = loadRawConfig();
