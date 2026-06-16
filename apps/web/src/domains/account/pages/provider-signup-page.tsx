@@ -18,21 +18,18 @@ import {
   resolvePostLoginDestination,
 } from "@/domains/account/login-flow";
 import { useAuthStore } from "@/stores/auth-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { routes } from "@/utils/routes";
 
 /**
  * Provider signup completion page. Shown when allauth's provider flow needs
  * additional information before creating the account.
  *
- * Default (control / variant-a): collect email + username.
- *
- * When `experiment-activation-flow-2026-06-03` serves `personal-page`: show the
- * OAuth-claim first/last name as read-only and collect an occupation, which is
- * forwarded into the pre-chat onboarding context. The account is still
- * completed via the same `submitProviderSignup` call using the provider-supplied
- * email + username (no username field — matching the standard sign-up, which
- * does not surface one to the user).
+ * Shows the OAuth-claim first/last name as read-only and collects an
+ * occupation. The account is completed via `submitProviderSignup` using the
+ * provider-supplied email + username (no username field — matching the standard
+ * sign-up, which does not surface one to the user). If the provider didn't
+ * supply email + username, it falls back to the editable form so the user can
+ * still complete signup.
  */
 export function ProviderSignupPage() {
   const navigate = useNavigate();
@@ -40,14 +37,9 @@ export function ProviderSignupPage() {
   const refreshSession = useAuthStore.use.refreshSession();
   const returnTo = searchParams.get("returnTo");
 
-  const activationArm =
-    useClientFeatureFlagStore.use.stringFlags().experimentActivationFlow20260603 ??
-    "control";
-  const personalPage = activationArm === "personal-page";
-
   // Provider-supplied identity. email + username are submitted to complete the
-  // account; firstName/lastName are display-only (read-only) in the
-  // personal-page variant. All come from the pending provider-signup context.
+  // account; firstName/lastName are display-only (read-only). All come from the
+  // pending provider-signup context.
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [firstName, setFirstName] = useState("");
@@ -154,12 +146,12 @@ export function ProviderSignupPage() {
     );
   }
 
-  // The personal-page step hides email/username and submits the provider-
-  // supplied values. If the provider didn't supply them (rare — WorkOS social
-  // always returns an email, and allauth suggests a username), fall through to
-  // the editable control form so the user can complete signup rather than hit
-  // an uncorrectable validation error.
-  if (personalPage && email && username) {
+  // The branded step hides email/username and submits the provider-supplied
+  // values. If the provider didn't supply them (rare — WorkOS social always
+  // returns an email, and allauth suggests a username), fall through to the
+  // editable form so the user can complete signup rather than hit an
+  // uncorrectable validation error.
+  if (email && username) {
     const canSubmit = occupation.trim().length > 0 && !isSubmitting;
     return (
       <PersonalPageShell>
