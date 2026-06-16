@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import { getLockfileData, resolveLockfilePaths } from "@vellumai/local-mode";
 import { app, nativeImage, type NativeImage } from "electron";
 import { z } from "zod";
 
@@ -45,9 +46,13 @@ import {
  *      windows (About, future thread pop-outs) deliberately do NOT
  *      drive dock policy — opening About while signed out would
  *      otherwise flicker the dock icon to `regular` and back.
- *   2. **Signed-in flag**, derived from the main-process session token
- *      store (`getSessionToken() !== null`). The dock subscribes to
- *      `onSessionTokenChange` and re-derives on every save/clear.
+ *   2. **Signed-in flag**, derived from two main-process signals:
+ *      a session token (`getSessionToken() !== null`), which covers
+ *      platform auth, and active local assistants in the lockfile,
+ *      which covers local-mode auth (gateway-only, no platform
+ *      token). The dock subscribes to `onSessionTokenChange` and
+ *      re-derives on every save/clear; local-assistant presence is
+ *      re-checked at the same time.
  *
  * Policy:
  *
@@ -274,13 +279,22 @@ export const installDock = (): void => {
     applyBadge();
   });
 
-  // Derive signed-in from the main-process session token store. On a
-  // flip to signed-out, clear the badge synchronously (ahead of the
-  // debounced policy refresh) so a logout can't leave a stale count
-  // on the Dock.
-  state.signedIn = getSessionToken() !== null;
+  // Derive signed-in from two main-process signals: the session token
+  // (platform auth) and active local assistants in the lockfile
+  // (local-mode / gateway auth). On a flip to signed-out, clear the
+  // badge synchronously (ahead of the debounced policy refresh) so a
+  // logout can't leave a stale count on the Dock.
+  const lockfilePaths = resolveLockfilePaths(process.env);
+  const deriveSignedIn = (): boolean => {
+    if (getSessionToken() !== null) {
+      return true;
+    }
+    const lockfile = getLockfileData(lockfilePaths);
+    return lockfile.ok && lockfile.data.assistants.length > 0;
+  };
+  state.signedIn = deriveSignedIn();
   onSessionTokenChange(() => {
-    const signedIn = getSessionToken() !== null;
+    const signedIn = deriveSignedIn();
     if (state.signedIn && !signedIn) {
       state.badgeCount = 0;
       applyBadge();

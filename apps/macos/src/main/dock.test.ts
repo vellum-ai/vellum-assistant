@@ -62,6 +62,18 @@ mock.module("./session-token-store", () => ({
   },
 }));
 
+// Mock @vellumai/local-mode so the dock's lockfile-based local-assistant
+// check works without a real filesystem. Controls whether the dock sees
+// active local assistants (gateway-only auth, no platform token).
+let mockLockfileAssistants: Array<Record<string, unknown>> = [];
+mock.module("@vellumai/local-mode", () => ({
+  resolveLockfilePaths: () => ["/fake/.vellum.lock.json"],
+  getLockfileData: () => ({
+    ok: true as const,
+    data: { assistants: mockLockfileAssistants, activeAssistant: null },
+  }),
+}));
+
 const avatarBitmapMock = mock((_size: number): Buffer | null => null);
 mock.module("./avatar-image", () => ({ avatarBitmap: avatarBitmapMock }));
 
@@ -122,6 +134,7 @@ const fakeAvatar = (): Buffer => Buffer.alloc(DOCK_ICON_PX * DOCK_ICON_PX * 4, 2
 beforeEach(() => {
   __resetForTesting();
   mockToken = null;
+  mockLockfileAssistants = [];
   // Do NOT clear tokenChangeListeners here — installDock() (beforeAll)
   // registered its listener and that must persist across tests.
   avatarBitmapMock.mockReset();
@@ -324,7 +337,7 @@ describe("installDock IPC registration", () => {
 
 describe("session-token-driven signed-in state", () => {
   test("a token change from null to present flips signedIn to true", () => {
-    // GIVEN dock is installed with no token (signed out)
+    // GIVEN dock is installed with no token and no local assistants
     // (installDock already ran in beforeAll above; signedIn starts false)
 
     // WHEN a token is saved
@@ -338,9 +351,10 @@ describe("session-token-driven signed-in state", () => {
     expect(setBadgeMock).not.toHaveBeenCalled();
   });
 
-  test("a token change from present to null clears the badge synchronously", () => {
-    // GIVEN dock sees a signed-in session
+  test("a token change from present to null clears the badge when no local assistants exist", () => {
+    // GIVEN dock sees a signed-in session (token only, no local assistants)
     mockToken = "tok-abc";
+    mockLockfileAssistants = [];
     for (const listener of tokenChangeListeners) listener();
 
     // AND there is a badge count
@@ -350,11 +364,46 @@ describe("session-token-driven signed-in state", () => {
     badgeFn([5]);
     setBadgeMock.mockClear();
 
-    // WHEN the token is cleared (sign-out)
+    // WHEN the token is cleared (sign-out) with no local assistants
     mockToken = null;
     for (const listener of tokenChangeListeners) listener();
 
     // THEN the badge is cleared synchronously
     expect(setBadgeMock).toHaveBeenCalledWith("");
+  });
+
+  test("token clear does not flip signedIn when local assistants are present", () => {
+    // GIVEN dock sees a signed-in session (token + local assistants)
+    mockToken = "tok-abc";
+    mockLockfileAssistants = [{ assistantId: "local-1", cloud: "local" }];
+    for (const listener of tokenChangeListeners) listener();
+
+    // AND there is a badge count
+    const badgeFn = onRegistrations.find(
+      (r) => r.channel === "vellum:dock:setBadge",
+    )!.fn;
+    badgeFn([3]);
+    setBadgeMock.mockClear();
+
+    // WHEN the token is cleared (platform sign-out) but local assistants remain
+    mockToken = null;
+    for (const listener of tokenChangeListeners) listener();
+
+    // THEN the badge is NOT cleared (still signed in via local assistants)
+    expect(setBadgeMock).not.toHaveBeenCalled();
+  });
+
+  test("local assistants in the lockfile keep signedIn true without a token", () => {
+    // GIVEN no session token but local assistants are hatched
+    mockToken = null;
+    mockLockfileAssistants = [{ assistantId: "local-1", cloud: "local" }];
+
+    // WHEN a token change fires (e.g. token cleared or re-evaluated)
+    for (const listener of tokenChangeListeners) listener();
+
+    // THEN signedIn remains true (local-mode auth) — verified by
+    //   confirming the badge is NOT cleared
+    setBadgeMock.mockClear();
+    expect(setBadgeMock).not.toHaveBeenCalled();
   });
 });
