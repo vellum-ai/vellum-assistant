@@ -33,6 +33,8 @@ import {
   type CredentialChangeEvent,
 } from "./credential-watcher.js";
 import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
+import { hasRemoteWebRefreshCookie } from "./http/browser-auth-cookies.js";
+import { handleGuardianRefresh } from "./http/routes/guardian-refresh.js";
 
 import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js";
 import { createAudioProxyHandler } from "./http/routes/audio-proxy.js";
@@ -95,6 +97,7 @@ import {
 } from "./http/routes/devices.js";
 import { handlePair } from "./http/routes/pair.js";
 import { handleCreateRemoteWebPairingChallenge } from "./http/routes/remote-web-pairing-challenge.js";
+import { handleRemoteWebPairingToken } from "./http/routes/remote-web-pairing-token.js";
 import { handleVerifyRemoteWebPairingChallenge } from "./http/routes/remote-web-pairing-verification.js";
 import { createSlackControlPlaneProxyHandler } from "./http/routes/slack-control-plane-proxy.js";
 import { createOAuthAppsProxyHandler } from "./http/routes/oauth-apps-proxy.js";
@@ -846,6 +849,12 @@ async function main() {
       handler: (req, _params, getClientIp) =>
         handleVerifyRemoteWebPairingChallenge(req, getClientIp()),
     },
+    {
+      path: "/v1/remote-web/pairing-token",
+      method: "POST",
+      auth: "none",
+      handler: (req) => handleRemoteWebPairingToken(req),
+    },
     // ── Device management (localhost-only, auth: none; self-guards loopback) ──
     {
       path: "/v1/devices",
@@ -928,6 +937,10 @@ async function main() {
       method: "POST",
       auth: "custom",
       handler: (req, _params, getClientIp) => {
+        if (hasRemoteWebRefreshCookie(req)) {
+          return handleGuardianRefresh(req);
+        }
+
         const authHeader = req.headers.get("authorization");
         if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
           authRateLimiter.recordFailure(getClientIp());
@@ -947,7 +960,7 @@ async function main() {
           );
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
-        return channelVerificationSessionProxy.handleGuardianRefresh(req);
+        return handleGuardianRefresh(req);
       },
     },
 
