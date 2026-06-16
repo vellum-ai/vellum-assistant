@@ -173,6 +173,8 @@ const EXCLUDED_FROM_SCHEMA = new Set([
   "/v1/pair",
   // Loopback-only remote web pairing challenge — not part of the public gateway API
   "/v1/remote-web/pairing-challenge",
+  // Remote web pairing verification bootstrap — not part of the public gateway API
+  "/v1/remote-web/pairing-verification",
   // Loopback-only device management — not part of the public gateway API
   "/v1/devices",
   "/v1/devices/revoke",
