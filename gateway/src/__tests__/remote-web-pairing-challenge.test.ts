@@ -102,6 +102,7 @@ describe("remote web pairing challenge", () => {
     expect(record?.deviceCodeHash).not.toBe(body.deviceCode);
     expect(record?.userCodeHash).not.toBe(body.userCode);
     expect(record?.publicBaseUrl).toBe(PUBLIC_BASE_URL);
+    expect(record?.status).toBe("pending");
   });
 
   test("rejects challenge creation through the nginx edge", async () => {

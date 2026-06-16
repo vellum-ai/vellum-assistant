@@ -60,8 +60,15 @@ function assertDeniedBeforeV1Proxy(path: string): void {
   }
 }
 
+function assertNotExplicitlyDenied(path: string): void {
+  for (const deniedPath of [path, `${path}/`]) {
+    const location = `location = ${deniedPath} { return 404; }`;
+    expect(nginxIngressSource).not.toContain(location);
+  }
+}
+
 describe("remote web ingress denylist", () => {
-  test("blocks every unprotected static gateway /v1 route before proxying /v1", () => {
+  test("blocks local-only unprotected static gateway /v1 routes before proxying /v1", () => {
     const unprotectedV1Routes = extractUnprotectedStaticV1Routes();
     expect(unprotectedV1Routes).toEqual([
       "/v1/devices",
@@ -70,10 +77,20 @@ describe("remote web ingress denylist", () => {
       "/v1/guardian/reset-bootstrap",
       "/v1/pair",
       "/v1/remote-web/pairing-challenge",
+      "/v1/remote-web/pairing-verification",
+    ]);
+
+    const publicRemoteWebRoutes = new Set([
+      "/v1/remote-web/pairing-verification",
     ]);
 
     for (const path of unprotectedV1Routes) {
+      if (publicRemoteWebRoutes.has(path)) continue;
       assertDeniedBeforeV1Proxy(path);
+    }
+
+    for (const path of publicRemoteWebRoutes) {
+      assertNotExplicitlyDenied(path);
     }
   });
 
