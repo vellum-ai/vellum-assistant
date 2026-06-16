@@ -34,7 +34,7 @@ const action = (
 
 export const Web: Story = {
   args: {
-    tone: "warning",
+    tone: "info",
     placement: "web",
     title: "Assistant is upgrading.",
     icon: <Info aria-hidden="true" />,
@@ -51,7 +51,7 @@ export const Web: Story = {
 
 export const Electron: Story = {
   args: {
-    tone: "warning",
+    tone: "info",
     placement: "electron",
     title: "Assistant is upgrading.",
     icon: <Info aria-hidden="true" />,
@@ -68,7 +68,7 @@ export const Electron: Story = {
 
 export const ElectronWorking: Story = {
   args: {
-    tone: "warning",
+    tone: "info",
     placement: "electron",
     title: "Assistant is upgrading.",
     icon: <LoaderCircle className="animate-spin" aria-hidden="true" />,
