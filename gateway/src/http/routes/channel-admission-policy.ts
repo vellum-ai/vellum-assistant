@@ -24,6 +24,7 @@ import { invalidateAdmissionPolicyCache } from "../../risk/admission-policy-cach
 import {
   CHANNEL_IDS,
   isChannelId,
+  parseChannelFromConversationId,
   type ChannelId,
 } from "../../channels/types.js";
 import { getLogger } from "../../logger.js";
@@ -219,13 +220,33 @@ export function createConversationAdmissionSetHandler() {
       );
     }
 
-    const { floor, channelType } = parsed.data;
+    const { floor } = parsed.data;
 
-    // §8.1: reject writes for exempt internal channels.
-    if (channelType && isExemptChannelType(channelType)) {
+    // Resolve channelType: body value > conversationId prefix derivation > reject 400.
+    // Keeping channelType optional in the body schema preserves backward compat,
+    // but we always require a resolved value server-side so the §8.1 exempt check
+    // runs against the real channel regardless of whether the caller supplies it.
+    const rawChannelType = parsed.data.channelType;
+    const resolvedChannelType: string | null =
+      rawChannelType != null
+        ? rawChannelType
+        : parseChannelFromConversationId(conversationId);
+
+    if (resolvedChannelType === null) {
       return Response.json(
         {
-          error: `Channel "${channelType}" is internal (vellum/platform/a2a) and is not user-configurable.`,
+          error:
+            "channelType is required and could not be derived from conversationId",
+        },
+        { status: 400 },
+      );
+    }
+
+    // §8.1: reject writes for exempt internal channels (check resolved type).
+    if (isExemptChannelType(resolvedChannelType)) {
+      return Response.json(
+        {
+          error: `Channel "${resolvedChannelType}" is internal (vellum/platform/a2a) and is not user-configurable.`,
         },
         { status: 403 },
       );
@@ -237,14 +258,16 @@ export function createConversationAdmissionSetHandler() {
       if (floor === null) {
         // null floor = reset to type default
         store.removeConversationOverride(conversationId);
-        const view = store.getConversationOverride(conversationId);
+        // Pass resolved channelType as hint so the returned view shows the
+        // correct channel floor even before a new override row exists.
+        const view = store.getConversationOverride(conversationId, resolvedChannelType);
         return Response.json({ override: overrideToView(view) });
       }
 
       const view = store.setConversationOverride(
         conversationId,
         floor as AdmissionPolicy,
-        channelType,
+        resolvedChannelType,
       );
       return Response.json({ override: overrideToView(view) });
     } catch (err) {

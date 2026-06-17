@@ -1,7 +1,11 @@
 import { eq, sql } from "drizzle-orm";
 import { type GatewayDb, getGatewayDb } from "./connection.js";
 import { channelAdmissionPolicy, conversationAdmissionOverride } from "./schema.js";
-import { type ChannelId, isChannelId } from "../channels/types.js";
+import {
+  type ChannelId,
+  isChannelId,
+  parseChannelFromConversationId,
+} from "../channels/types.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -232,10 +236,17 @@ export class AdmissionPolicyStore {
       .where(eq(conversationAdmissionOverride.conversationId, conversationId))
       .get();
 
-    // Resolve the type floor from: stored channelType > client hint > default.
-    // Accepting a hint from the GET request lets row-less conversations show
-    // the correct floor for channels whose policy was changed from the default.
-    const channelType = row?.channelType ?? channelTypeHint ?? null;
+    // Resolve the type floor from: stored channelType > client hint >
+    // conversationId prefix derivation > default.
+    // The prefix fallback ensures row-less conversations on channels with a
+    // non-default floor (e.g. telegram set to guardian_only) still show the
+    // correct floor even when neither the DB row nor the caller supplies the
+    // channel type.
+    const channelType =
+      row?.channelType ??
+      channelTypeHint ??
+      parseChannelFromConversationId(conversationId) ??
+      null;
     const typeFloor =
       channelType && isChannelId(channelType)
         ? this.get(channelType)
@@ -271,7 +282,12 @@ export class AdmissionPolicyStore {
     channelType?: string | null,
   ): ConversationOverrideView {
     const now = Date.now();
-    const channelTypeValue = channelType ?? null;
+    // Resolve channelType: caller param > conversationId prefix derivation > null.
+    // Resolving before the SQL write ensures the stored row carries a real
+    // channelType (so the §8.1 exempt check and typeFloor lookup work correctly
+    // even when the caller omits the field).
+    const channelTypeValue =
+      channelType ?? parseChannelFromConversationId(conversationId) ?? null;
 
     this.db.run(sql`
       INSERT INTO conversation_admission_override (conversation_id, channel_type, override, updated_at)

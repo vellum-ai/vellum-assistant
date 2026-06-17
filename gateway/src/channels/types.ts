@@ -21,6 +21,27 @@ export function parseChannelId(value: unknown): ChannelId | null {
   return isChannelId(value) ? value : null;
 }
 
+/**
+ * Attempt to derive a `ChannelId` from a conversationId that follows the
+ * `"<channelType>:<channelSpecificId>"` prefix convention.
+ *
+ * Examples:
+ *   `"slack:C0123"`    → `"slack"`
+ *   `"telegram:12345"` → `"telegram"`
+ *   `"CONV-abc"`       → `null`  (no colon)
+ *   `"fax:12345"`      → `null`  (unrecognised prefix)
+ *   `null / ""`        → `null`
+ */
+export function parseChannelFromConversationId(
+  conversationId: string | null | undefined,
+): ChannelId | null {
+  if (!conversationId) return null;
+  const colonIdx = conversationId.indexOf(":");
+  if (colonIdx === -1) return null;
+  const prefix = conversationId.slice(0, colonIdx);
+  return parseChannelId(prefix);
+}
+
 export const INTERFACE_IDS = [
   "macos",
   "ios",
