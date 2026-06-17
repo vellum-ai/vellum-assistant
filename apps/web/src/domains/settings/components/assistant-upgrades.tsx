@@ -3,26 +3,23 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 import {
-    assistantsRetrieveOptions,
-    assistantsRetrieveQueryKey,
-    releasesListOptions,
+  assistantsRetrieveOptions,
+  assistantsRetrieveQueryKey,
+  releasesListOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
 import {
-    assistantsRollbackDetailCreate,
-    assistantsUpgradeDetailCreate,
+  assistantsRollbackDetailCreate,
+  assistantsUpgradeDetailCreate,
 } from "@/generated/api/sdk.gen";
 import type {
-    ReleaseChannelEnum,
-    ReleaseListItem,
+  ReleaseChannelEnum,
+  ReleaseListItem,
 } from "@/generated/api/types.gen";
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { upgradeLocalAssistantHost } from "@/runtime/local-mode-host";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import {
-    compareParsed,
-    parseSemver,
-} from "@/utils/semver";
+import { compareParsed, parseSemver } from "@/utils/semver";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
@@ -138,8 +135,7 @@ export function AssistantUpgrades({
     if (!currentVersion) return true;
     const target = parseSemver(effectiveSelectedVersion);
     const current = parseSemver(currentVersion);
-    if (!target || !current)
-      return effectiveSelectedVersion !== currentVersion;
+    if (!target || !current) return effectiveSelectedVersion !== currentVersion;
     const cmp = compareParsed(target, current);
     if (!rollbackEnabled) {
       return cmp > 0;
@@ -193,8 +189,7 @@ export function AssistantUpgrades({
           toast.warning(result.detail);
           return;
         }
-        targetVersionRef.current =
-          result.version ?? targetVersion ?? null;
+        targetVersionRef.current = result.version ?? targetVersion ?? null;
         toast.success(
           result.detail ||
             `Update to ${result.version ?? targetVersion ?? "latest"} initiated.`,
@@ -233,10 +228,10 @@ export function AssistantUpgrades({
             {isPreviewReleaseChannel
               ? "Preview release"
               : !upgradeAvailable
-              ? "Selected"
-              : isRollback
-                ? "Rollback to"
-                : "Update to"}
+                ? "Selected"
+                : isRollback
+                  ? "Rollback to"
+                  : "Update to"}
           </span>
           <span className="block min-w-0">
             {releasesLoading ? (
@@ -351,7 +346,7 @@ export function AssistantUpgrades({
             ? `Rollback to version ${effectiveSelectedVersion ?? "unknown"}? The assistant will be briefly unavailable.`
             : isPreviewReleaseChannel
               ? `Update to preview version ${effectiveSelectedVersion ?? "latest"}? The assistant will be briefly unavailable during the update.`
-            : `Update to version ${effectiveSelectedVersion ?? "latest"}? The assistant will be briefly unavailable during the update.`
+              : `Update to version ${effectiveSelectedVersion ?? "latest"}? The assistant will be briefly unavailable during the update.`
         }
         confirmLabel={
           isRollback
@@ -380,13 +375,30 @@ export function LocalAssistantUpgrades({
 }: LocalAssistantUpgradesProps) {
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const { data: releases, isLoading: releasesLoading } = useQuery(
+    releasesListOptions({
+      query: { channel: "stable" },
+    }),
+  );
+
+  const latestRelease =
+    releases?.find((r) => r.is_stable !== false) ?? releases?.[0];
+  const targetVersion = latestRelease?.version;
+  const upgradeAvailable = useMemo(() => {
+    if (!targetVersion) return false;
+    if (!currentVersion) return true;
+    const target = parseSemver(targetVersion);
+    const current = parseSemver(currentVersion);
+    if (!target || !current) return targetVersion !== currentVersion;
+    return compareParsed(target, current) > 0;
+  }, [currentVersion, targetVersion]);
 
   const upgradeCreate = useMutation({
     mutationFn: async () => {
       lifecycleService.setLocalAssistantUpgradeInProgress(assistantId, true);
       try {
         const result = await upgradeLocalAssistantHost(assistantId, {
-          latest: true,
+          ...(targetVersion ? { version: targetVersion } : { latest: true }),
         });
         if (!result.ok) {
           throw new Error(result.error ?? "Failed to trigger update.");
@@ -406,7 +418,7 @@ export function LocalAssistantUpgrades({
       setSuccessMessage(
         result.version
           ? `Successfully updated to version ${result.version}.`
-          : "Successfully updated to the latest stable version.",
+          : `Successfully updated to version ${targetVersion ?? "latest"}.`,
       );
       toast.success("Update complete — assistant is healthy.");
       await lifecycleService.checkAssistant(assistantId);
@@ -437,7 +449,11 @@ export function LocalAssistantUpgrades({
             Update to
           </span>
           <span className="block min-w-0 break-all text-body-medium-lighter text-[var(--content-default)]">
-            Latest stable
+            {releasesLoading
+              ? "Loading..."
+              : targetVersion && latestRelease
+                ? releaseLabel(latestRelease, currentVersion, targetVersion)
+                : "No releases available"}
           </span>
         </div>
       </div>
@@ -453,9 +469,18 @@ export function LocalAssistantUpgrades({
           )
         }
         onClick={() => setShowConfirmation(true)}
-        disabled={upgradeCreate.isPending}
+        disabled={
+          upgradeCreate.isPending ||
+          releasesLoading ||
+          !targetVersion ||
+          !upgradeAvailable
+        }
       >
-        {upgradeCreate.isPending ? "Updating..." : "Update"}
+        {upgradeCreate.isPending
+          ? "Updating..."
+          : targetVersion
+            ? `Update to ${targetVersion}`
+            : "Update"}
       </Button>
 
       {successMessage && (
@@ -463,12 +488,20 @@ export function LocalAssistantUpgrades({
           {successMessage}
         </p>
       )}
+      {!successMessage &&
+        !upgradeAvailable &&
+        targetVersion &&
+        !releasesLoading && (
+          <p className="text-body-medium-lighter text-[var(--system-positive-strong)]">
+            You are already on this version.
+          </p>
+        )}
 
       <ConfirmDialog
         open={showConfirmation}
         title="Update assistant"
-        message="Update to the latest stable version? The assistant will be briefly unavailable during the update."
-        confirmLabel="Update"
+        message={`Update to version ${targetVersion ?? "latest"}? The assistant will be briefly unavailable during the update.`}
+        confirmLabel={targetVersion ? `Update to ${targetVersion}` : "Update"}
         onConfirm={handleUpgrade}
         onCancel={() => setShowConfirmation(false)}
       />

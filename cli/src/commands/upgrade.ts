@@ -64,6 +64,7 @@ import {
 import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
 import {
   generateLocalSigningKey,
+  ensureLocalRuntime,
   startGateway,
   startLocalDaemon,
   stopLocalProcesses,
@@ -775,48 +776,10 @@ async function fetchLocalUpgradeState(
   return { preMigrationState: {} };
 }
 
-function maybeReexecLocalCliForTarget(
-  name: string | null,
-  targetVersion: string,
-  flags: { force: boolean; noWait: boolean },
-): void {
-  const currentTag = cliPkg.version ? `v${cliPkg.version}` : null;
-  if (!currentTag || versionsEqual(targetVersion, currentTag)) return;
-
-  console.log(`🔄 Updating CLI to ${targetVersion}...`);
-  const installResult = spawnSync(
-    "bun",
-    ["install", "-g", `vellum@${stripVersionPrefix(targetVersion)}`],
-    { stdio: "inherit" },
-  );
-  if (installResult.error || installResult.status !== 0) {
-    const detail =
-      installResult.error?.message ??
-      `exited with code ${installResult.status}`;
-    console.error(`\n❌ CLI self-update failed: ${detail}`);
-    emitCliError("CLI_UPDATE_FAILED", "CLI self-update failed", detail);
-    process.exit(1);
-  }
-  console.log(`✅ CLI updated to ${targetVersion}\n`);
-
-  const reexecArgs = ["upgrade"];
-  if (name) reexecArgs.push(name);
-  reexecArgs.push("--version", targetVersion);
-  if (flags.noWait) reexecArgs.push("--no-wait");
-  if (flags.force) reexecArgs.push("--force");
-
-  console.log(`🚀 Re-running upgrade with updated CLI...\n`);
-  const reexecResult = spawnSync("vellum", reexecArgs, {
-    stdio: "inherit",
-  });
-  process.exit(reexecResult.status ?? 1);
-}
-
 async function upgradeLocal(
   entry: AssistantEntry,
   version: string | null,
   force: boolean,
-  options: { name: string | null; noWait: boolean },
 ): Promise<void> {
   if (!entry.resources) {
     const msg = `Local assistant '${entry.assistantId}' is missing resource configuration. Re-hatch to fix.`;
@@ -856,11 +819,6 @@ async function upgradeLocal(
     }
     console.log(`🔁 Reinstalling ${targetVersion} (--force)...\n`);
   }
-
-  maybeReexecLocalCliForTarget(options.name, targetVersion, {
-    force,
-    noWait: options.noWait,
-  });
 
   console.log(
     `🔄 Upgrading local assistant '${entry.assistantId}' to ${targetVersion}...\n`,
@@ -939,6 +897,26 @@ async function upgradeLocal(
     entry.assistantId,
     buildProgressEvent(UPGRADE_PROGRESS.INSTALLING),
   );
+
+  console.log(
+    "⬇️  Downloading local runtime packages (assistant, gateway, credential-executor)...",
+  );
+  const runtimeInstall = ensureLocalRuntime(entry.resources, targetVersion, {
+    force,
+  });
+  entry.resources = {
+    ...entry.resources,
+    runtimeVersion: runtimeInstall.version,
+    runtimeInstallDir: runtimeInstall.installDir,
+  };
+  saveAssistantEntry({
+    ...entry,
+    previousVersion: currentVersion,
+    previousDbMigrationVersion: preMigrationState.dbVersion,
+    previousWorkspaceMigrationId: preMigrationState.lastWorkspaceMigrationId,
+    preUpgradeBackupPath: backupPath ?? undefined,
+  });
+  console.log(`   Runtime installed: ${runtimeInstall.installDir}\n`);
 
   console.log("🛑 Stopping local assistant processes...");
   await stopLocalProcesses(entry.resources);
@@ -1402,10 +1380,7 @@ async function upgradeFinalize(
  * that need it.  If the CLI was updated and re-exec'd, this function never
  * returns — the process is replaced.
  */
-async function resolveLatestAndMaybeSelfUpdate(
-  name: string | null,
-  flags: { noWait: boolean; force: boolean },
-): Promise<string> {
+async function resolveLatestStableTag(): Promise<string> {
   console.log("🔍 Fetching latest stable release...");
   const latestVersion = await fetchLatestStableVersion();
   if (!latestVersion) {
@@ -1419,9 +1394,14 @@ async function resolveLatestAndMaybeSelfUpdate(
     process.exit(1);
   }
 
-  const latestTag = latestVersion.startsWith("v")
-    ? latestVersion
-    : `v${latestVersion}`;
+  return latestVersion.startsWith("v") ? latestVersion : `v${latestVersion}`;
+}
+
+async function resolveLatestAndMaybeSelfUpdate(
+  name: string | null,
+  flags: { noWait: boolean; force: boolean },
+): Promise<string> {
+  const latestTag = await resolveLatestStableTag();
   const currentTag = cliPkg.version ? `v${cliPkg.version}` : null;
 
   console.log(`   Latest stable: ${latestTag}`);
@@ -1433,7 +1413,7 @@ async function resolveLatestAndMaybeSelfUpdate(
     console.log(`🔄 Updating CLI to ${latestTag}...`);
     const installResult = spawnSync(
       "bun",
-      ["install", "-g", `vellum@${stripVersionPrefix(latestVersion)}`],
+      ["install", "-g", `vellum@${stripVersionPrefix(latestTag)}`],
       { stdio: "inherit" },
     );
     if (installResult.error || installResult.status !== 0) {
@@ -1488,15 +1468,16 @@ export async function upgrade(): Promise<void> {
   // self-update the CLI if it's behind.  The resolved version is then used
   // as the explicit target for the rest of the upgrade flow.
   let effectiveVersion = version;
-  if (latest) {
-    const latestTag = await resolveLatestAndMaybeSelfUpdate(name, {
-      noWait,
-      force,
-    });
-    effectiveVersion = latestTag;
-  }
-
   const cloud = resolveCloud(entry);
+  if (latest) {
+    effectiveVersion =
+      cloud === "local"
+        ? await resolveLatestStableTag()
+        : await resolveLatestAndMaybeSelfUpdate(name, {
+            noWait,
+            force,
+          });
+  }
 
   try {
     if (cloud === "docker") {
@@ -1505,7 +1486,7 @@ export async function upgrade(): Promise<void> {
     }
 
     if (cloud === "local") {
-      await upgradeLocal(entry, effectiveVersion, force, { name, noWait });
+      await upgradeLocal(entry, effectiveVersion, force);
       return;
     }
 

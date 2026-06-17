@@ -57,7 +57,9 @@ describe("parseLockfile", () => {
     // modeled fields. It must still be returned (the macOS↔CLI skew window).
     const parsed = parseLockfile({
       activeAssistant: null,
-      assistants: [{ assistantId: "asst_1", localUrl: "http://127.0.0.1:7777" }],
+      assistants: [
+        { assistantId: "asst_1", localUrl: "http://127.0.0.1:7777" },
+      ],
     });
     expect(parsed.assistants).toEqual([{ assistantId: "asst_1" }]);
   });
@@ -111,7 +113,9 @@ describe("parseLockfile", () => {
   });
 
   test("coerces a non-string activeAssistant to null", () => {
-    expect(parseLockfile({ assistants: [], activeAssistant: 7 }).activeAssistant).toBeNull();
+    expect(
+      parseLockfile({ assistants: [], activeAssistant: 7 }).activeAssistant,
+    ).toBeNull();
     expect(parseLockfile({ assistants: [] }).activeAssistant).toBeNull();
   });
 
@@ -188,5 +192,31 @@ describe("parseLockfile", () => {
       runtimeUrl: "http://a",
     });
     expect(assistant?.resources).toBeUndefined();
+  });
+
+  test("keeps local runtime resource fields when well-typed", () => {
+    const raw = {
+      assistants: [
+        {
+          assistantId: "asst_1",
+          cloud: "local",
+          runtimeUrl: "http://a",
+          resources: {
+            gatewayPort: 7777,
+            daemonPort: 7778,
+            runtimeVersion: "v0.8.13",
+            runtimeInstallDir: "/tmp/vellum/runtime/0.8.13",
+          },
+        },
+      ],
+      activeAssistant: null,
+    };
+
+    expect(parseLockfile(raw).assistants[0]?.resources).toEqual({
+      gatewayPort: 7777,
+      daemonPort: 7778,
+      runtimeVersion: "v0.8.13",
+      runtimeInstallDir: "/tmp/vellum/runtime/0.8.13",
+    });
   });
 });

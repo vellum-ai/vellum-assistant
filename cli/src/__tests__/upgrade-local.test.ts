@@ -70,6 +70,12 @@ mock.module("../lib/backup-ops.js", () => ({
 const generateLocalSigningKeyMock = mock<typeof local.generateLocalSigningKey>(
   () => "generated-local-secret",
 );
+const ensureLocalRuntimeMock = mock<typeof local.ensureLocalRuntime>(
+  (resources, version) => ({
+    version,
+    installDir: join(resources.instanceDir, ".vellum", "runtime", version),
+  }),
+);
 const startLocalDaemonMock = mock<typeof local.startLocalDaemon>(
   async () => {},
 );
@@ -83,6 +89,7 @@ const stopLocalProcessesMock = mock<typeof local.stopLocalProcesses>(
 mock.module("../lib/local.js", () => ({
   ...realLocal,
   generateLocalSigningKey: generateLocalSigningKeyMock,
+  ensureLocalRuntime: ensureLocalRuntimeMock,
   startLocalDaemon: startLocalDaemonMock,
   startGateway: startGatewayMock,
   stopLocalProcesses: stopLocalProcessesMock,
@@ -199,6 +206,11 @@ beforeEach(() => {
   restoreBackupMock.mockResolvedValue(true);
   generateLocalSigningKeyMock.mockReset();
   generateLocalSigningKeyMock.mockReturnValue("generated-local-secret");
+  ensureLocalRuntimeMock.mockReset();
+  ensureLocalRuntimeMock.mockImplementation((resources, version) => ({
+    version,
+    installDir: join(resources.instanceDir, ".vellum", "runtime", version),
+  }));
   startLocalDaemonMock.mockReset();
   startLocalDaemonMock.mockResolvedValue(undefined);
   startGatewayMock.mockReset();
@@ -270,16 +282,30 @@ describe("vellum upgrade local", () => {
       }),
     );
     expect(stopLocalProcessesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        instanceDir: tempDir,
+        runtimeVersion: cliPkg.version ? `v${cliPkg.version}` : "v0.8.12",
+      }),
+    );
+    expect(ensureLocalRuntimeMock).toHaveBeenCalledWith(
       expect.objectContaining({ instanceDir: tempDir }),
+      cliPkg.version ? `v${cliPkg.version}` : "v0.8.12",
+      { force: false },
     );
     expect(startLocalDaemonMock).toHaveBeenCalledWith(
       false,
-      expect.objectContaining({ instanceDir: tempDir }),
+      expect.objectContaining({
+        instanceDir: tempDir,
+        runtimeVersion: cliPkg.version ? `v${cliPkg.version}` : "v0.8.12",
+      }),
       { signingKey: "existing-signing-key" },
     );
     expect(startGatewayMock).toHaveBeenCalledWith(
       false,
-      expect.objectContaining({ instanceDir: tempDir }),
+      expect.objectContaining({
+        instanceDir: tempDir,
+        runtimeVersion: cliPkg.version ? `v${cliPkg.version}` : "v0.8.12",
+      }),
       {
         signingKey: "existing-signing-key",
         bootstrapSecret: "existing-bootstrap-secret",
@@ -309,6 +335,7 @@ describe("vellum upgrade local", () => {
     await upgrade();
 
     expect(stopLocalProcessesMock).not.toHaveBeenCalled();
+    expect(ensureLocalRuntimeMock).not.toHaveBeenCalled();
     expect(startLocalDaemonMock).not.toHaveBeenCalled();
     expect(startGatewayMock).not.toHaveBeenCalled();
     expect(consoleLogSpy.mock.calls.flat().join("\n")).toContain("Already on");

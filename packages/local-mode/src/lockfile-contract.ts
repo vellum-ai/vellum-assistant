@@ -34,6 +34,8 @@ export interface LocalAssistantResources {
   instanceDir?: string;
   gatewayPort: number;
   daemonPort: number;
+  runtimeVersion?: string;
+  runtimeInstallDir?: string;
 }
 
 export interface LockfileAssistant {
@@ -76,6 +78,12 @@ function parseResources(value: unknown): LocalAssistantResources | undefined {
       : {}),
     gatewayPort: value.gatewayPort,
     daemonPort: value.daemonPort,
+    ...(typeof value.runtimeVersion === "string"
+      ? { runtimeVersion: value.runtimeVersion }
+      : {}),
+    ...(typeof value.runtimeInstallDir === "string"
+      ? { runtimeInstallDir: value.runtimeInstallDir }
+      : {}),
   };
 }
 
@@ -93,10 +101,13 @@ function parseAssistant(value: unknown): LockfileAssistant | null {
   const assistant: LockfileAssistant = { assistantId: value.assistantId };
   if (typeof value.name === "string") assistant.name = value.name;
   if (typeof value.cloud === "string") assistant.cloud = value.cloud;
-  if (typeof value.runtimeUrl === "string") assistant.runtimeUrl = value.runtimeUrl;
+  if (typeof value.runtimeUrl === "string")
+    assistant.runtimeUrl = value.runtimeUrl;
   if (typeof value.species === "string") assistant.species = value.species;
-  if (typeof value.hatchedAt === "string") assistant.hatchedAt = value.hatchedAt;
-  if (typeof value.organizationId === "string") assistant.organizationId = value.organizationId;
+  if (typeof value.hatchedAt === "string")
+    assistant.hatchedAt = value.hatchedAt;
+  if (typeof value.organizationId === "string")
+    assistant.organizationId = value.organizationId;
   const resources = parseResources(value.resources);
   if (resources) assistant.resources = resources;
   return assistant;
