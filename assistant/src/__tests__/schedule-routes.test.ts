@@ -1243,36 +1243,6 @@ describe("POST /schedules — create", () => {
     ).toThrow("Only 'execute' and 'workflow' modes are supported");
   });
 
-  test("rejects workflow-mode creation when the workflows flag is off", () => {
-    // The mocked getConfig returns no feature flags, so `workflows` is off.
-    expect(() =>
-      postCreate({
-        name: "Triage",
-        description: "Triage the inbox every morning",
-        expression: "0 9 * * *",
-        message: "triage inbox",
-        mode: "workflow",
-        workflowName: "triage-inbox",
-      }),
-    ).toThrow("Workflows are not enabled");
-  });
-
-  test("rejects PATCH switching to workflow mode when the flag is off", () => {
-    const schedule = createSchedule({
-      name: "Plain execute",
-      cronExpression: "0 9 * * *",
-      message: "hi",
-      syntax: "cron",
-    });
-    const patch = findRoute("schedules/:id", "PATCH");
-    expect(() =>
-      patch.handler({
-        pathParams: { id: schedule.id },
-        body: { mode: "workflow", workflowName: "triage-inbox" },
-      }),
-    ).toThrow("Workflows are not enabled");
-  });
-
   test("rejects an unparseable expression", () => {
     expect(() =>
       postCreate({

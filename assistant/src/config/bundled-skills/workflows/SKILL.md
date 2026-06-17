@@ -7,7 +7,6 @@ metadata:
   vellum:
     display-name: "Workflows"
     category: "system"
-    feature-flag: "workflows"
     activation-hints:
       - "A task decomposes into many similar sub-tasks that can run concurrently (score every item, extract a field from each of many documents, draft-then-verify a batch)"
       - "You want fan-out orchestrated deterministically and the result reported back when the whole run finishes"
