@@ -192,6 +192,14 @@ export const routeTree = [
           path: "onboarding/research-mock",
           lazy: { Component: () => import("@/domains/chat/onboarding-research/research-mock-page").then((m) => m.ResearchMockPage) },
         },
+        // SPIKE — "Let's chat tomorrow" check-in page. Sits between the
+        // research form and the chat handoff (same research-onboarding flag);
+        // connects Google Calendar so the assistant can schedule a
+        // Day 2 Check-in. Visit `/assistant/onboarding/checkin`.
+        {
+          path: "onboarding/checkin",
+          lazy: { Component: () => import("@/domains/onboarding/pages/checkin-onboarding-route").then((m) => m.CheckinOnboardingRoute) },
+        },
         {
           path: "review-terms",
           lazy: { Component: () => import("@/domains/onboarding/pages/review-terms-screen").then((m) => m.ReviewTermsScreen) },

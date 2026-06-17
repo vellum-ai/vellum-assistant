@@ -100,6 +100,10 @@ export const routes = {
     privacy: r("/assistant/onboarding/privacy"),
     prechat: r("/assistant/onboarding/prechat"),
     hatching: r("/assistant/onboarding/hatching"),
+    // SPIKE — research-onboarding / checkin-onboarding front doors. Reachable
+    // on demand behind their default-off flags (see routes.tsx).
+    research: r("/assistant/onboarding/research"),
+    checkin: r("/assistant/onboarding/checkin"),
   },
 
   home: r("/assistant/home"),
