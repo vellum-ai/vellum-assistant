@@ -70,6 +70,14 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   meetChatOpportunity: { profile: "cost-optimized" },
   inference: { profile: "cost-optimized" },
 
+  // The advisor consults a stronger model than the executor. Default to the
+  // strongest profile; users override via `llm.callSites.advisor.profile`. The
+  // resolver degrades gracefully if `quality-optimized` is absent on an install
+  // (falls back through the active profile to `llm.default`). Caching is off:
+  // the transcript grows each consult, so the prompt prefix rarely repeats
+  // within the cache TTL.
+  advisor: { profile: "quality-optimized", disableCache: true },
+
   heartbeatAgent: {
     profile: "cost-optimized",
   },

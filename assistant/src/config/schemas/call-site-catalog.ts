@@ -300,6 +300,13 @@ const CATALOG_RECORD: CatalogRecord = {
     description: "General-purpose LLM inference call site for skill use.",
     domain: "skills",
   },
+  advisor: {
+    id: "advisor",
+    displayName: "Advisor",
+    description:
+      "Stronger-model strategic guidance consulted mid-task via the advisor tool.",
+    domain: "skills",
+  },
   homeGreeting: {
     id: "homeGreeting",
     displayName: "Home Greeting",
