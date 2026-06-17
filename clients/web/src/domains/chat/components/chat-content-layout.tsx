@@ -164,9 +164,12 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   // Warm the lazy side-panel chunks while the browser is idle so the first
   // open renders immediately instead of stalling on a dynamic import.
   useEffect(() => {
+    // Swallow prefetch rejections: this is best-effort warming, so a chunk
+    // 404 (offline / stale deploy) must not surface as an unhandledrejection.
+    // The real load path on open still reports errors via LazyBoundary.
     const run = () => {
-      void importSubagentDetailPanel();
-      void importToolDetailPanel();
+      importSubagentDetailPanel().catch(() => {});
+      importToolDetailPanel().catch(() => {});
     };
     if (typeof window.requestIdleCallback === "function") {
       const id = window.requestIdleCallback(run);
