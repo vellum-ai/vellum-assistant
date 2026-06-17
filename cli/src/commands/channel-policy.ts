@@ -311,12 +311,20 @@ async function setPolicy(
 async function conversationList(
   conversationId: string,
   assistantName?: string,
+  explicitChannelType?: string,
 ): Promise<void> {
+  // Derive channelType hint for the GET so the gateway resolves the correct
+  // type floor for row-less conversations. Same scoped-key logic as conversation-set.
+  const colonIdx = conversationId.indexOf(":");
+  const derivedChannelType = colonIdx !== -1 ? conversationId.slice(0, colonIdx) : undefined;
+  const channelType = explicitChannelType ?? derivedChannelType;
+
   const client = createClient(assistantName);
   let res: Response;
   try {
+    const qs = channelType ? `?channelType=${encodeURIComponent(channelType)}` : "";
     res = await client.get(
-      `/channel-admission-policy/conversations/${encodeURIComponent(conversationId)}`,
+      `/channel-admission-policy/conversations/${encodeURIComponent(conversationId)}${qs}`,
     );
   } catch (err) {
     rethrowFetchError(err);
@@ -558,14 +566,16 @@ export async function channelPolicy(): Promise<void> {
     }
 
     case "conversation-list": {
+      // Accept --channel-type <type> for scoped keys (same as conversation-set).
+      const explicitChannelType = extractValueFlag(args, "channel-type");
       const conversationId = args[1];
       if (!conversationId) {
         console.error(
-          "Usage: vellum channel-policy conversation-list <conversation-id>",
+          "Usage: vellum channel-policy conversation-list <conversation-id> [--channel-type <type>]",
         );
         process.exit(1);
       }
-      await conversationList(conversationId, assistantName);
+      await conversationList(conversationId, assistantName, explicitChannelType);
       return;
     }
 

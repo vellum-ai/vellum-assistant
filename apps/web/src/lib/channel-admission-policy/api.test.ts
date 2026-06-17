@@ -217,12 +217,12 @@ describe("conversation override", () => {
       }),
     );
 
-    await setConversationOverride("asst-1", "slack:C0123", null);
+    await setConversationOverride("asst-1", "slack:C0123", null, "slack");
 
     const call = mockPut.mock.calls[0] as unknown as [
       { body: { floor: unknown; channelType: unknown } },
     ];
-    // channelType is null when not supplied — the gateway accepts it.
-    expect(call[0].body).toEqual({ floor: null, channelType: null });
+    // channelType is required — must be a known channel ID.
+    expect(call[0].body).toEqual({ floor: null, channelType: "slack" });
   });
 });

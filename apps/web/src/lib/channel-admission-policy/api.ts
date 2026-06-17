@@ -158,10 +158,10 @@ export async function setConversationOverride(
   assistantId: string,
   conversationId: string,
   floor: AdmissionPolicy | null,
-  channelType?: string | null,
+  channelType: string,
 ): Promise<ConversationOverrideView> {
   // §8.1: client-side guard — exempt channels are not user-configurable.
-  if (channelType && isInternalChannel(channelType)) {
+  if (isInternalChannel(channelType)) {
     throw new ApiError(
       403,
       `Channel "${channelType}" is internal and is not user-configurable.`,
@@ -173,7 +173,7 @@ export async function setConversationOverride(
   >({
     url: "/v1/assistants/{assistant_id}/channel-admission-policy/conversations/{conversation_id}",
     path: { assistant_id: assistantId, conversation_id: conversationId },
-    body: { floor, channelType: channelType ?? null },
+    body: { floor, channelType },
     headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
