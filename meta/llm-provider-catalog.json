@@ -1352,6 +1352,36 @@
           "supportsToolUse": true
         }
       ]
+    },
+    {
+      "id": "atlascloud",
+      "displayName": "Atlas Cloud",
+      "subtitle": "Atlas Cloud AI models (OpenAI-compatible). Requires an Atlas Cloud API key.",
+      "setupMode": "api-key",
+      "setupHint": "Enter your Atlas Cloud API key to enable Atlas Cloud models.",
+      "envVar": "ATLASCLOUD_API_KEY",
+      "apiKeyPlaceholder": "apikey-...",
+      "credentialsGuide": {
+        "description": "Sign in to the Atlas Cloud console and create an API key.",
+        "url": "https://www.atlascloud.ai/console",
+        "linkLabel": "Open Atlas Cloud Console"
+      },
+      "supportsPlatformAuth": false,
+      "defaultModel": "deepseek-ai/deepseek-v4-pro",
+      "models": [
+        {
+          "id": "deepseek-ai/deepseek-v4-pro",
+          "displayName": "DeepSeek V4 Pro",
+          "contextWindowTokens": 128000,
+          "maxOutputTokens": 8192,
+          "defaultContextWindowTokens": 128000,
+          "longContextMode": "unsupported",
+          "supportsThinking": true,
+          "supportsCaching": false,
+          "supportsVision": false,
+          "supportsToolUse": true
+        }
+      ]
     }
   ]
 }

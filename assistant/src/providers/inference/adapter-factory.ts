@@ -19,6 +19,7 @@
  */
 
 import { AnthropicProvider } from "../anthropic/client.js";
+import { AtlasCloudProvider } from "../atlascloud/client.js";
 import { FireworksProvider } from "../fireworks/client.js";
 import { GeminiProvider } from "../gemini/client.js";
 import { MinimaxProvider } from "../minimax/client.js";
@@ -114,6 +115,11 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
     }),
   minimax: ({ apiKey, model, streamTimeoutMs }) =>
     new MinimaxProvider(apiKey, model, { streamTimeoutMs }),
+  atlascloud: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+    new AtlasCloudProvider(apiKey, model, {
+      streamTimeoutMs,
+      ...(baseURL ? { baseURL } : {}),
+    }),
 };
 
 /**
