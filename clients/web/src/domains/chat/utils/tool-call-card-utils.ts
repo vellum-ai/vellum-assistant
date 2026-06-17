@@ -62,6 +62,14 @@ export type ToolCallCardStep =
       startedAt?: number;
       /** Epoch-ms end of the reasoning run, when known. */
       completedAt?: number;
+      /**
+       * Ordinal of this reasoning segment among the group's GENUINE thinking
+       * items (0-based, in render order). Carried into the drawer payload so the
+       * open panel re-derives this exact segment's live text. Omitted for
+       * web-synthesized thinking steps (e.g. `web_fetch` "Reading …"), which
+       * have no backing reasoning item and keep the snapshot path.
+       */
+      thinkingItemIndex?: number;
     }
   | {
       kind: "web_search";
@@ -764,6 +772,10 @@ export function computeToolCallCardDataFromItems(
   // flowing through the tool/web header derivation, so we don't promote them
   // to a "Thinking" header.
   let trailingThinkingText: string | null = null;
+  // Ordinal of each genuine reasoning segment, in render order. Stamped onto its
+  // step so the drawer can re-derive that exact segment's live text. Mirrors the
+  // segment order `useLiveThinkingText` walks (truthy thinking items only).
+  let thinkingItemIndex = 0;
   for (const item of items) {
     if (item.kind === "thinking") {
       if (item.text) {
@@ -773,6 +785,7 @@ export function computeToolCallCardDataFromItems(
           text: item.text,
           startedAt: item.startedAt,
           completedAt: item.completedAt,
+          thinkingItemIndex: thinkingItemIndex++,
         });
         trailingThinkingText = item.text;
       }

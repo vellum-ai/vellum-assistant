@@ -4,8 +4,10 @@
  * `SubagentDetailPanel` shell (outer container, header with leading icon /
  * title / risk badge / close, scrollable body with sections).
  *
- * Driven by the `ToolDetailPayload` opened into `viewer-store`. Purely
- * presentational: it reads the payload and reports `onClose`.
+ * Driven by the `ToolDetailPayload` opened into `viewer-store`. The tool
+ * variant is purely presentational; the thinking variant additionally
+ * subscribes to the chat-session store so the reasoning text streams live
+ * (see `ThinkingDetailBody`).
  */
 
 import {
@@ -30,6 +32,7 @@ import { Button, Typography } from "@vellumai/design-library";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { RiskBadge } from "@/domains/chat/components/risk-badge";
 import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
+import { useLiveThinkingText } from "@/domains/chat/hooks/use-live-thinking-text";
 import {
     deriveStepLabelFromName,
     type IconName,
@@ -168,6 +171,35 @@ function DetailShell({
   );
 }
 
+/**
+ * Thinking variant body. Reuses the shared shell but renders the reasoning
+ * markdown live: it re-derives the text from the chat-session store via the
+ * payload's stable identity so an open drawer streams as deltas land, falling
+ * back to the open-time `thinkingText` snapshot when the source can't be
+ * resolved (e.g. message paged out, or an identity-less payload).
+ */
+function ThinkingDetailBody({
+  detail,
+  onClose,
+}: {
+  detail: ToolDetailPayload;
+  onClose: () => void;
+}) {
+  const live = useLiveThinkingText(
+    detail.messageId,
+    detail.thinkingGroupIndex,
+    detail.thinkingItemIndex,
+  );
+  return (
+    <DetailShell Glyph={Brain} title={detail.title} onClose={onClose}>
+      <ChatMarkdownMessage
+        content={live ?? detail.thinkingText ?? ""}
+        hardLineBreaks
+      />
+    </DetailShell>
+  );
+}
+
 export function ToolDetailPanel({
   detail,
   onClose,
@@ -180,11 +212,7 @@ export function ToolDetailPanel({
   // Thinking variant — reuse the same shell/header but render the full
   // reasoning markdown with no input/output sections and no risk badge.
   if (detail.kind === "thinking") {
-    return (
-      <DetailShell Glyph={Brain} title={detail.title} onClose={onClose}>
-        <ChatMarkdownMessage content={detail.thinkingText ?? ""} hardLineBreaks />
-      </DetailShell>
-    );
+    return <ThinkingDetailBody detail={detail} onClose={onClose} />;
   }
 
   const { iconName } = deriveStepLabelFromName(detail.toolName, detail.input);

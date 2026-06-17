@@ -6,10 +6,32 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
-import { ToolDetailPanel } from "@/domains/chat/components/tool-detail-panel";
+// `ToolDetailPanel`'s thinking variant subscribes to the chat-session store,
+// which transitively pulls in the generated daemon SDK. Stub every endpoint it
+// exports so the module loads, then import dynamically so the mock is registered
+// first. Mirrors the comprehensive mock in `multi-activity-group.test.tsx`.
+const sdkStub = async () => ({ data: undefined });
+const realSdkPath = new URL(
+  "../../../generated/daemon/sdk.gen.ts",
+  import.meta.url,
+).pathname;
+const sdkSource = await Bun.file(realSdkPath).text();
+const exportNames = [...sdkSource.matchAll(/^export const (\w+)/gm)].map(
+  (m) => m[1]!,
+);
+const sdkMock = Object.fromEntries(exportNames.map((n) => [n, sdkStub]));
+mock.module("@/generated/daemon/sdk.gen", () => sdkMock);
+
+const { ToolDetailPanel } = await import(
+  "@/domains/chat/components/tool-detail-panel"
+);
+const { useChatSessionStore } = await import(
+  "@/domains/chat/chat-session-store"
+);
 import type { ToolDetailPayload } from "@/stores/viewer-store";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 
 const noop = () => {};
 
@@ -39,6 +61,9 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  act(() => {
+    useChatSessionStore.setState({ messages: [] });
+  });
 });
 
 describe("ToolDetailPanel", () => {
@@ -148,5 +173,97 @@ describe("ToolDetailPanel", () => {
 
     fireEvent.click(getByLabelText("Close tool details"));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  test("thinking variant streams live reasoning from the chat-session store", () => {
+    act(() => {
+      useChatSessionStore.setState({
+        messages: [
+          {
+            id: "m1",
+            role: "assistant",
+            contentBlocks: [{ type: "thinking", thinking: "live reasoning" }],
+          },
+        ] as DisplayMessage[],
+      });
+    });
+    const detail = makeDetail({
+      kind: "thinking",
+      title: "Thought process",
+      messageId: "m1",
+      thinkingGroupIndex: 0,
+      thinkingText: "stale snapshot",
+    });
+    const { getByText, queryByText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    // The live store text wins over the open-time snapshot.
+    expect(getByText("live reasoning")).toBeDefined();
+    expect(queryByText("stale snapshot")).toBeNull();
+
+    // Growing the store message updates the already-open drawer.
+    act(() => {
+      useChatSessionStore.setState({
+        messages: [
+          {
+            id: "m1",
+            role: "assistant",
+            contentBlocks: [
+              { type: "thinking", thinking: "live reasoning, extended" },
+            ],
+          },
+        ] as DisplayMessage[],
+      });
+    });
+    expect(getByText("live reasoning, extended")).toBeDefined();
+  });
+
+  test("thinking variant falls back to the snapshot when the message is absent", () => {
+    const detail = makeDetail({
+      kind: "thinking",
+      title: "Thought process",
+      messageId: "missing",
+      thinkingGroupIndex: 0,
+      thinkingText: "snapshot fallback",
+    });
+    const { getByText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+    expect(getByText("snapshot fallback")).toBeDefined();
+  });
+
+  test("thinking variant selects a single reasoning segment by item index", () => {
+    act(() => {
+      useChatSessionStore.setState({
+        messages: [
+          {
+            id: "m1",
+            role: "assistant",
+            contentBlocks: [
+              { type: "thinking", thinking: "segment one" },
+              {
+                type: "tool_use",
+                toolCall: { id: "t1", name: "bash", input: {} },
+              },
+              { type: "thinking", thinking: "segment two" },
+            ],
+          },
+        ] as DisplayMessage[],
+      });
+    });
+    const detail = makeDetail({
+      kind: "thinking",
+      title: "Thinking",
+      messageId: "m1",
+      thinkingGroupIndex: 0,
+      thinkingItemIndex: 1,
+      thinkingText: "ignored snapshot",
+    });
+    const { getByText, queryByText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+    expect(getByText("segment two")).toBeDefined();
+    expect(queryByText("segment one")).toBeNull();
   });
 });
