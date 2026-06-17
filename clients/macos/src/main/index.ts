@@ -489,6 +489,23 @@ app.on("web-contents-created", (_event, contents) => {
   });
 
   contents.setWindowOpenHandler(({ url, disposition }) => {
+    // Programmatic popups (`window.open(url, name, features)` with size
+    // hints) come through as `new-window` disposition. The web app's OAuth /
+    // connect flows open a blank popup synchronously during the click handler
+    // (`window.open("", "_blank", "width=500,height=600")`), then navigate it
+    // to the OAuth URL after the API call resolves. Chromium resolves the
+    // empty string to `about:blank`, which must be allowed here so the popup
+    // handle is returned to the renderer for the subsequent postMessage
+    // callback chain.
+    if (disposition === "new-window" && url === "about:blank") {
+      return {
+        action: "allow",
+        overrideBrowserWindowOptions: {
+          webPreferences: hardenedWebPreferences(),
+        },
+      };
+    }
+
     // Only http(s) is ever opened — file:, javascript:, custom schemes are
     // denied with no fallback.
     let parsed: URL;
@@ -501,11 +518,8 @@ app.on("web-contents-created", (_event, contents) => {
       return { action: "deny" };
     }
 
-    // Programmatic popups (`window.open(url, name, features)` with size
-    // hints) come through as `new-window` disposition. The web app's OAuth /
-    // connect flows rely on the returned popup handle for postMessage
-    // callbacks, so allow these as in-app child windows that inherit the
-    // hardened webPreferences from the parent.
+    // Programmatic popups with a real URL also come through as `new-window`
+    // disposition and are allowed as in-app child windows.
     if (disposition === "new-window") {
       // Child popups inherit the same hardened baseline as every window. The
       // preload is intentionally omitted (these are OAuth/connect popups, not
