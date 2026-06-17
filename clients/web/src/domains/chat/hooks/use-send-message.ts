@@ -71,6 +71,7 @@ import {
   resolvePostError,
 } from "@/domains/chat/utils/send-message-utils";
 import { useComposerStore } from "@/domains/chat/composer-store";
+import { getSoundManager } from "@/lib/sounds/sound-manager";
 import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
 import { conversationsByIdCancelPost } from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/types/conversation-types";
@@ -670,6 +671,7 @@ export function useSendMessage({
         ...(willQueue ? { queueStatus: "queued" as const, queuePosition: 0 } : {}),
       };
       setMessages((prev) => [...prev, userMessage]);
+      void getSoundManager().play("message_sent");
 
       // Queue path: POST to assistant (it queues internally) but don't
       // disrupt the active turn.

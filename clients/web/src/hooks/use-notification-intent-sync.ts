@@ -17,6 +17,7 @@
  */
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { getSoundManager } from "@/lib/sounds/sound-manager";
 import {
   extractConversationId,
   postLocalNotification,
@@ -66,6 +67,7 @@ export function useNotificationIntentSync(
       return;
     }
 
+    void getSoundManager().play("notification");
     void postLocalNotification({
       title: event.title,
       body: event.body,
