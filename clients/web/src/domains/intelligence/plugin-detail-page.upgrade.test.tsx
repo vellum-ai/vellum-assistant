@@ -80,26 +80,22 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   ...sdkActual,
   pluginsByNameUpgradePost: upgradeSpy,
   pluginsGet: mock(async () => ({ data: { plugins: [] }, ...okResponse })),
-  pluginsSearchGet: mock(async () => ({
-    data: { matches: [] },
-    ...okResponse,
-  })),
+  pluginsSearchGet: mock(async () => ({ data: { matches: [] }, ...okResponse })),
   pluginsByNameGet: mock(async (options: { path: { name: string } }) => ({
     data: installedDetail(options.path.name),
     ...okResponse,
   })),
-  pluginsByNameInspectGet: mock(
-    async (options: { path: { name: string } }) => ({
-      data: inspectResponse(options.path.name, { status: "up-to-date" }),
-      ...okResponse,
-    }),
-  ),
+  pluginsByNameInspectGet: mock(async (options: { path: { name: string } }) => ({
+    data: inspectResponse(options.path.name, { status: "up-to-date" }),
+    ...okResponse,
+  })),
 }));
 
 const { pluginsByNameGetQueryKey, pluginsByNameInspectGetQueryKey } =
   await import("@/generated/daemon/@tanstack/react-query.gen");
-const { PluginDetailPage } =
-  await import("@/domains/intelligence/plugin-detail-page");
+const { PluginDetailPage } = await import(
+  "@/domains/intelligence/plugin-detail-page"
+);
 
 function installedDetail(name: string): PluginsByNameGetResponse {
   return {
