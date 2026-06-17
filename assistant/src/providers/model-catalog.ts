@@ -1148,6 +1148,18 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: false,
         pricing: { inputPer1mTokens: 0.2, outputPer1mTokens: 1.1 },
       },
+      // Z.ai
+      {
+        id: "z-ai/glm-5.2",
+        displayName: "GLM-5.2",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 131072,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+        pricing: { inputPer1mTokens: 1.4, outputPer1mTokens: 4.4 },
+      },
       // Mistral
       {
         id: "mistralai/mistral-medium-3",
