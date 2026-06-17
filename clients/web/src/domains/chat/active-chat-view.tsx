@@ -25,7 +25,6 @@ import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversat
 import { useViewerStore } from "@/stores/viewer-store";
 import { useDeployStore } from "@/stores/deploy-store";
 
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
@@ -92,7 +91,6 @@ export function ActiveChatView() {
   const { conversationId: urlConversationId } = useParams<{ conversationId?: string }>();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
-  const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
   const turnPhase = useTurnStore.use.phase();
 
   // -------------------------------------------------------------------------
@@ -235,7 +233,6 @@ export function ActiveChatView() {
     urlConversationId: urlConversationId ?? null,
     searchParams,
     activeConversation,
-    conversationGroupsUI,
     refreshEpoch,
     reachabilityReadyEpoch,
     onboardingDraftConversationIdRef,
