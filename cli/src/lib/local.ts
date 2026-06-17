@@ -963,6 +963,7 @@ export async function startLocalDaemon(
         "VELLUM_DEV",
         "VELLUM_DESKTOP_APP",
         "VELLUM_DISABLE_PLATFORM",
+        "VELLUM_DISABLE_REMOTE_MODEL_PROFILES",
         "VELLUM_WORKSPACE_DIR",
       ]) {
         if (process.env[key]) {
