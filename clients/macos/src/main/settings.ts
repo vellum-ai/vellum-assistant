@@ -19,6 +19,7 @@ export interface AppSettings {
   theme: "light" | "dark" | "system";
   featureFlags: Record<string, boolean>;
   launchAtLogin: boolean;
+  shareDiagnostics: boolean;
 }
 
 const schema: Schema<AppSettings> = {
@@ -38,6 +39,9 @@ const schema: Schema<AppSettings> = {
     default: {},
   },
   launchAtLogin: {
+    type: "boolean",
+  },
+  shareDiagnostics: {
     type: "boolean",
   },
 };

@@ -4,7 +4,9 @@ import {
   installSentryControlListeners,
   syncSentryClient,
 } from "@/lib/sentry/sentry-control";
+import { syncDiagnosticsToMain } from "@/runtime/diagnostics";
 import { sanitizeUrl } from "@/lib/sentry/url-sanitize";
+import { getDeviceBool } from "@/utils/device-settings";
 
 /**
  * Browser-side Sentry initialization, gated on the user's Share Diagnostics
@@ -103,8 +105,12 @@ const options: BrowserOptions = {
  * Bootstrap Sentry consent gating. Must be called after
  * `migrateDeviceSettings()` so the `device:share_diagnostics` key
  * is available when `readConsent()` reads localStorage.
+ *
+ * Also syncs the current consent state to the Electron main process
+ * (no-op on web/iOS) so the main-process Sentry client matches.
  */
 export function initSentry(): void {
   syncSentryClient(options);
   installSentryControlListeners(options);
+  syncDiagnosticsToMain(getDeviceBool("shareDiagnostics", false));
 }

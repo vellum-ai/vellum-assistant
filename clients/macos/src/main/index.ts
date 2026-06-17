@@ -1,8 +1,4 @@
 import "./env-seed";
-import { initSentryMain } from "./sentry";
-
-initSentryMain();
-
 import { app, net, protocol, shell } from "electron";
 import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
@@ -46,6 +42,7 @@ import {
   installEscapeMonitor,
   setDictationRecording,
 } from "./escape-monitor";
+import { installDiagnosticsIpc } from "./diagnostics";
 import { installFeatureFlagsIpc } from "./feature-flags";
 import { installFeedbackIpc } from "./feedback";
 import { installGlobalShortcuts } from "./global-shortcuts";
@@ -142,6 +139,10 @@ if (app.isPackaged) {
     app.setPath("userData", `${base}-${env}`);
   }
 }
+
+import { initSentryMain } from "./sentry";
+
+initSentryMain();
 
 // Single-instance lock: relaunches focus the existing window instead of
 // spawning a parallel main process. The second-instance handler fires on the
@@ -377,6 +378,7 @@ app
     installCsp();
     installHotkeysIpc();
     installFeatureFlagsIpc();
+    installDiagnosticsIpc();
     installLocalMode();
     // Refresh the PATH-wrapper locator every launch so app moves and
     // version bumps self-heal even if no CLI invocation happens this session.
