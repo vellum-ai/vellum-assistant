@@ -222,4 +222,32 @@ describe("fetchManagedProfileTemplates", () => {
     const result = await fetchManagedProfileTemplates();
     expect(result).toBeNull();
   });
+
+  test("empty profiles array → null (wholesale fallback)", async () => {
+    mockClient = makeClient(() =>
+      jsonResponse({ schema_version: 1, profiles: [] }),
+    );
+    const result = await fetchManagedProfileTemplates();
+    expect(result).toBeNull();
+  });
+
+  test("partial-but-valid subset (missing a known key) → null", async () => {
+    const profiles = fourValidProfiles().slice(0, 3);
+    mockClient = makeClient(() =>
+      jsonResponse({ schema_version: 1, profiles }),
+    );
+    const result = await fetchManagedProfileTemplates();
+    expect(result).toBeNull();
+  });
+
+  test("connection_name not in MANAGED_CONNECTION_NAMES → null", async () => {
+    const profiles = fourValidProfiles();
+    (profiles[0] as Record<string, unknown>).connection_name =
+      "anthropic-managd";
+    mockClient = makeClient(() =>
+      jsonResponse({ schema_version: 1, profiles }),
+    );
+    const result = await fetchManagedProfileTemplates();
+    expect(result).toBeNull();
+  });
 });

@@ -16,10 +16,11 @@
 
 import { z } from "zod";
 
-import type { ModelIntent } from "../providers/types.js";
+import { MANAGED_CONNECTION_NAMES } from "../providers/inference/connections.js";
+import { isModelIntent } from "../providers/model-intents.js";
 import { getLogger } from "../util/logger.js";
 import { getDisableRemoteModelProfiles } from "./env-registry.js";
-import { LLMProvider } from "./schemas/llm.js";
+import { EffortEnum, LLMProvider, ProfileSource } from "./schemas/llm.js";
 import {
   AUTO_PROFILE_KEY,
   MANAGED_PROFILE_NAMES,
@@ -34,58 +35,16 @@ const DEFAULT_TIMEOUT_MS = 3000;
 /** Only this response schema version is understood by this build. */
 const SUPPORTED_SCHEMA_VERSION = 1;
 
-// `ModelIntent` is a TS-only union (see providers/types.ts), so we redeclare it
-// as a zod enum here for runtime validation. The compile-time guard below fails
-// to compile if the two ever drift.
-const MODEL_INTENT_VALUES = [
-  "balanced",
-  "latency-optimized",
-  "quality-optimized",
-  "vision-optimized",
-] as const;
-const ModelIntentEnum = z.enum(MODEL_INTENT_VALUES);
-// Compile-time guard: the literal tuple must exactly match `ModelIntent`. If a
-// new intent is added to the union (or one removed), this assignment errors.
-const _modelIntentCheck: readonly ModelIntent[] = MODEL_INTENT_VALUES;
-void _modelIntentCheck;
-
-// `ManagedProfileTemplate["effort"]` is the optional effort union from
-// `ProfileEntry` (EffortEnum). Validate it structurally on the wire (any
-// non-empty string) and re-validate against the real effort values on map.
-const EFFORT_VALUES = [
-  "none",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-] as const;
-const EffortEnum = z.enum(EFFORT_VALUES);
-type Effort = NonNullable<ManagedProfileTemplate["effort"]>;
-// Compile-time guard: keep the local effort tuple in sync with the template's
-// effort type.
-const _effortCheck: readonly Effort[] = EFFORT_VALUES;
-void _effortCheck;
-
-// `ManagedProfileTemplate["source"]` is the `ProfileSource` union from
-// `ProfileEntry`. The wire carries it as a string ("managed" expected); we
-// re-validate against the real source values on map.
-const SOURCE_VALUES = ["managed", "user"] as const;
-const SourceEnum = z.enum(SOURCE_VALUES);
-type Source = NonNullable<ManagedProfileTemplate["source"]>;
-const _sourceCheck: readonly Source[] = SOURCE_VALUES;
-void _sourceCheck;
-
 const RemoteProfileSchema = z.object({
   key: z.string().min(1),
-  intent: ModelIntentEnum,
+  intent: z.string().refine(isModelIntent, { message: "unknown model intent" }),
   provider: LLMProvider,
   connection_name: z.string().min(1),
-  source: z.string().min(1),
+  source: ProfileSource,
   label: z.string().min(1),
   description: z.string(),
   max_tokens: z.number().int().positive(),
-  effort: z.string().min(1),
+  effort: EffortEnum,
   thinking: z.object({ enabled: z.boolean(), stream_thinking: z.boolean() }),
   context_window: z.object({ max_input_tokens: z.number().int().positive() }),
 });
@@ -98,8 +57,8 @@ const RemoteManagedProfilesResponseSchema = z.object({
 
 /**
  * Map a validated remote profile into the internal `ManagedProfileTemplate`
- * shape (snake_case → camelCase). The `effort` field is re-validated against
- * the real effort enum so the output is a typed effort value.
+ * shape (snake_case → camelCase). `RemoteProfileSchema` already validates every
+ * field, so this is a pure field rename with no further validation.
  */
 export function toManagedProfileTemplate(
   remote: RemoteProfile,
@@ -108,11 +67,11 @@ export function toManagedProfileTemplate(
     intent: remote.intent,
     provider: remote.provider,
     connectionName: remote.connection_name,
-    source: SourceEnum.parse(remote.source),
+    source: remote.source,
     label: remote.label,
     description: remote.description,
     maxTokens: remote.max_tokens,
-    effort: EffortEnum.parse(remote.effort),
+    effort: remote.effort,
     thinking: {
       enabled: remote.thinking.enabled,
       streamThinking: remote.thinking.stream_thinking,
@@ -198,7 +157,29 @@ export async function fetchManagedProfileTemplates(opts?: {
         );
         return null;
       }
+      if (!MANAGED_CONNECTION_NAMES.has(remote.connection_name)) {
+        log.warn(
+          { key: remote.key, connectionName: remote.connection_name },
+          "Remote model-profiles payload referenced a non-canonical managed connection — using built-ins",
+        );
+        return null;
+      }
       templates[remote.key] = toManagedProfileTemplate(remote);
+    }
+
+    // Wholesale-fallback gate: the payload must carry the FULL expected managed
+    // key set. An empty or partial map would leave omitted profiles un-seeded
+    // while profileOrder/activeProfile still reference the built-in names, so
+    // anything short of the complete set falls back to built-ins entirely.
+    const missingKeys = [...ALLOWED_REMOTE_KEYS].filter(
+      (key) => !(key in templates),
+    );
+    if (missingKeys.length > 0) {
+      log.warn(
+        { missingKeys },
+        "Remote model-profiles payload is missing expected managed keys — using built-ins",
+      );
+      return null;
     }
 
     log.info(
