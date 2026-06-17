@@ -13,7 +13,6 @@ import { ScheduleDetailView } from "@/domains/settings/components/schedule-detai
 import { ScheduleRow } from "@/domains/settings/components/schedule-row";
 import { ScheduleListColumnsHeader } from "@/domains/settings/components/schedule-shared-ui";
 import { SystemTaskDetailView } from "@/domains/settings/components/system-task-detail-view";
-import { SystemTasksSection } from "@/domains/settings/components/system-tasks-section";
 import { useSystemTasks } from "@/domains/settings/hooks/use-system-tasks";
 import {
   consolidationSubtitle,
@@ -22,7 +21,6 @@ import {
   pastOneTimeStatus,
   RETROSPECTIVE_SUBTITLE,
   scheduleUsageSummaryQueryOptions,
-  SYSTEM_TASK_URL_IDS,
   systemTaskKindFromUrlId,
   type ScheduleRowUsage,
   zeroScheduleUsageSummary,
@@ -458,27 +456,6 @@ export function SchedulesPage() {
           </div>
         </DetailCard>
       )}
-
-      <SystemTasksSection
-        heartbeatConfig={systemTasks.heartbeatConfig}
-        consolidationConfig={systemTasks.consolidationConfig}
-        retrospectiveConfig={systemTasks.retrospectiveConfig}
-        heartbeatUsage={systemTasks.heartbeatUsage}
-        consolidationUsage={systemTasks.consolidationUsage}
-        retrospectiveUsage={systemTasks.retrospectiveUsage}
-        isLoading={systemTasks.isLoading}
-        hasError={systemTasks.hasError}
-        onRetry={systemTasks.refetchAll}
-        onSelectHeartbeat={() =>
-          navigateToSchedule(SYSTEM_TASK_URL_IDS.heartbeat)
-        }
-        onSelectConsolidation={() =>
-          navigateToSchedule(SYSTEM_TASK_URL_IDS.consolidation)
-        }
-        onSelectRetrospective={() =>
-          navigateToSchedule(SYSTEM_TASK_URL_IDS.retrospective)
-        }
-      />
 
       {assistantId ? (
         <CreateScheduleModal

@@ -5,6 +5,7 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { Dropdown } from "@vellumai/design-library";
 
+import { SystemSchedulesUsageSection } from "@/components/system-schedules-usage-section";
 import { buildCallSiteMetadataMap } from "@/domains/logs/call-site-metadata";
 import {
     UsageTrendChart,
@@ -424,6 +425,8 @@ export function UsageTab({ assistantId }: UsageTabProps) {
         query={breakdownQuery}
         groups={decoratedBreakdown}
       />
+
+      <SystemSchedulesUsageSection assistantId={assistantId} />
 
       <CostAssistantSection
         onAnalyze={() => startCostConversation(COST_ANALYSIS_PROMPT)}
