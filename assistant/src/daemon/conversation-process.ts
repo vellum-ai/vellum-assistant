@@ -153,7 +153,7 @@ function resolveQueuedTurnInterfaceContext(
 }
 
 /** Build a SlashContext from the current conversation state and config. */
-function buildSlashContext(
+export function buildSlashContext(
   content: string,
   conversation: Conversation,
 ): SlashContext | undefined {

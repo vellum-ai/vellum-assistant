@@ -20,6 +20,25 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: "btw", description: "Ask a side question while the assistant is working", selectionBehavior: "insertTrailingSpace" },
 ];
 
+/**
+ * Slash commands handled locally without starting an assistant turn. They are
+ * resolved via the daemon's meta-command endpoint and rendered as an ephemeral
+ * card at the transcript tail. `/compact` is intentionally excluded — it runs
+ * the LLM (summarization) and is a real turn.
+ */
+const LOCAL_META_COMMAND_NAMES = new Set([
+  "clean",
+  "status",
+  "commands",
+  "models",
+]);
+
+/** True when `input` invokes a local meta command (e.g. `/clean`, `/status`). */
+export function isLocalMetaCommand(input: string): boolean {
+  const match = input.trim().match(/^\/([a-z]+)(?:\s|$)/i);
+  return match ? LOCAL_META_COMMAND_NAMES.has(match[1].toLowerCase()) : false;
+}
+
 /** Returns commands whose name starts with `filter` (case-insensitive). Empty filter returns all. */
 export function filteredCommands(filter: string): SlashCommand[] {
   if (!filter) return SLASH_COMMANDS;

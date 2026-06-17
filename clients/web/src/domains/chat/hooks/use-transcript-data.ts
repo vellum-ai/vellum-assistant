@@ -51,6 +51,7 @@ export function useTranscriptData({
 }: UseTranscriptDataParams): TranscriptData {
   // --- Store reads --------------------------------------------------------
   const messages = useChatSessionStore.use.messages();
+  const ephemeralMetaResults = useChatSessionStore.use.ephemeralMetaResults();
 
   const pendingSecret = useInteractionStore.use.pendingSecret();
   const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
@@ -105,6 +106,7 @@ export function useTranscriptData({
         isThinking: showThinking,
         thinkingLabel,
         autoRoutedProfileLabel,
+        ephemeralMetaResults,
         showOnboardingChoice,
       }),
     [
@@ -116,6 +118,7 @@ export function useTranscriptData({
       showThinking,
       thinkingLabel,
       autoRoutedProfileLabel,
+      ephemeralMetaResults,
       showOnboardingChoice,
     ],
   );

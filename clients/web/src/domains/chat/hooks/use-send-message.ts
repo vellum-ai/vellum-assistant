@@ -18,7 +18,12 @@ import {
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
+import { toast } from "@vellumai/design-library/components/toast";
 import { routes } from "@/utils/routes";
+import { conversationsByIdSlashPost } from "@/generated/daemon/sdk.gen";
+import { isLocalMetaCommand } from "@/domains/chat/components/chat-composer/slash-command-catalog";
+import { saveContextWindowUsage } from "@/domains/chat/utils/context-window-storage";
+import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 
 import type {
   DisplayAttachment,
@@ -546,6 +551,50 @@ export function useSendMessage({
   );
 
   // -------------------------------------------------------------------------
+  // runLocalMetaCommand — resolve a local meta slash command without a turn
+  // -------------------------------------------------------------------------
+  const runLocalMetaCommand = useCallback(
+    async (
+      command: string,
+      conversationId: string,
+      activeAssistantId: string,
+    ) => {
+      try {
+        const { data, error } = await conversationsByIdSlashPost({
+          path: { assistant_id: activeAssistantId, id: conversationId },
+          body: { command: command.trim() },
+          throwOnError: false,
+        });
+        if (error || !data) {
+          toast.error("Couldn't run that command. Please try again.");
+          return;
+        }
+        useChatSessionStore.getState().addEphemeralMetaResult({
+          id: crypto.randomUUID(),
+          kind: data.kind,
+          text: data.text,
+        });
+        if (data.contextUsage) {
+          const usage: ContextWindowUsage = {
+            tokens: data.contextUsage.tokens,
+            maxTokens: data.contextUsage.maxTokens,
+            fillRatio: data.contextUsage.fillRatio,
+          };
+          useChatSessionStore
+            .getState()
+            .setContextWindowUsageForConversation(conversationId, usage);
+          useChatSessionStore.getState().setContextWindowUsage(usage);
+          saveContextWindowUsage(activeAssistantId, conversationId, usage);
+        }
+      } catch (err) {
+        captureError(err, { context: "run_local_meta_command" });
+        toast.error("Couldn't run that command. Please try again.");
+      }
+    },
+    [],
+  );
+
+  // -------------------------------------------------------------------------
   // sendMessage — high-level send with UI state, queuing, draft resolution
   // -------------------------------------------------------------------------
   const sendMessage = useCallback(
@@ -573,6 +622,14 @@ export function useSendMessage({
         return;
       }
       setError(null);
+      // Local meta commands (/clean, /status, /commands, /models) never start a
+      // turn: resolve them via the daemon and render an ephemeral card.
+      if (isLocalMetaCommand(content)) {
+        await runLocalMetaCommand(content, activeConversationId, assistantId);
+        return;
+      }
+      // A real send supersedes any ephemeral meta-command cards.
+      useChatSessionStore.getState().clearEphemeralMetaResults();
       useInteractionStore.getState().resetSecretAndConfirmation();
       useChatSessionStore.getState().clearConfirmationToolCallMap();
       // Clear pending confirmations and dismiss interactive surfaces in a
@@ -811,6 +868,7 @@ export function useSendMessage({
       activeConversationId,
       assistantId,
       diskPressureChatBlockReason,
+      runLocalMetaCommand,
       sendMessageViaStream,
       refreshConversations,
       revertQueuedMessage,

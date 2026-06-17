@@ -3,7 +3,10 @@
 // messages + interaction state and emits a flat item array that the
 // Transcript component renders via a virtualised list.
 
-import type { DisplayMessage } from "@/domains/chat/types/types";
+import type {
+  DisplayMessage,
+  EphemeralMetaResult,
+} from "@/domains/chat/types/types";
 import type {
   MessageItem,
   PendingContactRequestItem,
@@ -27,6 +30,9 @@ export interface BuildTranscriptItemsInput {
   thinkingLabel?: string | null;
   /** Human-readable label when the daemon auto-routed to a different inference profile. */
   autoRoutedProfileLabel?: string | null;
+  /** Ephemeral local meta-command results (e.g. /clean, /status), rendered at
+   *  the transcript tail. Not persisted; cleared on the next send/switch. */
+  ephemeralMetaResults?: EphemeralMetaResult[];
   showOnboardingChoice?: boolean;
 }
 
@@ -82,6 +88,14 @@ export function buildTranscriptItems(
       message,
     };
     items.push(messageItem);
+  }
+
+  for (const result of input.ephemeralMetaResults ?? []) {
+    items.push({
+      kind: "ephemeralMeta",
+      key: `meta-${result.id}`,
+      result,
+    });
   }
 
   if (input.autoRoutedProfileLabel) {

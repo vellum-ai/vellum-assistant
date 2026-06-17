@@ -7041,6 +7041,71 @@ paths:
       responses:
         "202":
           description: Successful response
+  /v1/conversations/{id}/slash:
+    post:
+      operationId: conversations_by_id_slash_post
+      summary: Resolve a local meta slash command
+      description:
+        "Run a local meta slash command (/clean, /status, /commands, /models) without starting a turn: no messages
+        are persisted and no turn events are emitted. /clean also strips runtime injections from the history. Returns
+        the text to render and, for /clean, the post-strip context usage."
+      tags:
+        - conversations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                command:
+                  type: string
+                  description: The slash command text, e.g. `/clean` or `/status`.
+              required:
+                - command
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kind:
+                    type: string
+                    enum:
+                      - clean
+                      - info
+                  text:
+                    type: string
+                  contextUsage:
+                    type: object
+                    properties:
+                      tokens:
+                        type: number
+                      maxTokens:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      fillRatio:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                    required:
+                      - tokens
+                      - maxTokens
+                      - fillRatio
+                    additionalProperties: false
+                required:
+                  - kind
+                  - text
+                additionalProperties: false
   /v1/conversations/{id}/surface:
     post:
       operationId: conversations_by_id_surface_post
