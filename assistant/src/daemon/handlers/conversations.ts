@@ -2,6 +2,7 @@ import { v4 as uuid } from "uuid";
 
 import { clearAll, getConversation } from "../../memory/conversation-crud.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
+import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { createAbortReason } from "../../util/abort-reasons.js";
@@ -24,6 +25,7 @@ import {
 } from "../conversation-store.js";
 import type { ConfirmationResponse } from "../message-protocol.js";
 import { normalizeConversationType } from "../message-protocol.js";
+import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../trust-context.js";
 import { log } from "./shared.js";
 
 export function handleConfirmationResponse(msg: ConfirmationResponse): void {
@@ -157,10 +159,14 @@ export async function resolveMetaSlashCommand(
   }
   const conversation = await getOrCreateConversation(resolvedId);
   touchConversation(resolvedId);
-  // Hydrate persisted history before stripping/inspecting: a registry
-  // conversation the daemon holds but hasn't run a turn on can have an empty
-  // in-memory `messages` array, which would make `/clean` report 0 preserved
-  // and `/status` report 0 messages. Mirrors `processMessage`'s turn setup.
+  // Local meta commands are owner-initiated self-maintenance. Without a trusted
+  // context, `loadFromDb` filters history to non-guardian provenance — so for a
+  // guardian-authored conversation `/clean` reports 0 preserved and `/status` 0
+  // messages. Apply the guardian context before hydrating so the owner operates
+  // on the full history. A real turn re-resolves trust per-actor afterward.
+  if (isUntrustedTrustClass(conversation.trustContext?.trustClass)) {
+    conversation.setTrustContext(INTERNAL_GUARDIAN_TRUST_CONTEXT);
+  }
   await conversation.ensureActorScopedHistory();
 
   const slashResult = await resolveSlash(
