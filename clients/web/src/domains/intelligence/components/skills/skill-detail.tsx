@@ -1,18 +1,23 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
     ArrowDownToLine,
     ArrowLeft,
+    ExternalLink,
     FileText,
     Folder,
     Loader2,
     Trash2,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 
 import {
-    FileMarkdown,
-    isMarkdown,
-} from "@/components/file-markdown";
+    ContentActionBar,
+    EditFooter,
+    FileTextarea,
+    SourcePre,
+} from "@/components/file-editor";
+import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
 import { SkillIcon } from "@/domains/intelligence/components/skills/skill-icon";
 import { SkillOriginBadge } from "@/domains/intelligence/components/skills/skill-origin-badge";
 import {
@@ -24,8 +29,11 @@ import {
 import {
     skillsByIdFilesContentGetOptions,
     skillsByIdFilesGetOptions,
+    useWorkspaceWritePostMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { SkillsByIdFilesContentGetResponse } from "@/generated/daemon/types.gen";
+import { captureError } from "@/lib/sentry/capture-error";
+import { routes } from "@/utils/routes";
 import { Button, Card } from "@vellumai/design-library";
 
 interface SkillDetailProps {
@@ -222,10 +230,15 @@ export function SkillDetail({
               />
             </div>
           ) : activeFile ? (
-            <FileContent
+            <SkillFileContent
+              key={`${skill.id}/${activeFile.path}`}
+              assistantId={assistantId}
+              skillId={skill.id}
               fileName={activeFile.name}
+              filePath={activeFile.path}
               content={fileContentQuery.data?.content ?? null}
               isBinary={Boolean(fileContentQuery.data?.isBinary)}
+              editable={skill.kind === "installed"}
             />
           ) : (
             <p
@@ -242,15 +255,74 @@ export function SkillDetail({
   );
 }
 
-function FileContent({
+function SkillFileContent({
+  assistantId,
+  skillId,
   fileName,
+  filePath,
   content,
   isBinary,
+  editable,
 }: {
+  assistantId: string;
+  skillId: string;
   fileName: string;
+  filePath: string;
   content: string | null;
   isBinary: boolean;
+  editable: boolean;
 }) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [editableContent, setEditableContent] = useState("");
+
+  const workspacePath = `skills/${skillId}/${filePath}`;
+
+  const saveMutation = useWorkspaceWritePostMutation({
+    onSuccess: () => {
+      setIsEditing(false);
+      setEditableContent("");
+      void queryClient.invalidateQueries({
+        queryKey: [{ _id: "skillsByIdFilesContentGet" }],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: [{ _id: "skillsByIdFilesGet" }],
+      });
+      if (filePath === "SKILL.md") {
+        void queryClient.invalidateQueries({
+          queryKey: [{ _id: "skillsGet" }],
+        });
+      }
+    },
+    onError: (error) => {
+      captureError(error, { context: "skill-file-save", bestEffort: true });
+    },
+  });
+
+  const isDirty = isEditing && editableContent !== (content ?? "");
+
+  const handleSave = useCallback(() => {
+    if (!isDirty || saveMutation.isPending) return;
+    saveMutation.mutate({
+      path: { assistant_id: assistantId },
+      body: { path: workspacePath, content: editableContent, encoding: "utf8" },
+    });
+  }, [isDirty, saveMutation, assistantId, workspacePath, editableContent]);
+
+  const startEditing = useCallback(() => {
+    setIsEditing(true);
+    setEditableContent(content ?? "");
+    saveMutation.reset();
+  }, [content, saveMutation]);
+
+  const stopEditing = useCallback(() => {
+    setIsEditing(false);
+    setEditableContent("");
+    saveMutation.reset();
+  }, [saveMutation]);
+
   if (isBinary) {
     return (
       <p
@@ -273,23 +345,76 @@ function FileContent({
     );
   }
 
-  if (isMarkdown(fileName, undefined)) {
+  const openInWorkspaceButton = editable ? (
+    <Button
+      variant="ghost"
+      size="regular"
+      iconOnly={<ExternalLink aria-hidden />}
+      onClick={() =>
+        navigate(
+          `${routes.workspace}?file=${encodeURIComponent(workspacePath)}`,
+        )
+      }
+      aria-label="Open in Workspace"
+      className="hover:bg-[var(--surface-base)]"
+    />
+  ) : undefined;
+
+  if (isMarkdown(fileName, undefined) && !isEditing) {
     return (
-      <div
-        className="h-full overflow-auto px-6 py-4"
-        style={{ color: "var(--content-default)" }}
-      >
-        <FileMarkdown content={content} />
+      <div className="relative flex h-full flex-col">
+        <div
+          className="relative flex-1 overflow-auto px-6 py-4"
+          style={{ color: "var(--content-default)" }}
+        >
+          <ContentActionBar
+            content={content}
+            fileName={fileName}
+            showEdit={editable}
+            isEditing={false}
+            onToggleEdit={startEditing}
+            extraActions={openInWorkspaceButton}
+          />
+          <FileMarkdown content={content} />
+        </div>
       </div>
     );
   }
 
   return (
-    <pre
-      className="h-full overflow-auto p-4 font-mono text-body-small-default"
-      style={{ color: "var(--content-default)" }}
-    >
-      {content}
-    </pre>
+    <div className="flex h-full flex-col">
+      <div className="relative flex-1 overflow-hidden">
+        <ContentActionBar
+          content={isEditing ? editableContent : content}
+          fileName={fileName}
+          showEdit={editable}
+          isEditing={isEditing}
+          onToggleEdit={() => (isEditing ? stopEditing() : startEditing())}
+          extraActions={openInWorkspaceButton}
+        />
+        {isEditing ? (
+          <FileTextarea
+            value={editableContent}
+            onChange={setEditableContent}
+            onSave={handleSave}
+          />
+        ) : (
+          <SourcePre
+            content={content}
+            readOnly={!editable}
+            onStartEdit={startEditing}
+          />
+        )}
+      </div>
+      {isEditing && (
+        <EditFooter
+          isDirty={isDirty}
+          isSaving={saveMutation.isPending}
+          error={saveMutation.isError ? "Save failed" : null}
+          onSave={handleSave}
+          onDiscard={stopEditing}
+        />
+      )}
+    </div>
   );
 }
