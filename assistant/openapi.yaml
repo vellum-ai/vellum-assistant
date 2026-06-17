@@ -13241,7 +13241,7 @@ paths:
             type: string
           description:
             "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, openrouter, openai-compatible,
-            minimax"
+            minimax, atlascloud"
       responses:
         "200":
           description: Successful response
@@ -28214,6 +28214,7 @@ components:
         - openrouter
         - openai-compatible
         - minimax
+        - atlascloud
     ProfilePatchEntry:
       type: object
       properties:
@@ -28571,6 +28572,7 @@ components:
         - openrouter
         - openai-compatible
         - minimax
+        - atlascloud
     Auth:
       oneOf:
         - type: object

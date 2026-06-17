@@ -25,6 +25,7 @@ export const CONNECTION_PROVIDERS: ConnectionProvider[] = [
   "fireworks",
   "openrouter",
   "minimax",
+  "atlascloud",
   "openai-compatible",
 ];
 
