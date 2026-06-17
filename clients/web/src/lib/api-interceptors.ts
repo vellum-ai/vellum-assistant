@@ -36,7 +36,7 @@ import { client as gatewayClient } from "@/generated/gateway/client.gen";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { ApiError, extractErrorMessage } from "@/utils/api-errors";
-import { isLocalMode, isPlatformDisabled } from "@/lib/local-mode";
+import { isLocalMode, isPlatformDisabled, isRemoteGatewayMode } from "@/lib/local-mode";
 import {
     getSelfHostedActorToken,
     getSelfHostedIngressUrl,
@@ -49,6 +49,7 @@ import { getActiveOrganizationIdForRequests } from "@/stores/organization-store"
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const ELECTRON_RENDERER_ORIGIN_HEADER = "X-Vellum-Electron-Renderer-Origin";
+const NGROK_SKIP_BROWSER_WARNING_HEADER = "ngrok-skip-browser-warning";
 
 function getRendererTupleOrigin(): string {
   return `${window.location.protocol}//${window.location.host}`;
@@ -129,6 +130,11 @@ export async function rewriteForSelfHostedIngress(
   const headers = new Headers(request.headers);
   headers.delete("X-CSRFToken");
   headers.delete("Vellum-Organization-Id");
+  if (isRemoteGatewayMode()) {
+    // Ngrok free tunnels return an HTML interstitial to browser-shaped API
+    // requests unless this bypass header is present.
+    headers.set(NGROK_SKIP_BROWSER_WARNING_HEADER, "true");
+  }
 
   const token = getSelfHostedActorToken();
   if (token) {
@@ -167,6 +173,45 @@ export async function rewriteForSelfHostedIngress(
 }
 
 /**
+ * Remote-gateway mode serves the app and the gateway from the same nginx edge.
+ * Some platform-generated clients still call same-origin flat `/v1/...` routes
+ * (for example client feature flags), so they do not pass through the
+ * `/v1/assistants/{id}/...` self-hosted rewrite above. Treat those as gateway
+ * requests too: attach the paired browser token and strip platform-only auth.
+ */
+export function authorizeRemoteGatewayRequest(
+  request: Request,
+): Request | null {
+  if (!isRemoteGatewayMode()) return null;
+
+  const ingressUrl = getSelfHostedIngressUrl();
+  if (!ingressUrl) return null;
+
+  const url = new URL(request.url);
+  const ingress = new URL(ingressUrl);
+  const prefix = ingress.pathname.replace(/\/$/, "");
+  if (url.origin !== ingress.origin) return null;
+  if (!url.pathname.startsWith(`${prefix}/v1/`)) return null;
+
+  const headers = new Headers(request.headers);
+  headers.delete("X-CSRFToken");
+  headers.delete("Vellum-Organization-Id");
+  headers.set(NGROK_SKIP_BROWSER_WARNING_HEADER, "true");
+
+  const token = getSelfHostedActorToken();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  } else {
+    headers.delete("Authorization");
+  }
+
+  return new Request(request, {
+    headers,
+    credentials: "omit",
+  });
+}
+
+/**
  * Builds a request interceptor for a HeyAPI client.
  *
  * @param skipSegmentAllowlist — `true` for the daemon client (every
@@ -199,6 +244,11 @@ function createInterceptor({ skipSegmentAllowlist = false } = {}) {
     });
     if (selfHosted) {
       return selfHosted;
+    }
+
+    const remoteGateway = authorizeRemoteGatewayRequest(newRequest);
+    if (remoteGateway) {
+      return remoteGateway;
     }
 
     // Platform path — Django session auth.

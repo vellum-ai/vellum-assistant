@@ -631,7 +631,7 @@ class AssistantLifecycleService {
       } catch {
         health = "unreachable";
       }
-      if (health === "unreachable") {
+      if (health === "unreachable" && !isRemoteGatewayMode()) {
         const localStatusAssistantId =
           this.state.kind === "self_hosted" ||
           (this.state.kind === "active" && this.state.isLocal)

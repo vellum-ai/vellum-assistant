@@ -25,12 +25,36 @@ import {
 
 const isLocalModeMock = mock(() => !process.env.VITE_PLATFORM_MODE);
 const isPlatformDisabledMock = mock(() => false);
+const isRemoteGatewayModeMock = mock(
+  () => window.__VELLUM_CONFIG__?.mode === "remote-gateway",
+);
 mock.module("@/lib/local-mode", () => ({
+  getActiveAssistant: () => undefined,
+  getLocalAssistants: () => [],
+  getLocalGatewayUrl: () => undefined,
+  getLockfile: () => ({ assistants: [], activeAssistant: null }),
+  getPlatformAssistants: () => [],
+  getPlatformRuntimeUrl: () => window.location.origin,
+  getSelectedAssistant: () => undefined,
+  hasAssistants: () => false,
+  isGuardianRepairable: () => false,
+  isLocalAssistant: () => false,
   isLocalMode: isLocalModeMock,
   isPlatformDisabled: isPlatformDisabledMock,
+  isPlatformAssistant: () => false,
+  isRemoteGatewayMode: isRemoteGatewayModeMock,
+  loadLockfile: async () => ({ assistants: [], activeAssistant: null }),
+  primeLocalGatewayConnection: async () => {},
+  primeLocalGatewayConnectionWithRepair: async () => {},
+  reconcileSelectedAssistant: () => {},
+  retireLocalAssistant: async () => ({ ok: false }),
+  saveLockfileAssistant: async () => {},
+  setActiveLockfileAssistant: async () => {},
+  syncPlatformAssistantsToLockfile: async () => {},
 }));
 
 import {
+  authorizeRemoteGatewayRequest,
   daemonErrorInterceptor,
   daemonRequestInterceptor,
   localGatewayAuthRecoveryInterceptor,
@@ -438,6 +462,93 @@ describe("api-interceptors / daemon client self-hosted rewriting", () => {
     const output = await daemonRequestInterceptor(input);
     expect(output.headers.get("X-Vellum-Client-Id")).toBe(getClientId());
     expect(output.headers.get("X-Vellum-Interface-Id")).toBe("vellum");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Remote gateway direct requests
+// ---------------------------------------------------------------------------
+//
+// Remote web serves the SPA from the same nginx edge as the gateway. Some
+// platform-generated clients still call flat same-origin `/v1/...` routes
+// directly instead of `/v1/assistants/{id}/...`; those need the paired browser
+// token too.
+
+describe("api-interceptors / remote gateway direct requests", () => {
+  beforeEach(() => {
+    window.__VELLUM_CONFIG__ = { mode: "remote-gateway" };
+    useOrganizationStore.setState({ currentOrganizationId: TEST_ORG_ID });
+    setCsrfCookie("test-csrf-token");
+  });
+
+  afterEach(() => {
+    window.__VELLUM_CONFIG__ = undefined;
+    setSelfHostedConnection(null);
+    clearCsrfCookie();
+  });
+
+  test("authorizes same-origin flat /v1 requests with the paired browser token", async () => {
+    setSelfHostedConnection({
+      url: window.location.origin,
+      token: ACTOR_TOKEN,
+    });
+    const input = new Request(
+      `${window.location.origin}/v1/feature-flags/client-flag-values/`,
+      { headers: { "Vellum-Organization-Id": TEST_ORG_ID } },
+    );
+
+    const output = await requestInterceptor(input);
+
+    expect(output.url).toBe(input.url);
+    expect(output.credentials).toBe("omit");
+    expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
+    expect(output.headers.get("Vellum-Organization-Id")).toBeNull();
+    expect(output.headers.get("X-CSRFToken")).toBeNull();
+    expect(output.headers.get("ngrok-skip-browser-warning")).toBe("true");
+    expect(output.headers.get("X-Vellum-Client-Id")).toBe(getClientId());
+  });
+
+  test("adds the ngrok browser-warning bypass header to rewritten assistant routes", async () => {
+    setSelfHostedConnection({
+      url: window.location.origin,
+      token: ACTOR_TOKEN,
+    });
+    const input = new Request(
+      `${window.location.origin}/v1/assistants/self/messages?conversationId=conv-1`,
+    );
+
+    const output = await daemonRequestInterceptor(input);
+
+    expect(output.url).toBe(input.url);
+    expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
+    expect(output.headers.get("ngrok-skip-browser-warning")).toBe("true");
+  });
+
+  test("preserves a remote ingress path prefix for flat /v1 requests", () => {
+    setSelfHostedConnection({
+      url: `${window.location.origin}/assistant-123`,
+      token: ACTOR_TOKEN,
+    });
+    const input = new Request(
+      `${window.location.origin}/assistant-123/v1/feature-flags/client-flag-values/`,
+    );
+
+    const output = authorizeRemoteGatewayRequest(input);
+
+    expect(output?.url).toBe(input.url);
+    expect(output?.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
+  });
+
+  test("does not authorize non-prefixed /v1 requests when the remote ingress is path-prefixed", () => {
+    setSelfHostedConnection({
+      url: `${window.location.origin}/assistant-123`,
+      token: ACTOR_TOKEN,
+    });
+    const input = new Request(
+      `${window.location.origin}/v1/feature-flags/client-flag-values/`,
+    );
+
+    expect(authorizeRemoteGatewayRequest(input)).toBeNull();
   });
 });
 

@@ -35,20 +35,75 @@ const getAssistantMock = mock(async () => ({ ok: false, status: 404 }));
 const getAssistantHealthzMock = mock(async () => ({ ok: true }));
 
 mock.module("@/assistant/api", () => ({
+  acknowledgeAssistantDiskPressure: async () => ({ ok: true }),
+  activateAssistant: async () => ({ ok: true }),
+  createAssistantBackup: async () => ({ ok: true }),
   getAssistant: getAssistantMock,
+  getAssistantDiskPressureStatus: async () => ({ ok: true }),
   getAssistantHealthz: getAssistantHealthzMock,
+  hatchAssistant: async () => ({ ok: true }),
+  listAssistantBackups: async () => ({ ok: true, backups: [] }),
+  listAssistants: async () => ({ ok: true, data: [] }),
+  restartAssistant: async () => ({ ok: true }),
+  restoreAssistantBackup: async () => ({ ok: true }),
+  retireAssistant: async () => ({ ok: true }),
+  retireAssistantById: async () => ({ ok: true }),
 }));
 
-const setSelfHostedConnectionMock = mock((_args: unknown) => {});
+let selfHostedConnectionMockState: {
+  url: string | null;
+  token: string | null;
+} = { url: null, token: null };
+const setSelfHostedConnectionMock = mock(
+  (
+    connection: {
+      url: string | null;
+      token: string | null;
+    } | null,
+  ) => {
+    selfHostedConnectionMockState =
+      connection === null
+        ? { url: null, token: null }
+        : { url: connection.url, token: connection.token };
+  },
+);
 mock.module("@/lib/self-hosted/connection", () => ({
+  getSelfHostedActorToken: () => selfHostedConnectionMockState.token,
+  getSelfHostedIngressUrl: () => selfHostedConnectionMockState.url,
   setSelfHostedConnection: setSelfHostedConnectionMock,
 }));
 
 const isGatewayAuthModeMock = mock(() => false);
 const getGatewayTokenMock = mock(() => "token");
 mock.module("@/lib/auth/gateway-session", () => ({
-  isGatewayAuthMode: isGatewayAuthModeMock,
+  GatewayTokenError: class GatewayTokenError extends Error {
+    readonly status: number;
+
+    constructor(status: number, message: string) {
+      super(message);
+      this.name = "GatewayTokenError";
+      this.status = status;
+    }
+  },
+  clearGatewayToken: () => {
+    for (const key of [
+      "vellum:gw:token",
+      "vellum:gw:expiresAt",
+      "vellum:gw:tokenSource",
+      "gw:token",
+      "gw:expiresAt",
+      "gw:tokenSource",
+    ]) {
+      localStorage.removeItem(key);
+    }
+  },
+  ensureGatewayToken: async () => getGatewayTokenMock(),
   getGatewayToken: getGatewayTokenMock,
+  getLocalTokenUrl: () => undefined,
+  isGatewayAuthEnabled: isGatewayAuthModeMock,
+  isGatewayAuthMode: isGatewayAuthModeMock,
+  isRepairableGatewayTokenError: () => false,
+  setRemoteGatewayToken: () => {},
 }));
 
 const isLocalModeMock = mock(() => false);
@@ -58,12 +113,28 @@ const getSelectedAssistantMock = mock(
 );
 const getLocalGatewayUrlMock = mock((): string | undefined => undefined);
 mock.module("@/lib/local-mode", () => ({
-  isLocalMode: isLocalModeMock,
-  isRemoteGatewayMode: isRemoteGatewayModeMock,
-  isLocalAssistant: () => false,
-  isPlatformAssistant: () => false,
-  getSelectedAssistant: getSelectedAssistantMock,
+  getActiveAssistant: () => undefined,
+  getLocalAssistants: () => [],
   getLocalGatewayUrl: getLocalGatewayUrlMock,
+  getLockfile: () => ({ assistants: [], activeAssistant: null }),
+  getPlatformAssistants: () => [],
+  getPlatformRuntimeUrl: () => window.location.origin,
+  getSelectedAssistant: getSelectedAssistantMock,
+  hasAssistants: () => false,
+  isGuardianRepairable: () => false,
+  isLocalAssistant: () => false,
+  isLocalMode: isLocalModeMock,
+  isPlatformAssistant: () => false,
+  isPlatformDisabled: () => false,
+  isRemoteGatewayMode: isRemoteGatewayModeMock,
+  loadLockfile: async () => ({ assistants: [], activeAssistant: null }),
+  primeLocalGatewayConnection: async () => {},
+  primeLocalGatewayConnectionWithRepair: async () => {},
+  reconcileSelectedAssistant: () => {},
+  retireLocalAssistant: async () => ({ ok: false }),
+  saveLockfileAssistant: async () => {},
+  setActiveLockfileAssistant: async () => {},
+  syncPlatformAssistantsToLockfile: async () => {},
 }));
 
 const getLocalAssistantStatusHostMock = mock(
@@ -87,6 +158,8 @@ mock.module("@sentry/react", () => ({
 // Capture the unreachable-bus listener so tests can trigger it.
 let capturedUnreachableListener: (() => void) | null = null;
 mock.module("@/assistant/unreachable-bus", () => ({
+  UNREACHABLE_STATUS_CODES: new Set<number>([502, 503, 504]),
+  notifyAssistantUnreachable: () => {},
   subscribeAssistantUnreachable: (listener: () => void) => {
     capturedUnreachableListener = listener;
     return () => {
@@ -952,6 +1025,37 @@ describe("lifecycleService — local health heartbeat", () => {
         );
       });
     }
+  });
+
+  test("remote gateway heartbeat does not call host local status fallback", async () => {
+    isGatewayAuthModeMock.mockImplementation(() => true);
+    isRemoteGatewayModeMock.mockImplementation(() => true);
+    getAssistantHealthzMock.mockImplementation(async () => ({
+      ok: false,
+      status: 503,
+    }));
+    getLocalAssistantStatusHostMock.mockImplementation(
+      async (_assistantId: string): Promise<LocalAssistantStatusResult> => ({
+        ok: true,
+        state: "sleeping",
+      }),
+    );
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+
+    await lifecycleService.respondToInputs();
+
+    await waitFor(() => {
+      const s = useAssistantLifecycleStore.getState().assistantState;
+      return (
+        s.kind === "active" &&
+        s.health === "unreachable" &&
+        s.reachable === false
+      );
+    });
+    expect(getLocalAssistantStatusHostMock).not.toHaveBeenCalled();
   });
 
   test("heartbeat asks host status for the selected local assistant when active id is internal", async () => {
