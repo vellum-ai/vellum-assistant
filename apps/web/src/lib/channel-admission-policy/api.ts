@@ -123,6 +123,7 @@ export async function setChannelPolicy(
 export async function fetchConversationOverride(
   assistantId: string,
   conversationId: string,
+  channelType?: string | null,
 ): Promise<ConversationOverrideView> {
   const { data, error, response } = await client.get<
     ConversationResponse,
@@ -130,6 +131,10 @@ export async function fetchConversationOverride(
   >({
     url: "/v1/assistants/{assistant_id}/channel-admission-policy/conversations/{conversation_id}",
     path: { assistant_id: assistantId, conversation_id: conversationId },
+    // Pass channelType hint so the gateway can resolve the correct floor for
+    // row-less conversations — without it the gateway falls back to
+    // trusted_contacts regardless of the per-channel policy (Codex P1).
+    query: channelType ? { channelType } : undefined,
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to load conversation override.");

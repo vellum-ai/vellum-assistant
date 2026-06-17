@@ -222,15 +222,20 @@ export class AdmissionPolicyStore {
    * `override` is null when no row exists (meaning "inherit type floor").
    * `typeFloor` is merged from the channel-type policy row or the default.
    */
-  getConversationOverride(conversationId: string): ConversationOverrideView {
+  getConversationOverride(
+    conversationId: string,
+    channelTypeHint?: string,
+  ): ConversationOverrideView {
     const row = this.db
       .select()
       .from(conversationAdmissionOverride)
       .where(eq(conversationAdmissionOverride.conversationId, conversationId))
       .get();
 
-    // Resolve the type floor from the stored channelType (if any).
-    const channelType = row?.channelType ?? null;
+    // Resolve the type floor from: stored channelType > client hint > default.
+    // Accepting a hint from the GET request lets row-less conversations show
+    // the correct floor for channels whose policy was changed from the default.
+    const channelType = row?.channelType ?? channelTypeHint ?? null;
     const typeFloor =
       channelType && isChannelId(channelType)
         ? this.get(channelType)

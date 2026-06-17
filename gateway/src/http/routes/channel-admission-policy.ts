@@ -168,15 +168,18 @@ function overrideToView(view: ConversationOverrideView): ConversationOverrideVie
 // ---------------------------------------------------------------------------
 
 export function createConversationAdmissionGetHandler() {
-  return async (_req: Request, conversationId: string): Promise<Response> => {
+  return async (req: Request, conversationId: string): Promise<Response> => {
     if (!conversationId) {
       return Response.json({ error: "conversationId is required" }, { status: 400 });
     }
     try {
+      // Accept an optional ?channelType= hint from the client so the floor
+      // can be resolved correctly for row-less conversations even when the
+      // DB has no stored channelType yet (Codex P1 fix).
+      const url = new URL(req.url);
+      const channelTypeHint = url.searchParams.get("channelType") || undefined;
       const store = new AdmissionPolicyStore();
-      const view = store.getConversationOverride(conversationId);
-      // §8.1: exempt channel reads are allowed (GET is safe) but we surface
-      // the channelType so callers can decide how to render it.
+      const view = store.getConversationOverride(conversationId, channelTypeHint);
       return Response.json({ override: overrideToView(view) });
     } catch (err) {
       log.error({ err }, "Failed to get conversation admission override");

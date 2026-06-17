@@ -15,6 +15,7 @@ import { MacOSAppBanner } from "@/components/nudges/macos-app-banner";
 import { ConversationAdmissionFloorSection } from "@/components/conversation-card/conversation-admission-floor-section";
 import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-drawer";
 import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer";
+import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { isInternalChannel } from "@/lib/channel-admission-policy/api";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
@@ -129,17 +130,20 @@ export function useChatBannerSlots({
     );
   }, [activeConversation, sanitizedMessages, assistantId]);
 
-  // §8.3: per-conversation trust-floor picker. Only rendered for external
-  // channel conversations (originChannel set + not an exempt internal channel).
+  // §8.3: per-conversation trust-floor picker. Use `isChannelConversation()`
+  // instead of a raw originChannel check so `notification:*` outbound-only
+  // conversations are excluded (they have no inbound admission surface).
+  // Also guard against internal channels per §8.1.
   const channelFloorSlot = useMemo((): ReactNode => {
     const originChannel = activeConversation?.originChannel;
     const conversationId = activeConversation?.conversationId;
-    if (!originChannel || !conversationId) return null;
-    if (isInternalChannel(originChannel)) return null;
+    if (!conversationId) return null;
+    if (!isChannelConversation(activeConversation)) return null;
+    if (originChannel && isInternalChannel(originChannel)) return null;
     return (
       <ConversationAdmissionFloorSection
         conversationId={conversationId}
-        originChannel={originChannel}
+        originChannel={originChannel ?? ""}
       />
     );
   }, [activeConversation]);

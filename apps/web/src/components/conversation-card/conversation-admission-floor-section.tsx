@@ -57,7 +57,9 @@ export function ConversationAdmissionFloorSection({
 
   const { data, isLoading } = useQuery({
     queryKey,
-    queryFn: () => fetchConversationOverride(assistantId, conversationId),
+    // Pass originChannel so the gateway can resolve the correct floor even
+    // when no override row exists yet (Codex P1: row-less floor resolution).
+    queryFn: () => fetchConversationOverride(assistantId, conversationId, originChannel),
     staleTime: 30_000,
     // §8.2: silent failure — no error toasts; the picker just stays in
     // the "inherit" state if the fetch fails.
