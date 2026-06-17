@@ -203,13 +203,9 @@ export interface CesStartupResult {
 export async function resolveManagedTemplatesForSeeding(): Promise<
   Record<string, ManagedProfileTemplate> | undefined
 > {
+  // fetchManagedProfileTemplates already logs the success line (with count) on a
+  // non-null result, so we only normalize null → undefined here.
   const remoteManagedTemplates = await fetchManagedProfileTemplates();
-  if (remoteManagedTemplates) {
-    log.info(
-      { count: Object.keys(remoteManagedTemplates).length },
-      "Using platform-provided managed model profiles for seeding",
-    );
-  }
   return remoteManagedTemplates ?? undefined;
 }
 

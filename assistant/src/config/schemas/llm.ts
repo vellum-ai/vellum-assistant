@@ -102,7 +102,14 @@ export type LLMCallSite = z.infer<typeof LLMCallSiteEnum>;
  * All other values map to provider-specific tiers via each provider's own
  * mapping table.
  */
-const EffortEnum = z.enum(["none", "low", "medium", "high", "xhigh", "max"]);
+export const EffortEnum = z.enum([
+  "none",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
 
 export const SpeedEnum = z.enum(["standard", "fast"]);
 export type Speed = z.infer<typeof SpeedEnum>;
@@ -285,7 +292,7 @@ const OpenRouterDeepPartialSchema = z.object({
  * Distinguishes daemon-managed profiles (overwritten on every startup) from
  * user-created ones (never touched by the daemon).
  */
-const ProfileSource = z.enum(["managed", "user"]);
+export const ProfileSource = z.enum(["managed", "user"]);
 type ProfileSource = z.infer<typeof ProfileSource>;
 
 // ---------------------------------------------------------------------------
