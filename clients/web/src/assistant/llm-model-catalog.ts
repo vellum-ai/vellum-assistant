@@ -578,6 +578,16 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
   ],
+  atlascloud: [
+    {
+      id: "deepseek-ai/deepseek-v4-pro",
+      displayName: "DeepSeek V4 Pro",
+      contextWindowTokens: 128_000,
+      defaultContextWindowTokens: 128_000,
+      maxOutputTokens: 8_192,
+      supportsThinking: true,
+    },
+  ],
   "openai-compatible": [
   ],
 } as const satisfies Record<string, readonly LlmCatalogModel[]>;
@@ -591,6 +601,7 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
   fireworks: "accounts/fireworks/models/kimi-k2p5",
   openrouter: "x-ai/grok-4.20-beta",
   minimax: "MiniMax-M2.7",
+  atlascloud: "deepseek-ai/deepseek-v4-pro",
   "openai-compatible": "",
 };
 
@@ -609,6 +620,7 @@ export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   openrouter: "OpenRouter",
   "openai-compatible": "OpenAI-compatible",
   minimax: "MiniMax",
+  atlascloud: "Atlas Cloud",
 };
 
 /**
@@ -627,6 +639,7 @@ export const PROVIDER_SUPPORTS_PLATFORM_AUTH: Record<string, boolean> = {
   openrouter: false,
   "openai-compatible": false,
   minimax: false,
+  atlascloud: false,
 };
 
 export const MANAGED_MODELS = MODELS_BY_PROVIDER.anthropic;
