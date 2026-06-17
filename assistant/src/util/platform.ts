@@ -402,8 +402,8 @@ export function getSkillRuntimePath(
  *
  * Resolution order:
  *
- *   1. macOS `.app` bundle: `Contents/Resources/bun` — shipped by
- *      `clients/macos/build.sh` at a version that matches `.tool-versions`.
+ *   1. macOS `.app` bundle: `Contents/Resources/bun` — bundled at a version
+ *      that matches `.tool-versions`.
  *   2. Next-to-binary: `<execDir>/bun` for Docker/generic compiled layouts
  *      that stage a bun binary alongside the daemon (PR 29 wires this up).
  *

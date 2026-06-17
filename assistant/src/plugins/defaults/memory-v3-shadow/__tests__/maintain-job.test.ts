@@ -71,6 +71,7 @@ describe("maintainJob", () => {
         return makeIndex(slugs);
       },
       readPageBody: async (slug) => `body for ${slug}`,
+      readCapabilityBody: async (slug) => `capability body for ${slug}`,
       deleteSectionsForArticle: async (_config, article) => {
         calls.deleted.push(article);
       },
@@ -283,6 +284,9 @@ describe("maintainJob", () => {
     const { deps: d, calls } = deps({
       loadCoreSet: () => ["page-live", "page-gone", "skills/example"],
       listIndexedSlugs: async () => ["page-live", "skills/example"],
+      // The capability row is already in the store, so the reconcile stage
+      // no-ops here and this test exercises core-validation in isolation.
+      listSectionArticles: async () => ["skills/example"],
     });
     const outcome = await maintainJob(JOB, CONFIG, d);
 
@@ -317,8 +321,9 @@ describe("maintainJob", () => {
     });
     const outcome = await maintainJob(JOB, CONFIG, d);
     expect(outcome.danglingCoreSlugs).toEqual([]);
-    // The prune stage reads the index once; the core stage adds no second read.
-    expect(indexReads).toBe(1);
+    // The reconcile and prune stages each read the index once; the empty core
+    // stage adds no further read.
+    expect(indexReads).toBe(2);
   });
 
   test("a thrown core-validation stage is contained and does not abort lane invalidation", async () => {
@@ -350,6 +355,53 @@ describe("maintainJob", () => {
     // Invalidation still runs after a thrown prune stage.
     expect(calls.invalidate).toBe(1);
     expect(outcome.invalidated).toBe(true);
+  });
+
+  test("reconciles capability rows missing from the section store", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    // The index lists a real page and three capability rows; the store already
+    // holds one of the caps. The change-delta excludes capability rows, so
+    // without this stage a skill enabled after the one-time backfill never
+    // reaches the dense lane. selectChangedPages stays empty so `calls.built`
+    // reflects reconcile embeds only.
+    const { deps: d, calls } = deps({
+      selectChangedPages: async () => [],
+      listIndexedSlugs: async () => [
+        "page-a",
+        "skills/already",
+        "skills/workflows",
+        "skills/another",
+      ],
+      listSectionArticles: async () => ["page-a", "skills/already"],
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+
+    // Only the caps missing from the store are embedded; the real page (handled
+    // by the change-delta stage) and the already-stored cap are left alone.
+    expect(outcome.capabilitiesReconciled).toBe(2);
+    expect(outcome.reconcileFailures).toBe(0);
+    expect(calls.built).toEqual([["skills/workflows"], ["skills/another"]]);
+    expect(calls.deleted).toEqual(["skills/workflows", "skills/another"]);
+    expect(calls.upserted.flat().map((s) => s.article)).toEqual([
+      "skills/workflows",
+      "skills/another",
+    ]);
+  });
+
+  test("skips a cold capability row (empty body) without deleting its points", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    const { deps: d, calls } = deps({
+      listIndexedSlugs: async () => ["skills/cold"],
+      listSectionArticles: async () => [],
+      readCapabilityBody: async () => "", // capability store not seeded yet
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+
+    expect(outcome.capabilitiesReconciled).toBe(0);
+    expect(outcome.reconcileFailures).toBe(0);
+    // Never replace good points with a blank: no delete, no upsert.
+    expect(calls.deleted).toEqual([]);
+    expect(calls.upserted).toEqual([]);
   });
 });
 

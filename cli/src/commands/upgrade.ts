@@ -1012,7 +1012,7 @@ async function upgradePlatform(
 }
 
 /**
- * Pre-upgrade steps for Sparkle (macOS app) lifecycle.
+ * Pre-upgrade steps for the macOS app upgrade lifecycle.
  * Runs the pre-update orchestration without actually swapping containers:
  * broadcasts SSE events, creates a workspace commit, creates a backup,
  * prunes old backups, and outputs the backup path.
@@ -1035,7 +1035,7 @@ async function upgradePrepare(
   await commitWorkspaceViaGateway(
     entry.runtimeUrl,
     entry.assistantId,
-    `[sparkle-update] Starting: ${currentVersion} → ${targetVersion}`,
+    `[assistant-upgrade] Starting: ${currentVersion} → ${targetVersion}`,
   );
 
   // 3. Progress: saving backup
@@ -1070,7 +1070,7 @@ async function upgradePrepare(
 }
 
 /**
- * Post-upgrade steps for Sparkle (macOS app) lifecycle.
+ * Post-upgrade steps for the macOS app upgrade lifecycle.
  * Called after the app has been replaced and the daemon is back up.
  * Broadcasts a "complete" SSE event and creates a workspace commit.
  */
@@ -1103,7 +1103,7 @@ async function upgradeFinalize(
   await commitWorkspaceViaGateway(
     entry.runtimeUrl,
     entry.assistantId,
-    `[sparkle-update] Complete: ${fromVersion} → ${currentVersion}\n\nresult: success`,
+    `[assistant-upgrade] Complete: ${fromVersion} → ${currentVersion}\n\nresult: success`,
   );
 }
 

@@ -1018,7 +1018,7 @@ export async function startLocalDaemon(
     let daemonReady = await waitForDaemonReady(resources.daemonPort, 60000);
 
     // Dev fallback: if the bundled daemon did not become ready in time,
-    // fall back to source daemon startup so local `./build.sh run` still works.
+    // fall back to source daemon startup so local source runs still work.
     if (!daemonReady) {
       const assistantIndex = resolveAssistantIndexPath();
       if (assistantIndex) {

@@ -59,6 +59,14 @@ function proxyExecute(toolName: string) {
       };
     }
 
+    if (toolName === "ui_update" && isEmptyUpdate(input)) {
+      return {
+        content:
+          'Error: ui_update received an empty `data` payload, so the surface was unchanged — the user still sees its previous state. The provided data is merged into the surface\'s current data, and merging nothing is a no-op. To advance a task_progress card, send the full step list: ui_update { surface_id: "<id>", data: { templateData: { steps: [{ label: "<step>", status: "completed" }, { label: "<step>", status: "in_progress" }] } } }. Resend ui_update with the fields you intend to change under `data`.',
+        isError: true,
+      };
+    }
+
     if (!context.proxyToolResolver) {
       return {
         content: `No proxy resolver configured for proxy tool "${toolName}". This tool requires an external resolver (e.g. a connected macOS client).`,
@@ -96,6 +104,36 @@ function isTaskProgressCardShow(input: Record<string, unknown>): boolean {
   }
   const data = asRecord(input.data);
   return data?.template === "task_progress";
+}
+
+/**
+ * A `ui_update` whose `data` merge would change nothing: missing, not an
+ * object, or containing only (recursively) empty objects. Merging such a
+ * payload is a silent no-op — the surface keeps its prior state while the
+ * client still reports "Surface updated" — so the model never learns its
+ * update was hollow and a live card (e.g. task_progress) appears frozen.
+ * Arrays (e.g. `templateData.steps`) and any non-empty primitive leaf count
+ * as content.
+ */
+function isEmptyUpdate(input: Record<string, unknown>): boolean {
+  const data = asRecord(input.data);
+  return data === null || !hasContent(data);
+}
+
+function hasContent(value: unknown): boolean {
+  if (value === null || value === undefined) {
+    return false;
+  }
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+  if (typeof value === "object") {
+    return Object.values(value).some(hasContent);
+  }
+  if (typeof value === "string") {
+    return value.trim().length > 0;
+  }
+  return true;
 }
 
 function isEmptyDynamicPage(input: Record<string, unknown>): boolean {
@@ -311,7 +349,7 @@ export const uiShowTool = {
 // ui_update
 // ---------------------------------------------------------------------------
 
-const uiUpdateTool = {
+export const uiUpdateTool = {
   name: "ui_update",
   description:
     "Update an existing surface's data. The provided data object is merged into the surface's current data.\n" +

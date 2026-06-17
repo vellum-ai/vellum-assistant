@@ -23,6 +23,7 @@ export const LLMProvider = z
     "openrouter",
     "openai-compatible",
     "minimax",
+    "atlascloud",
   ])
   .meta({ id: "LLMProvider" });
 type LLMProvider = z.infer<typeof LLMProvider>;

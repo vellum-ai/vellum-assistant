@@ -239,15 +239,75 @@ export default async function preModelCall(
   // ctx.conversationId       — ID of the conversation the call belongs to
   // ctx.callSite             — call site ("mainAgent" for the user-facing reply)
   // ctx.systemPrompt         — system prompt about to be sent; replace to edit it
+  // ctx.modelProfile         — inference profile (key in `llm.profiles`) this call
+  //                            routes to; set it to route to a different profile
   // ctx.deferAssistantOutput — set true to suppress this turn's live text stream
   //                            (a `post-model-call` hook then emits the text)
   // ctx.logger               — turn-scoped; tag log fields with { plugin: <name> }
 }
 ```
 
+Setting `ctx.modelProfile` to a profile key (one of the entries in the
+workspace's `llm.profiles`) routes this single call to that profile — the lever a
+**model router** uses to pick a model per message. It is seeded with the call's
+already-resolved override profile; clear it to `null` to send no override. For
+the user-facing `mainAgent` call the named profile sits at the top of resolution
+precedence (above the workspace's active profile), so the hook's choice wins; a
+key that names no profile falls through unchanged.
+
+Context-window sizing and overflow recovery for a call are computed from the
+profile resolved before the hook runs, so routing a near-budget conversation to
+a profile with a smaller context window relies on the loop's overflow recovery
+(compact and retry) rather than proactive compaction.
+
+```ts
+// hooks/pre-model-call.ts — route the user-facing reply by classified intent
+import type { PreModelCallContext } from "@vellumai/plugin-api";
+
+export default function preModelCall(ctx: PreModelCallContext): void {
+  // Only route the user-facing reply; leave background/utility calls untouched.
+  if (ctx.callSite !== "mainAgent") return;
+  ctx.modelProfile = classify(ctx); // e.g. "cost-optimized" | "balanced" | "quality-optimized"
+}
+```
+
 Multiple plugins' hooks chain in registration order — each sees the previous
 hook's edits. Throwing is contained by the loop: the provider call proceeds with
 the original request.
+
+**Discovering routable profiles.** Profile keys vary per workspace, so a router
+shouldn't hard-code them. The runtime handle `getModelProfiles()` returns the
+profiles this workspace defines, in the order the `/model` picker shows them —
+each entry is `{ key, label, description, isActive, isDisabled, isMix }`. Assign
+a `key` to `ctx.modelProfile` to route a call there. Disabled profiles are
+included and flagged via `isDisabled`; weighted "mix" profiles are included and
+flagged via `isMix` (a mix is a valid target — routing to it A/B-splits the call
+across its constituents per conversation). It reads live config, so call it
+whenever you need the current set — at `init` to build a map once, or per call.
+
+```ts
+// hooks/init.ts — build and validate the router's category → profile map
+import { getModelProfiles, type PluginInitContext } from "@vellumai/plugin-api";
+
+const CATEGORY_PROFILE: Record<string, string> = {
+  chat: "cost-optimized",
+  research: "balanced",
+  deep: "quality-optimized",
+};
+
+export default function init(ctx: PluginInitContext): void {
+  const routable = new Set(
+    getModelProfiles()
+      .filter((p) => !p.isDisabled)
+      .map((p) => p.key),
+  );
+  for (const [category, key] of Object.entries(CATEGORY_PROFILE)) {
+    if (!routable.has(key)) {
+      ctx.logger.warn({ category, key }, "configured profile missing or disabled");
+    }
+  }
+}
+```
 
 ### `post-tool-use`
 

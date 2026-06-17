@@ -42,6 +42,33 @@ def _fireworks_response_json() -> bytes:
     ).encode("utf-8")
 
 
+def _fireworks_streaming_sse() -> bytes:
+    """SSE frames a Fireworks server sends with include_usage streaming.
+
+    Content chunks carry `choices`, the terminal chunk carries the top-level
+    `usage`, then the `[DONE]` sentinel.
+    """
+    frames = [
+        "data: "
+        + json.dumps(
+            {
+                "model": "accounts/fireworks/models/minimax-m3",
+                "choices": [{"index": 0, "delta": {"content": "Hi"}}],
+            }
+        ),
+        "data: "
+        + json.dumps(
+            {
+                "model": "accounts/fireworks/models/minimax-m3",
+                "choices": [],
+                "usage": {"prompt_tokens": 4096, "completion_tokens": 128},
+            }
+        ),
+        "data: [DONE]",
+    ]
+    return "\n\n".join(frames).encode("utf-8")
+
+
 class _FakeMessage:
     """Mimics mitmproxy's Message: `content` is decoded, `raw_content` is raw."""
 
@@ -84,14 +111,16 @@ class _FakeResponse(_FakeMessage):
         decoded: bytes,
         raw: bytes,
         content_type: str,
+        content_encoding: str | None = None,
         timestamp_end: float | None = None,
     ) -> None:
-        super().__init__(
-            decoded=decoded,
-            raw=raw,
-            headers={"content-type": content_type},
-        )
+        headers = {"content-type": content_type}
+        if content_encoding is not None:
+            headers["content-encoding"] = content_encoding
+        super().__init__(decoded=decoded, raw=raw, headers=headers)
         self.status_code = 200
+        # mitmproxy assigns a callable here to switch on pass-through streaming.
+        self.stream: object = False
         self.timestamp_end = timestamp_end
 
 
@@ -99,6 +128,7 @@ class _FakeFlow:
     def __init__(self, request: _FakeRequest, response: _FakeResponse) -> None:
         self.request = request
         self.response = response
+        self.metadata: dict[str, object] = {}
 
 
 class ResponseHookGzipTest(unittest.TestCase):
@@ -238,6 +268,42 @@ class ResponseHookGzipTest(unittest.TestCase):
             record["model"], "accounts/fireworks/models/minimax-m3"
         )
 
+    def test_openai_responses_host_is_not_recorded(self) -> None:
+        """OpenAI's `api.openai.com` is intentionally left out of the recorded set.
+
+        The assistant's `openai` provider speaks the Responses API
+        (`/v1/responses`), which the chat-completions parser cannot read, so the
+        host is excluded from interception rather than recorded as $0.
+        """
+        # GIVEN an OpenAI Responses API response on api.openai.com
+        response_body = json.dumps(
+            {
+                "model": "gpt-5.2",
+                "usage": {"input_tokens": 100, "output_tokens": 20},
+            }
+        ).encode("utf-8")
+        flow = _FakeFlow(
+            request=_FakeRequest(
+                host="api.openai.com",
+                path="/v1/responses",
+                decoded=b"{}",
+                raw=b"{}",
+            ),
+            response=_FakeResponse(
+                decoded=response_body,
+                raw=response_body,
+                content_type="application/json",
+            ),
+        )
+
+        # WHEN the response hook runs
+        addon.response(flow)
+
+        # THEN no usage record is written and the host is not in the recorded set
+        self.assertEqual(self._records(), [])
+        self.assertFalse(addon._is_recorded_host("api.openai.com"))
+        self.assertNotIn("api.openai.com", addon.OPENAI_COMPATIBLE_HOSTS)
+
     def test_unmetered_host_is_skipped(self) -> None:
         """A response from a non-parsed allowlisted host records nothing."""
         # GIVEN a Gemini response (an allowlisted host with no parser)
@@ -331,6 +397,125 @@ class ResponseHookGzipTest(unittest.TestCase):
         records = self._records()
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0]["input_tokens"], 16442)
+
+
+class SseAccumulatorTest(unittest.TestCase):
+    def test_passes_each_chunk_through_unchanged_and_joins_body(self) -> None:
+        """The tee returns every chunk unmodified and exposes the full body."""
+        # GIVEN a streaming accumulator and a sequence of SSE chunks
+        accumulator = addon._SseStreamAccumulator()
+        chunks = [b"data: a\n\n", b"data: b\n\n", b""]
+
+        # WHEN mitmproxy feeds each chunk (the empty chunk marks end-of-stream)
+        returned = [accumulator(chunk) for chunk in chunks]
+
+        # THEN every chunk is returned byte-for-byte unchanged
+        self.assertEqual(returned, chunks)
+        # AND the accumulated body is the concatenation of the non-empty chunks
+        self.assertEqual(accumulator.body, b"data: a\n\ndata: b\n\n")
+
+
+class ResponseStreamingTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".ndjson", delete=False
+        )
+        self._tmp.close()
+        self._orig_path = addon.RECORDING_OUTPUT_PATH
+        addon.RECORDING_OUTPUT_PATH = self._tmp.name
+
+    def tearDown(self) -> None:
+        addon.RECORDING_OUTPUT_PATH = self._orig_path
+        os.unlink(self._tmp.name)
+
+    def _records(self) -> list[dict]:
+        with open(self._tmp.name, encoding="utf-8") as fh:
+            return [json.loads(line) for line in fh if line.strip()]
+
+    def _sse_flow(
+        self,
+        *,
+        host: str = "api.fireworks.ai",
+        content_type: str = "text/event-stream; charset=utf-8",
+        content_encoding: str | None = None,
+    ) -> _FakeFlow:
+        return _FakeFlow(
+            request=_FakeRequest(
+                host=host,
+                path="/inference/v1/chat/completions",
+                decoded=b'{"model":"accounts/fireworks/models/minimax-m3"}',
+                raw=b'{"model":"accounts/fireworks/models/minimax-m3"}',
+            ),
+            # A streamed response leaves mitmproxy's body buffer empty; the
+            # full body arrives only through the accumulator.
+            response=_FakeResponse(
+                decoded=b"",
+                raw=b"",
+                content_type=content_type,
+                content_encoding=content_encoding,
+            ),
+        )
+
+    def test_sse_response_streams_through_and_records_usage(self) -> None:
+        """A recorded-host SSE response streams chunk-by-chunk, usage parsed."""
+        # GIVEN a Fireworks SSE response on a recorded host
+        flow = self._sse_flow()
+
+        # WHEN responseheaders runs, then mitmproxy tees each chunk through the
+        # accumulator, then the response hook fires at end-of-stream
+        addon.responseheaders(flow)
+        passthrough = [
+            flow.response.stream(chunk + b"\n\n")
+            for chunk in _fireworks_streaming_sse().split(b"\n\n")
+            if chunk
+        ]
+        addon.response(flow)
+
+        # THEN the response was switched into pass-through streaming
+        self.assertIsInstance(flow.response.stream, addon._SseStreamAccumulator)
+        # AND every streamed chunk reached the client unchanged
+        self.assertTrue(all(returned for returned in passthrough))
+        # AND usage was parsed from the accumulated body and recorded
+        record = self._records()[0]
+        self.assertEqual(record["provider"], "fireworks")
+        self.assertEqual(record["input_tokens"], 4096)
+        self.assertEqual(record["output_tokens"], 128)
+
+    def test_non_sse_response_stays_buffered(self) -> None:
+        """A JSON response is left on mitmproxy's default buffered path."""
+        # GIVEN a recorded-host response that is not an event stream
+        flow = self._sse_flow(content_type="application/json")
+
+        # WHEN the responseheaders hook runs
+        addon.responseheaders(flow)
+
+        # THEN streaming is not enabled and no accumulator is stashed
+        self.assertFalse(flow.response.stream)
+        self.assertNotIn(addon._STREAM_ACCUMULATOR_KEY, flow.metadata)
+
+    def test_content_encoded_sse_stays_buffered(self) -> None:
+        """A content-encoded SSE body is not accumulated as compressed bytes."""
+        # GIVEN an SSE response that carries a Content-Encoding
+        flow = self._sse_flow(content_encoding="gzip")
+
+        # WHEN the responseheaders hook runs
+        addon.responseheaders(flow)
+
+        # THEN streaming is not enabled (the parser must not see raw gzip bytes)
+        self.assertFalse(flow.response.stream)
+        self.assertNotIn(addon._STREAM_ACCUMULATOR_KEY, flow.metadata)
+
+    def test_non_recorded_host_is_not_streamed(self) -> None:
+        """An SSE response from an unparsed host is left untouched."""
+        # GIVEN an SSE response from an allowlisted host with no parser
+        flow = self._sse_flow(host="generativelanguage.googleapis.com")
+
+        # WHEN the responseheaders hook runs
+        addon.responseheaders(flow)
+
+        # THEN streaming is not enabled for the unrecorded host
+        self.assertFalse(flow.response.stream)
+        self.assertNotIn(addon._STREAM_ACCUMULATOR_KEY, flow.metadata)
 
 
 if __name__ == "__main__":

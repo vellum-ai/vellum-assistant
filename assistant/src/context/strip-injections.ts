@@ -29,6 +29,33 @@ import type { Message } from "../providers/types.js";
 export type InjectionMatcher = string | { prefix: string; suffix: string };
 
 /**
+ * Whether an injected text block matches any of the given matchers. A plain
+ * string matches by prefix; a `{ prefix, suffix }` wrapper requires both ends
+ * so user-authored text merely opening with an injection-like tag is kept.
+ */
+function textBlockMatchesInjection(
+  text: string,
+  matchers: InjectionMatcher[],
+): boolean {
+  return matchers.some((m) =>
+    typeof m === "string"
+      ? text.startsWith(m)
+      : text.startsWith(m.prefix) && text.endsWith(m.suffix),
+  );
+}
+
+/** Drop the matching injection text blocks from a single content array. */
+function filterInjectionBlocks(
+  content: Message["content"],
+  matchers: InjectionMatcher[],
+): Message["content"] {
+  return content.filter(
+    (block) =>
+      block.type !== "text" || !textBlockMatchesInjection(block.text, matchers),
+  );
+}
+
+/**
  * Remove text blocks from user messages that match any of the given matchers.
  * If stripping removes all content blocks from a message, the message itself
  * is dropped.
@@ -43,14 +70,7 @@ export function stripUserTextBlocksByPrefix(
   return messages
     .map((message) => {
       if (message.role !== "user") return message;
-      const nextContent = message.content.filter((block) => {
-        if (block.type !== "text") return true;
-        return !matchers.some((m) =>
-          typeof m === "string"
-            ? block.text.startsWith(m)
-            : block.text.startsWith(m.prefix) && block.text.endsWith(m.suffix),
-        );
-      });
+      const nextContent = filterInjectionBlocks(message.content, matchers);
       if (nextContent.length === message.content.length) return message;
       if (nextContent.length === 0) return null;
       return { ...message, content: nextContent };
@@ -58,6 +78,30 @@ export function stripUserTextBlocksByPrefix(
     .filter(
       (message): message is NonNullable<typeof message> => message != null,
     );
+}
+
+/**
+ * Tail-scoped variant of {@link stripUserTextBlocksByPrefix}: remove matching
+ * text blocks from ONLY the last message, and only when that message is a user
+ * message. This mirrors the runtime injection step, which applies every
+ * per-turn block to the tail user message, so clearing the tail's stale copies
+ * before re-injection makes re-injection idempotent.
+ *
+ * The tail message is retained even if all of its blocks are removed, so the
+ * role-`"user"` tail invariant the re-injection step relies on is preserved.
+ * Earlier messages are untouched, so per-message historical grounding (e.g.
+ * each turn's `<turn_context>`) survives and the stable cached prefix — which
+ * lives entirely before the tail — is never disturbed.
+ */
+export function stripTailUserTextBlocksByPrefix(
+  messages: Message[],
+  matchers: InjectionMatcher[],
+): Message[] {
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== "user") return messages;
+  const nextContent = filterInjectionBlocks(last.content, matchers);
+  if (nextContent.length === last.content.length) return messages;
+  return [...messages.slice(0, -1), { ...last, content: nextContent }];
 }
 
 /**
@@ -88,8 +132,12 @@ export const NOW_SCRATCHPAD_STRIP_PREFIXES: InjectionMatcher[] = [
   "<now_scratchpad>",
 ];
 
-/** Matchers stripped by the pipeline (order doesn't matter — single pass). */
-const RUNTIME_INJECTION_PREFIXES: InjectionMatcher[] = [
+/**
+ * Matchers stripped by the compaction pipeline (order doesn't matter — single
+ * pass). Exported so the post-compaction re-injection path can reuse this set
+ * as the base of its idempotency strip without duplicating it.
+ */
+export const RUNTIME_INJECTION_PREFIXES: InjectionMatcher[] = [
   "<channel_capabilities>",
   "<channel_command_context>",
   "<disk_pressure_warning>",

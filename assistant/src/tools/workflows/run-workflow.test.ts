@@ -11,11 +11,9 @@ mock.module("../../util/logger.js", () => ({
 }));
 
 // ── Mutable mock state ────────────────────────────────────────────────
-// `flagEnabled` toggles the `workflows` feature flag; `configThrows`
-// simulates config not yet loaded (test-setup race). The run-manager mock
-// records the args of the last `start()` call for assertion.
+// `configThrows` simulates config not yet loaded (test-setup race). The
+// run-manager mock records the args of the last `start()` call for assertion.
 
-let flagEnabled = true;
 let configThrows = false;
 
 const realLoader = await import("../../config/loader.js");
@@ -33,13 +31,6 @@ mock.module("../../config/loader.js", () => ({
         activeProfile: "balanced",
       },
     }) as unknown as ReturnType<typeof realLoader.loadConfig>,
-}));
-
-const realFlags = await import("../../config/assistant-feature-flags.js");
-mock.module("../../config/assistant-feature-flags.js", () => ({
-  ...realFlags,
-  isAssistantFeatureFlagEnabled: (key: string) =>
-    key === "workflows" ? flagEnabled : false,
 }));
 
 // No live conversation in tests — the tool falls back to a synthetic trust
@@ -92,7 +83,6 @@ function makeContext(): Parameters<typeof executeRunWorkflow>[1] {
 }
 
 beforeEach(() => {
-  flagEnabled = true;
   configThrows = false;
   startThrows = null;
   lastStartArgs = null;
@@ -105,10 +95,10 @@ beforeEach(() => {
 });
 
 describe("workflow tools are served by the workflows skill", () => {
-  // The cutover moved run_workflow / manage_workflows out of the always-on tool
-  // manifest into the flag-gated `workflows` bundled skill (loaded via
-  // skill_load, invoked via skill_execute). The skill manifest is the
-  // source of truth; assert it declares both as in-process host tools.
+  // run_workflow / manage_workflows are served by the `workflows` bundled skill
+  // (loaded via skill_load, invoked via skill_execute), not the always-on tool
+  // manifest. The skill manifest is the source of truth; assert it declares both
+  // as in-process host tools.
   test("the workflows skill TOOLS.json declares both host-executed tools", async () => {
     const { readFileSync } = await import("node:fs");
     const { join } = await import("node:path");
@@ -211,13 +201,13 @@ describe("run_workflow launch", () => {
   });
 
   test("surfaces a run-manager start error as a tool error", async () => {
-    startThrows = new Error("Workflows are not enabled.");
+    startThrows = new Error("run manager exploded");
     const res = await executeRunWorkflow(
       { script: "export const meta = {};" },
       makeContext(),
     );
     expect(res.isError).toBe(true);
-    expect(res.content).toContain("Workflows are not enabled.");
+    expect(res.content).toContain("run manager exploded");
   });
 });
 

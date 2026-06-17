@@ -78,10 +78,8 @@ mock.module("../prompts/persona-resolver.js", () => ({
   resolveUserSlug: () => null,
 }));
 
-mock.module("../runtime/routes/identity-intro-cache.js", () => ({
-  getCachedIntro: () => null,
-  readWorkspaceIdentityIntro: () => null,
-  setCachedIntro: () => {},
+mock.module("../runtime/routes/workspace-greetings.js", () => ({
+  readWorkspaceGreetings: () => null,
 }));
 
 // Mock getOrCreateConversation from conversation-store so the handler
@@ -345,13 +343,13 @@ describe("POST /v1/btw", () => {
     expect(options!.config!.callSite).toBe("emptyStateGreeting");
   });
 
-  test("identity intro requests pass callSite: 'identityIntro'", async () => {
+  test("generic requests pass the default callSite", async () => {
     const provider = makeMockProvider();
     const session = makeMockSession(provider);
     mockGetOrCreateConversation.mockImplementationOnce(async () => session);
 
     const { result } = await callHandler({
-      conversationKey: "identity-intro",
+      conversationKey: "profile-intro",
       content: "Generate an intro",
     });
     await readStream(result as ReadableStream<Uint8Array>);
@@ -361,7 +359,7 @@ describe("POST /v1/btw", () => {
     expect(options!.config!.callSite).toBe("identityIntro");
   });
 
-  test("identity intro requests do not synthesize a static name greeting", async () => {
+  test("generic requests do not synthesize a static name greeting", async () => {
     const identityPath = join(getWorkspaceDir(), "IDENTITY.md");
     writeFileSync(
       identityPath,
@@ -375,7 +373,7 @@ describe("POST /v1/btw", () => {
       mockGetOrCreateConversation.mockImplementationOnce(async () => session);
 
       const { result } = await callHandler({
-        conversationKey: "identity-intro",
+        conversationKey: "profile-intro",
         content: "Generate an intro",
       });
       const text = await readStream(result as ReadableStream<Uint8Array>);

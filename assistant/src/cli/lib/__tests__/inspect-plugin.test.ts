@@ -90,6 +90,8 @@ function installPlugin(
     } | null;
     /** Embed a content fingerprint of the materialized tree in the sidecar. */
     fingerprint?: boolean;
+    /** Materialize surface directories (`hooks/<name>.ts`, `skills/<id>/SKILL.md`). */
+    surfaces?: { hooks?: string[]; tools?: string[]; skills?: string[] };
   } = {},
 ): void {
   const dir = join(workspace, name);
@@ -102,6 +104,18 @@ function installPlugin(
       description: "Installed copy.",
     }),
   );
+  for (const hook of opts.surfaces?.hooks ?? []) {
+    mkdirSync(join(dir, "hooks"), { recursive: true });
+    writeFileSync(join(dir, "hooks", `${hook}.ts`), "export default () => {};");
+  }
+  for (const tool of opts.surfaces?.tools ?? []) {
+    mkdirSync(join(dir, "tools"), { recursive: true });
+    writeFileSync(join(dir, "tools", `${tool}.ts`), "export default {};");
+  }
+  for (const skill of opts.surfaces?.skills ?? []) {
+    mkdirSync(join(dir, "skills", skill), { recursive: true });
+    writeFileSync(join(dir, "skills", skill, "SKILL.md"), `# ${skill}`);
+  }
   if (opts.sidecar !== null) {
     const sidecar = opts.sidecar ?? { commit: SHA_A };
     // Mirror install: fingerprint the tree before the sidecar is written so it
@@ -365,6 +379,46 @@ describe("inspectPlugin", () => {
     // THEN modification cannot be determined
     expect(result.local).not.toBeNull();
     expect(result.local?.localChanges).toBeNull();
+  });
+
+  test("reports the surfaces an installed copy contributes", async () => {
+    // GIVEN an installed plugin shipping hooks and skills but no tools
+    installPlugin(workspace, "level-up", {
+      sidecar: { commit: SHA_A },
+      surfaces: {
+        hooks: ["post-model-call", "init"],
+        skills: ["second-skill", "first-skill"],
+      },
+    });
+    const fetch = makeFetch({ marketplace: manifestWith("level-up", SHA_A) });
+
+    // WHEN it is inspected
+    const result = await inspectPlugin(
+      { name: "level-up" },
+      { fetch, workspacePluginsDir: workspace },
+    );
+
+    // THEN the contributed surfaces are listed (sorted) and tools is empty
+    expect(result.surfaces).toEqual({
+      skills: ["first-skill", "second-skill"],
+      hooks: ["init", "post-model-call"],
+      tools: [],
+    });
+  });
+
+  test("leaves surfaces null when the plugin is not installed", async () => {
+    // GIVEN a marketplace entry with no local copy to walk
+    const fetch = makeFetch({ marketplace: manifestWith("level-up", SHA_B) });
+
+    // WHEN it is inspected
+    const result = await inspectPlugin(
+      { name: "level-up" },
+      { fetch, workspacePluginsDir: workspace },
+    );
+
+    // THEN there is no tree to read surfaces from
+    expect(result.installed).toBe(false);
+    expect(result.surfaces).toBeNull();
   });
 
   test("throws when the plugin is neither installed nor in the marketplace", async () => {

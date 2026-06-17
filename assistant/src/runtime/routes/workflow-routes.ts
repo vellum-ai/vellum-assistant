@@ -5,17 +5,10 @@
  * shared ROUTES array. They are read/abort surfaces over the workflow run
  * manager and the saved-workflow library — a human (via the `vellum workflows`
  * CLI or the app) can inspect runs and abort an in-flight one.
- *
- * Every handler is gated on the `workflows` feature flag: when it is off, the
- * routes behave as if they do not exist (404), so disabling the flag fully
- * hides the surface.
  */
 
 import { z } from "zod";
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
-import { getConfig } from "../../config/loader.js";
-import type { AssistantConfig } from "../../config/schema.js";
 import { getAutoApproveThreshold } from "../../permissions/gateway-threshold-reader.js";
 import { isFullAccessThreshold } from "../../permissions/threshold.js";
 import { manifestGrantsSideEffects } from "../../workflows/capabilities.js";
@@ -46,8 +39,6 @@ export interface WorkflowRoutesDeps {
     "list" | "status" | "abort" | "resume"
   >;
   listWorkflows: typeof listWorkflows;
-  getConfig: () => AssistantConfig;
-  isFlagEnabled: (config: AssistantConfig) => boolean;
   getAutoApproveThreshold: typeof getAutoApproveThreshold;
 }
 
@@ -55,9 +46,6 @@ function defaultDeps(): WorkflowRoutesDeps {
   return {
     getManager: getWorkflowRunManager,
     listWorkflows,
-    getConfig,
-    isFlagEnabled: (config) =>
-      isAssistantFeatureFlagEnabled("workflows", config),
     getAutoApproveThreshold,
   };
 }
@@ -110,17 +98,6 @@ const savedWorkflowSchema = z.object({
 // ---------------------------------------------------------------------------
 
 /**
- * Throw a 404 when the `workflows` flag is off, hiding the whole surface. The
- * NotFoundError (rather than a 403) keeps a disabled-flag indistinguishable
- * from a route that does not exist.
- */
-function assertFlagEnabled(): void {
-  if (!deps.isFlagEnabled(deps.getConfig())) {
-    throw new NotFoundError("Workflows are not enabled.");
-  }
-}
-
-/**
  * The single compact-run wire contract, inferred from {@link workflowRunSchema}.
  * The HTTP routes return this shape; other producers (e.g. the CLI's client-side
  * mirror) should track it so projections can't silently drift.
@@ -162,7 +139,6 @@ function parseStatus(
 }
 
 function handleListRuns(queryParams: Record<string, string>) {
-  assertFlagEnabled();
   const limit = parseLimit(queryParams.limit);
   const status = parseStatus(queryParams.status);
   const runs = deps.getManager().list({
@@ -173,7 +149,6 @@ function handleListRuns(queryParams: Record<string, string>) {
 }
 
 function handleGetRun(id: string) {
-  assertFlagEnabled();
   const run = deps.getManager().status(id);
   if (!run) {
     throw new NotFoundError(`Workflow run ${id} not found`);
@@ -182,7 +157,6 @@ function handleGetRun(id: string) {
 }
 
 function handleAbortRun(id: string) {
-  assertFlagEnabled();
   // status() is the source of truth for existence; abort() itself is a no-op
   // for unknown/finished runs, so 404 on an unknown id is surfaced here.
   const manager = deps.getManager();
@@ -194,7 +168,6 @@ function handleAbortRun(id: string) {
 }
 
 async function handleResumeRun(id: string) {
-  assertFlagEnabled();
   const manager = deps.getManager();
   // status() is the source of truth for existence, so 404 an unknown id here
   // (matching abort) rather than letting resume's "not_found" reach the client
@@ -245,7 +218,6 @@ async function handleResumeRun(id: string) {
 }
 
 function handleListSavedWorkflows() {
-  assertFlagEnabled();
   return { workflows: deps.listWorkflows() };
 }
 

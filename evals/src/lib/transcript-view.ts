@@ -6,7 +6,7 @@
  * `assistant-events.json` also carries thinking deltas, tool calls,
  * tool results, and surfaces. This module folds that event stream into
  * per-assistant-message content blocks using the same concatenation
- * semantics as the web chat UI (`apps/web/src/domains/chat/utils/
+ * semantics as the web chat UI (`clients/web/src/domains/chat/utils/
  * stream-updaters/message-updaters.ts`):
  *
  *  - consecutive deltas of the same kind coalesce into the trailing

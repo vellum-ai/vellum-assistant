@@ -62,7 +62,9 @@ import {
   uninstallPlugin,
 } from "../../cli/lib/uninstall-plugin.js";
 import {
+  PluginMergeBaselineError,
   PluginNotUpgradableError,
+  type PluginUpgradeStrategy,
   upgradePlugin,
 } from "../../cli/lib/upgrade-plugin.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -370,6 +372,26 @@ const pluginRemoteInfoSchema = z
   })
   .describe("The marketplace's current pin and advertised metadata.");
 
+const pluginSurfacesSchema = z
+  .object({
+    skills: z
+      .array(z.string())
+      .describe("Skill ids shipped at `skills/<id>/SKILL.md`."),
+    hooks: z
+      .array(z.string())
+      .describe(
+        "Lifecycle hook names from `hooks/<name>.{ts,js}` (e.g. `pre-model-call`).",
+      ),
+    tools: z
+      .array(z.string())
+      .describe(
+        "Registered tool names from `tools/<name>.{ts,js}` (filenames derived to tool names, e.g. `create-issue` \u2192 `create_issue`).",
+      ),
+  })
+  .describe(
+    "Surfaces the installed copy contributes, read from its on-disk tree.",
+  );
+
 const pluginInspectResponseSchema = z.object({
   name: z
     .string()
@@ -405,6 +427,11 @@ const pluginInspectResponseSchema = z.object({
     .describe(
       "Marketplace fetch error message, when the catalog could not be read.",
     ),
+  surfaces: pluginSurfacesSchema
+    .nullable()
+    .describe(
+      "Surfaces the installed copy contributes (skills, hooks, tools); null when the plugin is not installed.",
+    ),
 });
 
 const pluginUpgradeRequestSchema = z.object({
@@ -413,6 +440,12 @@ const pluginUpgradeRequestSchema = z.object({
     .optional()
     .describe(
       "Report what would change without modifying the install. Defaults to false.",
+    ),
+  strategy: z
+    .enum(["ours", "theirs", "overwrite", "assistant"])
+    .optional()
+    .describe(
+      "How to reconcile local edits with the pin. `overwrite` (default) discards local edits and re-installs the pin; `ours`/`theirs` three-way merge, resolving conflicting hunks toward the local edit or the pin respectively; `assistant` is not yet supported.",
     ),
 });
 
@@ -456,6 +489,19 @@ const pluginUpgradeResponseSchema = z.object({
       "Files materialized by the upgrade; null for a no-op or dry run.",
     ),
   dryRun: z.boolean().describe("Whether this was a dry run (no changes made)."),
+  strategy: z
+    .enum(["ours", "theirs", "overwrite", "assistant"])
+    .describe("Conflict-resolution strategy the upgrade applied."),
+  conflicts: z
+    .array(z.string())
+    .describe(
+      "Paths left for the assistant to resolve under the `assistant` strategy: text files carry git conflict markers, modify/delete divergences keep the surviving content. Empty for other strategies.",
+    ),
+  binaryConflicts: z
+    .array(z.string())
+    .describe(
+      "Binary files that conflicted under the `assistant` strategy; the local copy was kept since markers cannot be written into binary content. Empty for other strategies.",
+    ),
   provenanceWasUnknown: z
     .boolean()
     .describe(
@@ -849,6 +895,10 @@ async function handleUpgradePlugin({
 }: RouteHandlerArgs) {
   const rawName = pathParams.name ?? "";
   const dryRun = typeof body.dryRun === "boolean" ? body.dryRun : undefined;
+  const strategy =
+    typeof body.strategy === "string"
+      ? (body.strategy as PluginUpgradeStrategy)
+      : undefined;
 
   // Like install, the upgrade target ref is the curated marketplace pin
   // (resolved inside `upgradePlugin` via `inspectPlugin`), never a
@@ -856,7 +906,7 @@ async function handleUpgradePlugin({
   // upgrade at an unreviewed revision.
   try {
     const result = await upgradePlugin(
-      { name: rawName, dryRun },
+      { name: rawName, dryRun, strategy },
       { fetch: globalThis.fetch.bind(globalThis) },
     );
     return {
@@ -869,6 +919,9 @@ async function handleUpgradePlugin({
       target: result.target,
       fileCount: result.fileCount,
       dryRun: result.dryRun,
+      strategy: result.strategy,
+      conflicts: result.conflicts,
+      binaryConflicts: result.binaryConflicts,
       provenanceWasUnknown: result.provenanceWasUnknown,
     };
   } catch (err) {
@@ -880,6 +933,12 @@ async function handleUpgradePlugin({
     }
     if (err instanceof PluginNotFoundError) {
       throw new NotFoundError(err.message);
+    }
+    // A merge strategy was requested but the install-time baseline can't be
+    // reconstructed — a well-formed request that isn't actionable in the
+    // current state (the caller can retry with `overwrite` or reinstall).
+    if (err instanceof PluginMergeBaselineError) {
+      throw new ConflictError(err.message);
     }
     // The install exists but has no marketplace entry to advance to — a
     // permanent state the caller cannot resolve by retrying. 409 marks the
@@ -1142,7 +1201,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Upgrade a plugin to the marketplace pin",
     description:
-      'Move an installed plugin to the marketplace\'s current pinned commit, re-materializing it under `<workspaceDir>/plugins/<name>/`. Always resolves against the curated marketplace pin (no caller-supplied ref), mirroring `plugins install`\'s curation boundary. A no-op (`outcome: "already-up-to-date"`) when the installed commit already equals the pin; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching the install. Installs lacking provenance are re-pinned to the current SHA. The assistant must be restarted to load the upgraded code. This does not gate on local edits — callers should consult `GET /v1/plugins/:name/inspect` (`local.localChanges`) first and confirm before overwriting. Mirrors the CLI\'s `assistant plugins upgrade <name>`.',
+      'Move an installed plugin to the marketplace\'s current pinned commit, re-materializing it under `<workspaceDir>/plugins/<name>/`. Always resolves against the curated marketplace pin (no caller-supplied ref), mirroring `plugins install`\'s curation boundary. A no-op (`outcome: "already-up-to-date"`) when the installed commit already equals the pin; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching the install. Installs lacking provenance are re-pinned to the current SHA. The assistant must be restarted to load the upgraded code. `strategy` controls how local edits are reconciled: `overwrite` (default) discards them and re-installs the pin wholesale; `ours`/`theirs`/`assistant` perform a three-way merge against the re-materialized install commit, carrying non-conflicting edits from both sides forward and resolving conflicting hunks toward the local edit (`ours`) or the pin (`theirs`), or writing git conflict markers into the file and reporting them in `conflicts`/`binaryConflicts` for the assistant to resolve (`assistant`). A merge strategy whose install-time baseline cannot be reconstructed returns 409. Mirrors the CLI\'s `assistant plugins upgrade <name> [--strategy <s>]`.',
     tags: ["plugins"],
     pathParams: [
       {
@@ -1165,7 +1224,7 @@ export const ROUTES: RouteDefinition[] = [
       },
       "409": {
         description:
-          "The install exists but has no marketplace entry to advance to.",
+          "The install exists but has no marketplace entry to advance to, or a merge strategy was requested whose install-time baseline cannot be reconstructed.",
       },
       "503": {
         description:

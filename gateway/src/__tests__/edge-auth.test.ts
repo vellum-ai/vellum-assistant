@@ -194,6 +194,17 @@ describe("requireEdgeAuth — JWT mode", () => {
     expect(mockValidateEdgeToken).not.toHaveBeenCalled();
   });
 
+  test("rejects edge-forwarded loopback requests when Authorization header is absent", async () => {
+    const { requireEdgeAuth } = makeMiddleware();
+    const res = await requireEdgeAuth(
+      makeReq({ "x-vellum-edge-forwarded": "1" }),
+      makeLoopbackServer(),
+    );
+    expect(res?.status).toBe(401);
+    expect(mockValidateEdgeToken).not.toHaveBeenCalled();
+    expect(loopbackFallbackCountTracker.snapshot()).toEqual([]);
+  });
+
   test("a loopback fallback is counted by (guard, path, failureKind)", async () => {
     const { requireEdgeAuth } = makeMiddleware();
     await requireEdgeAuth(makeReq(), makeLoopbackServer());
@@ -331,6 +342,18 @@ describe("requireEdgeAuthWithScope — JWT mode", () => {
     );
     expect(res).toBeNull();
     expect(mockValidateEdgeToken).not.toHaveBeenCalled();
+  });
+
+  test("rejects edge-forwarded loopback requests when scoped Authorization is absent", async () => {
+    const { requireEdgeAuthWithScope } = makeMiddleware();
+    const res = await requireEdgeAuthWithScope(
+      makeReq({ "x-vellum-edge-forwarded": "1" }),
+      "settings.write",
+      makeLoopbackServer(),
+    );
+    expect(res?.status).toBe(401);
+    expect(mockValidateEdgeToken).not.toHaveBeenCalled();
+    expect(loopbackFallbackCountTracker.snapshot()).toEqual([]);
   });
 
   test("403 when token's scope_profile lacks the required scope", async () => {

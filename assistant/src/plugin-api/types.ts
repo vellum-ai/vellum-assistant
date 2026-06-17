@@ -94,6 +94,35 @@ export interface PluginInitContext {
   assistantVersion: string;
 }
 
+// ─── Model profiles ──────────────────────────────────────────────────────────
+
+/**
+ * A workspace inference profile a plugin can route to. Returned by
+ * {@link getModelProfiles}; {@link key} is the value a `pre-model-call` hook
+ * assigns to `PreModelCallContext.modelProfile` to route a call. A model router
+ * reads this list (typically at `init`) to learn which profiles exist before
+ * mapping a classified message onto one.
+ */
+export interface ModelProfileInfo {
+  /** Profile key in `llm.profiles`; assignable to `PreModelCallContext.modelProfile`. */
+  readonly key: string;
+  /** Human-readable label, falling back to {@link key} when none is set. */
+  readonly label: string;
+  /** Author-supplied description, or `null` when none is set. */
+  readonly description: string | null;
+  /** Whether this is the workspace's active profile. */
+  readonly isActive: boolean;
+  /** Whether the profile is disabled; routing to it is rejected by the resolver. */
+  readonly isDisabled: boolean;
+  /**
+   * Whether this is a weighted "mix" profile — an A/B blend that resolves to one
+   * of its constituent profiles per conversation via a seeded weighted pick.
+   * Routing to its {@link key} is valid; it directs the call into the blend
+   * rather than at a single fixed model.
+   */
+  readonly isMix: boolean;
+}
+
 // ─── Shutdown context ────────────────────────────────────────────────────────
 
 /**
@@ -438,8 +467,9 @@ export interface StopContext {
  * and compaction work can share a conversation), hooks MUST self-gate on
  * {@link callSite} / {@link conversationId} before acting.
  *
- * A hook may edit the outbound request by replacing {@link systemPrompt}, and may
- * opt this turn into deferred output streaming via {@link deferAssistantOutput}.
+ * A hook may edit the outbound request by replacing {@link systemPrompt}, route
+ * the call to a different inference profile via {@link modelProfile}, and opt
+ * this turn into deferred output streaming via {@link deferAssistantOutput}.
  * Mutate the context in place or return a new one; throwing is contained by the
  * loop (the call proceeds with the original request).
  */
@@ -456,6 +486,24 @@ export interface PreModelCallContext {
    * append a section); the loop sends the resulting value.
    */
   systemPrompt: string | null;
+  /**
+   * Inference profile to route THIS provider call to, named by its key in the
+   * workspace `llm.profiles`. Seeded with the call's already-resolved override
+   * profile, or `null` when none applies. A hook may replace it to select a
+   * different profile per call — the lever a model router uses to map a
+   * classified message onto a profile (model + provider connection + sampling
+   * settings). For the user-facing `mainAgent` call the resolver layers the
+   * named profile at the top of precedence (above the workspace active
+   * profile), so the hook's choice wins; a key with no matching profile falls
+   * through unchanged (no throw). Honored only when {@link callSite} is set.
+   * Set to `null` to apply no override.
+   *
+   * Context-window sizing and overflow recovery for this call are computed from
+   * the profile resolved before the hook runs. Routing a near-budget
+   * conversation to a profile with a smaller context window relies on the loop's
+   * overflow recovery (compact and retry) rather than proactive compaction.
+   */
+  modelProfile: string | null;
   /**
    * Seeded `false`. When a hook sets it `true`, the loop suppresses this turn's
    * live assistant `text_delta` stream; a `post-model-call` hook is then

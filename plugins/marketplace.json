@@ -52,6 +52,18 @@
       "category": "developer",
       "homepage": "https://github.com/vellum-ai/level-up",
       "license": "MIT"
+    },
+    {
+      "name": "model-router",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/model-router",
+        "ref": "605100d27b5333b243ada5a29fcb324e2217d336"
+      },
+      "description": "Routes each user-facing message to one of your workspace's inference profiles, so model selection can vary per call instead of staying pinned to a single profile.",
+      "category": "productivity",
+      "homepage": "https://github.com/AnitaKirkovska/model-router",
+      "license": "MIT"
     }
   ]
 }

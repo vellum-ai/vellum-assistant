@@ -1,436 +1,270 @@
-# vellum-assistant
+# Electron wrapper
 
-A native macOS menu bar app that controls your Mac via accessibility APIs and CGEvent input injection, powered by large language models with tool use.
+Desktop shell for the Vellum Assistant macOS app. Wraps [`clients/web/`](../web/)
+in an Electron `BrowserWindow`. Each assistant's background processes are owned
+entirely by the `vellum` CLI, which the app invokes as a subprocess — the
+Electron app is a GUI client, not a process manager.
 
----
+This package is the macOS distribution surface (outside the App Store).
 
-## Managed Mode
+## Web content delivery
 
-The app supports a **managed sign-in** flow that connects to a platform-hosted assistant instead of a local daemon.
+**What:** The web UI (`clients/web/`) is bundled as static files inside the
+`.app` package. The Electron main process serves them via a custom
+[`app://` protocol](https://www.electronjs.org/docs/latest/api/protocol#protocolhandlescheme-handler)
+— the `BrowserWindow` loads `app://vellum.ai/assistant`, which resolves
+to files on disk at `process.resourcesPath/web-dist`.
 
-### Sign-in Flow
+**How:** At build time, `bun run build:web` runs `vite build` in
+`clients/web/`, then copies `clients/web/dist/` into `resources/web-dist`.
+`electron-builder` packs that directory into the app's `extraResources`
+(see `electron-builder.config.cjs`). No network request is involved at
+runtime — the protocol handler reads files from the local bundle and
+falls back to `index.html` for client-side routes.
 
-1. User clicks "Sign in" during first-run onboarding
-2. WorkOS authentication opens in the system browser
-3. On success, `ManagedAssistantBootstrapService.ensureManagedAssistant()` discovers or creates a platform assistant
-4. A lockfile entry is written with `cloud: "vellum"` and the `activeAssistant` field is set in the lockfile
-5. HTTP transport is configured in `platformAssistantProxy` mode with session token auth
+**Why local bundle, not a remote URL:**
 
-### Transport Modes
+- **Security** — loading remote content into Electron's renderer is
+  discouraged because the renderer has privileged IPC access to the main
+  process. The `app://` scheme keeps the origin local and avoids MITM /
+  supply-chain attack surface. See Electron's
+  [security checklist](https://www.electronjs.org/docs/latest/tutorial/security).
+- **Offline** — the UI loads without a network connection. The assistant
+  still needs its backend services for functionality, but the shell
+  renders instantly.
+- **Startup speed** — local file reads are ~instant; no DNS / TLS / CDN
+  roundtrip.
+- **Version coherence** — the web UI and Electron main process are
+  tightly coupled via IPC (`window.vellum.*`). Bundling them together
+  guarantees they are always compatible.
 
-`GatewayHTTPClient` supports two route modes:
+## Auto-update
 
-- **`runtimeFlat`** -- Used for local daemon connections and custom remote setups. Paths follow the runtime layout (e.g., `/v1/messages`, `/v1/events`).
-- **`platformAssistantProxy`** -- Used in managed mode. Paths are scoped under `/v1/assistants/{id}/` with trailing slashes (Django convention), e.g., `/v1/assistants/{id}/messages/`.
+The packaged app updates over the wire via
+[`electron-updater`](https://www.electron.build/auto-update).
+Configuration lives in `src/main/auto-update.ts`:
 
-### Key Differences in Managed Mode
+- **Feed URL** — a cloud storage bucket per environment and architecture
+  (see `electron-builder.config.cjs`'s `publish` config).
+- **`autoDownload: true`** — updates download silently in the background.
+- **`autoInstallOnAppQuit: true`** — installs on next quit, not mid-session.
+- **Poll interval** — checks on launch, then every 4 hours.
+- **Manual trigger** — users can check via the `Vellum > Check for Updates…`
+  menu item (packaged builds only), or the renderer can invoke
+  `vellum:update:check` / `vellum:update:install` over IPC.
 
-- No local daemon process -- the assistant runs on the Vellum platform
-- No actor credentials or bearer token -- session token auth is used instead (stored in Credential Store)
-- Onboarding skips local daemon hatching and Fn key setup
-- If bootstrap fails, the user stays on the onboarding screen with a retry option
+Because the web UI is bundled locally, **web changes require an Electron
+release** to reach users. The update typically lands within hours (next
+app restart or the 4-hour poll), not instantly.
 
-### Where State Lives
+> **Workflow filenames.** This directory is `clients/macos/` to match the
+> platform-named convention used by `clients/ios/`, and its CI workflow files are
+> `pr-macos.yaml` / `ci-main-macos.yaml`.
 
-| State | Location |
-|-------|----------|
-| Session token | Credential Store (`AuthManager`) |
-| Lockfile entry | `~/.vellum.lock.json` (with `cloud: "vellum"`) |
-| Connected assistant ID | Lockfile (`activeAssistant` field in `~/.vellum.lock.json`) |
+## Prerequisites
 
-For the full managed sign-in architecture, see `clients/ARCHITECTURE.md`.
+- Bun (see `.tool-versions` at the repo root)
 
----
+That's it — `bun run dev` and `bun run dev:electron-only` both run
+`bun install` for you on first launch (and verify on subsequent runs,
+which is a fast no-op when the lockfile already matches).
 
-## Download
+## How it runs
 
-To install the pre-built macOS app, download the signed and notarized DMG:
+`bun run dev` is the one command. On launch it probes
+`http://localhost:3000` (the URL Swift Vellum hits — `vel up`'s edge
+proxy) with a 1.5s timeout and picks one of two paths:
 
-**[Download Vellum.dmg](https://github.com/vellum-ai/vellum-assistant/releases/latest/download/vellum-assistant.dmg)**
+1. **vel up is running** → dispatches to `dev:electron-only` with
+   `VELLUM_DEV_URL=http://localhost:3000/assistant`. No Vite is spawned
+   here; the Electron BrowserWindow loads the edge proxy at the
+   `/assistant` path (the bare root is the marketing site) and reuses
+   vel's backends (Django, gateway, daemon) the same way Swift Vellum
+   does today. This is the common case once you have `vel up` going.
 
-1. Open the DMG and drag **Vellum.app** to your Applications folder
-2. Launch Vellum — macOS may prompt "are you sure?" on first launch (click Open)
-3. The app appears as a sparkles icon in your menu bar
+2. **No vel up** → dispatches to `dev:standalone`, which uses
+   [`concurrently`](https://github.com/open-cli-tools/concurrently) to
+   run two children in parallel:
+   - `dev:web` → `cd ../web && bun run dev -- --port 5173 --strictPort`.
+     Going through `clients/web`'s own `dev` script means we use *its*
+     local Vite (8.x) and plugin tree, not whatever older Vite happens
+     to live in `clients/macos/node_modules`. Pinning the port via the
+     Vite CLI overrides `clients/web/.env` if `PORT` is set there.
+   - `dev:electron` → [`wait-on`](https://github.com/jeffbski/wait-on)
+     polls `:5173` (30s timeout), then runs `electron-vite dev` against
+     it. The wait avoids Electron racing the renderer.
 
-The app includes **Sparkle auto-update** — after the initial install, updates are downloaded and applied automatically in the background. You'll be prompted to relaunch when a new version is ready.
+   `concurrently --kill-others` tears both down on Ctrl+C or on either
+   child exiting. Logs are prefixed and color-coded (`[web]` blue,
+   `[electron]` green). Standalone mode has no backends, so renderer
+   API calls will fail — useful for shell-only work (menus, IPC, window
+   chrome), not for feature development against the real stack.
 
-> **Note (local mode):** You need the daemon running for the app to function in local mode. See the [Local Assistant (Daemon)](#local-assistant-daemon) section below for setup. In managed mode, the assistant runs on the Vellum platform and no local daemon is required.
+The main-process URL choice lives in `src/main/index.ts`:
+`process.env.VELLUM_DEV_URL ?? "http://localhost:5173/assistant"`.
+`VELLUM_DEV_URL` is treated as the full URL — callers must include the
+`/assistant` path themselves because `clients/web/vite.config.ts` sets
+`base: "/assistant/"` (so the bare origin lands the BrowserWindow on
+the marketing page in vel-up mode, or on a Vite 404 in standalone).
+Override the env var yourself (e.g.,
+`VELLUM_DEV_URL=http://localhost:3002/assistant bun run dev:electron-only`)
+if you need to point at a non-default service.
 
-All releases are available at [github.com/vellum-ai/vellum-assistant/releases](https://github.com/vellum-ai/vellum-assistant/releases).
+The app shows up as **Vellum Electron** in the menu bar and Dock
+(via `app.setName`, gated to `!app.isPackaged` in `src/main/index.ts`),
+and writes preferences / electron-store data under
+`~/Library/Application Support/Vellum Electron/`. That keeps it cleanly
+separate from the Swift `Vellum.app`, `Vellum Local.app`, and
+`Vellum Dev.app` installs — running this locally won't clobber
+whichever Swift channel you have around.
 
----
+- **Dev (vel up)** — Electron loads `http://localhost:3000/assistant` (edge proxy + the path clients/web's Vite is configured for).
+- **Dev (standalone)** — Electron loads `http://localhost:5173/assistant` (our Vite, same path).
+- **Prod** — A custom `app://vellum.ai/` protocol serves the bundled
+  `web-dist/` files. See [Web content delivery](#web-content-delivery).
+- **Assistant process** — The app does not run or supervise any background
+  process of its own. Each local assistant runs its own processes, spawned and
+  managed by the `vellum` CLI; the main process only invokes the CLI as a
+  subprocess for lifecycle ops (hatch, retire, token). Packaging the CLI
+  runtime so this works in distributed builds is a known gap.
 
-## Requirements
+## Native macOS integration
 
-### Local Mode
-- macOS 15.0 (Sequoia) or later
-- Xcode 26+ (for building from source)
-- Anthropic API key
-- Local daemon running (`vellum wake`)
+- **Application menu** (`src/main/menu.ts`). Installs a standard macOS menu
+  bar with `Vellum`, `File`, `Edit`, `View`, `Window`, and `Help` submenus.
+  Most items are role-based so they work without renderer IPC; the `File`
+  items dispatch through the typed command bus in `src/main/commands.ts`,
+  which broadcasts to the focused window's renderer via a single
+  `vellum:command` IPC channel (subscribed to by `useVellumCommands` in
+  `clients/web/src/runtime/vellum-commands.ts`). Accelerators are read from
+  `settings.hotkeys.<kind>` with defaults from `DEFAULT_ACCELERATORS`.
+  `View > Toggle Developer Tools` is gated to dev builds only so the
+  packaged build doesn't expose devtools to end users.
 
-### Managed Mode
-- macOS 15.0 (Sequoia) or later
-- Xcode 26+ (for building from source)
-- Internet connection (assistant runs on the Vellum platform)
-- No API key or local daemon required
+## Scripts
 
----
-
-## Quick Run
-
-The fastest way to build and launch the app locally:
-
-```bash
-./build.sh run
+```sh
+bun run dev                # probe vel-up at :3000, dispatch to dev:electron-only or dev:standalone
+bun run dev:standalone     # explicit: spawn our Vite (:5173) + electron-vite dev (no backends)
+bun run dev:electron-only  # explicit: electron-vite dev only, honors $VELLUM_DEV_URL (default :5173)
+bun run install:all        # bun install in clients/macos and clients/web (called automatically by dev)
+bun run dev:web            # clients/web Vite (port 5173, strict) — invoked by dev:standalone
+bun run dev:electron       # wait-on :5173 then electron-vite dev — invoked by dev:standalone
+bun run build              # electron-vite build — bundles main + preload to out/
+bun run typecheck          # tsc --noEmit
+bun run test               # bun test — single Bun process (fastest for local iteration)
+bun run test:ci            # bun scripts/run-tests.ts — each file in its own subprocess (mock-safe; what CI runs)
 ```
 
-The managed sign-in platform host is resolved from `VELLUM_ENVIRONMENT` (`local`, `dev`, `test`, `staging`, `production`) — set the environment to target a different platform host. See `VellumEnvironment.platformURL` in `clients/shared/App/VellumEnvironment.swift`.
-
-Defaulting behavior for local development:
-
-- `./build.sh` and `./build.sh run` default to `dev` (so local source builds point at the dev cloud stack).
-- If either `VELLUM_PLATFORM_URL` or `VELLUM_WEB_URL` is set to a loopback `http://...` URL (for example when running via `vel up`), the build defaults to `local`.
-- `./build.sh test` defaults to `test`.
-- `./build.sh release` / `./build.sh release-application` derive `staging` vs `production` from the release version (`*-staging*` => `staging`, otherwise `production`).
-
-`VELLUM_ENVIRONMENT` always takes precedence when explicitly exported.
-
-To point in-app docs links at a staging or local docs server for a local run:
-
-```bash
-VELLUM_DOCS_BASE_URL=https://staging.vellum.ai/docs ./build.sh run
-```
-
-Defaults to `https://www.vellum.ai/docs`. The override must be a parseable absolute http(s) URL with no query or fragment, otherwise it's ignored and the default is used.
-
-This builds a debug `.app` bundle, codesigns it, and launches it immediately.
-
----
-
-## Build
-
-```bash
-# Build debug .app bundle (→ dist/Vellum.app)
-./build.sh
-
-# Build + launch + watch for changes (auto-rebuild)
-./build.sh run
-
-# Build release
-./build.sh release
-
-# Run macOS-specific tests
-./build.sh test
-
-# Clean build artifacts
-./build.sh clean
-```
-
-The build script uses incremental compilation and caching:
-
-- Running `./build.sh` again without code changes takes ~1-2s (skips binary copying, still updates Info.plist/assets/codesigning)
-- Small code changes rebuild in ~4 seconds
-- Use `./build.sh clean` if you encounter build issues, need to force a complete rebuild, or after removing resources/frameworks (incremental builds don't detect deletions)
-- The first app build downloads and caches the Kata 3.17.0 ARM64 kernel in `clients/macos/.container-cache/`, then bundles it into `Vellum.app/Contents/Resources/DeveloperVM/`
-
-### First-Time Setup: Code Signing (Optional but Recommended)
-
-Code signing helps macOS TCC (permission system) recognize your app consistently across rebuilds. **Without it, you'll need to re-grant Accessibility and Screen Recording permissions every time you rebuild.**
-
-The build script automatically detects and uses any valid code signing certificate in your keychain. If none is found, it falls back to adhoc signing (unsigned).
-
-**Recommended: Create an Apple Development certificate via Xcode** (takes ~2 minutes, works with free Apple ID):
-
-1. Open any Swift file in Xcode:
-   ```bash
-   # From clients/macos/ directory:
-   open vellum-assistant/App/AppDelegate.swift
-   ```
-
-2. In Xcode menu bar: **Xcode → Settings → Accounts**
-
-3. Click **+** to add your Apple ID (free account works - no $99/year Developer Program needed)
-
-4. Select your Apple ID → click **Manage Certificates** → click **+** → select **Apple Development**
-
-5. Xcode creates and installs the certificate in your keychain automatically
-
-6. Close Xcode and rebuild: `./build.sh`
-
-The build script will detect and use your new certificate. Permissions will now persist across rebuilds!
-
-**Alternative: Use adhoc signing** (no setup, but permissions reset on every rebuild):
-```bash
-# Override signing identity to force adhoc:
-SIGN_IDENTITY="-" ./build.sh
-```
-
----
-
-## Auto-Rebuild on Save (Watch Mode)
-
-`./build.sh run` includes built-in watch mode that automatically rebuilds and relaunches when you save Swift files or resources:
-
-```bash
-./build.sh run
-```
-
-**How it works:**
-1. After the initial build and launch, the script watches for file changes
-2. Edit Swift files or resources (.swift, .xcassets) in your editor
-3. Save (Cmd+S)
-4. App automatically rebuilds and relaunches in ~4 seconds
-5. Watch polls every 2 seconds for changes (no external dependencies required)
-6. Press Ctrl+C to stop watching
-
----
-
-## SwiftPM Commands
-
-<details>
-<summary><strong>Raw SwiftPM commands</strong></summary>
-
-The raw SwiftPM commands also work if you prefer:
-
-```bash
-# Resolve dependencies
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift package resolve
-
-# Build
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build
-
-# Run tests
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
-
-# Build for release
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build -c release
-```
-
-</details>
-
----
-
-## Test DMG Installer
-
-To preview the DMG installer layout locally (requires `brew install create-dmg`):
-
-```bash
-./dmg/test-dmg.sh
-```
-
-This builds the app (if needed), generates the background image, creates a styled DMG, and opens it in Finder.
-
----
-
-## Local Assistant
-
-The macOS app is a frontend — all inference (chat, computer-use sessions, ambient analysis) goes through the **local assistant process**, a backend process that manages LLM API calls, conversation state, and tool execution. The app connects to the assistant exclusively through the **Gateway** (a local HTTP proxy) — it should never connect to the assistant process directly. The Gateway port is resolved dynamically from the lockfile for multi-instance setups.
-
-**Local mode: You must start the assistant before using the app.** Without it, the app will connect but get no responses. (In managed mode, the assistant runs on the Vellum platform — no local process needed.)
-
-```bash
-# Recommended: use the vellum CLI (starts daemon + gateway)
-vellum wake
-
-# Check process status
-vellum ps
-
-# Stop everything
-vellum sleep
-```
-
-For low-level development, you can also start the daemon directly:
-
-```bash
-cd assistant && bun run src/index.ts daemon start
-```
-
-The app will auto-reconnect if the assistant process restarts.
-
-> **Multi-instance note:** Every local assistant has its own data directory at `<resources.instanceDir>/.vellum/`, stored in the lockfile entry. New production hatches allocate `instanceDir` under `~/.local/share/vellum/assistants/<name>/`; existing legacy entries with `instanceDir = ~` continue to resolve to `~/.vellum/`. Non-production environments use `~/.local/share/vellum-<env>/assistants/<name>/`. See `LockfileAssistant` and `clients/shared/Utilities/VellumPaths.swift` for resolution logic.
-
----
-
-## Permissions
-
-The app requires three macOS permissions:
-- **Accessibility** — For reading UI element trees and injecting mouse/keyboard events
-- **Screen Recording** — For capturing screenshots (vision fallback when AX tree is sparse)
-- **Microphone** — For voice input via speech recognition
-
-Grant these in System Settings → Privacy & Security.
-
----
-
-## Usage
-
-1. Launch the app — an onboarding flow guides you through permissions and setup on first run
-2. The app appears as a sparkles icon in your menu bar
-3. Open Settings (click icon → gear) and enter your Anthropic API key (local mode only)
-4. Click the menu bar icon or press `⌘⇧G` to open the task input
-5. Type a task (e.g., "Fill in the name field with John Smith") and press Go
-6. Or hold the Fn key to dictate a task via voice
-7. Watch the overlay as vellum-assistant works through the task
-8. Press Escape at any time to cancel
-9. The main window shows a chat interface — type a message to start a conversation
-10. Responses stream in real-time from the assistant
-11. Click the stop button to cancel an in-progress generation
-
-### Keyboard Shortcuts
-
-<details>
-<summary><strong>Keyboard shortcuts reference</strong></summary>
-
-| Shortcut | Action |
-|----------|--------|
-| `Cmd +` | Conversation zoom in (text only) |
-| `Cmd -` | Conversation zoom out (text only) |
-| `Cmd 0` | Reset conversation zoom to 100% |
-| `Option+Cmd +` | Window zoom in (entire UI) |
-| `Option+Cmd -` | Window zoom out (entire UI) |
-| `Option+Cmd 0` | Reset window zoom to 100% |
-| `Cmd Shift G` | Open task input popover |
-| `Escape` | Cancel current session / close popover |
-
-**Conversation zoom** scales chat text (messages, markdown, code blocks, composer) independently of the window. A brief "Text 125%" indicator appears on each change. The zoom level persists across app relaunches.
-
-**Window zoom** scales the entire UI uniformly. A percentage indicator appears at the top of the window on each change.
-
-</details>
-
-### Opportunistic Message Queueing
-
-Users can send multiple messages while the assistant is busy. Messages are queued (FIFO, max 10) and processed automatically:
-
-- The queue drains at safe tool-loop checkpoints, not just at full completion
-- UI shows queue status: "N messages queued, sending automatically"
-- Message bubbles show status: queued (dimmed) -> processing -> sent
-- The assistant emits `generation_handoff` when it yields to queued work at a checkpoint, followed by `message_dequeued` as each queued message begins processing
-
-**Current limitations:** Text-only messages, no conversation history browser.
-
-### Tool Permission Tester
-
-In Settings > Trust, engineers can simulate whether a tool invocation would be allowed, denied, or prompted. The tester shows the same `ToolConfirmationBubble` UI used in chat. "Allow Once" and "Don't Allow" are simulation-only; "Always Allow" persists a real trust rule.
-
----
-
-## Component Gallery (Debug)
-
-Use Component Gallery as the visual verification surface for UI components. Do not add `#Preview` / `PreviewProvider` blocks.
-
-### Prerequisites
-
-1. **Install Xcode** — Download from the [Mac App Store](https://apps.apple.com/us/app/xcode/id497799835) (free, requires macOS). It's a large download (~7 GB), so this may take a while.
-2. **Open Xcode once** after installing and accept the license agreement. It will install additional components automatically.
-
-<details>
-<summary><strong>Step-by-step: Opening the project</strong></summary>
-
-1. Open Terminal and run:
-   ```bash
-   # From the clients/macos/ directory:
-   open ../Package.swift
-
-   # Or from the repo root:
-   open clients/Package.swift
-   ```
-   This opens the Swift package in Xcode. The `Package.swift` lives in the `clients/` directory and declares the macOS targets (`VellumAssistantShared`, `VellumAssistantLib`, `vellum-assistant`).
-
-2. Xcode will open and start resolving dependencies (you'll see a spinner in the top status bar). Wait for it to finish — this only takes a few seconds.
-
-</details>
-
-<details>
-<summary><strong>Step-by-step: Opening Component Gallery</strong></summary>
-
-1. **Run a debug build of `vellum-assistant`.**
-   In Xcode, use the `vellum-assistant` scheme and run on `My Mac`.
-
-2. **Open the menu bar app menu.**
-   Click the Vellum menu bar icon, then choose **Component Gallery**.
-
-3. **Validate components in Gallery.**
-   Verify variants/states in the appropriate section (`Gallery/Sections/`).
-
-4. **Keep Gallery updated with code changes.**
-   When adding or changing design system components, update Gallery sections instead of adding preview blocks.
-
-</details>
-
-### Troubleshooting
-
-| Problem | Fix |
-|---------|-----|
-| "Component Gallery" menu item is missing | Run a **Debug** build (`#if DEBUG` menu item) |
-| Changed component does not appear in Gallery | Update the relevant file in `clients/shared/DesignSystem/Gallery/Sections/` |
-| Gallery build errors | Fix compile errors in component code, then rerun the app |
-
----
-
-## Architecture
-
-<details>
-<summary><strong>Full directory layout</strong></summary>
+## Testing
+
+Pure functions under `src/main/` and `src/preload/` are unit-tested with
+[Bun's built-in test runner](https://bun.sh/docs/test/writing). Tests
+colocate next to source files (`commands.ts` → `commands.test.ts`).
+
+The real `electron` module isn't loadable off-Electron, so
+[`test-setup.ts`](./test-setup.ts) is preloaded by
+[`bunfig.toml`](./bunfig.toml) and mocks the surface every `src/main/`
+file imports at the top level. Tests that exercise a specific Electron
+API (e.g. `screen.getDisplayMatching`) re-mock it locally via
+`mock.module("electron", …)` inside the test file.
+
+`scripts/run-tests.ts` runs each test file in its own Bun subprocess —
+[`mock.module()` mutates a process-global registry](https://bun.sh/docs/test/mocking#mock-module),
+so mocks set in one file would leak into the next. Use `bun run test`
+for fast local iteration on a single file and `bun run test:ci` (or a
+single targeted file: `bun scripts/run-tests.ts src/main/foo.test.ts`)
+when running the full suite.
+
+## Layout
 
 ```
-App/                  AppDelegate, menu bar setup, permissions, voice input
-vellum-assistant-app/ Entry point (@main VellumAssistantApp — thin wrapper)
-ComputerUse/          Core perception + action pipeline
-  AccessibilityTree   AX element enumeration & formatting
-  AXTreeDiff          Diff between AX tree snapshots across steps
-  ActionExecutor      CGEvent mouse/keyboard injection
-  ActionTypes         Action type definitions
-  ActionVerifier      Safety checks (sensitive data, loops, limits)
-  HostCuExecutor      Computer-use action execution
-  HostCuSessionProxy  Session proxy for host computer-use orchestration
-  ScreenCapture       ScreenCaptureKit screenshot capture
-Services/             Singleton service containers
-Ambient/              Background screen-watching agent
-  AmbientAgent        Periodic capture → OCR → analyze via HTTP
-  AmbientAXCapture    Accessibility tree capture for ambient analysis
-  KnowledgeStore      Persists observations as JSON
-  ScreenOCR           Vision framework OCR
-  WatchSession        Watch connectivity session for ambient data
-Features/
-  Avatar/             Avatar customization
-  Chat/               Chat interface (ChatView, ChatViewModel, ChatMessage)
-  CommandPalette/     Command palette (search, actions)
-  Contacts/           Contact management
-  ChannelVerification/ Channel verification flow
-  MainWindow/         Main window shell, ConversationSwitcherDrawer, ConversationManager, PanelCoordinator, side panels
-  Onboarding/         First-launch setup flow (permissions, naming, Fn key)
-  QuickInput/         Quick task input popover and screen selection
-  Session/            Session overlay UI for computer-use task execution
-  Settings/           Tabbed settings panels (Appearance, Advanced, Connect, Trust, etc.)
-  Sharing/            Content sharing and export
-  Surfaces/           Daemon surface rendering (HTML/JSON overlays)
-  Terminal/            Terminal UI
-  Voice/              Voice input UI (VoiceTranscriptionWindow)
-Recording/            Screen recording (HUD, capture, thumbnails)
-Telemetry/            Crash reporting, MetricKit, perf signposts
-Security/             Credential broker
-Logging/
-  TraceStore          In-memory trace event store (per-session, dedup, retention cap)
-  Session recording   JSON logs to ~/Library/App Support/
+clients/macos/
+├── electron.vite.config.ts   # main + preload Vite entries (no renderer)
+├── scripts/
+│   └── dev.ts                # probes vel-up at :3000, dispatches to standalone or electron-only
+├── src/
+│   ├── main/index.ts         # app:// protocol, app lifecycle, popup hardening
+│   ├── main/windows.ts       # hardened window-creation seam (webPreferences + nav policy)
+│   ├── main/commands.ts      # typed command bus + accelerator resolver
+│   ├── main/settings.ts      # electron-store schema + IPC-backed accessors
+│   ├── main/menu.ts          # macOS application menu
+│   └── preload/index.ts      # contextBridge: window.vellum.*
+└── tsconfig.json
 ```
 
-</details>
+## Renderer bridge
 
----
+The preload script exposes a typed `window.vellum` API to the renderer:
 
-## Remote Assistant
+- `platform: "electron"` — host discriminator.
+- `settings.get<T>(key)` / `settings.set<T>(key, value)` — persisted preferences,
+  backed by `electron-store` in the main process. Writes are validated against
+  a JSON schema (`hotkeys`, `theme`, `featureFlags`); a schema violation
+  surfaces as a rejected `Promise`.
+- `commands.on(callback)` — subscribe to main-process commands dispatched
+  by the application menu (and, eventually, global hotkeys). Returns an
+  unsubscribe function. The renderer-side wrapper is
+  [`clients/web/src/runtime/vellum-commands.ts`](../web/src/runtime/vellum-commands.ts);
+  feature code mounts the `useVellumCommands` hook with a partial handler
+  map at whichever component owns the relevant state.
+- `dock.setBadge(count)` / `dock.setSignedIn(signedIn)` — publish the
+  inputs that drive the Dock unread badge and visibility state machine
+  in [`src/main/dock.ts`](src/main/dock.ts). Renderer wrapper at
+  [`clients/web/src/runtime/dock.ts`](../web/src/runtime/dock.ts) (no-ops
+  off Electron); feature code calls
+  `useElectronDockSync(conversations)` from `ChatLayout` to keep them in
+  sync. The accessory-mode (Dock-hidden) transition is gated on
+  `ALLOW_ACCESSORY_MODE` until a menu-bar (tray) entry point exists;
+  until then the icon stays in the Dock so the user always has a way
+  back to the window.
+- `localMode.*` — provisions and retires local assistants and reads/writes
+  the lockfile that records them. `hatch(species)` and `retire(assistantId)`
+  drive the Vellum CLI as a subprocess; `readLockfile()`,
+  `saveLockfileAssistant(assistant, activeAssistant?)`, and
+  `replacePlatformAssistants(platformAssistants)` read and write the lockfile
+  on disk. Every method is a thin wrapper over [`@vellumai/local-mode`](../../packages/local-mode/),
+  the shared host library that also backs the web app's dev-server middleware,
+  so the spawn/parse and lockfile logic lives in one place. The renderer-side
+  transport seam is [`clients/web/src/runtime/local-mode-host.ts`](../web/src/runtime/local-mode-host.ts),
+  which selects this bridge on Electron and the dev-server `/assistant/__local/*`
+  middleware on web/dev so both hosts honor the same contract.
+- `helper.hotkey.fnPushToTalk(enable)` — starts or stops the native helper
+  that captures the Fn key globally for Push to Talk, with
+  `helper.hotkey.onEvent(callback)` streaming `down` / `up` notifications.
+- `helper.ping()` — health-checks the native helper over JSON-RPC stdio.
+- `auth.*` — typed stubs that reject with "not implemented yet" until the
+  corresponding feature tickets land.
 
-The app supports connecting to a remote assistant process over HTTP. Configure a remote assistant entry in the lockfile with its `runtimeUrl` and optional `bearerToken`, or use managed mode to connect through the Vellum platform. See the [Remote Access](../../docs/internal-reference.md#remote-access) section in the internal reference documentation.
+The native helper lives in `native/mac-helper/` as a small Swift package.
+`MacHelperCore` owns JSON-RPC 2.0 NDJSON framing, standard error codes, and
+method routing so protocol behavior is unit-testable without spawning a
+process. The `vellum-mac-helper` executable is the thin AppKit/Carbon entrypoint;
+it logs to stderr and keeps stdout reserved for RPC frames and notifications.
 
----
+Verify the bridge from the renderer:
 
-## Safety
+```js
+console.log(window.vellum.platform); // "electron"
+await window.vellum.settings.set("theme", "dark");
+console.log(await window.vellum.settings.get("theme")); // "dark"
+```
 
-- Credit cards, SSNs, and passwords are blocked at the verifier level
-- Destructive key combos (Cmd+Q, Cmd+W, Cmd+Delete) require explicit user confirmation
-- Form submission (Enter after typing) requires confirmation
-- Loop detection aborts stuck agents (3 identical consecutive actions)
-- Step limit enforced (default 50, configurable)
-- System menu bar (top 25px) is off-limits
-- Escape key or Stop button instantly cancels
+### When to extend the bridge with new methods
+
+The generic `settings.{get,set}` surface is appropriate for user preferences
+where the renderer is the source of truth and the value is non-sensitive
+(theme, layout, feature-flag overrides, etc.). For higher-sensitivity
+capabilities — auth tokens, biometric keys, file paths, anything where the
+renderer should not be free to read or write arbitrary keys — add a
+dedicated bridge method (`window.vellum.<capability>.<verb>()`) with its
+own IPC channel. This follows Electron's "one method per IPC message"
+guidance from the [security tutorial](https://www.electronjs.org/docs/latest/tutorial/security#17-validate-the-sender-of-all-ipc-messages),
+which keeps the renderer-exposed surface narrow and auditable.
+
+Renderer-side consumers in `clients/web/` should wrap bridge access in a
+per-capability module (see `clients/web/src/runtime/native-biometric.ts` for
+the established shape) rather than reaching into `window.vellum.*`
+directly from feature code. That keeps the platform-branching logic in
+one place and makes the cross-platform contract (web / iOS / Electron)
+live in TypeScript types.

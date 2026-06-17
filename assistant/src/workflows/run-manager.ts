@@ -5,8 +5,6 @@
  * and routes (later PRs) drive. It owns everything the raw {@link executeWorkflow}
  * engine deliberately does NOT:
  *
- *  - **Feature-flag gate.** `start` hard-fails with {@link WorkflowsDisabledError}
- *    when the `workflows` flag is off, BEFORE any engine code path is reachable.
  *  - **Concurrent-run cap.** At most `config.workflows.maxConcurrentRuns` runs
  *    may be in flight; the (N+1)th `start` throws {@link WorkflowRunCapError}.
  *  - **Async launch.** `start` resolves capabilities, creates the journal run
@@ -28,7 +26,6 @@
 
 import { createHash, randomUUID } from "node:crypto";
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
 import {
@@ -57,15 +54,6 @@ const log = getLogger("workflow-run-manager");
 
 /** Source tag for the completion wake (shows up in the wake's structured log). */
 const WORKFLOW_WAKE_SOURCE = "workflow_completed";
-
-/** Thrown by `start` when the `workflows` feature flag is disabled. */
-export class WorkflowsDisabledError extends Error {
-  readonly code = "workflows_disabled" as const;
-  constructor() {
-    super("Workflows are not enabled.");
-    this.name = "WorkflowsDisabledError";
-  }
-}
 
 /** Thrown by `start` when the concurrent-run cap is already reached. */
 export class WorkflowRunCapError extends Error {
@@ -141,7 +129,6 @@ export interface WorkflowRunManagerDeps {
   leafRunner: typeof runLeaf;
   journal: typeof journalStore;
   getConfig: () => AssistantConfig;
-  isFlagEnabled: (config: AssistantConfig) => boolean;
   wake: typeof wakeAgentForOpportunity;
   broadcast: typeof broadcastMessage;
   newRunId: () => string;
@@ -155,8 +142,6 @@ function defaultDeps(): WorkflowRunManagerDeps {
     leafRunner: runLeaf,
     journal: journalStore,
     getConfig,
-    isFlagEnabled: (config) =>
-      isAssistantFeatureFlagEnabled("workflows", config),
     wake: wakeAgentForOpportunity,
     broadcast: broadcastMessage,
     newRunId: () => randomUUID(),
@@ -178,18 +163,14 @@ export class WorkflowRunManager {
   }
 
   /**
-   * Launch a workflow run. Gates on the `workflows` flag and the concurrent-run
-   * cap (both throw before any engine code is reachable), resolves capabilities,
+   * Launch a workflow run. Gates on the concurrent-run cap (which throws before
+   * any engine code is reachable), resolves capabilities,
    * creates the journal run row, and kicks off {@link executeWorkflow}
    * asynchronously. Returns the `runId` immediately — completion is surfaced via
    * events and a conversation wake.
    */
   start(opts: StartWorkflowOptions): { runId: string } {
     const config = this.deps.getConfig();
-    if (!this.deps.isFlagEnabled(config)) {
-      throw new WorkflowsDisabledError();
-    }
-
     const limit = config.workflows.maxConcurrentRuns;
     if (this.inflight.size >= limit) {
       throw new WorkflowRunCapError(limit);
@@ -282,9 +263,6 @@ export class WorkflowRunManager {
    */
   resume(runId: string): { runId: string } {
     const config = this.deps.getConfig();
-    if (!this.deps.isFlagEnabled(config)) {
-      throw new WorkflowsDisabledError();
-    }
 
     if (this.inflight.has(runId)) {
       throw new WorkflowResumeNotPossibleError(runId, "in_flight");

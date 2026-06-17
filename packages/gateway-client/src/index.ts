@@ -19,20 +19,26 @@ export * from "./gateway-ipc-contracts.js";
 
 export { ipcCall, IpcCallError, PersistentIpcClient } from "./ipc-client.js";
 
+// Outbound delivery contract (daemon → gateway) — Zod schemas + derived types
+export {
+  ApprovalActionOptionSchema,
+  ApprovalUIMetadataSchema,
+  AttachmentMetadataSchema,
+  ChannelDeliveryResultSchema,
+  ChannelReplyPayloadSchema,
+  PermissionRequestDetailsSchema,
+} from "./outbound-contract.js";
+
 export type {
   ApprovalActionOption,
   ApprovalUIMetadata,
   AttachmentMetadata,
   ChannelDeliveryResult,
   ChannelReplyPayload,
-  IpcRequest,
-  IpcResponse,
-  Logger,
   PermissionRequestDetails,
-} from "./types.js";
+} from "./outbound-contract.js";
 
-export { noopLogger } from "./types.js";
-
+// Inbound contract (gateway → daemon) — Zod schemas + derived types
 export {
   CommandIntentSchema,
   RuntimeInboundPayloadSchema,
@@ -44,3 +50,8 @@ export type {
   RuntimeInboundPayload,
   SourceMetadata,
 } from "./inbound-contract.js";
+
+// IPC, logger, and utility types
+export type { IpcRequest, IpcResponse, Logger } from "./types.js";
+
+export { noopLogger } from "./types.js";

@@ -453,6 +453,9 @@ export class SubagentManager {
         ...(managed.state.config.overrideProfile
           ? { overrideProfile: managed.state.config.overrideProfile }
           : {}),
+        ...(managed.state.config.forceOverrideProfile
+          ? { forceOverrideProfile: true }
+          : {}),
       });
 
       // Agent loop completed successfully.
@@ -640,6 +643,9 @@ export class SubagentManager {
           callSite: "subagentSpawn",
           ...(managed.state.config.overrideProfile
             ? { overrideProfile: managed.state.config.overrideProfile }
+            : {}),
+          ...(managed.state.config.forceOverrideProfile
+            ? { forceOverrideProfile: true }
             : {}),
         })
         .catch((err) => {

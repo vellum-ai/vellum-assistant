@@ -1,5 +1,3 @@
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
-import { getConfig } from "../../config/loader.js";
 import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
 import { validateRruleSetLines } from "../../schedule/recurrence-engine.js";
 import {
@@ -205,8 +203,8 @@ export async function executeScheduleUpdate(
     };
   }
 
-  // Mirror the HTTP route: a schedule whose RESULTING mode is `workflow` must be
-  // flag-enabled and carry a non-empty workflowName. Compute the post-update
+  // Mirror the HTTP route: a schedule whose RESULTING mode is `workflow` must
+  // carry a non-empty workflowName. Compute the post-update
   // state (the update's value if present, else the persisted one) so both
   // "switch to workflow without a name" and "clear the name on a workflow
   // schedule" are rejected — otherwise the scheduler hits the `!job.workflowName`
@@ -217,12 +215,6 @@ export async function executeScheduleUpdate(
       const resultingMode =
         updates.mode !== undefined ? (updates.mode as string) : existing.mode;
       if (resultingMode === "workflow") {
-        if (!isAssistantFeatureFlagEnabled("workflows", getConfig())) {
-          return {
-            content: "Error: workflows are not enabled.",
-            isError: true,
-          };
-        }
         const resultingWorkflowName =
           updates.workflowName !== undefined
             ? ((updates.workflowName as string | null) ?? "")
