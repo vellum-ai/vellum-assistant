@@ -149,8 +149,8 @@ export function useConversationSecondaryActions({
     [],
   );
 
-  // Navigate to the per-conversation LLM context inspector (web port of
-  // macOS's `MessageInspectorView`). The conversation lives in the path;
+  // Navigate to the per-conversation LLM context inspector. The
+  // conversation lives in the path;
   // `?messageId=` scopes to one turn. A turn is headed by its user
   // message, so we always seed the scope with a user message id — the
   // inspector's filter dropdown only lists user-headed turns. We default

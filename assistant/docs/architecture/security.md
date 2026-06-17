@@ -227,14 +227,14 @@ sequenceDiagram
     participant Route as credentials prompt route
     participant Prompter as SecretPrompter
     participant HTTP as HTTP Transport
-    participant UI as SecretPromptManager (Swift)
+    participant UI as Secret prompt UI (client)
     participant Store as Credential Store (CES / encrypted file)
 
     Model->>Route: assistant credentials prompt --service --field --label
     Route->>Prompter: requestSecretStandalone(service, field, label, ...)
     Prompter->>HTTP: secret_request {requestId, service, field, label, allowOneTimeSend}
-    HTTP->>UI: Show SecretPromptView (floating panel)
-    UI->>UI: User enters value in SecureField
+    HTTP->>UI: Show secret prompt
+    UI->>UI: User enters value in a masked field
     alt Store (default)
         UI->>HTTP: secret_response {requestId, value, delivery: "store"}
         HTTP->>Prompter: resolve(value, "store")
@@ -298,7 +298,7 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 | `assistant/src/security/secret-scanner.ts`                  | Prefix + shape-based secret regex detection (used by display-time `redactSecrets`) |
 | `assistant/src/security/secret-ingress.ts`                  | Prefix-only ingress check on user messages                                         |
 | `assistant/src/util/log-redact.ts`                          | Pino log serializers — prefix-based redaction for logs                             |
-| `clients/macos/.../SecretPromptManager.swift`               | Floating panel UI for secure credential entry                                      |
+| `apps/web/src/domains/chat/components/secret-prompt-card.tsx` | UI for secure credential entry                                                    |
 
 ---
 

@@ -266,7 +266,7 @@ inline in `App/project.yml` under the `AppEnvironment` template.
 
 - `App/App/AppIcon.icon/` is an Icon Composer bundle (green background +
   white "V"). It uses the same visual design as the macOS app icon
-  source SVG ([`vellum-assistant/clients/macos/build-resources/icons/production/Assets/white-V.svg`](https://github.com/vellum-ai/vellum-assistant/blob/main/clients/macos/build-resources/icons/production/Assets/white-V.svg)),
+  source SVG ([`vellum-assistant/apps/macos/build-resources/icons/production/Assets/white-V.svg`](https://github.com/vellum-ai/vellum-assistant/blob/main/apps/macos/build-resources/icons/production/Assets/white-V.svg)),
   but is its own Icon Composer bundle living in this repo.
 - `AppIcon-Staging.icon` (yellow) and `AppIcon-Dev.icon` (pink) follow
   the same structure — only the `fill.solid` colour differs.

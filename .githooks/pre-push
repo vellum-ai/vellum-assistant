@@ -3,18 +3,15 @@
 # Pre-push hook: fast static checks before pushing. CI runs the test suite.
 #
 # Checks:
-# 1. Swift build (clients/) — when .swift files changed (macOS SPM)
-# 2. Design token guard (clients/) — when .swift files changed
-# 3. TypeScript type check (assistant/) — when .ts/.tsx files changed
-# 4. TypeScript type check (clients/chrome-extension/) — when .ts/.tsx files changed
-# 5. Lint (assistant/, cli/, gateway/, clients/chrome-extension/) — eslint on changed .ts/.tsx/.js/.jsx/.mjs files
+# 1. TypeScript type check (assistant/) — when .ts/.tsx files changed
+# 2. TypeScript type check (clients/chrome-extension/) — when .ts/.tsx files changed
+# 3. Lint (assistant/, cli/, gateway/, clients/chrome-extension/) — eslint on changed .ts/.tsx/.js/.jsx/.mjs files
 #
 # Tests are intentionally NOT run here — CI is the source of truth. Local
 # pre-push test execution was blocking agent workflows (900+ tests on small
 # changes) and humans were routinely bypassing with --no-verify anyway.
 #
-# Skip Swift build only:  SKIP_SWIFT_BUILD=1 git push
-# Skip all hooks:         git push --no-verify
+# Skip all hooks: git push --no-verify
 
 set -uo pipefail
 
@@ -28,9 +25,6 @@ DIM='\033[2m'
 # Set PREPUSH_DEBUG=0 to suppress.
 PREPUSH_DEBUG="${PREPUSH_DEBUG:-1}"
 PREPUSH_START_EPOCH=""
-
-# Set SKIP_SWIFT_BUILD=1 to skip the Swift compilation check.
-SKIP_SWIFT_BUILD="${SKIP_SWIFT_BUILD:-0}"
 
 _debug_log() {
     if [ "$PREPUSH_DEBUG" != "1" ]; then return; fi
@@ -114,115 +108,11 @@ CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR "$DIFF_BASE"..HEAD -- '*
 _changed_count=$(echo "$CHANGED_FILES" | grep -c . 2>/dev/null || echo 0)
 _debug_log "changed files: ${_changed_count}"
 
-# Get changed Swift files separately (not included in the TS/JS diff above)
-SWIFT_CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR "$DIFF_BASE"..HEAD -- 'clients/*.swift' 'clients/**/*.swift' 2>/dev/null)
-_swift_count=$(echo "$SWIFT_CHANGED_FILES" | grep -c . 2>/dev/null || echo 0)
-_debug_log "changed Swift files: ${_swift_count}"
-
-if [ -z "$CHANGED_FILES" ] && [ -z "$SWIFT_CHANGED_FILES" ]; then
+if [ -z "$CHANGED_FILES" ]; then
     exit 0
 fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-
-# --- Swift build check for clients/ ---
-# Mirrors the TypeScript type check: when .swift files in clients/ changed,
-# verify the project compiles. Catches missing types, broken references, etc.
-# Works in worktrees (cold build is slower but still catches errors).
-if [ -n "$SWIFT_CHANGED_FILES" ] && [ "$SKIP_SWIFT_BUILD" != "1" ]; then
-    if ! command -v swift &>/dev/null; then
-        echo -e "${YELLOW}⚠️  swift not found — skipping Swift build check${NC}"
-    elif [ ! -f "${REPO_ROOT}/clients/Package.swift" ]; then
-        _debug_log "clients/Package.swift not found — skipping Swift build check"
-    else
-        echo ""
-        echo "🔍 Building clients/ (Swift)..."
-        _debug_log "swift build start"
-        _repo_real="$(cd "$REPO_ROOT" && pwd -P)"
-        _cache_slug="$(printf '%s' "$_repo_real" | md5 -q 2>/dev/null || printf '%s' "$_repo_real" | md5sum | cut -d' ' -f1)"
-        _module_cache="/tmp/spm-module-cache/${_cache_slug}"
-        # Per-worktree scratch directory so concurrent pre-push builds across
-        # parallel swarm worktrees don't contend on the shared `clients/.build`
-        # symlink (single `build.db` lock + a ModuleCache that gets polluted
-        # with sibling worktrees' `.pcm` paths). Cold first build per worktree
-        # is the cost; alternative (flock serialization) needs `flock(1)` which
-        # macOS doesn't ship by default.
-        _scratch_path="/tmp/spm-build/${_cache_slug}"
-        mkdir -p "$_scratch_path"
-        # Capture combined stdout+stderr so we can inspect failures for the
-        # SwiftPM resolver-flake pattern before deciding whether to retry. The
-        # tradeoff is no live progress on the first attempt — acceptable for a
-        # ~30s build, and the retry (when triggered) streams live so the user
-        # sees the recovery attempt happen. Use a temp file rather than $() so
-        # we don't strip trailing newlines from the captured output.
-        _swift_out_file="$(mktemp -t prepush-swift-build.XXXXXX)"
-        # shellcheck disable=SC2317
-        _swift_build_failed() {
-            echo ""
-            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo -e "${RED}Swift build errors in clients/ — push blocked${NC}"
-            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo ""
-            echo "Fix the build errors or push with --no-verify to skip."
-        }
-        (cd "${REPO_ROOT}/clients" && swift build --product vellum-assistant --scratch-path "$_scratch_path" -Xswiftc -module-cache-path -Xswiftc "$_module_cache" >"$_swift_out_file" 2>&1)
-        _swift_exit=$?
-        if [ $_swift_exit -ne 0 ]; then
-            if grep -q "Dependencies could not be resolved because no versions of" "$_swift_out_file"; then
-                # Transient SwiftPM resolver flake against a fresh per-worktree
-                # scratch dir. Wipe scratch + module cache and retry once,
-                # streaming live this time.
-                echo -e "${YELLOW}⚠️  SwiftPM resolver flake detected — wiping scratch and retrying once...${NC}"
-                _debug_log "swift build done (FAILED with resolver flake — retrying)"
-                rm -rf "$_scratch_path" "$_module_cache"
-                mkdir -p "$_scratch_path"
-                rm -f "$_swift_out_file"
-                if ! (cd "${REPO_ROOT}/clients" && swift build --product vellum-assistant --scratch-path "$_scratch_path" -Xswiftc -module-cache-path -Xswiftc "$_module_cache" 2>&1); then
-                    _swift_build_failed
-                    _debug_log "swift build retry done (FAILED)"
-                    exit 1
-                fi
-                _debug_log "swift build retry done (passed)"
-            else
-                cat "$_swift_out_file"
-                rm -f "$_swift_out_file"
-                _swift_build_failed
-                _debug_log "swift build done (FAILED)"
-                exit 1
-            fi
-        else
-            cat "$_swift_out_file"
-            rm -f "$_swift_out_file"
-            _debug_log "swift build done (passed)"
-        fi
-        echo -e "  ${GREEN}✅ Swift build OK in clients/${NC}"
-    fi
-fi
-
-# --- Design token guard for clients/ ---
-# When Swift files under clients/ are changed, verify design tokens are
-# consolidated (strict mode: no raw color usage outside token files).
-if [ -n "$SWIFT_CHANGED_FILES" ] && [ "$SKIP_SWIFT_BUILD" != "1" ]; then
-    if [ -x "${REPO_ROOT}/clients/scripts/check-design-tokens.sh" ]; then
-        echo ""
-        echo "🔍 Checking design tokens in clients/..."
-        _debug_log "design token guard start"
-        if ! "${REPO_ROOT}/clients/scripts/check-design-tokens.sh" --mode=strict 2>&1; then
-            echo ""
-            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo -e "${RED}Design token violations in clients/ — push blocked${NC}"
-            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo ""
-            echo "Fix the design token violations or push with --no-verify to skip."
-            _debug_log "design token guard done (FAILED)"
-            exit 1
-        fi
-        echo -e "  ${GREEN}✅ Design token guard OK${NC}"
-        _debug_log "design token guard done (passed)"
-    else
-        _debug_log "clients/scripts/check-design-tokens.sh not found — skipping design token guard"
-    fi
-fi
 
 if [ -n "$CHANGED_FILES" ]; then
     _debug_log "scanning for assistant/ TS changes"

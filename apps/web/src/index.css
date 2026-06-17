@@ -125,11 +125,10 @@ body {
   }
 }
 
-/* Onboarding hatching avatar pulse. Mirrors the macOS HatchingStepView
- * character animation: scales between 0.9 and 1.0 on ease-in-out, 1.2s
- * cycle, infinite alternate. Opacity dimmed to 0.6 so the creature reads
- * as "asleep" during hatching. When the assistant becomes active, swap
- * the class for `.onboarding-avatar-awake`. */
+/* Onboarding hatching avatar pulse: scales between 0.9 and 1.0 on
+ * ease-in-out, 1.2s cycle, infinite alternate. Opacity dimmed to 0.6 so the
+ * creature reads as "asleep" during hatching. When the assistant becomes
+ * active, swap the class for `.onboarding-avatar-awake`. */
 @keyframes morphPulse {
   0% { transform: scale(0.9); }
   100% { transform: scale(1.0); }

@@ -1035,7 +1035,7 @@ async function upgradePrepare(
   await commitWorkspaceViaGateway(
     entry.runtimeUrl,
     entry.assistantId,
-    `[sparkle-update] Starting: ${currentVersion} → ${targetVersion}`,
+    `[assistant-upgrade] Starting: ${currentVersion} → ${targetVersion}`,
   );
 
   // 3. Progress: saving backup
@@ -1103,7 +1103,7 @@ async function upgradeFinalize(
   await commitWorkspaceViaGateway(
     entry.runtimeUrl,
     entry.assistantId,
-    `[sparkle-update] Complete: ${fromVersion} → ${currentVersion}\n\nresult: success`,
+    `[assistant-upgrade] Complete: ${fromVersion} → ${currentVersion}\n\nresult: success`,
   );
 }
 
