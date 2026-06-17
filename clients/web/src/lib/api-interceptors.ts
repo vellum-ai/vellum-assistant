@@ -95,7 +95,16 @@ type PlatformStatusBody = {
   assistant_id?: unknown;
   platformAssistantId?: unknown;
   platform_assistant_id?: unknown;
+  organizationId?: unknown;
+  organization_id?: unknown;
+  platformOrganizationId?: unknown;
+  platform_organization_id?: unknown;
 };
+
+interface PlatformStatusContext {
+  assistantId: string | null;
+  organizationId: string | null;
+}
 
 type EnsureRegistrationBody = {
   assistant?: {
@@ -119,17 +128,29 @@ async function resolvePlatformAssistantIdForRuntime(
   if (cached) return cached;
 
   const promise = (async () => {
+    let statusOrganizationId: string | null = null;
     if (token) {
       for (const lookupIngressUrl of lookupIngressUrls) {
-        const assistantId = await fetchPlatformStatusAssistantId(
+        const statusContext = await fetchPlatformStatusContext(
           lookupIngressUrl,
           runtimeAssistantId,
           token,
         );
-        if (assistantId && assistantId !== runtimeAssistantId) return assistantId;
+        if (statusContext?.organizationId) {
+          statusOrganizationId = statusContext.organizationId;
+        }
+        if (
+          statusContext?.assistantId &&
+          statusContext.assistantId !== runtimeAssistantId
+        ) {
+          return statusContext.assistantId;
+        }
       }
     }
-    return fetchPlatformRegistrationAssistantId(runtimeAssistantId);
+    return fetchPlatformRegistrationAssistantId(
+      runtimeAssistantId,
+      statusOrganizationId,
+    );
   })();
 
   platformAssistantIdCache.set(cacheKey, promise);
@@ -176,11 +197,11 @@ function getPlatformStatusLookupIngressUrls(ingressUrl: string | null): string[]
   return [...new Set(candidates)];
 }
 
-async function fetchPlatformStatusAssistantId(
+async function fetchPlatformStatusContext(
   ingressUrl: string,
   runtimeAssistantId: string,
   token: string,
-): Promise<string | null> {
+): Promise<PlatformStatusContext | null> {
   const statusUrl = new URL(ingressUrl);
   const prefix = statusUrl.pathname.replace(/\/$/, "");
   const encodedAssistantId = encodeURIComponent(runtimeAssistantId);
@@ -204,21 +225,31 @@ async function fetchPlatformStatusAssistantId(
   const body = (await response.json().catch(() => null)) as
     | PlatformStatusBody
     | null;
-  return firstNonEmptyString(
-    body?.assistantId,
-    body?.assistant_id,
-    body?.platformAssistantId,
-    body?.platform_assistant_id,
-  );
+  return {
+    assistantId: firstNonEmptyString(
+      body?.assistantId,
+      body?.assistant_id,
+      body?.platformAssistantId,
+      body?.platform_assistant_id,
+    ),
+    organizationId: firstNonEmptyString(
+      body?.organizationId,
+      body?.organization_id,
+      body?.platformOrganizationId,
+      body?.platform_organization_id,
+    ),
+  };
 }
 
 async function fetchPlatformRegistrationAssistantId(
   runtimeAssistantId: string,
+  organizationIdOverride: string | null = null,
 ): Promise<string | null> {
   if (!isLocalMode() || isRemoteGatewayMode()) return null;
 
   const deviceId = getDeviceId();
-  const organizationId = await resolveOrganizationIdForLocalRegistration();
+  const organizationId =
+    organizationIdOverride ?? (await resolveOrganizationIdForLocalRegistration());
   if (!deviceId || !organizationId) return null;
 
   const url = new URL(
