@@ -36,10 +36,15 @@ import { client as gatewayClient } from "@/generated/gateway/client.gen";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { ApiError, extractErrorMessage } from "@/utils/api-errors";
-import { isLocalMode, isPlatformDisabled, isRemoteGatewayMode } from "@/lib/local-mode";
 import {
-    getSelfHostedActorToken,
-    getSelfHostedIngressUrl,
+  getLocalGatewayUrl,
+  isLocalMode,
+  isPlatformDisabled,
+  isRemoteGatewayMode,
+} from "@/lib/local-mode";
+import {
+  getSelfHostedActorToken,
+  getSelfHostedIngressUrl,
 } from "@/lib/self-hosted/connection";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import { getDeviceId } from "@/runtime/device-id";
@@ -90,37 +95,21 @@ async function resolvePlatformAssistantIdForRuntime(
   const token = getSelfHostedActorToken();
   if (!token) return null;
 
-  const cacheKey = `${ingressUrl}::${runtimeAssistantId}`;
+  const lookupIngressUrls = getPlatformStatusLookupIngressUrls(ingressUrl);
+  const cacheKey = `${lookupIngressUrls.join("|")}::${runtimeAssistantId}`;
   const cached = platformAssistantIdCache.get(cacheKey);
   if (cached) return cached;
 
   const promise = (async () => {
-    const statusUrl = new URL(ingressUrl);
-    const prefix = statusUrl.pathname.replace(/\/$/, "");
-    const encodedAssistantId = encodeURIComponent(runtimeAssistantId);
-    statusUrl.pathname =
-      `${prefix}/v1/assistants/${encodedAssistantId}/platform/status`;
-
-    const headers = new Headers({
-      Accept: "application/json",
-      Authorization: `Bearer ${token}`,
-    });
-    if (isRemoteGatewayMode()) {
-      headers.set(NGROK_SKIP_BROWSER_WARNING_HEADER, "true");
+    for (const lookupIngressUrl of lookupIngressUrls) {
+      const assistantId = await fetchPlatformStatusAssistantId(
+        lookupIngressUrl,
+        runtimeAssistantId,
+        token,
+      );
+      if (assistantId) return assistantId;
     }
-
-    const response = await fetch(statusUrl.toString(), {
-      headers,
-      credentials: "omit",
-    }).catch(() => null);
-    if (!response?.ok) return null;
-
-    const body = (await response.json().catch(() => null)) as
-      | { assistantId?: unknown }
-      | null;
-    return typeof body?.assistantId === "string" && body.assistantId.trim()
-      ? body.assistantId.trim()
-      : null;
+    return null;
   })();
 
   platformAssistantIdCache.set(cacheKey, promise);
@@ -129,6 +118,51 @@ async function resolvePlatformAssistantIdForRuntime(
     platformAssistantIdCache.delete(cacheKey);
   }
   return result;
+}
+
+function getPlatformStatusLookupIngressUrls(ingressUrl: string): string[] {
+  const candidates: string[] = [];
+  if (isLocalMode() && !isRemoteGatewayMode()) {
+    const localGatewayUrl = getLocalGatewayUrl();
+    if (localGatewayUrl) {
+      candidates.push(new URL(localGatewayUrl, ingressUrl).toString());
+    }
+  }
+  candidates.push(ingressUrl);
+  return [...new Set(candidates)];
+}
+
+async function fetchPlatformStatusAssistantId(
+  ingressUrl: string,
+  runtimeAssistantId: string,
+  token: string,
+): Promise<string | null> {
+  const statusUrl = new URL(ingressUrl);
+  const prefix = statusUrl.pathname.replace(/\/$/, "");
+  const encodedAssistantId = encodeURIComponent(runtimeAssistantId);
+  statusUrl.pathname =
+    `${prefix}/v1/assistants/${encodedAssistantId}/platform/status`;
+
+  const headers = new Headers({
+    Accept: "application/json",
+    Authorization: `Bearer ${token}`,
+  });
+  if (isRemoteGatewayMode()) {
+    headers.set(NGROK_SKIP_BROWSER_WARNING_HEADER, "true");
+  }
+
+  const response = await fetch(statusUrl.toString(), {
+    headers,
+    credentials: "omit",
+  }).catch(() => null);
+  if (!response?.ok) return null;
+
+  const body = (await response.json().catch(() => null)) as
+    | { assistantId?: unknown }
+    | null;
+  return typeof body?.assistantId === "string" && body.assistantId.trim()
+    ? body.assistantId.trim()
+    : null;
 }
 
 async function rewritePlatformOwnedAssistantRequest(

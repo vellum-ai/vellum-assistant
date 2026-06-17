@@ -28,10 +28,11 @@ const isPlatformDisabledMock = mock(() => false);
 const isRemoteGatewayModeMock = mock(
   () => window.__VELLUM_CONFIG__?.mode === "remote-gateway",
 );
+const getLocalGatewayUrlMock = mock((): string | undefined => undefined);
 mock.module("@/lib/local-mode", () => ({
   getActiveAssistant: () => undefined,
   getLocalAssistants: () => [],
-  getLocalGatewayUrl: () => undefined,
+  getLocalGatewayUrl: getLocalGatewayUrlMock,
   getLockfile: () => ({ assistants: [], activeAssistant: null }),
   getPlatformAssistants: () => [],
   getPlatformRuntimeUrl: () => window.location.origin,
@@ -250,6 +251,7 @@ describe("api-interceptors / self-hosted rewriting", () => {
     setSelfHostedConnection(null);
     resetPlatformAssistantIdCacheForTesting();
     globalThis.fetch = nativeFetch;
+    getLocalGatewayUrlMock.mockImplementation(() => undefined);
   });
 
   test("rewrites the URL origin to the configured ingress", async () => {
@@ -449,6 +451,45 @@ describe("api-interceptors / self-hosted rewriting", () => {
     );
     expect(output.headers.get("Authorization")).toBeNull();
     expect(output.headers.get("Vellum-Organization-Id")).toBe(TEST_ORG_ID);
+  });
+
+  test("uses the local gateway proxy for platform status lookup in local mode", async () => {
+    const pageOriginIngress = "http://localhost:5173";
+    const localGatewayUrl = "/assistant/__gateway/20101";
+    setSelfHostedConnection({ url: pageOriginIngress, token: ACTOR_TOKEN });
+    getLocalGatewayUrlMock.mockImplementation(() => localGatewayUrl);
+    const savedPlatformMode = process.env.VITE_PLATFORM_MODE;
+    delete process.env.VITE_PLATFORM_MODE;
+    const fetchMock = mock((_input: RequestInfo | URL, _init?: RequestInit) =>
+      Promise.resolve(
+        Response.json({
+          assistantId: PLATFORM_ASSISTANT_ID,
+          available: true,
+        }),
+      ),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    try {
+      const input = new Request(
+        `http://localhost:5173/v1/assistants/${SELF_HOSTED_ID}/oauth/connections/`,
+      );
+
+      const output = await requestInterceptor(input);
+
+      expect(new URL(output.url).pathname).toBe(
+        `/v1/assistants/${PLATFORM_ASSISTANT_ID}/oauth/connections/`,
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [statusUrl] = fetchMock.mock.calls[0]!;
+      expect(statusUrl).toBe(
+        `http://localhost:5173${localGatewayUrl}/v1/assistants/${SELF_HOSTED_ID}/platform/status`,
+      );
+    } finally {
+      if (savedPlatformMode !== undefined) {
+        process.env.VITE_PLATFORM_MODE = savedPlatformMode;
+      }
+    }
   });
 
   test("does NOT rewrite the bare retrieve route", async () => {
