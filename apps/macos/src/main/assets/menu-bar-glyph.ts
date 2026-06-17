@@ -1,15 +1,12 @@
 /**
- * Vellum brand glyph for the menu-bar (Tray) status item, ported verbatim
- * from the native macOS app's `MenuBarIcon` image set
- * (`clients/macos/vellum-assistant/Resources/Assets.xcassets/MenuBarIcon.imageset/`).
+ * Vellum brand glyph for the menu-bar (Tray) status item.
  *
  * Embedded as base64 rather than shipped as a loose PNG so the glyph travels
  * inside the bundled main process (`out/main/index.js`) with no extra
  * electron-vite asset-copy step or runtime `process.resourcesPath` lookup —
  * the menu bar must render the moment the Tray is constructed in `whenReady`,
  * before any window or protocol handler exists. The 1x (32px) and 2x (64px)
- * variants mirror the image set's `scale` entries so Retina menu bars get the
- * crisp rendition.
+ * variants give Retina menu bars the crisp rendition.
  *
  * The glyph is intentionally full-color (the green Vellum mark), so the Tray
  * image is a non-template image — see `status-icon.ts` for why a template

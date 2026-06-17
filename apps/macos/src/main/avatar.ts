@@ -10,9 +10,7 @@ import { on } from "./ipc";
  * to a square PNG and publishes the bytes over `vellum:icon:setAvatar`. Main
  * caches the latest PNG and lets each surface present it: the Dock icon
  * (`app.dock.setIcon`) clips it to a rounded square, and the menu-bar (Tray)
- * clips it to a circle under the status dot. This mirrors the native app,
- * where one avatar feeds both `applicationIconImage` and the menu-bar item
- * (`clients/macos/.../Features/Avatar/AvatarAppearanceManager.swift`).
+ * clips it to a circle under the status dot. One avatar feeds both surfaces.
  *
  * Rasterization happens in the renderer because Electron's `nativeImage`
  * decodes only PNG/JPEG, not the trait-composited SVG, and the renderer is

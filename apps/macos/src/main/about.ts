@@ -127,9 +127,8 @@ export const installAbout = (): void => {
   app.setAboutPanelOptions({
     applicationName: APP_NAME,
     applicationVersion: app.getVersion(),
-    // The native panel renders `version` after an em-dash. Using the
-    // commit SHA here matches what Sparkle / Swift Vellum's About
-    // window shows.
+    // The native panel renders `version` after an em-dash; the commit SHA
+    // identifies the exact build.
     version: COMMIT_SHA,
     copyright: COPYRIGHT(),
     website: WEBSITE,

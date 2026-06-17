@@ -318,7 +318,7 @@ async function retireInner(): Promise<void> {
   console.log(`Removed ${formatAssistantReference(entry)} from config.`);
 
   // When no assistants remain, remove the dock-display-name sentinel so
-  // the next build.sh run falls back to "Vellum" instead of using the
+  // the dock label falls back to "Vellum" instead of using the
   // retired assistant's name.
   if (loadAllAssistants().length === 0) {
     const dockLabelFile = join(

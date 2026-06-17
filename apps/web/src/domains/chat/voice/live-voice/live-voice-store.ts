@@ -1,8 +1,6 @@
 /**
  * Zustand store holding the observable state of a single live-voice session.
  *
- * Web-app counterpart to the `@Observable` fields on the macOS
- * `LiveVoiceChannelManager` (`clients/macos/.../LiveVoiceChannelManager.swift`).
  * The {@link useLiveVoice} controller owns the session lifecycle and writes here
  * through the actions; UI subscribes via per-field selectors so it only
  * re-renders on the fields it reads.

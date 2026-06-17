@@ -77,17 +77,15 @@ export const statusColor = (status: AssistantStatus): Rgb => {
  * circle), or the Vellum brand glyph when no avatar is set, with a colored
  * status dot baked into the bottom-right corner.
  *
- * The Swift app renders this as two layers — an 18pt avatar/glyph plus a 6pt
- * `CAShapeLayer` dot with a 0.5-alpha dark outline ring, pulsing the dot's
- * opacity while thinking
- * (`clients/macos/.../AppDelegate+MenuBar.swift`). Electron's `Tray` takes a
- * single flattened `NativeImage` with no sublayers, so the dot is composited
- * into the bitmap here and the pulse is a set of pre-rendered frames at
- * descending dot opacity.
+ * The icon is an 18pt avatar/glyph with a 6pt status dot (a 0.5-alpha dark
+ * outline ring) baked into the bottom-right corner, pulsing the dot's opacity
+ * while thinking. Electron's `Tray` takes a single flattened `NativeImage`
+ * with no sublayers, so the dot is composited into the bitmap here and the
+ * pulse is a set of pre-rendered frames at descending dot opacity.
  *
- * Geometry is kept in the same points as the Swift app and rendered at 2x so
- * Retina menu bars get a crisp dot; the resulting image is tagged
- * `scaleFactor: 2` and macOS downsamples for non-Retina displays.
+ * Geometry is rendered at 2x so Retina menu bars get a crisp dot; the
+ * resulting image is tagged `scaleFactor: 2` and macOS downsamples for
+ * non-Retina displays.
  *
  * The image is **not** a template image. macOS auto-inverts template images
  * for dark menu bars and the menu-open pressed state, but a template image is
