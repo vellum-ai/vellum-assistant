@@ -167,6 +167,7 @@ export function SubagentDetailPanel({
         )}
         <Typography
           variant="title-medium"
+          title={entry.label}
           className="min-w-0 shrink truncate text-[var(--content-default)]"
         >
           {entry.label}
@@ -233,7 +234,7 @@ export function SubagentDetailPanel({
             <Typography
               variant="body-medium-lighter"
               as="p"
-              className="whitespace-pre-wrap leading-relaxed text-[var(--content-default)]"
+              className="whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)]"
             >
               {entry.objective}
             </Typography>
