@@ -6,11 +6,10 @@ import type { ChannelDeliveryPayload } from "../notifications/types.js";
 import type { ApprovalUIMetadata } from "../runtime/channel-approval-types.js";
 
 /**
- * Characterization tests for the Slack approval-card block output.
- *
- * The Slack notification card builders had no direct coverage; these lock in
- * the exact block shapes so the refactor that routes them through
- * `buildAccessRequestCardView` stays behavior-preserving.
+ * Pins the Slack approval-card block contract: the title, identity subtitle,
+ * quoted-preview body, action callback ids, source/permalink and requester-id
+ * context blocks, warning subtext, and guardian verification note that
+ * `buildApprovalNotificationBlocks` emits for an access request.
  */
 
 const APPROVAL: ApprovalUIMetadata = {
