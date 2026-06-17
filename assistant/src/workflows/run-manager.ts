@@ -473,6 +473,7 @@ interface RunContext {
 const VALID_TRUST_CLASSES: ReadonlySet<TrustContext["trustClass"]> = new Set([
   "guardian",
   "trusted_contact",
+  "unverified_contact",
   "unknown",
 ]);
 

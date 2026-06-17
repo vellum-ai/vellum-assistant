@@ -3,6 +3,11 @@ import type { GatewayConfig } from "../config.js";
 import type { CredentialCache } from "../credential-cache.js";
 import { credentialKey } from "../credential-key.js";
 import { initSigningKey } from "../auth/token-service.js";
+import {
+  initAdmissionPolicyCache,
+  resetAdmissionPolicyCache,
+} from "../risk/admission-policy-cache.js";
+import { initGatewayDb, resetGatewayDb } from "../db/connection.js";
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
@@ -103,12 +108,20 @@ let fetchCalls: {
   headers?: Record<string, string>;
 }[];
 
-beforeEach(() => {
+beforeEach(async () => {
+  // P3 admission policy cache is required by `handleInbound`; init fresh
+  // per test so the cache state mirrors the freshly-reset gateway DB.
+  resetGatewayDb();
+  resetAdmissionPolicyCache();
+  await initGatewayDb();
+  initAdmissionPolicyCache();
   fetchCalls = [];
 });
 
 afterEach(() => {
   fetchMock = mock(async () => new Response());
+  resetAdmissionPolicyCache();
+  resetGatewayDb();
 });
 
 /** Extract headers from a fetch call into a plain object. */

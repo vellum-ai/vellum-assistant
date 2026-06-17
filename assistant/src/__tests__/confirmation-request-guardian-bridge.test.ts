@@ -178,7 +178,7 @@ describe("bridgeConfirmationRequestToGuardian", () => {
 
     expect("skipped" in result && result.skipped).toBe(true);
     if ("skipped" in result) {
-      expect(result.reason).toBe("not_trusted_contact");
+      expect(result.reason).toBe("not_bridgeable_trust_class");
     }
     expect(emittedSignals).toHaveLength(0);
   });
@@ -199,7 +199,7 @@ describe("bridgeConfirmationRequestToGuardian", () => {
 
     expect("skipped" in result && result.skipped).toBe(true);
     if ("skipped" in result) {
-      expect(result.reason).toBe("not_trusted_contact");
+      expect(result.reason).toBe("not_bridgeable_trust_class");
     }
     expect(emittedSignals).toHaveLength(0);
   });

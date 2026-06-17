@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import type { GatewayConfig } from "../config.js";
 import { SlackStore } from "../db/slack-store.js";
@@ -83,6 +83,11 @@ const { SlackSocketModeClient } = await import("../slack/socket-mode.js");
 const { clearChannelInfoCache, clearUserInfoCache, resolveSlackUser } =
   await import("../slack/normalize.js");
 const { handleInbound } = await import("../handlers/handle-inbound.js");
+const { initGatewayDb, resetGatewayDb } = await import("../db/connection.js");
+const {
+  initAdmissionPolicyCache,
+  resetAdmissionPolicyCache,
+} = await import("../risk/admission-policy-cache.js");
 import type { SlackSocketModeConfig } from "../slack/socket-mode.js";
 
 type SocketModeHarness = {
@@ -204,12 +209,21 @@ function flushAsyncEventEmission(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  resetGatewayDb();
+  resetAdmissionPolicyCache();
+  await initGatewayDb();
+  initAdmissionPolicyCache();
   runtimePayloads.length = 0;
   warnLogs.length = 0;
   clearUserInfoCache();
   clearChannelInfoCache();
   fetchMock = mock(async () => makeSlackUserResponse());
+});
+
+afterEach(() => {
+  resetAdmissionPolicyCache();
+  resetGatewayDb();
 });
 
 describe("SlackSocketModeClient thread tracking", () => {
