@@ -46,6 +46,7 @@ import {
   installEscapeMonitor,
   setDictationRecording,
 } from "./escape-monitor";
+import { installDiagnosticsIpc } from "./diagnostics";
 import { installFeatureFlagsIpc } from "./feature-flags";
 import { installFeedbackIpc } from "./feedback";
 import { installGlobalShortcuts } from "./global-shortcuts";
@@ -377,6 +378,7 @@ app
     installCsp();
     installHotkeysIpc();
     installFeatureFlagsIpc();
+    installDiagnosticsIpc();
     installLocalMode();
     // Refresh the PATH-wrapper locator every launch so app moves and
     // version bumps self-heal even if no CLI invocation happens this session.

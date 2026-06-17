@@ -18,6 +18,7 @@
  */
 import { removeLocalSetting, getLocalBool, setLocalBool } from "@/utils/local-settings";
 import { setDeviceBool } from "@/utils/device-settings";
+import { syncDiagnosticsToMain } from "@/runtime/diagnostics";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 import { patchConsent, type UserConsent } from "@/domains/account/profile";
 
@@ -137,6 +138,7 @@ export function savePreferenceToggle(
   } else {
     store.setShareDiagnostics(value);
     setDeviceBool("shareDiagnostics", value);
+    syncDiagnosticsToMain(value);
   }
 
   if (hasPlatformSession) {
