@@ -157,6 +157,11 @@ export async function resolveMetaSlashCommand(
   }
   const conversation = await getOrCreateConversation(resolvedId);
   touchConversation(resolvedId);
+  // Hydrate persisted history before stripping/inspecting: a registry
+  // conversation the daemon holds but hasn't run a turn on can have an empty
+  // in-memory `messages` array, which would make `/clean` report 0 preserved
+  // and `/status` report 0 messages. Mirrors `processMessage`'s turn setup.
+  await conversation.ensureActorScopedHistory();
 
   const slashResult = await resolveSlash(
     command,
