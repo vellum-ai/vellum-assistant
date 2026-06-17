@@ -161,6 +161,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     return (
       <ResizablePanel
         storageKey="appEditPanelWidth"
+        hideDivider
         defaultRightWidth={400}
         minLeftWidth={300}
         minRightWidth={400}
@@ -217,6 +218,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     return (
       <ResizablePanel
         storageKey="documentPanelWidth"
+        hideDivider
         defaultRightWidth={400}
         minLeftWidth={300}
         minRightWidth={400}
@@ -248,6 +250,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
       return (
         <ResizablePanel
           storageKey="subagentDetailPanelWidth"
+          hideDivider
           defaultRightWidth={400}
           minLeftWidth={300}
           minRightWidth={400}
