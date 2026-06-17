@@ -634,6 +634,7 @@ export function ChatLayout() {
                     "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))",
                 }}
               >
+                <StatusBanner />
                 {renderSideMenu({
                   collapsed: false,
                   variant: "overlay",
