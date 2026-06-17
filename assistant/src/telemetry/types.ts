@@ -302,6 +302,88 @@ export interface SkillLoadedTelemetryEvent extends ModelTelemetryEventBase {
   conversation_id: string | null;
 }
 
+/**
+ * One LLM call captured inside a turn trace — the prompt sent and the
+ * completion returned, plus token usage. Mirrors the loop's per-call
+ * `llm_call_started` → `message_complete` → `usage` sequence. Secrets are
+ * scrubbed daemon-side before this is persisted; ordinary conversation
+ * content is preserved (that is the consented debugging/eval value).
+ */
+export interface TraceLlmCall {
+  /** 0-indexed position of this call within the turn. */
+  index: number;
+  /** Logical call site, e.g. `mainAgent`. Null when the loop did not tag one. */
+  call_site: string | null;
+  /** Model id active for the call. Null when not yet resolved. */
+  model: string | null;
+  /** Provider that served the call. Null when not yet resolved. */
+  provider: string | null;
+  /**
+   * The assistant message the model returned for this call — its content
+   * blocks (text / thinking / tool_use), redaction-scrubbed.
+   */
+  completion: { role: string; content: unknown[] } | null;
+  /** Token usage for this call. Null when the provider returned no usage. */
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens: number | null;
+    cache_read_input_tokens: number | null;
+  } | null;
+}
+
+/** One tool invocation captured inside a turn trace (args + result). */
+export interface TraceToolCall {
+  /** Provider-assigned tool_use id linking the call to its result. */
+  tool_use_id: string;
+  tool_name: string;
+  /** Tool arguments, redaction-scrubbed. */
+  input: Record<string, unknown>;
+  /** Stringified tool result content, redaction-scrubbed. Null until the result lands. */
+  result: string | null;
+  /** Whether the tool returned an error result. Null until the result lands. */
+  is_error: boolean | null;
+}
+
+/**
+ * Per-turn execution trace — the full body of one agent turn (prompts,
+ * completions, tool calls/results, token usage). Assembled from the
+ * `AgentLoop` event stream and posted to the platform telemetry endpoint,
+ * which routes `type === "trace"` to the user-partitioned GCS trace path.
+ *
+ * Consent-gated and DARK by default: a trace row is only buffered when the
+ * platform consent says current-version-accepted AND `share_product_improvement`
+ * is on. Secrets (OAuth/API tokens, `Authorization` headers, credential
+ * material) are scrubbed before persistence.
+ */
+export interface TraceTelemetryEvent extends TelemetryEventBase {
+  type: "trace";
+  /** Parent conversation id. */
+  conversation_id: string;
+  /**
+   * 1-indexed position of the user turn this trace belongs to within the
+   * parent conversation, counting only real user turns — same filter as the
+   * `turn` / `llm_usage` event streams. Null when no user turn has been
+   * recorded yet.
+   */
+  turn_index: number | null;
+  /** The agent loop's request id for the turn. */
+  request_id: string | null;
+  /** The per-turn trace body. */
+  trace: {
+    /** Why the turn ended (`AgentLoopExitReason`). Null when unknown. */
+    exit_reason: string | null;
+    /** Epoch ms when the turn started. */
+    started_at: number | null;
+    /** Epoch ms when the turn ended. */
+    ended_at: number | null;
+    /** Each LLM call in the turn, in call order. */
+    llm_calls: TraceLlmCall[];
+    /** Each tool invocation in the turn, in call order. */
+    tool_calls: TraceToolCall[];
+  };
+}
+
 /** Discriminated union of all telemetry event types. */
 export type TelemetryEvent =
   | LlmUsageTelemetryEvent
@@ -310,4 +392,5 @@ export type TelemetryEvent =
   | OnboardingTelemetryEvent
   | AuthFallbackTelemetryEvent
   | ToolExecutedTelemetryEvent
-  | SkillLoadedTelemetryEvent;
+  | SkillLoadedTelemetryEvent
+  | TraceTelemetryEvent;

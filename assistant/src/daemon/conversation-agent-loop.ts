@@ -75,6 +75,7 @@ import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import type { ActivationMomentParam } from "../telemetry/activation-funnel.js";
+import { TurnTraceAccumulator } from "../telemetry/turn-trace-accumulator.js";
 import type { UsageActor } from "../usage/actors.js";
 import { getLogger } from "../util/logger.js";
 import { timeAgo } from "../util/time.js";
@@ -841,7 +842,18 @@ export async function runAgentLoopImpl(
       turnInterfaceContext: capturedTurnInterfaceContext,
       applyCompaction: applySuccessfulCompaction,
     };
+    // Observation-only per-turn execution-trace accumulator. Fed every agent
+    // event alongside the real dispatch; on the terminal `agent_loop_exit` it
+    // buffers one trace row (consent-gated, DARK by default). `finalize` is
+    // idempotent, so feeding the terminal exit from both `eventHandler` (the
+    // inline `budget_yield_unrecovered` break that returns early below) and
+    // `emitTerminalExit` (handoff / re-driven yield) persists exactly once.
+    const traceAccumulator = new TurnTraceAccumulator(
+      ctx.conversationId,
+      reqId,
+    );
     const eventHandler = (event: AgentEvent): Promise<void> => {
+      traceAccumulator.observe(event);
       if (
         event.type === "agent_loop_exit" &&
         (event.reason === "context_too_large" ||
@@ -863,6 +875,7 @@ export async function runAgentLoopImpl(
       return dispatchAgentEvent(state, deps, event);
     };
     emitTerminalExit = async (reason: AgentLoopExitReason): Promise<void> => {
+      traceAccumulator.observe({ type: "agent_loop_exit", reason });
       await dispatchAgentEvent(state, deps, {
         type: "agent_loop_exit",
         reason,

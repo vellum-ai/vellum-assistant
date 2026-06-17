@@ -39,6 +39,7 @@ import {
   createSequenceTables,
   createSkillLoadedEventsTable,
   createTasksAndWorkItemsTables,
+  createTelemetryTraceEventsTable,
   createWatchersAndLogsTables,
   migrate230AcpSessionHistory,
   migrate231RepairMemoryGraphEventDates,
@@ -521,6 +522,7 @@ export function initializeDb(): void {
     migrateContactChannelsUniqueExtUser,
     migrateScheduleCapabilities,
     migrateContactChannelsRenormalizeAddresses,
+    createTelemetryTraceEventsTable,
   ];
 
   // Run each migration step, catching and logging individual failures so one

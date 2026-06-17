@@ -25,6 +25,7 @@ import { queryUnreportedUsageEvents } from "../memory/llm-usage-store.js";
 import { queryUnreportedOnboardingEvents } from "../memory/onboarding-events-store.js";
 import { queryUnreportedSkillLoadedEvents } from "../memory/skill-loaded-events-store.js";
 import { queryUnreportedToolExecutedEvents } from "../memory/tool-executed-events-store.js";
+import { queryUnreportedTraceEvents } from "../memory/trace-events-store.js";
 import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
 import { VellumPlatformClient } from "../platform/client.js";
 import type { UsageAttributionProfileSource } from "../usage/types.js";
@@ -67,6 +68,8 @@ const CHECKPOINT_KEY_SKILL_LOADED_WATERMARK =
   "telemetry:skill_loaded:last_reported_at";
 const CHECKPOINT_KEY_SKILL_LOADED_WATERMARK_ID =
   "telemetry:skill_loaded:last_reported_id";
+const CHECKPOINT_KEY_TRACE_WATERMARK = "telemetry:trace:last_reported_at";
+const CHECKPOINT_KEY_TRACE_WATERMARK_ID = "telemetry:trace:last_reported_id";
 // Written into the `*_id` watermark checkpoints by the opt-out flush branch.
 // Sorts lexicographically above every real row ID (all event stores generate
 // lowercase v4 UUIDs), so the compound cursor's same-millisecond arm
@@ -91,6 +94,7 @@ const WATERMARK_KEY_PAIRS: ReadonlyArray<readonly [string, string]> = [
     CHECKPOINT_KEY_SKILL_LOADED_WATERMARK,
     CHECKPOINT_KEY_SKILL_LOADED_WATERMARK_ID,
   ],
+  [CHECKPOINT_KEY_TRACE_WATERMARK, CHECKPOINT_KEY_TRACE_WATERMARK_ID],
 ];
 const REPORT_INTERVAL_MS = 5 * 60 * 1000;
 const INITIAL_FLUSH_DELAY_MS = 30_000; // Delay first flush to let CES handshake complete
@@ -295,6 +299,17 @@ export class UsageTelemetryReporter {
         getMemoryCheckpoint(CHECKPOINT_KEY_SKILL_LOADED_WATERMARK_ID) ??
         undefined;
 
+      // Read trace watermark (compound cursor: createdAt + id).
+      // Brand-new table, so the standard 0 default is safe. Trace rows are
+      // only ever recorded under consent (DARK by default), so the opt-out
+      // flush branch above keeps this watermark advancing past any window
+      // where consent was off, same as the other event types.
+      const traceWatermark = Number(
+        getMemoryCheckpoint(CHECKPOINT_KEY_TRACE_WATERMARK) ?? "0",
+      );
+      const traceWatermarkId =
+        getMemoryCheckpoint(CHECKPOINT_KEY_TRACE_WATERMARK_ID) ?? undefined;
+
       // Query unreported events
       const events = queryUnreportedUsageEvents(
         watermark,
@@ -331,6 +346,11 @@ export class UsageTelemetryReporter {
         skillLoadedWatermarkId,
         BATCH_SIZE,
       );
+      const traceEvents = queryUnreportedTraceEvents(
+        traceWatermark,
+        traceWatermarkId,
+        BATCH_SIZE,
+      );
 
       if (
         events.length === 0 &&
@@ -339,7 +359,8 @@ export class UsageTelemetryReporter {
         onboardingEvents.length === 0 &&
         authFallbackEvents.length === 0 &&
         toolExecutedEvents.length === 0 &&
-        skillLoadedEvents.length === 0
+        skillLoadedEvents.length === 0 &&
+        traceEvents.length === 0
       )
         return;
 
@@ -356,6 +377,7 @@ export class UsageTelemetryReporter {
           authFallbackCount: authFallbackEvents.length,
           toolExecutedCount: toolExecutedEvents.length,
           skillLoadedCount: skillLoadedEvents.length,
+          traceCount: traceEvents.length,
         },
         "Telemetry flush: resolved auth context",
       );
@@ -567,6 +589,24 @@ export class UsageTelemetryReporter {
             assistant_version: APP_VERSION,
           }),
         ),
+        ...traceEvents.map(
+          (e): TelemetryEvent => ({
+            type: "trace",
+            daemon_event_id: e.id,
+            recorded_at: e.createdAt,
+            conversation_id: e.conversationId,
+            turn_index: e.turnIndex,
+            request_id: e.requestId,
+            // The trace body is assembled and secret-scrubbed in the daemon
+            // before buffering; forwarded verbatim. The platform routes
+            // `type === "trace"` to the user-partitioned GCS trace path.
+            trace: e.trace,
+            // `telemetry_trace_events` has no record-time version column —
+            // same upload-time APP_VERSION stamping as the other non-llm_usage
+            // event types.
+            assistant_version: APP_VERSION,
+          }),
+        ),
       ];
 
       const organizationId = getPlatformOrganizationId() || undefined;
@@ -693,6 +733,16 @@ export class UsageTelemetryReporter {
         );
       }
 
+      // Advance trace watermark (compound cursor)
+      if (traceEvents.length > 0) {
+        const lastTrace = traceEvents[traceEvents.length - 1];
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_TRACE_WATERMARK,
+          String(lastTrace.createdAt),
+        );
+        setMemoryCheckpoint(CHECKPOINT_KEY_TRACE_WATERMARK_ID, lastTrace.id);
+      }
+
       // If we got a full batch of any type, there may be more — recurse
       if (
         events.length === BATCH_SIZE ||
@@ -701,7 +751,8 @@ export class UsageTelemetryReporter {
         onboardingEvents.length === BATCH_SIZE ||
         authFallbackEvents.length === BATCH_SIZE ||
         toolExecutedEvents.length === BATCH_SIZE ||
-        skillLoadedEvents.length === BATCH_SIZE
+        skillLoadedEvents.length === BATCH_SIZE ||
+        traceEvents.length === BATCH_SIZE
       ) {
         await this._doFlush(batchCount + 1);
       }

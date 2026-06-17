@@ -283,6 +283,7 @@ export { migrateBackfillOriginChannelFromBindings } from "./288-backfill-origin-
 export { migrateContactChannelsUniqueExtUser } from "./289-contact-channels-unique-ext-user.js";
 export { migrateScheduleCapabilities } from "./290-schedule-capabilities.js";
 export { migrateContactChannelsRenormalizeAddresses } from "./291-contact-channels-renormalize-addresses.js";
+export { createTelemetryTraceEventsTable } from "./292-create-telemetry-trace-events.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

@@ -142,6 +142,12 @@ export const AssistantConfigSchema = z
       .describe(
         "Whether to collect anonymous usage data to help improve the assistant",
       ),
+    shareProductImprovement: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Whether the user has accepted sharing full per-turn execution traces (prompts, completions, tool IO) for product improvement. Defaults off: trace collection stays dark until the user accepts the current consent version and enables this toggle.",
+      ),
     sendDiagnostics: z
       .boolean()
       .default(true)

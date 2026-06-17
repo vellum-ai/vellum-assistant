@@ -337,6 +337,37 @@ export const skillLoadedEvents = sqliteTable(
   ],
 );
 
+// One row per agent turn, buffering the full per-turn execution trace
+// (prompts, completions, tool calls/results, token usage) for the
+// product-improvement telemetry pipeline — see telemetry-trace-events-store.ts
+// for the data contract. Distinct from `trace_events` (the conversation
+// activity log read by the UI): this table is a telemetry buffer flushed by
+// the usage telemetry reporter, mirroring `llm_usage_events` /
+// `skill_loaded_events`. Rows are recorded only under consent (DARK by
+// default); secrets are scrubbed before insert. The index backs the
+// reporter's compound `(created_at, id)` watermark cursor.
+export const telemetryTraceEvents = sqliteTable(
+  "telemetry_trace_events",
+  {
+    id: text("id").primaryKey(),
+    createdAt: integer("created_at").notNull(),
+    conversationId: text("conversation_id").notNull(),
+    requestId: text("request_id"),
+    turnIndex: integer("turn_index"),
+    // JSON-serialized `TraceTelemetryEvent["trace"]` body.
+    trace: text("trace").notNull(),
+  },
+  (table) => [
+    index("idx_telemetry_trace_events_created_at_id").on(
+      table.createdAt,
+      table.id,
+    ),
+    index("idx_telemetry_trace_events_conversation_id").on(
+      table.conversationId,
+    ),
+  ],
+);
+
 export const traceEvents = sqliteTable(
   "trace_events",
   {
