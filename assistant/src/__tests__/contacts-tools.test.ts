@@ -240,6 +240,35 @@ describe("contact_search tool", () => {
   });
 });
 
+// ── search_contacts route (HTTP/IPC compat shim) ─────────────────────
+
+describe("search_contacts route", () => {
+  beforeEach(clearContacts);
+
+  test("includes externalUserId (= address) on channels for older clients", () => {
+    const seeded = upsertFixture({
+      display_name: "Dana",
+      channels: [{ type: "slack", address: "U12345ABC" }],
+    });
+    const seededAddress = seeded.channels[0]!.address;
+
+    const searchRoute = ROUTES.find(
+      (r) => r.operationId === "search_contacts",
+    )!;
+    const contacts = searchRoute.handler({
+      body: { channelAddress: seededAddress },
+    }) as unknown as Array<{
+      channels: Array<{ address: string; externalUserId?: string }>;
+    }>;
+
+    expect(contacts.length).toBeGreaterThanOrEqual(1);
+    const channel = contacts[0]!.channels[0]!;
+    // The column was dropped; the route re-derives the compat field from
+    // address so SDK/macOS clients that still read externalUserId keep working.
+    expect(channel.externalUserId).toBe(channel.address);
+  });
+});
+
 // ── contact_merge ───────────────────────────────────────────────────
 
 describe("contact_merge tool", () => {

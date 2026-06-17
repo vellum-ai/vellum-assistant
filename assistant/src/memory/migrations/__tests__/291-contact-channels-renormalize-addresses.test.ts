@@ -308,4 +308,34 @@ describe("migration 291 — renormalize addresses", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].address).toBe("U12345ABC");
   });
+
+  test("no-op when external_user_id column is absent (re-run after migration 293)", () => {
+    const db = createTestDb();
+    bootstrap(db);
+    const raw = getSqliteFrom(db);
+
+    insertContact(raw, "c1");
+    insertChannel(raw, {
+      id: "ch1",
+      contactId: "c1",
+      type: "slack",
+      address: "u12345abc",
+      externalUserId: "U12345ABC",
+      status: "active",
+    });
+
+    // Simulate a later startup where migration 293 has already dropped the
+    // index and column. Migration steps re-run on every startup, so this must
+    // tolerate the dropped column rather than throwing "no such column".
+    raw.run("DROP INDEX IF EXISTS idx_contact_channels_type_ext_user");
+    raw.run("ALTER TABLE contact_channels DROP COLUMN external_user_id");
+
+    expect(() => migrateContactChannelsRenormalizeAddresses(db)).not.toThrow();
+
+    const rows = raw
+      .prepare("SELECT id, address FROM contact_channels")
+      .all() as { id: string; address: string }[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0].address).toBe("u12345abc");
+  });
 });

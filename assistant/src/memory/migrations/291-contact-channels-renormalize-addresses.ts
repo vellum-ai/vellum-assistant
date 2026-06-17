@@ -16,6 +16,16 @@ export function migrateContactChannelsRenormalizeAddresses(
 ): void {
   const raw = getSqliteFrom(database);
 
+  // A later migration drops external_user_id; once it has run there is nothing
+  // to renormalize from. This step re-runs on every startup, so skip when the
+  // column is absent rather than referencing it and failing.
+  const cols = raw.prepare("PRAGMA table_info(contact_channels)").all() as {
+    name: string;
+  }[];
+  if (!cols.some((c) => c.name === "external_user_id")) {
+    return;
+  }
+
   // Remove rows that would block normalization due to cross-column collisions.
   raw.run(/*sql*/ `
     DELETE FROM contact_channels

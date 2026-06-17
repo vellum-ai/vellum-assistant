@@ -533,7 +533,7 @@ export const ROUTES: RouteDefinition[] = [
           limit: z.number().optional(),
         })
         .parse(body);
-      return searchContacts(parsed);
+      return searchContacts(parsed).map(prepareContactResponse);
     },
   },
 
