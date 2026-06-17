@@ -7,7 +7,6 @@
 
 import { z } from "zod";
 
-import { buildApprovalCardBlocks } from "./approval-card-builder.js";
 import {
   nonEmpty,
   sanitizeIdentityField,
@@ -310,76 +309,4 @@ export function buildAccessRequestContractText(
     );
   }
   return lines.join("\n");
-}
-
-// ── Seed content blocks (Surface-based rendering) ───────────────────────────
-
-/**
- * Build structured content blocks for an access request notification seed
- * message. Produces a `ui_surface` card block that the web/macOS/iOS apps
- * render as an interactive card via `SurfaceRouter → CardSurface`, plus a
- * plain-text fallback block for search, CLI display, and backward-compatible
- * clients that don't support surfaces.
- */
-export function buildAccessRequestSeedContentBlocks(
-  payload: Record<string, unknown>,
-): unknown[] {
-  const p = parseAccessRequestPayload(payload);
-
-  const rawName = nonEmpty(p.actorDisplayName) ?? nonEmpty(p.senderIdentifier);
-  const displayName = rawName ? sanitizeIdentityField(rawName) : "Someone";
-
-  const metadata: Array<{ label: string; value: string }> = [];
-
-  if (p.actorUsername) {
-    metadata.push({
-      label: "Username",
-      value: `@${sanitizeIdentityField(p.actorUsername)}`,
-    });
-  }
-
-  if (p.sourceChannel === "slack" && p.conversationExternalId) {
-    const isDm = isSlackDmConversation(p.conversationExternalId);
-    metadata.push({
-      label: "Source",
-      value: isDm
-        ? "Slack — Direct message"
-        : `Slack — #${p.conversationExternalId}`,
-    });
-  } else if (p.sourceChannel) {
-    metadata.push({ label: "Source", value: p.sourceChannel });
-  }
-
-  const warnings = buildAccessRequestWarnings(p);
-  const bodyParts: string[] = [];
-
-  if (p.messagePreview) {
-    bodyParts.push(`> "${sanitizeMessagePreview(p.messagePreview)}"`);
-  }
-  for (const w of warnings) {
-    bodyParts.push(`⚠️ ${w}`);
-  }
-  if (p.sourceChannel === "slack" && p.conversationExternalId && p.messageTs) {
-    const permalink = buildSlackMessagePermalink(
-      p.conversationExternalId,
-      p.messageTs,
-    );
-    bodyParts.push(`[View message](${permalink})`);
-  }
-
-  const body =
-    bodyParts.length > 0
-      ? bodyParts.join("\n\n")
-      : "No additional context available.";
-
-  return buildApprovalCardBlocks({
-    surfaceIdPrefix: "access-request",
-    cardTitle: "Access Request",
-    requesterName: displayName,
-    subtitle: "Requesting access to the assistant",
-    body,
-    metadata,
-    requestId: p.requestId,
-    fallbackText: buildAccessRequestContractText(payload),
-  });
 }
