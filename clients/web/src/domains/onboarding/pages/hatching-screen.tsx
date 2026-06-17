@@ -30,6 +30,7 @@ import { setSelectedAssistant } from "@/assistant/selection";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { isSessionSettled } from "@/stores/session-status";
 import type { CharacterTraits } from "@/types/avatar";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
@@ -101,6 +102,14 @@ export function HatchingScreen() {
   const electron = isElectron();
   const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
   const sessionStatus = useAuthStore.use.sessionStatus();
+  // The local hatch flow drives `sessionStatus` itself — the connect handoff
+  // below flips it to "authenticated" — so a local hatch keys its effect on
+  // settled-ness alone; an authenticated↔unauthenticated flip must not tear
+  // down and restart the in-flight hatch. Platform hatches still react to the
+  // raw status so a session lost mid-hatch redirects to login.
+  const sessionGateKey = useLocalHatch
+    ? isSessionSettled(sessionStatus)
+    : sessionStatus;
   const [hatchTraits] = useState<CharacterTraits>(() =>
     randomCharacterTraits(BUNDLED_COMPONENTS),
   );
@@ -324,17 +333,10 @@ export function HatchingScreen() {
           }
           if (cancelled) return;
 
-          // The gateway is ready and its token is minted, but the hatch flow
-          // has not yet established an authenticated session. Drive the same
-          // canonical connect primitive the returning-user picker and the
-          // re-pair flow use, so `sessionStatus` is "authenticated" before we
-          // hand off to chat. Without this, a session refresh that fires
-          // during the long hatch window — while the gateway is "enabled"
-          // (the lockfile has its URL) but its token isn't minted yet, so
-          // `isGatewayAuthMode()` is false — re-derives the session from the
-          // platform probe, gets a settled 401 on a local-only machine, and
-          // leaves `sessionStatus` stuck at "unauthenticated". That hides
-          // auth-gated UI such as the Preferences menu until a full reload.
+          // Assert an authenticated local session via the same canonical
+          // connect primitive the returning-user picker and re-pair flow use,
+          // so `sessionStatus` is "authenticated" at hand-off to chat. This
+          // keeps auth-gated UI such as the Preferences menu visible.
           if (result.assistantId) {
             await useAuthStore
               .getState()
@@ -517,7 +519,7 @@ export function HatchingScreen() {
     attempt,
     failParam,
     hatchTraits,
-    sessionStatus,
+    sessionGateKey,
     navigate,
     queryClient,
     transitionPhase,
