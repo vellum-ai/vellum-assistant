@@ -1002,6 +1002,10 @@ function inspection(
           }
         : overrides.remote,
     remoteError: overrides.remoteError ?? null,
+    surfaces:
+      overrides.surfaces === undefined
+        ? { skills: [], hooks: ["post-model-call"], tools: [] }
+        : overrides.surfaces,
   };
 }
 

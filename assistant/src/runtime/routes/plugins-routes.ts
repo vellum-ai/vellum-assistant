@@ -372,6 +372,26 @@ const pluginRemoteInfoSchema = z
   })
   .describe("The marketplace's current pin and advertised metadata.");
 
+const pluginSurfacesSchema = z
+  .object({
+    skills: z
+      .array(z.string())
+      .describe("Skill ids shipped at `skills/<id>/SKILL.md`."),
+    hooks: z
+      .array(z.string())
+      .describe(
+        "Lifecycle hook names from `hooks/<name>.{ts,js}` (e.g. `pre-model-call`).",
+      ),
+    tools: z
+      .array(z.string())
+      .describe(
+        "Registered tool names from `tools/<name>.{ts,js}` (filenames derived to tool names, e.g. `create-issue` \u2192 `create_issue`).",
+      ),
+  })
+  .describe(
+    "Surfaces the installed copy contributes, read from its on-disk tree.",
+  );
+
 const pluginInspectResponseSchema = z.object({
   name: z
     .string()
@@ -406,6 +426,11 @@ const pluginInspectResponseSchema = z.object({
     .nullable()
     .describe(
       "Marketplace fetch error message, when the catalog could not be read.",
+    ),
+  surfaces: pluginSurfacesSchema
+    .nullable()
+    .describe(
+      "Surfaces the installed copy contributes (skills, hooks, tools); null when the plugin is not installed.",
     ),
 });
 
