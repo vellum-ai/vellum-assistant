@@ -553,6 +553,70 @@ describe("api-interceptors / self-hosted rewriting", () => {
     }
   });
 
+  test("falls back to local registration when no gateway actor token is available", async () => {
+    setSelfHostedConnection({ url: null, token: null });
+    (window as unknown as { vellum?: unknown }).vellum = {
+      platform: "electron",
+      auth: { getSessionToken: () => "electron-sess-tok" },
+    };
+    (
+      window as unknown as {
+        __VELLUM_CONFIG__?: { deviceId?: string; platformUrl?: string };
+      }
+    ).__VELLUM_CONFIG__ = {
+      deviceId: "device-123",
+      platformUrl: "http://localhost:5173",
+    };
+    getPlatformRuntimeUrlMock.mockImplementation(() => "http://localhost:5173");
+    const savedPlatformMode = process.env.VITE_PLATFORM_MODE;
+    delete process.env.VITE_PLATFORM_MODE;
+
+    try {
+      const fetchMock = mock((_input: RequestInfo | URL, _init?: RequestInit) =>
+        Promise.resolve(
+          Response.json({
+            assistant: {
+              id: PLATFORM_ASSISTANT_ID,
+              name: "Local Assistant",
+            },
+            registration: {
+              client_installation_id: "device-123",
+              runtime_assistant_id: SELF_HOSTED_ID,
+              client_platform: "macos",
+            },
+            assistant_api_key: null,
+            webhook_secret: "webhook-secret",
+          }),
+        ),
+      );
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      const input = new Request(
+        `http://localhost:5173/v1/assistants/${SELF_HOSTED_ID}/oauth/connections/`,
+      );
+
+      const output = await requestInterceptor(input);
+
+      expect(new URL(output.url).pathname).toBe(
+        `/v1/assistants/${PLATFORM_ASSISTANT_ID}/oauth/connections/`,
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [registrationUrl, registrationInit] = fetchMock.mock.calls[0]!;
+      expect(registrationUrl).toBe(
+        "http://localhost:5173/v1/assistants/self-hosted-local/ensure-registration/",
+      );
+      expect(
+        new Headers((registrationInit as RequestInit).headers).get(
+          "Authorization",
+        ),
+      ).toBeNull();
+    } finally {
+      if (savedPlatformMode !== undefined) {
+        process.env.VITE_PLATFORM_MODE = savedPlatformMode;
+      }
+    }
+  });
+
   test("uses the local gateway proxy for platform status lookup in local mode", async () => {
     const pageOriginIngress = "http://localhost:5173";
     const localGatewayUrl = "/assistant/__gateway/20101";

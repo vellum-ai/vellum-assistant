@@ -104,24 +104,24 @@ export function resetPlatformAssistantIdCacheForTesting(): void {
 
 async function resolvePlatformAssistantIdForRuntime(
   runtimeAssistantId: string,
-  ingressUrl: string,
+  ingressUrl: string | null,
 ): Promise<string | null> {
   const token = getSelfHostedActorToken();
-  if (!token) return null;
-
   const lookupIngressUrls = getPlatformStatusLookupIngressUrls(ingressUrl);
   const cacheKey = `${lookupIngressUrls.join("|")}::${runtimeAssistantId}`;
   const cached = platformAssistantIdCache.get(cacheKey);
   if (cached) return cached;
 
   const promise = (async () => {
-    for (const lookupIngressUrl of lookupIngressUrls) {
-      const assistantId = await fetchPlatformStatusAssistantId(
-        lookupIngressUrl,
-        runtimeAssistantId,
-        token,
-      );
-      if (assistantId && assistantId !== runtimeAssistantId) return assistantId;
+    if (token) {
+      for (const lookupIngressUrl of lookupIngressUrls) {
+        const assistantId = await fetchPlatformStatusAssistantId(
+          lookupIngressUrl,
+          runtimeAssistantId,
+          token,
+        );
+        if (assistantId && assistantId !== runtimeAssistantId) return assistantId;
+      }
     }
     return fetchPlatformRegistrationAssistantId(runtimeAssistantId);
   })();
@@ -134,15 +134,19 @@ async function resolvePlatformAssistantIdForRuntime(
   return result;
 }
 
-function getPlatformStatusLookupIngressUrls(ingressUrl: string): string[] {
+function getPlatformStatusLookupIngressUrls(ingressUrl: string | null): string[] {
   const candidates: string[] = [];
   if (isLocalMode() && !isRemoteGatewayMode()) {
     const localGatewayUrl = getLocalGatewayUrl();
     if (localGatewayUrl) {
-      candidates.push(new URL(localGatewayUrl, ingressUrl).toString());
+      candidates.push(
+        new URL(localGatewayUrl, ingressUrl ?? window.location.origin).toString(),
+      );
     }
   }
-  candidates.push(ingressUrl);
+  if (ingressUrl) {
+    candidates.push(ingressUrl);
+  }
   return [...new Set(candidates)];
 }
 
@@ -246,7 +250,6 @@ async function rewritePlatformOwnedAssistantRequest(
   request: Request,
 ): Promise<Request | null> {
   const ingressUrl = getSelfHostedIngressUrl();
-  if (!ingressUrl) return null;
 
   const url = new URL(request.url);
   const match = ASSISTANT_PATH_RE.exec(url.pathname);
