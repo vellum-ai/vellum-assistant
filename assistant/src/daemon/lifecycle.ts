@@ -18,7 +18,9 @@ import {
   validateEnv,
 } from "../config/env.js";
 import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
+import { fetchManagedProfileTemplates } from "../config/managed-profiles-remote.js";
 import type { AssistantConfig } from "../config/schema.js";
+import type { ManagedProfileTemplate } from "../config/seed-inference-profiles.js";
 import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { createCesClient } from "../credential-execution/client.js";
@@ -189,6 +191,26 @@ export interface CesStartupResult {
   processManager: CesProcessManager | undefined;
   clientPromise: Promise<CesClient | undefined> | undefined;
   abortController: AbortController | undefined;
+}
+
+/**
+ * Resolve the managed profile templates used when seeding inference profiles at
+ * boot. Awaits the bounded, non-throwing platform fetch and normalizes its
+ * `null` failure result (kill-switch set, platform disabled/unreachable, or an
+ * unrecognized payload) to `undefined` so the seeder falls back to its built-in
+ * templates. This never throws and never blocks startup.
+ */
+export async function resolveManagedTemplatesForSeeding(): Promise<
+  Record<string, ManagedProfileTemplate> | undefined
+> {
+  const remoteManagedTemplates = await fetchManagedProfileTemplates();
+  if (remoteManagedTemplates) {
+    log.info(
+      { count: Object.keys(remoteManagedTemplates).length },
+      "Using platform-provided managed model profiles for seeding",
+    );
+  }
+  return remoteManagedTemplates ?? undefined;
 }
 
 /**
@@ -579,11 +601,13 @@ export async function runDaemon(): Promise<void> {
     // Off-platform hatches additionally create user profiles + a personal
     // provider connection for the hatch provider.
     try {
+      const managedProfileTemplates = await resolveManagedTemplatesForSeeding();
       seedInferenceProfiles({
         preserveProfileNames: defaultConfigMerge.providedLlmProfileNames,
         preserveActiveProfile: defaultConfigMerge.providedLlmActiveProfile,
         isHatch: defaultConfigMerge.hadOverlay,
         db: dbReady ? getDb() : undefined,
+        managedProfileTemplates,
       });
       log.info("Inference profile seeding complete");
     } catch (err) {
