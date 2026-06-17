@@ -23,7 +23,7 @@ const log = getLogger("seed-inference-profiles");
  * resolved at seed time from `PROVIDER_MODEL_INTENTS` so the catalog stays the
  * single source of truth for "which model does this intent map to?".
  */
-type ManagedProfileTemplate = Omit<
+export type ManagedProfileTemplate = Omit<
   ProfileEntry,
   "provider" | "model" | "provider_connection"
 > & {
@@ -37,58 +37,67 @@ type ManagedProfileTemplate = Omit<
  * model/config updates to customers in new releases. Platform overlays
  * (`preserveProfileNames`) take precedence when present.
  */
-const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
-  balanced: {
-    intent: "balanced",
-    provider: "anthropic",
-    connectionName: "anthropic-managed",
-    source: "managed",
-    label: "Balanced",
-    description: "Good balance of quality, cost, and speed",
-    maxTokens: 16000,
-    effort: "high",
-    thinking: { enabled: true, streamThinking: true },
-    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-  },
-  "quality-optimized": {
-    intent: "quality-optimized",
-    provider: "anthropic",
-    connectionName: "anthropic-managed",
-    source: "managed",
-    label: "Quality",
-    description: "Best results with the most capable model",
-    maxTokens: 32000,
-    effort: "high",
-    thinking: { enabled: true, streamThinking: true },
-    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-  },
-  "cost-optimized": {
-    intent: "latency-optimized",
-    provider: "anthropic",
-    connectionName: "anthropic-managed",
-    source: "managed",
-    label: "Speed",
-    description: "Fastest responses at lower cost",
-    maxTokens: 8192,
-    effort: "low",
-    thinking: { enabled: false, streamThinking: false },
-    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-  },
-  // Open-weight economy option: MiniMax M3 served by Fireworks via managed
-  // platform inference.
-  "balanced-economy": {
-    intent: "balanced",
-    provider: "fireworks",
-    connectionName: "fireworks-managed",
-    source: "managed",
-    label: "Balanced Economy",
-    description: "Strong open model (MiniMax M3) at a lower price point",
-    maxTokens: 32000,
-    effort: "high",
-    thinking: { enabled: true, streamThinking: true },
-    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-  },
-};
+export const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> =
+  {
+    balanced: {
+      intent: "balanced",
+      provider: "anthropic",
+      connectionName: "anthropic-managed",
+      source: "managed",
+      label: "Balanced",
+      description: "Good balance of quality, cost, and speed",
+      maxTokens: 16000,
+      effort: "high",
+      thinking: { enabled: true, streamThinking: true },
+      contextWindow: {
+        maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
+      },
+    },
+    "quality-optimized": {
+      intent: "quality-optimized",
+      provider: "anthropic",
+      connectionName: "anthropic-managed",
+      source: "managed",
+      label: "Quality",
+      description: "Best results with the most capable model",
+      maxTokens: 32000,
+      effort: "high",
+      thinking: { enabled: true, streamThinking: true },
+      contextWindow: {
+        maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
+      },
+    },
+    "cost-optimized": {
+      intent: "latency-optimized",
+      provider: "anthropic",
+      connectionName: "anthropic-managed",
+      source: "managed",
+      label: "Speed",
+      description: "Fastest responses at lower cost",
+      maxTokens: 8192,
+      effort: "low",
+      thinking: { enabled: false, streamThinking: false },
+      contextWindow: {
+        maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
+      },
+    },
+    // Open-weight economy option: MiniMax M3 served by Fireworks via managed
+    // platform inference.
+    "balanced-economy": {
+      intent: "balanced",
+      provider: "fireworks",
+      connectionName: "fireworks-managed",
+      source: "managed",
+      label: "Balanced Economy",
+      description: "Strong open model (MiniMax M3) at a lower price point",
+      maxTokens: 32000,
+      effort: "high",
+      thinking: { enabled: true, streamThinking: true },
+      contextWindow: {
+        maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
+      },
+    },
+  };
 
 /**
  * User profile templates. Materialized at hatch time for off-platform
@@ -160,6 +169,14 @@ export type SeedInferenceProfilesOptions = {
   isHatch?: boolean;
   /** DB handle for creating user provider connections at hatch time. */
   db?: DrizzleDb;
+  /**
+   * Managed profile templates to seed instead of the built-in
+   * MANAGED_PROFILE_TEMPLATES. Supplied by the platform (model-profiles
+   * endpoint) when available; when omitted the hardcoded templates are used.
+   * Keys MUST be a subset of the built-in managed profile names — callers are
+   * responsible for validating that before passing them here.
+   */
+  managedProfileTemplates?: Record<string, ManagedProfileTemplate>;
 };
 
 /**
@@ -253,7 +270,14 @@ export function seedInferenceProfiles(
     options,
   );
 
-  for (const [name, template] of Object.entries(MANAGED_PROFILE_TEMPLATES)) {
+  // Injected templates (from the platform model-profiles endpoint) override the
+  // seeded content of the known managed keys; the key set itself is unchanged
+  // (v1 scope guard — callers validate that the keys are a subset of the
+  // built-ins). When omitted, the built-in templates are the source of truth.
+  const managedTemplates =
+    options.managedProfileTemplates ?? MANAGED_PROFILE_TEMPLATES;
+
+  for (const [name, template] of Object.entries(managedTemplates)) {
     if (preservedProfileNames.has(name)) continue;
 
     const previous = readObject(profiles[name]);

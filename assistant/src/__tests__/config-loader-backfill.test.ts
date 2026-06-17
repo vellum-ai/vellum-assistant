@@ -75,7 +75,11 @@ import {
   loadConfig,
   mergeDefaultWorkspaceConfig,
 } from "../config/loader.js";
-import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
+import {
+  MANAGED_PROFILE_TEMPLATES,
+  type ManagedProfileTemplate,
+  seedInferenceProfiles,
+} from "../config/seed-inference-profiles.js";
 import type { DrizzleDb } from "../memory/db-connection.js";
 import { migrateCreateProviderConnections } from "../memory/migrations/243-provider-connections.js";
 import { migrateProviderConnectionStatusLabel } from "../memory/migrations/244-provider-connection-status-label.js";
@@ -1378,5 +1382,109 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     expect(config.llm.profiles.balanced?.status).toBe("active");
     // Label is still suffixed (Vellum can push label updates).
     expect(config.llm.profiles.balanced?.label).toBe("Balanced (Managed)");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: injected managed profile templates. seedInferenceProfiles accepts an
+// optional `managedProfileTemplates` map (supplied by the platform
+// model-profiles endpoint). When present it overrides the SEEDED content of the
+// known managed keys; when omitted the built-in MANAGED_PROFILE_TEMPLATES are
+// used and behavior is byte-for-byte the same as before.
+// ---------------------------------------------------------------------------
+
+describe("seedInferenceProfiles injected managed templates", () => {
+  beforeEach(() => {
+    ensureTestDir();
+    const resetPaths = [
+      CONFIG_PATH,
+      join(WORKSPACE_DIR, "default-config.json"),
+      join(WORKSPACE_DIR, "hatch-overlay.json"),
+      join(WORKSPACE_DIR, "keys.enc"),
+      join(WORKSPACE_DIR, "data"),
+      join(WORKSPACE_DIR, "data", "memory"),
+    ];
+    for (const path of resetPaths) {
+      if (existsSync(path)) {
+        rmSync(path, { recursive: true, force: true });
+      }
+    }
+    ensureTestDir();
+    setStorePathForTesting(join(WORKSPACE_DIR, "keys.enc"));
+    delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
+    delete process.env.IS_PLATFORM;
+    invalidateConfigCache();
+  });
+
+  afterEach(() => {
+    setStorePathForTesting(null);
+    delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
+    delete process.env.IS_PLATFORM;
+    invalidateConfigCache();
+  });
+
+  function cloneBuiltInTemplates(): Record<string, ManagedProfileTemplate> {
+    return structuredClone(MANAGED_PROFILE_TEMPLATES);
+  }
+
+  test("seeds overridden content from an injected template map", () => {
+    process.env.IS_PLATFORM = "true";
+    writeConfig({});
+
+    const templates = cloneBuiltInTemplates();
+    templates.balanced.label = "Remote Balanced";
+    templates.balanced.maxTokens = 12345;
+
+    mergeDefaultWorkspaceConfig();
+    seedInferenceProfiles({ managedProfileTemplates: templates });
+    const config = loadConfig();
+
+    expect(config.llm.profiles.balanced?.label).toBe("Remote Balanced");
+    expect(config.llm.profiles.balanced?.maxTokens).toBe(12345);
+    // Untouched managed keys still seed their built-in content.
+    expect(config.llm.profiles["quality-optimized"]?.label).toBe("Quality");
+  });
+
+  test("omitting the option produces the same result as the built-in defaults", () => {
+    process.env.IS_PLATFORM = "true";
+
+    // Seed once with the option omitted.
+    writeConfig({});
+    mergeDefaultWorkspaceConfig();
+    seedInferenceProfiles();
+    const withoutOption = readFileSync(CONFIG_PATH, "utf-8");
+
+    // Reset and seed again, explicitly injecting a verbatim clone of the
+    // built-ins. The result must be byte-for-byte identical.
+    rmSync(CONFIG_PATH, { force: true });
+    invalidateConfigCache();
+    writeConfig({});
+    mergeDefaultWorkspaceConfig();
+    seedInferenceProfiles({ managedProfileTemplates: cloneBuiltInTemplates() });
+    const withClonedOption = readFileSync(CONFIG_PATH, "utf-8");
+
+    expect(withClonedOption).toBe(withoutOption);
+  });
+
+  test("injected templates resolve model via resolveModelIntent (fireworks/balanced)", () => {
+    process.env.IS_PLATFORM = "true";
+    writeConfig({});
+
+    const templates = cloneBuiltInTemplates();
+    // balanced-economy is fireworks + balanced intent; its model must resolve
+    // from the catalog, not be carried verbatim from the template.
+    templates["balanced-economy"].label = "Remote Economy";
+
+    mergeDefaultWorkspaceConfig();
+    seedInferenceProfiles({ managedProfileTemplates: templates });
+    const config = loadConfig();
+
+    expect(config.llm.profiles["balanced-economy"]?.provider).toBe("fireworks");
+    expect(config.llm.profiles["balanced-economy"]?.model).toBe(
+      "accounts/fireworks/models/minimax-m3",
+    );
+    expect(config.llm.profiles["balanced-economy"]?.label).toBe(
+      "Remote Economy",
+    );
   });
 });
