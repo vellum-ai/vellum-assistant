@@ -12,25 +12,26 @@ import {
     useQueryClient,
 } from "@tanstack/react-query";
 import {
-    Check,
-    Copy,
-    Download,
     FileIcon,
     FileText,
     FolderOpen,
     Image as ImageIcon,
     Loader2,
-    Pencil,
     Video,
 } from "lucide-react";
 import {
     useCallback,
     useEffect,
-    useRef,
     useState,
     type ReactNode,
 } from "react";
 
+import {
+    ContentActionBar,
+    EditFooter,
+    FileTextarea,
+    SourcePre,
+} from "@/components/file-editor";
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
 import { isJson, prettifyJson } from "@/domains/workspace/utils/file-json";
 import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
@@ -44,10 +45,6 @@ import type { WorkspaceFileGetResponse } from "@/generated/daemon/types.gen";
 import { Button } from "@vellumai/design-library/components/button";
 
 import type { WorkspaceViewMode } from "@/domains/workspace/components/workspace-browser";
-
-// ---------------------------------------------------------------------------
-// API helpers
-// ---------------------------------------------------------------------------
 
 function workspaceFileRetrieveOptions(opts: {
   path: { assistant_id: string };
@@ -68,10 +65,6 @@ function workspaceFileRetrieveOptions(opts: {
     queryKey: ["assistantsWorkspaceFileRetrieve", opts],
   });
 }
-
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
 
 function FileHeaderIcon({ mimeType }: { mimeType: string }) {
   const semi = mimeType.indexOf(";");
@@ -259,195 +252,11 @@ function BinaryContentViewer({
   return null;
 }
 
-function EditFooter({
-  isDirty,
-  isSaving,
-  onSave,
-  onDiscard,
-}: {
-  isDirty: boolean;
-  isSaving: boolean;
-  onSave: () => void;
-  onDiscard: () => void;
-}) {
-  return (
-    <div
-      className="flex items-center justify-end gap-2 border-t px-3 py-2"
-      style={{ borderColor: "var(--border-element)" }}
-    >
-      <Button
-        variant="ghost"
-        size="compact"
-        disabled={isSaving}
-        onClick={onDiscard}
-      >
-        Discard
-      </Button>
-      {isSaving && (
-        <Loader2
-          className="h-4 w-4 animate-spin"
-          style={{ color: "var(--content-tertiary)" }}
-        />
-      )}
-      <Button
-        variant="primary"
-        size="compact"
-        disabled={!isDirty || isSaving}
-        onClick={onSave}
-      >
-        Save
-      </Button>
-    </div>
-  );
-}
 
-function ContentActionBar({
-  content,
-  downloadContent,
-  fileName,
-  mimeType,
-  showEdit,
-  isEditing,
-  onToggleEdit,
-}: {
-  content: string;
-  downloadContent?: string;
-  fileName: string;
-  mimeType: string;
-  showEdit: boolean;
-  isEditing: boolean;
-  onToggleEdit: () => void;
-}) {
-  const [copied, setCopied] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleCopy = useCallback(() => {
-    void navigator.clipboard.writeText(content).then(() => {
-      setCopied(true);
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-      }
-      timerRef.current = setTimeout(() => setCopied(false), 1500);
-    });
-  }, [content]);
 
-  const rawContent = downloadContent ?? content;
-  const handleDownload = useCallback(() => {
-    const blob = new Blob([rawContent], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = fileName;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [rawContent, fileName, mimeType]);
 
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-      }
-    };
-  }, []);
 
-  if (isEditing) {
-    return null;
-  }
-
-  return (
-    <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-md bg-[var(--surface-primary)] shadow-sm">
-      {showEdit && (
-        <Button
-          variant="ghost"
-          size="regular"
-          iconOnly={<Pencil aria-hidden />}
-          onClick={onToggleEdit}
-          aria-label="Edit file"
-          className="hover:bg-[var(--surface-base)]"
-        />
-      )}
-      <Button
-        variant="ghost"
-        size="regular"
-        iconOnly={copied ? <Check aria-hidden /> : <Copy aria-hidden />}
-        onClick={handleCopy}
-        aria-label={copied ? "Copied" : "Copy file contents"}
-        className="hover:bg-[var(--surface-base)]"
-      />
-      <Button
-        variant="ghost"
-        size="regular"
-        iconOnly={<Download aria-hidden />}
-        onClick={handleDownload}
-        aria-label="Download file"
-        className="hover:bg-[var(--surface-base)]"
-      />
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Textarea editor — shared across markdown source, JSON source, and plain text
-// ---------------------------------------------------------------------------
-
-const MONO_FONT =
-  "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace";
-
-function FileTextarea({
-  value,
-  onChange,
-  onSave,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  onSave: () => void;
-}) {
-  return (
-    <textarea
-      className="m-0 h-full w-full resize-none overflow-auto border-none bg-transparent p-4 text-body-medium-lighter leading-relaxed outline-none"
-      style={{ color: "var(--content-default)", fontFamily: MONO_FONT }}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      onKeyDown={(e) => {
-        if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-          e.preventDefault();
-          onSave();
-        }
-      }}
-      spellCheck={false}
-    />
-  );
-}
-
-function SourcePre({
-  content,
-  readOnly,
-  whiteSpace = "pre-wrap",
-  onStartEdit,
-}: {
-  content: string;
-  readOnly: boolean;
-  whiteSpace?: "pre" | "pre-wrap";
-  onStartEdit?: () => void;
-}) {
-  return (
-    <pre
-      className={`m-0 h-full overflow-auto p-4 text-body-medium-lighter leading-relaxed${!readOnly ? " cursor-text" : ""}`}
-      style={{
-        color: "var(--content-default)",
-        fontFamily: MONO_FONT,
-        whiteSpace,
-      }}
-      onClick={!readOnly ? onStartEdit : undefined}
-    >
-      {content}
-    </pre>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Main export
-// ---------------------------------------------------------------------------
 
 export function WorkspaceFileViewer({
   assistantId,
@@ -632,6 +441,7 @@ export function WorkspaceFileViewer({
     <EditFooter
       isDirty={isDirty}
       isSaving={saveMutation.isPending}
+      error={saveMutation.isError ? "Save failed" : null}
       onSave={handleSave}
       onDiscard={stopEditing}
     />

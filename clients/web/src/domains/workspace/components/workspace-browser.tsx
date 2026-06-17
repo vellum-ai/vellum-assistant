@@ -3,7 +3,7 @@
  * mobile behind a drawer) and a file viewer pane side-by-side.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { useSearchParams } from "react-router";
 
@@ -19,15 +19,46 @@ import {
 
 export type WorkspaceViewMode = "preview" | "source";
 
+/**
+ * Returns the set of ancestor directory paths that must be expanded to reveal
+ * a given file path. E.g. "skills/my-skill/SKILL.md" yields
+ * {"skills", "skills/my-skill"}.
+ */
+function getAncestorPaths(filePath: string): Set<string> {
+  const parts = filePath.split("/");
+  const ancestors = new Set<string>();
+  for (let i = 1; i < parts.length; i++) {
+    ancestors.add(parts.slice(0, i).join("/"));
+  }
+  return ancestors;
+}
+
 export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => {
+    const filePath = searchParams.get("file");
+    return filePath ? getAncestorPaths(filePath) : new Set<string>();
+  });
+  const [selectedPath, setSelectedPath] = useState<string | null>(
+    () => searchParams.get("file"),
+  );
   const [showHidden, setShowHidden] = useState(false);
-  const [searchParams] = useSearchParams();
   const [sortMode, setSortMode] = useState<WorkspaceSortMode>(() =>
     searchParams.get("sort") === "size" ? "size" : "name",
   );
   const [viewMode, setViewMode] = useState<WorkspaceViewMode>("preview");
+
+  // Clear ?file= param after bootstrapping state from it
+  useEffect(() => {
+    if (!searchParams.get("file")) return;
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("file");
+      return next;
+    }, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleToggleExpand = useCallback((path: string) => {
     setExpandedPaths((prev) => {

@@ -17918,7 +17918,11 @@ paths:
                     - vellum
                     - phone
                     - telegram
+                    - whatsapp
                     - slack
+                    - email
+                    - platform
+                    - a2a
                     - scheduler
                     - watcher
                 sourceContextId:

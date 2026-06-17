@@ -82,11 +82,19 @@ export const ToolApprovalPayloadSchema =
   GuardianQuestionPayloadBaseSchema.extend({
     requestKind: z.literal("tool_approval"),
     toolName: z.string().min(1),
+    /** Risk classification from the permission checker (e.g. "low", "medium", "high"). */
+    riskLevel: z.string().optional(),
+    /** Secret-redacted summary of the tool invocation arguments. */
+    commandPreview: z.string().optional(),
   });
 
 export const ToolGrantPayloadSchema = GuardianQuestionPayloadBaseSchema.extend({
   requestKind: z.literal("tool_grant_request"),
   toolName: z.string().min(1),
+  /** Risk classification from the permission checker (e.g. "low", "medium", "high"). */
+  riskLevel: z.string().optional(),
+  /** Secret-redacted summary of the tool invocation arguments. */
+  commandPreview: z.string().optional(),
 });
 
 export const AccessRequestGuardianPayloadSchema =
@@ -124,6 +132,8 @@ export const LenientToolApprovalPayloadSchema = z.object({
   requesterIdentifier: z.string().nullable().optional(),
   requesterExternalUserId: z.string().nullable().optional(),
   requesterChatId: z.string().nullable().optional(),
+  riskLevel: z.string().nullable().optional(),
+  commandPreview: z.string().nullable().optional(),
 });
 
 export type LenientToolApprovalPayload = z.infer<
