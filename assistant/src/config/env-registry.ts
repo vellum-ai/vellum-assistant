@@ -84,6 +84,16 @@ export function getDisablePlatform(): boolean {
 }
 
 /**
+ * VELLUM_DISABLE_REMOTE_MODEL_PROFILES — boolean, default: false
+ * When true, the daemon skips fetching managed model profiles from the
+ * platform `model-profiles` endpoint at boot and uses the built-in templates.
+ * Kill-switch for the remote-profiles feature; carries no secret.
+ */
+export function getDisableRemoteModelProfiles(): boolean {
+  return flag("VELLUM_DISABLE_REMOTE_MODEL_PROFILES");
+}
+
+/**
  * VELLUM_DEVICE_ID — string, default: undefined
  * Host-stable device id injected by the CLI into containerized deployments,
  * where the container fs cannot persist device.json across recreation.
@@ -214,6 +224,7 @@ const KNOWN_VELLUM_VARS = new Set([
   "VELLUM_DEV",
   "VELLUM_DEVICE_ID",
   "VELLUM_DISABLE_PLATFORM",
+  "VELLUM_DISABLE_REMOTE_MODEL_PROFILES",
   "VELLUM_DOCS_BASE_URL",
   "VELLUM_ENVIRONMENT",
   "VELLUM_HATCHED_BY",
