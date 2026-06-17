@@ -10,6 +10,8 @@ import crypto from "node:crypto";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 
+import { renderLoginCompletionPage } from "./login-completion-page";
+
 const WORKOS_API_BASE_URL = "https://api.workos.com";
 const PROVIDER_ID = "workos";
 const SCOPE = "openid profile email";
@@ -106,13 +108,8 @@ export async function fetchWorkosClientId(platformUrl: string): Promise<string> 
 // Mirrors the native apps' legacy deep-link path ({scheme}://auth/callback).
 const CALLBACK_PATH = "/auth/callback";
 
-const SUCCESS_HTML = `<!doctype html><html><head><meta charset="utf-8"><title>Signed in</title></head>
-<body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
-<p>Signed in — you can close this tab and return to Vellum.</p></body></html>`;
-
-const ERROR_HTML = `<!doctype html><html><head><meta charset="utf-8"><title>Sign-in failed</title></head>
-<body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
-<p>Sign-in failed — you can close this tab and try again from Vellum.</p></body></html>`;
+const SUCCESS_HTML = renderLoginCompletionPage(true);
+const ERROR_HTML = renderLoginCompletionPage(false);
 
 export interface LoopbackListener {
   redirectUri: string;
