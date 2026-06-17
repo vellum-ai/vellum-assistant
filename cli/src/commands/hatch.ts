@@ -616,16 +616,6 @@ export async function hatch(): Promise<void> {
     flagEnvVars.VELLUM_DISABLE_PLATFORM = "true";
   }
 
-  // Ambient-env-only kill-switch (no CLI flag): inject into flagEnvVars so the
-  // docker hatch path carries it into the assistant container, mirroring
-  // VELLUM_DISABLE_PLATFORM above.
-  const disableRemoteModelProfiles =
-    process.env.VELLUM_DISABLE_REMOTE_MODEL_PROFILES;
-  if (disableRemoteModelProfiles) {
-    flagEnvVars.VELLUM_DISABLE_REMOTE_MODEL_PROFILES =
-      disableRemoteModelProfiles;
-  }
-
   if (watch && remote !== "local" && remote !== "docker") {
     console.error(
       "Error: --watch is only supported for local and docker hatch targets.",

@@ -1390,9 +1390,16 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
       extraAssistantEnv.VELLUM_DISABLE_PLATFORM =
         flagEnvVars.VELLUM_DISABLE_PLATFORM;
     }
-    if (flagEnvVars.VELLUM_DISABLE_REMOTE_MODEL_PROFILES) {
+    // Resolve the remote-model-profiles kill-switch from the ambient env here
+    // (not just flagEnvVars) because hatchDocker has callers — notably the
+    // Docker teleport path in teleport.ts — that don't pre-populate flagEnvVars.
+    // Resolving in this shared path forwards the switch for every caller.
+    const disableRemoteModelProfiles =
+      flagEnvVars.VELLUM_DISABLE_REMOTE_MODEL_PROFILES ??
+      process.env.VELLUM_DISABLE_REMOTE_MODEL_PROFILES;
+    if (disableRemoteModelProfiles) {
       extraAssistantEnv.VELLUM_DISABLE_REMOTE_MODEL_PROFILES =
-        flagEnvVars.VELLUM_DISABLE_REMOTE_MODEL_PROFILES;
+        disableRemoteModelProfiles;
     }
     const hostDeviceId = getOrCreateHostDeviceId();
     extraAssistantEnv.VELLUM_DEVICE_ID = hostDeviceId;
