@@ -21,6 +21,7 @@ import { extractErrorMessage } from "@/utils/api-errors";
 
 import { ManagedTab } from "@/domains/settings/components/managed-oauth-tab";
 import { YourOwnTab } from "@/domains/settings/components/your-own-oauth-tab";
+import { getConnectPresets } from "@/domains/settings/oauth-scope-presets";
 
 type ModalTab = "managed" | "your-own";
 
@@ -222,6 +223,7 @@ export function IntegrationDetailModal({
                 }
                 onConnect={handleConnect}
                 onDisconnect={handleDisconnect}
+                connectPresets={getConnectPresets(providerKey)}
               />
             )
           ) : (
