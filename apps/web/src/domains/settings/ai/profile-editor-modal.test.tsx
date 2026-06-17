@@ -485,3 +485,84 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     expect(toastSuccessCalls).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Edit mode — a bound model that isn't in the static catalog (JARVIS-1180)
+// ---------------------------------------------------------------------------
+
+describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
+  function renderEdit(initialValues: Record<string, unknown>, connection: ProviderConnection) {
+    return render(
+      <Wrapper>
+        <ProfileEditorModal
+          isOpen
+          mode="edit"
+          profileName={initialValues.name as string}
+          initialValues={initialValues as unknown as never}
+          existingNames={[initialValues.name as string]}
+          connections={[connection]}
+          assistantId={ASSISTANT_ID}
+          onSave={() => Promise.resolve()}
+          onCancel={() => {}}
+        />
+      </Wrapper>,
+    );
+  }
+
+  test("renders the bound OpenRouter model (raw-id fallback) instead of an empty picker, and keeps Save enabled", () => {
+    // Reproduces JARVIS-1180: the "Fusion" profile is bound to an OpenRouter
+    // model id that isn't in this build's static catalog (it connects in Chat,
+    // which dispatches the id straight to OpenRouter). The editor used to show
+    // the empty "Select a model" placeholder, drop the binding via auto-clear,
+    // and block Save with a validation error.
+    renderEdit(
+      {
+        name: "fusion",
+        label: "Fusion",
+        provider: "openrouter",
+        model: "openrouter/fusion",
+        provider_connection: "openrouter",
+        status: "active",
+      },
+      makeConnection("openrouter", "openrouter"),
+    );
+
+    // The Model trigger surfaces the bound id (no catalog/connection name
+    // available, so it falls back to the raw id) rather than the empty
+    // placeholder...
+    const triggerLabels = dropdownTriggers().map((t) => t.textContent?.trim());
+    expect(triggerLabels).toContain("openrouter/fusion");
+    expect(triggerLabels).not.toContain("Select a model");
+
+    // ...the bound model isn't auto-cleared, so the validation hint stays away
+    // and Save remains enabled (the binding would persist intact).
+    expect(document.body.textContent).not.toContain("Select a model.");
+    expect(getSaveBtn().disabled).toBe(false);
+  });
+
+  test("offers the bound model as a selectable option in the Model dropdown", () => {
+    renderEdit(
+      {
+        name: "fusion",
+        label: "Fusion",
+        provider: "openrouter",
+        model: "openrouter/fusion",
+        provider_connection: "openrouter",
+        status: "active",
+      },
+      makeConnection("openrouter", "openrouter"),
+    );
+
+    // Open each combobox; the Model dropdown must list the bound id so it can
+    // be re-selected manually (the second reported surface of JARVIS-1180).
+    const optionLabels = dropdownTriggers().flatMap((trigger) => {
+      fireEvent.click(trigger);
+      const labels = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
+      ).map((o) => o.textContent?.trim());
+      fireEvent.click(trigger);
+      return labels;
+    });
+    expect(optionLabels).toContain("openrouter/fusion");
+  });
+});

@@ -187,6 +187,27 @@ export function ProfileEditorProviderSection({
     availableConnectionsForProvider,
   ]);
 
+  // The Model dropdown must always be able to render the profile's
+  // currently-bound model — even when it isn't in the static catalog. A profile
+  // can be bound (via Chat) to a model this app build doesn't list yet: a new
+  // or cloaked provider model, or one carried only on the connection. Without
+  // surfacing it here the trigger falls back to the empty "Select a model"
+  // placeholder and the model can't be re-selected, even though it dispatches
+  // fine in Chat. Resolve its label from the catalog, then connection models,
+  // then the raw id. See JARVIS-1180.
+  const modelOptions: readonly { id: string; displayName: string }[] = useMemo(() => {
+    if (!model || availableModels.some((m) => m.id === model)) {
+      return availableModels;
+    }
+    const fromCatalog = getModelsForProvider(provider).find((m) => m.id === model);
+    const fromConnection = availableConnectionsForProvider
+      .flatMap((c) => c.models ?? [])
+      .find((m) => m.id === model);
+    const displayName =
+      fromCatalog?.displayName ?? fromConnection?.displayName ?? model;
+    return [...availableModels, { id: model, displayName }];
+  }, [model, availableModels, provider, availableConnectionsForProvider]);
+
   // Single discriminator for the Model field's empty states — the dropdown
   // placeholder and the hint below both derive from it so the two can't
   // drift apart.
@@ -201,9 +222,16 @@ export function ProfileEditorProviderSection({
     ? MODEL_EMPTY_STATE_COPY[modelEmptyState]
     : null;
 
-  // Auto-clear model when it's no longer in the available list (e.g. after
-  // switching connections for openai-compatible providers).
+  // Auto-clear model when it's no longer in the available list — but ONLY for
+  // per-connection providers (openai-compatible), whose model list changes when
+  // the connection changes, so a stale binding must clear. Catalog-backed
+  // providers (OpenRouter, Anthropic, …) have a fixed list: a bound model
+  // that's absent from it is a newer/cloaked model, not a stale binding, and
+  // clearing it would silently wipe a working profile (the JARVIS-1180 bug).
+  // Provider changes already reset the model in the parent's
+  // handleProviderChange, so this guard doesn't strand cross-provider bindings.
   useEffect(() => {
+    if (!provider || getModelsForProvider(provider).length > 0) return;
     if (
       model &&
       availableModels.length > 0 &&
@@ -211,7 +239,7 @@ export function ProfileEditorProviderSection({
     ) {
       onModelChange("");
     }
-  }, [model, availableModels, onModelChange]);
+  }, [model, availableModels, onModelChange, provider]);
 
   return (
     <>
@@ -324,7 +352,7 @@ export function ProfileEditorProviderSection({
               value: "",
               label: modelEmptyStateCopy?.placeholder ?? "Select a model",
             },
-            ...availableModels.map((m) => ({
+            ...modelOptions.map((m) => ({
               value: m.id,
               label: m.displayName,
             })),
