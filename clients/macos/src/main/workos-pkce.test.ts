@@ -164,7 +164,7 @@ describe("startLoopbackListener", () => {
 
       const ok = await fetch(`${listener.redirectUri}?code=good-code&state=expected-state`);
       expect(ok.status).toBe(200);
-      expect(await ok.text()).toContain("Signed in");
+      expect(await ok.text()).toContain("You're all set");
       expect(await listener.waitForCode).toBe("good-code");
     } finally {
       listener.close();
