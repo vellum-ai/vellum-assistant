@@ -35,8 +35,10 @@ import {
   archivedConversationListOptions,
   backgroundConversationListOptions,
   conversationListOptions,
+  originChannelConversationListOptions,
   scheduledConversationListOptions,
 } from "@/utils/conversation-list-fetchers";
+import type { OriginChannel } from "@/utils/conversation-list-fetchers";
 
 // ---------------------------------------------------------------------------
 // Queries
@@ -147,6 +149,40 @@ export function useScheduledConversationListQuery(
   const isOrgReady = useIsOrgReady();
   const query = useQuery({
     ...scheduledConversationListOptions(assistantId!),
+    enabled: enabled && Boolean(assistantId) && isOrgReady,
+  });
+  return {
+    conversations: query.data ?? EMPTY_CONVERSATIONS,
+    isLoading: query.isLoading,
+    isPending: query.isPending,
+  };
+}
+
+/**
+ * Subscribe to conversations for a specific origin channel (e.g. `"slack"`,
+ * `"telegram"`). Cached independently per `(assistantId, channel)` tuple
+ * under `originChannelConversationsQueryKey`.
+ *
+ * Each channel section in the sidebar mounts its own instance of this hook.
+ * Channel conversations are naturally bounded (~5-30 items), so a flat
+ * (non-paginated) query is appropriate. Sections that have no conversations
+ * simply don't render — no empty-state UI needed.
+ *
+ * `enabled` gates the network fetch; passing `false` keeps the observer
+ * subscribed to cache updates without firing a request.
+ */
+export function useOriginChannelConversationListQuery(
+  assistantId: string | null,
+  channel: NonNullable<OriginChannel>,
+  enabled: boolean = true,
+): {
+  conversations: Conversation[];
+  isLoading: boolean;
+  isPending: boolean;
+} {
+  const isOrgReady = useIsOrgReady();
+  const query = useQuery({
+    ...originChannelConversationListOptions(assistantId!, channel),
     enabled: enabled && Boolean(assistantId) && isOrgReady,
   });
   return {
