@@ -29,13 +29,14 @@ const isRemoteGatewayModeMock = mock(
   () => window.__VELLUM_CONFIG__?.mode === "remote-gateway",
 );
 const getLocalGatewayUrlMock = mock((): string | undefined => undefined);
+const getPlatformRuntimeUrlMock = mock(() => window.location.origin);
 mock.module("@/lib/local-mode", () => ({
   getActiveAssistant: () => undefined,
   getLocalAssistants: () => [],
   getLocalGatewayUrl: getLocalGatewayUrlMock,
   getLockfile: () => ({ assistants: [], activeAssistant: null }),
   getPlatformAssistants: () => [],
-  getPlatformRuntimeUrl: () => window.location.origin,
+  getPlatformRuntimeUrl: getPlatformRuntimeUrlMock,
   getSelectedAssistant: () => undefined,
   hasAssistants: () => false,
   isGuardianRepairable: () => false,
@@ -67,6 +68,7 @@ import {
 import { ApiError } from "@/utils/api-errors";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { getClientId } from "@/lib/telemetry/client-identity";
+import { __resetForTesting as resetDeviceId } from "@/runtime/device-id";
 import { __resetForTesting as resetSessionToken } from "@/runtime/session-token";
 import { useOrganizationStore } from "@/stores/organization-store";
 
@@ -250,8 +252,13 @@ describe("api-interceptors / self-hosted rewriting", () => {
   afterEach(() => {
     setSelfHostedConnection(null);
     resetPlatformAssistantIdCacheForTesting();
+    resetDeviceId();
+    resetSessionToken();
     globalThis.fetch = nativeFetch;
     getLocalGatewayUrlMock.mockImplementation(() => undefined);
+    getPlatformRuntimeUrlMock.mockImplementation(() => window.location.origin);
+    delete (window as unknown as { vellum?: unknown }).vellum;
+    window.__VELLUM_CONFIG__ = undefined;
   });
 
   test("rewrites the URL origin to the configured ingress", async () => {
@@ -451,6 +458,99 @@ describe("api-interceptors / self-hosted rewriting", () => {
     );
     expect(output.headers.get("Authorization")).toBeNull();
     expect(output.headers.get("Vellum-Organization-Id")).toBe(TEST_ORG_ID);
+  });
+
+  test("falls back to local registration when platform status lacks the assistant id", async () => {
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    (window as unknown as { vellum?: unknown }).vellum = {
+      platform: "electron",
+      auth: { getSessionToken: () => "electron-sess-tok" },
+    };
+    (
+      window as unknown as {
+        __VELLUM_CONFIG__?: { deviceId?: string; platformUrl?: string };
+      }
+    ).__VELLUM_CONFIG__ = {
+      deviceId: "device-123",
+      platformUrl: "http://localhost:5173",
+    };
+    getPlatformRuntimeUrlMock.mockImplementation(() => "http://localhost:5173");
+    const savedPlatformMode = process.env.VITE_PLATFORM_MODE;
+    delete process.env.VITE_PLATFORM_MODE;
+
+    try {
+      const fetchMock = mock((input: RequestInfo | URL, _init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith(`/v1/assistants/${SELF_HOSTED_ID}/platform/status`)) {
+          return Promise.resolve(
+            Response.json({
+              assistantId: "",
+              available: false,
+            }),
+          );
+        }
+        if (
+          url ===
+          "http://localhost:5173/v1/assistants/self-hosted-local/ensure-registration/"
+        ) {
+          return Promise.resolve(
+            Response.json({
+              assistant: {
+                id: PLATFORM_ASSISTANT_ID,
+                name: "Local Assistant",
+              },
+              registration: {
+                client_installation_id: "device-123",
+                runtime_assistant_id: SELF_HOSTED_ID,
+                client_platform: "macos",
+              },
+              assistant_api_key: null,
+              webhook_secret: "webhook-secret",
+            }),
+          );
+        }
+        return Promise.resolve(new Response("unexpected", { status: 404 }));
+      });
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      const input = new Request(
+        `http://localhost:5173/v1/assistants/${SELF_HOSTED_ID}/oauth/google/start/`,
+        { method: "POST" },
+      );
+
+      const output = await requestInterceptor(input);
+
+      expect(new URL(output.url).pathname).toBe(
+        `/v1/assistants/${PLATFORM_ASSISTANT_ID}/oauth/google/start/`,
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const [registrationUrl, registrationInit] = fetchMock.mock.calls[1]!;
+      expect(registrationUrl).toBe(
+        "http://localhost:5173/v1/assistants/self-hosted-local/ensure-registration/",
+      );
+      expect((registrationInit as RequestInit).credentials).toBe("omit");
+      const registrationHeaders = new Headers(
+        (registrationInit as RequestInit).headers,
+      );
+      expect(registrationHeaders.get("X-Session-Token")).toBe(
+        "electron-sess-tok",
+      );
+      expect(registrationHeaders.get("Vellum-Organization-Id")).toBe(TEST_ORG_ID);
+      expect(registrationHeaders.get(ELECTRON_RENDERER_ORIGIN_HEADER)).toBe(
+        `${window.location.protocol}//${window.location.host}`,
+      );
+      expect(
+        JSON.parse((registrationInit as RequestInit).body as string),
+      ).toEqual({
+        client_installation_id: "device-123",
+        runtime_assistant_id: SELF_HOSTED_ID,
+        client_platform: "macos",
+      });
+    } finally {
+      if (savedPlatformMode !== undefined) {
+        process.env.VITE_PLATFORM_MODE = savedPlatformMode;
+      }
+    }
   });
 
   test("uses the local gateway proxy for platform status lookup in local mode", async () => {

@@ -38,6 +38,7 @@ import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { ApiError, extractErrorMessage } from "@/utils/api-errors";
 import {
   getLocalGatewayUrl,
+  getPlatformRuntimeUrl,
   isLocalMode,
   isPlatformDisabled,
   isRemoteGatewayMode,
@@ -83,6 +84,19 @@ const ASSISTANT_PATH_RE =
 
 const platformAssistantIdCache = new Map<string, Promise<string | null>>();
 
+type PlatformStatusBody = {
+  assistantId?: unknown;
+  assistant_id?: unknown;
+  platformAssistantId?: unknown;
+  platform_assistant_id?: unknown;
+};
+
+type EnsureRegistrationBody = {
+  assistant?: {
+    id?: unknown;
+  };
+};
+
 /** @internal Exposed for test teardown only. */
 export function resetPlatformAssistantIdCacheForTesting(): void {
   platformAssistantIdCache.clear();
@@ -107,9 +121,9 @@ async function resolvePlatformAssistantIdForRuntime(
         runtimeAssistantId,
         token,
       );
-      if (assistantId) return assistantId;
+      if (assistantId && assistantId !== runtimeAssistantId) return assistantId;
     }
-    return null;
+    return fetchPlatformRegistrationAssistantId(runtimeAssistantId);
   })();
 
   platformAssistantIdCache.set(cacheKey, promise);
@@ -158,11 +172,74 @@ async function fetchPlatformStatusAssistantId(
   if (!response?.ok) return null;
 
   const body = (await response.json().catch(() => null)) as
-    | { assistantId?: unknown }
+    | PlatformStatusBody
     | null;
-  return typeof body?.assistantId === "string" && body.assistantId.trim()
-    ? body.assistantId.trim()
-    : null;
+  return firstNonEmptyString(
+    body?.assistantId,
+    body?.assistant_id,
+    body?.platformAssistantId,
+    body?.platform_assistant_id,
+  );
+}
+
+async function fetchPlatformRegistrationAssistantId(
+  runtimeAssistantId: string,
+): Promise<string | null> {
+  if (!isLocalMode() || isRemoteGatewayMode()) return null;
+
+  const deviceId = getDeviceId();
+  const organizationId = getActiveOrganizationIdForRequests();
+  if (!deviceId || !organizationId) return null;
+
+  const url = new URL(
+    "/v1/assistants/self-hosted-local/ensure-registration/",
+    getPlatformRuntimeUrl(),
+  );
+  const headers = new Headers({
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    "Vellum-Organization-Id": organizationId,
+  });
+
+  const sessionToken = getElectronSessionToken();
+  if (sessionToken) {
+    headers.set("X-Session-Token", sessionToken);
+  }
+  if (isElectron()) {
+    headers.set(ELECTRON_RENDERER_ORIGIN_HEADER, getRendererTupleOrigin());
+  } else {
+    await ensureCsrfCookie();
+    const csrfToken = getCsrfToken();
+    if (csrfToken) {
+      headers.set("X-CSRFToken", csrfToken);
+    }
+  }
+
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers,
+    credentials: isElectron() ? "omit" : "same-origin",
+    body: JSON.stringify({
+      client_installation_id: deviceId,
+      runtime_assistant_id: runtimeAssistantId,
+      client_platform: "macos",
+    }),
+  }).catch(() => null);
+  if (!response?.ok) return null;
+
+  const body = (await response.json().catch(() => null)) as
+    | EnsureRegistrationBody
+    | null;
+  return firstNonEmptyString(body?.assistant?.id);
+}
+
+function firstNonEmptyString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
 }
 
 async function rewritePlatformOwnedAssistantRequest(

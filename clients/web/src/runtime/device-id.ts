@@ -11,3 +11,7 @@ export function getDeviceId(): string | null {
   }
   return cached;
 }
+
+export function __resetForTesting(): void {
+  cached = undefined;
+}
