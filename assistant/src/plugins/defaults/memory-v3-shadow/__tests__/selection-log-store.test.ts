@@ -7,7 +7,9 @@
  *     is robust against v2/v3 turn-counter drift and does not match rows that
  *     predate the message-id backfill;
  *   - null for a null turn, empty message ids, or no matching rows;
- *   - NO fallback to another turn/message;
+ *   - NO blind fallback to a neighbouring turn/message;
+ *   - the fork fallback: a turn inherited from a fork resolves to the parent's
+ *     rows via the message's `forkSourceMessageId` back-pointer;
  *   - source/pinned/section mapping and the rendered `<memory>` block;
  *   - `live` / `shadow` reflect the flag resolver.
  *
@@ -45,6 +47,9 @@ function makeDb() {
   const db = drizzle(testSqlite, { schema });
   migrateAddMemoryV3Selections(db);
   migrateMemoryV3SelectionsMessageIdAndSections(db);
+  // The fork-source fallback reads `messages.metadata.forkSourceMessageId`; the
+  // inspector store touches only these two columns, so a minimal table suffices.
+  testSqlite.exec(`CREATE TABLE messages (id TEXT PRIMARY KEY, metadata TEXT)`);
   return db;
 }
 
@@ -79,6 +84,15 @@ function seed(
       r.sectionTitle ?? null,
     );
   }
+}
+
+function seedMessage(id: string, forkSourceMessageId?: string): void {
+  const metadata = JSON.stringify(
+    forkSourceMessageId != null ? { forkSourceMessageId } : {},
+  );
+  testSqlite
+    .query(`INSERT INTO messages (id, metadata) VALUES (?, ?)`)
+    .run(id, metadata);
 }
 
 mock.module("../../../../config/assistant-feature-flags.js", () => ({
@@ -279,6 +293,64 @@ describe("getMemoryV3SelectionForInspectorByMessageIds", () => {
     seed("conv-m", 0, [{ slug: "domain-a/page-1", source: "needle" }]); // message_id null
     expect(
       await getMemoryV3SelectionForInspectorByMessageIds(["any"]),
+    ).toBeNull();
+  });
+
+  test("falls back to the parent's selection for a forked (inherited) turn", async () => {
+    // The parent logged its selection under the parent assistant message id.
+    seed(
+      "conv-parent",
+      4,
+      [{ slug: "domain-a/page-1", source: "needle" }],
+      "parent-msg",
+    );
+    // The fork copied that message under a fresh id with a back-pointer and has
+    // no selection rows of its own.
+    seedMessage("fork-msg", "parent-msg");
+
+    const log = await getMemoryV3SelectionForInspectorByMessageIds([
+      "fork-msg",
+    ]);
+    expect(log?.selections.map((s) => s.slug)).toEqual(["domain-a/page-1"]);
+  });
+
+  test("walks a fork-of-a-fork chain to the original selection", async () => {
+    seed(
+      "conv-orig",
+      2,
+      [{ slug: "domain-b/page-2", source: "core" }],
+      "orig-msg",
+    );
+    // The mid fork copied orig; the second fork copied mid. Neither carries its
+    // own rows, so resolution must hop twice to reach orig.
+    seedMessage("mid-msg", "orig-msg");
+    seedMessage("fork2-msg", "mid-msg");
+
+    const log = await getMemoryV3SelectionForInspectorByMessageIds([
+      "fork2-msg",
+    ]);
+    expect(log?.selections.map((s) => s.slug)).toEqual(["domain-b/page-2"]);
+  });
+
+  test("prefers the message's own rows over the fork-source fallback", async () => {
+    // A post-fork native turn has its own rows AND a back-pointer; the direct
+    // rows must win so a native turn is never misattributed to the parent.
+    seed("conv-parent", 4, [{ slug: "parent/page", source: "needle" }], "src");
+    seed("conv-fork", 0, [{ slug: "own/page", source: "core" }], "native-msg");
+    seedMessage("native-msg", "src");
+
+    const log = await getMemoryV3SelectionForInspectorByMessageIds([
+      "native-msg",
+    ]);
+    expect(log?.selections.map((s) => s.slug)).toEqual(["own/page"]);
+  });
+
+  test("returns null for a fork copy whose ancestors logged nothing", async () => {
+    // A fork copy (has a back-pointer) where neither it nor its source ever
+    // logged a v3 selection.
+    seedMessage("fork-msg", "parent-msg");
+    expect(
+      await getMemoryV3SelectionForInspectorByMessageIds(["fork-msg"]),
     ).toBeNull();
   });
 });
