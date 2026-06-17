@@ -1,12 +1,11 @@
 /**
  * Unified resolver + renderer for guardian approval card seed content.
  *
- * `contextPayload` is resolved once into a typed {@link ApprovalCardData}
- * discriminated union, then rendered into Surface `[ui_surface, text]` blocks
- * via the shared {@link buildApprovalCardBlocks}. Both access-request and
- * tool-approval notifications flow through this single entry point so the
- * raw payload is parsed and shaped to card data in one place rather than
- * independently across the copy modules.
+ * `contextPayload` resolves into a typed {@link ApprovalCardData} discriminated
+ * union, then renders into Surface `[ui_surface, text]` blocks via the shared
+ * {@link buildApprovalCardBlocks}. Access-request and tool-approval
+ * notifications share this single entry point, which parses and shapes the raw
+ * payload into card data.
  *
  * The Surface card data shape matches `CardSurfaceData` from
  * `daemon/message-types/surfaces.ts`. Actions use the canonical
