@@ -11,7 +11,6 @@
 import type { ChannelId } from "../../../channels/types.js";
 import { findGuardianForChannel } from "../../../contacts/contact-store.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
-import type { NotificationSourceChannel } from "../../../notifications/signal.js";
 import { getLogger } from "../../../util/logger.js";
 import {
   createOutboundSession,
@@ -164,7 +163,7 @@ export async function handleGuardianActivationIntercept(
   // ── Emit notification signal to deliver code to macOS app ──
   void emitNotificationSignal({
     sourceEventName: "guardian.channel_activation",
-    sourceChannel: sourceChannel as NotificationSourceChannel,
+    sourceChannel,
     sourceContextId: `guardian-activation-${sourceChannel}-${rawSenderId}`,
     attentionHints: {
       requiresAction: true,

@@ -19,7 +19,11 @@ export const NOTIFICATION_SOURCE_CHANNELS = [
   { id: "vellum", description: "Vellum native client (macOS/iOS)" },
   { id: "phone", description: "Phone call pipeline" },
   { id: "telegram", description: "Telegram channel" },
+  { id: "whatsapp", description: "WhatsApp channel" },
   { id: "slack", description: "Slack channel" },
+  { id: "email", description: "Email channel" },
+  { id: "platform", description: "Platform-managed channel" },
+  { id: "a2a", description: "Agent-to-agent protocol channel" },
   { id: "scheduler", description: "Scheduled task runner (reminders, cron)" },
   { id: "watcher", description: "File/event watcher subsystem" },
 ] as const;
