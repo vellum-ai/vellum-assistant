@@ -12,10 +12,6 @@
  * generator, and the web/CLI clients all derive from one source and cannot
  * drift.
  *
- * A structurally compatible Swift mirror lives at
- * `clients/shared/Network/FeedItem.swift`. Any change to the feed-item
- * shape must be mirrored there.
- *
  * Canonical wire-contract source. Assistant code imports the types
  * directly from this file via relative paths; external consumers
  * (web client, gateway, evals) import via `@vellumai/assistant-api`.

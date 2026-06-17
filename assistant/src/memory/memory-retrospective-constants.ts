@@ -7,10 +7,10 @@ export const MEMORY_RETROSPECTIVE_SOURCE = "memory-retrospective";
 
 /**
  * Sentinel value for the `source` column of fork-based memory-retrospective
- * conversations (the new `memory-retrospective-fork` flag path). Distinct
- * from MEMORY_RETROSPECTIVE_SOURCE so dedup can scope its message scan to the
- * post-fork tail — fork-kind rows carry the full source prefix and would
- * otherwise pollute prior-remember dedup with source-inline `remember` calls.
+ * conversations. Distinct from MEMORY_RETROSPECTIVE_SOURCE so dedup can scope
+ * its message scan to the post-fork tail — fork-kind rows carry the full
+ * source prefix and would otherwise pollute prior-remember dedup with
+ * source-inline `remember` calls.
  */
 export const MEMORY_RETROSPECTIVE_FORK_SOURCE = "memory-retrospective-fork";
 

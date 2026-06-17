@@ -393,6 +393,52 @@ export async function installPlugin(
     throw new PluginNotFoundError(name, ref, sourceLabel(source));
   }
 
+  finalizeStagedInstall(stagingDir, {
+    name,
+    source,
+    ref,
+    commit,
+    committedAt,
+    pluginsDir,
+  });
+
+  return { name, target, fileCount, ref, commit, committedAt };
+}
+
+/** Inputs for {@link finalizeStagedInstall}. */
+export interface FinalizeStagedInstallParams {
+  readonly name: string;
+  /** Source coordinates recorded in the provenance sidecar. */
+  readonly source: PluginFetchSource;
+  /** Ref recorded in the sidecar (the resolved commit SHA for marketplace installs). */
+  readonly ref: string;
+  readonly commit: string | null;
+  /** ISO-8601 committer timestamp of {@link FinalizeStagedInstallParams.commit} (UTC); null when unknown. */
+  readonly committedAt: string | null;
+  /** Served plugins directory; the staging dir is swapped into `<pluginsDir>/<name>`. */
+  readonly pluginsDir: string;
+}
+
+/**
+ * Fingerprint a fully-populated `stagingDir`, write its provenance sidecar, and
+ * atomically swap it into `<pluginsDir>/<name>`. Returns the final install path
+ * and the fingerprint that was recorded.
+ *
+ * Shared by {@link installPlugin} (fresh materialization) and the merge-based
+ * `plugins upgrade --strategy` path so both record identical provenance and use
+ * the same atomic rm+rename swap.
+ */
+export function finalizeStagedInstall(
+  stagingDir: string,
+  {
+    name,
+    source,
+    ref,
+    commit,
+    committedAt,
+    pluginsDir,
+  }: FinalizeStagedInstallParams,
+): { target: string; fingerprint: Fingerprint } {
   // Hash the materialized tree before the sidecar is written (so the sidecar
   // never hashes itself) — the baseline `plugins inspect` uses to detect later
   // local edits. The per-file fingerprint answers "which files changed"; the
@@ -419,13 +465,14 @@ export async function installPlugin(
   // rm and the rename — and at that point the staging dir is fully populated.
   // Ensure the served `plugins/` directory exists: staging now lives outside
   // it, so the target's parent is no longer created as a side effect.
+  const target = join(pluginsDir, name);
   mkdirSync(pluginsDir, { recursive: true });
   if (existsSync(target)) {
     rmSync(target, { recursive: true, force: true });
   }
   renameSync(stagingDir, target);
 
-  return { name, target, fileCount, ref, commit, committedAt };
+  return { target, fingerprint };
 }
 
 /** Cap on any single git invocation; a shallow fetch is well under this. */

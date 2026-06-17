@@ -7,7 +7,7 @@ the wire contracts the assistant exposes: schemas, types, and pure helpers.
 Internal assistant code imports the files in this directory via relative paths
 (e.g. `../../api/events/open-url.js`). External consumers import the
 materialized npm-style package `@vellumai/assistant-api`, regenerated into
-`apps/web/node_modules/` by `apps/web/scripts/postinstall.ts`.
+`clients/web/node_modules/` by `clients/web/scripts/postinstall.ts`.
 
 ## Architecture
 
@@ -72,7 +72,7 @@ a migrated event is the import and the union membership.
 
 ### 3. Cut over web consumers
 
-`apps/web/src/domains/chat/api/event-types.ts` no longer needs to list the
+`clients/web/src/domains/chat/api/event-types.ts` no longer needs to list the
 migrated event in its `AssistantEvent` union — `APIAssistantEvent` covers it.
 Drop the per-event member, leaving the union to peel off legacy entries one
 at a time as each event migrates.
@@ -85,7 +85,7 @@ import them straight from the canonical package.
 ### 4. Delete the legacy parser cases
 
 Remove the matching `case "my_event":` blocks from
-`apps/web/src/domains/chat/api/event-parser.ts`. Any per-event helper
+`clients/web/src/domains/chat/api/event-parser.ts`. Any per-event helper
 (`parseFooBase`, etc.) goes with them.
 
 ### 5. Tests
@@ -110,15 +110,15 @@ Handler-level tests in the consuming domain modules typically need no change
 Run before push, in order:
 
 ```bash
-# In apps/web — regenerate the @vellumai/assistant-api bundle
+# In clients/web — regenerate the @vellumai/assistant-api bundle
 bun run scripts/postinstall.ts
 
 # Type-check both packages
 ( cd assistant && bunx tsc --noEmit )
-( cd apps/web && bunx tsc --noEmit )
+( cd clients/web && bunx tsc --noEmit )
 
 # Targeted tests
-( cd apps/web && bun test src/domains/chat/api/event-parser.test.ts )
+( cd clients/web && bun test src/domains/chat/api/event-parser.test.ts )
 
 # Lint + format the touched files
 bunx eslint <files>

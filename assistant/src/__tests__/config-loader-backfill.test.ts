@@ -692,6 +692,70 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.activeProfile).toBe("balanced");
   });
 
+  test("on-platform managed profiles reconcile to the code template on every boot", () => {
+    // Headline behavior: on-platform installs now reconcile managed profile
+    // content from the code template on every boot (same as off-platform), so
+    // model/config updates ship in a release without a workspace migration.
+    process.env.IS_PLATFORM = "true";
+
+    writeConfig({
+      llm: {
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            model: "old-model-from-previous-release",
+            maxTokens: 1,
+            provider_connection: "anthropic-managed",
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    // Non-hatch boot (no overlay). Content is refreshed from the template.
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+    expect(raw.llm.profiles.balanced.maxTokens).toBe(16000);
+    expect(raw.llm.profiles.balanced.provider_connection).toBe(
+      "anthropic-managed",
+    );
+    expect(raw.llm.activeProfile).toBe("balanced");
+  });
+
+  test("on-platform reseed preserves user-edited label and status on managed profiles", () => {
+    // The only two fields a user may override on a managed profile — label and
+    // status — survive the on-platform reconcile, exactly as off-platform.
+    process.env.IS_PLATFORM = "true";
+
+    writeConfig({
+      llm: {
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            model: "old-model-from-previous-release",
+            provider_connection: "anthropic-managed",
+            label: "My Default",
+            status: "disabled",
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    // Content refreshes from the template...
+    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+    // ...but the user's label and status overrides are preserved.
+    expect(raw.llm.profiles.balanced.label).toBe("My Default");
+    expect(raw.llm.profiles.balanced.status).toBe("disabled");
+  });
+
   test("off-platform reseed preserves user-edited label on managed profiles (Codex P1 on PR #30362)", () => {
     // Simulate a user who renamed the managed "balanced" profile via
     // PUT /v1/config/llm/profiles/balanced { label: "My Default" }.
@@ -788,7 +852,13 @@ describe("loadConfig startup behavior", () => {
     expect("status" in raw.llm.profiles.balanced).toBe(false);
   });
 
-  test("platform-provided profile fragments are not polluted by managed seeds", () => {
+  test("platform overlay fragment wins its hatch boot, then content reconciles to the code template (label preserved)", () => {
+    // The overlay is authoritative for the boot it is supplied: its `balanced`
+    // fragment lands verbatim and is never polluted by template fields it omits
+    // (no maxTokens/thinking leak in). On the next boot — overlay archived —
+    // managed profile *content* reconciles to the code template, since the
+    // templates are the single source of truth for content. Only the
+    // user/overlay-set `label` survives the reconcile.
     process.env.IS_PLATFORM = "true";
 
     writeConfig({
@@ -842,6 +912,7 @@ describe("loadConfig startup behavior", () => {
     const config = loadConfig();
     const mainAgentConfig = resolveCallSiteConfig("mainAgent", config.llm);
 
+    // Hatch boot: overlay fragment is preserved verbatim (preserveProfileNames).
     expect(config.llm.activeProfile).toBe("balanced");
     expect(config.llm.profiles.balanced).toEqual({
       source: "managed",
@@ -862,16 +933,24 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles.balanced.maxTokens).toBeUndefined();
     expect(raw.llm.profiles.balanced.thinking).toBeUndefined();
 
+    // Next boot, no overlay: content reconciles to the anthropic-managed code
+    // template; only the overlay-set label is carried across.
     mergeDefaultConfigAndSeedInferenceProfiles();
 
     const afterRestart = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
     expect(afterRestart.llm.activeProfile).toBe("balanced");
-    expect(afterRestart.llm.profiles.balanced).toEqual({
-      source: "managed",
-      provider: "openai",
-      model: "gpt-5.4",
-      label: "Platform Balanced",
+    expect(afterRestart.llm.profiles.balanced.provider).toBe("anthropic");
+    expect(afterRestart.llm.profiles.balanced.provider_connection).toBe(
+      "anthropic-managed",
+    );
+    expect(afterRestart.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+    expect(afterRestart.llm.profiles.balanced.maxTokens).toBe(16000);
+    expect(afterRestart.llm.profiles.balanced.thinking).toEqual({
+      enabled: true,
+      streamThinking: true,
     });
+    // The user/overlay-set label is the one field that survives the reconcile.
+    expect(afterRestart.llm.profiles.balanced.label).toBe("Platform Balanced");
   });
 
   test("quarantines corrupt config before merging hatch overlay", () => {

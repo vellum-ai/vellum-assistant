@@ -2,14 +2,21 @@
  * Default `memoryRetrieval` post-compaction hook.
  *
  * After the agent loop compacts a conversation mid-turn it must re-apply the
- * runtime injections compaction stripped — the NOW.md scratchpad, PKB context,
- * memory-v2 static block, workspace top-level context, and Slack chronological
- * snapshot — onto the compacted history before the turn continues. This hook is
- * the memory system's home for that transform: it re-applies the injections via
- * {@link applyRuntimeInjections}, writes the edited history back onto the
- * context, and re-tracks the memory graph's cached nodes against the re-injected
- * history. The injection blocks the transform captures are not needed by the
- * re-injection caller, so only the messages propagate.
+ * runtime injections — the NOW.md scratchpad, PKB context, memory-v2 static
+ * block, workspace top-level context, Slack chronological snapshot, and the
+ * per-turn context blocks — onto the continuation history before the turn
+ * continues. This hook is the memory system's home for that transform: it
+ * clears any per-turn injection blocks the base already carries on its tail
+ * ({@link stripTailInjectionsForReinjection}) so re-injection is idempotent,
+ * re-applies the injections via {@link applyRuntimeInjections}, writes the
+ * edited history back onto the context, and re-tracks the memory graph's cached
+ * nodes against the re-injected history. The injection blocks the transform
+ * captures are not needed by the re-injection caller, so only the messages
+ * propagate.
+ *
+ * The base the loop hands in is the full injected history (the loop does not
+ * pre-strip it), so the tail strip is what keeps injection idempotency a
+ * property of the injection machinery rather than of the agent loop.
  *
  * Every per-turn input the live conversation can supply is self-resolved from
  * it (looked up by id) rather than threaded in by the loop:
@@ -44,6 +51,7 @@ import {
   resolveTrustClass,
 } from "../../../../daemon/trust-context.js";
 import { getLiveGraphMemory } from "../../../../memory/graph/conversation-graph-memory.js";
+import { stripTailInjectionsForReinjection } from "../tail-reinjection-strip.js";
 
 const postCompact: PluginHookFn<PostCompactContext> = async (ctx) => {
   const {
@@ -77,7 +85,12 @@ const postCompact: PluginHookFn<PostCompactContext> = async (ctx) => {
     config.llm,
     conversationId,
   );
-  const result = await applyRuntimeInjections(history, {
+  // Clear any per-turn injection blocks the base already carries on its tail
+  // before re-injecting, so the continuation history holds a single copy of
+  // each block rather than double-stacking on the injected base the loop hands
+  // in.
+  const strippedHistory = stripTailInjectionsForReinjection(history);
+  const result = await applyRuntimeInjections(strippedHistory, {
     isNonInteractive,
     modelProfile,
     actorContext,

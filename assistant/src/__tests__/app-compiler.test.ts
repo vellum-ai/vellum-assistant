@@ -2,9 +2,17 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  setDefaultTimeout,
+  test,
+} from "bun:test";
 
 import { compileApp } from "../bundler/app-compiler.js";
+import { ensureCompilerTools } from "../bundler/compiler-tools.js";
 import {
   ALLOWED_PACKAGES,
   getCacheDir,
@@ -19,8 +27,14 @@ import {
 
 let tempDir: string;
 
+// Compiler-tool download (esbuild + preact from npm) can take 10s+ on a cold
+// CI cache. Raise the file-level default so beforeAll isn't killed mid-install.
+// Each test file runs in its own process, so this doesn't leak.
+setDefaultTimeout(30_000);
+
 beforeAll(async () => {
   tempDir = await mkdtemp(join(tmpdir(), "app-compiler-test-"));
+  await ensureCompilerTools();
 });
 
 afterAll(async () => {

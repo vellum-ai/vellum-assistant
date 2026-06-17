@@ -1,4 +1,4 @@
-import { getConfigReadOnly } from "../config/loader.js";
+import { validateInferenceProfileKey } from "../config/inference-profile-validation.js";
 
 /**
  * Validate a schedule's inference-profile key against the configured
@@ -12,17 +12,5 @@ import { getConfigReadOnly } from "../config/loader.js";
 export function validateScheduleInferenceProfile(
   profile: string,
 ): string | null {
-  if (!profile.trim()) {
-    return "inferenceProfile must be a non-empty string";
-  }
-  const profiles = getConfigReadOnly().llm?.profiles ?? {};
-  if (!Object.prototype.hasOwnProperty.call(profiles, profile)) {
-    const available = Object.keys(profiles).sort();
-    const hint =
-      available.length > 0
-        ? ` Available profiles: ${available.join(", ")}.`
-        : " No profiles defined in llm.profiles.";
-    return `Inference profile "${profile}" is not defined in llm.profiles.${hint}`;
-  }
-  return null;
+  return validateInferenceProfileKey(profile);
 }

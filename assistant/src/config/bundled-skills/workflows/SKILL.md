@@ -1,19 +1,22 @@
 ---
 name: workflows
-description: Author and run autonomous multi-agent workflows that fan work across parallel leaf agents
+description: Delegate a big or high-stakes job to a fleet of parallel subagents, orchestrated deterministically; runs unattended and reports back
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "⚙️"
   vellum:
     display-name: "Workflows"
     category: "system"
-    feature-flag: "workflows"
+    always-candidate: true
     activation-hints:
-      - "A task decomposes into many similar sub-tasks that can run concurrently (score every item, extract a field from each of many documents, draft-then-verify a batch)"
-      - "You want fan-out orchestrated deterministically and the result reported back when the whole run finishes"
+      - "Batch — apply one operation to each of MANY items (score / rate / rank / classify / extract / summarize each of a large set)"
+      - "Comprehensive coverage — exhaustively sweep, audit, or find EVERY instance across a large surface"
+      - "Research & synthesize — gather across many sources or pages and combine into one answer"
+      - "Confidence — generate several independent attempts and judge them, or adversarially verify findings before trusting the result"
+      - "Scale — work too large to finish well in one inline pass"
     avoid-when:
-      - "The task is a single tool call or a quick lookup — do it inline"
-      - "The work needs interactive, conversational back-and-forth rather than unattended fan-out"
+      - "A single inline answer, a quick lookup, or a small one-off"
+      - "Interactive, conversational back-and-forth rather than unattended fan-out"
 ---
 
 A workflow is a short JS/TS script you author that runs in a sandbox and fans work
@@ -22,8 +25,11 @@ one with `run_workflow` (inline `script` OR saved `name`, exactly one). It retur
 `runId` immediately; the run is asynchronous and you are notified in this
 conversation when it completes — **do NOT poll**.
 
-Reach for one when a task decomposes into many similar small sub-tasks that can run
-concurrently. For a single task or a quick lookup, do it inline.
+Reach for one when a job is too big, too parallel, or too important for one inline
+pass. That is more than batch/map-reduce over many items — it also covers exhaustively
+sweeping or auditing a large surface, researching across many sources and synthesizing,
+and generating several independent attempts to judge or adversarially verify before
+trusting the result. For a single task or a quick lookup, do it inline.
 
 ## The script model
 

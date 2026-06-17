@@ -88,6 +88,10 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   taskRunId?: string;
   /** Guardian runtime context for the conversation — trustClass is propagated into ToolContext for control-plane policy enforcement. */
   trustContext?: TrustContext;
+  /** Per-turn trust snapshot, captured at turn start. Preferred over the live
+   *  `trustContext` for mid-turn trust decisions (tool approval, control-plane
+   *  policy) so a concurrent mutation cannot elevate the in-flight turn. */
+  currentTurnTrustContext?: TrustContext;
   /** Voice/call session ID, if the conversation originates from a call. Propagated into ToolContext for scoped grant consumption. */
   callSessionId?: string;
   /** The interface ID of the connected client driving the current turn (e.g. "macos", "chrome-extension"). Propagated into ToolContext for browser backend selection. */

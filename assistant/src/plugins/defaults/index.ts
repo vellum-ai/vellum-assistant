@@ -54,6 +54,10 @@ import memoryRetrievalPkg from "./memory-retrieval/package.json" with { type: "j
 import memoryV3PostCompact from "./memory-v3-shadow/hooks/post-compact.js";
 import memoryV3UserPromptSubmit from "./memory-v3-shadow/hooks/user-prompt-submit.js";
 import memoryV3Pkg from "./memory-v3-shadow/package.json" with { type: "json" };
+import surfaceCompletionNudgePostModelCall from "./surface-completion-nudge/hooks/post-model-call.js";
+import surfaceCompletionNudgeStop from "./surface-completion-nudge/hooks/stop.js";
+import { resetSurfaceCompletionNudgeStoreForTests } from "./surface-completion-nudge/nudge-state-store.js";
+import surfaceCompletionNudgePkg from "./surface-completion-nudge/package.json" with { type: "json" };
 import taskProgressNudgePostToolUse, {
   resetTaskProgressNudgeStateForTests,
 } from "./task-progress-nudge/hooks/post-tool-use.js";
@@ -260,6 +264,25 @@ export const defaultTaskProgressNudgePlugin: Plugin = {
 };
 
 /**
+ * `surface-completion-nudge` — a `post-model-call` hook that, when a user-facing
+ * turn is about to end with a progress surface (a `task_progress` card or
+ * `work_result`) the model showed but never advanced to a terminal status or
+ * dismissed, nudges the model once to close it and re-queries so it can act; the
+ * `stop` hook clears the one-shot bound on a terminal stop so the next run
+ * nudges afresh.
+ */
+export const defaultSurfaceCompletionNudgePlugin: Plugin = {
+  manifest: {
+    name: surfaceCompletionNudgePkg.name,
+    version: surfaceCompletionNudgePkg.version,
+  },
+  hooks: {
+    "post-model-call": surfaceCompletionNudgePostModelCall,
+    stop: surfaceCompletionNudgeStop,
+  },
+};
+
+/**
  * `tool-result-truncate` — a `post-tool-use` hook that tail-drops an oversized
  * tool result down to a character budget derived from the model's context
  * window before the result is sent to the provider.
@@ -289,6 +312,7 @@ function getAllDefaultPlugins(): readonly Plugin[] {
     defaultToolErrorPlugin,
     defaultExplorationDriftPlugin,
     defaultTaskProgressNudgePlugin,
+    defaultSurfaceCompletionNudgePlugin,
     defaultHistoryRepairPlugin,
     defaultImageRecoveryPlugin,
     defaultCompactionPlugin,
@@ -339,5 +363,6 @@ export function resetPluginRegistryAndRegisterDefaults(): void {
   resetImageRecoveryStoreForTests();
   resetExplorationDriftStateForTests();
   resetTaskProgressNudgeStateForTests();
+  resetSurfaceCompletionNudgeStoreForTests();
   registerDefaultPlugins();
 }

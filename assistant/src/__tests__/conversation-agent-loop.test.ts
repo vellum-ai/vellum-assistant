@@ -1748,6 +1748,57 @@ describe("session-agent-loop", () => {
       // THEN the queue is drained with the loop-complete reason
       expect(drainReason).toBe("loop_complete");
     });
+
+    test("leaves a newer turn's state intact when superseded during unwind", async () => {
+      // GIVEN a fresh AbortController and request id that a newer turn installs
+      // (as persistUserMessage would once a user cancel released `processing`)
+      const newerTurnController = new AbortController();
+      let drained = false;
+
+      // AND a provider that, on this turn's single model call, simulates that
+      // newer turn taking ownership of the conversation before this turn
+      // reaches its finally
+      const ctxHolder: { conversation?: Conversation } = {};
+      const provider: Provider = {
+        name: "mock-provider",
+        async sendMessage(_messages, options) {
+          const conversation = ctxHolder.conversation;
+          if (conversation) {
+            conversation.abortController = newerTurnController;
+            conversation.setProcessing(true);
+            conversation.currentRequestId = "newer-turn-req";
+          }
+          options?.onEvent?.({ type: "text_delta", text: "done" });
+          return {
+            content: [{ type: "text", text: "done" }],
+            model: "mock-model",
+            usage: { inputTokens: 0, outputTokens: 0 },
+            stopReason: "end_turn",
+          };
+        },
+      };
+      const ctx = makeCtx({
+        loopProvider: provider,
+        drainQueue: async () => {
+          drained = true;
+        },
+      });
+      ctxHolder.conversation = ctx;
+
+      // WHEN the superseded turn runs to completion
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      // THEN the finally leaves the newer turn's per-turn state intact so it
+      // stays cancellable and visible
+      expect(ctx.abortController).toBe(newerTurnController);
+      expect(ctx.isProcessing()).toBe(true);
+      expect(ctx.currentRequestId).toBe("newer-turn-req");
+      // AND it does not drain the newer turn's queue out from under it
+      expect(drained).toBe(false);
+      // AND this turn's own finalization that does not touch shared state still
+      // runs (the turn is still counted)
+      expect(ctx.turnCount).toBe(1);
+    });
   });
 
   describe("stale pending surface cleanup", () => {

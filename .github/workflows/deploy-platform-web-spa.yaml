@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: apps/web
+        working-directory: clients/web
     environment: ${{ inputs.environment }}
     # No id-token: this job runs untrusted build code and must never hold cloud
     # credentials.
@@ -50,7 +50,7 @@ jobs:
       - name: Generate API clients
         run: bun run openapi-ts
 
-      # apps/web's vite.config.ts imports vite-plugin-local-mode, which pulls in
+      # clients/web's vite.config.ts imports vite-plugin-local-mode, which pulls in
       # @vellumai/local-mode and its transitive @vellumai/environments file: dep.
       # Both must have their own node_modules so the config loads at build time.
       - name: Install shared packages
@@ -96,12 +96,12 @@ jobs:
         run: bun run build
 
       # `path` is resolved from the workspace root and is NOT affected by the
-      # job's `working-directory` default, so it must be the full `apps/web/dist`.
+      # job's `working-directory` default, so it must be the full `clients/web/dist`.
       - name: Upload SPA artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: web-dist-${{ inputs.environment }}
-          path: apps/web/dist
+          path: clients/web/dist
           if-no-files-found: error
 
   deploy:

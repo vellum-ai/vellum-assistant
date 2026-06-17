@@ -3,19 +3,13 @@
  * Generate `llm-provider-catalog.json` from the canonical
  * `PROVIDER_CATALOG` in `assistant/src/providers/model-catalog.ts`.
  *
- * The JSON file is the client-facing catalog bundled into native clients
- * (macOS, web). Keeping it generated — rather than hand-mirrored — eliminates
- * the recurring "I edited model-catalog.ts and forgot the JSON" failure mode
- * that the parity test only catches after push.
+ * The JSON file is the client-facing catalog. Keeping it generated — rather
+ * than hand-mirrored — eliminates the recurring "I edited model-catalog.ts and
+ * forgot the JSON" failure mode that the parity test only catches after push.
  *
- * Two byte-identical copies are written:
+ * Output:
  *   - `meta/llm-provider-catalog.json` — primary checked-in artifact, read
- *      by web codegen (§D) and any non-Swift consumer.
- *   - `clients/shared/Resources/llm-provider-catalog.json` — SwiftPM resource
- *      bundled into `VellumAssistantShared`. SwiftPM cannot reach files
- *      outside a target's source directory, so this mirror is necessary;
- *      both files are produced by the same generator and asserted equal by
- *      the parity test, making drift impossible.
+ *      by web codegen (§D) and any downstream consumer.
  *
  * The projection drops daemon-only fields (today: `apiKeyUrl`, which clients
  * read from `credentialsGuide.url` instead) and pins field order so the
@@ -37,10 +31,7 @@ import {
 } from "../src/providers/model-catalog.js";
 
 const ROOT = resolve(import.meta.dir, "../..");
-const OUTPUT_PATHS = [
-  join(ROOT, "meta/llm-provider-catalog.json"),
-  join(ROOT, "clients/shared/Resources/llm-provider-catalog.json"),
-] as const;
+const OUTPUT_PATHS = [join(ROOT, "meta/llm-provider-catalog.json")] as const;
 
 /**
  * Bumped when the *shape* of the client catalog JSON changes in a way native

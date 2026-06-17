@@ -25,7 +25,7 @@ const ALLOWED_METHODS = "GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS";
  * `X-Vellum-Client-Id` / `X-Vellum-Interface-Id` mirror the headers the
  * Chrome extension already sends (see `extensionCorsHeaders` below) and the
  * raw SSE streams attach via `getClientRegistrationHeaders()`. The web SPA's
- * central HeyAPI interceptor (`apps/web/src/lib/api-interceptors.ts`)
+ * central HeyAPI interceptor (`clients/web/src/lib/api-interceptors.ts`)
  * attaches them to every generated-client request so the daemon route
  * handlers can echo the id back on `sync_changed`.
  */
