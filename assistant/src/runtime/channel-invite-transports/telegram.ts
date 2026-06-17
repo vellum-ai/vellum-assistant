@@ -36,10 +36,10 @@ import type {
 
 /**
  * Ensure the Telegram bot username is resolved and cached in config.
- * When the bot token was configured via CLI `credential set`,
- * `credential_store` tool, or ingress secret redirect, the `getMe` API
- * call that populates the config is skipped — this function fills that
- * gap so that invite share links can be generated.
+ * When the bot token was configured via the `assistant credentials set` CLI
+ * or ingress secret redirect, the `getMe` API call that populates the config
+ * is skipped — this function fills that gap so that invite share links can be
+ * generated.
  */
 export async function ensureTelegramBotUsernameResolved(): Promise<void> {
   if (getTelegramBotUsername() && getTelegramBotId()) {

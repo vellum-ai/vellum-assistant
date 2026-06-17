@@ -195,6 +195,7 @@ interface CapturedRunAgentLoopOptions {
   titleText?: string;
   callSite?: string;
   overrideProfile?: string;
+  forceOverrideProfile?: boolean;
 }
 
 const capturedRunAgentLoopOptions: CapturedRunAgentLoopOptions[] = [];
@@ -323,6 +324,29 @@ describe("SubagentManager.spawn — overrideProfile inheritance", () => {
     const captured = capturedRunAgentLoopOptions[0];
     expect(captured.callSite).toBe("subagentSpawn");
     expect(captured.overrideProfile).toBe("fast");
+    expect("forceOverrideProfile" in captured).toBe(false);
+  });
+
+  test("forwards forced overrideProfile from SubagentConfig into runAgentLoop", async () => {
+    capturedRunAgentLoopOptions.length = 0;
+
+    const manager = new SubagentManager();
+    await manager.spawn(
+      {
+        parentConversationId: "parent-forced",
+        label: "child",
+        objective: "do the thing",
+        overrideProfile: "fast",
+        forceOverrideProfile: true,
+      },
+      () => {},
+    );
+
+    expect(capturedRunAgentLoopOptions).toHaveLength(1);
+    const captured = capturedRunAgentLoopOptions[0];
+    expect(captured.callSite).toBe("subagentSpawn");
+    expect(captured.overrideProfile).toBe("fast");
+    expect(captured.forceOverrideProfile).toBe(true);
   });
 
   test("omits overrideProfile when SubagentConfig does not set it", async () => {
@@ -344,6 +368,7 @@ describe("SubagentManager.spawn — overrideProfile inheritance", () => {
     // Field must be absent rather than carrying `undefined`, mirroring the
     // agent loop's "field omitted when unset" contract.
     expect("overrideProfile" in captured).toBe(false);
+    expect("forceOverrideProfile" in captured).toBe(false);
   });
 });
 

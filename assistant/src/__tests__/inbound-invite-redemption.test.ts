@@ -173,7 +173,7 @@ describe("inbound invite redemption intercept", () => {
     // Verify the user is now an active member
     const result = findContactChannel({
       channelType: "telegram",
-      externalUserId: "user-invite-123",
+      address: "user-invite-123",
     });
     expect(result).not.toBeNull();
     expect(result!.channel.status).toBe("active");
@@ -203,7 +203,7 @@ describe("inbound invite redemption intercept", () => {
     // Verify the user was NOT made a member
     const result = findContactChannel({
       channelType: "telegram",
-      externalUserId: "user-invite-123",
+      address: "user-invite-123",
     });
     expect(result).toBeNull();
   });
@@ -400,7 +400,7 @@ describe("inbound invite redemption intercept", () => {
     // its ID as the invite's contactId (satisfies the FK constraint).
     const existing = findContactChannel({
       channelType: "telegram",
-      externalUserId: "user-invite-123",
+      address: "user-invite-123",
       externalChatId: "chat-invite-test",
     });
     const targetContactId = existing!.contact.id;
@@ -422,7 +422,7 @@ describe("inbound invite redemption intercept", () => {
 
     const result = findContactChannel({
       channelType: "telegram",
-      externalUserId: "user-invite-123",
+      address: "user-invite-123",
       externalChatId: "chat-invite-test",
     });
     expect(result).not.toBeNull();

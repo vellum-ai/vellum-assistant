@@ -32,6 +32,8 @@
  *
  * - {@link assistantEventHub} — the assistant's pub/sub hub for runtime events
  * - {@link getSecureKeyAsync} — read a secret from secure storage
+ * - {@link getModelProfiles} — list the workspace inference profiles a plugin
+ *   can route to (e.g. a model router building its category → profile map)
  *
  * - {@link PluginInitContext} — passed to `init` hook at bootstrap
  * - {@link PluginShutdownContext} — passed to `shutdown` hook at teardown
@@ -40,7 +42,8 @@
  * - {@link PostCompactContext} — passed to `post-compact` hook, fired after
  *   the agent loop compacts a conversation mid-turn to re-apply injections
  * - {@link PreModelCallContext} — passed to `pre-model-call` hook, fired
- *   before each provider call to edit the request / defer output streaming
+ *   before each provider call to edit the request, route it to a different
+ *   inference profile, or defer output streaming
  * - {@link PostToolUseContext} — passed to `post-tool-use` hook, fired once
  *   per tool result before it joins the provider-bound history
  * - {@link StopContext} — passed to `stop` hook, the definitive terminal hook
@@ -79,6 +82,7 @@ export type {
 } from "../providers/types.js";
 export type {
   AgentLoopExitReason,
+  ModelProfileInfo,
   PluginHookFn,
   PluginInitContext,
   PluginLogger,
@@ -110,3 +114,4 @@ export type {
 } from "../runtime/assistant-event-hub.js";
 export { assistantEventHub } from "../runtime/assistant-event-hub.js";
 export { getSecureKeyAsync } from "../security/secure-keys.js";
+export { getModelProfiles } from "./model-profiles.js";

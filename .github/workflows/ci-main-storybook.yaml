@@ -7,7 +7,7 @@ on:
     branches: [main]
     paths:
       - "packages/design-library/**"
-      - "apps/web/**"
+      - "clients/web/**"
       - "packages/local-mode/**"
       - "packages/environments/**"
       - ".github/workflows/ci-main-storybook.yaml"
@@ -118,7 +118,7 @@ jobs:
       contents: read
     defaults:
       run:
-        working-directory: apps/web
+        working-directory: clients/web
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -134,7 +134,7 @@ jobs:
       - name: Generate API clients
         run: bun run openapi-ts
 
-      # apps/web pulls in @vellumai/local-mode and its transitive
+      # clients/web pulls in @vellumai/local-mode and its transitive
       # @vellumai/environments file: dep; both need their own node_modules so
       # vite.config.ts loads at build time.
       - name: Install shared packages
@@ -149,7 +149,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: web-storybook
-          path: apps/web/storybook-static
+          path: clients/web/storybook-static
           if-no-files-found: error
 
   deploy-web-storybook:

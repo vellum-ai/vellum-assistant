@@ -87,10 +87,9 @@ export function getCurrentEnvironment(
   if (!seed) {
     if (name !== DEFAULT_ENVIRONMENT_NAME) {
       // Warn on stderr instead of throwing, to match the silent-fallback
-      // behavior in assistant/src/util/platform.ts:getXdgVellumConfigDirName
-      // and clients/shared/App/VellumEnvironment.swift:current. Those two
-      // silently fall back to production; the CLI should agree so all three
-      // writers don't end up in disjoint states on a typo.
+      // behavior in assistant/src/util/platform.ts:getXdgVellumConfigDirName,
+      // which silently falls back to production; the CLI agrees so neither
+      // writer ends up in a disjoint state on a typo.
       process.stderr.write(
         `warning: unknown environment "${name}"; falling back to "${DEFAULT_ENVIRONMENT_NAME}". ` +
           `Add it to packages/environments/src/seeds.ts and rebuild if this was intentional.\n`,

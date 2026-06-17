@@ -8,8 +8,7 @@
  * the greeting regenerates on every request. This is the knob a workspace
  * sets to always receive a fresh greeting.
  *
- * Storage uses the existing `memory_checkpoints` table (simple key-value
- * store), mirroring {@link ./identity-intro-cache.ts}.
+ * Storage uses the existing `memory_checkpoints` table.
  */
 
 import { getConfig } from "../../config/loader.js";

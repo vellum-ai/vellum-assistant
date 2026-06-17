@@ -91,16 +91,6 @@ deps["@vellumai/vellum-gateway"] = versionStr;
 writeJson(metaPkgPath, metaPkg);
 console.log(`  Bumped meta dependencies to ${versionStr}`);
 
-// Bump macOS app version in clients/Package.swift
-const swiftPath = "clients/Package.swift";
-const swiftContent = readFileSync(swiftPath, "utf-8");
-const updatedSwift = swiftContent.replace(
-  /^let appVersion = .*/m,
-  `let appVersion = "${versionStr}"`
-);
-writeFileSync(swiftPath, updatedSwift);
-console.log(`  Bumped ${swiftPath} to ${versionStr}`);
-
 git("add -A");
 git(`commit -m "Release v${versionStr} [skip ci]"`);
 console.log(`Added version bump commit to ${branchName}`);

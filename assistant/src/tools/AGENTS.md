@@ -2,7 +2,7 @@
 
 ## New Non-Skill Tools Are Strongly Discouraged
 
-**Prefer skills over new non-skill tool registrations.** Non-skill tools require approval from Team Jarvis.
+**Prefer skills over new non-skill tool registrations.** Non-skill tools require approval from the core team.
 
 Skills are the preferred approach for adding new capabilities — they are progressively disclosed into context, more portable, and can be iterated on independently. New non-skill tool registrations (`class ... implements Tool` + `registerTool()`) carry additional costs:
 
@@ -48,7 +48,7 @@ See [`assistant/docs/credential-execution-service.md`](../../docs/credential-exe
 
 ## If You Have Approval
 
-If Team Jarvis has approved your new tool:
+If the core team has approved your new tool:
 
 1. The pre-commit hook will block your commit by default
 2. Use `git commit --no-verify` to bypass the hook
@@ -56,4 +56,4 @@ If Team Jarvis has approved your new tool:
 
 ## Questions?
 
-Contact Team Jarvis before shipping a new tool.
+Contact the core team before shipping a new tool.

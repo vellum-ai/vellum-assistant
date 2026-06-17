@@ -269,7 +269,7 @@ The [`@storybook/addon-mcp`](https://github.com/storybookjs/mcp) addon exposes c
 
 ### npm publishing
 
-The `"files"` field in `package.json` allowlists `src/` for the npm tarball, which excludes `.storybook/` config and `storybook-static/` build output ([npm docs](https://docs.npmjs.com/cli/v10/configuring-npm/package-json#files)). Colocated `*.stories.tsx` files under `src/` are included in the tarball but are harmless to consumers — this matches the convention used by most design system packages. To exclude stories from the tarball for size optimization, add an `.npmignore` with `**/*.stories.tsx` — tracked in [LUM-1603](https://linear.app/vellum/issue/LUM-1603).
+The `"files"` field in `package.json` allowlists `src/` for the npm tarball, which excludes `.storybook/` config and `storybook-static/` build output ([npm docs](https://docs.npmjs.com/cli/v10/configuring-npm/package-json#files)). Colocated `*.stories.tsx` files under `src/` are included in the tarball but are harmless to consumers — this matches the convention used by most design system packages. To exclude stories from the tarball for size optimization, add an `.npmignore` with `**/*.stories.tsx`.
 
 ## Peer dependencies
 

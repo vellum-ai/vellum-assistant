@@ -362,6 +362,10 @@ const DEPRECATED_FIELDS: Record<string, string> = {
     "per-lane concurrency caps (slowLlmConcurrency, fastConcurrency, " +
     "embedConcurrency) instead of a single batch size. " +
     "The field will be removed from your config file.",
+  "daemon.reapOrphanedSubprocesses":
+    "daemon.reapOrphanedSubprocesses has been removed. The daemon now reaps " +
+    "orphaned subprocesses automatically whenever it runs as PID 1 on Linux. " +
+    "The field will be removed from your config file.",
 };
 
 /**

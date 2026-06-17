@@ -7,7 +7,6 @@ on:
       - 'cli/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
-      - 'clients/shared/App/VellumEnvironment.swift'
       - '.github/workflows/pr-cli.yaml'
       - '.github/actions/install-shared-packages/**'
 

@@ -371,7 +371,7 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_SWIFT_DECL_LINE='public let clientSecret: String?'
     SAFE_DOC_PLACEHOLDER_LINE='  oauth2ClientSecret: "<optional>",'
     SAFE_DESC_PLACEHOLDER_LINE='client_secret: "<the extracted Client Secret>"'
-    SAFE_DESC_PLACEHOLDER_LINE2='  "authToken": "<value from credential_store for twilio/auth_token>"'
+    SAFE_DESC_PLACEHOLDER_LINE2='  "authToken": "<value from assistant credentials reveal for twilio/auth_token>"'
     UNSAFE_ANGLEBRACKET_SECRET='clientSecret: "<abcDEF1234567890>"'
     UNSAFE_PASSPHRASE_SECRET='client_secret: "<correct horse battery staple>"'
     # TS: clientSecret with union type annotation (false positive to whitelist)
@@ -620,7 +620,7 @@ if [ "${1:-}" = "--self-test" ]; then
         exit 1
     fi
     if matches_secret_pattern "$SAFE_DESC_PLACEHOLDER_LINE2" && ! matches_safe_line_pattern "$SAFE_DESC_PLACEHOLDER_LINE2"; then
-        echo -e "${RED}Self-test failed:${NC} descriptive doc placeholder '<value from credential_store ...>' false positive"
+        echo -e "${RED}Self-test failed:${NC} descriptive doc placeholder '<value from assistant credentials ...>' false positive"
         exit 1
     fi
     if matches_secret_pattern "$UNSAFE_ANGLEBRACKET_SECRET" && matches_safe_line_pattern "$UNSAFE_ANGLEBRACKET_SECRET"; then
@@ -1049,7 +1049,7 @@ fi
 # When files in these directories are staged, run prettier --check and eslint
 # on the staged files to catch formatting and lint issues before commit.
 DIRS_WITH_PRETTIER=("assistant" "cli" "gateway")
-DIRS_TO_CHECK=("${DIRS_WITH_PRETTIER[@]}" "apps/web")
+DIRS_TO_CHECK=("${DIRS_WITH_PRETTIER[@]}" "clients/web")
 
 # Detect bun location (reused by message contract check below)
 BUN="${BUN:-$(command -v bun 2>/dev/null || echo "$HOME/.bun/bin/bun")}"
@@ -1133,13 +1133,13 @@ for DIR in "${DIRS_TO_CHECK[@]}"; do
     fi
 done
 
-# --- TypeScript type-check for assistant/ and apps/web/ ---
+# --- TypeScript type-check for assistant/ and clients/web/ ---
 # Full-project tsc catches cross-file type errors that per-file lint misses.
 # assistant/ uses --incremental + --declaration false to keep warm runs at ~5s.
 # Without --declaration false, the tsconfig's declaration:true causes tsc to
 # mark all 1600+ files as "pending emit" on every --noEmit run, defeating
 # incremental caching and falling back to ~20s full rebuilds.
-# apps/web/ doesn't need that workaround (no declaration:true).
+# clients/web/ doesn't need that workaround (no declaration:true).
 
 # Shared worktree detection (skip tsc in worktrees — cold cache is slow).
 _GIT_DIR="$(git rev-parse --git-dir 2>/dev/null)"
@@ -1174,8 +1174,8 @@ if [ $ASSISTANT_TS_STAGED -eq 1 ]; then
     fi
 fi
 
-# Type-check apps/web/
-TYPECHECK_WEB_DIRS=("apps/web")
+# Type-check clients/web/
+TYPECHECK_WEB_DIRS=("clients/web")
 for WEB_DIR in "${TYPECHECK_WEB_DIRS[@]}"; do
     WEB_TS_STAGED=0
     while IFS= read -r -d '' FILE; do

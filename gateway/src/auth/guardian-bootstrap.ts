@@ -144,7 +144,7 @@ export async function findGuardianForChannelActor(
      INNER JOIN contact_channels cc ON cc.contact_id = c.id
      WHERE c.role = 'guardian'
        AND cc.type = ?
-       AND cc.external_user_id = ?
+       AND cc.address = ? COLLATE NOCASE
        AND cc.status = 'active'
      LIMIT 1`,
     [channelType, externalUserId],
@@ -213,11 +213,9 @@ export async function createGuardianBinding(
        FROM contact_channels cc
        WHERE cc.type = ?
          AND cc.status != 'blocked'
-         AND (cc.address = ? OR cc.external_user_id = ?)
+         AND cc.address = ? COLLATE NOCASE
        ORDER BY
-         CASE WHEN cc.address = ? THEN 0 ELSE 1 END,
          CASE WHEN cc.contact_id = ? THEN 0 ELSE 1 END,
-         CASE WHEN cc.external_user_id = ? THEN 0 ELSE 1 END,
          CASE cc.status
            WHEN 'active' THEN 0
            WHEN 'unverified' THEN 1
@@ -225,14 +223,7 @@ export async function createGuardianBinding(
          END,
          cc.updated_at DESC
        LIMIT 1`,
-      [
-        params.channel,
-        params.externalUserId,
-        params.externalUserId,
-        params.externalUserId,
-        existingGuardianContactId ?? "",
-        params.externalUserId,
-      ],
+      [params.channel, params.externalUserId, existingGuardianContactId ?? ""],
     );
 
     contactId =
@@ -264,6 +255,13 @@ export async function createGuardianBinding(
     }
 
     if (claimableChannels[0] || existingChannels[0]) {
+      // Remove duplicate channels with the same address (defensive).
+      await assistantDbRun(
+        `DELETE FROM contact_channels
+         WHERE type = ? AND address = ? COLLATE NOCASE AND id != ? AND status != 'blocked'`,
+        [params.channel, params.externalUserId, channelId],
+      );
+
       await assistantDbRun(
         `UPDATE contact_channels
          SET contact_id = ?, address = ?, external_user_id = ?, external_chat_id = ?,
@@ -401,16 +399,18 @@ export async function createGuardianBinding(
 // Token operations (against the gateway's own DB — no cross-container issue)
 // ---------------------------------------------------------------------------
 
-/**
- * A freshly minted, DB-recorded access + refresh token pair bound to a device.
- */
-export interface DeviceBoundTokenPair {
+export interface RefreshableTokenPair {
   accessToken: string;
   accessTokenExpiresAt: number;
   refreshToken: string;
   refreshTokenExpiresAt: number;
   refreshAfter: number;
 }
+
+/**
+ * A freshly minted, DB-recorded access + refresh token pair bound to a device.
+ */
+export type DeviceBoundTokenPair = RefreshableTokenPair;
 
 /**
  * Revoke active actor tokens for a device binding.
@@ -504,6 +504,7 @@ function mintRefreshToken(
   guardianPrincipalId: string,
   hashedDeviceId: string,
   platform: string,
+  options: { browserRefreshCookiePath?: string } = {},
 ): {
   refreshToken: string;
   refreshTokenExpiresAt: number;
@@ -530,6 +531,7 @@ function mintRefreshToken(
       absoluteExpiresAt,
       inactivityExpiresAt,
       lastUsedAt: null,
+      browserRefreshCookiePath: options.browserRefreshCookiePath,
       createdAt: now,
       updatedAt: now,
     })
@@ -571,6 +573,40 @@ export function mintAndRecordDeviceBoundTokenPair(params: {
     params.guardianPrincipalId,
     hashedDeviceId,
     params.platform,
+  );
+
+  return {
+    accessToken: access.token,
+    accessTokenExpiresAt: access.expiresAt,
+    refreshToken: refresh.refreshToken,
+    refreshTokenExpiresAt: refresh.refreshTokenExpiresAt,
+    refreshAfter: refresh.refreshAfter,
+  };
+}
+
+/**
+ * Mint a refreshable browser credential without requiring the browser to track a
+ * separate device id. The current token tables still require a binding column,
+ * so remote web uses an internal random binding that never leaves the gateway.
+ */
+export function mintAndRecordBrowserTokenPair(params: {
+  guardianPrincipalId: string;
+  platform: string;
+  browserRefreshCookiePath: string;
+}): RefreshableTokenPair {
+  const internalBinding = randomBytes(32).toString("base64url");
+  const hashedDeviceId = hashToken(internalBinding);
+
+  const access = mintAccessToken(
+    params.guardianPrincipalId,
+    hashedDeviceId,
+    params.platform,
+  );
+  const refresh = mintRefreshToken(
+    params.guardianPrincipalId,
+    hashedDeviceId,
+    params.platform,
+    { browserRefreshCookiePath: params.browserRefreshCookiePath },
   );
 
   return {

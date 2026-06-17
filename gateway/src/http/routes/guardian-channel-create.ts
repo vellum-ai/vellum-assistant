@@ -16,6 +16,7 @@ import { z } from "zod";
 import { createGuardianBinding } from "../../auth/guardian-bootstrap.js";
 import { assistantDbQuery } from "../../db/assistant-db-proxy.js";
 import { getLogger } from "../../logger.js";
+import { canonicalizeInboundIdentity } from "../../verification/identity.js";
 
 const log = getLogger("guardian-channel-create");
 
@@ -25,8 +26,8 @@ const log = getLogger("guardian-channel-create");
 
 const GuardianChannelRequestSchema = z.object({
   type: z.string().trim().toLowerCase(),
-  address: z.string().trim().toLowerCase(),
-  externalUserId: z.string().trim().toLowerCase(),
+  address: z.string().trim(),
+  externalUserId: z.string().trim(),
   status: z.literal("active"),
 });
 
@@ -80,7 +81,15 @@ export function createGuardianChannelHandler() {
       );
     }
 
-    const body = parsed.data;
+    const raw = parsed.data;
+    const body = {
+      ...raw,
+      address:
+        canonicalizeInboundIdentity(raw.type, raw.address) ?? raw.address,
+      externalUserId:
+        canonicalizeInboundIdentity(raw.type, raw.externalUserId) ??
+        raw.externalUserId,
+    };
 
     // ── Find existing guardian ─────────────────────────────────────
 

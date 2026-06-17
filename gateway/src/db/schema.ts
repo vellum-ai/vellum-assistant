@@ -143,13 +143,13 @@ export const contactChannels = sqliteTable(
     updatedAt: integer("updated_at"),
   },
   (table) => [
-    index("idx_contact_channels_type_ext_user").on(
-      table.type,
-      table.externalUserId,
-    ),
     index("idx_contact_channels_type_ext_chat").on(
       table.type,
       table.externalChatId,
+    ),
+    uniqueIndex("idx_contact_channels_type_address_unique").on(
+      table.type,
+      table.address,
     ),
   ],
 );
@@ -250,6 +250,7 @@ export const actorRefreshTokenRecords = sqliteTable(
     absoluteExpiresAt: integer("absolute_expires_at").notNull(),
     inactivityExpiresAt: integer("inactivity_expires_at").notNull(),
     lastUsedAt: integer("last_used_at"),
+    browserRefreshCookiePath: text("browser_refresh_cookie_path"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },

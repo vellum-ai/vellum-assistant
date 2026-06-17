@@ -138,10 +138,9 @@ describe("credentials/prompt route", () => {
 
   test("forwards usageDescription as the prompt purpose and to metadata", async () => {
     /**
-     * The CLI `credentials prompt` command exposes `--usage-description` to
-     * match the credential_store tool's prompt action. The route must thread
-     * it to the secure prompt (as `purpose`, shown to the user) and persist it
-     * to credential metadata (as `usageDescription`).
+     * The CLI `credentials prompt` command exposes `--usage-description`. The
+     * route must thread it to the secure prompt (as `purpose`, shown to the
+     * user) and persist it to credential metadata (as `usageDescription`).
      */
     // GIVEN the credentials/prompt route is registered
     expect(promptRoute).toBeDefined();

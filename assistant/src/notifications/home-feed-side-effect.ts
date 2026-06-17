@@ -217,9 +217,10 @@ function resolveHomeFeedMirror(
   sourceConversationId?: string;
   sourceScheduleJobId?: string;
 } {
-  let sourceRow:
-    | { conversationType?: string; scheduleJobId?: string | null }
-    | null = null;
+  let sourceRow: {
+    conversationType?: string;
+    scheduleJobId?: string | null;
+  } | null = null;
   if (signal.sourceContextId) {
     try {
       sourceRow = getConversation(signal.sourceContextId) ?? null;

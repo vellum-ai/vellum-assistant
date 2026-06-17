@@ -26,6 +26,10 @@
 import { z } from "zod";
 
 import {
+  diffPlugin,
+  PluginDiffUnavailableError,
+} from "../../cli/lib/diff-plugin.js";
+import {
   inspectPlugin,
   PluginInspectNotFoundError,
 } from "../../cli/lib/inspect-plugin.js";
@@ -58,7 +62,10 @@ import {
   uninstallPlugin,
 } from "../../cli/lib/uninstall-plugin.js";
 import {
+  PluginMergeBaselineError,
   PluginNotUpgradableError,
+  type PluginUpgradeStrategy,
+  PluginUpgradeStrategyUnsupportedError,
   upgradePlugin,
 } from "../../cli/lib/upgrade-plugin.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -410,6 +417,12 @@ const pluginUpgradeRequestSchema = z.object({
     .describe(
       "Report what would change without modifying the install. Defaults to false.",
     ),
+  strategy: z
+    .enum(["ours", "theirs", "overwrite", "assistant"])
+    .optional()
+    .describe(
+      "How to reconcile local edits with the pin. `overwrite` (default) discards local edits and re-installs the pin; `ours`/`theirs` three-way merge, resolving conflicting hunks toward the local edit or the pin respectively; `assistant` is not yet supported.",
+    ),
 });
 
 const pluginUpgradeResponseSchema = z.object({
@@ -452,10 +465,69 @@ const pluginUpgradeResponseSchema = z.object({
       "Files materialized by the upgrade; null for a no-op or dry run.",
     ),
   dryRun: z.boolean().describe("Whether this was a dry run (no changes made)."),
+  strategy: z
+    .enum(["ours", "theirs", "overwrite", "assistant"])
+    .describe("Conflict-resolution strategy the upgrade applied."),
   provenanceWasUnknown: z
     .boolean()
     .describe(
       "Whether the install lacked resolvable provenance before the upgrade; such installs are re-pinned to record it going forward.",
+    ),
+});
+
+const pluginFileDiffSchema = z
+  .object({
+    path: z.string().describe("POSIX-relative path within the plugin root."),
+    status: z
+      .enum(["modified", "added", "removed"])
+      .describe(
+        "Whether the file was edited, newly added, or deleted since install.",
+      ),
+    diff: z
+      .string()
+      .describe(
+        "Unified diff (`--- a/… / +++ b/…`) of the file. A short `Binary files differ` marker for binary files, or a `Baseline unavailable` marker when `reconstructed` is false.",
+      ),
+    binary: z
+      .boolean()
+      .describe(
+        "True when either side was detected as binary (NUL byte present).",
+      ),
+    reconstructed: z
+      .boolean()
+      .describe(
+        "True when the install-time baseline for this file was faithfully recovered (re-materialized bytes hash-match the install fingerprint). False when it could not be reconstructed (e.g. the curated adapter overlay changed since install), in which case `diff` is a marker, not a patch. Always true for added files.",
+      ),
+  })
+  .describe("Unified diff of a single drifted file.");
+
+const pluginDiffResponseSchema = z.object({
+  name: z
+    .string()
+    .describe("Install name. Matches `assistant plugins install <name>`."),
+  target: z
+    .string()
+    .describe("Absolute path to the installed plugin directory on the host."),
+  commit: z
+    .string()
+    .describe(
+      "Commit the baseline was re-materialized from (the recorded install SHA).",
+    ),
+  committedAt: z
+    .string()
+    .nullable()
+    .describe(
+      "ISO-8601 committer timestamp (UTC) of `commit`; null when not recorded.",
+    ),
+  clean: z
+    .boolean()
+    .describe(
+      "True when the on-disk tree exactly matches the re-materialized baseline.",
+    ),
+  files: z
+    .array(pluginFileDiffSchema)
+    .describe(
+      "One entry per drifted file, sorted by path. Empty when `clean`.",
     ),
 });
 
@@ -741,6 +813,45 @@ async function handleInspectPlugin({ pathParams = {} }: RouteHandlerArgs) {
 }
 
 // ---------------------------------------------------------------------------
+// Handler — diff
+// ---------------------------------------------------------------------------
+
+async function handleDiffPlugin({ pathParams = {} }: RouteHandlerArgs) {
+  const rawName = pathParams.name ?? "";
+
+  try {
+    return await diffPlugin(
+      { name: rawName },
+      { fetch: globalThis.fetch.bind(globalThis) },
+    );
+  } catch (err) {
+    if (err instanceof InvalidPluginNameError) {
+      throw new BadRequestError(err.message);
+    }
+    if (
+      err instanceof PluginNotInstalledError ||
+      err instanceof PluginNotFoundError
+    ) {
+      throw new NotFoundError(err.message);
+    }
+    // The install exists but recorded no commit to re-materialize a baseline
+    // from — a permanent state the caller cannot resolve by retrying. 409
+    // marks the request as well-formed but not actionable in the current state.
+    if (err instanceof PluginDiffUnavailableError) {
+      throw new ConflictError(err.message);
+    }
+    // A rate-limited or temporarily-down source (the plugin repo) is a
+    // retryable outage, not a conflict — 503.
+    if (err instanceof PluginSourceUnavailableError) {
+      throw new ServiceUnavailableError(err.message);
+    }
+    throw new InternalError(
+      err instanceof Error ? err.message : "plugin diff failed",
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Handler — upgrade
 // ---------------------------------------------------------------------------
 
@@ -750,6 +861,10 @@ async function handleUpgradePlugin({
 }: RouteHandlerArgs) {
   const rawName = pathParams.name ?? "";
   const dryRun = typeof body.dryRun === "boolean" ? body.dryRun : undefined;
+  const strategy =
+    typeof body.strategy === "string"
+      ? (body.strategy as PluginUpgradeStrategy)
+      : undefined;
 
   // Like install, the upgrade target ref is the curated marketplace pin
   // (resolved inside `upgradePlugin` via `inspectPlugin`), never a
@@ -757,7 +872,7 @@ async function handleUpgradePlugin({
   // upgrade at an unreviewed revision.
   try {
     const result = await upgradePlugin(
-      { name: rawName, dryRun },
+      { name: rawName, dryRun, strategy },
       { fetch: globalThis.fetch.bind(globalThis) },
     );
     return {
@@ -770,10 +885,14 @@ async function handleUpgradePlugin({
       target: result.target,
       fileCount: result.fileCount,
       dryRun: result.dryRun,
+      strategy: result.strategy,
       provenanceWasUnknown: result.provenanceWasUnknown,
     };
   } catch (err) {
-    if (err instanceof InvalidPluginNameError) {
+    if (
+      err instanceof InvalidPluginNameError ||
+      err instanceof PluginUpgradeStrategyUnsupportedError
+    ) {
       throw new BadRequestError(err.message);
     }
     if (err instanceof PluginNotInstalledError) {
@@ -781,6 +900,12 @@ async function handleUpgradePlugin({
     }
     if (err instanceof PluginNotFoundError) {
       throw new NotFoundError(err.message);
+    }
+    // A merge strategy was requested but the install-time baseline can't be
+    // reconstructed — a well-formed request that isn't actionable in the
+    // current state (the caller can retry with `overwrite` or reinstall).
+    if (err instanceof PluginMergeBaselineError) {
+      throw new ConflictError(err.message);
     }
     // The install exists but has no marketplace entry to advance to — a
     // permanent state the caller cannot resolve by retrying. 409 marks the
@@ -993,6 +1118,47 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleInspectPlugin,
   },
   {
+    operationId: "plugins_diff",
+    endpoint: "plugins/:name/diff",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Diff a plugin against its install commit",
+    description:
+      "Show a unified diff of local edits to an installed plugin against the exact commit it was installed at (recorded in its `install-meta.json`). Computing the diff re-materializes the baseline through the install pipeline — a network clone plus a temp-dir write — so this is a POST: it is not a safe, cacheable GET even though it leaves persistent state untouched (requires only `settings.read`). Drift is classified against the install-time fingerprint so an adapter overlay that moved since install never reads as a local change. Returns the baseline `commit`, a `clean` flag, and a `files` array of `{ path, status, diff, binary, reconstructed }` for each modified/added/removed file. The baseline is the install commit, not the marketplace pin — comparing against the current pin is `POST /v1/plugins/:name/upgrade` with `dryRun`. A name with no installed copy returns 404; an install that recorded no commit or fingerprint returns 409; an unreachable source returns 503. Mirrors the CLI's `assistant plugins diff <name>`.",
+    tags: ["plugins"],
+    pathParams: [
+      {
+        name: "name",
+        type: "string",
+        description:
+          "Install name. Must match the kebab-case name accepted by `assistant plugins install`.",
+      },
+    ],
+    responseBody: pluginDiffResponseSchema,
+    additionalResponses: {
+      "400": {
+        description:
+          "The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).",
+      },
+      "404": {
+        description:
+          "No copy of the plugin is installed, or its recorded commit resolves to nothing.",
+      },
+      "409": {
+        description:
+          "The install recorded no commit or no fingerprint to re-materialize and verify a baseline from.",
+      },
+      "503": {
+        description:
+          "The plugin source (GitHub) was temporarily unavailable; the diff is retryable.",
+      },
+    },
+    handler: handleDiffPlugin,
+  },
+  {
     operationId: "plugins_upgrade",
     endpoint: "plugins/:name/upgrade",
     method: "POST",
@@ -1002,7 +1168,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Upgrade a plugin to the marketplace pin",
     description:
-      'Move an installed plugin to the marketplace\'s current pinned commit, re-materializing it under `<workspaceDir>/plugins/<name>/`. Always resolves against the curated marketplace pin (no caller-supplied ref), mirroring `plugins install`\'s curation boundary. A no-op (`outcome: "already-up-to-date"`) when the installed commit already equals the pin; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching the install. Installs lacking provenance are re-pinned to the current SHA. The assistant must be restarted to load the upgraded code. This does not gate on local edits — callers should consult `GET /v1/plugins/:name/inspect` (`local.localChanges`) first and confirm before overwriting. Mirrors the CLI\'s `assistant plugins upgrade <name>`.',
+      'Move an installed plugin to the marketplace\'s current pinned commit, re-materializing it under `<workspaceDir>/plugins/<name>/`. Always resolves against the curated marketplace pin (no caller-supplied ref), mirroring `plugins install`\'s curation boundary. A no-op (`outcome: "already-up-to-date"`) when the installed commit already equals the pin; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching the install. Installs lacking provenance are re-pinned to the current SHA. The assistant must be restarted to load the upgraded code. `strategy` controls how local edits are reconciled: `overwrite` (default) discards them and re-installs the pin wholesale; `ours`/`theirs` perform a three-way merge against the re-materialized install commit, carrying non-conflicting edits from both sides forward and resolving conflicting hunks toward the local edit or the pin respectively; `assistant` is not yet supported (400). A merge strategy whose install-time baseline cannot be reconstructed returns 409. Mirrors the CLI\'s `assistant plugins upgrade <name> [--strategy <s>]`.',
     tags: ["plugins"],
     pathParams: [
       {
@@ -1017,7 +1183,7 @@ export const ROUTES: RouteDefinition[] = [
     additionalResponses: {
       "400": {
         description:
-          "The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).",
+          "The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters), or the `assistant` strategy was requested (not yet supported).",
       },
       "404": {
         description:
@@ -1025,7 +1191,7 @@ export const ROUTES: RouteDefinition[] = [
       },
       "409": {
         description:
-          "The install exists but has no marketplace entry to advance to.",
+          "The install exists but has no marketplace entry to advance to, or a merge strategy was requested whose install-time baseline cannot be reconstructed.",
       },
       "503": {
         description:

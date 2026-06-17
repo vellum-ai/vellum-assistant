@@ -261,9 +261,13 @@ describe("AgentEventCollector.collectUntilTurnComplete", () => {
       graceQuietMs: 5,
     });
 
-    // THEN the wait runs to the hard deadline (no quiet-window early
-    // exit) and reports the turn as incomplete
-    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(50);
+    // THEN the wait runs to the hard deadline (no early exit at the 5ms
+    // quiet window) and reports the turn as incomplete. The lower bound
+    // carries a small timer-slack tolerance: setTimeout can fire a hair
+    // early and Date.now()'s 1ms truncation can shave another, so a strict
+    // `>= 50` flakes on slow runners while still proving the deadline (not
+    // the quiet window) governed the exit.
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(45);
     expect(completed).toBe(false);
     expect(events.length).toBe(1);
   });

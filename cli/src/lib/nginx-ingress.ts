@@ -85,7 +85,7 @@ function saveRawConfig(
  *
  * Resolution order:
  *   1. npm-installed package — require.resolve('@vellumai/web/package.json')
- *   2. Source checkout — walk up from cli/ to find apps/web/dist/
+ *   2. Source checkout — walk up from cli/ to find clients/web/dist/
  */
 export function findWebDistDir(): string | null {
   try {
@@ -100,7 +100,7 @@ export function findWebDistDir(): string | null {
 
   let dir = import.meta.dir;
   for (let depth = 0; depth < 8; depth++) {
-    const candidate = join(dir, "apps", "web", "dist", "index.html");
+    const candidate = join(dir, "clients", "web", "dist", "index.html");
     if (existsSync(candidate)) {
       return dirname(candidate);
     }

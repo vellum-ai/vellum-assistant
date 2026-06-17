@@ -8,6 +8,7 @@
 import type { ChannelPolicies } from "../channels/config.js";
 import type { ChannelId } from "../channels/types.js";
 import type { ApprovalUIMetadata } from "../runtime/channel-approval-types.js";
+import type { ParsedAccessRequestPayload } from "./access-request-copy.js";
 import type { AttentionHints } from "./signal.js";
 
 /**
@@ -103,6 +104,12 @@ export interface ChannelDeliveryPayload {
    * `contextPayload`.
    */
   approvalContext?: ApprovalUIMetadata;
+  /**
+   * Pre-parsed access request context for `ingress.access_request` signals.
+   * Built centrally by the broadcaster so adapters can render structured
+   * access-request cards without re-parsing `contextPayload`.
+   */
+  accessRequestContext?: ParsedAccessRequestPayload;
 }
 
 /**

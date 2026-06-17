@@ -157,7 +157,6 @@ const UI_SURFACE_TOOLS = new Set(["ui_show", "ui_update", "ui_dismiss"]);
 
 function requiresGuardianApprovalForActor(
   toolName: string,
-  input: Record<string, unknown>,
   executionTarget: ExecutionTarget,
 ): boolean {
   // UI surface tools are passive, user-visible operations (cards, forms,
@@ -170,7 +169,7 @@ function requiresGuardianApprovalForActor(
   // Side-effect tools always require guardian approval for untrusted actors.
   // Read-only host execution is also blocked because it can leak sensitive
   // local information (e.g. shell/file reads).
-  return isSideEffectTool(toolName, input) || executionTarget === "host";
+  return isSideEffectTool(toolName) || executionTarget === "host";
 }
 
 function guardianApprovalDeniedMessage(
@@ -320,7 +319,6 @@ export class ToolApprovalHandler {
 
     const guardianApprovalRequired = requiresGuardianApprovalForActor(
       name,
-      input,
       executionTarget,
     );
 

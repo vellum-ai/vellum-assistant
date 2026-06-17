@@ -169,9 +169,7 @@ export type MarkdownLinkComponent = (
  * We wrap emoji grapheme runs in a `font-style: normal` span so they render
  * upright while the surrounding emphasized text stays italic.
  *
- * Emoji detection mirrors the macOS app's `Character.rendersAsEmoji`
- * (clients/macos/.../MarkdownSegmentView.swift) so web and native agree on what
- * counts as an emoji: U+FE0F (VS16) forces emoji presentation; U+FE0E (VS15)
+ * Emoji detection: U+FE0F (VS16) forces emoji presentation; U+FE0E (VS15)
  * forces text presentation; otherwise the Unicode `Emoji_Presentation` property
  * decides. This keeps digits / `#` / `*` (bare Emoji but text-presentation) and
  * VS15 sequences italic.
@@ -337,12 +335,12 @@ function buildMarkdownComponents(
     ),
     th: ({ children }) => (
        
-      <th className={"border border-stone-200 px-2 py-1 text-left font-semibold dark:border-moss-600" /* typography: off-scale — no canonical variant */}>
+      <th className={"border border-stone-200 px-2 py-1 text-left font-semibold [&_code]:whitespace-pre-wrap [&_code]:break-words [&_code]:box-decoration-clone [&_code]:leading-relaxed dark:border-moss-600" /* typography: off-scale — no canonical variant */}>
         {children}
       </th>
     ),
     td: ({ children }) => (
-      <td className="border border-stone-200 px-2 py-1 dark:border-moss-600">
+      <td className="border border-stone-200 px-2 py-1 [&_code]:whitespace-pre-wrap [&_code]:break-words [&_code]:box-decoration-clone [&_code]:leading-relaxed dark:border-moss-600">
         {children}
       </td>
     ),

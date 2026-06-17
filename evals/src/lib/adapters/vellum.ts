@@ -17,6 +17,7 @@ import { runArtifacts } from "../metrics";
 import {
   applyDockerEgressJail,
   findOpenHostPort,
+  VELLUM_ALLOW_HOSTS,
   type DockerEgressJail,
   vellumDockerAssistantContainer,
   vellumDockerSiblingContainers,
@@ -317,6 +318,11 @@ export class VellumAgent implements BaseAgent {
       this.jail = await applyDockerEgressJail(this.runner, {
         runId: this.id,
         recordingDir: runArtifacts(this.id).runDir,
+        // Vellum runs the on-device embedder for dense memory recall, so its
+        // jail additionally allowlists the embedder's npm/HuggingFace
+        // download hosts. Hermes never embeds locally and keeps the
+        // model-provider-only default, so cross-species cost stays honest.
+        allowHosts: VELLUM_ALLOW_HOSTS,
         publishPorts: [
           { hostPort: gatewayPort, containerPort: GATEWAY_CONTAINER_PORT },
         ],

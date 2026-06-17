@@ -8,11 +8,9 @@ from each of a hundred documents, draft-then-verify a batch — and you want the
 results orchestrated deterministically and reported back when the whole run
 finishes.
 
-Workflows are gated behind the `workflows` feature flag (default **off**). The
-`run_workflow` / `manage_workflows` tools are served by the flag-gated `workflows`
+The `run_workflow` / `manage_workflows` tools are served by the `workflows`
 bundled skill rather than as always-on tools — load it with `skill_load` and invoke
-its tools via `skill_execute`. When the flag is off, the skill is absent, the
-management routes 404, and the scheduler rejects `workflow`-mode jobs.
+its tools via `skill_execute`.
 
 - Engine code: `assistant/src/workflows/`
 - Skill (tool surface): `assistant/src/config/bundled-skills/workflows/`
@@ -437,7 +435,7 @@ Reached via the skill (`skill_load` then `skill_execute`), not as always-on tool
   `list_profiles` returns `{ profiles, activeProfile }` — the defined LLM profile
   names plus the workspace active profile, used to pick a valid leaf `profile`.
 
-### Routes (read/abort/resume, all 404 when the flag is off)
+### Routes (read/abort/resume)
 
 | Method | Path                            | Purpose                                                                                              |
 | ------ | ------------------------------- | ---------------------------------------------------------------------------------------------------- |

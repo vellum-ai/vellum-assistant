@@ -11,6 +11,11 @@ import type { Command } from "commander";
 
 import { confirmPrompt } from "../lib/confirm-prompt.js";
 import {
+  diffPlugin,
+  type PluginDiffResult,
+  PluginDiffUnavailableError,
+} from "../lib/diff-plugin.js";
+import {
   inspectPlugin,
   type PluginInspection,
   PluginInspectNotFoundError,
@@ -35,8 +40,13 @@ import {
   uninstallPlugin,
 } from "../lib/uninstall-plugin.js";
 import {
+  DEFAULT_PLUGIN_UPGRADE_STRATEGY,
+  PLUGIN_UPGRADE_STRATEGIES,
+  PluginMergeBaselineError,
   PluginNotUpgradableError,
   type PluginUpgradeResult,
+  type PluginUpgradeStrategy,
+  PluginUpgradeStrategyUnsupportedError,
   upgradePlugin,
 } from "../lib/upgrade-plugin.js";
 import { getCliLogger } from "../logger.js";
@@ -60,8 +70,12 @@ Examples:
   $ assistant plugins list --json
   $ assistant plugins inspect example
   $ assistant plugins inspect example --json
+  $ assistant plugins diff example
+  $ assistant plugins diff example --json
   $ assistant plugins upgrade example
   $ assistant plugins upgrade example --dry-run
+  $ assistant plugins upgrade example --strategy ours
+  $ assistant plugins upgrade example --strategy theirs
   $ assistant plugins search example
   $ assistant plugins search "^example"
   $ assistant plugins search example --json
@@ -213,6 +227,73 @@ Examples:
         });
 
       plugins
+        .command("diff <name>")
+        .description(
+          "Show a unified diff of local edits to an installed plugin against the commit it was installed at",
+        )
+        .option(
+          "--json",
+          "Emit the machine-readable diff result as JSON (files: { path, status, diff, binary, reconstructed }[]) instead of a unified diff",
+        )
+        .addHelpText(
+          "after",
+          `
+Arguments:
+  name   Install name (kebab-case directory under the workspace plugins dir);
+         run 'assistant plugins list' to see installed names.
+
+The baseline is the exact commit the plugin was installed at (recorded in its
+install-meta.json), re-materialized through the install pipeline — so an
+install-time adapter transform never reads as a local change. To compare
+against the marketplace's current pin instead, use 'plugins upgrade --dry-run'.
+
+Examples:
+  $ assistant plugins diff example
+  $ assistant plugins diff example --json`,
+        )
+        .action(async (name: string, opts: { json?: boolean }) => {
+          try {
+            const result = await diffPlugin(
+              { name },
+              { fetch: globalThis.fetch.bind(globalThis) },
+            );
+
+            if (opts.json) {
+              process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+              return;
+            }
+
+            // Logged after the JSON early-return: the CLI logger writes
+            // info to stdout, which would otherwise corrupt --json output.
+            log.info(
+              {
+                name: result.name,
+                clean: result.clean,
+                files: result.files.length,
+              },
+              "plugin diff",
+            );
+
+            for (const line of formatDiff(result)) {
+              console.log(line);
+            }
+          } catch (err) {
+            if (
+              err instanceof PluginNotInstalledError ||
+              err instanceof PluginDiffUnavailableError ||
+              err instanceof InvalidPluginNameError
+            ) {
+              console.error(err.message);
+              process.exitCode = 1;
+              return;
+            }
+            const message = err instanceof Error ? err.message : String(err);
+            console.error(`Plugin diff failed: ${message}`);
+            process.exitCode = 1;
+          }
+        });
+
+      plugins
         .command("search <query>")
         .description(
           "Search the plugins/marketplace.json catalog for plugin names matching <query> (case-insensitive regex)",
@@ -327,12 +408,36 @@ Examples:
           "--dry-run",
           "Show what would change without modifying the install",
         )
+        .option(
+          "--strategy <strategy>",
+          `How to reconcile local edits with the pin: ${PLUGIN_UPGRADE_STRATEGIES.join(", ")} (default: ${DEFAULT_PLUGIN_UPGRADE_STRATEGY})`,
+        )
         .option("--json", "Emit machine-readable JSON instead of a summary")
         .action(
-          async (name: string, opts: { dryRun?: boolean; json?: boolean }) => {
+          async (
+            name: string,
+            opts: { dryRun?: boolean; strategy?: string; json?: boolean },
+          ) => {
+            const strategy = opts.strategy;
+            if (
+              strategy !== undefined &&
+              !(PLUGIN_UPGRADE_STRATEGIES as readonly string[]).includes(
+                strategy,
+              )
+            ) {
+              console.error(
+                `Invalid --strategy "${strategy}". Expected one of: ${PLUGIN_UPGRADE_STRATEGIES.join(", ")}.`,
+              );
+              process.exitCode = 1;
+              return;
+            }
             try {
               const result = await upgradePlugin(
-                { name, dryRun: opts.dryRun },
+                {
+                  name,
+                  dryRun: opts.dryRun,
+                  strategy: strategy as PluginUpgradeStrategy | undefined,
+                },
                 { fetch: globalThis.fetch.bind(globalThis) },
               );
 
@@ -360,6 +465,8 @@ Examples:
               if (
                 err instanceof PluginNotInstalledError ||
                 err instanceof PluginNotUpgradableError ||
+                err instanceof PluginUpgradeStrategyUnsupportedError ||
+                err instanceof PluginMergeBaselineError ||
                 err instanceof InvalidPluginNameError
               ) {
                 console.error(err.message);
@@ -521,14 +628,48 @@ function formatUpgrade(result: PluginUpgradeResult): string[] {
         result.fileCount === null
           ? ""
           : `(${result.fileCount} file${result.fileCount === 1 ? "" : "s"}) `;
+      const mergeNote =
+        result.strategy === "ours" || result.strategy === "theirs"
+          ? `Local edits were merged (--strategy ${result.strategy}).`
+          : null;
       const lines = [
         `Upgraded "${name}" ${move}`,
         "",
         `${count}→ ${result.target}`,
         "Restart the assistant to pick up the upgrade.",
       ];
+      if (mergeNote) lines.push(mergeNote);
       if (provenanceNote) lines.push(provenanceNote);
       return lines;
     }
   }
+}
+
+/**
+ * Render a diff result: a one-line "no local changes" when clean, otherwise a
+ * header naming the install-commit baseline followed by each file's unified
+ * diff (blank-line separated, mirroring how `git diff` stacks file patches).
+ */
+function formatDiff(result: PluginDiffResult): string[] {
+  const baseline = `${formatTimestamp(result.committedAt)} (${shortSha(result.commit)})`;
+  if (result.clean) {
+    return [
+      `"${result.name}" has no local changes (matches install commit ${baseline}).`,
+    ];
+  }
+  const count = result.files.length;
+  const lines = [
+    `"${result.name}" — ${count} file${count === 1 ? "" : "s"} changed vs install commit ${baseline}`,
+    "",
+  ];
+  for (const file of result.files) {
+    // A non-reconstructed baseline carries an explanatory marker, not a patch
+    // with `a/`–`b/` headers, so name the file it refers to.
+    if (!file.reconstructed) {
+      lines.push(`${file.path}: ${file.diff.trimEnd()}`, "");
+      continue;
+    }
+    lines.push(file.diff.trimEnd(), "");
+  }
+  return lines;
 }

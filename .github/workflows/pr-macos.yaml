@@ -1,276 +1,116 @@
-name: PR macOS Build Check
+name: PR macOS Checks
 
 on:
   pull_request:
-    types: [labeled, synchronize, opened, reopened]
+    types: [synchronize, opened, reopened]
     paths:
       - 'clients/macos/**'
-      - 'clients/shared/**'
-      - 'clients/Package.swift'
-      - 'clients/.periphery.yml'
-      - 'clients/.periphery_baseline.json'
-      - 'clients/scripts/periphery-scan.sh'
-      - 'clients/scripts/check-flexframe.sh'
-      - 'clients/scripts/flexframe-allowlist.txt'
-      - 'assistant/**'
-      - 'gateway/**'
-      - 'credential-executor/**'
-      - 'packages/**'
+      - 'packages/local-mode/**'
+      - 'packages/environments/**'
       - '.github/workflows/pr-macos.yaml'
+      - '.github/actions/install-shared-packages/**'
 
 concurrency:
-  # `synchronize` events share a group so rapid pushes cancel each other.
-  # All other events (`opened`, `labeled`, `reopened`) get a unique group
-  # (keyed on run_id) so they never cancel each other — important for the
-  # common case of creating a PR and immediately adding the `preview` label,
-  # which fires two pull_request events within the same second.
-  group: pr-macos-${{ github.event.pull_request.number }}-${{ github.event.action == 'synchronize' && 'sync' || github.run_id }}
+  group: pr-macos-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  flexframe-lint:
-    name: FlexFrame Lint
+  typecheck:
+    name: Type Check
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Ensure ripgrep is available
-        run: |
-          if ! command -v rg >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y ripgrep
-          fi
-          rg --version | head -1
-
-      - name: FlexFrame guard
-        run: bash clients/scripts/check-flexframe.sh
-
-  lint-unused:
-    if: contains(github.event.pull_request.labels.*.name, 'preview')
-    name: Lint Unused Code
-    runs-on: macos-15
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: clients
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Select Xcode 26.2
-        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
-
-      - name: Compute cache week
-        id: week
-        run: echo "num=$(date -u +%V)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache SPM build artifacts
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: clients/.build
-          key: macos-spm-debug-week${{ steps.week.outputs.num }}-${{ hashFiles('clients/Package.resolved') }}
-          restore-keys: |
-            macos-spm-debug-week${{ steps.week.outputs.num }}-
-            macos-spm-debug-
-
-      - name: Lint unused code
-        run: bash scripts/periphery-scan.sh --ci
-
-      - name: Upload baseline artifact
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: periphery-baseline
-          path: clients/.periphery_baseline.json
-          if-no-files-found: ignore
-          retention-days: 7
-          include-hidden-files: true
-
-  test:
-    if: contains(github.event.pull_request.labels.*.name, 'preview')
-    name: macOS Tests
-    runs-on: macos-15
-    timeout-minutes: 20
     defaults:
       run:
         working-directory: clients/macos
-    env:
-      APP_DISPLAY_NAME: Vellum
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Select Xcode 26.2
-        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
-
-      - name: Compute cache week
-        id: week
-        run: echo "num=$(date -u +%V)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache SPM build artifacts
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: clients/.build
-          key: macos-spm-debug-week${{ steps.week.outputs.num }}-${{ hashFiles('clients/Package.resolved') }}
-          restore-keys: |
-            macos-spm-debug-week${{ steps.week.outputs.num }}-
-            macos-spm-debug-
-
-      - name: Run tests
-        run: ./build.sh test
-
-  build:
-    if: contains(github.event.pull_request.labels.*.name, 'preview')
-    name: macOS Build
-    runs-on: macos-15
-    timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: clients/macos
-    env:
-      APP_DISPLAY_NAME: Vellum
-    steps:
-      - name: Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
-        with:
-          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
-          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
-
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          token: ${{ steps.app-token.outputs.token }}
-
-      - name: Select Xcode 26.2
-        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
-
-      - name: Install Bun
+      - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: '1.3.11'
 
-      - name: Compute cache week
-        id: week
-        run: echo "num=$(date -u +%V)" >> "$GITHUB_OUTPUT"
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
-      - name: Cache SPM build artifacts
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
         with:
-          path: clients/.build
-          key: macos-spm-debug-week${{ steps.week.outputs.num }}-${{ hashFiles('clients/Package.resolved') }}
-          restore-keys: |
-            macos-spm-debug-week${{ steps.week.outputs.num }}-
-            macos-spm-debug-
+          packages: packages/environments packages/local-mode
 
-      - name: Design token guard
-        working-directory: .
-        run: bash clients/scripts/check-design-tokens.sh --mode=strict
+      - name: Type check
+        run: bun run typecheck
 
-      - name: Build executable
-        working-directory: clients
-        run: swift build --product vellum-assistant
-
-      - name: Configure GitHub auth for SPM binary downloads
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          printf "machine github.com\nlogin oauth2\npassword %s\n" "${GH_TOKEN}" > ~/.netrc
-          chmod 600 ~/.netrc
-
-      - name: Install nested package dependencies
-        working-directory: .
-        run: |
-          pids=()
-          for dir in packages/*/ skills/*/; do
-            [ -f "${dir}/package.json" ] || continue
-            echo "Installing dependencies in ${dir}"
-            (cd "${dir}" && bun install) &
-            pids+=($!)
-          done
-          for pid in "${pids[@]}"; do
-            wait "$pid"
-          done
-
-      - name: Cache Kata kernel
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: clients/macos/.container-cache/kata-3.17.0-arm64/vmlinux.container
-          key: kata-kernel-3.17.0-arm64
-
-      - name: Build binaries
-        timeout-minutes: 5
-        run: ./build.sh binaries
-
-      - name: Build macOS app
-        timeout-minutes: 15
-        run: |
-          set -o pipefail
-          SKIP_BUN_REBUILD=1 \
-          BUNDLE_DISPLAY_NAME="$APP_DISPLAY_NAME" \
-          SIGN_IDENTITY="-" \
-          ./build.sh 2>&1 | while IFS= read -r line; do
-            echo "[$(date -u '+%H:%M:%S')] $line"
-          done
-
-      - name: Upload app artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: macos-app-pr-${{ github.event.pull_request.number }}
-          path: clients/macos/dist/${{ env.APP_DISPLAY_NAME }}.app
-          retention-days: 7
-          if-no-files-found: error
-
-      - name: Create DMG
-        run: |
-          PR_NUMBER="${{ github.event.pull_request.number }}"
-          hdiutil create \
-            -volname "Vellum ${PR_NUMBER}" \
-            -srcfolder "dist/${APP_DISPLAY_NAME}.app" \
-            -ov -format UDZO \
-            "vellum-assistant-pr-${PR_NUMBER}.dmg"
-
-      - name: Upload DMG artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
-          path: clients/macos/vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
-          retention-days: 7
-          if-no-files-found: error
-
-  artifact:
-    name: Comment Artifact Link
-    needs: [build]
-    if: contains(github.event.pull_request.labels.*.name, 'preview')
+  build:
+    name: Build
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: clients/macos
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Generate GitHub App token
-        if: github.event.pull_request.head.repo.full_name == github.repository
-        id: app-token
-        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
-          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+          bun-version: '1.3.11'
 
-      - name: Comment artifact link on PR
-        if: github.event.pull_request.head.repo.full_name == github.repository
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
+        with:
+          packages: packages/environments packages/local-mode
+
+      - name: Build (main + preload)
+        run: bun run build
+
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/macos
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
+        with:
+          packages: packages/environments packages/local-mode
+
+      - name: Run tests
+        run: bun run test:ci
+
+  checks:
+    name: Type Check, Build & Test
+    needs: [typecheck, build, test]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate results
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TYPECHECK: ${{ needs.typecheck.result }}
+          BUILD: ${{ needs.build.result }}
+          TEST: ${{ needs.test.result }}
         run: |
-          ARTIFACT_NAME="vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg"
-          ARTIFACT_ID=$(gh api "/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
-            --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME\") | .id")
-          ARTIFACT_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/$ARTIFACT_ID"
-          PR_NUMBER="${{ github.event.pull_request.number }}"
-          gh pr comment "$PR_NUMBER" --body "🖥️ **macOS app artifact** for this PR is ready for download: [Download $ARTIFACT_NAME]($ARTIFACT_URL)
-
-          To run this build locally:
-          \`\`\`
-          vel up macos --pr $PR_NUMBER
-          \`\`\`"
+          echo "Type Check: $TYPECHECK"
+          echo "Build:      $BUILD"
+          echo "Test:       $TEST"
+          for r in "$TYPECHECK" "$BUILD" "$TEST"; do
+            if [ "$r" != "success" ]; then
+              echo "::error::At least one macOS CI job failed."
+              exit 1
+            fi
+          done

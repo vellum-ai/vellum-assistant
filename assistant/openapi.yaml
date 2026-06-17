@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.8.12
+  version: 0.9.0
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -13038,60 +13038,6 @@ paths:
                   - home
                   - version
                 additionalProperties: false
-  /v1/identity/intro:
-    get:
-      operationId: identity_intro_get
-      summary: Get identity greetings
-      description:
-        Returns greetings sourced from SOUL.md, the generated cache, or generic fallbacks while background
-        generation refreshes the cache.
-      tags:
-        - identity
-      parameters:
-        - name: localHour
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 0
-            maximum: 23
-          description: Optional client-local hour of day used only when refreshing generated greetings.
-        - name: localMinute
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 0
-            maximum: 59
-          description: Optional client-local minute used only when refreshing generated greetings.
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  greetings:
-                    type: array
-                    items:
-                      type: string
-                  text:
-                    type: string
-                  source:
-                    type: string
-                    enum:
-                      - workspace
-                      - cache
-                      - fallback
-                  refreshing:
-                    type: boolean
-                required:
-                  - greetings
-                  - text
-                  - source
-                  - refreshing
-                additionalProperties: false
   /v1/image-generation/generate:
     post:
       operationId: imagegeneration_generate_post
@@ -19253,6 +19199,109 @@ paths:
           description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
         "404":
           description: No installed copy and no catalog entry claims the given name.
+  /v1/plugins/{name}/diff:
+    post:
+      operationId: plugins_by_name_diff_post
+      summary: Diff a plugin against its install commit
+      description:
+        "Show a unified diff of local edits to an installed plugin against the exact commit it was installed at
+        (recorded in its `install-meta.json`). Computing the diff re-materializes the baseline through the install
+        pipeline — a network clone plus a temp-dir write — so this is a POST: it is not a safe, cacheable GET even
+        though it leaves persistent state untouched (requires only `settings.read`). Drift is classified against the
+        install-time fingerprint so an adapter overlay that moved since install never reads as a local change. Returns
+        the baseline `commit`, a `clean` flag, and a `files` array of `{ path, status, diff, binary, reconstructed }`
+        for each modified/added/removed file. The baseline is the install commit, not the marketplace pin — comparing
+        against the current pin is `POST /v1/plugins/:name/upgrade` with `dryRun`. A name with no installed copy returns
+        404; an install that recorded no commit or fingerprint returns 409; an unreachable source returns 503. Mirrors
+        the CLI's `assistant plugins diff <name>`."
+      tags:
+        - plugins
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    description: Install name. Matches `assistant plugins install <name>`.
+                  target:
+                    type: string
+                    description: Absolute path to the installed plugin directory on the host.
+                  commit:
+                    type: string
+                    description: Commit the baseline was re-materialized from (the recorded install SHA).
+                  committedAt:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: ISO-8601 committer timestamp (UTC) of `commit`; null when not recorded.
+                  clean:
+                    type: boolean
+                    description: True when the on-disk tree exactly matches the re-materialized baseline.
+                  files:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                          description: POSIX-relative path within the plugin root.
+                        status:
+                          type: string
+                          enum:
+                            - modified
+                            - added
+                            - removed
+                          description: Whether the file was edited, newly added, or deleted since install.
+                        diff:
+                          type: string
+                          description:
+                            Unified diff (`--- a/… / +++ b/…`) of the file. A short `Binary files differ` marker for binary files, or a
+                            `Baseline unavailable` marker when `reconstructed` is false.
+                        binary:
+                          type: boolean
+                          description: True when either side was detected as binary (NUL byte present).
+                        reconstructed:
+                          type: boolean
+                          description:
+                            True when the install-time baseline for this file was faithfully recovered (re-materialized bytes
+                            hash-match the install fingerprint). False when it could not be reconstructed (e.g. the
+                            curated adapter overlay changed since install), in which case `diff` is a marker, not a
+                            patch. Always true for added files.
+                      required:
+                        - path
+                        - status
+                        - diff
+                        - binary
+                        - reconstructed
+                      additionalProperties: false
+                      description: Unified diff of a single drifted file.
+                    description: One entry per drifted file, sorted by path. Empty when `clean`.
+                required:
+                  - name
+                  - target
+                  - commit
+                  - committedAt
+                  - clean
+                  - files
+                additionalProperties: false
+        "400":
+          description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
+        "404":
+          description: No copy of the plugin is installed, or its recorded commit resolves to nothing.
+        "409":
+          description: The install recorded no commit or no fingerprint to re-materialize and verify a baseline from.
+        "503":
+          description: The plugin source (GitHub) was temporarily unavailable; the diff is retryable.
   /v1/plugins/{name}/inspect:
     get:
       operationId: plugins_by_name_inspect_get
@@ -19489,9 +19538,12 @@ paths:
         mirroring `plugins install`''s curation boundary. A no-op (`outcome: "already-up-to-date"`) when the installed
         commit already equals the pin; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching
         the install. Installs lacking provenance are re-pinned to the current SHA. The assistant must be restarted to
-        load the upgraded code. This does not gate on local edits — callers should consult `GET
-        /v1/plugins/:name/inspect` (`local.localChanges`) first and confirm before overwriting. Mirrors the CLI''s
-        `assistant plugins upgrade <name>`.'
+        load the upgraded code. `strategy` controls how local edits are reconciled: `overwrite` (default) discards them
+        and re-installs the pin wholesale; `ours`/`theirs` perform a three-way merge against the re-materialized install
+        commit, carrying non-conflicting edits from both sides forward and resolving conflicting hunks toward the local
+        edit or the pin respectively; `assistant` is not yet supported (400). A merge strategy whose install-time
+        baseline cannot be reconstructed returns 409. Mirrors the CLI''s `assistant plugins upgrade <name> [--strategy
+        <s>]`.'
       tags:
         - plugins
       parameters:
@@ -19510,6 +19562,17 @@ paths:
                 dryRun:
                   description: Report what would change without modifying the install. Defaults to false.
                   type: boolean
+                strategy:
+                  description:
+                    How to reconcile local edits with the pin. `overwrite` (default) discards local edits and re-installs the
+                    pin; `ours`/`theirs` three-way merge, resolving conflicting hunks toward the local edit or the pin
+                    respectively; `assistant` is not yet supported.
+                  type: string
+                  enum:
+                    - ours
+                    - theirs
+                    - overwrite
+                    - assistant
       responses:
         "200":
           description: Successful response
@@ -19561,6 +19624,14 @@ paths:
                   dryRun:
                     type: boolean
                     description: Whether this was a dry run (no changes made).
+                  strategy:
+                    type: string
+                    enum:
+                      - ours
+                      - theirs
+                      - overwrite
+                      - assistant
+                    description: Conflict-resolution strategy the upgrade applied.
                   provenanceWasUnknown:
                     type: boolean
                     description:
@@ -19576,14 +19647,19 @@ paths:
                   - target
                   - fileCount
                   - dryRun
+                  - strategy
                   - provenanceWasUnknown
                 additionalProperties: false
         "400":
-          description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
+          description:
+            The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters), or the
+            `assistant` strategy was requested (not yet supported).
         "404":
           description: No copy of the plugin is installed, or its source resolves to nothing.
         "409":
-          description: The install exists but has no marketplace entry to advance to.
+          description:
+            The install exists but has no marketplace entry to advance to, or a merge strategy was requested whose
+            install-time baseline cannot be reconstructed.
         "503":
           description: The plugin source (GitHub) was temporarily unavailable; the upgrade is retryable.
   /v1/plugins/install:

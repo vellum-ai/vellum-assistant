@@ -33,6 +33,7 @@ export type VellumCommand =
   | { kind: "shareFeedback" }
   | { kind: "find" }
   | { kind: "markAllRead" }
+  | { kind: "login" }
   | { kind: "logout" }
   | { kind: "rePair" }
   | { kind: "sidebarToggle" }

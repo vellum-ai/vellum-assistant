@@ -34,7 +34,7 @@ A named entity that the creator has granted permission to interact with their as
 
 Where secrets the assistant is allowed to use are stored: API keys, tokens, passwords. The assistant reads from the vault to perform tasks; access is mediated by trust rules the creator defines, which can require explicit approval, allow specific patterns autonomously, or deny entirely.
 
-*Note: internally this is currently called the "credential executor."*
+*Note: the internal name is "credential executor" (see `credential-executor/`).*
 
 ### Creator
 

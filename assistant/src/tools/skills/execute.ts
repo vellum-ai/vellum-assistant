@@ -62,6 +62,40 @@ export function resolveSkillExecuteInput(
   return {};
 }
 
+/**
+ * Augment an inner-tool error with `skill_execute` envelope guidance when the
+ * call carried no inner parameters.
+ *
+ * {@link resolveSkillExecuteInput} rescues *misplaced* parameters (siblings, a
+ * JSON-encoded string). It cannot rescue a genuinely empty call — there is
+ * nothing to relocate — so the inner tool runs with `{}` and rejects it with a
+ * field-level message ("<field> is required") that says nothing about the
+ * envelope. Weak models then retry the identical empty shape, oscillating over
+ * whether parameters belong under `input`, as siblings, or as a JSON string.
+ *
+ * Appending the canonical envelope shape gives the next attempt a concrete
+ * template. Fires only when the resolved inner input was empty AND the tool
+ * errored, so well-formed calls and tools that legitimately accept no
+ * parameters are untouched.
+ */
+export function augmentSkillExecuteError(
+  toolName: string,
+  resolvedInput: Record<string, unknown>,
+  result: ToolExecutionResult,
+): ToolExecutionResult {
+  if (!result.isError || Object.keys(resolvedInput).length > 0) return result;
+
+  const guidance =
+    `\n\nThis skill_execute call carried no parameters for "${toolName}". ` +
+    `Put the tool's parameters inside \`input\` as a JSON object — not as ` +
+    `siblings of \`tool\`, and not as a JSON-encoded string. For example: ` +
+    `{"tool": "${toolName}", "input": { /* the tool's parameters */ }, ` +
+    `"activity": "..."}. The skill's instructions (from skill_load) list ` +
+    `"${toolName}"'s required fields.`;
+
+  return { ...result, content: result.content + guidance };
+}
+
 export const skillExecuteTool = {
   name: "skill_execute",
   description:
