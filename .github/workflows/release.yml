@@ -2064,21 +2064,6 @@ jobs:
             rm -f bun.lock && rm -rf node_modules && bun install
           fi
 
-      - name: Generate API clients
-        working-directory: clients/web
-        run: bun run openapi-ts
-
-      - name: Build web SPA
-        working-directory: clients/web
-        env:
-          VITE_PLATFORM_MODE: "false"
-          VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
-          VITE_SENTRY_ENVIRONMENT: ${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
-        run: bun run build
-
-      - name: Bundle web dist into Electron resources
-        run: mkdir -p resources && cp -R ../../clients/web/dist resources/web-dist
-
       - name: Stamp release version into package.json
         run: jq --arg v "${{ needs.extract-version.outputs.version }}" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
 
@@ -2086,6 +2071,7 @@ jobs:
         env:
           CSC_NAME: Developer ID Application
           SENTRY_DSN_MACOS: ${{ secrets.SENTRY_DSN_MACOS }}
+          VITE_PLATFORM_MODE: "false"
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
           VITE_SENTRY_ENVIRONMENT: ${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
         run: bun run pack --environment "${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}"
