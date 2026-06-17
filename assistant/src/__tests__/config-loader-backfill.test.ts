@@ -1526,9 +1526,8 @@ describe("seedInferenceProfiles injected managed templates", () => {
     expect(config.llm.profiles.balanced?.provider_connection).toBe(
       "gemini-managed",
     );
-    // Selected managed connection stays enabled because the helper resolved
-    // gemini-managed from the injected map (pre-fix it read anthropic-managed
-    // from the built-ins and balanced would have been disabled).
+    // Selected managed connection stays enabled because the helper resolves
+    // gemini-managed from the injected map.
     expect("status" in (config.llm.profiles.balanced ?? {})).toBe(false);
     // Unselected managed profiles are disabled on the BYOK hatch.
     expect(config.llm.profiles["quality-optimized"]?.status).toBe("disabled");
