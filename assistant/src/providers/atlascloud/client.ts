@@ -10,7 +10,6 @@ const VALIDATION_TIMEOUT_MS = 10_000;
 
 export interface AtlasCloudProviderOptions {
   apiKey?: string;
-  baseURL?: string;
   streamTimeoutMs?: number;
 }
 
@@ -71,9 +70,8 @@ export class AtlasCloudProvider extends OpenAIChatCompletionsProvider {
     model: string,
     options: AtlasCloudProviderOptions = {},
   ) {
-    const baseURL = options.baseURL?.trim() || DEFAULT_ATLASCLOUD_BASE_URL;
     super(apiKey, model, {
-      baseURL,
+      baseURL: DEFAULT_ATLASCLOUD_BASE_URL,
       providerName: "atlascloud",
       providerLabel: "Atlas Cloud",
       streamTimeoutMs: options.streamTimeoutMs,

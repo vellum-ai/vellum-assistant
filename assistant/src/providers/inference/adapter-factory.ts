@@ -115,11 +115,8 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
     }),
   minimax: ({ apiKey, model, streamTimeoutMs }) =>
     new MinimaxProvider(apiKey, model, { streamTimeoutMs }),
-  atlascloud: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
-    new AtlasCloudProvider(apiKey, model, {
-      streamTimeoutMs,
-      ...(baseURL ? { baseURL } : {}),
-    }),
+  atlascloud: ({ apiKey, model, streamTimeoutMs }) =>
+    new AtlasCloudProvider(apiKey, model, { streamTimeoutMs }),
 };
 
 /**
