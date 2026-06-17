@@ -53,6 +53,7 @@ import { getActiveOrganizationIdForRequests } from "@/stores/organization-store"
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const ELECTRON_RENDERER_ORIGIN_HEADER = "X-Vellum-Electron-Renderer-Origin";
+const NGROK_SKIP_BROWSER_WARNING_HEADER = "ngrok-skip-browser-warning";
 
 function getRendererTupleOrigin(): string {
   return `${window.location.protocol}//${window.location.host}`;
@@ -132,6 +133,11 @@ export async function rewriteForSelfHostedIngress(
   const headers = new Headers(request.headers);
   headers.delete("X-CSRFToken");
   headers.delete("Vellum-Organization-Id");
+  if (isRemoteGatewayMode()) {
+    // Ngrok free tunnels return an HTML interstitial to browser-shaped API
+    // requests unless this bypass header is present.
+    headers.set(NGROK_SKIP_BROWSER_WARNING_HEADER, "true");
+  }
 
   const token = getSelfHostedActorToken();
   if (token) {
@@ -195,6 +201,7 @@ export function authorizeRemoteGatewayRequest(
   const headers = new Headers(request.headers);
   headers.delete("X-CSRFToken");
   headers.delete("Vellum-Organization-Id");
+  headers.set(NGROK_SKIP_BROWSER_WARNING_HEADER, "true");
 
   const token = getSelfHostedActorToken();
   if (token) {

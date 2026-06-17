@@ -496,7 +496,24 @@ describe("api-interceptors / remote gateway direct requests", () => {
     expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
     expect(output.headers.get("Vellum-Organization-Id")).toBeNull();
     expect(output.headers.get("X-CSRFToken")).toBeNull();
+    expect(output.headers.get("ngrok-skip-browser-warning")).toBe("true");
     expect(output.headers.get("X-Vellum-Client-Id")).toBe(getClientId());
+  });
+
+  test("adds the ngrok browser-warning bypass header to rewritten assistant routes", async () => {
+    setSelfHostedConnection({
+      url: window.location.origin,
+      token: ACTOR_TOKEN,
+    });
+    const input = new Request(
+      `${window.location.origin}/v1/assistants/self/messages?conversationId=conv-1`,
+    );
+
+    const output = await daemonRequestInterceptor(input);
+
+    expect(output.url).toBe(input.url);
+    expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
+    expect(output.headers.get("ngrok-skip-browser-warning")).toBe("true");
   });
 
   test("preserves a remote ingress path prefix for flat /v1 requests", () => {
