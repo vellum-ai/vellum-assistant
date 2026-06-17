@@ -1536,7 +1536,8 @@ jobs:
   # ── Electron DMG ──────────────────────────────────────────────────────
 
   build-electron:
-    needs: [compute-version, publish-meta-dev]
+    # No publish dep: the bundled CLI floats to the `dev` dist-tag at runtime.
+    needs: [compute-version]
     runs-on: macos-26
     timeout-minutes: 30
     continue-on-error: ${{ matrix.experimental }}
@@ -1753,8 +1754,10 @@ jobs:
   # its own path: mac-electron/dev/{arch}/.
 
   upload-electron-updates:
-    needs: [compute-version, build-electron]
-    if: ${{ needs.build-electron.result == 'success' }}
+    # Gate the GCS update-feed publish (an external side effect) on the dev meta
+    # publish: never offer an auto-update for a release that didn't publish.
+    needs: [compute-version, build-electron, publish-meta-dev]
+    if: ${{ always() && !cancelled() && needs.build-electron.result == 'success' && needs.publish-meta-dev.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: dev
