@@ -203,11 +203,11 @@ export function SubagentDetailPanel({
   // priority (interruptible) and never block the panel-open animation or
   // input. The memoized SubagentTimeline bails out on the urgent pass.
   //
-  // Defer the subagent id *alongside* the events: the drawer now stays mounted
-  // when switching subagents (no remount), so a bare deferred value could
-  // briefly render the previous subagent's timeline under the new subagent's
-  // header. When the deferred id doesn't match the current subagent (i.e. just
-  // switched), fall back to live events so the timeline is never mismatched.
+  // The deferred value carries the subagent id alongside the events. The
+  // drawer stays mounted across subagent switches, so a bare deferred value
+  // can lag and render the previous subagent's timeline under the new
+  // subagent's header; when the deferred id doesn't match the current
+  // subagent, fall back to live events so the timeline is never mismatched.
   const deferredInput = useMemo(
     () => ({ id: entry.subagentId, events: entry.events }),
     [entry.subagentId, entry.events],

@@ -28,9 +28,9 @@ import { useEditApp } from "@/hooks/use-edit-app";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { routes } from "@/utils/routes";
 
-// Extracted import thunks so the chunks can be prefetched during idle (see the
-// effect below) as well as loaded lazily on first render. Once a thunk has run,
-// the browser module cache makes React.lazy resolve it synchronously.
+// Import thunks for the lazy panel chunks, shared by the React.lazy wrappers
+// below and the idle-prefetch effect. Once a thunk has run, the browser module
+// cache lets React.lazy resolve it synchronously.
 const importSubagentDetailPanel = () =>
   import("@/domains/chat/components/subagent-detail-panel");
 const importToolDetailPanel = () =>
