@@ -132,6 +132,7 @@ function driftResponse(
       marketplaceRef: "main",
     },
     remoteError: null,
+    surfaces: { skills: [], hooks: [], tools: [] },
   };
 }
 
