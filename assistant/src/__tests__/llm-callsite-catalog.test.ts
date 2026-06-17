@@ -54,9 +54,7 @@ describe("LLM call-site catalog", () => {
 
   test("CALL_SITE_DEFAULTS covers every LLMCallSite enum value", () => {
     const defaultIds = new Set(Object.keys(CALL_SITE_DEFAULTS));
-    const missing = LLMCallSiteEnum.options.filter(
-      (id) => !defaultIds.has(id),
-    );
+    const missing = LLMCallSiteEnum.options.filter((id) => !defaultIds.has(id));
     expect(missing).toEqual([]);
   });
 
@@ -68,11 +66,12 @@ describe("LLM call-site catalog", () => {
     expect(extra).toEqual([]);
   });
 
-  test("every CALL_SITE_DEFAULTS entry has a profile field", () => {
+  test("every CALL_SITE_DEFAULTS profile, when present, is a non-empty string", () => {
     for (const [, config] of Object.entries(CALL_SITE_DEFAULTS)) {
-      expect(config.profile).toBeDefined();
+      // A call site may omit `profile` to inherit the workspace default config.
+      if (config.profile === undefined) continue;
       expect(typeof config.profile).toBe("string");
-      expect(config.profile!.length).toBeGreaterThan(0);
+      expect(config.profile.length).toBeGreaterThan(0);
     }
   });
 });
