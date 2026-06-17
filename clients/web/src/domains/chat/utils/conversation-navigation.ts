@@ -27,6 +27,12 @@ export function navigateToConversation(
   void navigate(routes.conversation(conversationId));
 }
 
+export interface NavigateToNewConversationOptions {
+  silent?: boolean;
+  /** When provided, auto-sends this message in the new conversation. */
+  prompt?: string;
+}
+
 /**
  * Create a fresh draft conversation and navigate to it.
  *
@@ -35,11 +41,15 @@ export function navigateToConversation(
  * (e.g. fallback after archiving the active conversation), the haptic tap
  * is suppressed.
  *
+ * When `prompt` is provided, the URL includes a `?prompt=` search param that
+ * `useAutoSendEffects` picks up to fire the message once the conversation is
+ * mounted.
+ *
  * Pure imperative function — reads stores via `.getState()`, no React hooks.
  */
 export function navigateToNewConversation(
   navigate: NavigateFunction,
-  options?: { silent?: boolean },
+  options?: NavigateToNewConversationOptions,
 ): void {
   if (!options?.silent) {
     haptic.light();
@@ -49,6 +59,12 @@ export function navigateToNewConversation(
   useSubagentStore.getState().reset();
   const draftId = createDraftConversationId();
   useConversationStore.getState().setActiveConversationId(draftId);
-  void navigate(routes.conversation(draftId));
+
+  let path: string = routes.conversation(draftId);
+  if (options?.prompt) {
+    const params = new URLSearchParams({ prompt: options.prompt });
+    path = `${path}?${params.toString()}`;
+  }
+  void navigate(path);
   requestComposerFocus();
 }

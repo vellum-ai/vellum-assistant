@@ -4,6 +4,8 @@ import { useNavigate } from "react-router";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { PageShell } from "@/components/page-shell";
 import { LibraryView } from "@/domains/library/library-view";
+import { useConversationStore } from "@/stores/conversation-store";
+import { useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
 
 export function LibraryPage() {
@@ -11,14 +13,15 @@ export function LibraryPage() {
   const navigate = useNavigate();
 
   const handleNewConversation = useCallback(
-    (_initialMessage?: string) => {
-      // TODO: initialMessage seeding requires cross-route state coordination
-      // (e.g. a Zustand store or sessionStorage handoff). The platform passes
-      // initialMessage directly via startNewConversation() in the same React
-      // tree, but here the library is a separate route. For now we just
-      // navigate to chat; the deploy-flow prompt handoff will come with the
-      // broader cross-route state work.
-      void navigate(routes.assistant);
+    (initialMessage?: string) => {
+      useViewerStore.getState().setMainView("chat");
+      const draftId = crypto.randomUUID();
+      useConversationStore.getState().setActiveConversationId(draftId);
+      let path = routes.conversation(draftId);
+      if (initialMessage) {
+        path = `${path}?${new URLSearchParams({ prompt: initialMessage }).toString()}`;
+      }
+      void navigate(path);
     },
     [navigate],
   );
