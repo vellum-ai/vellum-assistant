@@ -6,9 +6,10 @@
  * `handle-inbound-admission.test.ts` and in the full inbound-message
  * handler integration tests.
  */
-import { describe, test, expect } from "bun:test";
-import { enforceAdmissionPolicy } from "./admission-policy.js";
+import { describe, expect,test } from "bun:test";
+
 import type { AdmissionPolicyInput } from "./admission-policy.js";
+import { enforceAdmissionPolicy } from "./admission-policy.js";
 
 function makeInput(overrides: Partial<AdmissionPolicyInput>): AdmissionPolicyInput {
   return {
@@ -148,5 +149,66 @@ describe("enforceAdmissionPolicy — rank vs floor", () => {
       makeInput({ trustClass: "unverified_contact", memberStatus: "pending", policy: "strangers" }),
     );
     expect(result.admitted).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §8.3 per-conversation override — override beats the channel-type floor
+// ---------------------------------------------------------------------------
+
+describe("enforceAdmissionPolicy — per-conversation override (§8.3)", () => {
+  test("override `any_contact` admits unverified_contact even when the type floor (trusted_contacts) would deny", () => {
+    const result = enforceAdmissionPolicy(
+      makeInput({
+        trustClass: "unverified_contact", // rank 2
+        policy: "trusted_contacts", // floor 3 → would deny
+        conversationOverride: "any_contact", // floor 2 → admits
+      }),
+    );
+    expect(result.admitted).toBe(true);
+  });
+
+  test("override stricter than the type floor denies (guardian_only over trusted_contacts)", () => {
+    const result = enforceAdmissionPolicy(
+      makeInput({
+        trustClass: "trusted_contact", // rank 3 → clears the type floor
+        policy: "trusted_contacts",
+        conversationOverride: "guardian_only", // floor 4 → denies
+      }),
+    );
+    expect(result.admitted).toBe(false);
+    if (!result.admitted) {
+      // Deny reason + effective policy reflect the override, not the type floor.
+      expect(result.reason).toBe("admission_policy_guardian_only");
+      expect(result.effectivePolicy).toBe("guardian_only");
+      // §8.2: stricter floors never advertise an upgrade path.
+      expect(result.shouldChallenge).toBe(false);
+    }
+  });
+
+  test("null override falls back to the type floor", () => {
+    const result = enforceAdmissionPolicy(
+      makeInput({
+        trustClass: "trusted_contact",
+        policy: "trusted_contacts",
+        conversationOverride: null,
+      }),
+    );
+    expect(result.admitted).toBe(true);
+  });
+
+  test("§8.2: a denial under an override of `strangers`/`any_contact` still challenges (reads the effective floor)", () => {
+    const result = enforceAdmissionPolicy(
+      makeInput({
+        trustClass: "unknown", // rank 1
+        policy: "trusted_contacts", // type floor would be silent on deny
+        conversationOverride: "any_contact", // floor 2 → still denies rank 1, but is upgradeable
+      }),
+    );
+    expect(result.admitted).toBe(false);
+    if (!result.admitted) {
+      expect(result.effectivePolicy).toBe("any_contact");
+      expect(result.shouldChallenge).toBe(true);
+    }
   });
 });

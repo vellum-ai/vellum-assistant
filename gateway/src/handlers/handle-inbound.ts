@@ -1,11 +1,13 @@
 import { existsSync } from "node:fs";
 import {
   isAdmissionPolicyExemptChannel,
+  resolveEffectivePolicy,
   type SourceMetadata,
 } from "@vellumai/gateway-client";
 import type { GatewayConfig } from "../config.js";
 import { ipcCallAssistant } from "../ipc/assistant-client.js";
 import { resolveIpcSocketPath } from "../ipc/socket-path.js";
+import { AdmissionPolicyStore } from "../db/admission-policy-store.js";
 import { ContactStore } from "../db/contact-store.js";
 import { getLogger } from "../logger.js";
 import { getAdmissionPolicyCache } from "../risk/admission-policy-cache.js";
@@ -104,12 +106,30 @@ export async function handleInbound(
   const admissionPolicy = isAdmissionPolicyExemptChannel(event.sourceChannel)
     ? null
     : getAdmissionPolicyCache().get(event.sourceChannel);
-  if (admissionPolicy === "no_one") {
+  // §8.3: a per-conversation override beats the channel-type floor. Looked up
+  // for non-exempt channels only; an absent row resolves to `null` so the type
+  // floor wins. Resolved here — before the kill switch and verification
+  // intercept — so a conversation pinned to `no_one` is hard-denied pre-forward
+  // exactly like a channel-type `no_one`, including blocking verification-code
+  // redemption.
+  const conversationAdmissionOverride =
+    admissionPolicy !== null
+      ? new AdmissionPolicyStore().getConversationOverride(
+          event.message.conversationExternalId,
+          event.sourceChannel,
+        ).override
+      : null;
+  const effectiveAdmissionPolicy =
+    admissionPolicy !== null
+      ? resolveEffectivePolicy(admissionPolicy, conversationAdmissionOverride)
+      : null;
+  if (effectiveAdmissionPolicy === "no_one") {
     log.info(
       {
         sourceChannel: event.sourceChannel,
         conversationExternalId: event.message.conversationExternalId,
         actorExternalId: event.actor.actorExternalId,
+        viaOverride: conversationAdmissionOverride === "no_one",
       },
       "Inbound event hard-denied by admission policy 'no_one'",
     );
@@ -196,6 +216,12 @@ export async function handleInbound(
           // admits unconditionally. Non-exempt channels always carry the
           // cache value (default `trusted_contacts` when the row is absent).
           ...(admissionPolicy ? { admissionPolicy } : {}),
+          // §8.3: per-conversation override (when present). The runtime
+          // admission stage resolves type-floor vs. override into the
+          // effective policy via `resolveEffectivePolicy`.
+          ...(conversationAdmissionOverride
+            ? { admissionConversationOverride: conversationAdmissionOverride }
+            : {}),
           ...(options?.sourceMetadata ?? {}),
         },
         ...(options?.attachmentIds?.length

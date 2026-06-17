@@ -26,6 +26,7 @@ import {
   ADMISSION_FLOOR,
   type AdmissionPolicy,
   isAdmissionPolicyExemptChannel,
+  resolveEffectivePolicy,
 } from "@vellumai/gateway-client";
 
 import type { ChannelId } from "../../../channels/types.js";
@@ -80,18 +81,6 @@ export type AdmissionPolicyResult =
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
-
-/**
- * Resolve the effective policy: per-conversation override beats type-floor
- * when present. P3 only consumes the override; P5 writes it.
- */
-export function resolveEffectivePolicy(
-  policy: AdmissionPolicy,
-  override: AdmissionPolicy | null | undefined,
-): AdmissionPolicy {
-  if (override && override !== policy) return override;
-  return policy;
-}
 
 /**
  * Policies under which completing verification could lift the sender past

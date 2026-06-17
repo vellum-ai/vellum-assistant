@@ -162,7 +162,7 @@ describe("resolveActorTrust — address fallback", () => {
     const contact = makeContact("contact", "unverified", PHONE);
     // Override status to "pending" — makeContact only accepts unverified/active
     contact.channels[0]!.status = "pending";
-    _byExternalId = contact;
+    _byAddress = contact;
 
     const result = resolveActorTrust({
       assistantId: "asst-1",
@@ -180,7 +180,7 @@ describe("resolveActorTrust — address fallback", () => {
     // re-checks channel.status and emits the hard-deny reasons.
     const contact = makeContact("contact", "unverified", PHONE);
     contact.channels[0]!.status = "blocked";
-    _byExternalId = contact;
+    _byAddress = contact;
 
     const result = resolveActorTrust({
       assistantId: "asst-1",
@@ -196,7 +196,7 @@ describe("resolveActorTrust — address fallback", () => {
   test("revoked-status member is classified as unknown", () => {
     const contact = makeContact("contact", "unverified", PHONE);
     contact.channels[0]!.status = "revoked";
-    _byExternalId = contact;
+    _byAddress = contact;
 
     const result = resolveActorTrust({
       assistantId: "asst-1",

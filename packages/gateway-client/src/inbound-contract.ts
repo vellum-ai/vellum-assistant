@@ -77,6 +77,14 @@ export const SourceMetadataSchema = z
      */
     admissionPolicy: AdmissionPolicySchema.optional(),
 
+    /**
+     * Per-conversation admission override attached by the gateway when the
+     * conversation has a stored override (§8.3). Beats `admissionPolicy` (the
+     * per-channel-type floor) at the runtime admission stage. Absent when the
+     * conversation inherits the type floor.
+     */
+    admissionConversationOverride: AdmissionPolicySchema.optional(),
+
     // Email-specific fields
     /** Email subject line. */
     emailSubject: z.string().optional(),
