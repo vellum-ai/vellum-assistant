@@ -7,7 +7,6 @@
 
 import { z } from "zod";
 
-import { buildApprovalCardBlocks } from "./approval-card-builder.js";
 import {
   nonEmpty,
   sanitizeIdentityField,
@@ -396,67 +395,4 @@ export function buildAccessRequestCardView(
     guardianResolutionSource: nonEmpty(p.guardianResolutionSource),
     requestId: nonEmpty(p.requestId),
   };
-}
-
-// ── Seed content blocks (Surface-based rendering) ───────────────────────────
-
-/**
- * Build structured content blocks for an access request notification seed
- * message. Produces a `ui_surface` card block that the web/macOS/iOS apps
- * render as an interactive card via `SurfaceRouter → CardSurface`, plus a
- * plain-text fallback block for search, CLI display, and backward-compatible
- * clients that don't support surfaces.
- */
-export function buildAccessRequestSeedContentBlocks(
-  payload: Record<string, unknown>,
-): unknown[] {
-  const view = buildAccessRequestCardView(parseAccessRequestPayload(payload));
-
-  const metadata: Array<{ label: string; value: string }> = [];
-
-  if (view.username) {
-    metadata.push({
-      label: "Username",
-      value: `@${view.username}`,
-    });
-  }
-
-  if (view.sourceChannel === "slack" && view.conversationExternalId) {
-    metadata.push({
-      label: "Source",
-      value: view.isSlackDm
-        ? "Slack — Direct message"
-        : `Slack — #${view.conversationExternalId}`,
-    });
-  } else if (view.sourceChannel) {
-    metadata.push({ label: "Source", value: view.sourceChannel });
-  }
-
-  const bodyParts: string[] = [];
-
-  if (view.messagePreview) {
-    bodyParts.push(`> "${view.messagePreview}"`);
-  }
-  for (const w of view.warnings) {
-    bodyParts.push(`⚠️ ${w}`);
-  }
-  if (view.messagePermalink) {
-    bodyParts.push(`[View message](${view.messagePermalink})`);
-  }
-
-  const body =
-    bodyParts.length > 0
-      ? bodyParts.join("\n\n")
-      : "No additional context available.";
-
-  return buildApprovalCardBlocks({
-    surfaceIdPrefix: "access-request",
-    cardTitle: "Access Request",
-    requesterName: view.displayName,
-    subtitle: "Requesting access to the assistant",
-    body,
-    metadata,
-    requestId: view.requestId,
-    fallbackText: buildAccessRequestContractText(payload),
-  });
 }
