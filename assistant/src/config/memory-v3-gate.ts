@@ -7,5 +7,5 @@ import type { AssistantConfig } from "./schema.js";
  * existing assistants stay on v2 until the value is set explicitly.
  */
 export function isMemoryV3Live(config: AssistantConfig): boolean {
-  return config.memory.v3.live === true;
+  return config.memory?.v3?.live === true;
 }
