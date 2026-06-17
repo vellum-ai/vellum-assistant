@@ -11,10 +11,6 @@ SEED_DIR="$APP_DIR/resources/cli-lockfile"
 VERSION=$(grep -o 'PINNED_CLI_VERSION = "[^"]*"' "$APP_DIR/src/main/cli-installer.ts" \
   | sed 's/PINNED_CLI_VERSION = "//;s/"//')
 
-# Empty PINNED_CLI_VERSION is the default (unpinned): seed a lockfile resolved
-# to build-time latest so the runtime has an offline fallback.
-SPEC="${VERSION:-latest}"
-
 # Local builds drive the repo CLI source directly (see getLocalCliEntry in
 # cli-installer.ts) and never install from npm. Ship an empty seed dir so
 # electron-builder's extraResources mapping still resolves.
@@ -24,6 +20,16 @@ if [ "${VELLUM_ENVIRONMENT:-local}" = "local" ]; then
   mkdir -p "$SEED_DIR"
   exit 0
 fi
+
+# Empty PINNED_CLI_VERSION is the default (unpinned): seed a lockfile resolved
+# to the environment's dist-tag so the runtime offline fallback matches the
+# online install. Keep in sync with getCliDistTag in cli-installer.ts.
+case "$VELLUM_ENVIRONMENT" in
+  dev) DEFAULT_TAG="dev" ;;
+  staging) DEFAULT_TAG="staging" ;;
+  *) DEFAULT_TAG="latest" ;;
+esac
+SPEC="${VERSION:-$DEFAULT_TAG}"
 
 echo "Generating CLI lockfile for vellum@$SPEC ..."
 

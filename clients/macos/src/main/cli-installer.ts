@@ -15,12 +15,30 @@ import path from "node:path";
 
 import log from "./logger";
 
-// Empty by default: the happy path floats to vellum@latest. Set by hand to
-// pin the bundled CLI to an exact version (no longer auto-stamped by CI).
+// Empty by default: the happy path floats to the environment's dist-tag.
+// Set by hand to pin the bundled CLI to an exact version.
 export const PINNED_CLI_VERSION = "";
 
 // Install dir for fresh, unpinned installs.
 const LATEST_INSTALL_DIR = "latest";
+
+// Injected by `electron.vite.config.ts` at build time.
+declare const __VELLUM_ENVIRONMENT__: string;
+const VELLUM_ENVIRONMENT =
+  typeof __VELLUM_ENVIRONMENT__ === "string"
+    ? __VELLUM_ENVIRONMENT__
+    : "production";
+
+/**
+ * npm dist-tag the unpinned CLI install floats to. Dev and staging builds run
+ * their own published CLI (`--tag dev` / `--tag staging`); everything else
+ * tracks production `latest`. Keep in sync with generate-cli-lockfile.sh.
+ */
+function getCliDistTag(): string {
+  if (VELLUM_ENVIRONMENT === "dev") return "dev";
+  if (VELLUM_ENVIRONMENT === "staging") return "staging";
+  return "latest";
+}
 
 // Baked by electron.vite.config.ts: the repo CLI entry for local builds,
 // empty for release builds (and absent under bun test).
@@ -282,14 +300,15 @@ async function bunInstallCli(): Promise<void> {
     return;
   }
 
-  // Unpinned: float to latest, falling back to the seeded frozen lockfile
-  // (resolved to build-time latest) when the registry is unreachable.
+  // Unpinned: float to the environment's dist-tag, falling back to the seeded
+  // frozen lockfile (resolved at build time) when the registry is unreachable.
+  const spec = `vellum@${getCliDistTag()}`;
   try {
-    await runBun(["add", "vellum@latest", "--ignore-scripts"], installDir);
+    await runBun(["add", spec, "--ignore-scripts"], installDir);
   } catch (err) {
     if (!seedCliLockfile(installDir)) throw err;
     log.warn(
-      "[cli-installer] `bun add vellum@latest` failed; falling back to seeded lockfile:",
+      `[cli-installer] \`bun add ${spec}\` failed; falling back to seeded lockfile:`,
       err,
     );
     await runBun(["install", "--frozen-lockfile", "--ignore-scripts"], installDir);
