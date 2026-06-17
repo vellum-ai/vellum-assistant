@@ -2,6 +2,7 @@
 
 import cliPkg from "../package.json";
 import { backup } from "./commands/backup";
+import { channelPolicy } from "./commands/channel-policy";
 import { clean } from "./commands/clean";
 import { client } from "./commands/client";
 import { confirm } from "./commands/confirm";
@@ -41,6 +42,7 @@ import { checkHealth } from "./lib/health-check";
 
 const commands = {
   backup,
+  "channel-policy": channelPolicy,
   clean,
   client,
   confirm,
@@ -85,6 +87,9 @@ function printHelp(): void {
   console.log("");
   console.log("Commands:");
   console.log("  backup   Export a backup of a running assistant");
+  console.log(
+    "  channel-policy  Read/write the per-channel inbound admission floor",
+  );
   console.log("  clean    Kill orphaned vellum processes");
   console.log("  client   Connect to a hatched assistant");
   console.log("  confirm  Resolve a pending tool confirmation on an assistant");

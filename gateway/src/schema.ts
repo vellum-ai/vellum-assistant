@@ -3655,6 +3655,273 @@ export function buildSchema(): Record<string, unknown> {
             "500": { description: "Internal server error" },
           },
         },
+        delete: {
+          summary: "Delete a channel admission policy",
+          description:
+            "Authenticated gateway endpoint that removes the admission policy for a single channel from the SQLite-backed store and invalidates the in-memory admission-policy cache. Internal channels (vellum/platform, vellum/a2a) are exempt from deletion per §8.1.",
+          operationId: "channelAdmissionPolicyDelete",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "channelType",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Channel admission policy deleted" },
+            "400": { description: "Invalid channelType" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": {
+              description:
+                "Internal channel — exempt from admission policy (§8.1)",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
+      // ── Channel admission policy — conversation override (§8.3, P5) ──
+      "/v1/channel-admission-policy/conversations/{conversationId}": {
+        get: {
+          summary: "Get per-conversation admission floor override",
+          description:
+            "Returns the admission floor override installed for a single conversation. `policy` is `null` when no override is set.",
+          operationId: "conversationAdmissionOverrideGet",
+          security: [{ EdgeScoped: [] }],
+          parameters: [
+            {
+              name: "conversationId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Conversation admission override returned" },
+            "500": { description: "Internal server error" },
+          },
+        },
+        post: {
+          summary: "Upsert per-conversation admission floor override",
+          description:
+            "Sets or replaces the admission floor override for a single conversation.",
+          operationId: "conversationAdmissionOverridePost",
+          security: [{ EdgeScoped: [] }],
+          parameters: [
+            {
+              name: "conversationId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Conversation admission override upserted" },
+            "400": { description: "Invalid request body or conversationId" },
+            "403": {
+              description:
+                "Internal channel — exempt from admission policy (§8.1)",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+        put: {
+          summary:
+            "Upsert per-conversation admission floor override (PUT alias)",
+          description:
+            "Alias for the POST upsert. Accepts the same payload so clients that issue PUT upserts match the same handler.",
+          operationId: "conversationAdmissionOverridePut",
+          security: [{ EdgeScoped: [] }],
+          parameters: [
+            {
+              name: "conversationId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Conversation admission override upserted" },
+            "400": { description: "Invalid request body or conversationId" },
+            "403": {
+              description:
+                "Internal channel — exempt from admission policy (§8.1)",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+        delete: {
+          summary: "Remove per-conversation admission floor override",
+          description:
+            "Removes any admission floor override installed for a single conversation.",
+          operationId: "conversationAdmissionOverrideDelete",
+          security: [{ EdgeScoped: [] }],
+          parameters: [
+            {
+              name: "conversationId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Conversation admission override removed" },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
+      // ── Assistant-scoped mirror: conversation override (§8.3) ──
+      // Matches /v1/assistants/<id>/channel-admission-policy/conversations/<cid>.
+      // The assistantId is matched and discarded — admission policy is gateway-global.
+      // Route uses a non-capturing [^/]+ for the assistant segment so
+      // regexToOpenApiPath() returns null for it; listed in SCHEMA_ONLY_PATHS in
+      // the route-schema-guard test to keep the bidirectional check clean.
+      "/v1/assistants/{assistantId}/channel-admission-policy/conversations/{conversationId}": {
+        get: {
+          summary: "Get per-conversation admission floor override (assistant-scoped)",
+          description:
+            "Assistant-scoped mirror of GET /v1/channel-admission-policy/conversations/{conversationId}. The assistantId is discarded — policy is gateway-global.",
+          operationId: "assistantConversationAdmissionOverrideGet",
+          security: [{ EdgeScoped: [] }],
+          parameters: [
+            {
+              name: "assistantId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+            {
+              name: "conversationId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Conversation admission override returned" },
+            "500": { description: "Internal server error" },
+          },
+        },
+        post: {
+          summary: "Upsert per-conversation admission floor override (assistant-scoped)",
+          description:
+            "Assistant-scoped mirror of POST /v1/channel-admission-policy/conversations/{conversationId}. The assistantId is discarded — policy is gateway-global.",
+          operationId: "assistantConversationAdmissionOverridePost",
+          security: [{ EdgeScoped: [] }],
+          parameters: [
+            {
+              name: "assistantId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+            {
+              name: "conversationId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Conversation admission override upserted" },
+            "400": { description: "Invalid request body or conversationId" },
+            "403": {
+              description:
+                "Internal channel — exempt from admission policy (§8.1)",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+        put: {
+          summary: "Upsert per-conversation admission floor override (assistant-scoped, PUT alias)",
+          description:
+            "Assistant-scoped mirror of PUT /v1/channel-admission-policy/conversations/{conversationId}. The assistantId is discarded — policy is gateway-global.",
+          operationId: "assistantConversationAdmissionOverridePut",
+          security: [{ EdgeScoped: [] }],
+          parameters: [
+            {
+              name: "assistantId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+            {
+              name: "conversationId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Conversation admission override upserted" },
+            "400": { description: "Invalid request body or conversationId" },
+            "403": {
+              description:
+                "Internal channel — exempt from admission policy (§8.1)",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+        delete: {
+          summary: "Remove per-conversation admission floor override (assistant-scoped)",
+          description:
+            "Assistant-scoped mirror of DELETE /v1/channel-admission-policy/conversations/{conversationId}. The assistantId is discarded — policy is gateway-global.",
+          operationId: "assistantConversationAdmissionOverrideDelete",
+          security: [{ EdgeScoped: [] }],
+          parameters: [
+            {
+              name: "assistantId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+            {
+              name: "conversationId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Conversation admission override removed" },
+            "500": { description: "Internal server error" },
+          },
+        },
       },
       "/integrations/status": {
         get: {

@@ -645,7 +645,7 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Banner slots (nudge, queued, slack)
   // -------------------------------------------------------------------------
-  const { mainBannerSlot, mainQueuedDrawerSlot, slackReadonlyBannerSlot } = useChatBannerSlots({
+  const { mainBannerSlot, mainQueuedDrawerSlot, slackReadonlyBannerSlot, channelFloorSlot } = useChatBannerSlots({
     nudges,
     queuedMessages,
     onCancelQueuedMessage: handleCancelQueuedMessage,
@@ -846,6 +846,7 @@ export function ChatMainPanel({
         bannerSlot={isSidePanel ? undefined : mainBannerSlot}
         queuedDrawerSlot={isSidePanel ? undefined : mainQueuedDrawerSlot}
         readonlyBannerSlot={slackReadonlyBannerSlot}
+        channelFooterSlot={isSidePanel ? undefined : channelFloorSlot}
         startersSlot={startersSlot}
       />
       <MicPermissionPrimer

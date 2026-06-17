@@ -139,6 +139,10 @@ import { initAdmissionPolicyCache } from "./risk/admission-policy-cache.js";
 import {
   createChannelAdmissionPolicyListHandler,
   createChannelAdmissionPolicySetHandler,
+  createChannelAdmissionPolicyDeleteHandler,
+  createConversationAdmissionGetHandler,
+  createConversationAdmissionSetHandler,
+  createConversationAdmissionDeleteHandler,
 } from "./http/routes/channel-admission-policy.js";
 import { getLogger, initLogger } from "./logger.js";
 import { getPlatformBaseUrl } from "./platform-url.js";
@@ -529,6 +533,14 @@ async function main() {
     createChannelAdmissionPolicyListHandler();
   const handleChannelAdmissionPolicySet =
     createChannelAdmissionPolicySetHandler();
+  const handleChannelAdmissionPolicyDelete =
+    createChannelAdmissionPolicyDeleteHandler();
+  const handleConversationAdmissionGet =
+    createConversationAdmissionGetHandler();
+  const handleConversationAdmissionSet =
+    createConversationAdmissionSetHandler();
+  const handleConversationAdmissionDelete =
+    createConversationAdmissionDeleteHandler();
 
   const handleAgentCard = createAgentCardHandler(configFileCache);
 
@@ -1502,6 +1514,13 @@ async function main() {
       scope: "settings.write",
       handler: (req, params) => handleChannelAdmissionPolicySet(req, params[0]),
     },
+    {
+      path: /^\/v1\/channel-admission-policy\/([^/]+)\/?$/,
+      method: "DELETE",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) => handleChannelAdmissionPolicyDelete(req, params[0]),
+    },
 
     // ── Channel admission policy — assistant-scoped variants ──
     // Mirror the flat routes for clients that use GatewayHTTPClient's
@@ -1532,6 +1551,74 @@ async function main() {
       auth: "edge-scoped",
       scope: "settings.write",
       handler: (req, params) => handleChannelAdmissionPolicySet(req, params[0]),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-admission-policy\/([^/]+)\/?$/,
+      method: "DELETE",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) => handleChannelAdmissionPolicyDelete(req, params[0]),
+    },
+
+    // ── Channel admission policy — conversation override routes (§8.3) ──
+    // Flat routes: /v1/channel-admission-policy/conversations/<id>
+    {
+      path: /^\/v1\/channel-admission-policy\/conversations\/([^/]+)\/?$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req, params) => handleConversationAdmissionGet(req, params[0]),
+    },
+    {
+      path: /^\/v1\/channel-admission-policy\/conversations\/([^/]+)\/?$/,
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) => handleConversationAdmissionSet(req, params[0]),
+    },
+    {
+      path: /^\/v1\/channel-admission-policy\/conversations\/([^/]+)\/?$/,
+      method: "DELETE",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) => handleConversationAdmissionDelete(req, params[0]),
+    },
+    // Also accept PUT for the flat conversation route (mirrors channel-type route pattern).
+    {
+      path: /^\/v1\/channel-admission-policy\/conversations\/([^/]+)\/?$/,
+      method: "PUT",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) => handleConversationAdmissionSet(req, params[0]),
+    },
+    // Assistant-scoped mirrors for GatewayHTTPClient auto-prefix.
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-admission-policy\/conversations\/([^/]+)\/?$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req, params) => handleConversationAdmissionGet(req, params[0]),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-admission-policy\/conversations\/([^/]+)\/?$/,
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) => handleConversationAdmissionSet(req, params[0]),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-admission-policy\/conversations\/([^/]+)\/?$/,
+      method: "PUT",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) => handleConversationAdmissionSet(req, params[0]),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-admission-policy\/conversations\/([^/]+)\/?$/,
+      method: "DELETE",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) => handleConversationAdmissionDelete(req, params[0]),
     },
 
     // ── Trust rules v3 — assistant-scoped variants ──
