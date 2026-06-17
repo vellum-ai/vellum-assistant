@@ -1,7 +1,6 @@
 import { ChevronRight, Copy } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
-import { FileMarkdown } from "@/components/file-markdown";
 import { CacheBreakpointMapCard } from "@/domains/chat/inspector/components/cache-breakpoint-map-card";
 import { CacheDiffCard } from "@/domains/chat/inspector/components/cache-diff-card";
 import { CacheHealthCard } from "@/domains/chat/inspector/components/cache-health-card";
@@ -25,9 +24,10 @@ interface PromptTabProps {
  * the bottom of the tab. Sections start expanded and can be folded
  * individually or all at once so a reader can skip a long prompt and jump
  * to the cache breakdown. Prose sections (system prompt, user and
- * assistant messages) render as Markdown with literal `<tag>`-style
- * delimiters preserved; structured payloads and tool output render as
- * code-style `<pre>` text in a capped scroll box (they can be huge). Tool
+ * assistant messages) render as the literal text the model receives, with
+ * whitespace preserved and uncapped for inline reading; structured payloads
+ * and tool output render as code-style `<pre>` text in a capped scroll box
+ * (they can be huge). Tool
  * definitions render as an expandable per-tool breakdown. The raw provider
  * JSON lives on the Raw tab. The cache-diff panel names the block that
  * diverged from the previous turn's request, and the breakpoint map shows
@@ -171,8 +171,8 @@ function PromptSectionItem({
   // Sections backed by structured `data` (tool-call arguments, JSON payloads)
   // and tool results are program output, not prose, and can be huge — render
   // them as code-style text in a capped scroll box. Prose sections (system
-  // prompt, messages, reasoning) render as Markdown, uncapped for inline
-  // reading.
+  // prompt, messages, reasoning) render as the literal text the model
+  // receives, uncapped for inline reading.
   const renderAsCode = section.data != null || isToolResultKind(section.kind);
 
   return (
@@ -242,14 +242,10 @@ function PromptSectionItem({
           </pre>
         ) : (
           <div
-            className="min-w-0 break-words px-4 pb-4"
+            className="min-w-0 select-text whitespace-pre-wrap break-words px-4 pb-4 text-body-medium-default"
             style={{ color: "var(--content-default)" }}
           >
-            <FileMarkdown
-              content={text}
-              stripFrontmatter={false}
-              parseHtml={false}
-            />
+            {text}
           </div>
         )}
       </Collapsible.Content>
