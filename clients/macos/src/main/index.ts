@@ -501,7 +501,7 @@ app.on("web-contents-created", (_event, contents) => {
       return {
         action: "allow",
         overrideBrowserWindowOptions: {
-          webPreferences: hardenedWebPreferences(),
+          webPreferences: { ...hardenedWebPreferences(), preload: undefined },
         },
       };
     }
@@ -521,14 +521,13 @@ app.on("web-contents-created", (_event, contents) => {
     // Programmatic popups with a real URL also come through as `new-window`
     // disposition and are allowed as in-app child windows.
     if (disposition === "new-window") {
-      // Child popups inherit the same hardened baseline as every window. The
-      // preload is intentionally omitted (these are OAuth/connect popups, not
-      // Vellum-bridge surfaces), which is why `hardenedWebPreferences()`
-      // leaves it out for the caller to add.
+      // Child popups inherit the same hardened baseline as every window.
+      // `preload: undefined` explicitly clears the parent's preload so
+      // third-party OAuth pages don't get the Vellum bridge.
       return {
         action: "allow",
         overrideBrowserWindowOptions: {
-          webPreferences: hardenedWebPreferences(),
+          webPreferences: { ...hardenedWebPreferences(), preload: undefined },
         },
       };
     }
