@@ -29,13 +29,13 @@ The mechanical cutover is cheap and mostly automatic: v3 reads the same `memory/
 1. **Reshape each surviving page** into the v3 article skeleton (lead + sections, flat slug, `links:` not `edges:`, optional `current:`).
 2. **Re-organize the corpus** — merge over-fragmented pages into topical articles under hubs, so the wiki is navigable, not a pile of stubs.
 
-> ⚠️ **Prime directive: loss-proof.** You are rewriting memory you cannot regenerate. Every stage runs against a **read-only snapshot**, writes to a **separate staging tree**, and carries **provenance**. The live corpus is never edited until a verified cutover. "Loss-proof" is a property you *verify* (Step 7), not one you intend.
+> ⚠️ **Prime directive: loss-proof.** You are rewriting memory you cannot regenerate. Every stage runs against a **read-only snapshot**, writes to a **separate staging tree**, and carries **provenance**. The live corpus is never edited until a verified cutover. "Loss-proof" is a property you _verify_ (Step 7), not one you intend.
 
 ## Procedure
 
 ### Step 0 — Read the principles
 
-Read `references/v3-wiki-principles.md` end-to-end first. It defines the v3 article skeleton, the lead-is-the-card rule, the event-vs-topic distinction, hubs (`kind: index`), section discipline, the card budget, and the banned content shapes. It owns *what a good v3 article is*; this SKILL.md owns *what order to do things in*.
+Read `references/v3-wiki-principles.md` end-to-end first. It defines the v3 article skeleton, the lead-is-the-card rule, the event-vs-topic distinction, hubs (`kind: index`), section discipline, the card budget, and the banned content shapes. It owns _what a good v3 article is_; this SKILL.md owns _what order to do things in_.
 
 Then read `references/loss-proofing.md` — the snapshot/staging/provenance/verify contract that every later step depends on.
 
@@ -52,7 +52,7 @@ assistant memory v3 --help
 
 Expect at least `backfill-sections` and `rebuild-index` (used at cutover, Step 8). If absent, the binary predates v3 — upgrade before proceeding.
 
-**(2) Retrieval engine + flag mechanism.** Determine how memory-v3 is gated on this install and how you would flip it, *without flipping anything yet*. Probe in order and record what works:
+**(2) Retrieval engine + flag mechanism.** Determine how memory-v3 is gated on this install and how you would flip it, _without flipping anything yet_. Probe in order and record what works:
 
 ```
 assistant config get memory 2>/dev/null

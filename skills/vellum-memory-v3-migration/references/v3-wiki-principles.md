@@ -1,6 +1,6 @@
 # v3 Wiki Principles
 
-What a good memory-v3 article *is*. The SKILL.md owns ordering; this owns shape. Retrieval is **section-grain**: search runs over individual `## ` sections, and what rides into context per article is a compact **card** — the article's lead plus its section names — with the single best-matching section spotlighted in full. Three consequences drive everything below.
+What a good memory-v3 article _is_. The SKILL.md owns ordering; this owns shape. Retrieval is **section-grain**: search runs over individual `## ` sections, and what rides into context per article is a compact **card** — the article's lead plus its section names — with the single best-matching section spotlighted in full. Three consequences drive everything below.
 
 ## The article skeleton
 
@@ -34,7 +34,7 @@ Bullets only where a list is genuinely a list.
 - **`main`** — the one hub this article belongs to. Every leaf has a parent; a hub's `main` is itself.
 - **`links`** — directed see-also refs, each annotated `"target — why"`. Directed: listing B here pulls B toward A's readers, not the reverse.
 - **`tags`** — flat cluster labels. Hubs also carry `kind: index`.
-- **No `summary:`** — the lead *is* the summary. v3 ignores `summary:`. Writing a good lead is writing the retrieval surface.
+- **No `summary:`** — the lead _is_ the summary. v3 ignores `summary:`. Writing a good lead is writing the retrieval surface.
 - **`current:`** — optional ONE-LINE live state (open items, deadlines, what's pending), as-of dated in the text. Rendered on the card so status questions ("what's on my plate") select the page. Maintain like state: update when it moves, **delete the field the moment nothing is live**. Most pages never carry one.
 
 ## The three consequences
@@ -52,7 +52,7 @@ The same source can update both: a new result updates a topic article AND the re
 
 ## Hubs — `kind: index`
 
-Some articles organize a whole cluster. Mark them `kind: index`. A hub is a **routing layer in article form**: its lead states the cluster's shape, its `links:` enumerate the children with one-line annotations, its sections carry only the summary-level through-line. Body content lives on the children — like an encyclopedia's "United States" article not trying to *be* the article on each state. Hubs balloon without discipline: if you're adding a content section to a hub, stop, file it on a child, add the child to the hub's `links:`.
+Some articles organize a whole cluster. Mark them `kind: index`. A hub is a **routing layer in article form**: its lead states the cluster's shape, its `links:` enumerate the children with one-line annotations, its sections carry only the summary-level through-line. Body content lives on the children — like an encyclopedia's "United States" article not trying to _be_ the article on each state. Hubs balloon without discipline: if you're adding a content section to a hub, stop, file it on a child, add the child to the hub's `links:`.
 
 ## Stubs are fine
 
@@ -66,11 +66,11 @@ Each fact gets exactly one place. Before shipping an article:
 - Do two sections restate each other from different analytic angles? That's one section pretending to be two. Merge.
 - Does the page name a fact 3+ times? It lives in zero places that matter. Consolidate.
 
-Duplication *across* articles is fine when a fact is genuinely load-bearing for two topics. Duplication *within* a page is the bug. **Route, don't restate:** if a fact lives on a linked article, the link is enough — retrieval follows the graph.
+Duplication _across_ articles is fine when a fact is genuinely load-bearing for two topics. Duplication _within_ a page is the bug. **Route, don't restate:** if a fact lives on a linked article, the link is enough — retrieval follows the graph.
 
 ## The card budget
 
-Every conversation accumulates a bounded bundle of cards. **Bloated leads starve other articles' cards.** Optimize for orientation density in the lead and fact density in the sections — not completeness. Watch for over-investment: the pages that feel most important tend to attract the most bytes, but byte count should track *retrieval need*, not how significant the topic feels. When a page grows long, the fix is section discipline — split detail into named sections — not a longer lead.
+Every conversation accumulates a bounded bundle of cards. **Bloated leads starve other articles' cards.** Optimize for orientation density in the lead and fact density in the sections — not completeness. Watch for over-investment: the pages that feel most important tend to attract the most bytes, but byte count should track _retrieval need_, not how significant the topic feels. When a page grows long, the fix is section discipline — split detail into named sections — not a longer lead.
 
 ## Sections you never write
 
@@ -86,7 +86,7 @@ Every conversation accumulates a bounded bundle of cards. **Bloated leads starve
 - **cross-reference lists in prose** — `links:` and `recall` handle this.
 - **instructions to self** — "do X next time / handle this differently." A wiki records what is, not what to do. Cut.
 
-If a passage falls into one of these, ask: *would a future search need this exact fact, or is it editorializing/instruction/restating?* If the second — cut.
+If a passage falls into one of these, ask: _would a future search need this exact fact, or is it editorializing/instruction/restating?_ If the second — cut.
 
 ## Reform-specific notes
 
@@ -94,6 +94,6 @@ You are converting v2 pages, not writing from a blank buffer:
 
 - **Folders → flat slugs.** A v2 `people/alice` becomes `alice` with `main:` pointing at the relevant hub. Mixing folder-slugs and flat-slugs confuses retrieval — convert the whole corpus.
 - **`edges:` → `links:`.** v2 `edges:` are bare slugs; v3 `links:` are annotated `"target — why"`. Carry the topology, add the annotations.
-- **Bullets → lead + sections.** A v2 page's `summary:` seeds the lead; its bullets distribute into named sections by *kind of thing*, not by chronology.
+- **Bullets → lead + sections.** A v2 page's `summary:` seeds the lead; its bullets distribute into named sections by _kind of thing_, not by chronology.
 - **Merge over-fragmentation.** Many v2 pages are one-fact stubs that should be sections of a topical article, not standalone pages. The taxonomy (SKILL.md Step 3) decides which collapse.
 - **Preserve, don't compress.** Storage is cheap. When unsure whether to keep a specific fact/quote/date, keep it (in the right section). The loss-audit checks you did.

@@ -4,11 +4,11 @@ You are rewriting memory that cannot be regenerated. Loss-proof is a property yo
 
 ## The three trees
 
-| Tree | Role | Rule |
-|---|---|---|
-| `memory/concepts/` (live) | the safety net | **never edited until cutover** (SKILL.md Step 9) |
+| Tree                      | Role               | Rule                                                       |
+| ------------------------- | ------------------ | ---------------------------------------------------------- |
+| `memory/concepts/` (live) | the safety net     | **never edited until cutover** (SKILL.md Step 9)           |
 | `.mv3/snapshot/concepts/` | read-only baseline | the audit comparator + eval comparator — **never written** |
-| `.mv3/staging/` | the work | all authoring writes here |
+| `.mv3/staging/`           | the work           | all authoring writes here                                  |
 
 Plus `.mv3/provenance/` (per-cluster source maps), `.mv3/audit/` (drop reports, dangling links), `.mv3/eval/` (packets, verdicts). `.mv3/` is git-tracked in `/workspace` so every milestone is a recoverable commit; the snapshot copy is belt-and-suspenders on top of git.
 
@@ -26,7 +26,7 @@ For each staged article, extract quoted strings, dates, and numbers from its pro
 
 ## The semantic pass (reader panel)
 
-The mechanical checks catch missing strings; they miss *weakened* substance (a passage flattened, an implication dropped). The reader-panel workflow (`workflows.md` §2) reads source-vs-staged in full and tags drops `[load-bearing]` / `[secondary]` / `[incidental]`. **Patch every `[load-bearing]` drop back verbatim** into the right section. `[secondary]`/`[incidental]` are judgment calls — patch when cheap, record when not.
+The mechanical checks catch missing strings; they miss _weakened_ substance (a passage flattened, an implication dropped). The reader-panel workflow (`workflows.md` §2) reads source-vs-staged in full and tags drops `[load-bearing]` / `[secondary]` / `[incidental]`. **Patch every `[load-bearing]` drop back verbatim** into the right section. `[secondary]`/`[incidental]` are judgment calls — patch when cheap, record when not.
 
 ## Review gate
 

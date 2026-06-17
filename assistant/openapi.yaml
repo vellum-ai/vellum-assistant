@@ -15202,6 +15202,43 @@ paths:
                 additionalProperties: false
         "409":
           description: Another memory item with this content already exists
+  /v1/memory/eval/run:
+    post:
+      operationId: memory_eval_run_post
+      summary: Build blinded A/B retrieval-eval packets over two concept corpora (snapshot vs staged wiki)
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  turnsMined:
+                    type: number
+                  packetsWritten:
+                    type: number
+                  packetsPath:
+                    type: string
+                  keyPath:
+                    type: string
+                  snapshotPages:
+                    type: number
+                  stagingPages:
+                    type: number
+                  dense:
+                    type: boolean
+                required:
+                  - turnsMined
+                  - packetsWritten
+                  - packetsPath
+                  - keyPath
+                  - snapshotPages
+                  - stagingPages
+                  - dense
+                additionalProperties: false
   /v1/memory/v2/backfill:
     post:
       operationId: memory_v2_backfill_post

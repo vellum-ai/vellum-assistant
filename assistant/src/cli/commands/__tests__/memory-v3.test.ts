@@ -144,7 +144,7 @@ describe("subcommand registration", () => {
     const v3 = memory!.commands.find((c) => c.name() === "v3");
     expect(v3).toBeDefined();
     const subcommandNames = v3!.commands.map((c) => c.name()).sort();
-    expect(subcommandNames).toEqual(["backfill-sections", "rebuild-index"]);
+    expect(subcommandNames).toEqual(["backfill-sections", "eval", "rebuild-index"]);
   });
 });
 

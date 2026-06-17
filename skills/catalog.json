@@ -1004,6 +1004,29 @@
       "updatedAt": "2026-06-03T03:10:07.000Z"
     },
     {
+      "id": "vellum-memory-v3-migration",
+      "name": "vellum-memory-v3-migration",
+      "description": "One-time migration of an existing memory-v2 concept corpus into the memory-v3 section-grain \"wiki\" — topical articles with a stand-alone lead and queryable sections — with loss-proof staging, assistant-reviewed authoring, and a retrieval-eval gate before cutover.",
+      "metadata": {
+        "emoji": "🗂️",
+        "vellum": {
+          "category": "system",
+          "display-name": "Memory v3 Migration",
+          "user-invocable": "true",
+          "activation-hints": [
+            "When the user asks to migrate the memory wiki to v3 / the section-grain format",
+            "When memory-v3 retrieval is available but /workspace/memory/concepts/ is still v2-shaped (flat bullet pages, class folders, summary: frontmatter)"
+          ],
+          "avoid-when": [
+            "When the corpus is already in v3 article shape (leads + ## sections, no summary:) and memory-v3-live is on",
+            "When /workspace/memory/concepts/ is empty or near-empty (run vellum-memory-v2-migration first — there is nothing to reform)"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-06-17T23:05:29.000Z"
+    },
+    {
       "id": "vellum-oauth-integrations",
       "name": "vellum-oauth-integrations",
       "description": "Act on behalf of your user in any third-party software that supports OAuth 2.0",

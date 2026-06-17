@@ -21,7 +21,8 @@ Launch with `capabilities: { tools: ["file_write"] }`. One leaf per cluster — 
 ```ts
 export const meta = {
   name: "memory-v3-author-clusters",
-  description: "Author one v3 wiki article-set per topic cluster into the staging tree, with provenance.",
+  description:
+    "Author one v3 wiki article-set per topic cluster into the staging tree, with provenance.",
   phases: [{ title: "author" }],
 };
 
@@ -72,7 +73,8 @@ Read-only — no `file_write`. A cheap, impartial reader panel; launch with no s
 ```ts
 export const meta = {
   name: "memory-v3-loss-audit",
-  description: "Per-cluster reader panel: list substance present in the v2 sources but missing/weakened in the staged wiki.",
+  description:
+    "Per-cluster reader panel: list substance present in the v2 sources but missing/weakened in the staged wiki.",
   phases: [{ title: "audit" }],
 };
 
@@ -85,10 +87,20 @@ const DROP_SCHEMA = {
       items: {
         type: "object",
         properties: {
-          fact: { type: "string", description: "the specific quote/date/number/detail that is missing or weakened" },
-          severity: { type: "string", enum: ["load-bearing", "secondary", "incidental"] },
+          fact: {
+            type: "string",
+            description:
+              "the specific quote/date/number/detail that is missing or weakened",
+          },
+          severity: {
+            type: "string",
+            enum: ["load-bearing", "secondary", "incidental"],
+          },
           sourcePath: { type: "string" },
-          shouldLiveOn: { type: "string", description: "staged slug + section where it belongs" },
+          shouldLiveOn: {
+            type: "string",
+            description: "staged slug + section where it belongs",
+          },
         },
         required: ["fact", "severity", "sourcePath", "shouldLiveOn"],
       },
@@ -117,7 +129,9 @@ const audited = map(args.clusters, (cluster) =>
 
 const reports = audited.filter(Boolean);
 return {
-  loadBearingDrops: reports.flatMap((r) => r.drops.filter((d) => d.severity === "load-bearing")),
+  loadBearingDrops: reports.flatMap((r) =>
+    r.drops.filter((d) => d.severity === "load-bearing"),
+  ),
   allReports: reports,
 };
 ```
@@ -131,7 +145,8 @@ Decides whether the wiki retrieves ≥ the v2 corpus. The two memory sets per tu
 ```ts
 export const meta = {
   name: "memory-v3-blind-judge",
-  description: "Blind A/B content judge: per mined turn, score which memory set better covers what the reply needed.",
+  description:
+    "Blind A/B content judge: per mined turn, score which memory set better covers what the reply needed.",
   phases: [{ title: "judge" }],
 };
 
