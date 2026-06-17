@@ -496,8 +496,7 @@ function errorResult(
  */
 function rawBodyDetail(body: unknown): { message: string } | undefined {
   if (body == null) return undefined;
-  const text =
-    typeof body === "string" ? body : safeStringifyBody(body);
+  const text = typeof body === "string" ? body : safeStringifyBody(body);
   const trimmed = text.trim();
   return trimmed ? { message: trimmed } : undefined;
 }
@@ -702,10 +701,7 @@ async function executeManagedBraveSearch(
   if (!proxyResult.ok) {
     // Keep billing/auth/unavailable mapping as specific copy; route genuine
     // platform 5xx (transport-level failures) to the friendly backend helper.
-    if (
-      proxyResult.kind === "platform-error" &&
-      proxyResult.status >= 500
-    ) {
+    if (proxyResult.kind === "platform-error" && proxyResult.status >= 500) {
       return backendFailureResult(
         query,
         "brave",
@@ -1156,7 +1152,7 @@ export const webSearchTool = {
       count: {
         type: "number",
         description:
-          "Number of results to return (1-20, default 10). Used with Brave and Tavily providers.",
+          "Number of results to return (1-20, default 10). Used with Brave, Tavily, and Firecrawl providers.",
       },
       offset: {
         type: "number",
@@ -1166,7 +1162,7 @@ export const webSearchTool = {
       freshness: {
         type: "string",
         description:
-          'Filter by recency: "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year). Used with Brave and Tavily providers.',
+          'Filter by recency: "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year). Used with Brave, Tavily, and Firecrawl providers.',
       },
     },
     required: ["query"],
