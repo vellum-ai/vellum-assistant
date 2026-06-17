@@ -384,6 +384,29 @@ describe("api-interceptors / self-hosted rewriting", () => {
     expect(new URL(output.url).origin).toBe("https://platform.test");
     expect(output.headers.get("Authorization")).toBeNull();
   });
+
+  test("does NOT rewrite platform-owned OAuth routes even in local mode", async () => {
+    // OAuth endpoints are platform URLs served by Django and require the
+    // assistant UUID. They must never be forwarded to the gateway,
+    // regardless of local mode or segment allowlist settings.
+    isLocalModeMock.mockImplementation(() => true);
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    for (const path of [
+      `/v1/assistants/${SELF_HOSTED_ID}/oauth/google/start/`,
+      `/v1/assistants/${SELF_HOSTED_ID}/oauth/connections/`,
+      `/v1/assistants/${SELF_HOSTED_ID}/oauth/managed/catalog/`,
+      `/v1/assistants/${SELF_HOSTED_ID}/oauth/managed/materialize/`,
+    ]) {
+      const input = new Request(`https://platform.test${path}`, {
+        method: "POST",
+      });
+      const output = await requestInterceptor(input);
+      expect(new URL(output.url).origin).toBe("https://platform.test");
+      expect(output.headers.get("Vellum-Organization-Id")).toBe(TEST_ORG_ID);
+      expect(output.headers.get("Authorization")).toBeNull();
+    }
+    isLocalModeMock.mockImplementation(() => !process.env.VITE_PLATFORM_MODE);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -462,6 +485,19 @@ describe("api-interceptors / daemon client self-hosted rewriting", () => {
     const output = await daemonRequestInterceptor(input);
     expect(output.headers.get("X-Vellum-Client-Id")).toBe(getClientId());
     expect(output.headers.get("X-Vellum-Interface-Id")).toBe("vellum");
+  });
+
+  test("does NOT rewrite platform-owned OAuth routes even with skipSegmentAllowlist", async () => {
+    // Platform-owned segments are never forwarded to the gateway regardless
+    // of which client sends the request.
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    const input = new Request(
+      `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/oauth/github/start/`,
+      { method: "POST" },
+    );
+    const output = await daemonRequestInterceptor(input);
+    expect(new URL(output.url).origin).toBe("https://platform.test");
+    expect(output.headers.get("Authorization")).toBeNull();
   });
 });
 

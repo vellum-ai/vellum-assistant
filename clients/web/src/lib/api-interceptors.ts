@@ -72,6 +72,15 @@ function getRendererTupleOrigin(): string {
  */
 const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>(["conversations"]);
 
+/**
+ * Segments under `/v1/assistants/{id}/` that are exclusively owned by
+ * the platform (Django) and must NEVER be rewritten to the self-hosted
+ * gateway — even in local mode where all other assistant sub-paths are
+ * forwarded. These routes require the platform assistant UUID and are
+ * served by Django, not the local gateway.
+ */
+const PLATFORM_OWNED_SEGMENTS = new Set<string>(["oauth"]);
+
 const ASSISTANT_PATH_RE =
   /^\/v1\/assistants\/[^/]+\/([^/?#]+)(?:\/.*)?$/;
 
@@ -108,6 +117,7 @@ export async function rewriteForSelfHostedIngress(
   const firstSegment = match[1];
   if (
     !firstSegment ||
+    PLATFORM_OWNED_SEGMENTS.has(firstSegment) ||
     (!skipSegmentAllowlist &&
       !isLocalMode() &&
       !RUNTIME_PROXIED_FIRST_SEGMENTS.has(firstSegment))
