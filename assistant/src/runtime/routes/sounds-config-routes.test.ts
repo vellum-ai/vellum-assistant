@@ -1,13 +1,10 @@
 /**
  * Tests for the dedicated sounds-config route handlers.
  *
- * The behaviour these tests lock in is regression-prone: the sounds config
- * `events` map is an open record (`z.record(z.string(), ...)`), so event keys
- * that this app doesn't know about — notably `app_open`, which the native
- * macOS client writes and configures — MUST survive a read/normalise and a
- * full PUT round-trip. An earlier web-side normaliser rebuilt `events` from
- * only the known `SOUND_EVENT_IDS` and silently dropped foreign keys on the
- * first edit (LUM-2302). Guard against that regression here.
+ * The sounds config `events` map is an open record (`z.record(z.string(), ...)`),
+ * so event keys this app doesn't define — notably `app_open`, which the native
+ * macOS client writes and configures — must survive a GET (read/normalise) and a
+ * full PUT round-trip without being dropped. These tests pin that invariant.
  */
 import {
   existsSync,
