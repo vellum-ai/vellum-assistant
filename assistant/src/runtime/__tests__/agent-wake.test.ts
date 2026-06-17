@@ -244,6 +244,55 @@ const recordRequestLogCalls: Array<{
   provider?: string;
   callSite?: string;
 }> = [];
+const recordUsageCalls: Array<{
+  conversationId: string;
+  inputTokens: number;
+  outputTokens: number;
+  model: string;
+  actor: string;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+  callSite: unknown;
+  overrideProfile: unknown;
+  forceOverrideProfile: unknown;
+  selectionSeed: unknown;
+}> = [];
+mock.module("../../daemon/conversation-usage.js", () => ({
+  recordUsage: (
+    ctx: { conversationId: string },
+    inputTokens: number,
+    outputTokens: number,
+    model: string,
+    _onEvent: unknown,
+    actor: string,
+    _requestId: unknown,
+    cacheCreationInputTokens = 0,
+    cacheReadInputTokens = 0,
+    _rawResponse?: unknown,
+    _llmCallCount?: number,
+    _contextWindow?: unknown,
+    attribution?: {
+      callSite?: unknown;
+      overrideProfile?: unknown;
+      forceOverrideProfile?: unknown;
+      selectionSeed?: unknown;
+    },
+  ) => {
+    recordUsageCalls.push({
+      conversationId: ctx.conversationId,
+      inputTokens,
+      outputTokens,
+      model,
+      actor,
+      cacheCreationInputTokens,
+      cacheReadInputTokens,
+      callSite: attribution?.callSite ?? null,
+      overrideProfile: attribution?.overrideProfile ?? null,
+      forceOverrideProfile: attribution?.forceOverrideProfile,
+      selectionSeed: attribution?.selectionSeed,
+    });
+  },
+}));
 mock.module("../../memory/llm-request-log-store.js", () => ({
   recordRequestLog: (
     conversationId: string,
@@ -464,6 +513,7 @@ beforeEach(() => {
   __resetWakeChainForTests();
   wakeConvRegistry.clear();
   recordRequestLogCalls.length = 0;
+  recordUsageCalls.length = 0;
   mockGetOrCreateConversationCalls.length = 0;
   mockResolverTarget = null;
   mockGetConversationOverrideProfile = () => undefined;
@@ -1894,6 +1944,137 @@ describe("wakeAgentForOpportunity", () => {
     // mislabeled retrospective/consolidation wake rows in llm_request_logs
     // and polluted call-site filtering during prompt diagnostics.
     expect(recordRequestLogCalls[0]?.callSite).toBe("memoryRetrospective");
+  });
+
+  test("wake records LLM usage to the cost ledger, attributed to its call site", async () => {
+    const usageEvent: AgentEvent = {
+      type: "usage",
+      inputTokens: 100,
+      outputTokens: 5,
+      model: "test-model",
+      actualProvider: "test-provider",
+      providerDurationMs: 10,
+      cacheCreationInputTokens: 7,
+      cacheReadInputTokens: 11,
+      rawRequest: { request: "retrospective wake" },
+      rawResponse: { response: "real reply" },
+    };
+    const conversation = makeWakeConversation({
+      baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      scriptedEvents: [usageEvent],
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "real reply" }],
+      },
+    });
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "do reply",
+        source: "unit-test",
+        callSite: "memoryRetrospective",
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    // A wake-driven LLM call records a usage row attributed to its
+    // conversation, so its cost reaches the ledger.
+    expect(recordUsageCalls).toHaveLength(1);
+    expect(recordUsageCalls[0]).toMatchObject({
+      conversationId: conversation.conversationId,
+      inputTokens: 100,
+      outputTokens: 5,
+      model: "test-model",
+      actor: "main_agent",
+      cacheCreationInputTokens: 7,
+      cacheReadInputTokens: 11,
+      callSite: "memoryRetrospective",
+      // Seed the dispatch path used for mix-arm resolution.
+      selectionSeed: conversation.conversationId,
+    });
+  });
+
+  test("forced-profile wake records usage under the forced profile, not the call site", async () => {
+    const usageEvent: AgentEvent = {
+      type: "usage",
+      inputTokens: 100,
+      outputTokens: 5,
+      model: "test-model",
+      actualProvider: "test-provider",
+      providerDurationMs: 10,
+      rawRequest: { request: "forced wake" },
+      rawResponse: { response: "real reply" },
+    };
+    const conversation = makeWakeConversation({
+      baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      scriptedEvents: [usageEvent],
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "real reply" }],
+      },
+    });
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "do reply",
+        source: "unit-test",
+        callSite: "memoryRetrospective",
+        // Stand-in for the source conversation's profile, floated above the
+        // call-site profile (fork retrospectives). `recordUsage` is mocked, so
+        // this value is only threaded through and asserted — not resolved.
+        forceOverrideProfile: "source-profile",
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(recordUsageCalls).toHaveLength(1);
+    expect(recordUsageCalls[0]).toMatchObject({
+      overrideProfile: "source-profile",
+      forceOverrideProfile: true,
+      selectionSeed: conversation.conversationId,
+    });
+  });
+
+  test("silent no-op wake still records usage even though its request log is dropped", async () => {
+    const usageEvent: AgentEvent = {
+      type: "usage",
+      inputTokens: 100,
+      outputTokens: 5,
+      model: "test-model",
+      actualProvider: "test-provider",
+      providerDurationMs: 10,
+      rawRequest: { request: "no-op wake" },
+      rawResponse: { response: "no output" },
+    };
+    const conversation = makeWakeConversation({
+      baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      scriptedEvents: [usageEvent],
+      // Empty assistant text → silent no-op, so the request log is dropped.
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "" }],
+      },
+    });
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "consider doing nothing",
+        source: "unit-test",
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    // Silent wake drops its request log, but the call still cost money.
+    expect(recordRequestLogCalls).toHaveLength(0);
+    expect(recordUsageCalls).toHaveLength(1);
+    expect(recordUsageCalls[0]).toMatchObject({
+      conversationId: conversation.conversationId,
+      inputTokens: 100,
+      outputTokens: 5,
+    });
   });
 
   test("non-serializable usage payload does not abort the wake", async () => {
