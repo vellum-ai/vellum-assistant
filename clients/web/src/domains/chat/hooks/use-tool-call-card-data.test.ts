@@ -377,12 +377,18 @@ describe("computeToolCallCardDataFromItems — interleaved ordering", () => {
       kind: "thinking",
       durationLabel: "",
       text: "first I reason",
+      startedAt: undefined,
+      completedAt: undefined,
+      thinkingItemIndex: 0,
     });
     expect(data.steps[1]!.kind).toBe("tool");
     expect(data.steps[2]).toEqual({
       kind: "thinking",
       durationLabel: "",
       text: "then I reason again",
+      startedAt: undefined,
+      completedAt: undefined,
+      thinkingItemIndex: 1,
     });
     expect(data.stepCount).toBe("3 steps");
   });
@@ -415,6 +421,7 @@ describe("computeToolCallCardDataFromItems — interleaved ordering", () => {
       text: "stamped reasoning",
       startedAt: 1_000,
       completedAt: 4_000,
+      thinkingItemIndex: 0,
     });
     // AND the unstamped step hides its duration, exactly as a tool with no timing
     expect(data.steps[1]).toEqual({
@@ -423,6 +430,7 @@ describe("computeToolCallCardDataFromItems — interleaved ordering", () => {
       text: "unstamped reasoning",
       startedAt: undefined,
       completedAt: undefined,
+      thinkingItemIndex: 1,
     });
   });
 

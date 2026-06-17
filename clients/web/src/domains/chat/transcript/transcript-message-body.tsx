@@ -220,6 +220,7 @@ export function TranscriptMessageBody({
     items: ContentBlockActivityItem[],
     key: string,
     isLastGroup: boolean,
+    groupIndex: number,
   ): ReactNode => {
     const cardItems: ToolCallCardItem[] = [];
     const groupToolCalls: ChatMessageToolCall[] = [];
@@ -270,6 +271,8 @@ export function TranscriptMessageBody({
             <MultiActivityGroup
               toolCalls={groupToolCalls}
               items={cardItems}
+              messageId={message.id}
+              groupIndex={groupIndex}
               onOpenRuleEditor={onOpenRuleEditor}
               onConfirmationSubmit={onConfirmationSubmit}
               onAllowAndCreateRule={onAllowAndCreateRule}
@@ -293,6 +296,8 @@ export function TranscriptMessageBody({
             variant="thinking"
             content={combinedThinking}
             isStreaming={isStreaming && isLastGroup}
+            messageId={message.id}
+            groupIndex={groupIndex}
           />
         )}
         {renderInlineSubagentCards(groupToolCalls)}
@@ -365,7 +370,7 @@ export function TranscriptMessageBody({
     if (group.type === "surface") {
       return renderSurfaceNode(group.surface, `b-surface-${gi}`);
     }
-    return renderActivityGroup(group.items, `b-activity-${gi}`, gi === lastGroupIndex);
+    return renderActivityGroup(group.items, `b-activity-${gi}`, gi === lastGroupIndex, gi);
   };
 
   const wrapperClass = `group/msg flex ${isUser ? "justify-end" : "justify-start"}`;

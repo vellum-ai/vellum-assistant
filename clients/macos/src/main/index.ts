@@ -101,6 +101,27 @@ if (!app.isPackaged) {
 }
 const isDev = !app.isPackaged;
 
+// Dev-only: skip the real macOS Keychain for Chromium's `os_crypt` /
+// Electron `safeStorage`. Without this, the first `safeStorage` call —
+// e.g. persisting the session token after sign-in via
+// `./session-token-store` — makes Chromium prompt for the login
+// keychain password ("Vellum Electron Safe Storage"). Denying that
+// prompt surfaces as `keychain_password_mac.mm ... userCanceledErr
+// (-128)` and silently drops token persistence. `--use-mock-keychain`
+// routes os_crypt to an in-process mock backend: `safeStorage` stays
+// available and encrypt/decrypt still work (so the token persists
+// across dev restarts), but nothing ever touches the real keychain, so
+// there is no prompt. Dev-encrypted blobs are not readable by a real
+// keychain build, which is fine for local dev — and a `session.enc`
+// left over from a previous real-keychain run just fails to decrypt and
+// falls back to signed-out (see `getSessionToken`), self-healing on the
+// next sign-in. Must be appended before `app` is ready; this module
+// runs synchronously at startup, well before `app.whenReady`. Gated on
+// dev so packaged builds keep real keychain encryption at rest.
+if (isDev) {
+  app.commandLine.appendSwitch("use-mock-keychain");
+}
+
 // Packaged builds all share the same package.json `name` (`@vellumai/macos`),
 // so Electron resolves `app.getPath("userData")` to the same directory for
 // every environment. This causes `requestSingleInstanceLock()` collisions

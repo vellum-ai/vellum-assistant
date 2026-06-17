@@ -10,7 +10,7 @@
 import { workspaceFileContentGet } from "@/generated/daemon/sdk.gen";
 import { assertHasResponse } from "@/utils/api-errors";
 
-import { validateSoundFilename } from "@/domains/settings/types/sounds";
+import { validateSoundFilename } from "@/lib/sounds/types";
 
 const SOUNDS_DIR = "data/sounds";
 

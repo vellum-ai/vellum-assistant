@@ -14,6 +14,7 @@ export const INFERENCE_PROVIDERS = [
   "openrouter",
   "gemini",
   "minimax",
+  "atlascloud",
 ] as const;
 
 export const TOKEN_SLIDER_MIN_TOKENS = 1_000;

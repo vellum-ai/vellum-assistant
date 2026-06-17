@@ -138,8 +138,51 @@ export interface ToolDetailPayload {
    * renders `thinkingText` as markdown with no input/output sections.
    */
   kind?: "tool" | "thinking";
-  /** Full reasoning markdown rendered when `kind === "thinking"`. */
+  /**
+   * Reasoning markdown captured when the drawer was opened. Used as the
+   * fallback when the live source (below) can't be resolved.
+   */
   thinkingText?: string;
+  /**
+   * Stable identity of the reasoning run this drawer mirrors. When present, the
+   * panel re-derives live text from the chat-session store (via
+   * `useLiveThinkingText`) so an open drawer streams instead of freezing
+   * `thinkingText`. `messageId` + `thinkingGroupIndex` locate the activity
+   * group; `thinkingItemIndex` selects a single segment within it (omitted for
+   * the bare combined "Thought process" panel).
+   */
+  messageId?: string;
+  thinkingGroupIndex?: number;
+  thinkingItemIndex?: number;
+}
+
+/** The identity fields a thinking drawer target is matched on. */
+type ThinkingTarget = Pick<
+  ToolDetailPayload,
+  "messageId" | "thinkingGroupIndex" | "thinkingItemIndex" | "thinkingText"
+>;
+
+/**
+ * Whether `active` addresses the same reasoning as `target`. Keys on the stable
+ * (message, group, segment) identity when `target` carries one — so the match
+ * holds while the reasoning text streams — and falls back to text equality for
+ * identity-less targets (web-synthesized "Reading…" steps, stories/tests).
+ *
+ * Single source of truth for the inline thinking affordances' selected state
+ * (`SingleActivity`, `MultiActivityGroup`) and the drawer toggle below.
+ */
+export function sameThinkingTarget(
+  active: ThinkingTarget,
+  target: ThinkingTarget,
+): boolean {
+  if (target.messageId != null) {
+    return (
+      active.messageId === target.messageId &&
+      active.thinkingGroupIndex === target.thinkingGroupIndex &&
+      active.thinkingItemIndex === target.thinkingItemIndex
+    );
+  }
+  return active.thinkingText === target.thinkingText;
 }
 
 // ---------------------------------------------------------------------------
@@ -378,8 +421,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       state.mainView === "tool-detail" &&
       active != null &&
       (payload.kind === "thinking"
-        ? active.kind === "thinking" &&
-          active.thinkingText === payload.thinkingText
+        ? active.kind === "thinking" && sameThinkingTarget(active, payload)
         : active.kind !== "thinking" &&
           active.toolCallId === payload.toolCallId);
     if (isSameTarget) {

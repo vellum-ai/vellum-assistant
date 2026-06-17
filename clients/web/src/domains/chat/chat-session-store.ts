@@ -29,7 +29,10 @@ import { useTurnStore } from "@/domains/chat/turn-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useComposerStore } from "@/domains/chat/composer-store";
-import type { DisplayMessage } from "@/domains/chat/types/types";
+import type {
+  DisplayMessage,
+  EphemeralMetaResult,
+} from "@/domains/chat/types/types";
 import type { ChatError } from "@/domains/chat/types";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
@@ -50,6 +53,12 @@ export interface ChatSessionState {
 
   // --- Context window ---
   contextWindowUsage: ContextWindowUsage | null;
+
+  // --- Ephemeral local meta-command results ---
+  // Results of local meta slash commands (/clean, /status, /commands, /models),
+  // rendered as cards at the transcript tail. Never persisted; cleared on the
+  // next real send, conversation switch, or reload.
+  ephemeralMetaResults: EphemeralMetaResult[];
 
   // --- Circuit breaker ---
   compactionCircuitOpenUntil: Date | null;
@@ -164,6 +173,10 @@ export interface ChatSessionActions {
   // --- Context window cache ---
   setContextWindowUsageForConversation: (conversationId: string, usage: ContextWindowUsage) => void;
 
+  // --- Ephemeral meta-command results ---
+  addEphemeralMetaResult: (result: EphemeralMetaResult) => void;
+  clearEphemeralMetaResults: () => void;
+
   // --- Data-apply coordination ---
   consumeSwitchReset: () => void;
   setLastAppliedDataTimestamp: (ts: number) => void;
@@ -193,6 +206,7 @@ function initialState(): ChatSessionState {
     isLoadingHistory: true,
     transcriptPagination: { ...INITIAL_PAGINATION },
     contextWindowUsage: null,
+    ephemeralMetaResults: [],
     compactionCircuitOpenUntil: null,
     dismissedSurfaceIds: new Set(),
     streamingMessageIds: new Set(),
@@ -314,6 +328,7 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
 
     set({
       messages: [],
+      ephemeralMetaResults: [],
       error: shouldSuppressGenericChatErrorNotice(state.error) ? state.error : null,
       isLoadingHistory: true,
       transcriptPagination: { ...INITIAL_PAGINATION },
@@ -453,6 +468,19 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       next.set(conversationId, usage);
       return { contextWindowUsageByConversation: next };
     }),
+
+  // --- Ephemeral meta-command results ---
+  addEphemeralMetaResult: (result) =>
+    set((s) => ({
+      ephemeralMetaResults: [...s.ephemeralMetaResults, result],
+    })),
+
+  clearEphemeralMetaResults: () =>
+    set((s) =>
+      s.ephemeralMetaResults.length === 0
+        ? s
+        : { ephemeralMetaResults: [] },
+    ),
 
   // --- Data-apply coordination ---
   consumeSwitchReset: () =>

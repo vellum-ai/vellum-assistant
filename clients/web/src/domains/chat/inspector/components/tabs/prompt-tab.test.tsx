@@ -1,10 +1,11 @@
 /**
  * Tests for the PromptTab section rendering. Renders to static markup
  * (no DOM), mirroring `compaction-tab.test.tsx`, and asserts that prose
- * sections (system prompt, user and assistant messages) render as Markdown
- * while structured payloads, tool-call arguments, and tool results render as
- * code-style `<pre>` text. Literal `<tag>`-style prompt delimiters stay
- * visible as text.
+ * sections (system prompt, user and assistant messages) render as the
+ * literal text the model receives — markdown markers and `<tag>`-style
+ * delimiters stay visible rather than being formatted — while structured
+ * payloads, tool-call arguments, and tool results render as code-style
+ * `<pre>` text.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -44,7 +45,7 @@ function render(sections: LLMContextSection[]): string {
 }
 
 describe("PromptTab", () => {
-  test("renders text sections as Markdown", () => {
+  test("renders prose sections as literal text, not Markdown", () => {
     const html = render([
       {
         kind: "message",
@@ -56,11 +57,12 @@ describe("PromptTab", () => {
       },
     ]);
 
-    // Markdown syntax is formatted: the heading and emphasis become real
-    // elements rather than literal `#`/`**` characters.
-    expect(html).toContain("<h1");
-    expect(html).toContain("Heading");
-    expect(html).toContain("<strong");
+    // Prose renders the literal characters the model receives: the `#`/`**`
+    // markers stay visible and are not turned into heading/emphasis elements.
+    expect(html).not.toContain("<h1");
+    expect(html).not.toContain("<strong");
+    expect(html).toContain("# Heading");
+    expect(html).toContain("**bold** prose");
   });
 
   test("preserves XML-style prompt delimiters as literal text", () => {

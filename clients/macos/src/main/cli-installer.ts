@@ -15,8 +15,30 @@ import path from "node:path";
 
 import log from "./logger";
 
-// Auto-stamped by create-release-branch workflow.
-export const PINNED_CLI_VERSION = "0.9.0";
+// Empty by default: the happy path floats to the environment's dist-tag.
+// Set by hand to pin the bundled CLI to an exact version.
+export const PINNED_CLI_VERSION = "";
+
+// Install dir for fresh, unpinned installs.
+const LATEST_INSTALL_DIR = "latest";
+
+// Injected by `electron.vite.config.ts` at build time.
+declare const __VELLUM_ENVIRONMENT__: string;
+const VELLUM_ENVIRONMENT =
+  typeof __VELLUM_ENVIRONMENT__ === "string"
+    ? __VELLUM_ENVIRONMENT__
+    : "production";
+
+/**
+ * npm dist-tag the unpinned CLI install floats to. Dev and staging builds run
+ * their own published CLI (`--tag dev` / `--tag staging`); everything else
+ * tracks production `latest`. Keep in sync with generate-cli-lockfile.sh.
+ */
+function getCliDistTag(): string {
+  if (VELLUM_ENVIRONMENT === "dev") return "dev";
+  if (VELLUM_ENVIRONMENT === "staging") return "staging";
+  return "latest";
+}
 
 // Baked by electron.vite.config.ts: the repo CLI entry for local builds,
 // empty for release builds (and absent under bun test).
@@ -40,9 +62,67 @@ export function getLocalCliEntry(): string | null {
     : null;
 }
 
-/** Directory where the pinned CLI version is installed. */
+/** Root directory holding every CLI install: `<userData>/cli`. */
+export function getCliRootDir(): string {
+  return path.join(app.getPath("userData"), "cli");
+}
+
+/** The `vellum` bin path within an install directory. */
+function binPathIn(dir: string): string {
+  return path.join(dir, "node_modules", ".bin", "vellum");
+}
+
+/** Compare two version-like dir names numerically (so 0.10.0 > 0.9.0). */
+function compareVersions(a: string, b: string): number {
+  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+/**
+ * Newest existing install under `cli/` whose `vellum` bin is present: prefer
+ * `cli/latest`, otherwise the highest semver-named dir (including an old
+ * pinned dir like `cli/0.9.0`). Returns `null` when nothing is installed.
+ */
+export function findExistingInstallDir(): string | null {
+  const cliRoot = getCliRootDir();
+
+  let entries: Array<{ name: string; isDirectory: () => boolean }>;
+  try {
+    entries = readdirSync(cliRoot, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+
+  const installed = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .filter((name) => existsSync(binPathIn(path.join(cliRoot, name))));
+
+  if (installed.length === 0) return null;
+
+  if (installed.includes(LATEST_INSTALL_DIR)) {
+    return path.join(cliRoot, LATEST_INSTALL_DIR);
+  }
+
+  const newest = installed.sort(compareVersions).at(-1)!;
+  return path.join(cliRoot, newest);
+}
+
+/**
+ * Directory where the CLI is (or will be) installed. When `PINNED_CLI_VERSION`
+ * is set, the exact pinned dir; otherwise reuse any existing install, falling
+ * back to `cli/latest` for a fresh install.
+ */
 export function getCliInstallDir(): string {
-  return path.join(app.getPath("userData"), "cli", PINNED_CLI_VERSION);
+  const cliRoot = getCliRootDir();
+  if (PINNED_CLI_VERSION) return path.join(cliRoot, PINNED_CLI_VERSION);
+  return findExistingInstallDir() ?? path.join(cliRoot, LATEST_INSTALL_DIR);
 }
 
 /**
@@ -52,10 +132,7 @@ export function getCliInstallDir(): string {
  * this, so local builds never touch the npm install path.
  */
 export function getCliBinPath(): string {
-  return (
-    getLocalCliEntry() ??
-    path.join(getCliInstallDir(), "node_modules", ".bin", "vellum")
-  );
+  return getLocalCliEntry() ?? binPathIn(getCliInstallDir());
 }
 
 /** Absolute path to the bun runtime bundled inside the app resources. */
@@ -63,14 +140,14 @@ export function getBundledBunPath(): string {
   return path.join(process.resourcesPath, "bun");
 }
 
-/** Whether the pinned CLI version is already installed on disk. */
+/** Whether the CLI is already installed on disk. */
 export function isCliInstalled(): boolean {
   return existsSync(getCliBinPath());
 }
 
 /** Path to the shell-sourceable locator file consumed by the PATH wrapper. */
 export function getCliLocatorPath(): string {
-  return path.join(app.getPath("userData"), "cli", "locator.sh");
+  return path.join(getCliRootDir(), "locator.sh");
 }
 
 /** Single-quote a value for safe interpolation into a shell script. */
@@ -96,8 +173,8 @@ export function writeFileAtomicSync(
  * every launch so app moves and version bumps self-heal. Non-fatal —
  * failures are logged but never block app startup.
  *
- * No-ops when the pinned CLI bin isn't installed yet (e.g. first launch
- * after a version bump) so the wrapper is never pointed at a missing binary.
+ * No-ops when the CLI bin isn't installed yet (e.g. first launch) so the
+ * wrapper is never pointed at a missing binary.
  */
 export function writeCliLocator(): void {
   if (!isCliInstalled()) return;
@@ -170,22 +247,12 @@ function seedCliLockfile(installDir: string): boolean {
   return true;
 }
 
-function bunInstallCli(): Promise<void> {
-  const installDir = getCliInstallDir();
-  mkdirSync(installDir, { recursive: true });
-
+/** Spawn the bundled bun with `args` in `cwd` and await its exit. */
+function runBun(args: string[], cwd: string): Promise<void> {
   const bunPath = getBundledBunPath();
-  const seeded = seedCliLockfile(installDir);
-
-  const args = seeded
-    ? ["install", "--frozen-lockfile", "--ignore-scripts"]
-    : ["add", `vellum@${PINNED_CLI_VERSION}`, "--ignore-scripts"];
 
   return new Promise<void>((resolve, reject) => {
-    const child = spawn(bunPath, args, {
-      cwd: installDir,
-      env: buildInstallEnv(),
-    });
+    const child = spawn(bunPath, args, { cwd, env: buildInstallEnv() });
 
     let stdout = "";
     let stderr = "";
@@ -200,9 +267,7 @@ function bunInstallCli(): Promise<void> {
 
     child.on("error", (err: Error) => {
       reject(
-        new Error(
-          `Failed to spawn bun for package install: ${err.message}`,
-        ),
+        new Error(`Failed to spawn bun for package install: ${err.message}`),
       );
     });
 
@@ -221,6 +286,35 @@ function bunInstallCli(): Promise<void> {
   });
 }
 
+async function bunInstallCli(): Promise<void> {
+  const installDir = getCliInstallDir();
+  mkdirSync(installDir, { recursive: true });
+
+  if (PINNED_CLI_VERSION) {
+    // Pinned: prefer the seeded frozen lockfile, else resolve the exact version.
+    const seeded = seedCliLockfile(installDir);
+    const args = seeded
+      ? ["install", "--frozen-lockfile", "--ignore-scripts"]
+      : ["add", `vellum@${PINNED_CLI_VERSION}`, "--ignore-scripts"];
+    await runBun(args, installDir);
+    return;
+  }
+
+  // Unpinned: float to the environment's dist-tag, falling back to the seeded
+  // frozen lockfile (resolved at build time) when the registry is unreachable.
+  const spec = `vellum@${getCliDistTag()}`;
+  try {
+    await runBun(["add", spec, "--ignore-scripts"], installDir);
+  } catch (err) {
+    if (!seedCliLockfile(installDir)) throw err;
+    log.warn(
+      `[cli-installer] \`bun add ${spec}\` failed; falling back to seeded lockfile:`,
+      err,
+    );
+    await runBun(["install", "--frozen-lockfile", "--ignore-scripts"], installDir);
+  }
+}
+
 // Singleton promise prevents concurrent installs from corrupting node_modules.
 let cliInstallPromise: Promise<void> | null = null;
 
@@ -230,7 +324,7 @@ export function _resetInstallLock(): void {
 }
 
 /**
- * Install the pinned vellum meta-package if it isn't already present.
+ * Install the vellum meta-package if it isn't already present.
  *
  * Packaged builds ship a pre-resolved lockfile so `bun install
  * --frozen-lockfile` pins the exact dependency graph from build time;
@@ -259,18 +353,20 @@ export async function ensureCliInstalled(): Promise<void> {
 }
 
 /**
- * Remove CLI versions other than the currently pinned one.
+ * Remove CLI installs other than the one currently in use.
  *
- * Non-fatal — cleanup errors are logged but never thrown so a stale
+ * Runs only after a fresh install, so an adopted existing install is never
+ * touched. Non-fatal — cleanup errors are logged but never thrown so a stale
  * directory doesn't block the app from starting.
  */
 export function cleanupOldVersions(): void {
   try {
-    const cliRoot = path.join(app.getPath("userData"), "cli");
+    const cliRoot = getCliRootDir();
+    const keep = path.basename(getCliInstallDir());
     const entries = readdirSync(cliRoot, { withFileTypes: true });
 
     for (const entry of entries) {
-      if (entry.name === PINNED_CLI_VERSION) continue;
+      if (entry.name === keep) continue;
       if (!entry.isDirectory()) continue;
 
       try {

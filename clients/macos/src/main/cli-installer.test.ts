@@ -109,7 +109,12 @@ const {
 const seedPkgPath = `${mockResourcesPath}/cli-lockfile/package.json`;
 const seedLockPath = `${mockResourcesPath}/cli-lockfile/bun.lock`;
 const locatorPath = `${userDataPath}/cli/locator.sh`;
-const cliBinPath = `${userDataPath}/cli/${PINNED_CLI_VERSION}/node_modules/.bin/vellum`;
+// Default (unpinned) install dir when nothing exists yet.
+const latestInstallDir = `${userDataPath}/cli/latest`;
+const cliBinPath = `${latestInstallDir}/node_modules/.bin/vellum`;
+/** Bin path for an install dir under `cli/`. */
+const binPathFor = (name: string) =>
+  `${userDataPath}/cli/${name}/node_modules/.bin/vellum`;
 
 afterEach(() => {
   existsSyncDefault = false;
@@ -130,19 +135,39 @@ afterEach(() => {
 
 // --- Path helpers ---
 
+describe("PINNED_CLI_VERSION", () => {
+  test("is empty by default (unpinned: float to latest)", () => {
+    expect(PINNED_CLI_VERSION).toBe("");
+  });
+});
+
 describe("getCliInstallDir", () => {
-  test("returns <userData>/cli/<version>", () => {
-    expect(getCliInstallDir()).toBe(
-      `${userDataPath}/cli/${PINNED_CLI_VERSION}`,
-    );
+  test("unpinned with no existing install → cli/latest", () => {
+    readdirSyncReturn = [];
+    expect(getCliInstallDir()).toBe(latestInstallDir);
+  });
+
+  test("unpinned adopts the newest existing install", () => {
+    readdirSyncReturn = [dirEntry("0.8.5"), dirEntry("0.10.0")];
+    existsSyncByPath[binPathFor("0.8.5")] = true;
+    existsSyncByPath[binPathFor("0.10.0")] = true;
+
+    expect(getCliInstallDir()).toBe(`${userDataPath}/cli/0.10.0`);
+  });
+
+  test("unpinned prefers an existing cli/latest over a versioned dir", () => {
+    readdirSyncReturn = [dirEntry("0.9.0"), dirEntry("latest")];
+    existsSyncByPath[binPathFor("0.9.0")] = true;
+    existsSyncByPath[cliBinPath] = true;
+
+    expect(getCliInstallDir()).toBe(latestInstallDir);
   });
 });
 
 describe("getCliBinPath", () => {
   test("returns <installDir>/node_modules/.bin/vellum", () => {
-    expect(getCliBinPath()).toBe(
-      `${userDataPath}/cli/${PINNED_CLI_VERSION}/node_modules/.bin/vellum`,
-    );
+    readdirSyncReturn = [];
+    expect(getCliBinPath()).toBe(cliBinPath);
   });
 });
 
@@ -217,9 +242,7 @@ describe("writeCliLocator", () => {
 
     const content = writeFileSyncCalls[0][1];
     expect(content).toContain(`VELLUM_BUN='${mockResourcesPath}/bun'\n`);
-    expect(content).toContain(
-      `VELLUM_CLI_BIN='${userDataPath}/cli/${PINNED_CLI_VERSION}/node_modules/.bin/vellum'\n`,
-    );
+    expect(content).toContain(`VELLUM_CLI_BIN='${cliBinPath}'\n`);
     expect(content.endsWith("\n")).toBe(true);
     expect(content.startsWith("#!")).toBe(false);
   });
@@ -275,7 +298,20 @@ describe("ensureCliInstalled", () => {
     await expect(ensureCliInstalled()).resolves.toBeUndefined();
   });
 
-  test("falls back to bun add --ignore-scripts when no seed lockfile exists", async () => {
+  test("adopts an existing install without spawning", async () => {
+    existsSyncDefault = false;
+    readdirSyncReturn = [dirEntry("0.9.0")];
+    existsSyncByPath[binPathFor("0.9.0")] = true;
+
+    await ensureCliInstalled();
+
+    // The adopted dir is used as-is — no install, no cleanup.
+    expect(spawnCalls).toHaveLength(0);
+    expect(rmSyncCalls).toHaveLength(0);
+    expect(renameSyncCalls).toEqual([[`${locatorPath}.tmp`, locatorPath]]);
+  });
+
+  test("fresh unpinned install spawns bun add vellum@latest", async () => {
     existsSyncDefault = false;
 
     const promise = ensureCliInstalled();
@@ -286,23 +322,26 @@ describe("ensureCliInstalled", () => {
     expect(spawnCalls).toHaveLength(1);
     const [cmd, args, opts] = spawnCalls[0];
     expect(cmd).toBe(`${mockResourcesPath}/bun`);
-    expect(args).toEqual(["add", `vellum@${PINNED_CLI_VERSION}`, "--ignore-scripts"]);
-    expect((opts as { cwd: string }).cwd).toBe(
-      `${userDataPath}/cli/${PINNED_CLI_VERSION}`,
-    );
+    expect(args).toEqual(["add", "vellum@latest", "--ignore-scripts"]);
+    expect((opts as { cwd: string }).cwd).toBe(latestInstallDir);
     const env = (opts as { env: NodeJS.ProcessEnv }).env;
     expect(env).toBeDefined();
     expect(env!.PATH).toContain("/opt/homebrew/bin");
     expect(env!.PATH).toContain("/usr/local/bin");
   });
 
-  test("uses bun install --frozen-lockfile --ignore-scripts when seed lockfile exists", async () => {
+  test("offline fallback: latest fails → seeded frozen-lockfile retry", async () => {
     existsSyncDefault = false;
     existsSyncByPath[seedPkgPath] = true;
     existsSyncByPath[seedLockPath] = true;
 
     const promise = ensureCliInstalled();
 
+    // `bun add vellum@latest` fails (e.g. registry unreachable).
+    lastChild.stderr.emit("data", Buffer.from("network error"));
+    lastChild.emit("close", 1);
+    // The retry spawns against the seeded frozen lockfile.
+    await Promise.resolve();
     lastChild.emit("close", 0);
     await promise;
 
@@ -310,10 +349,25 @@ describe("ensureCliInstalled", () => {
     expect(copyFileSyncCalls[0][0]).toBe(seedPkgPath);
     expect(copyFileSyncCalls[1][0]).toBe(seedLockPath);
 
+    expect(spawnCalls).toHaveLength(2);
+    expect(spawnCalls[0][1]).toEqual(["add", "vellum@latest", "--ignore-scripts"]);
+    expect(spawnCalls[1][1]).toEqual([
+      "install",
+      "--frozen-lockfile",
+      "--ignore-scripts",
+    ]);
+  });
+
+  test("offline fallback rethrows when no seed lockfile is available", async () => {
+    existsSyncDefault = false;
+
+    const promise = ensureCliInstalled();
+    lastChild.stderr.emit("data", Buffer.from("network error"));
+    lastChild.emit("close", 1);
+
+    await expect(promise).rejects.toThrow(/Package install failed/);
+    // No seed → no frozen-lockfile retry.
     expect(spawnCalls).toHaveLength(1);
-    const [cmd, args] = spawnCalls[0];
-    expect(cmd).toBe(`${mockResourcesPath}/bun`);
-    expect(args).toEqual(["install", "--frozen-lockfile", "--ignore-scripts"]);
   });
 
   test("creates the install directory before spawning", async () => {
@@ -324,7 +378,7 @@ describe("ensureCliInstalled", () => {
     await promise;
 
     const [dir, opts] = mkdirSyncCalls[0];
-    expect(dir).toBe(`${userDataPath}/cli/${PINNED_CLI_VERSION}`);
+    expect(dir).toBe(latestInstallDir);
     expect(opts).toEqual({ recursive: true });
   });
 
@@ -379,19 +433,18 @@ describe("ensureCliInstalled", () => {
 
   test("calls cleanupOldVersions after successful install", async () => {
     existsSyncDefault = false;
-    readdirSyncReturn = [dirEntry("0.8.5"), dirEntry(PINNED_CLI_VERSION)];
+    readdirSyncReturn = [dirEntry("0.8.5"), dirEntry("latest")];
 
     const promise = ensureCliInstalled();
     lastChild.emit("close", 0);
     await promise;
 
     // cleanupOldVersions should have been called — verify it tried to
-    // remove 0.8.5 but not the pinned version.
+    // remove 0.8.5 but not the current (latest) install dir.
     expect(rmSyncCalls.length).toBeGreaterThanOrEqual(1);
     const removedPaths = rmSyncCalls.map(([p]) => p);
     expect(removedPaths).toContain(`${userDataPath}/cli/0.8.5`);
-    const pinnedPath = `${userDataPath}/cli/${PINNED_CLI_VERSION}`;
-    expect(removedPaths).not.toContain(pinnedPath);
+    expect(removedPaths).not.toContain(latestInstallDir);
   });
 
   test("concurrent calls share a single install", async () => {
@@ -448,16 +501,25 @@ describe("buildInstallEnv", () => {
 // --- cleanupOldVersions ---
 
 describe("cleanupOldVersions", () => {
-  test("deletes sibling directories that are not the pinned version", () => {
-    readdirSyncReturn = [dirEntry("0.8.5"), dirEntry(PINNED_CLI_VERSION)];
+  test("deletes sibling directories that are not the current install dir", () => {
+    readdirSyncReturn = [dirEntry("0.8.5"), dirEntry("latest")];
 
     cleanupOldVersions();
 
     const removedPaths = rmSyncCalls.map(([p]) => p);
     expect(removedPaths).toContain(`${userDataPath}/cli/0.8.5`);
-    expect(removedPaths).not.toContain(
-      `${userDataPath}/cli/${PINNED_CLI_VERSION}`,
-    );
+    expect(removedPaths).not.toContain(latestInstallDir);
+  });
+
+  test("keeps an adopted versioned install dir", () => {
+    readdirSyncReturn = [dirEntry("0.9.0"), dirEntry("0.8.5")];
+    existsSyncByPath[binPathFor("0.9.0")] = true;
+
+    cleanupOldVersions();
+
+    const removedPaths = rmSyncCalls.map(([p]) => p);
+    expect(removedPaths).toContain(`${userDataPath}/cli/0.8.5`);
+    expect(removedPaths).not.toContain(`${userDataPath}/cli/0.9.0`);
   });
 
   test("passes recursive and force options to rmSync", () => {

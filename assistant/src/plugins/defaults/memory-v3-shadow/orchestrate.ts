@@ -18,9 +18,10 @@
  *      Each lane only ever ADDS candidates, so the pool is recall-safe by
  *      construction.
  *   2. Build the candidate pool in CACHE ORDER: the stable prefix —
- *      `[...core (file order), ...hot (score order), ...fresh (recency
- *      order)]`, all computed at lane init — followed by the finder
- *      candidates (needle → dense → edge surfacing order). The stable prefix
+ *      `[...core (file order), ...hot (score order), ...fresh (recency order),
+ *      ...always-candidate (skills pinned every turn)]`, all computed at lane
+ *      init — followed by the finder candidates (needle → dense → edge
+ *      surfacing order). The stable prefix
  *      is identical across consecutive turns while the lanes are unchanged
  *      (lane invalidation at consolidation is the recompute cadence), so the
  *      selector input's leading segment rides the provider KV cache (the
@@ -82,6 +83,10 @@ export interface OrchestrateDeps {
   /** The modification-recency fresh set in recency order (computed at lane
    *  init with core and hot excluded). Follows hot in the stable prefix. */
   freshSlugs: Slug[];
+  /** Skills pinned into the candidate pool every turn regardless of retrieval
+   *  (existence-filtered and core/hot/fresh-excluded at lane init). Follow fresh
+   *  in the stable prefix so the selector always sees them. */
+  alwaysCandidateSlugs?: Slug[];
   /** Pre-rendered FULL cards for the stable-prefix slugs, keyed by slug.
    *  Rendered ONCE at lane init so the selector's stable prefix is
    *  byte-identical across turns (the cache contract). Every core/hot/fresh
@@ -172,14 +177,19 @@ export async function orchestrate(
   const { sections } = deps.sectionIndex;
 
   // The stable prefix: core (file order), hot (score order), fresh (recency
-  // order). Hot is computed with core excluded at lane init, fresh with both
-  // excluded; the filters here are a cheap defensive dedup so a misbehaving
-  // lane can never double-list a slug.
+  // order), then always-candidate skills. Hot is computed with core excluded at
+  // lane init, fresh with both excluded, always-candidate with all three
+  // excluded; the filters here are a cheap defensive dedup so a misbehaving lane
+  // can never double-list a slug.
   const core = deps.coreSlugs;
   const hot = deps.hotSlugs.filter((slug) => !core.includes(slug));
   const coreHot = new Set<Slug>([...core, ...hot]);
   const fresh = deps.freshSlugs.filter((slug) => !coreHot.has(slug));
-  const stablePrefix = new Set<Slug>([...coreHot, ...fresh]);
+  const coreHotFresh = new Set<Slug>([...coreHot, ...fresh]);
+  const always = (deps.alwaysCandidateSlugs ?? []).filter(
+    (slug) => !coreHotFresh.has(slug),
+  );
+  const stablePrefix = new Set<Slug>([...coreHotFresh, ...always]);
 
   // Step 1: needle (sync BM25) and dense (async embed + Qdrant) lanes run in
   // parallel. Both return distinct articles each tagged with their best-scoring
@@ -342,19 +352,21 @@ export async function orchestrate(
   // its own snippet line so its CURRENT relevance stays visible; `selectPool`
   // dedupes selections by slug. Finder candidates with no match text fall
   // back to the page's lead-section snippet.
-  const stable: StableCandidate[] = [...core, ...hot, ...fresh].map((slug) => {
-    const card = deps.prefixCards.get(slug);
-    if (card === undefined) {
-      // Lane init renders a card for every core/hot slug; a hole here means
-      // the lanes and the card map are out of sync. Throw rather than render
-      // a degraded card — the caller (observeTurn) logs and skips the turn,
-      // which is better than silently breaking the byte-stable prefix.
-      throw new Error(
-        `memory-v3: no pre-rendered card for stable-prefix slug "${slug}"`,
-      );
-    }
-    return { slug, card };
-  });
+  const stable: StableCandidate[] = [...core, ...hot, ...fresh, ...always].map(
+    (slug) => {
+      const card = deps.prefixCards.get(slug);
+      if (card === undefined) {
+        // Lane init renders a card for every core/hot slug; a hole here means
+        // the lanes and the card map are out of sync. Throw rather than render
+        // a degraded card — the caller (observeTurn) logs and skips the turn,
+        // which is better than silently breaking the byte-stable prefix.
+        throw new Error(
+          `memory-v3: no pre-rendered card for stable-prefix slug "${slug}"`,
+        );
+      }
+      return { slug, card };
+    },
+  );
   const finderTail: PoolCandidate[] = finder.map((c) => ({
     slug: c.slug,
     lane: c.lane,
