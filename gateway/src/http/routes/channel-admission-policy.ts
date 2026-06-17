@@ -170,9 +170,16 @@ function overrideToView(view: ConversationOverrideView): ConversationOverrideVie
 // ---------------------------------------------------------------------------
 
 export function createConversationAdmissionGetHandler() {
-  return async (req: Request, conversationId: string): Promise<Response> => {
-    if (!conversationId) {
+  return async (req: Request, rawConversationId: string): Promise<Response> => {
+    if (!rawConversationId) {
       return Response.json({ error: "conversationId is required" }, { status: 400 });
+    }
+    // Decode percent-encoded path params (e.g. "slack%3AC0123" → "slack:C0123").
+    let conversationId: string;
+    try {
+      conversationId = decodeURIComponent(rawConversationId);
+    } catch {
+      return Response.json({ error: "Invalid conversationId encoding" }, { status: 400 });
     }
     try {
       // Accept an optional ?channelType= hint from the client so the floor
@@ -195,9 +202,16 @@ export function createConversationAdmissionGetHandler() {
 // ---------------------------------------------------------------------------
 
 export function createConversationAdmissionSetHandler() {
-  return async (req: Request, conversationId: string): Promise<Response> => {
-    if (!conversationId) {
+  return async (req: Request, rawConversationId: string): Promise<Response> => {
+    if (!rawConversationId) {
       return Response.json({ error: "conversationId is required" }, { status: 400 });
+    }
+    // Decode percent-encoded path params (e.g. "slack%3AC0123" → "slack:C0123").
+    let conversationId: string;
+    try {
+      conversationId = decodeURIComponent(rawConversationId);
+    } catch {
+      return Response.json({ error: "Invalid conversationId encoding" }, { status: 400 });
     }
 
     let body: unknown;
@@ -264,9 +278,16 @@ export function createConversationAdmissionSetHandler() {
 // ---------------------------------------------------------------------------
 
 export function createConversationAdmissionDeleteHandler() {
-  return async (_req: Request, conversationId: string): Promise<Response> => {
-    if (!conversationId) {
+  return async (_req: Request, rawConversationId: string): Promise<Response> => {
+    if (!rawConversationId) {
       return Response.json({ error: "conversationId is required" }, { status: 400 });
+    }
+    // Decode percent-encoded path params (e.g. "slack%3AC0123" → "slack:C0123").
+    let conversationId: string;
+    try {
+      conversationId = decodeURIComponent(rawConversationId);
+    } catch {
+      return Response.json({ error: "Invalid conversationId encoding" }, { status: 400 });
     }
     try {
       const store = new AdmissionPolicyStore();
