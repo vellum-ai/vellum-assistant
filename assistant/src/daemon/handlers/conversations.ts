@@ -167,43 +167,64 @@ export async function resolveMetaSlashCommand(
   }
   const conversation = await getOrCreateConversation(resolvedId);
   touchConversation(resolvedId);
-  // Local meta commands are owner-initiated self-maintenance. Without a trusted
-  // context, `loadFromDb` filters history to non-guardian provenance — so for a
-  // guardian-authored conversation `/clean` reports 0 preserved and `/status` 0
-  // messages. Apply the guardian context before hydrating so the owner operates
-  // on the full history. A real turn re-resolves trust per-actor afterward.
-  if (isUntrustedTrustClass(conversation.trustContext?.trustClass)) {
+
+  // Meta commands reload (and, for `/clean`, strip) the in-memory history
+  // array. Running that against an in-flight turn would corrupt the messages
+  // the active agent loop is iterating over, and mutating trustContext would
+  // elevate that turn's actor trust to guardian for subsequent tool calls.
+  if (conversation.isProcessing()) {
+    throw new UserError(
+      `\`${command.trim()}\` cannot run while the assistant is responding.`,
+    );
+  }
+
+  // Owner self-maintenance operates on the full (guardian) history. Without a
+  // trusted context, `loadFromDb` filters to non-guardian provenance — so a
+  // guardian-authored conversation would report 0 preserved / 0 messages.
+  // Temporarily apply the guardian context for hydration and restore it
+  // afterward so the elevated class never leaks into a later turn's snapshot.
+  const priorTrustContext = conversation.trustContext;
+  if (isUntrustedTrustClass(priorTrustContext?.trustClass)) {
     conversation.setTrustContext(INTERNAL_GUARDIAN_TRUST_CONTEXT);
   }
-  await conversation.ensureActorScopedHistory();
+  try {
+    await conversation.ensureActorScopedHistory();
 
-  const slashResult = await resolveSlash(
-    command,
-    buildSlashContext(command, conversation),
-  );
+    const slashResult = await resolveSlash(
+      command,
+      buildSlashContext(command, conversation),
+    );
 
-  if (slashResult.kind === "clean") {
-    const result = await conversation.forceClean();
-    return {
-      kind: "clean",
-      text: formatCleanResult(result),
-      contextUsage: {
-        tokens: result.estimatedInputTokens,
-        maxTokens: result.maxInputTokens,
-        fillRatio:
-          result.maxInputTokens > 0
-            ? result.estimatedInputTokens / result.maxInputTokens
-            : null,
-      },
-    };
+    if (slashResult.kind === "clean") {
+      const result = await conversation.forceClean();
+      return {
+        kind: "clean",
+        text: formatCleanResult(result),
+        contextUsage: {
+          tokens: result.estimatedInputTokens,
+          maxTokens: result.maxInputTokens,
+          fillRatio:
+            result.maxInputTokens > 0
+              ? result.estimatedInputTokens / result.maxInputTokens
+              : null,
+        },
+      };
+    }
+
+    if (slashResult.kind === "unknown") {
+      return { kind: "info", text: slashResult.message };
+    }
+
+    // `compact` / `passthrough` are real turns, not local meta commands.
+    throw new UserError(`\`${command.trim()}\` is not a local meta command.`);
+  } finally {
+    // Only undo the temporary guardian context this handler installed. If a
+    // new turn started at an `await` boundary and legitimately updated
+    // trustContext, the reference will differ and we leave it alone.
+    if (conversation.trustContext === INTERNAL_GUARDIAN_TRUST_CONTEXT) {
+      conversation.setTrustContext(priorTrustContext ?? null);
+    }
   }
-
-  if (slashResult.kind === "unknown") {
-    return { kind: "info", text: slashResult.message };
-  }
-
-  // `compact` / `passthrough` are real turns, not local meta commands.
-  throw new UserError(`\`${command.trim()}\` is not a local meta command.`);
 }
 
 /**
