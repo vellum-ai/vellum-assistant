@@ -731,6 +731,23 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     if (isInconclusiveProbe(result)) {
       return isAuthenticated(get().sessionStatus);
     }
+    // A settled "no platform session" (401) ends the platform session, not the
+    // local gateway session. When the gateway is the auth source, demote an
+    // authenticated session to the local user and mark the platform session
+    // absent — dropping the now-stale platform user and offline snapshot so
+    // platform-gated surfaces stop treating it as signed in — while keeping
+    // `sessionStatus` "authenticated"; a 401 must not log a local-only user out.
+    // (The successful probe above still adopts the platform user, so provider
+    // sign-in keeps working.) An unauthenticated session — e.g. mid cold-start
+    // hatch — is left for the gateway to settle once its token mints.
+    if (isGatewayAuthEnabled()) {
+      const wasAuthenticated = isAuthenticated(get().sessionStatus);
+      if (wasAuthenticated) {
+        clearUserSnapshot();
+        set({ ...authenticatedLocalUser(), platformSession: "absent" });
+      }
+      return wasAuthenticated;
+    }
     clearUserSnapshot();
     await syncUserScopedState(null);
     set(sessionEnded());
