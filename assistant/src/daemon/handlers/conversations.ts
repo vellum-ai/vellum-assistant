@@ -106,14 +106,12 @@ export function cancelGeneration(conversationId: string): boolean {
   // being cancelled, so enqueuing synthetic messages would trigger
   // unwanted model activity after the user pressed stop.
   getSubagentManager().abortAllForParent(conversationId);
-  // Clear the processing flag so every client stops rendering the thinking
-  // indicator. abort() only signals the AbortController, so a turn that never
-  // observes the signal leaves `processing` latched true; clearing it here
-  // publishes the metadata sync invalidation that drives clients to the
-  // authoritative state. A turn that does eventually unwind tears down only the
-  // shared turn state it still owns, so this early clear neither double-fires
-  // the invalidation nor clobbers a turn started after the cancel.
-  conversation.setProcessing(false);
+  // The processing flag is cleared by the in-flight turn's `finally`, not here.
+  // Abort propagates into the provider call and tool execution (and is backed
+  // by the agent loop's abort watchdog), so the turn reaches its `finally`
+  // within a bounded time and tears down its own state there — which publishes
+  // the metadata sync invalidation that drives clients to the authoritative
+  // idle state.
   return true;
 }
 
