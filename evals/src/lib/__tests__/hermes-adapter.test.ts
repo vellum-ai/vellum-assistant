@@ -21,6 +21,10 @@ import {
   HERMES_EVAL_SESSION_SOURCE,
   HERMES_STATE_DB_PATH,
 } from "../adapters/hermes-seed";
+import {
+  DEFAULT_ALLOW_HOSTS,
+  DEFAULT_EMBEDDING_ALLOW_HOSTS,
+} from "../egress/docker-jail";
 import { runArtifacts } from "../metrics";
 import type { Profile } from "../profile";
 import type {
@@ -187,6 +191,18 @@ describe("HermesAgent", () => {
     expect(jailRunIdx).toBeGreaterThan(0);
     expect(hermesRunIdx).toBeGreaterThan(jailRunIdx);
     expect(hermesPreCleanIdx).toBeLessThan(hermesRunIdx);
+
+    // Hermes never embeds locally, so its jail stays on the model-provider
+    // default and the embedder's npm/HuggingFace download hosts are absent
+    // from the allowlist — Hermes can't make unmetered asset egress, which
+    // keeps cross-species cost comparisons honest.
+    const allowHostsArg = calls[jailRunIdx].find((arg) =>
+      arg.startsWith("ALLOW_HOSTS="),
+    );
+    expect(allowHostsArg).toBe(`ALLOW_HOSTS=${DEFAULT_ALLOW_HOSTS.join(",")}`);
+    for (const host of DEFAULT_EMBEDDING_ALLOW_HOSTS) {
+      expect(allowHostsArg).not.toContain(host);
+    }
 
     // 3. Hermes is born into the jail's netns and runs the derived image.
     expect(calls[hermesRunIdx]).toEqual([

@@ -2,15 +2,22 @@ import { v4 as uuid } from "uuid";
 
 import { clearAll, getConversation } from "../../memory/conversation-crud.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
+import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { createAbortReason } from "../../util/abort-reasons.js";
+import { UserError } from "../../util/errors.js";
 import { truncate } from "../../util/truncate.js";
 import { regenerate } from "../conversation-history.js";
+import {
+  buildSlashContext,
+  formatCleanResult,
+} from "../conversation-process.js";
 import {
   conversationEntries,
   findConversation,
 } from "../conversation-registry.js";
+import { resolveSlash } from "../conversation-slash.js";
 import {
   clearAllActiveConversations,
   getOrCreateConversation,
@@ -18,6 +25,7 @@ import {
 } from "../conversation-store.js";
 import type { ConfirmationResponse } from "../message-protocol.js";
 import { normalizeConversationType } from "../message-protocol.js";
+import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../trust-context.js";
 import { log } from "./shared.js";
 
 export function handleConfirmationResponse(msg: ConfirmationResponse): void {
@@ -118,6 +126,78 @@ export async function undoLastMessage(
   const removedCount = conversation.undo();
   return { removedCount };
 }
+
+export interface MetaSlashCommandResult {
+  kind: "clean" | "info";
+  /** User-facing text to render (clean stats card or info listing). */
+  text: string;
+  /** Present for `/clean`: the post-strip context-window usage. */
+  contextUsage?: {
+    tokens: number;
+    maxTokens: number | null;
+    fillRatio: number | null;
+  };
+}
+
+/**
+ * Resolve a local meta slash command (`/clean`, `/status`, `/commands`,
+ * `/models`) for a conversation without running a turn: no user/assistant
+ * messages are persisted and no streaming/turn events are emitted. `/clean`
+ * additionally strips runtime injections via `forceClean`.
+ *
+ * Returns null if the conversation cannot be resolved. Throws `UserError` for
+ * commands that are not local meta commands (`/compact`, passthrough) — those
+ * must be sent as a normal message so they run a real turn.
+ */
+export async function resolveMetaSlashCommand(
+  conversationId: string,
+  command: string,
+): Promise<MetaSlashCommandResult | null> {
+  const resolvedId = resolveConversationId(conversationId);
+  if (!resolvedId) {
+    return null;
+  }
+  const conversation = await getOrCreateConversation(resolvedId);
+  touchConversation(resolvedId);
+  // Local meta commands are owner-initiated self-maintenance. Without a trusted
+  // context, `loadFromDb` filters history to non-guardian provenance — so for a
+  // guardian-authored conversation `/clean` reports 0 preserved and `/status` 0
+  // messages. Apply the guardian context before hydrating so the owner operates
+  // on the full history. A real turn re-resolves trust per-actor afterward.
+  if (isUntrustedTrustClass(conversation.trustContext?.trustClass)) {
+    conversation.setTrustContext(INTERNAL_GUARDIAN_TRUST_CONTEXT);
+  }
+  await conversation.ensureActorScopedHistory();
+
+  const slashResult = await resolveSlash(
+    command,
+    buildSlashContext(command, conversation),
+  );
+
+  if (slashResult.kind === "clean") {
+    const result = await conversation.forceClean();
+    return {
+      kind: "clean",
+      text: formatCleanResult(result),
+      contextUsage: {
+        tokens: result.estimatedInputTokens,
+        maxTokens: result.maxInputTokens,
+        fillRatio:
+          result.maxInputTokens > 0
+            ? result.estimatedInputTokens / result.maxInputTokens
+            : null,
+      },
+    };
+  }
+
+  if (slashResult.kind === "unknown") {
+    return { kind: "info", text: slashResult.message };
+  }
+
+  // `compact` / `passthrough` are real turns, not local meta commands.
+  throw new UserError(`\`${command.trim()}\` is not a local meta command.`);
+}
+
 /**
  * Regenerate the last assistant response for a conversation. The caller provides
  * a `sendEvent` callback for delivering streaming events via HTTP/SSE.

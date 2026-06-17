@@ -29,9 +29,8 @@
  *   (If host execution is ever wanted, the deliberate path is to thread the
  *   originating tool context through the engine — not to relax this gate.)
  *
- * This module is pure logic: it performs no feature-flag checks and no I/O
- * beyond the synchronous tool-registry lookup. The `workflows` flag gates the
- * callers, not this code.
+ * This module is pure logic: it performs no I/O beyond the synchronous
+ * tool-registry lookup.
  */
 
 import { z } from "zod";

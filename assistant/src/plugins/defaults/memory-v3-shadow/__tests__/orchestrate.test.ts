@@ -128,11 +128,11 @@ function depsOf(
   const coreSlugs = overrides.coreSlugs ?? [];
   const hotSlugs = overrides.hotSlugs ?? [];
   const freshSlugs = overrides.freshSlugs ?? [];
+  const alwaysCandidateSlugs = overrides.alwaysCandidateSlugs ?? [];
   const prefixCards = new Map<Slug, string>(
-    [...coreSlugs, ...hotSlugs, ...freshSlugs].map((slug) => [
-      slug,
-      renderCard(slug, RAW[slug] ?? ""),
-    ]),
+    [...coreSlugs, ...hotSlugs, ...freshSlugs, ...alwaysCandidateSlugs].map(
+      (slug) => [slug, renderCard(slug, RAW[slug] ?? "")],
+    ),
   );
   return {
     sectionIndex: lanes.sectionIndex,
@@ -305,6 +305,33 @@ describe("orchestrate — candidate pool composition", () => {
     // The needle ranked the capability page on the "kumquat" term, so it is in
     // the candidate pool.
     expect(lastPool).toContain(CAP);
+  });
+
+  test("always-candidate slugs are pinned into the stable prefix and are selectable", async () => {
+    const lanes = await buildLanes();
+    const WF: Slug = "skills/workflows";
+    // No retrieval lane surfaces WF for "apple" (hits topic-a/b/d) — it reaches
+    // the selector ONLY because it is an always-candidate.
+    providerStub = selectProvider([WF]);
+    const result = await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { alwaysCandidateSlugs: [WF] }),
+    );
+
+    expect(lastPool).toContain(WF);
+    expect(result.selections.map((s) => s.slug)).toContain(WF);
+  });
+
+  test("an always-candidate slug already in core is not double-listed", async () => {
+    const lanes = await buildLanes();
+    const WF: Slug = "skills/workflows";
+    providerStub = selectProvider([]);
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { coreSlugs: [WF], alwaysCandidateSlugs: [WF] }),
+    );
+
+    expect(lastPool.filter((s) => s === WF)).toHaveLength(1);
   });
 
   test("edge curated link description becomes the edge candidate's descriptor", async () => {

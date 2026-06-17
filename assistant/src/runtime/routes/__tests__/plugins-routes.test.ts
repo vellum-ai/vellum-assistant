@@ -72,6 +72,7 @@ import {
   type UninstallPluginResult,
 } from "../../../cli/lib/uninstall-plugin.js";
 import {
+  PluginMergeBaselineError,
   PluginNotUpgradableError,
   type PluginUpgradeResult,
   type UpgradePluginDeps,
@@ -179,6 +180,7 @@ const upgradeSpy = mock(
 );
 
 mock.module("../../../cli/lib/upgrade-plugin.js", () => ({
+  PluginMergeBaselineError,
   PluginNotUpgradableError,
   upgradePlugin: upgradeSpy,
 }));
@@ -1000,6 +1002,10 @@ function inspection(
           }
         : overrides.remote,
     remoteError: overrides.remoteError ?? null,
+    surfaces:
+      overrides.surfaces === undefined
+        ? { skills: [], hooks: ["post-model-call"], tools: [] }
+        : overrides.surfaces,
   };
 }
 
@@ -1104,6 +1110,9 @@ function upgradeResult(
     target: overrides.target ?? "/workspace/.vellum/plugins/level-up",
     fileCount: overrides.fileCount === undefined ? 12 : overrides.fileCount,
     dryRun: overrides.dryRun ?? false,
+    strategy: overrides.strategy ?? "overwrite",
+    conflicts: overrides.conflicts ?? [],
+    binaryConflicts: overrides.binaryConflicts ?? [],
     provenanceWasUnknown: overrides.provenanceWasUnknown ?? false,
   };
 }
@@ -1118,6 +1127,9 @@ async function invokeUpgrade(args: RouteHandlerArgs = {}): Promise<{
   target: string;
   fileCount: number | null;
   dryRun: boolean;
+  strategy: string;
+  conflicts: readonly string[];
+  binaryConflicts: readonly string[];
   provenanceWasUnknown: boolean;
 }> {
   return (await upgradeHandler(args)) as {
@@ -1130,6 +1142,9 @@ async function invokeUpgrade(args: RouteHandlerArgs = {}): Promise<{
     target: string;
     fileCount: number | null;
     dryRun: boolean;
+    strategy: string;
+    conflicts: readonly string[];
+    binaryConflicts: readonly string[];
     provenanceWasUnknown: boolean;
   };
 }
@@ -1160,13 +1175,83 @@ describe("POST /v1/plugins/:name/upgrade", () => {
       target: "/workspace/.vellum/plugins/level-up",
       fileCount: 12,
       dryRun: false,
+      strategy: "overwrite",
+      conflicts: [],
+      binaryConflicts: [],
       provenanceWasUnknown: false,
     });
-    // AND the name + dryRun are forwarded to the lib
+    // AND the name + dryRun are forwarded to the lib (strategy omitted)
     expect(upgradeSpy.mock.calls[0]?.[0]).toEqual({
       name: "level-up",
       dryRun: false,
+      strategy: undefined,
     });
+  });
+
+  test("forwards a requested strategy to the lib and projects it", async () => {
+    // GIVEN upgradePlugin merges local edits forward via the `ours` strategy
+    upgradeSpy.mockImplementation(async () =>
+      upgradeResult({ strategy: "ours" }),
+    );
+
+    // WHEN the handler runs with a strategy in the body
+    const result = await invokeUpgrade({
+      pathParams: { name: "level-up" },
+      body: { strategy: "ours" },
+    });
+
+    // THEN the strategy is forwarded to the lib and surfaced on the wire
+    expect(result.strategy).toBe("ours");
+    expect(upgradeSpy.mock.calls[0]?.[0]).toEqual({
+      name: "level-up",
+      dryRun: undefined,
+      strategy: "ours",
+    });
+  });
+
+  test("projects conflicts + binaryConflicts from the assistant strategy onto the wire", async () => {
+    // GIVEN upgradePlugin merges with conflict markers under `assistant`
+    upgradeSpy.mockImplementation(async () =>
+      upgradeResult({
+        strategy: "assistant",
+        conflicts: ["hooks/post-model-call.ts"],
+        binaryConflicts: ["assets/icon.png"],
+      }),
+    );
+
+    // WHEN the handler runs with the `assistant` strategy
+    const result = await invokeUpgrade({
+      pathParams: { name: "level-up" },
+      body: { strategy: "assistant" },
+    });
+
+    // THEN the conflicted paths are surfaced for the assistant to resolve
+    expect(result.strategy).toBe("assistant");
+    expect(result.conflicts).toEqual(["hooks/post-model-call.ts"]);
+    expect(result.binaryConflicts).toEqual(["assets/icon.png"]);
+    expect(upgradeSpy.mock.calls[0]?.[0]).toEqual({
+      name: "level-up",
+      dryRun: undefined,
+      strategy: "assistant",
+    });
+  });
+
+  test("PluginMergeBaselineError \u2192 ConflictError (409)", async () => {
+    // A merge strategy whose install-time baseline can't be reconstructed: a
+    // well-formed request that isn't actionable in the current state.
+    upgradeSpy.mockImplementation(async () => {
+      throw new PluginMergeBaselineError(
+        "level-up",
+        "the install-time baseline could not be faithfully reconstructed",
+      );
+    });
+
+    await expect(
+      invokeUpgrade({
+        pathParams: { name: "level-up" },
+        body: { strategy: "ours" },
+      }),
+    ).rejects.toBeInstanceOf(ConflictError);
   });
 
   test("omits dryRun (passes undefined) when the body flag is absent", async () => {

@@ -1,3 +1,4 @@
+import MarkdownIt from "markdown-it";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type {
@@ -25,6 +26,7 @@ import {
   buildTranscriptView,
   type AssistantBlock,
   type AssistantMessageView,
+  type BlockTiming,
 } from "./transcript-view";
 import type { AgentEvent } from "./adapter";
 import { priceUsageRecord } from "./pricing";
@@ -144,6 +146,80 @@ function formatRequestDuration(ms: number | undefined): string {
   if (ms === undefined) return "—";
   if (ms < 1000) return `${Math.round(ms)}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
+}
+
+/**
+ * Whole-millisecond span between two ISO stamps, or `undefined` when either is
+ * missing or the pair is non-monotonic. Used to label how long a transcript
+ * chunk (a streamed text/thinking run, or a tool call) occupied the stream.
+ */
+function spanMs(
+  startedAt: string | undefined,
+  endedAt: string | undefined,
+): number | undefined {
+  const start = recordedAtMs(startedAt);
+  const end = recordedAtMs(endedAt);
+  if (start === undefined || end === undefined || end < start) {
+    return undefined;
+  }
+  return end - start;
+}
+
+/**
+ * Markdown renderer for assistant message text. `html: false` escapes any raw
+ * HTML in the model's output, so an answer containing `<script>` or inline
+ * event handlers can't inject live markup into the report — only Markdown
+ * constructs (headings, lists, code, tables, emphasis) become elements.
+ * `linkify` turns bare URLs into links and `breaks` keeps single newlines as
+ * line breaks so chat-style answers render the way they were written.
+ */
+const markdown = new MarkdownIt({
+  html: false,
+  linkify: true,
+  breaks: true,
+});
+
+/**
+ * Render Markdown images as inert links rather than `<img>` elements. The
+ * report is an offline artifact that renders untrusted assistant output and may
+ * be opened or shared outside the eval egress jail, so an auto-loaded
+ * `<img src="https://…">` would make merely opening it fetch a model-supplied
+ * URL — leaking the viewer's IP/metadata. A link carries the same information
+ * (alt text + destination) without any automatic network request, and runs
+ * through the renderer's own `validateLink` so unsafe schemes degrade to plain
+ * text.
+ */
+markdown.renderer.rules.image = (tokens, idx) => {
+  const token = tokens[idx];
+  const src = token.attrGet("src") ?? "";
+  const alt = token.content.length > 0 ? token.content : src;
+  const label = markdown.utils.escapeHtml(alt);
+  if (!markdown.validateLink(src)) {
+    return label;
+  }
+  const href = markdown.utils.escapeHtml(src);
+  return `<a class="md-image-link" href="${href}" rel="noopener noreferrer nofollow">${label}</a>`;
+};
+
+/**
+ * A chunk's run time, shown only on hover of its chunk (CSS reveal) so the
+ * transcript stays uncluttered. The badge's own `title` surfaces the chunk's
+ * start time on hover, so the two timestamps are one interaction apart without
+ * needing client-side script. Renders nothing when the span isn't measurable.
+ */
+function ChunkDuration({ startedAt, endedAt }: BlockTiming) {
+  const ms = spanMs(startedAt, endedAt);
+  if (ms === undefined) {
+    return null;
+  }
+  return (
+    <span
+      className="chunk-duration"
+      title={`started ${formatRecordedAt(startedAt)}`}
+    >
+      {formatRequestDuration(ms)}
+    </span>
+  );
 }
 
 /**
@@ -324,10 +400,34 @@ td .row-link { display: block; }
 .turn.assistant { border-color: rgba(34,211,238,.22); }
 .turn.simulator { border-color: rgba(139,92,246,.24); }
 .turn-head { display: flex; justify-content: space-between; gap: 14px; color: var(--muted); font-size: 12px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; }
+.turn-time { margin-top: 8px; text-align: right; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .turn-body { white-space: pre-wrap; line-height: 1.5; }
 .turn-body + .turn-body, .turn .block-thinking + .turn-body, .turn .block-tool + .turn-body { margin-top: 10px; }
+.chunk { position: relative; }
+.chunk-duration { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; opacity: 0; transition: opacity .12s ease; cursor: help; }
+.chunk:hover .chunk-duration, details[open].chunk > summary .chunk-duration { opacity: 1; }
+.turn-body.chunk > .chunk-duration { position: absolute; top: 4px; right: 6px; }
+.block-thinking > summary .chunk-duration, .block-tool > summary .chunk-duration { margin-left: auto; }
+.md { white-space: normal; line-height: 1.6; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p { margin: 0 0 10px; }
+.md h1, .md h2, .md h3, .md h4 { margin: 16px 0 8px; line-height: 1.3; font-weight: 800; }
+.md h1 { font-size: 20px; } .md h2 { font-size: 17px; } .md h3 { font-size: 15px; } .md h4 { font-size: 13px; }
+.md ul, .md ol { margin: 0 0 10px; padding-left: 22px; }
+.md li { margin: 2px 0; }
+.md a { color: var(--accent2); }
+.md code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; background: rgba(0,0,0,.4); border: 1px solid var(--border); border-radius: 6px; padding: 1px 5px; }
+.md pre { margin: 0 0 10px; padding: 12px 14px; border-radius: 10px; background: rgba(0,0,0,.45); border: 1px solid var(--border); overflow: auto; }
+.md pre code { background: none; border: 0; padding: 0; font-size: 12.5px; line-height: 1.5; }
+.md blockquote { margin: 0 0 10px; padding: 2px 14px; border-left: 3px solid var(--border); color: var(--muted); }
+.md table { border-collapse: collapse; margin: 0 0 10px; font-size: 13px; }
+.md th, .md td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+.md th { background: rgba(255,255,255,.04); font-weight: 800; }
+.md hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 .block-thinking { margin: 8px 0; border: 1px dashed rgba(180,190,255,.24); border-radius: 12px; background: rgba(255,255,255,.025); }
-.block-thinking > summary { cursor: pointer; padding: 8px 12px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; user-select: none; }
+.block-thinking > summary { cursor: pointer; padding: 8px 12px; display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; user-select: none; }
+.block-thinking > summary::-webkit-details-marker { display: none; }
 .block-thinking-body { padding: 0 12px 10px; color: var(--muted); font-size: 13px; line-height: 1.5; white-space: pre-wrap; font-style: italic; }
 .block-tool { margin: 8px 0; border: 1px solid rgba(34,211,238,.2); border-radius: 12px; background: rgba(34,211,238,.04); }
 .block-tool > summary { cursor: pointer; padding: 8px 12px; display: flex; align-items: center; gap: 10px; user-select: none; }
@@ -1124,7 +1224,7 @@ function dynamicPageHtml(
  * In-memory `localStorage` / `sessionStorage` shim prepended into the
  * sandboxed surface iframe. Without `allow-same-origin` those globals throw a
  * `SecurityError`, breaking any page that touches them during init. Mirrors
- * the canonical bridge in apps/web/src/utils/sandbox-bridge.ts (the web chat
+ * the canonical bridge in clients/web/src/utils/sandbox-bridge.ts (the web chat
  * renders the same surfaces); kept inline because evals is a separate build
  * unit that can't import the web app.
  */
@@ -1146,7 +1246,7 @@ const SURFACE_STORAGE_POLYFILL = `<script>
 
 /**
  * No-op `window.vellum` bridge prepended into the sandboxed surface iframe.
- * App-backed pages expect the host APIs that apps/web/src/utils/sandbox-bridge.ts
+ * App-backed pages expect the host APIs that clients/web/src/utils/sandbox-bridge.ts
  * injects (`window.vellum.sendAction` / `window.vellum.fetch`) and call them
  * during init; a static report has no daemon to forward to, so this stub keeps
  * those pages from throwing on startup — actions are dropped and fetches reject.
@@ -1186,11 +1286,12 @@ function ToolCallBlock({
   const statusClassName =
     block.status === "running" ? "warn" : block.isError ? "bad" : "good";
   return (
-    <details className="block-tool">
+    <details className="block-tool chunk">
       <summary>
         <span className="block-tool-glyph">⚙</span>
         <span className="block-tool-name">{block.toolName || "tool"}</span>
         <span className={`chip ${statusClassName}`}>{statusLabel}</span>
+        <ChunkDuration startedAt={block.startedAt} endedAt={block.endedAt} />
       </summary>
       {block.input !== undefined && (
         <div className="block-tool-io">
@@ -1214,15 +1315,30 @@ function AssistantMessage({ message }: { message: AssistantMessageView }) {
       {message.blocks.map((block, index) => {
         if (block.kind === "text") {
           return (
-            <div key={index} className="turn-body">
-              {block.text}
+            <div key={index} className="turn-body chunk">
+              <div
+                className="md"
+                dangerouslySetInnerHTML={{
+                  __html: markdown.render(block.text),
+                }}
+              />
+              <ChunkDuration
+                startedAt={block.startedAt}
+                endedAt={block.endedAt}
+              />
             </div>
           );
         }
         if (block.kind === "thinking") {
           return (
-            <details key={index} className="block-thinking">
-              <summary>Thinking</summary>
+            <details key={index} className="block-thinking chunk">
+              <summary>
+                <span>Thinking</span>
+                <ChunkDuration
+                  startedAt={block.startedAt}
+                  endedAt={block.endedAt}
+                />
+              </summary>
               <div className="block-thinking-body">{block.thinking}</div>
             </details>
           );
@@ -1293,22 +1409,27 @@ function Transcript({
 
   return (
     <div className="transcript">
-      {items.map((item, index) => (
-        <article
-          key={`${item.emittedAt ?? ""}-${index}`}
-          className={`turn ${item.role}`}
-        >
-          <div className="turn-head">
-            <span>{item.role}</span>
-            <span>{item.emittedAt ?? ""}</span>
-          </div>
-          {item.role === "simulator" ? (
-            <div className="turn-body">{item.content}</div>
-          ) : (
-            <AssistantMessage message={item} />
-          )}
-        </article>
-      ))}
+      {items.map((item, index) => {
+        const stamp = item.role === "simulator" ? item.emittedAt : item.endedAt;
+        return (
+          <article
+            key={`${item.emittedAt ?? ""}-${index}`}
+            className={`turn ${item.role}`}
+          >
+            <div className="turn-head">
+              <span>{item.role}</span>
+            </div>
+            {item.role === "simulator" ? (
+              <div className="turn-body">{item.content}</div>
+            ) : (
+              <AssistantMessage message={item} />
+            )}
+            {stamp ? (
+              <div className="turn-time">{formatRecordedAt(stamp)}</div>
+            ) : null}
+          </article>
+        );
+      })}
     </div>
   );
 }

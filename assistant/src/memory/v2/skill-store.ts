@@ -41,6 +41,7 @@ import {
   upsertConceptPageEmbedding,
 } from "./qdrant.js";
 import {
+  ALWAYS_CANDIDATE_CARD_CHARS,
   augmentMcpSetupDescription,
   buildSkillContent,
 } from "./skill-content.js";
@@ -188,7 +189,12 @@ async function runSeedV2SkillEntries(generation: number): Promise<void> {
       if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config)) continue;
 
       const augmented = augmentMcpSetupDescription(fromSkillSummary(summary));
-      const content = buildSkillContent(augmented);
+      // Always-candidate skills are pinned into the selector pool every turn, so
+      // they get a larger budget for a fuller, multi-mode capability statement.
+      const content = buildSkillContent(
+        augmented,
+        summary.alwaysCandidate ? ALWAYS_CANDIDATE_CARD_CHARS : undefined,
+      );
       seeds.push({ id: summary.id, content });
     }
 

@@ -26,6 +26,7 @@ import {
   cancelGeneration,
   clearAllConversations,
   regenerateResponse,
+  resolveMetaSlashCommand,
   switchConversation,
   undoLastMessage,
 } from "../../daemon/handlers/conversations.js";
@@ -452,6 +453,29 @@ async function handleUndoLastMessage({ pathParams = {} }: RouteHandlerArgs) {
   };
 }
 
+async function handleResolveMetaSlashCommand({
+  pathParams = {},
+  body = {},
+}: RouteHandlerArgs) {
+  const command = body.command as string | undefined;
+  if (!command || typeof command !== "string") {
+    throw new BadRequestError("Missing command");
+  }
+  let result: Awaited<ReturnType<typeof resolveMetaSlashCommand>>;
+  try {
+    result = await resolveMetaSlashCommand(pathParams.id!, command);
+  } catch (err) {
+    if (err instanceof UserError) {
+      throw new BadRequestError(err.message);
+    }
+    throw err;
+  }
+  if (!result) {
+    throw new NotFoundError(`No conversation for ${pathParams.id}`);
+  }
+  return result;
+}
+
 async function handleRegenerateResponse({ pathParams = {} }: RouteHandlerArgs) {
   const conversationId = pathParams.id!;
   try {
@@ -819,6 +843,40 @@ export const ROUTES: RouteDefinition[] = [
       conversationId: z.string(),
     }),
     handler: handleUndoLastMessage,
+  },
+  {
+    operationId: "resolveConversationSlashCommand",
+    endpoint: "conversations/:id/slash",
+    method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Resolve a local meta slash command",
+    description:
+      "Run a local meta slash command (/clean, /status, /commands, /models) " +
+      "without starting a turn: no messages are persisted and no turn events " +
+      "are emitted. /clean also strips runtime injections from the history. " +
+      "Returns the text to render and, for /clean, the post-strip context usage.",
+    tags: ["conversations"],
+    pathParams: [{ name: "id", type: "uuid" }],
+    requestBody: z.object({
+      command: z
+        .string()
+        .describe("The slash command text, e.g. `/clean` or `/status`."),
+    }),
+    responseBody: z.object({
+      kind: z.enum(["clean", "info"]),
+      text: z.string(),
+      contextUsage: z
+        .object({
+          tokens: z.number(),
+          maxTokens: z.number().nullable(),
+          fillRatio: z.number().nullable(),
+        })
+        .optional(),
+    }),
+    handler: handleResolveMetaSlashCommand,
   },
   {
     operationId: "regenerateResponse",

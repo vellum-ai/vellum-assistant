@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.8.12
+  version: 0.9.0
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -7041,6 +7041,71 @@ paths:
       responses:
         "202":
           description: Successful response
+  /v1/conversations/{id}/slash:
+    post:
+      operationId: conversations_by_id_slash_post
+      summary: Resolve a local meta slash command
+      description:
+        "Run a local meta slash command (/clean, /status, /commands, /models) without starting a turn: no messages
+        are persisted and no turn events are emitted. /clean also strips runtime injections from the history. Returns
+        the text to render and, for /clean, the post-strip context usage."
+      tags:
+        - conversations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                command:
+                  type: string
+                  description: The slash command text, e.g. `/clean` or `/status`.
+              required:
+                - command
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kind:
+                    type: string
+                    enum:
+                      - clean
+                      - info
+                  text:
+                    type: string
+                  contextUsage:
+                    type: object
+                    properties:
+                      tokens:
+                        type: number
+                      maxTokens:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      fillRatio:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                    required:
+                      - tokens
+                      - maxTokens
+                      - fillRatio
+                    additionalProperties: false
+                required:
+                  - kind
+                  - text
+                additionalProperties: false
   /v1/conversations/{id}/surface:
     post:
       operationId: conversations_by_id_surface_post
@@ -13030,60 +13095,6 @@ paths:
                   - home
                   - version
                 additionalProperties: false
-  /v1/identity/intro:
-    get:
-      operationId: identity_intro_get
-      summary: Get identity greetings
-      description:
-        Returns greetings sourced from SOUL.md, the generated cache, or generic fallbacks while background
-        generation refreshes the cache.
-      tags:
-        - identity
-      parameters:
-        - name: localHour
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 0
-            maximum: 23
-          description: Optional client-local hour of day used only when refreshing generated greetings.
-        - name: localMinute
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 0
-            maximum: 59
-          description: Optional client-local minute used only when refreshing generated greetings.
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  greetings:
-                    type: array
-                    items:
-                      type: string
-                  text:
-                    type: string
-                  source:
-                    type: string
-                    enum:
-                      - workspace
-                      - cache
-                      - fallback
-                  refreshing:
-                    type: boolean
-                required:
-                  - greetings
-                  - text
-                  - source
-                  - refreshing
-                additionalProperties: false
   /v1/image-generation/generate:
     post:
       operationId: imagegeneration_generate_post
@@ -13230,7 +13241,7 @@ paths:
             type: string
           description:
             "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, openrouter, openai-compatible,
-            minimax"
+            minimax, atlascloud"
       responses:
         "200":
           description: Successful response
@@ -19562,6 +19573,35 @@ paths:
                       - type: string
                       - type: "null"
                     description: Marketplace fetch error message, when the catalog could not be read.
+                  surfaces:
+                    anyOf:
+                      - type: object
+                        properties:
+                          skills:
+                            type: array
+                            items:
+                              type: string
+                            description: Skill ids shipped at `skills/<id>/SKILL.md`.
+                          hooks:
+                            type: array
+                            items:
+                              type: string
+                            description: Lifecycle hook names from `hooks/<name>.{ts,js}` (e.g. `pre-model-call`).
+                          tools:
+                            type: array
+                            items:
+                              type: string
+                            description:
+                              Registered tool names from `tools/<name>.{ts,js}` (filenames derived to tool names, e.g. `create-issue` →
+                              `create_issue`).
+                        required:
+                          - skills
+                          - hooks
+                          - tools
+                        additionalProperties: false
+                        description: Surfaces the installed copy contributes, read from its on-disk tree.
+                      - type: "null"
+                    description: Surfaces the installed copy contributes (skills, hooks, tools); null when the plugin is not installed.
                 required:
                   - name
                   - installed
@@ -19569,6 +19609,7 @@ paths:
                   - local
                   - remote
                   - remoteError
+                  - surfaces
                 additionalProperties: false
         "400":
           description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
@@ -19584,9 +19625,13 @@ paths:
         mirroring `plugins install`''s curation boundary. A no-op (`outcome: "already-up-to-date"`) when the installed
         commit already equals the pin; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching
         the install. Installs lacking provenance are re-pinned to the current SHA. The assistant must be restarted to
-        load the upgraded code. This does not gate on local edits — callers should consult `GET
-        /v1/plugins/:name/inspect` (`local.localChanges`) first and confirm before overwriting. Mirrors the CLI''s
-        `assistant plugins upgrade <name>`.'
+        load the upgraded code. `strategy` controls how local edits are reconciled: `overwrite` (default) discards them
+        and re-installs the pin wholesale; `ours`/`theirs`/`assistant` perform a three-way merge against the
+        re-materialized install commit, carrying non-conflicting edits from both sides forward and resolving conflicting
+        hunks toward the local edit (`ours`) or the pin (`theirs`), or writing git conflict markers into the file and
+        reporting them in `conflicts`/`binaryConflicts` for the assistant to resolve (`assistant`). A merge strategy
+        whose install-time baseline cannot be reconstructed returns 409. Mirrors the CLI''s `assistant plugins upgrade
+        <name> [--strategy <s>]`.'
       tags:
         - plugins
       parameters:
@@ -19605,6 +19650,17 @@ paths:
                 dryRun:
                   description: Report what would change without modifying the install. Defaults to false.
                   type: boolean
+                strategy:
+                  description:
+                    How to reconcile local edits with the pin. `overwrite` (default) discards local edits and re-installs the
+                    pin; `ours`/`theirs` three-way merge, resolving conflicting hunks toward the local edit or the pin
+                    respectively; `assistant` is not yet supported.
+                  type: string
+                  enum:
+                    - ours
+                    - theirs
+                    - overwrite
+                    - assistant
       responses:
         "200":
           description: Successful response
@@ -19656,6 +19712,28 @@ paths:
                   dryRun:
                     type: boolean
                     description: Whether this was a dry run (no changes made).
+                  strategy:
+                    type: string
+                    enum:
+                      - ours
+                      - theirs
+                      - overwrite
+                      - assistant
+                    description: Conflict-resolution strategy the upgrade applied.
+                  conflicts:
+                    type: array
+                    items:
+                      type: string
+                    description:
+                      "Paths left for the assistant to resolve under the `assistant` strategy: text files carry git conflict
+                      markers, modify/delete divergences keep the surviving content. Empty for other strategies."
+                  binaryConflicts:
+                    type: array
+                    items:
+                      type: string
+                    description:
+                      Binary files that conflicted under the `assistant` strategy; the local copy was kept since markers cannot
+                      be written into binary content. Empty for other strategies.
                   provenanceWasUnknown:
                     type: boolean
                     description:
@@ -19671,6 +19749,9 @@ paths:
                   - target
                   - fileCount
                   - dryRun
+                  - strategy
+                  - conflicts
+                  - binaryConflicts
                   - provenanceWasUnknown
                 additionalProperties: false
         "400":
@@ -19678,7 +19759,9 @@ paths:
         "404":
           description: No copy of the plugin is installed, or its source resolves to nothing.
         "409":
-          description: The install exists but has no marketplace entry to advance to.
+          description:
+            The install exists but has no marketplace entry to advance to, or a merge strategy was requested whose
+            install-time baseline cannot be reconstructed.
         "503":
           description: The plugin source (GitHub) was temporarily unavailable; the upgrade is retryable.
   /v1/plugins/install:
@@ -28161,6 +28244,7 @@ components:
         - openrouter
         - openai-compatible
         - minimax
+        - atlascloud
     ProfilePatchEntry:
       type: object
       properties:
@@ -28518,6 +28602,7 @@ components:
         - openrouter
         - openai-compatible
         - minimax
+        - atlascloud
     Auth:
       oneOf:
         - type: object

@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import type { AssistantConfig } from "../../config/schema.js";
 import type { WorkflowRun } from "../../workflows/journal-store.js";
 import type { SavedWorkflowEntry } from "../../workflows/library.js";
 import {
@@ -60,7 +59,6 @@ interface FakeManager {
 }
 
 function setup(opts: {
-  flagEnabled?: boolean;
   runs?: WorkflowRun[];
   saved?: SavedWorkflowEntry[];
   /** Custom resume impl; defaults to a success that records the id. */
@@ -98,8 +96,6 @@ function setup(opts: {
   __setWorkflowRoutesDeps({
     getManager: () => manager,
     listWorkflows: () => opts.saved ?? [],
-    getConfig: () => ({}) as AssistantConfig,
-    isFlagEnabled: () => opts.flagEnabled ?? true,
     getAutoApproveThreshold: async () => opts.threshold ?? "none",
   });
   return { aborted, resumed, listCalls };
@@ -113,10 +109,9 @@ afterEach(() => {
 // Happy paths
 // ---------------------------------------------------------------------------
 
-describe("workflow routes (flag on)", () => {
+describe("workflow routes (happy paths)", () => {
   beforeEach(() => {
     setup({
-      flagEnabled: true,
       runs: [
         makeRun({ id: "run-1" }),
         makeRun({ id: "run-2", status: "completed" }),
@@ -145,7 +140,6 @@ describe("workflow routes (flag on)", () => {
 
   test("listWorkflowRuns honors limit + status query params", async () => {
     const { listCalls } = setup({
-      flagEnabled: true,
       runs: [makeRun({ id: "run-1", status: "completed" })],
     });
     await route("listWorkflowRuns").handler({
@@ -163,7 +157,6 @@ describe("workflow routes (flag on)", () => {
 
   test("abortWorkflowRun aborts a known run", async () => {
     const { aborted } = setup({
-      flagEnabled: true,
       runs: [makeRun({ id: "run-1" })],
     });
     const result = (await route("abortWorkflowRun").handler({
@@ -175,7 +168,6 @@ describe("workflow routes (flag on)", () => {
 
   test("resumeWorkflowRun resumes an interrupted run", async () => {
     const { resumed } = setup({
-      flagEnabled: true,
       runs: [makeRun({ id: "run-1", status: "interrupted" })],
     });
     const result = (await route("resumeWorkflowRun").handler({
@@ -192,7 +184,6 @@ describe("workflow routes (flag on)", () => {
     // full-access posture it must refuse rather than silently bypass consent —
     // resume() is never called.
     const { resumed } = setup({
-      flagEnabled: true,
       threshold: "medium",
       runs: [
         makeRun({
@@ -213,7 +204,6 @@ describe("workflow routes (flag on)", () => {
     // high-risk tools, so no prompt is needed — the side-effecting resume
     // proceeds directly.
     const { resumed } = setup({
-      flagEnabled: true,
       threshold: "high",
       runs: [
         makeRun({
@@ -236,7 +226,6 @@ describe("workflow routes (flag on)", () => {
     // the object shape too — a strict parse would treat it as read-only and let
     // the side-effecting resume through without approval.
     const { resumed } = setup({
-      flagEnabled: true,
       threshold: "medium",
       runs: [
         makeRun({
@@ -259,7 +248,6 @@ describe("workflow routes (flag on)", () => {
     // An explicit empty manifest grants no side effects, so the route resumes
     // it directly — the gate keys on the stored manifest, not run existence.
     const { resumed } = setup({
-      flagEnabled: true,
       threshold: "medium",
       runs: [
         makeRun({
@@ -275,7 +263,6 @@ describe("workflow routes (flag on)", () => {
 
   test("resumeWorkflowRun maps a non-interrupted run to a 409 ConflictError", async () => {
     setup({
-      flagEnabled: true,
       runs: [makeRun({ id: "run-1", status: "completed" })],
       resume: (id) => {
         throw new WorkflowResumeNotPossibleError(
@@ -292,7 +279,6 @@ describe("workflow routes (flag on)", () => {
 
   test("resumeWorkflowRun maps a cap error to a 429 TooManyRequestsError", async () => {
     setup({
-      flagEnabled: true,
       runs: [makeRun({ id: "run-1", status: "interrupted" })],
       resume: () => {
         throw new WorkflowRunCapError(3);
@@ -323,14 +309,14 @@ describe("workflow routes (flag on)", () => {
 
 describe("workflow routes (unknown run)", () => {
   test("getWorkflowRun throws NotFoundError for an unknown id", () => {
-    setup({ flagEnabled: true, runs: [] });
+    setup({ runs: [] });
     expect(() =>
       route("getWorkflowRun").handler({ pathParams: { id: "nope" } }),
     ).toThrow(NotFoundError);
   });
 
   test("abortWorkflowRun throws NotFoundError for an unknown id", () => {
-    const { aborted } = setup({ flagEnabled: true, runs: [] });
+    const { aborted } = setup({ runs: [] });
     expect(() =>
       route("abortWorkflowRun").handler({ pathParams: { id: "nope" } }),
     ).toThrow(NotFoundError);
@@ -338,35 +324,10 @@ describe("workflow routes (unknown run)", () => {
   });
 
   test("resumeWorkflowRun throws NotFoundError for an unknown id", async () => {
-    const { resumed } = setup({ flagEnabled: true, runs: [] });
+    const { resumed } = setup({ runs: [] });
     await expect(
       route("resumeWorkflowRun").handler({ pathParams: { id: "nope" } }),
     ).rejects.toThrow(NotFoundError);
     expect(resumed).toEqual([]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Flag off → every route 404s
-// ---------------------------------------------------------------------------
-
-describe("workflow routes (flag off)", () => {
-  beforeEach(() => {
-    setup({ flagEnabled: false, runs: [makeRun({ id: "run-1" })], saved: [] });
-  });
-
-  test.each([
-    ["listWorkflowRuns", { queryParams: {} }],
-    ["getWorkflowRun", { pathParams: { id: "run-1" } }],
-    ["abortWorkflowRun", { pathParams: { id: "run-1" } }],
-    ["listSavedWorkflows", {}],
-  ] as const)("%s throws NotFoundError when the flag is off", (op, args) => {
-    expect(() => route(op).handler(args)).toThrow(NotFoundError);
-  });
-
-  test("resumeWorkflowRun rejects with NotFoundError when the flag is off", async () => {
-    await expect(
-      route("resumeWorkflowRun").handler({ pathParams: { id: "run-1" } }),
-    ).rejects.toThrow(NotFoundError);
   });
 });

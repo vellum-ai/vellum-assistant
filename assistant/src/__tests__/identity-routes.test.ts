@@ -22,57 +22,6 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-const checkpointStore = new Map<string, string>();
-
-mock.module("../memory/checkpoints.js", () => ({
-  getMemoryCheckpoint: (key: string) => checkpointStore.get(key) ?? null,
-  setMemoryCheckpoint: (key: string, value: string) => {
-    checkpointStore.set(key, value);
-  },
-}));
-
-const getConfiguredProviderCalls: string[] = [];
-const mockProvider = { name: "mock-provider" };
-
-mock.module("../providers/provider-send-message.js", () => ({
-  getConfiguredProvider: mock(async (callSite: string) => {
-    getConfiguredProviderCalls.push(callSite);
-    return mockProvider;
-  }),
-}));
-
-type SidechainCall = {
-  callSite?: string;
-  content: string;
-  maxTokens?: number;
-  systemPrompt?: string;
-  tools: unknown[];
-};
-
-type SidechainResult = {
-  text: string;
-  hadTextDeltas: false;
-  response: { content: [] };
-};
-
-const sidechainCalls: SidechainCall[] = [];
-let sidechainText = "";
-let sidechainResultPromise: Promise<SidechainResult> | null = null;
-
-mock.module("../runtime/btw-sidechain.js", () => ({
-  runBtwSidechain: mock(async (params: SidechainCall) => {
-    sidechainCalls.push(params);
-    if (sidechainResultPromise) {
-      return sidechainResultPromise;
-    }
-    return {
-      text: sidechainText,
-      hadTextDeltas: false,
-      response: { content: [] },
-    };
-  }),
-}));
-
 import {
   handleDetailedHealth,
   handleReadyz,
@@ -85,17 +34,6 @@ import {
   resolveHatchedAtReadOnly,
   selectHatchedAtFromStats,
 } from "../workspace/hatched-date.js";
-
-function createDeferred<T>(): {
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-} {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((res) => {
-    resolve = res;
-  });
-  return { promise, resolve };
-}
 
 // ── Env helpers ─────────────────────────────────────────────────────────
 
@@ -194,11 +132,6 @@ beforeEach(() => {
   rmSync(getHatchedSidecarPath(), { force: true });
   rmSync(join(getWorkspaceDir(), "IDENTITY.md"), { force: true });
   rmSync(join(getWorkspaceDir(), "SOUL.md"), { force: true });
-  checkpointStore.clear();
-  getConfiguredProviderCalls.length = 0;
-  sidechainCalls.length = 0;
-  sidechainText = "";
-  sidechainResultPromise = null;
 });
 
 afterEach(() => {
@@ -562,127 +495,5 @@ describe("identity routes — createdAt selection", () => {
     const body = route!.handler({}) as { createdAt?: string };
     expect(Date.parse(body.createdAt ?? "")).toBeGreaterThan(0);
     expect(existsSync(getHatchedSidecarPath())).toBe(false);
-  });
-});
-
-describe("identity routes — intro greetings", () => {
-  test("returns fallback immediately, generates personalized greetings in the background, then reuses the cache", async () => {
-    const workspaceDir = getWorkspaceDir();
-    writeFileSync(
-      join(workspaceDir, "IDENTITY.md"),
-      [
-        "# Identity",
-        "",
-        "- **Name:** Example Assistant",
-        "- **Personality:** enjoys crisp, useful hellos",
-        "",
-        "Identity sentinel: chartreuse compass.",
-      ].join("\n"),
-      "utf-8",
-    );
-    writeFileSync(
-      join(workspaceDir, "SOUL.md"),
-      [
-        "# Soul",
-        "",
-        "Soul sentinel: copper lighthouse.",
-        "",
-        "Keep greetings warm and specific.",
-      ].join("\n"),
-      "utf-8",
-    );
-    const deferredSidechain = createDeferred<SidechainResult>();
-    sidechainResultPromise = deferredSidechain.promise;
-
-    const route = ROUTES.find(
-      (candidate) => candidate.operationId === "identity_intro",
-    );
-    expect(route).toBeDefined();
-
-    const body = route!.handler({
-      queryParams: { localHour: "8", localMinute: "15" },
-    }) as {
-      greetings: string[];
-      text: string;
-      source: string;
-      refreshing: boolean;
-    };
-
-    expect(body).toEqual({
-      greetings: [
-        "What are we working on?",
-        "I'm here whenever you need me.",
-        "What's on your mind?",
-        "Ready when you are.",
-      ],
-      text: "What are we working on?",
-      source: "fallback",
-      refreshing: true,
-    });
-    expect(getConfiguredProviderCalls).toEqual([]);
-    expect(sidechainCalls).toEqual([]);
-
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(getConfiguredProviderCalls).toEqual(["emptyStateGreeting"]);
-    expect(sidechainCalls).toHaveLength(1);
-    expect(sidechainCalls[0]?.callSite).toBe("emptyStateGreeting");
-    expect(sidechainCalls[0]?.tools).toEqual([]);
-    expect(sidechainCalls[0]?.content).toContain("Generate 5 short");
-    expect(sidechainCalls[0]?.content).not.toContain("Current time of day:");
-    expect(sidechainCalls[0]?.content).toContain(
-      "do not mention the current time",
-    );
-    expect(sidechainCalls[0]?.content).toMatch(
-      /Current user-local time for subtle tone only: morning \(08:15\)\.$/,
-    );
-    expect(sidechainCalls[0]?.content).toContain("JSON array");
-    expect(sidechainCalls[0]?.systemPrompt).toContain(
-      "Identity sentinel: chartreuse compass.",
-    );
-    expect(sidechainCalls[0]?.systemPrompt).toContain(
-      "Soul sentinel: copper lighthouse.",
-    );
-    deferredSidechain.resolve({
-      text: JSON.stringify([
-        "Charting the next useful thing?",
-        "I brought the compass. Where to?",
-        "Ready to make this lighter.",
-        "Morning momentum?",
-        "Five options, one good start.",
-        "A useful next step?",
-      ]),
-      hadTextDeltas: false,
-      response: { content: [] },
-    });
-
-    await sidechainResultPromise;
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    sidechainCalls.length = 0;
-    getConfiguredProviderCalls.length = 0;
-
-    const cachedBody = (await route!.handler({})) as {
-      greetings: string[];
-      text: string;
-      source: string;
-      refreshing: boolean;
-    };
-
-    expect(cachedBody).toEqual({
-      greetings: [
-        "Charting the next useful thing?",
-        "I brought the compass. Where to?",
-        "Ready to make this lighter.",
-        "Five options, one good start.",
-        "A useful next step?",
-      ],
-      text: "Charting the next useful thing?",
-      source: "cache",
-      refreshing: false,
-    });
-    expect(getConfiguredProviderCalls).toEqual([]);
-    expect(sidechainCalls).toEqual([]);
   });
 });

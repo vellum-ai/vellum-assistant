@@ -18,7 +18,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
@@ -26,8 +26,13 @@ import {
   type GitRunner,
   PluginSourceUnavailableError,
 } from "../install-from-github.js";
+import { computeFingerprint } from "../plugin-fingerprint.js";
 import { PluginNotInstalledError } from "../uninstall-plugin.js";
-import { PluginNotUpgradableError, upgradePlugin } from "../upgrade-plugin.js";
+import {
+  PluginMergeBaselineError,
+  PluginNotUpgradableError,
+  upgradePlugin,
+} from "../upgrade-plugin.js";
 
 const SHA_A = "a".repeat(40);
 const SHA_B = "b".repeat(40);
@@ -380,5 +385,293 @@ describe("upgradePlugin", () => {
     ).rejects.toThrow("network down");
     // AND the previously installed copy is left intact at its old pin
     expect(sidecarCommit(pluginsDir, "level-up")).toBe(SHA_A);
+  });
+});
+
+/** A file tree keyed by POSIX-relative path. */
+type Tree = Record<string, string>;
+
+/**
+ * A fake clone whose materialized tree depends on the fetched ref, so a merge
+ * upgrade's base clone (`source.ref` = the recorded install commit) and pin
+ * clone (`source.ref` = the marketplace pin) yield different trees. The ref is
+ * the last `git fetch` argument; `rev-parse HEAD` echoes it back so the
+ * checked-out commit matches the requested ref.
+ */
+function treeGitRunner(treesByRef: Record<string, Tree>): GitRunner {
+  const refByCwd = new Map<string, string>();
+  return async (args, { cwd }) => {
+    switch (args[0]) {
+      case "fetch": {
+        const ref = args[args.length - 1];
+        refByCwd.set(cwd, ref);
+        const tree = treesByRef[ref] ?? {};
+        for (const [rel, content] of Object.entries(tree)) {
+          const abs = join(cwd, rel);
+          mkdirSync(dirname(abs), { recursive: true });
+          writeFileSync(abs, content);
+        }
+        // `.git` is stripped during materialization; create it so the strip
+        // path is exercised, matching a real clone.
+        mkdirSync(join(cwd, ".git"), { recursive: true });
+        writeFileSync(join(cwd, ".git", "config"), "[core]\n");
+        return { stdout: "" };
+      }
+      case "rev-parse":
+        return { stdout: `${refByCwd.get(cwd) ?? ""}\n` };
+      default:
+        return { stdout: "" };
+    }
+  };
+}
+
+/**
+ * Materialize an installed copy of `ours` on disk plus a provenance sidecar
+ * recording `commit` and a fingerprint. By default the fingerprint is computed
+ * over `base` (what install materialized); pass `fingerprintTree` to record a
+ * mismatching baseline.
+ */
+function installMergeCopy(
+  name: string,
+  ours: Tree,
+  commit: string,
+  fingerprintTree: Tree | null,
+): void {
+  const dir = join(pluginsDir, name);
+  mkdirSync(dir, { recursive: true });
+  for (const [rel, content] of Object.entries(ours)) {
+    const abs = join(dir, rel);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, content);
+  }
+  const sidecar: Record<string, unknown> = {
+    origin: "vellum",
+    name,
+    source: { kind: "github", owner: "example-org", repo: name, ref: commit },
+    commit,
+    installedAt: "2026-06-10T12:00:00.000Z",
+  };
+  if (fingerprintTree !== null) {
+    const refDir = mkdtempSync(join(tmpdir(), "merge-fingerprint-"));
+    try {
+      for (const [rel, content] of Object.entries(fingerprintTree)) {
+        const abs = join(refDir, rel);
+        mkdirSync(dirname(abs), { recursive: true });
+        writeFileSync(abs, content);
+      }
+      sidecar.fingerprint = computeFingerprint(refDir, ["install-meta.json"]);
+    } finally {
+      rmSync(refDir, { recursive: true, force: true });
+    }
+  }
+  writeFileSync(join(dir, "install-meta.json"), JSON.stringify(sidecar));
+}
+
+/** Read an installed file's contents, or null when absent. */
+function installedFile(name: string, rel: string): string | null {
+  const path = join(pluginsDir, name, rel);
+  return existsSync(path) ? readFileSync(path, "utf-8") : null;
+}
+
+describe("upgradePlugin --strategy", () => {
+  // base → ours / theirs trees shared by the three-way merge tests:
+  // - common.txt: edited on disjoint lines by each side (a clean auto-merge)
+  // - conflict.txt: edited differently on both sides (a true conflict)
+  // - local-only.txt / remote-only.txt: added on one side only
+  const BASE: Tree = {
+    "common.txt": "a\nb\nc\n",
+    "conflict.txt": "base\n",
+  };
+  const OURS: Tree = {
+    "common.txt": "A\nb\nc\n",
+    "conflict.txt": "ours\n",
+    "local-only.txt": "added locally\n",
+  };
+  const THEIRS: Tree = {
+    "common.txt": "a\nb\nC\n",
+    "conflict.txt": "theirs\n",
+    "remote-only.txt": "added upstream\n",
+  };
+
+  test("--strategy ours carries both sides' edits and resolves conflicts toward local", async () => {
+    // GIVEN an install at SHA_A with local edits, and a pin at SHA_B
+    installMergeCopy("level-up", OURS, SHA_A, BASE);
+    const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
+    const runGit = treeGitRunner({ [SHA_A]: BASE, [SHA_B]: THEIRS });
+
+    // WHEN the plugin is upgraded with the `ours` strategy
+    const result = await upgradePlugin(
+      { name: "level-up", strategy: "ours" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN it moves to the pin and records the strategy
+    expect(result.outcome).toBe("upgraded");
+    expect(result.toCommit).toBe(SHA_B);
+    expect(result.strategy).toBe("ours");
+    // AND non-conflicting edits from both sides survive
+    expect(installedFile("level-up", "common.txt")).toBe("A\nb\nC\n");
+    expect(installedFile("level-up", "local-only.txt")).toBe("added locally\n");
+    expect(installedFile("level-up", "remote-only.txt")).toBe(
+      "added upstream\n",
+    );
+    // AND the conflicting file resolves toward the local edit
+    expect(installedFile("level-up", "conflict.txt")).toBe("ours\n");
+  });
+
+  test("--strategy theirs carries both sides' edits and resolves conflicts toward the pin", async () => {
+    // GIVEN an install at SHA_A with local edits, and a pin at SHA_B
+    installMergeCopy("level-up", OURS, SHA_A, BASE);
+    const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
+    const runGit = treeGitRunner({ [SHA_A]: BASE, [SHA_B]: THEIRS });
+
+    // WHEN the plugin is upgraded with the `theirs` strategy
+    const result = await upgradePlugin(
+      { name: "level-up", strategy: "theirs" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN non-conflicting edits from both sides still survive
+    expect(result.strategy).toBe("theirs");
+    expect(installedFile("level-up", "common.txt")).toBe("A\nb\nC\n");
+    expect(installedFile("level-up", "local-only.txt")).toBe("added locally\n");
+    expect(installedFile("level-up", "remote-only.txt")).toBe(
+      "added upstream\n",
+    );
+    // AND the conflicting file resolves toward the pin
+    expect(installedFile("level-up", "conflict.txt")).toBe("theirs\n");
+  });
+
+  test("--strategy overwrite discards local edits and re-installs the pin wholesale", async () => {
+    // GIVEN an install at SHA_A with a local-only file, and a pin at SHA_B
+    installMergeCopy("level-up", OURS, SHA_A, BASE);
+    const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
+    const runGit = treeGitRunner({ [SHA_A]: BASE, [SHA_B]: THEIRS });
+
+    // WHEN the plugin is upgraded with the `overwrite` strategy
+    const result = await upgradePlugin(
+      { name: "level-up", strategy: "overwrite" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN the on-disk tree is exactly the pin — local edits are gone
+    expect(result.strategy).toBe("overwrite");
+    expect(installedFile("level-up", "common.txt")).toBe("a\nb\nC\n");
+    expect(installedFile("level-up", "conflict.txt")).toBe("theirs\n");
+    expect(installedFile("level-up", "remote-only.txt")).toBe(
+      "added upstream\n",
+    );
+    expect(installedFile("level-up", "local-only.txt")).toBeNull();
+  });
+
+  test("defaults to overwrite when no strategy is given", async () => {
+    // GIVEN an install with a local-only file and an advanced pin
+    installMergeCopy("level-up", OURS, SHA_A, BASE);
+    const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
+    const runGit = treeGitRunner({ [SHA_A]: BASE, [SHA_B]: THEIRS });
+
+    // WHEN the plugin is upgraded without a strategy
+    const result = await upgradePlugin(
+      { name: "level-up" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN it overwrites: the local-only file is dropped
+    expect(result.strategy).toBe("overwrite");
+    expect(installedFile("level-up", "local-only.txt")).toBeNull();
+  });
+
+  test("--strategy assistant writes conflict markers and reports the conflicted path", async () => {
+    // GIVEN an install at SHA_A with local edits, and a pin at SHA_B
+    installMergeCopy("level-up", OURS, SHA_A, BASE);
+    const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
+    const runGit = treeGitRunner({ [SHA_A]: BASE, [SHA_B]: THEIRS });
+
+    // WHEN the plugin is upgraded with the `assistant` strategy
+    const result = await upgradePlugin(
+      { name: "level-up", strategy: "assistant" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN it moves to the pin and records the strategy
+    expect(result.outcome).toBe("upgraded");
+    expect(result.toCommit).toBe(SHA_B);
+    expect(result.strategy).toBe("assistant");
+    // AND non-conflicting edits from both sides still auto-merge
+    expect(installedFile("level-up", "common.txt")).toBe("A\nb\nC\n");
+    expect(installedFile("level-up", "local-only.txt")).toBe("added locally\n");
+    expect(installedFile("level-up", "remote-only.txt")).toBe(
+      "added upstream\n",
+    );
+    // AND the true conflict carries git markers naming both commits
+    const conflict = installedFile("level-up", "conflict.txt") ?? "";
+    expect(conflict).toContain("<<<<<<<");
+    expect(conflict).toContain(SHA_A.slice(0, 7));
+    expect(conflict).toContain(SHA_B.slice(0, 7));
+    expect(conflict).toContain("ours\n");
+    expect(conflict).toContain("theirs\n");
+    // AND the conflicted path is surfaced for the assistant to resolve
+    expect(result.conflicts).toEqual(["conflict.txt"]);
+    expect(result.binaryConflicts).toEqual([]);
+  });
+
+  test("--strategy assistant reports no conflicts on a clean three-way merge", async () => {
+    // GIVEN an install whose only divergence from the pin auto-merges cleanly
+    const cleanOurs: Tree = { "common.txt": "A\nb\nc\n" };
+    const cleanBase: Tree = { "common.txt": "a\nb\nc\n" };
+    const cleanTheirs: Tree = { "common.txt": "a\nb\nC\n" };
+    installMergeCopy("level-up", cleanOurs, SHA_A, cleanBase);
+    const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
+    const runGit = treeGitRunner({ [SHA_A]: cleanBase, [SHA_B]: cleanTheirs });
+
+    // WHEN the plugin is upgraded with the `assistant` strategy
+    const result = await upgradePlugin(
+      { name: "level-up", strategy: "assistant" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN both edits merge with no markers and nothing needs resolution
+    expect(result.strategy).toBe("assistant");
+    expect(result.conflicts).toEqual([]);
+    expect(result.binaryConflicts).toEqual([]);
+    const merged = installedFile("level-up", "common.txt") ?? "";
+    expect(merged).toBe("A\nb\nC\n");
+    expect(merged).not.toContain("<<<<<<<");
+  });
+
+  test("throws PluginMergeBaselineError when no fingerprint was recorded", async () => {
+    // GIVEN an install whose sidecar records no fingerprint (older install)
+    installMergeCopy("level-up", OURS, SHA_A, null);
+    const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
+    const runGit = treeGitRunner({ [SHA_A]: BASE, [SHA_B]: THEIRS });
+
+    // WHEN a merge strategy is requested
+    // THEN the baseline cannot be trusted, so the merge is refused
+    await expect(
+      upgradePlugin(
+        { name: "level-up", strategy: "ours" },
+        { fetch, runGit, workspacePluginsDir: pluginsDir },
+      ),
+    ).rejects.toBeInstanceOf(PluginMergeBaselineError);
+  });
+
+  test("throws PluginMergeBaselineError when the re-materialized base drifts from the recorded fingerprint", async () => {
+    // GIVEN an install whose recorded fingerprint describes a tree that differs
+    // from what re-materializing the install commit produces (an adapter
+    // overlay that moved since install)
+    installMergeCopy("level-up", OURS, SHA_A, {
+      "common.txt": "totally different baseline\n",
+    });
+    const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
+    const runGit = treeGitRunner({ [SHA_A]: BASE, [SHA_B]: THEIRS });
+
+    // WHEN a merge strategy is requested
+    // THEN the baseline is rejected rather than producing a corrupt merge
+    await expect(
+      upgradePlugin(
+        { name: "level-up", strategy: "theirs" },
+        { fetch, runGit, workspacePluginsDir: pluginsDir },
+      ),
+    ).rejects.toBeInstanceOf(PluginMergeBaselineError);
   });
 });

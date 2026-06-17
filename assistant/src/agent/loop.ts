@@ -1439,6 +1439,7 @@ export class AgentLoop {
             conversationId: this.conversationId,
             callSite: callSite ?? null,
             systemPrompt: providerOptions.systemPrompt ?? null,
+            modelProfile: effectiveOverrideProfile ?? null,
             deferAssistantOutput: false,
             logger: rlog,
           };
@@ -1448,6 +1449,20 @@ export class AgentLoop {
           );
           providerOptions.systemPrompt =
             finalPreModelCtx.systemPrompt ?? undefined;
+          // Route this call to the hook's chosen inference profile. The
+          // resolver layers `llm.profiles[overrideProfile]` at the top of
+          // precedence for the user-facing call, so a model router can pick
+          // the profile per message; clearing it drops any seeded override.
+          const hookModelProfile = finalPreModelCtx.modelProfile?.trim();
+          if (hookModelProfile) {
+            providerConfig.overrideProfile = hookModelProfile;
+            if (forceOverrideProfile) {
+              providerConfig.forceOverrideProfile = true;
+            }
+          } else {
+            delete providerConfig.overrideProfile;
+            delete providerConfig.forceOverrideProfile;
+          }
           // The hook owns the policy (it sees `callSite`/conversation and
           // self-gates); the loop honors whatever it decides.
           deferAssistantOutput = finalPreModelCtx.deferAssistantOutput;

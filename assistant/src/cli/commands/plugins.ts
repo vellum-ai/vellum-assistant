@@ -40,8 +40,12 @@ import {
   uninstallPlugin,
 } from "../lib/uninstall-plugin.js";
 import {
+  DEFAULT_PLUGIN_UPGRADE_STRATEGY,
+  PLUGIN_UPGRADE_STRATEGIES,
+  PluginMergeBaselineError,
   PluginNotUpgradableError,
   type PluginUpgradeResult,
+  type PluginUpgradeStrategy,
   upgradePlugin,
 } from "../lib/upgrade-plugin.js";
 import { getCliLogger } from "../logger.js";
@@ -69,6 +73,9 @@ Examples:
   $ assistant plugins diff example --json
   $ assistant plugins upgrade example
   $ assistant plugins upgrade example --dry-run
+  $ assistant plugins upgrade example --strategy ours
+  $ assistant plugins upgrade example --strategy theirs
+  $ assistant plugins upgrade example --strategy assistant
   $ assistant plugins search example
   $ assistant plugins search "^example"
   $ assistant plugins search example --json
@@ -173,7 +180,7 @@ Examples:
       plugins
         .command("inspect <name>")
         .description(
-          "Show a plugin's local install metadata and the marketplace pin, and whether an update is available",
+          "Show a plugin's local install metadata, the marketplace pin, whether an update is available, and the surfaces (skills, hooks, tools) it contributes",
         )
         .option("--json", "Emit machine-readable JSON instead of a summary")
         .action(async (name: string, opts: { json?: boolean }) => {
@@ -401,12 +408,36 @@ Examples:
           "--dry-run",
           "Show what would change without modifying the install",
         )
+        .option(
+          "--strategy <strategy>",
+          `How to reconcile local edits with the pin: ${PLUGIN_UPGRADE_STRATEGIES.join(", ")} (default: ${DEFAULT_PLUGIN_UPGRADE_STRATEGY})`,
+        )
         .option("--json", "Emit machine-readable JSON instead of a summary")
         .action(
-          async (name: string, opts: { dryRun?: boolean; json?: boolean }) => {
+          async (
+            name: string,
+            opts: { dryRun?: boolean; strategy?: string; json?: boolean },
+          ) => {
+            const strategy = opts.strategy;
+            if (
+              strategy !== undefined &&
+              !(PLUGIN_UPGRADE_STRATEGIES as readonly string[]).includes(
+                strategy,
+              )
+            ) {
+              console.error(
+                `Invalid --strategy "${strategy}". Expected one of: ${PLUGIN_UPGRADE_STRATEGIES.join(", ")}.`,
+              );
+              process.exitCode = 1;
+              return;
+            }
             try {
               const result = await upgradePlugin(
-                { name, dryRun: opts.dryRun },
+                {
+                  name,
+                  dryRun: opts.dryRun,
+                  strategy: strategy as PluginUpgradeStrategy | undefined,
+                },
                 { fetch: globalThis.fetch.bind(globalThis) },
               );
 
@@ -434,6 +465,7 @@ Examples:
               if (
                 err instanceof PluginNotInstalledError ||
                 err instanceof PluginNotUpgradableError ||
+                err instanceof PluginMergeBaselineError ||
                 err instanceof InvalidPluginNameError
               ) {
                 console.error(err.message);
@@ -517,12 +549,20 @@ function remoteLocation(remote: PluginRemoteInfo): string {
  * `location`, with a `drift` line under the installed copy.
  */
 function formatInspection(inspection: PluginInspection): string[] {
-  const { name, status, local, remote, remoteError } = inspection;
+  const { name, status, local, remote, remoteError, surfaces } = inspection;
   const lines: string[] = [name, "─".repeat(44)];
   const topRow = (label: string, value: string) =>
     lines.push(`${label.padEnd(11)} ${value}`);
   const blockRow = (label: string, value: string) =>
     lines.push(`  ${label.padEnd(9)} ${value}`);
+  // A surface block: the surface type as a heading, then its items indented
+  // under it. Omitted entirely when the plugin contributes none of that type,
+  // so the listing only ever shows what the plugin actually contributes.
+  const surfaceBlock = (label: string, items: readonly string[]) => {
+    if (items.length === 0) return;
+    lines.push(label);
+    for (const item of items) lines.push(`  ${item}`);
+  };
 
   topRow("status", statusLine(status));
 
@@ -556,6 +596,12 @@ function formatInspection(inspection: PluginInspection): string[] {
 
   const description = remote?.description ?? local?.description ?? null;
   if (description) topRow("description", description);
+
+  if (surfaces) {
+    surfaceBlock("skills", surfaces.skills);
+    surfaceBlock("hooks", surfaces.hooks);
+    surfaceBlock("tools", surfaces.tools);
+  }
 
   for (const issue of local?.issues ?? []) topRow("issue", issue);
 
@@ -595,12 +641,56 @@ function formatUpgrade(result: PluginUpgradeResult): string[] {
         result.fileCount === null
           ? ""
           : `(${result.fileCount} file${result.fileCount === 1 ? "" : "s"}) `;
+      const hasConflicts =
+        result.conflicts.length > 0 || result.binaryConflicts.length > 0;
+
+      // Under `assistant`, an unresolved merge leaves conflicts in the tree —
+      // the plugin would fail to load while any remain, so the usual "restart
+      // now" guidance is replaced with resolution instructions. Most conflicts
+      // carry git markers, but a modify/delete divergence (a file edited on one
+      // side and deleted on the other) keeps the surviving content with no
+      // markers, so the guidance covers both rather than assuming markers.
+      if (result.strategy === "assistant" && hasConflicts) {
+        const lines = [
+          `Merged "${name}" ${move} with conflicts`,
+          "",
+          `${count}→ ${result.target}`,
+        ];
+        if (result.conflicts.length > 0) {
+          lines.push(
+            "",
+            `Resolve ${result.conflicts.length} conflicted file${result.conflicts.length === 1 ? "" : "s"} (open each: resolve its git conflict markers, or — if a modify/delete divergence kept the file with none — decide whether to keep or remove it):`,
+            ...result.conflicts.map((p) => `  ${p}`),
+          );
+        }
+        if (result.binaryConflicts.length > 0) {
+          lines.push(
+            "",
+            `Binary conflict${result.binaryConflicts.length === 1 ? "" : "s"} (kept the local copy — choose a version manually):`,
+            ...result.binaryConflicts.map((p) => `  ${p}`),
+          );
+        }
+        lines.push(
+          "",
+          "Resolve the conflicts, then restart the assistant to pick up the upgrade.",
+        );
+        if (provenanceNote) lines.push(provenanceNote);
+        return lines;
+      }
+
+      const mergeNote =
+        result.strategy === "ours" || result.strategy === "theirs"
+          ? `Local edits were merged (--strategy ${result.strategy}).`
+          : result.strategy === "assistant"
+            ? "Local edits were merged with no conflicts (--strategy assistant)."
+            : null;
       const lines = [
         `Upgraded "${name}" ${move}`,
         "",
         `${count}→ ${result.target}`,
         "Restart the assistant to pick up the upgrade.",
       ];
+      if (mergeNote) lines.push(mergeNote);
       if (provenanceNote) lines.push(provenanceNote);
       return lines;
     }

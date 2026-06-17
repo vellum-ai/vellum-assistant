@@ -144,7 +144,6 @@ export interface VellumBridge {
   };
   dock: {
     setBadge(count: number): void;
-    setSignedIn(signedIn: boolean): void;
   };
   localMode: {
     hatch(
