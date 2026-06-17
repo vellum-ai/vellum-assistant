@@ -1390,6 +1390,10 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
       extraAssistantEnv.VELLUM_DISABLE_PLATFORM =
         flagEnvVars.VELLUM_DISABLE_PLATFORM;
     }
+    if (flagEnvVars.VELLUM_DISABLE_REMOTE_MODEL_PROFILES) {
+      extraAssistantEnv.VELLUM_DISABLE_REMOTE_MODEL_PROFILES =
+        flagEnvVars.VELLUM_DISABLE_REMOTE_MODEL_PROFILES;
+    }
     const hostDeviceId = getOrCreateHostDeviceId();
     extraAssistantEnv.VELLUM_DEVICE_ID = hostDeviceId;
     const extraGatewayEnv = {
