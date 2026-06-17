@@ -175,6 +175,36 @@ import { TraceEmitter } from "./trace-emitter.js";
 
 const log = getLogger("conversation");
 
+/**
+ * Whether a persisted message starts a new conversation turn. A turn is
+ * delimited by a "real" user message; a user message whose content is entirely
+ * tool_result blocks is a continuation within the current turn, and assistant
+ * messages never start one. Mirrors the turn-boundary definition used by
+ * `getAssistantMessageIdsInTurn`/`getTurnTimeBounds` and the agent loop's
+ * per-turn `turnCount++`, so counting these reconstructs `turnCount` on load.
+ */
+function startsNewTurn(role: string, content: string): boolean {
+  if (role !== "user") return false;
+  try {
+    const parsed = JSON.parse(content);
+    if (
+      Array.isArray(parsed) &&
+      parsed.length > 0 &&
+      parsed.every(
+        (block: unknown) =>
+          block != null &&
+          typeof block === "object" &&
+          (block as { type?: unknown }).type === "tool_result",
+      )
+    ) {
+      return false;
+    }
+  } catch {
+    // Non-JSON content is a plain user message — a turn boundary.
+  }
+  return true;
+}
+
 export interface CleanResult {
   previousEstimatedInputTokens: number;
   estimatedInputTokens: number;
@@ -828,6 +858,20 @@ export class Conversation {
     const dbMessages = isUntrustedTrustClass(trustClass)
       ? filterMessagesForUntrustedActor(allDbMessages)
       : allDbMessages;
+
+    // Rehydrate the in-memory turn counter from persisted history. `turnCount`
+    // is otherwise a fresh-zero field, so a reloaded conversation (eviction,
+    // restart, fork) would restart its turn numbering at 0 and the next turn
+    // would reuse `turnIndex` 0 — colliding with the conversation's first turn.
+    // The memory-v3 selector memoizes per (conversationId, turnIndex) for the
+    // life of the daemon process, so a collided turnIndex serves a stale
+    // selection and skips retrieval. One turn per real (turn-starting) user
+    // message, matching the agent loop's per-turn `turnCount++`. Counted from
+    // the full unsliced history so it survives compaction and is independent of
+    // the viewer's trust class.
+    this.turnCount = allDbMessages.filter((m) =>
+      startsNewTurn(m.role, m.content),
+    ).length;
 
     const conv = getConversation(this.conversationId);
     this.conversationType = conv?.conversationType ?? undefined;
