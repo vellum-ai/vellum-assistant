@@ -16,6 +16,7 @@ import {
     oauthCompletionStorageKey,
     type OAuthCompletePayload,
 } from "@/lib/auth/oauth-popup";
+import { resolveManagedOAuthAssistantId } from "@/lib/local-managed-oauth-identity";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
@@ -63,7 +64,10 @@ export function GoogleConnectScreen({
   const isNative = useIsNativePlatform();
 
   const popupRef = useRef<Window | null>(null);
-  const pendingRequestRef = useRef<{ requestId: string } | null>(null);
+  const pendingRequestRef = useRef<{
+    requestId: string;
+    oauthAssistantId: string;
+  } | null>(null);
   const popupCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const popupClosedGraceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messageListenerRef = useRef<((event: MessageEvent) => void) | null>(null);
@@ -122,11 +126,11 @@ export function GoogleConnectScreen({
     };
   }, []);
 
-  const fetchActiveGoogleConnection = useCallback(async (): Promise<OAuthConnection | null> => {
+  const fetchActiveGoogleConnection = useCallback(async (oauthAssistantId: string): Promise<OAuthConnection | null> => {
     try {
       const connections = await queryClient.fetchQuery({
         ...assistantsOauthConnectionsListOptions({
-          path: { assistant_id: assistantId },
+          path: { assistant_id: oauthAssistantId },
         }),
         staleTime: 0,
       });
@@ -138,12 +142,15 @@ export function GoogleConnectScreen({
     } catch {
       return null;
     }
-  }, [assistantId, queryClient]);
+  }, [queryClient]);
 
   const handleOAuthSuccess = useCallback(async () => {
+    const oauthAssistantId = pendingRequestRef.current?.oauthAssistantId;
     closePopupWindow();
     clearPendingRequest();
-    const connection = await fetchActiveGoogleConnection();
+    const connection = oauthAssistantId
+      ? await fetchActiveGoogleConnection(oauthAssistantId)
+      : null;
     onConnect(connection?.scopes_granted ?? []);
   }, [clearPendingRequest, closePopupWindow, fetchActiveGoogleConnection, onConnect]);
 
@@ -224,24 +231,37 @@ export function GoogleConnectScreen({
 
     if (isNative) {
       setOAuthInProgress(true);
-      pendingRequestRef.current = { requestId };
-      startOAuth.mutate(
-        {
-          path: { assistant_id: assistantId, provider: GOOGLE_PROVIDER_KEY },
-          body: {
-            requested_scopes: [],
-            redirect_after_connect: `${routes.account.oauth.popupComplete}?requestId=${requestId}&native=1`,
+      void (async () => {
+        let oauthAssistantId: string;
+        try {
+          oauthAssistantId = await resolveManagedOAuthAssistantId(assistantId);
+        } catch {
+          clearPendingRequest();
+          return;
+        }
+
+        pendingRequestRef.current = { requestId, oauthAssistantId };
+        startOAuth.mutate(
+          {
+            path: {
+              assistant_id: oauthAssistantId,
+              provider: GOOGLE_PROVIDER_KEY,
+            },
+            body: {
+              requested_scopes: [],
+              redirect_after_connect: `${routes.account.oauth.popupComplete}?requestId=${requestId}&native=1`,
+            },
           },
-        },
-        {
-          onSuccess(data) {
-            void openUrl(data.connect_url);
+          {
+            onSuccess(data) {
+              void openUrl(data.connect_url);
+            },
+            onError() {
+              clearPendingRequest();
+            },
           },
-          onError() {
-            clearPendingRequest();
-          },
-        },
-      );
+        );
+      })();
 
       window.addEventListener("message", handleOAuthMessage);
       window.addEventListener("storage", handleOAuthStorage);
@@ -255,7 +275,9 @@ export function GoogleConnectScreen({
           return;
         }
         void (async () => {
-          const connection = await fetchActiveGoogleConnection();
+          const connection = await fetchActiveGoogleConnection(
+            pendingRequest.oauthAssistantId,
+          );
           if (!pendingRequestRef.current) return;
           if (connection) {
             await handleOAuthSuccess();
@@ -279,7 +301,6 @@ export function GoogleConnectScreen({
 
     popupRef.current = popup;
     setOAuthInProgress(true);
-    pendingRequestRef.current = { requestId };
 
     window.addEventListener("message", handleOAuthMessage);
     window.addEventListener("storage", handleOAuthStorage);
@@ -315,7 +336,9 @@ export function GoogleConnectScreen({
             }
           }
 
-          const connection = await fetchActiveGoogleConnection();
+          const connection = await fetchActiveGoogleConnection(
+            pendingRequest.oauthAssistantId,
+          );
           if (!pendingRequestRef.current) return;
 
           if (connection) {
@@ -329,31 +352,45 @@ export function GoogleConnectScreen({
       }
     }, 100);
 
-    startOAuth.mutate(
-      {
-        path: { assistant_id: assistantId, provider: GOOGLE_PROVIDER_KEY },
-        body: {
-          requested_scopes: [],
-          redirect_after_connect: `${routes.account.oauth.popupComplete}?requestId=${requestId}`,
+    void (async () => {
+      let oauthAssistantId: string;
+      try {
+        oauthAssistantId = await resolveManagedOAuthAssistantId(assistantId);
+      } catch {
+        closePopupWindow();
+        clearPendingRequest();
+        removeEventListeners();
+        return;
+      }
+
+      pendingRequestRef.current = { requestId, oauthAssistantId };
+
+      startOAuth.mutate(
+        {
+          path: { assistant_id: oauthAssistantId, provider: GOOGLE_PROVIDER_KEY },
+          body: {
+            requested_scopes: [],
+            redirect_after_connect: `${routes.account.oauth.popupComplete}?requestId=${requestId}`,
+          },
         },
-      },
-      {
-        onSuccess(data) {
-          if (popupRef.current && !popupRef.current.closed) {
-            popupRef.current.location.href = data.connect_url;
-          } else if (pendingRequestRef.current) {
+        {
+          onSuccess(data) {
+            if (popupRef.current && !popupRef.current.closed) {
+              popupRef.current.location.href = data.connect_url;
+            } else if (pendingRequestRef.current) {
+              closePopupWindow();
+              clearPendingRequest();
+              removeEventListeners();
+            }
+          },
+          onError() {
             closePopupWindow();
             clearPendingRequest();
             removeEventListeners();
-          }
+          },
         },
-        onError() {
-          closePopupWindow();
-          clearPendingRequest();
-          removeEventListeners();
-        },
-      },
-    );
+      );
+    })();
   }, [
     assistantId,
     clearPendingRequest,

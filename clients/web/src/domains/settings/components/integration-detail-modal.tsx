@@ -27,6 +27,7 @@ type ModalTab = "managed" | "your-own";
 
 interface IntegrationDetailModalProps {
   assistantId: string;
+  oauthAssistantId: string;
   providerKey: string;
   displayName: string;
   description: string | null;
@@ -42,6 +43,7 @@ interface IntegrationDetailModalProps {
  */
 export function IntegrationDetailModal({
   assistantId,
+  oauthAssistantId,
   providerKey,
   displayName,
   description,
@@ -61,12 +63,12 @@ export function IntegrationDetailModal({
     useState<OAuthConnection | null>(null);
 
   const connectionsQueryKey = assistantsOauthConnectionsListQueryKey({
-    path: { assistant_id: assistantId },
+    path: { assistant_id: oauthAssistantId },
   });
 
   const { data: allConnections, isLoading: connectionsLoading } = useQuery({
     ...assistantsOauthConnectionsListOptions({
-      path: { assistant_id: assistantId },
+      path: { assistant_id: oauthAssistantId },
     }),
     enabled: managedAvailable,
   });
@@ -84,7 +86,7 @@ export function IntegrationDetailModal({
     allConnections,
   });
 
-  const connectionsOpts = { path: { assistant_id: assistantId } };
+  const connectionsOpts = { path: { assistant_id: oauthAssistantId } };
 
   const disconnectOAuth = useAssistantsOauthDisconnectByConnectionCreateMutation({
     onSuccess(_data, variables) {
@@ -137,7 +139,7 @@ export function IntegrationDetailModal({
     }
     setPendingDisconnectId(connection.id);
     disconnectOAuth.mutate({
-      path: { assistant_id: assistantId, connection_id: connection.id },
+      path: { assistant_id: oauthAssistantId, connection_id: connection.id },
     });
   };
 

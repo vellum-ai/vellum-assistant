@@ -278,13 +278,6 @@ export function useOAuthConnect({
 
     const requestId = crypto.randomUUID();
     setOAuthInProgress(true);
-    const cachedConnections =
-      queryClient.getQueryData<OAuthConnection[]>(connectionsQueryKey) ??
-      allConnections;
-    const baselineConnectionSignatures = getProviderConnectionSignatures(
-      cachedConnections,
-      providerKey,
-    );
 
     const start = async (popup: Window | null) => {
       let oauthAssistantId: string;
@@ -300,6 +293,21 @@ export function useOAuthConnect({
         );
         return;
       }
+
+      const baselineConnections = await queryClient
+        .fetchQuery({
+          ...assistantsOauthConnectionsListOptions({
+            path: { assistant_id: oauthAssistantId },
+          }),
+          staleTime: 0,
+        })
+        .catch(() =>
+          oauthAssistantId === assistantId ? (allConnections ?? []) : [],
+        );
+      const baselineConnectionSignatures = getProviderConnectionSignatures(
+        baselineConnections,
+        providerKey,
+      );
 
       pendingRequestRef.current = {
         requestId,
