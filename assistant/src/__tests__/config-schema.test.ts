@@ -145,6 +145,17 @@ describe("AssistantConfigSchema", () => {
     expect(result.services["web-search"].mode).toBe("your-own");
   });
 
+  test("accepts Firecrawl as a web search provider", () => {
+    const result = AssistantConfigSchema.parse({
+      services: {
+        "web-search": { mode: "your-own", provider: "firecrawl" },
+      },
+    });
+
+    expect(result.services["web-search"].provider).toBe("firecrawl");
+    expect(result.services["web-search"].mode).toBe("your-own");
+  });
+
   test("accepts valid complete config", () => {
     const input = {
       llm: {

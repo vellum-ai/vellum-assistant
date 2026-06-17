@@ -35,6 +35,7 @@ describe("getLlmProviderEnvVar", () => {
     expect(getLlmProviderEnvVar("brave")).toBeUndefined();
     expect(getLlmProviderEnvVar("perplexity")).toBeUndefined();
     expect(getLlmProviderEnvVar("tavily")).toBeUndefined();
+    expect(getLlmProviderEnvVar("firecrawl")).toBeUndefined();
   });
 
   test("returns undefined for unknown provider", () => {
@@ -53,6 +54,10 @@ describe("getSearchProviderEnvVar", () => {
 
   test("returns TAVILY_API_KEY for tavily", () => {
     expect(getSearchProviderEnvVar("tavily")).toBe("TAVILY_API_KEY");
+  });
+
+  test("returns FIRECRAWL_API_KEY for firecrawl", () => {
+    expect(getSearchProviderEnvVar("firecrawl")).toBe("FIRECRAWL_API_KEY");
   });
 
   test("returns undefined for LLM providers (out of scope)", () => {
@@ -75,6 +80,7 @@ describe("getAnyProviderEnvVar", () => {
     expect(getAnyProviderEnvVar("brave")).toBe("BRAVE_API_KEY");
     expect(getAnyProviderEnvVar("perplexity")).toBe("PERPLEXITY_API_KEY");
     expect(getAnyProviderEnvVar("tavily")).toBe("TAVILY_API_KEY");
+    expect(getAnyProviderEnvVar("firecrawl")).toBe("FIRECRAWL_API_KEY");
   });
 
   test("returns undefined for ollama (keyless LLM provider)", () => {

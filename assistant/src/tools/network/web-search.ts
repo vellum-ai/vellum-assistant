@@ -35,8 +35,9 @@ const BRAVE_SEARCH_PATH = "/res/v1/web/search";
 const BRAVE_API_URL = `https://api.search.brave.com${BRAVE_SEARCH_PATH}`;
 const PERPLEXITY_API_URL = "https://api.perplexity.ai/chat/completions";
 const TAVILY_API_URL = "https://api.tavily.com/search";
+const FIRECRAWL_API_URL = "https://api.firecrawl.dev/v2/search";
 
-type WebSearchProvider = "perplexity" | "brave" | "tavily";
+type WebSearchProvider = "perplexity" | "brave" | "tavily" | "firecrawl";
 type WebSearchMode = "managed" | "your-own";
 
 /**
@@ -106,6 +107,28 @@ interface TavilySearchResult {
 interface TavilySearchResponse {
   query?: string;
   results?: TavilySearchResult[];
+}
+
+interface FirecrawlSearchResult {
+  title?: string;
+  description?: string;
+  url?: string;
+  category?: string;
+}
+
+/**
+ * Firecrawl `/v2/search` returns one array per requested source under `data`
+ * (defaults to `web`). We request only `web`, so that is the array we read;
+ * `news`/`images` are typed loosely since we never request them here.
+ */
+interface FirecrawlSearchResponse {
+  success?: boolean;
+  data?: {
+    web?: FirecrawlSearchResult[];
+    news?: FirecrawlSearchResult[];
+    images?: unknown[];
+  };
+  warning?: string | null;
 }
 
 function getWebSearchProvider(): WebSearchProvider {
@@ -222,6 +245,34 @@ function formatTavilyResults(
     }
     if (typeof r.score === "number") {
       lines.push(`   Score: ${r.score.toFixed(3)}`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
+function formatFirecrawlResults(
+  data: FirecrawlSearchResponse,
+  query: string,
+): string {
+  const results = data.data?.web ?? [];
+
+  if (results.length === 0) {
+    return `No results found for "${query}".`;
+  }
+
+  const lines: string[] = [`Web search results for "${query}":\n`];
+
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    const title = r.title?.trim() || r.url?.trim() || "Untitled result";
+    lines.push(`${i + 1}. ${title}`);
+    if (r.url) {
+      lines.push(`   URL: ${r.url}`);
+    }
+    if (r.description) {
+      lines.push(`   ${r.description}`);
     }
     lines.push("");
   }
@@ -360,6 +411,55 @@ function tavilyTimeRangeForFreshness(
       return "month";
     case "py":
       return "year";
+    default:
+      return undefined;
+  }
+}
+
+function buildFirecrawlMetadata(
+  data: FirecrawlSearchResponse,
+  query: string,
+  durationMs: number,
+): WebSearchMetadata {
+  const results = data.data?.web ?? [];
+  const items: WebSearchResultItem[] = results.map((r, i) => {
+    const url = r.url ?? "";
+    const domain = extractDomain(url);
+    return {
+      rank: i + 1,
+      title: r.title?.trim() || url.trim() || "Untitled result",
+      url,
+      domain,
+      faviconUrl: faviconUrlForDomain(domain),
+      snippet: r.description,
+    };
+  });
+  return {
+    query,
+    provider: "firecrawl",
+    resultCount: items.length,
+    durationMs,
+    results: items,
+  };
+}
+
+/**
+ * Map the tool's `freshness` window onto Firecrawl's `tbs` time filter
+ * (`qdr:d` / `qdr:w` / `qdr:m` / `qdr:y`). Returns `undefined` for an
+ * unrecognized value so the request omits `tbs` entirely.
+ */
+function firecrawlTbsForFreshness(
+  freshness: string | undefined,
+): "qdr:d" | "qdr:w" | "qdr:m" | "qdr:y" | undefined {
+  switch (freshness) {
+    case "pd":
+      return "qdr:d";
+    case "pw":
+      return "qdr:w";
+    case "pm":
+      return "qdr:m";
+    case "py":
+      return "qdr:y";
     default:
       return undefined;
   }
@@ -868,6 +968,104 @@ async function executeTavilySearch(
   );
 }
 
+async function executeFirecrawlSearch(
+  query: string,
+  count: number,
+  freshness: string | undefined,
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<ToolExecutionResult> {
+  const tbs = firecrawlTbsForFreshness(freshness);
+  const body: Record<string, unknown> = {
+    query,
+    limit: count,
+    sources: ["web"],
+  };
+  if (tbs) {
+    body.tbs = tbs;
+  }
+
+  const startedAt = Date.now();
+
+  for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
+    let response: Response;
+    try {
+      response = await fetch(FIRECRAWL_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+          "X-Client-Source": "vellum-assistant",
+        },
+        body: JSON.stringify(body),
+        signal,
+      });
+    } catch (err) {
+      return networkFailureResult(query, "firecrawl", startedAt, err, signal);
+    }
+
+    if (response.ok) {
+      const data = (await response.json()) as FirecrawlSearchResponse;
+      const durationMs = Date.now() - startedAt;
+      return {
+        content:
+          wrapUntrustedContent(formatFirecrawlResults(data, query), {
+            source: "search",
+            sourceDetail: "firecrawl",
+          }) + CITATION_INSTRUCTION,
+        isError: false,
+        activityMetadata: {
+          webSearch: buildFirecrawlMetadata(data, query, durationMs),
+        },
+      };
+    }
+
+    const bodyText = await response.text();
+
+    if (response.status === 401 || response.status === 403) {
+      return errorResult(
+        query,
+        "firecrawl",
+        startedAt,
+        "Invalid or expired Firecrawl API key",
+      );
+    }
+
+    if (response.status === 429 && attempt < DEFAULT_MAX_RETRIES) {
+      const delayMs = getHttpRetryDelay(
+        response,
+        attempt,
+        DEFAULT_BASE_DELAY_MS,
+      );
+      log.warn(
+        { attempt: attempt + 1, delayMs },
+        "Firecrawl Search rate limited, retrying",
+      );
+      await sleep(delayMs);
+      continue;
+    }
+
+    log.warn({ status: response.status }, "Firecrawl Search API error");
+    return backendFailureResult(
+      query,
+      "firecrawl",
+      startedAt,
+      { statusCode: response.status, error: rawBodyDetail(bodyText) },
+      response.status === 429
+        ? "Firecrawl Search rate limit exceeded after retries. Try again shortly."
+        : `Firecrawl Search API returned status ${response.status}`,
+    );
+  }
+
+  return backendFailureResult(
+    query,
+    "firecrawl",
+    startedAt,
+    { statusCode: 429 },
+    "Firecrawl Search rate limit exceeded after retries. Try again shortly.",
+  );
+}
+
 // ----------------------------------------------------------------------------
 // Adapter registry
 //
@@ -909,6 +1107,14 @@ const tavilySearchAdapter: WebSearchAdapter = {
     executeTavilySearch(query, count, freshness, apiKey, signal),
 };
 
+const firecrawlSearchAdapter: WebSearchAdapter = {
+  id: "firecrawl",
+  providerKeyName: "firecrawl",
+  fallbackOrder: 4,
+  execute: ({ query, count, freshness, apiKey, signal }) =>
+    executeFirecrawlSearch(query, count, freshness, apiKey, signal),
+};
+
 /**
  * All built-in web-search adapters keyed by provider id. The
  * `Record<WebSearchProvider, ...>` shape forces TypeScript to flag any
@@ -918,6 +1124,7 @@ const WEB_SEARCH_ADAPTERS: Record<WebSearchProvider, WebSearchAdapter> = {
   perplexity: perplexitySearchAdapter,
   brave: braveSearchAdapter,
   tavily: tavilySearchAdapter,
+  firecrawl: firecrawlSearchAdapter,
 };
 
 /**
@@ -1039,7 +1246,7 @@ export const webSearchTool = {
           query,
           provider,
           startedAt,
-          "No web search API key configured. Set it via `keys set perplexity <key>`, `keys set brave <key>`, or `keys set tavily <key>`, or configure it from the Settings page under API Keys.",
+          "No web search API key configured. Set it via `keys set perplexity <key>`, `keys set brave <key>`, `keys set tavily <key>`, or `keys set firecrawl <key>`, or configure it from the Settings page under API Keys.",
         );
       }
     }

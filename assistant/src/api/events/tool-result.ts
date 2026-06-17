@@ -47,6 +47,7 @@ export const WebSearchProviderIdSchema = z.enum([
   "brave",
   "perplexity",
   "tavily",
+  "firecrawl",
 ]);
 
 export type WebSearchProviderId = z.infer<typeof WebSearchProviderIdSchema>;
