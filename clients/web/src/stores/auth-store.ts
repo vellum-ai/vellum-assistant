@@ -690,16 +690,6 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       return true;
     }
 
-    // Gateway is the auth source but its token isn't minted yet — the local
-    // gateway is still starting (first hatch), or its token was just cleared or
-    // expired. The platform is not the authority in gateway mode, so don't probe
-    // it and settle "unauthenticated"; preserve the current state. The gateway
-    // settles the session once its token is minted (initSession on reload, the
-    // hatch flow via connectLocalAssistant).
-    if (isGatewayAuthEnabled()) {
-      return isAuthenticated(get().sessionStatus);
-    }
-
     let result: Awaited<ReturnType<typeof getSession>> | null = null;
     try {
       result = await getSession();
@@ -739,6 +729,15 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     // the next resume/online refresh revalidates for real, and a settled
     // "no session" answer below still ends the session normally.
     if (isInconclusiveProbe(result)) {
+      return isAuthenticated(get().sessionStatus);
+    }
+    // A settled "no platform session" (401) must not end a local gateway
+    // session: on a local-only machine the gateway is the auth source, not the
+    // platform. The successful probe above still adopts the platform user and
+    // marks `platformSession` present (so platform sign-in via the provider
+    // callback updates the store); only this negative outcome is scoped to
+    // platform mode.
+    if (isGatewayAuthEnabled()) {
       return isAuthenticated(get().sessionStatus);
     }
     clearUserSnapshot();

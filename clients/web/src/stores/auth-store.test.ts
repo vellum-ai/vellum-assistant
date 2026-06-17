@@ -383,21 +383,39 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(useAuthStore.getState().platformSession).toBe("absent");
   });
 
-  test("refreshSession preserves a local session when the gateway is enabled but its token is not yet minted", async () => {
-    // The local gateway is the auth source (enabled) but its token isn't minted
-    // yet — the gateway is still starting during hatch, or the token was just
-    // cleared/expired. The platform is not the authority on a local-only
-    // machine, so refreshSession must not probe it and settle "unauthenticated".
+  test("refreshSession keeps a local gateway session alive when the platform probe settles negative", async () => {
+    // Local gateway is the auth source (enabled) but its token isn't minted yet
+    // (cold-start hatch, or token just cleared/expired). The platform probe
+    // still runs, but a settled 401 must NOT end the local session — the
+    // platform is not the authority on a local-only machine.
     mockIsLocalMode = true;
     mockIsGatewayAuth = true; // isGatewayAuthEnabled() === true
     mockGatewayToken = null; // isGatewayAuthMode() === false (token not minted)
+    sessionUser = null; // platform probe settles 401
     useAuthStore.setState({ sessionStatus: "authenticated" });
 
     await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
 
-    expect(getSessionCallCount).toBe(0); // platform never probed
-    expect(ensureGatewayTokenMock).not.toHaveBeenCalled();
+    expect(getSessionCallCount).toBe(1); // probe ran — a success could still update the store
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated"); // not ended
+  });
+
+  test("refreshSession in gateway mode still adopts a successful platform session", async () => {
+    // A local user who also signs into the platform (e.g. ProviderCallbackPage
+    // after an allauth login) must have the successful probe update the store,
+    // even while the gateway token isn't minted.
+    mockIsLocalMode = true;
+    mockIsGatewayAuth = true;
+    mockGatewayToken = null;
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    useAuthStore.setState({ platformSession: "absent" });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(getSessionCallCount).toBe(1);
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.id).toBe("user-1");
+    expect(useAuthStore.getState().platformSession).toBe("present");
   });
 
   test("initSession uses server consent when server has a consent record", async () => {
