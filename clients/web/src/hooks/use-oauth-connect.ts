@@ -37,7 +37,12 @@ interface UseOAuthConnectOptions {
 }
 
 interface UseOAuthConnectResult {
-  handleConnect: () => void;
+  /**
+   * Start the managed OAuth flow. Pass `requestedScopes` to ask the provider
+   * for a specific subset of scopes (e.g. Calendar-only for Google); omit it
+   * to request the provider's full default scope set.
+   */
+  handleConnect: (requestedScopes?: string[]) => void;
   oauthInProgress: boolean;
   startOAuthPending: boolean;
 }
@@ -264,7 +269,7 @@ export function useOAuthConnect({
 
   const startOAuth = useAssistantsOauthStartCreateMutation();
 
-  const handleConnect = () => {
+  const handleConnect = (requestedScopes: string[] = []) => {
     if (!managedAvailable) return;
 
     const requestId = crypto.randomUUID();
@@ -286,7 +291,7 @@ export function useOAuthConnect({
         {
           path: { assistant_id: assistantId, provider: providerKey },
           body: {
-            requested_scopes: [],
+            requested_scopes: requestedScopes,
             redirect_after_connect: `${routes.account.oauth.popupComplete}?requestId=${requestId}&native=1`,
           },
         },
@@ -383,7 +388,7 @@ export function useOAuthConnect({
       {
         path: { assistant_id: assistantId, provider: providerKey },
         body: {
-          requested_scopes: [],
+          requested_scopes: requestedScopes,
           redirect_after_connect: `${routes.account.oauth.popupComplete}?requestId=${requestId}`,
         },
       },
