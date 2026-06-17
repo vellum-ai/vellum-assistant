@@ -4,7 +4,7 @@ import { useNavigate } from "react-router";
 
 import { Button, type ButtonVariant, type ButtonSize } from "@vellumai/design-library";
 
-import { navigateToNewConversation } from "@/domains/chat/utils/conversation-navigation";
+import { navigateToNewConversation } from "@/utils/conversation-navigation";
 
 /**
  * A button that starts a new conversation pre-seeded with a prompt message.

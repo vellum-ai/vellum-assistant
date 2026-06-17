@@ -4,8 +4,7 @@ import { useNavigate } from "react-router";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { PageShell } from "@/components/page-shell";
 import { LibraryView } from "@/domains/library/library-view";
-import { useConversationStore } from "@/stores/conversation-store";
-import { useViewerStore } from "@/stores/viewer-store";
+import { navigateToNewConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 
 export function LibraryPage() {
@@ -14,14 +13,7 @@ export function LibraryPage() {
 
   const handleNewConversation = useCallback(
     (initialMessage?: string) => {
-      useViewerStore.getState().setMainView("chat");
-      const draftId = crypto.randomUUID();
-      useConversationStore.getState().setActiveConversationId(draftId);
-      let path = routes.conversation(draftId);
-      if (initialMessage) {
-        path = `${path}?${new URLSearchParams({ prompt: initialMessage }).toString()}`;
-      }
-      void navigate(path);
+      navigateToNewConversation(navigate, { prompt: initialMessage });
     },
     [navigate],
   );

@@ -171,6 +171,9 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
 mock.module("@/generated/daemon/sdk.gen", () => ({
   usageBreakdownGet: usageBreakdownGetMock,
 }));
+mock.module("@/utils/conversation-navigation", () => ({
+  navigateToNewConversation: mock(() => {}),
+}));
 mock.module("@/utils/schedules", () => ({
   fetchSchedules: fetchSchedulesMock,
 }));
