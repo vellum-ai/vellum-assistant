@@ -1,4 +1,4 @@
-import { Minimize2 } from "lucide-react";
+import { Loader2, Minimize2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AppCard } from "@/components/app-card";
@@ -187,6 +187,24 @@ export function DynamicPageSurface({
           onOpen={isToolCallComplete ? onOpenPreview : undefined}
           onPin={onPin}
         />
+      </div>
+    );
+  }
+
+  // A dynamic_page the model has shown but not populated (e.g. `data: {}` from
+  // a weak model, or an empty payload from a daemon predating the empty-surface
+  // guard) carries no HTML to render. Rather than a blank ~400px iframe, show a
+  // loading affordance until real content arrives — mirroring the content-free
+  // card placeholder. A completed surface is terminal and falls through.
+  if (inlineHtml == null && !surface.completed) {
+    return (
+      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-lift)] px-4 py-3">
+        <div className="flex items-center gap-2.5">
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[var(--content-tertiary)]" />
+          <span className="text-body-medium-default text-[var(--content-tertiary)]">
+            {surface.title || "Working…"}
+          </span>
+        </div>
       </div>
     );
   }

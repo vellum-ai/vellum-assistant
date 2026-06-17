@@ -76,6 +76,31 @@ describe("DynamicPageSurface", () => {
     expect(isOpenAppEnabled(rendered)).toBe(false);
   });
 
+  test("shows a loading affordance instead of a blank iframe for empty content", () => {
+    const rendered = renderToStaticMarkup(
+      <DynamicPageSurface
+        surface={surface({})}
+        onAction={() => undefined}
+      />,
+    );
+
+    expect(rendered).not.toContain("<iframe");
+    expect(rendered).toContain("animate-spin");
+    expect(rendered).toContain("Surface title");
+  });
+
+  test("renders the iframe (not the affordance) once inline HTML arrives", () => {
+    const rendered = renderToStaticMarkup(
+      <DynamicPageSurface
+        surface={surface({ html: "<html><body>Hello</body></html>" })}
+        onAction={() => undefined}
+      />,
+    );
+
+    expect(rendered).toContain("<iframe");
+    expect(rendered).not.toContain("animate-spin");
+  });
+
   test("opens snake_case persisted app ids through the app viewer", () => {
     const rendered = renderToStaticMarkup(
       <DynamicPageSurface
