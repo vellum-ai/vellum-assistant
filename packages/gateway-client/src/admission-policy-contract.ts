@@ -79,3 +79,16 @@ export function isAdmissionPolicy(value: unknown): value is AdmissionPolicy {
     (ADMISSION_POLICY_VALUES as readonly string[]).includes(value)
   );
 }
+
+/**
+ * Resolve the effective admission floor: a per-conversation override beats the
+ * per-channel-type floor when present (§8.3). Shared by the gateway
+ * (kill-switch decision + forwarding) and the runtime admission stage so both
+ * sides agree on the effective policy.
+ */
+export function resolveEffectivePolicy(
+  typePolicy: AdmissionPolicy,
+  conversationOverride: AdmissionPolicy | null | undefined,
+): AdmissionPolicy {
+  return conversationOverride ?? typePolicy;
+}

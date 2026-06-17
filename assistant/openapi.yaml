@@ -3959,6 +3959,14 @@ paths:
                         - trusted_contacts
                         - any_contact
                         - strangers
+                    admissionConversationOverride:
+                      type: string
+                      enum:
+                        - no_one
+                        - guardian_only
+                        - trusted_contacts
+                        - any_contact
+                        - strangers
                     emailSubject:
                       type: string
                     emailRecipient:

@@ -65,6 +65,7 @@ export {
   AdmissionPolicySchema,
   isAdmissionPolicy,
   isAdmissionPolicyExemptChannel,
+  resolveEffectivePolicy,
 } from "./admission-policy-contract.js";
 
 export type { AdmissionPolicy } from "./admission-policy-contract.js";

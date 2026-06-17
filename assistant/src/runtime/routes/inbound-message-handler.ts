@@ -9,6 +9,7 @@ import {
   ADMISSION_POLICY_DEFAULT,
   type AdmissionPolicy,
   isAdmissionPolicy,
+  resolveEffectivePolicy,
 } from "@vellumai/gateway-client";
 
 import {
@@ -404,11 +405,19 @@ export async function handleChannelInbound({
   )
     ? (sourceMetadata!.admissionPolicy as AdmissionPolicy)
     : ADMISSION_POLICY_DEFAULT;
-  // §8.3: P5 will resolve conversationOverride from the DB here; in P3
-  // the override is always null so the effective policy equals the gateway
-  // floor. resolveEffectivePolicy(admissionPolicyFromGateway, null) ===
-  // admissionPolicyFromGateway — inline here to avoid the import cost.
-  const effectiveAdmissionPolicyForAcl = admissionPolicyFromGateway;
+  // §8.3: the gateway attaches a per-conversation override
+  // (`admissionConversationOverride`) when the conversation diverges from the
+  // channel-type floor. The override wins; resolve it into the effective policy
+  // reused by both the ACL pre-pass and the floor stage below.
+  const admissionConversationOverride = isAdmissionPolicy(
+    sourceMetadata?.admissionConversationOverride,
+  )
+    ? (sourceMetadata!.admissionConversationOverride as AdmissionPolicy)
+    : null;
+  const effectiveAdmissionPolicyForAcl = resolveEffectivePolicy(
+    admissionPolicyFromGateway,
+    admissionConversationOverride,
+  );
 
   // ── Ingress ACL enforcement ──
   const aclResult = await enforceIngressAcl({
@@ -708,12 +717,10 @@ export async function handleChannelInbound({
         trustClass: trustCtx.trustClass,
         memberStatus: resolvedMember?.channel.status,
         policy: admissionPolicyFromGateway,
-        // §8.3: P5 will populate `conversationOverride` from the per-conversation
-        // toggle. P3 reads but never writes, and the runtime has no DB column
-        // yet — pass null/undefined so the type-floor wins. Wired here so the
-        // P5 PR is a one-line plumbing change rather than a re-routing of the
-        // stage signature.
-        conversationOverride: null,
+        // §8.3: per-conversation override forwarded by the gateway. When set it
+        // beats the channel-type floor (`enforceAdmissionPolicy` resolves the
+        // effective policy via `resolveEffectivePolicy`).
+        conversationOverride: admissionConversationOverride,
       });
   if (!admissionResult.admitted) {
     log.info(

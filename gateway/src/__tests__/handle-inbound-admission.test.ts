@@ -123,6 +123,9 @@ beforeEach(async () => {
   await initGatewayDb();
   store = new AdmissionPolicyStore();
   for (const row of store.list()) store.remove(row.channelType);
+  // Conversation overrides are not file-reset between tests; clear the shared
+  // fixture conversation so §8.3 cases don't leak into one another.
+  store.removeConversationOverride("C_CHAT_1");
   initAdmissionPolicyCache();
   runtimePayloads = [];
   forwardToRuntimeMock.mockClear();
@@ -206,6 +209,64 @@ describe("handle-inbound admission policy", () => {
     expect(result.forwarded).toBe(true);
     expect(
       runtimePayloads[0]!.sourceMetadata!.admissionPolicy,
+    ).toBeUndefined();
+  });
+
+  test("§8.3: a per-conversation override is forwarded in sourceMetadata.admissionConversationOverride", async () => {
+    // Type floor stays at the default `trusted_contacts`; the conversation is
+    // overridden to the more-permissive `any_contact`.
+    store.setConversationOverride("C_CHAT_1", "any_contact", "telegram");
+
+    await handleInbound(makeConfig(), makeEvent(), {
+      routingOverride: { assistantId: "asst-1", routeSource: "default" },
+    });
+
+    expect(forwardToRuntimeMock).toHaveBeenCalledTimes(1);
+    expect(runtimePayloads[0]!.sourceMetadata!.admissionPolicy).toBe(
+      "trusted_contacts",
+    );
+    expect(
+      runtimePayloads[0]!.sourceMetadata!.admissionConversationOverride,
+    ).toBe("any_contact");
+  });
+
+  test("§8.3: no override row → admissionConversationOverride is absent", async () => {
+    await handleInbound(makeConfig(), makeEvent(), {
+      routingOverride: { assistantId: "asst-1", routeSource: "default" },
+    });
+
+    expect(
+      runtimePayloads[0]!.sourceMetadata!.admissionConversationOverride,
+    ).toBeUndefined();
+  });
+
+  test("§8.3: a conversation override of `no_one` hard-denies pre-forward even when the type floor is permissive", async () => {
+    store.set("telegram", "strangers"); // permissive type floor
+    store.setConversationOverride("C_CHAT_1", "no_one", "telegram");
+    resetAdmissionPolicyCache();
+    initAdmissionPolicyCache();
+
+    const result = await handleInbound(makeConfig(), makeEvent(), {
+      routingOverride: { assistantId: "asst-1", routeSource: "default" },
+    });
+
+    expect(result.forwarded).toBe(false);
+    expect(result.rejected).toBe(true);
+    expect(result.rejectionReason).toBe("admission_no_one");
+    expect(forwardToRuntimeMock).toHaveBeenCalledTimes(0);
+  });
+
+  test("§8.1: exempt channel never forwards a conversation override", async () => {
+    store.setConversationOverride("C_CHAT_1", "any_contact", "telegram");
+
+    await handleInbound(
+      makeConfig(),
+      makeEvent({ sourceChannel: "vellum" }),
+      { routingOverride: { assistantId: "asst-1", routeSource: "default" } },
+    );
+
+    expect(
+      runtimePayloads[0]!.sourceMetadata!.admissionConversationOverride,
     ).toBeUndefined();
   });
 
