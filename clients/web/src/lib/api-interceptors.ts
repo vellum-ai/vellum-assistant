@@ -71,6 +71,7 @@ function getRendererTupleOrigin(): string {
  * becomes dead code and can be removed.
  */
 const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>(["conversations"]);
+const PLATFORM_OWNED_FIRST_SEGMENTS = new Set<string>(["oauth"]);
 
 const ASSISTANT_PATH_RE =
   /^\/v1\/assistants\/[^/]+\/([^/?#]+)(?:\/.*)?$/;
@@ -106,6 +107,13 @@ export async function rewriteForSelfHostedIngress(
   const match = ASSISTANT_PATH_RE.exec(url.pathname);
   if (!match) return null;
   const firstSegment = match[1];
+  if (
+    firstSegment &&
+    !skipSegmentAllowlist &&
+    PLATFORM_OWNED_FIRST_SEGMENTS.has(firstSegment)
+  ) {
+    return null;
+  }
   if (
     !firstSegment ||
     (!skipSegmentAllowlist &&

@@ -372,6 +372,35 @@ describe("api-interceptors / self-hosted rewriting", () => {
     }
   });
 
+  test("does NOT rewrite platform-owned OAuth routes in local mode", async () => {
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    const savedPlatformMode = process.env.VITE_PLATFORM_MODE;
+    delete process.env.VITE_PLATFORM_MODE;
+
+    try {
+      for (const { method, path } of [
+        {
+          method: "GET",
+          path: `/v1/assistants/${SELF_HOSTED_ID}/oauth/connections/`,
+        },
+        {
+          method: "POST",
+          path: `/v1/assistants/${SELF_HOSTED_ID}/oauth/google/start/`,
+        },
+      ]) {
+        const input = new Request(`https://platform.test${path}`, { method });
+        const output = await requestInterceptor(input);
+        expect(new URL(output.url).origin).toBe("https://platform.test");
+        expect(output.headers.get("Authorization")).toBeNull();
+        expect(output.headers.get("Vellum-Organization-Id")).toBe(TEST_ORG_ID);
+      }
+    } finally {
+      if (savedPlatformMode !== undefined) {
+        process.env.VITE_PLATFORM_MODE = savedPlatformMode;
+      }
+    }
+  });
+
   test("does NOT rewrite the bare retrieve route", async () => {
     // `/v1/assistants/{id}/` is the canonical retrieve — the assistant
     // record lives on the platform regardless of where the runtime
