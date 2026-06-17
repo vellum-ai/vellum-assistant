@@ -254,6 +254,12 @@ describe("api-interceptors / self-hosted rewriting", () => {
     resetPlatformAssistantIdCacheForTesting();
     resetDeviceId();
     resetSessionToken();
+    useOrganizationStore.setState({
+      organizations: [],
+      currentOrganizationId: TEST_ORG_ID,
+      status: "idle",
+      error: null,
+    });
     globalThis.fetch = nativeFetch;
     getLocalGatewayUrlMock.mockImplementation(() => undefined);
     getPlatformRuntimeUrlMock.mockImplementation(() => window.location.origin);
@@ -440,7 +446,7 @@ describe("api-interceptors / self-hosted rewriting", () => {
     }
   });
 
-  test("leaves platform-owned OAuth routes unchanged when no platform assistant id is available", async () => {
+  test("rejects local platform-owned OAuth routes when no platform assistant id is available", async () => {
     setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
     globalThis.fetch = mock((_input: RequestInfo | URL, _init?: RequestInit) =>
       Promise.resolve(Response.json({ assistantId: "" })),
@@ -448,13 +454,34 @@ describe("api-interceptors / self-hosted rewriting", () => {
     const input = new Request(
       `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/oauth/connections/`,
     );
+    const savedPlatformMode = process.env.VITE_PLATFORM_MODE;
+    delete process.env.VITE_PLATFORM_MODE;
+
+    try {
+      await expect(requestInterceptor(input)).rejects.toThrow(
+        "Unable to resolve the local assistant's platform id for managed OAuth.",
+      );
+    } finally {
+      if (savedPlatformMode !== undefined) {
+        process.env.VITE_PLATFORM_MODE = savedPlatformMode;
+      }
+    }
+  });
+
+  test("leaves UUID platform-owned OAuth routes unchanged when no rewrite is available", async () => {
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    globalThis.fetch = mock((_input: RequestInfo | URL, _init?: RequestInit) =>
+      Promise.resolve(Response.json({ assistantId: "" })),
+    ) as unknown as typeof fetch;
+    const input = new Request(
+      `https://platform.test/v1/assistants/${PLATFORM_ASSISTANT_ID}/oauth/connections/`,
+    );
 
     const output = await requestInterceptor(input);
-
     const outUrl = new URL(output.url);
     expect(outUrl.origin).toBe("https://platform.test");
     expect(outUrl.pathname).toBe(
-      `/v1/assistants/${SELF_HOSTED_ID}/oauth/connections/`,
+      `/v1/assistants/${PLATFORM_ASSISTANT_ID}/oauth/connections/`,
     );
     expect(output.headers.get("Authorization")).toBeNull();
     expect(output.headers.get("Vellum-Organization-Id")).toBe(TEST_ORG_ID);
@@ -610,6 +637,99 @@ describe("api-interceptors / self-hosted rewriting", () => {
           "Authorization",
         ),
       ).toBeNull();
+    } finally {
+      if (savedPlatformMode !== undefined) {
+        process.env.VITE_PLATFORM_MODE = savedPlatformMode;
+      }
+    }
+  });
+
+  test("loads organizations before local registration when no organization id is cached", async () => {
+    setSelfHostedConnection({ url: null, token: null });
+    useOrganizationStore.setState({
+      organizations: [],
+      currentOrganizationId: null,
+      status: "idle",
+      error: null,
+    });
+    (window as unknown as { vellum?: unknown }).vellum = {
+      platform: "electron",
+      auth: { getSessionToken: () => "electron-sess-tok" },
+    };
+    (
+      window as unknown as {
+        __VELLUM_CONFIG__?: { deviceId?: string; platformUrl?: string };
+      }
+    ).__VELLUM_CONFIG__ = {
+      deviceId: "device-123",
+      platformUrl: "http://localhost:5173",
+    };
+    getPlatformRuntimeUrlMock.mockImplementation(() => "http://localhost:5173");
+    const savedPlatformMode = process.env.VITE_PLATFORM_MODE;
+    delete process.env.VITE_PLATFORM_MODE;
+
+    try {
+      const fetchMock = mock((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = input instanceof Request ? input.url : String(input);
+        if (url.endsWith("/v1/organizations/")) {
+          return Promise.resolve(
+            Response.json({
+              count: 1,
+              next: null,
+              previous: null,
+              results: [{ id: "org-from-session", name: "Example Org" }],
+            }),
+          );
+        }
+        if (
+          url ===
+          "http://localhost:5173/v1/assistants/self-hosted-local/ensure-registration/"
+        ) {
+          expect(
+            new Headers(init?.headers).get("Vellum-Organization-Id"),
+          ).toBe("org-from-session");
+          return Promise.resolve(
+            Response.json({
+              assistant: {
+                id: PLATFORM_ASSISTANT_ID,
+                name: "Local Assistant",
+              },
+              registration: {
+                client_installation_id: "device-123",
+                runtime_assistant_id: SELF_HOSTED_ID,
+                client_platform: "macos",
+              },
+              assistant_api_key: null,
+              webhook_secret: "webhook-secret",
+            }),
+          );
+        }
+        return Promise.resolve(new Response("unexpected", { status: 404 }));
+      });
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      const input = new Request(
+        `http://localhost:5173/v1/assistants/${SELF_HOSTED_ID}/oauth/connections/`,
+      );
+
+      const output = await requestInterceptor(input);
+
+      expect(new URL(output.url).pathname).toBe(
+        `/v1/assistants/${PLATFORM_ASSISTANT_ID}/oauth/connections/`,
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const firstUrl =
+        fetchMock.mock.calls[0]![0] instanceof Request
+          ? fetchMock.mock.calls[0]![0].url
+          : String(fetchMock.mock.calls[0]![0]);
+      const secondUrl =
+        fetchMock.mock.calls[1]![0] instanceof Request
+          ? fetchMock.mock.calls[1]![0].url
+          : String(fetchMock.mock.calls[1]![0]);
+      expect(firstUrl).toContain("/v1/organizations/");
+      expect(secondUrl).toBe(
+        "http://localhost:5173/v1/assistants/self-hosted-local/ensure-registration/",
+      );
     } finally {
       if (savedPlatformMode !== undefined) {
         process.env.VITE_PLATFORM_MODE = savedPlatformMode;

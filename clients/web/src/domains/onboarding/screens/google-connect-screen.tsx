@@ -16,6 +16,7 @@ import {
     oauthCompletionStorageKey,
     type OAuthCompletePayload,
 } from "@/lib/auth/oauth-popup";
+import { resolvePlatformAssistantIdForOAuthRequest } from "@/lib/api-interceptors";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
@@ -124,9 +125,11 @@ export function GoogleConnectScreen({
 
   const fetchActiveGoogleConnection = useCallback(async (): Promise<OAuthConnection | null> => {
     try {
+      const requestAssistantId =
+        await resolvePlatformAssistantIdForOAuthRequest(assistantId);
       const connections = await queryClient.fetchQuery({
         ...assistantsOauthConnectionsListOptions({
-          path: { assistant_id: assistantId },
+          path: { assistant_id: requestAssistantId },
         }),
         staleTime: 0,
       });
@@ -217,6 +220,42 @@ export function GoogleConnectScreen({
 
   const handleConnect = useCallback(() => {
     const requestId = crypto.randomUUID();
+    const startAuthorization = async (native: boolean) => {
+      const requestAssistantId =
+        await resolvePlatformAssistantIdForOAuthRequest(assistantId);
+      startOAuth.mutate(
+        {
+          path: {
+            assistant_id: requestAssistantId,
+            provider: GOOGLE_PROVIDER_KEY,
+          },
+          body: {
+            requested_scopes: [],
+            redirect_after_connect: `${routes.account.oauth.popupComplete}?requestId=${requestId}${native ? "&native=1" : ""}`,
+          },
+        },
+        {
+          onSuccess(data) {
+            if (native) {
+              void openUrl(data.connect_url);
+              return;
+            }
+            if (popupRef.current && !popupRef.current.closed) {
+              popupRef.current.location.href = data.connect_url;
+            } else if (pendingRequestRef.current) {
+              closePopupWindow();
+              clearPendingRequest();
+              removeEventListeners();
+            }
+          },
+          onError() {
+            closePopupWindow();
+            clearPendingRequest();
+            removeEventListeners();
+          },
+        },
+      );
+    };
 
     removeEventListeners();
     messageListenerRef.current = handleOAuthMessage;
@@ -225,23 +264,9 @@ export function GoogleConnectScreen({
     if (isNative) {
       setOAuthInProgress(true);
       pendingRequestRef.current = { requestId };
-      startOAuth.mutate(
-        {
-          path: { assistant_id: assistantId, provider: GOOGLE_PROVIDER_KEY },
-          body: {
-            requested_scopes: [],
-            redirect_after_connect: `${routes.account.oauth.popupComplete}?requestId=${requestId}&native=1`,
-          },
-        },
-        {
-          onSuccess(data) {
-            void openUrl(data.connect_url);
-          },
-          onError() {
-            clearPendingRequest();
-          },
-        },
-      );
+      void startAuthorization(true).catch(() => {
+        clearPendingRequest();
+      });
 
       window.addEventListener("message", handleOAuthMessage);
       window.addEventListener("storage", handleOAuthStorage);
@@ -329,31 +354,11 @@ export function GoogleConnectScreen({
       }
     }, 100);
 
-    startOAuth.mutate(
-      {
-        path: { assistant_id: assistantId, provider: GOOGLE_PROVIDER_KEY },
-        body: {
-          requested_scopes: [],
-          redirect_after_connect: `${routes.account.oauth.popupComplete}?requestId=${requestId}`,
-        },
-      },
-      {
-        onSuccess(data) {
-          if (popupRef.current && !popupRef.current.closed) {
-            popupRef.current.location.href = data.connect_url;
-          } else if (pendingRequestRef.current) {
-            closePopupWindow();
-            clearPendingRequest();
-            removeEventListeners();
-          }
-        },
-        onError() {
-          closePopupWindow();
-          clearPendingRequest();
-          removeEventListeners();
-        },
-      },
-    );
+    void startAuthorization(false).catch(() => {
+      closePopupWindow();
+      clearPendingRequest();
+      removeEventListeners();
+    });
   }, [
     assistantId,
     clearPendingRequest,

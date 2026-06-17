@@ -14,6 +14,7 @@ import {
   parseOAuthCompletePayload,
   type OAuthCompletePayload,
 } from "@/lib/auth/oauth-popup";
+import { resolvePlatformAssistantIdForOAuthRequest } from "@/lib/api-interceptors";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import type { OAuthCompleteDeepLinkPayload } from "@/runtime/native-deep-link";
@@ -136,10 +137,12 @@ export function useOAuthConnect({
         }
 
         try {
+          const requestAssistantId =
+            await resolvePlatformAssistantIdForOAuthRequest(assistantId);
           queryClient.invalidateQueries({ queryKey: connectionsQueryKey });
           const connections = await queryClient.fetchQuery({
             ...assistantsOauthConnectionsListOptions({
-              path: { assistant_id: assistantId },
+              path: { assistant_id: requestAssistantId },
             }),
             staleTime: 0,
           });
@@ -274,6 +277,58 @@ export function useOAuthConnect({
 
     const requestId = crypto.randomUUID();
 
+    const startAuthorization = async (
+      native: boolean,
+      requestedScopesForRequest: string[],
+    ) => {
+      const requestAssistantId =
+        await resolvePlatformAssistantIdForOAuthRequest(assistantId);
+      startOAuth.mutate(
+        {
+          path: { assistant_id: requestAssistantId, provider: providerKey },
+          body: {
+            requested_scopes: requestedScopesForRequest,
+            redirect_after_connect: `${routes.account.oauth.popupComplete}?requestId=${requestId}${native ? "&native=1" : ""}`,
+          },
+        },
+        {
+          onSuccess(data) {
+            if (native) {
+              void openUrl(data.connect_url);
+              return;
+            }
+            if (popupRef.current && !popupRef.current.closed) {
+              popupRef.current.location.href = data.connect_url;
+            } else if (pendingRequestRef.current) {
+              closePopupWindow();
+              clearPendingRequest();
+              toast.error(`${displayName} connection failed: popup closed.`);
+            }
+          },
+          onError(error) {
+            closePopupWindow();
+            clearPendingRequest();
+            const detail = extractErrorMessage(
+              error,
+              undefined,
+              `Failed to start ${displayName} authorization.`,
+            );
+            toast.error(detail);
+          },
+        },
+      );
+    };
+
+    const handleStartError = (error: unknown) => {
+      closePopupWindow();
+      clearPendingRequest();
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : `Failed to start ${displayName} authorization.`,
+      );
+    };
+
     if (isNative) {
       setOAuthInProgress(true);
       const cachedConnections =
@@ -287,29 +342,7 @@ export function useOAuthConnect({
           providerKey,
         ),
       };
-      startOAuth.mutate(
-        {
-          path: { assistant_id: assistantId, provider: providerKey },
-          body: {
-            requested_scopes: requestedScopes,
-            redirect_after_connect: `${routes.account.oauth.popupComplete}?requestId=${requestId}&native=1`,
-          },
-        },
-        {
-          onSuccess(data) {
-            void openUrl(data.connect_url);
-          },
-          onError(error) {
-            clearPendingRequest();
-            const detail = extractErrorMessage(
-              error,
-              undefined,
-              `Failed to start ${displayName} authorization.`,
-            );
-            toast.error(detail);
-          },
-        },
-      );
+      void startAuthorization(true, requestedScopes).catch(handleStartError);
       return;
     }
 
@@ -384,36 +417,7 @@ export function useOAuthConnect({
       }
     }, 100);
 
-    startOAuth.mutate(
-      {
-        path: { assistant_id: assistantId, provider: providerKey },
-        body: {
-          requested_scopes: requestedScopes,
-          redirect_after_connect: `${routes.account.oauth.popupComplete}?requestId=${requestId}`,
-        },
-      },
-      {
-        onSuccess(data) {
-          if (popupRef.current && !popupRef.current.closed) {
-            popupRef.current.location.href = data.connect_url;
-          } else if (pendingRequestRef.current) {
-            closePopupWindow();
-            clearPendingRequest();
-            toast.error(`${displayName} connection failed: popup closed.`);
-          }
-        },
-        onError(error) {
-          closePopupWindow();
-          clearPendingRequest();
-          const detail = extractErrorMessage(
-            error,
-            undefined,
-            `Failed to start ${displayName} authorization.`,
-          );
-          toast.error(detail);
-        },
-      }
-    );
+    void startAuthorization(false, requestedScopes).catch(handleStartError);
   };
 
   return {

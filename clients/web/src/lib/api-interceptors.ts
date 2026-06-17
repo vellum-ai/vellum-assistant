@@ -39,6 +39,7 @@ import { ApiError, extractErrorMessage } from "@/utils/api-errors";
 import {
   getLocalGatewayUrl,
   getPlatformRuntimeUrl,
+  getSelectedAssistant,
   isLocalMode,
   isPlatformDisabled,
   isRemoteGatewayMode,
@@ -51,7 +52,10 @@ import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import { getDeviceId } from "@/runtime/device-id";
 import { isElectron } from "@/runtime/is-electron";
 import { getElectronSessionToken } from "@/runtime/session-token";
-import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
+import {
+  getActiveOrganizationIdForRequests,
+  useOrganizationStore,
+} from "@/stores/organization-store";
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const ELECTRON_RENDERER_ORIGIN_HEADER = "X-Vellum-Electron-Renderer-Origin";
@@ -81,6 +85,8 @@ const PLATFORM_OWNED_FIRST_SEGMENTS = new Set<string>(["oauth"]);
 
 const ASSISTANT_PATH_RE =
   /^\/v1\/assistants\/([^/]+)\/([^/?#]+)(?:\/.*)?$/;
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const platformAssistantIdCache = new Map<string, Promise<string | null>>();
 
@@ -141,7 +147,17 @@ export async function resolvePlatformAssistantIdForOAuthRequest(
     assistantId,
     getSelfHostedIngressUrl(),
   );
-  return resolved ?? assistantId;
+  if (resolved) return resolved;
+  if (isLocalMode() && !isRemoteGatewayMode() && !isUuid(assistantId)) {
+    throw new Error(
+      "Unable to resolve the local assistant's platform id for managed OAuth.",
+    );
+  }
+  return assistantId;
+}
+
+function isUuid(value: string): boolean {
+  return UUID_RE.test(value);
 }
 
 function getPlatformStatusLookupIngressUrls(ingressUrl: string | null): string[] {
@@ -202,7 +218,7 @@ async function fetchPlatformRegistrationAssistantId(
   if (!isLocalMode() || isRemoteGatewayMode()) return null;
 
   const deviceId = getDeviceId();
-  const organizationId = getActiveOrganizationIdForRequests();
+  const organizationId = await resolveOrganizationIdForLocalRegistration();
   if (!deviceId || !organizationId) return null;
 
   const url = new URL(
@@ -247,6 +263,23 @@ async function fetchPlatformRegistrationAssistantId(
   return firstNonEmptyString(body?.assistant?.id);
 }
 
+async function resolveOrganizationIdForLocalRegistration(): Promise<
+  string | null
+> {
+  const existing =
+    getActiveOrganizationIdForRequests() ??
+    getSelectedAssistant()?.organizationId ??
+    null;
+  if (existing) return existing;
+
+  await useOrganizationStore.getState().fetchOrganizations().catch(() => {});
+  return (
+    getActiveOrganizationIdForRequests() ??
+    getSelectedAssistant()?.organizationId ??
+    null
+  );
+}
+
 function firstNonEmptyString(...values: unknown[]): string | null {
   for (const value of values) {
     if (typeof value === "string" && value.trim()) {
@@ -278,7 +311,17 @@ async function rewritePlatformOwnedAssistantRequest(
     decodeURIComponent(runtimeAssistantId),
     ingressUrl,
   );
-  if (!platformAssistantId || platformAssistantId === runtimeAssistantId) {
+  const decodedRuntimeAssistantId = decodeURIComponent(runtimeAssistantId);
+  if (!platformAssistantId || platformAssistantId === decodedRuntimeAssistantId) {
+    if (
+      isLocalMode() &&
+      !isRemoteGatewayMode() &&
+      !isUuid(decodedRuntimeAssistantId)
+    ) {
+      throw new Error(
+        "Unable to resolve the local assistant's platform id for managed OAuth.",
+      );
+    }
     return null;
   }
 
