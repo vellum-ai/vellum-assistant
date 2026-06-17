@@ -16,11 +16,11 @@
  * re-install at the current pin — the underlying
  * {@link ./install-from-github.installPlugin} performs that atomically, and the
  * previously installed copy (including any local edits) is replaced wholesale.
- * `ours`/`theirs` instead three-way merge the on-disk tree and the pin against
- * the re-materialized install commit so non-conflicting local edits survive,
- * resolving conflicting hunks toward the local edit or the pin respectively.
- * `assistant` is reserved for assistant-driven conflict resolution and is not
- * yet implemented.
+ * `ours`/`theirs`/`assistant` instead three-way merge the on-disk tree and the
+ * pin against the re-materialized install commit so non-conflicting local edits
+ * survive; conflicting hunks resolve toward the local edit (`ours`) or the pin
+ * (`theirs`), while `assistant` writes git conflict markers into the file and
+ * reports the conflicted paths for the assistant to resolve.
  *
  * Designed for direct programmatic use with injected dependencies, mirroring
  * the sibling plugin libraries. The CLI command `assistant plugins upgrade
@@ -55,7 +55,7 @@ import {
   readInstallMeta,
   sanitizePluginName,
 } from "./install-from-github.js";
-import { mergePluginTree } from "./merge-plugin-tree.js";
+import { type ConflictLabels, mergePluginTree } from "./merge-plugin-tree.js";
 import { computeFingerprint, fingerprintsEqual } from "./plugin-fingerprint.js";
 import { PluginNotInstalledError } from "./uninstall-plugin.js";
 
@@ -67,8 +67,8 @@ import { PluginNotInstalledError } from "./uninstall-plugin.js";
  *   wholesale. Matches the historical upgrade behavior.
  * - `ours` — three-way merge; conflicting hunks resolve toward the local edit.
  * - `theirs` — three-way merge; conflicting hunks resolve toward the pin.
- * - `assistant` — hand conflicts to the assistant to resolve (not yet
- *   implemented).
+ * - `assistant` — three-way merge that writes git conflict markers into
+ *   conflicting files and reports them for the assistant to resolve.
  */
 export type PluginUpgradeStrategy =
   | "ours"
@@ -152,6 +152,19 @@ export interface PluginUpgradeResult {
   /** Conflict-resolution strategy the upgrade applied. */
   readonly strategy: PluginUpgradeStrategy;
   /**
+   * Paths (relative to {@link PluginUpgradeResult.target}) left for the
+   * assistant to resolve under the `assistant` strategy: text files carry git
+   * conflict markers, modify/delete divergences keep the surviving content.
+   * Always empty for other strategies.
+   */
+  readonly conflicts: readonly string[];
+  /**
+   * Paths of binary files that conflicted under the `assistant` strategy; the
+   * local copy was kept since markers cannot be written into binary content.
+   * Always empty for other strategies.
+   */
+  readonly binaryConflicts: readonly string[];
+  /**
    * Whether the installed copy lacked resolvable provenance before the
    * upgrade. Such installs are re-pinned to the current SHA, which also
    * records provenance going forward.
@@ -167,16 +180,6 @@ export class PluginNotUpgradableError extends Error {
   ) {
     super(`Plugin "${pluginName}" cannot be upgraded: ${reason}.`);
     this.name = "PluginNotUpgradableError";
-  }
-}
-
-/** A requested merge strategy is recognized but not yet implemented. */
-export class PluginUpgradeStrategyUnsupportedError extends Error {
-  constructor(readonly strategy: PluginUpgradeStrategy) {
-    super(
-      `Upgrade strategy "${strategy}" is not yet supported. Use one of: ours, theirs, overwrite.`,
-    );
-    this.name = "PluginUpgradeStrategyUnsupportedError";
   }
 }
 
@@ -205,16 +208,16 @@ function pluginTarget(name: string, deps: UpgradePluginDeps): string {
  * Move an installed plugin to the marketplace's current pin.
  *
  * The `strategy` controls how local edits are reconciled with the pin:
- * `overwrite` (default) re-installs the pin wholesale; `ours`/`theirs` do a
- * three-way merge that carries non-conflicting local edits forward, resolving
- * conflicting hunks toward the local edit or the pin respectively; `assistant`
- * is not yet implemented.
+ * `overwrite` (default) re-installs the pin wholesale; `ours`/`theirs`/
+ * `assistant` do a three-way merge that carries non-conflicting local edits
+ * forward, resolving conflicting hunks toward the local edit (`ours`) or the
+ * pin (`theirs`), or leaving git conflict markers in the file for the assistant
+ * to resolve (`assistant`).
  *
  * Throws {@link PluginNotInstalledError} when no copy is installed,
  * {@link PluginNotUpgradableError} when the install has no marketplace entry to
- * advance to, {@link PluginUpgradeStrategyUnsupportedError} for the `assistant`
- * strategy, {@link PluginMergeBaselineError} when a merge strategy is requested
- * but the install-time baseline cannot be reconstructed,
+ * advance to, {@link PluginMergeBaselineError} when a merge strategy is
+ * requested but the install-time baseline cannot be reconstructed,
  * {@link PluginSourceUnavailableError} when the marketplace catalog is
  * temporarily unreachable (a retryable outage, distinct from the permanent
  * no-entry case), and propagates {@link installPlugin}'s errors (e.g. source
@@ -227,10 +230,6 @@ export async function upgradePlugin(
   const name = sanitizePluginName(opts.name);
   const dryRun = opts.dryRun ?? false;
   const strategy = opts.strategy ?? DEFAULT_PLUGIN_UPGRADE_STRATEGY;
-
-  if (strategy === "assistant") {
-    throw new PluginUpgradeStrategyUnsupportedError(strategy);
-  }
 
   let inspection: PluginInspection;
   try {
@@ -292,6 +291,8 @@ export async function upgradePlugin(
       fileCount: null,
       dryRun,
       strategy,
+      conflicts: [],
+      binaryConflicts: [],
       provenanceWasUnknown: false,
     };
   }
@@ -308,13 +309,20 @@ export async function upgradePlugin(
       fileCount: null,
       dryRun: true,
       strategy,
+      conflicts: [],
+      binaryConflicts: [],
       provenanceWasUnknown,
     };
   }
 
-  // `ours`/`theirs` carry local edits forward via a three-way merge; the
-  // default `overwrite` discards them and re-installs the pin wholesale.
-  if (strategy === "ours" || strategy === "theirs") {
+  // `ours`/`theirs`/`assistant` carry local edits forward via a three-way
+  // merge; the default `overwrite` discards them and re-installs the pin
+  // wholesale.
+  if (
+    strategy === "ours" ||
+    strategy === "theirs" ||
+    strategy === "assistant"
+  ) {
     return mergeUpgrade(
       {
         name,
@@ -323,6 +331,8 @@ export async function upgradePlugin(
         remote,
         fromCommit,
         fromTimestamp,
+        toCommit,
+        toTimestamp,
         provenanceWasUnknown,
       },
       deps,
@@ -350,6 +360,8 @@ export async function upgradePlugin(
     fileCount: result.fileCount,
     dryRun: false,
     strategy,
+    conflicts: [],
+    binaryConflicts: [],
     provenanceWasUnknown,
   };
 }
@@ -359,21 +371,34 @@ export async function upgradePlugin(
  * and the marketplace pin (`theirs`) against the re-materialized install commit
  * (`base`), then atomically swapping the merged tree into place pinned at the
  * new commit. Conflicting hunks resolve toward `ours` or `theirs` per the
- * strategy; non-conflicting edits from both sides survive.
+ * strategy, or are left as git conflict markers under `assistant`;
+ * non-conflicting edits from both sides survive.
  */
 async function mergeUpgrade(
   ctx: {
     readonly name: string;
-    readonly strategy: "ours" | "theirs";
+    readonly strategy: "ours" | "theirs" | "assistant";
     readonly local: PluginLocalInfo;
     readonly remote: PluginRemoteInfo;
     readonly fromCommit: string | null;
     readonly fromTimestamp: string | null;
+    readonly toCommit: string;
+    readonly toTimestamp: string | null;
     readonly provenanceWasUnknown: boolean;
   },
   deps: UpgradePluginDeps,
 ): Promise<PluginUpgradeResult> {
   const { name, strategy, local, remote } = ctx;
+
+  // Marker labels name each side by its commit so the assistant can tell the
+  // local edit from the incoming pin when resolving.
+  const shortSha = (sha: string | null): string =>
+    sha ? sha.slice(0, 7) : "unknown";
+  const conflictLabels: ConflictLabels = {
+    ours: `local edits (was ${shortSha(ctx.fromCommit)})`,
+    base: `install baseline ${shortSha(ctx.fromCommit)}`,
+    theirs: `upgrade pin ${shortSha(ctx.toCommit)}`,
+  };
 
   const meta = readInstallMeta(local.target);
   if (!meta || !meta.commit || !meta.fingerprint) {
@@ -461,12 +486,13 @@ async function mergeUpgrade(
       );
     }
 
-    const fileCount = await mergePluginTree({
+    const merge = await mergePluginTree({
       baseDir,
       oursDir: local.target,
       theirsDir,
       destDir: stagingDir,
       strategy,
+      conflictLabels,
     });
 
     const toCommit = theirs.commit ?? remote.commit;
@@ -488,9 +514,11 @@ async function mergeUpgrade(
       toCommit,
       toTimestamp,
       target: join(pluginsDir, name),
-      fileCount,
+      fileCount: merge.fileCount,
       dryRun: false,
       strategy,
+      conflicts: merge.conflicts,
+      binaryConflicts: merge.binaryConflicts,
       provenanceWasUnknown: ctx.provenanceWasUnknown,
     };
   } catch (err) {

@@ -31,7 +31,6 @@ import { PluginNotInstalledError } from "../uninstall-plugin.js";
 import {
   PluginMergeBaselineError,
   PluginNotUpgradableError,
-  PluginUpgradeStrategyUnsupportedError,
   upgradePlugin,
 } from "../upgrade-plugin.js";
 
@@ -582,19 +581,62 @@ describe("upgradePlugin --strategy", () => {
     expect(installedFile("level-up", "local-only.txt")).toBeNull();
   });
 
-  test("throws PluginUpgradeStrategyUnsupportedError for the assistant strategy", async () => {
-    // GIVEN an installed copy and an advanced pin
+  test("--strategy assistant writes conflict markers and reports the conflicted path", async () => {
+    // GIVEN an install at SHA_A with local edits, and a pin at SHA_B
     installMergeCopy("level-up", OURS, SHA_A, BASE);
     const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
+    const runGit = treeGitRunner({ [SHA_A]: BASE, [SHA_B]: THEIRS });
 
-    // WHEN an upgrade requests the not-yet-implemented `assistant` strategy
-    // THEN it is rejected before any clone runs
-    await expect(
-      upgradePlugin(
-        { name: "level-up", strategy: "assistant" },
-        { fetch, runGit: unusedGitRunner, workspacePluginsDir: pluginsDir },
-      ),
-    ).rejects.toBeInstanceOf(PluginUpgradeStrategyUnsupportedError);
+    // WHEN the plugin is upgraded with the `assistant` strategy
+    const result = await upgradePlugin(
+      { name: "level-up", strategy: "assistant" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN it moves to the pin and records the strategy
+    expect(result.outcome).toBe("upgraded");
+    expect(result.toCommit).toBe(SHA_B);
+    expect(result.strategy).toBe("assistant");
+    // AND non-conflicting edits from both sides still auto-merge
+    expect(installedFile("level-up", "common.txt")).toBe("A\nb\nC\n");
+    expect(installedFile("level-up", "local-only.txt")).toBe("added locally\n");
+    expect(installedFile("level-up", "remote-only.txt")).toBe(
+      "added upstream\n",
+    );
+    // AND the true conflict carries git markers naming both commits
+    const conflict = installedFile("level-up", "conflict.txt") ?? "";
+    expect(conflict).toContain("<<<<<<<");
+    expect(conflict).toContain(SHA_A.slice(0, 7));
+    expect(conflict).toContain(SHA_B.slice(0, 7));
+    expect(conflict).toContain("ours\n");
+    expect(conflict).toContain("theirs\n");
+    // AND the conflicted path is surfaced for the assistant to resolve
+    expect(result.conflicts).toEqual(["conflict.txt"]);
+    expect(result.binaryConflicts).toEqual([]);
+  });
+
+  test("--strategy assistant reports no conflicts on a clean three-way merge", async () => {
+    // GIVEN an install whose only divergence from the pin auto-merges cleanly
+    const cleanOurs: Tree = { "common.txt": "A\nb\nc\n" };
+    const cleanBase: Tree = { "common.txt": "a\nb\nc\n" };
+    const cleanTheirs: Tree = { "common.txt": "a\nb\nC\n" };
+    installMergeCopy("level-up", cleanOurs, SHA_A, cleanBase);
+    const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
+    const runGit = treeGitRunner({ [SHA_A]: cleanBase, [SHA_B]: cleanTheirs });
+
+    // WHEN the plugin is upgraded with the `assistant` strategy
+    const result = await upgradePlugin(
+      { name: "level-up", strategy: "assistant" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN both edits merge with no markers and nothing needs resolution
+    expect(result.strategy).toBe("assistant");
+    expect(result.conflicts).toEqual([]);
+    expect(result.binaryConflicts).toEqual([]);
+    const merged = installedFile("level-up", "common.txt") ?? "";
+    expect(merged).toBe("A\nb\nC\n");
+    expect(merged).not.toContain("<<<<<<<");
   });
 
   test("throws PluginMergeBaselineError when no fingerprint was recorded", async () => {

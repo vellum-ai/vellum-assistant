@@ -46,7 +46,6 @@ import {
   PluginNotUpgradableError,
   type PluginUpgradeResult,
   type PluginUpgradeStrategy,
-  PluginUpgradeStrategyUnsupportedError,
   upgradePlugin,
 } from "../lib/upgrade-plugin.js";
 import { getCliLogger } from "../logger.js";
@@ -76,6 +75,7 @@ Examples:
   $ assistant plugins upgrade example --dry-run
   $ assistant plugins upgrade example --strategy ours
   $ assistant plugins upgrade example --strategy theirs
+  $ assistant plugins upgrade example --strategy assistant
   $ assistant plugins search example
   $ assistant plugins search "^example"
   $ assistant plugins search example --json
@@ -465,7 +465,6 @@ Examples:
               if (
                 err instanceof PluginNotInstalledError ||
                 err instanceof PluginNotUpgradableError ||
-                err instanceof PluginUpgradeStrategyUnsupportedError ||
                 err instanceof PluginMergeBaselineError ||
                 err instanceof InvalidPluginNameError
               ) {
@@ -628,10 +627,49 @@ function formatUpgrade(result: PluginUpgradeResult): string[] {
         result.fileCount === null
           ? ""
           : `(${result.fileCount} file${result.fileCount === 1 ? "" : "s"}) `;
+      const hasConflicts =
+        result.conflicts.length > 0 || result.binaryConflicts.length > 0;
+
+      // Under `assistant`, an unresolved merge leaves conflicts in the tree —
+      // the plugin would fail to load while any remain, so the usual "restart
+      // now" guidance is replaced with resolution instructions. Most conflicts
+      // carry git markers, but a modify/delete divergence (a file edited on one
+      // side and deleted on the other) keeps the surviving content with no
+      // markers, so the guidance covers both rather than assuming markers.
+      if (result.strategy === "assistant" && hasConflicts) {
+        const lines = [
+          `Merged "${name}" ${move} with conflicts`,
+          "",
+          `${count}→ ${result.target}`,
+        ];
+        if (result.conflicts.length > 0) {
+          lines.push(
+            "",
+            `Resolve ${result.conflicts.length} conflicted file${result.conflicts.length === 1 ? "" : "s"} (open each: resolve its git conflict markers, or — if a modify/delete divergence kept the file with none — decide whether to keep or remove it):`,
+            ...result.conflicts.map((p) => `  ${p}`),
+          );
+        }
+        if (result.binaryConflicts.length > 0) {
+          lines.push(
+            "",
+            `Binary conflict${result.binaryConflicts.length === 1 ? "" : "s"} (kept the local copy — choose a version manually):`,
+            ...result.binaryConflicts.map((p) => `  ${p}`),
+          );
+        }
+        lines.push(
+          "",
+          "Resolve the conflicts, then restart the assistant to pick up the upgrade.",
+        );
+        if (provenanceNote) lines.push(provenanceNote);
+        return lines;
+      }
+
       const mergeNote =
         result.strategy === "ours" || result.strategy === "theirs"
           ? `Local edits were merged (--strategy ${result.strategy}).`
-          : null;
+          : result.strategy === "assistant"
+            ? "Local edits were merged with no conflicts (--strategy assistant)."
+            : null;
       const lines = [
         `Upgraded "${name}" ${move}`,
         "",
