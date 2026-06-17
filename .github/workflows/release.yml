@@ -2074,11 +2074,6 @@ jobs:
       - name: Stamp release version into package.json
         run: jq --arg v "${{ needs.extract-version.outputs.version }}" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
 
-      - name: Stamp PINNED_CLI_VERSION
-        run: |
-          VERSION="${{ needs.extract-version.outputs.version }}"
-          sed -i '' "s/export const PINNED_CLI_VERSION = \".*\"/export const PINNED_CLI_VERSION = \"$VERSION\"/" src/main/cli-installer.ts
-
       - name: Build and package Electron app
         env:
           CSC_NAME: Developer ID Application

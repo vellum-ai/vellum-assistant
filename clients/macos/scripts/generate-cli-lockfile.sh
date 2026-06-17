@@ -11,10 +11,9 @@ SEED_DIR="$APP_DIR/resources/cli-lockfile"
 VERSION=$(grep -o 'PINNED_CLI_VERSION = "[^"]*"' "$APP_DIR/src/main/cli-installer.ts" \
   | sed 's/PINNED_CLI_VERSION = "//;s/"//')
 
-if [ -z "$VERSION" ]; then
-  echo "ERROR: could not read PINNED_CLI_VERSION from cli-installer.ts" >&2
-  exit 1
-fi
+# Empty PINNED_CLI_VERSION is the default (unpinned): seed a lockfile resolved
+# to build-time latest so the runtime has an offline fallback.
+SPEC="${VERSION:-latest}"
 
 # Local builds drive the repo CLI source directly (see getLocalCliEntry in
 # cli-installer.ts) and never install from npm. Ship an empty seed dir so
@@ -26,13 +25,13 @@ if [ "${VELLUM_ENVIRONMENT:-local}" = "local" ]; then
   exit 0
 fi
 
-echo "Generating CLI lockfile for vellum@$VERSION ..."
+echo "Generating CLI lockfile for vellum@$SPEC ..."
 
 rm -rf "$SEED_DIR"
 mkdir -p "$SEED_DIR"
 
 cat > "$SEED_DIR/package.json" <<EOF
-{"dependencies":{"vellum":"$VERSION"}}
+{"dependencies":{"vellum":"$SPEC"}}
 EOF
 
 (cd "$SEED_DIR" && bun install --ignore-scripts)
