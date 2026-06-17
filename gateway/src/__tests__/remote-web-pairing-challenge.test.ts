@@ -151,6 +151,19 @@ describe("remote web pairing challenge", () => {
     expect(res.status).toBe(403);
   });
 
+  test("rejects spoofed edge marker from a non-loopback peer", async () => {
+    const res = await handleCreateRemoteWebPairingChallenge(
+      makeRequest({
+        edgeForwarded: true,
+        host: "paired.example.com",
+        publicBaseUrl: PUBLIC_BASE_URL,
+      }),
+      REMOTE_IP,
+    );
+
+    expect(res.status).toBe(403);
+  });
+
   test("rejects edge challenge creation when publicBaseUrl host does not match request host", async () => {
     const res = await handleCreateRemoteWebPairingChallenge(
       makeRequest({

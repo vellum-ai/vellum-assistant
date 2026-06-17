@@ -3,6 +3,7 @@ import {
   recordRemoteWebPairingChallengeCreation,
   type RemoteWebPairingChallengeRateLimit,
 } from "../../remote-web/pairing-challenge-rate-limit-store.js";
+import { isLoopbackAddress } from "../../util/is-loopback-address.js";
 import { requestArrivedViaEdgeProxy } from "../edge-forwarded-header.js";
 import { enforceLoopbackOnly, parseHostHeader } from "../loopback-guard.js";
 import { readLimitedBody } from "../read-limited-body.js";
@@ -67,8 +68,9 @@ export async function handleCreateRemoteWebPairingChallenge(
     });
   }
 
-  const arrivedViaEdgeProxy = requestArrivedViaEdgeProxy(req);
-  if (!arrivedViaEdgeProxy) {
+  const arrivedViaTrustedEdgeProxy =
+    requestArrivedViaEdgeProxy(req) && isLoopbackAddress(clientIp);
+  if (!arrivedViaTrustedEdgeProxy) {
     const guardError = enforceLoopbackOnly(
       req,
       clientIp,
@@ -98,7 +100,7 @@ export async function handleCreateRemoteWebPairingChallenge(
   }
 
   if (
-    arrivedViaEdgeProxy &&
+    arrivedViaTrustedEdgeProxy &&
     !publicBaseUrlMatchesRequestHost(req, publicBaseUrl)
   ) {
     return jsonError(
