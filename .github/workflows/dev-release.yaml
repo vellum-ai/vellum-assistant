@@ -1630,7 +1630,7 @@ jobs:
         env:
           VITE_PLATFORM_MODE: "false"
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
-          VITE_SENTRY_ENVIRONMENT: staging
+          VITE_SENTRY_ENVIRONMENT: dev
         run: bun run build
 
       - name: Bundle web dist into Electron resources
@@ -1644,7 +1644,7 @@ jobs:
           CSC_NAME: Developer ID Application
           SENTRY_DSN_MACOS: ${{ secrets.SENTRY_DSN_MACOS }}
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
-          VITE_SENTRY_ENVIRONMENT: staging
+          VITE_SENTRY_ENVIRONMENT: dev
         run: bun run pack --environment dev
 
       - name: Rename DMG for release
