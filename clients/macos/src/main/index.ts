@@ -1,4 +1,7 @@
 import "./env-seed";
+import { initSentryMain } from "./sentry";
+
+initSentryMain();
 
 import { app, net, protocol, shell } from "electron";
 import fs from "node:fs/promises";
