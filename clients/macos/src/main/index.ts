@@ -1,8 +1,4 @@
 import "./env-seed";
-import { initSentryMain } from "./sentry";
-
-initSentryMain();
-
 import { app, net, protocol, shell } from "electron";
 import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
@@ -143,6 +139,10 @@ if (app.isPackaged) {
     app.setPath("userData", `${base}-${env}`);
   }
 }
+
+import { initSentryMain } from "./sentry";
+
+initSentryMain();
 
 // Single-instance lock: relaunches focus the existing window instead of
 // spawning a parallel main process. The second-instance handler fires on the

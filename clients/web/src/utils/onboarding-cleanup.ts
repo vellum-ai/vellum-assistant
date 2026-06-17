@@ -112,6 +112,7 @@ export function saveConsent(opts: {
   store.setAiDataConsent(opts.ai);
   store.setShareAnalytics(opts.shareAnalytics);
   store.setShareDiagnostics(opts.shareDiagnostics);
+  syncDiagnosticsToMain(opts.shareDiagnostics);
 
   persistConsentForUser(opts.userId, opts.tos, opts.ai);
 
