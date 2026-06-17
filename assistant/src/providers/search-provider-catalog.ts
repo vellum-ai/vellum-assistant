@@ -108,7 +108,6 @@ export const SEARCH_PROVIDER_CATALOG: readonly SearchProviderCatalogEntry[] = [
   {
     id: "firecrawl",
     displayName: "Firecrawl",
-    displayNameLong: "Firecrawl Search",
     kind: "byok",
     apiKeyPrefix: "fc-...",
     envVar: "FIRECRAWL_API_KEY",
