@@ -134,6 +134,16 @@ async function resolvePlatformAssistantIdForRuntime(
   return result;
 }
 
+export async function resolvePlatformAssistantIdForOAuthRequest(
+  assistantId: string,
+): Promise<string> {
+  const resolved = await resolvePlatformAssistantIdForRuntime(
+    assistantId,
+    getSelfHostedIngressUrl(),
+  );
+  return resolved ?? assistantId;
+}
+
 function getPlatformStatusLookupIngressUrls(ingressUrl: string | null): string[] {
   const candidates: string[] = [];
   if (isLocalMode() && !isRemoteGatewayMode()) {

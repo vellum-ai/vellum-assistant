@@ -12,6 +12,7 @@ import {
   oauthCompletionStorageKey,
   type OAuthCompletePayload,
 } from "@/lib/auth/oauth-popup";
+import { resolvePlatformAssistantIdForOAuthRequest } from "@/lib/api-interceptors";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { isNativePlatform } from "@/runtime/native-auth";
 import {
@@ -58,8 +59,10 @@ const CONNECTION_POLL_DELAY_MS = 750;
 async function listOAuthConnections(
   assistantId: string,
 ): Promise<OAuthConnection[]> {
+  const requestAssistantId =
+    await resolvePlatformAssistantIdForOAuthRequest(assistantId);
   const { data, error, response } = await assistantsOauthConnectionsList({
-    path: { assistant_id: assistantId },
+    path: { assistant_id: requestAssistantId },
     throwOnError: false,
   });
   if (error || !data) {
@@ -129,9 +132,11 @@ async function startManagedOAuth(
   requestId: string,
   native: boolean,
 ): Promise<string> {
+  const requestAssistantId =
+    await resolvePlatformAssistantIdForOAuthRequest(assistantId);
   const redirectAfterConnect = `${routes.account.oauth.popupComplete}?requestId=${requestId}${native ? "&native=1" : ""}`;
   const { data, error, response } = await assistantsOauthStartCreate({
-    path: { assistant_id: assistantId, provider: providerKey },
+    path: { assistant_id: requestAssistantId, provider: providerKey },
     body: {
       requested_scopes: [],
       redirect_after_connect: redirectAfterConnect,
