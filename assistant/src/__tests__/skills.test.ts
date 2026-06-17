@@ -691,6 +691,57 @@ describe("category frontmatter parsing", () => {
   });
 });
 
+describe("always-candidate frontmatter parsing", () => {
+  beforeEach(() => {
+    mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
+  });
+
+  afterEach(() => {
+    const skillsDir = join(TEST_DIR, "skills");
+    if (existsSync(skillsDir))
+      rmSync(skillsDir, { recursive: true, force: true });
+  });
+
+  function writeSkillWithAlwaysCandidate(skillId: string, value: string): void {
+    const skillDir = join(TEST_DIR, "skills", skillId);
+    mkdirSync(skillDir, { recursive: true });
+    const metadata = `{"vellum":{"always-candidate":${value}}}`;
+    writeFileSync(
+      join(skillDir, "SKILL.md"),
+      `---\nname: "${skillId}"\ndescription: "test"\nmetadata: ${metadata}\n---\n\nBody.\n`,
+    );
+  }
+
+  test("parses always-candidate: true from metadata.vellum", () => {
+    writeSkillWithAlwaysCandidate("pinned", "true");
+    const skill = loadUserSkillCatalog().find((s) => s.id === "pinned");
+    expect(skill!.alwaysCandidate).toBe(true);
+  });
+
+  test("parses always-candidate: false", () => {
+    writeSkillWithAlwaysCandidate("unpinned", "false");
+    const skill = loadUserSkillCatalog().find((s) => s.id === "unpinned");
+    expect(skill!.alwaysCandidate).toBe(false);
+  });
+
+  test("returns undefined for a non-boolean always-candidate", () => {
+    writeSkillWithAlwaysCandidate("bad", '"yes"');
+    const skill = loadUserSkillCatalog().find((s) => s.id === "bad");
+    expect(skill!.alwaysCandidate).toBeUndefined();
+  });
+
+  test("skill without always-candidate has undefined", () => {
+    writeSkill("plain", "Plain", "Test");
+    const skill = loadUserSkillCatalog().find((s) => s.id === "plain");
+    expect(skill!.alwaysCandidate).toBeUndefined();
+  });
+
+  test("the bundled workflows skill is flagged always-candidate", () => {
+    const wf = loadSkillCatalog().find((s) => s.id === "workflows");
+    expect(wf?.alwaysCandidate).toBe(true);
+  });
+});
+
 describe("bundled skill categories", () => {
   test("every bundled skill declares a valid category slug", () => {
     const yamlPath = join(

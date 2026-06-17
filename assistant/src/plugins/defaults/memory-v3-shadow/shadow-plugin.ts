@@ -34,6 +34,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../config/loader.js";
 import type { AssistantConfig } from "../../../config/schema.js";
+import { loadSkillCatalog } from "../../../config/skills.js";
 import { getMessages } from "../../../memory/conversation-crud.js";
 import { getDb, getSqliteFrom } from "../../../memory/db-connection.js";
 import { stringifyMessageContent } from "../../../memory/message-content.js";
@@ -107,6 +108,9 @@ export interface ShadowLanes {
   /** Modification-recency fresh set in recency order: core and hot excluded,
    *  filtered to pages in the section index. */
   freshSlugs: string[];
+  /** Skills pinned into the stable prefix every turn (`always-candidate: true`
+   *  in SKILL.md), existence-filtered and core/hot/fresh-excluded. */
+  alwaysCandidateSlugs: string[];
   /** Learned-edge graph: co-selection NPMI associations over the selection
    *  log, rebuilt with the lanes (the consolidation cadence). */
   learnedGraph: EdgeGraph;
@@ -216,6 +220,18 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     excludeSlugs: new Set([...coreSlugs, ...hotSlugs]),
   }).filter((slug) => sectionIndex.byArticle.has(slug));
 
+  // Always-candidate skills are pinned into the stable prefix every turn so the
+  // selector can choose a cross-cutting capability (e.g. workflows) even when no
+  // retrieval lane surfaces it — its relevance is a judgment the model makes,
+  // not something embedding similarity finds. Filtered to skills present in the
+  // section index and excluded from core/hot/fresh so the prefix never
+  // double-lists a slug.
+  const prefixSet = new Set([...coreSlugs, ...hotSlugs, ...freshSlugs]);
+  const alwaysCandidateSlugs = loadSkillCatalog()
+    .filter((summary) => summary.alwaysCandidate === true)
+    .map((summary) => `skills/${summary.id}`)
+    .filter((slug) => sectionIndex.byArticle.has(slug) && !prefixSet.has(slug));
+
   // Pre-render the stable-prefix cards ONCE per lane build: the selector's
   // stable prefix must be byte-identical across turns to ride the provider KV
   // cache, so the cards are frozen here (lane invalidation at consolidation is
@@ -228,7 +244,10 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   const modifiedAtBySlug = new Map(
     pageIndex.entries.map((entry) => [entry.slug, entry.modifiedAt]),
   );
-  const laneAnnotation = (slug: Slug, lane: "core" | "hot" | "fresh") => {
+  const laneAnnotation = (
+    slug: Slug,
+    lane: "core" | "hot" | "fresh" | "always",
+  ) => {
     if (lane !== "fresh") return `[lane: ${lane}]`;
     const modifiedAt = modifiedAtBySlug.get(slug);
     if (
@@ -249,6 +268,7 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     ["core", coreSlugs],
     ["hot", hotSlugs],
     ["fresh", freshSlugs],
+    ["always", alwaysCandidateSlugs],
   ] as const) {
     for (const slug of slugs) {
       const raw = await capabilityOrDiskBody(
@@ -303,6 +323,7 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     coreSlugs,
     hotSlugs,
     freshSlugs,
+    alwaysCandidateSlugs,
     prefixCards,
   };
 }
@@ -545,6 +566,7 @@ export async function observeTurn(
       coreSlugs: lanes.coreSlugs,
       hotSlugs: lanes.hotSlugs,
       freshSlugs: lanes.freshSlugs,
+      alwaysCandidateSlugs: lanes.alwaysCandidateSlugs,
       prefixCards: lanes.prefixCards,
       needleK: v3.needleK,
       denseK: v3.denseK,
