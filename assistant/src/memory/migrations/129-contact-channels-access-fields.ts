@@ -9,8 +9,8 @@ import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
  * Uses ALTER TABLE ADD COLUMN with try/catch for idempotency.
  */
 export function migrateContactChannelsAccessFields(database: DrizzleDb): void {
-  // external_user_id: only add on first run. Migration 292 drops this column;
-  // if it's absent but other 129-era columns already exist, 292 has run and
+  // external_user_id: only add on first run. Migration 293 drops this column;
+  // if it's absent but other 129-era columns already exist, 293 has run and
   // we must not re-add it (avoids a table-rewrite cycle on every startup).
   const raw = getSqliteFrom(database);
   const cols = raw.prepare("PRAGMA table_info(contact_channels)").all() as {
@@ -105,7 +105,7 @@ export function migrateContactChannelsAccessFields(database: DrizzleDb): void {
     /* already exists */
   }
 
-  // Only create the index when the column exists (migration 292 drops both).
+  // Only create the index when the column exists (migration 293 drops both).
   if (needsExternalUserId || colNames.has("external_user_id")) {
     database.run(
       /*sql*/ `CREATE INDEX IF NOT EXISTS idx_contact_channels_type_ext_user ON contact_channels(type, external_user_id)`,
