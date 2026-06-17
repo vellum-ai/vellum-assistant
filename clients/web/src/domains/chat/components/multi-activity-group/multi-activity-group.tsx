@@ -20,7 +20,7 @@ import {
   ToolProgressCardShell,
   type ToolProgressCardState,
 } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
-import { useViewerStore } from "@/stores/viewer-store";
+import { sameThinkingTarget, useViewerStore } from "@/stores/viewer-store";
 import {
   toolDetailPayloadFromToolCall,
   type ToolCallCardData,
@@ -81,6 +81,14 @@ export interface MultiActivityGroupProps {
   // Unknown nudge props (pass-through)
   unknownNudgeToolCallIds?: Set<string>;
   onDismissUnknownNudge?: (toolCallId: string) => void;
+  /**
+   * Identity of the owning message + this group's index in
+   * `groupContentBlocks`. Carried into each thinking pill's drawer payload so
+   * the open panel re-derives that segment's live text (paired with the step's
+   * `thinkingItemIndex`) instead of freezing the snapshot.
+   */
+  messageId?: string;
+  groupIndex?: number;
   /**
    * Ordered (thinking | toolCall) items driving the expanded body. When
    * supplied, the card interleaves thinking steps between tool steps in the
@@ -345,6 +353,8 @@ function UnifiedMultiActivityGroup({
   onOpenRuleEditor,
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
+  messageId,
+  groupIndex,
 }: MultiActivityGroupProps & {
   cardData: ToolCallCardData;
   expanded: boolean;
@@ -353,9 +363,9 @@ function UnifiedMultiActivityGroup({
   // Pills TOGGLE the shared tool-detail drawer: clicking an open pill closes
   // its drawer, clicking another switches to it.
   const toggleToolDetail = useViewerStore.use.toggleToolDetail();
-  // The active drawer payload drives the pill's selected state. For tool pills
-  // we match on `toolCallId`; for thinking pills (which carry an empty
-  // `toolCallId`) we match on the thinking text instead.
+  // The active drawer payload drives the pill's selected state. Tool pills match
+  // on `toolCallId`; thinking pills (which carry an empty `toolCallId`) match on
+  // the threaded (message, group, segment) identity — see the thinking branch.
   const activeDetail = useViewerStore.use.activeToolDetail();
   // Drives the tool pill's active state — the pill whose detail drawer is
   // currently open renders selected. `null` when the drawer is closed or
@@ -467,9 +477,22 @@ function UnifiedMultiActivityGroup({
             // Thinking steps render as a clickable, brain-branded pill that
             // opens the full reasoning in the shared tool-detail drawer.
             if (step.kind === "thinking") {
+              // Genuine reasoning segments carry a `thinkingItemIndex` and a
+              // threaded message identity, so the drawer streams live and the
+              // pill highlight holds while the text grows. Web-synthesized
+              // thinking steps ("Reading …") have no backing reasoning item, so
+              // they fall back to the snapshot/text-keyed path.
+              const target =
+                messageId != null && step.thinkingItemIndex != null
+                  ? {
+                      messageId,
+                      thinkingGroupIndex: groupIndex,
+                      thinkingItemIndex: step.thinkingItemIndex,
+                    }
+                  : { thinkingText: step.text };
               const active =
                 activeDetail?.kind === "thinking" &&
-                activeDetail.thinkingText === step.text;
+                sameThinkingTarget(activeDetail, target);
               return (
                 <ToolStepPill
                   iconName="brain"
@@ -492,6 +515,7 @@ function UnifiedMultiActivityGroup({
                       input: {},
                       status: "completed",
                       thinkingText: step.text,
+                      ...target,
                     });
                   }}
                 />

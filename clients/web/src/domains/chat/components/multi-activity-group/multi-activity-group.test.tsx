@@ -946,4 +946,36 @@ describe("MultiActivityGroup — thinking pill", () => {
     expect(detail?.thinkingText).toBe(LONG_THINKING);
     expect(useViewerStore.getState().mainView).toBe("tool-detail");
   });
+
+  test("carries the (message, group, segment) identity into the payload when threaded", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        name: "bash",
+        status: "running",
+        input: { command: "ls" },
+      }),
+    ];
+    // `thinking → tool → thinking` interleaves two reasoning segments in one
+    // group, so the second pill must carry segment index 1.
+    const items: ToolCallCardItem[] = [
+      { kind: "thinking", text: "first reasoning segment" },
+      { kind: "toolCall", toolCall: toolCalls[0]! },
+      { kind: "thinking", text: "second reasoning segment" },
+    ];
+    useChatSessionStore.setState({ expandedCardIds: new Map([["tc-1", true]]) });
+    const { getAllByLabelText } = renderCard(toolCalls, {
+      items,
+      messageId: "m1",
+      groupIndex: 3,
+    });
+    const pills = getAllByLabelText("View thinking");
+    fireEvent.click(pills[1]!);
+    const detail = useViewerStore.getState().activeToolDetail;
+    expect(detail?.messageId).toBe("m1");
+    expect(detail?.thinkingGroupIndex).toBe(3);
+    expect(detail?.thinkingItemIndex).toBe(1);
+    // The snapshot text still rides along as the fallback.
+    expect(detail?.thinkingText).toBe("second reasoning segment");
+  });
 });

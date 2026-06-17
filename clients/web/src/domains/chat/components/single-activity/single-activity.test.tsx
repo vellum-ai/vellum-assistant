@@ -164,6 +164,59 @@ describe("SingleActivity — thinking variant", () => {
       getByTestId("thought-process-link").getAttribute("data-active"),
     ).toBe("true");
   });
+
+  test("carries the (message, group) identity into the drawer payload", () => {
+    const { getByLabelText } = render(
+      <SingleActivity
+        variant="thinking"
+        content={CONTENT}
+        messageId="m1"
+        groupIndex={2}
+      />,
+    );
+
+    fireEvent.click(getByLabelText("View thinking"));
+
+    const detail = useViewerStore.getState().activeToolDetail;
+    expect(detail?.messageId).toBe("m1");
+    expect(detail?.thinkingGroupIndex).toBe(2);
+    // The bare panel shows the whole group's reasoning, so it carries no segment
+    // index — that drives `useLiveThinkingText` to return the combined text.
+    expect(detail?.thinkingItemIndex).toBeUndefined();
+  });
+
+  test("stays active by identity while the reasoning streams past the snapshot", () => {
+    // The drawer was opened earlier in the turn (shorter snapshot); the live
+    // link has since grown. Identity keying keeps the highlight on rather than
+    // dropping it the moment the text diverges from the snapshot.
+    useViewerStore.setState({
+      mainView: "tool-detail",
+      activeToolDetail: {
+        kind: "thinking",
+        toolCallId: "",
+        toolName: "",
+        title: "Thought process",
+        activity: "",
+        input: {},
+        status: "completed",
+        thinkingText: "earlier shorter snapshot",
+        messageId: "m1",
+        thinkingGroupIndex: 0,
+      },
+    });
+
+    const { getByTestId } = render(
+      <SingleActivity
+        variant="thinking"
+        content={`${CONTENT} ...and more reasoning`}
+        messageId="m1"
+        groupIndex={0}
+      />,
+    );
+    expect(
+      getByTestId("thought-process-link").getAttribute("data-active"),
+    ).toBe("true");
+  });
 });
 
 describe("SingleActivity — tool variant", () => {

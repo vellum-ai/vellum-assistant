@@ -56,7 +56,7 @@ import {
 } from "@/domains/chat/components/web-search/web-search-step-row";
 import { WebsiteCarousel } from "@/domains/chat/components/web-search/website-carousel";
 import { SiteFavicon } from "@/domains/chat/components/web-search/site-favicon";
-import { useViewerStore } from "@/stores/viewer-store";
+import { sameThinkingTarget, useViewerStore } from "@/stores/viewer-store";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { WebSearchResultItem } from "@/assistant/web-activity-types";
 
@@ -67,6 +67,13 @@ export type SingleActivityProps =
       content: string;
       /** Whether the reasoning is still streaming in (drives the glyph + label). */
       isStreaming?: boolean;
+      /**
+       * Stable identity of this reasoning run (the owning message id + its
+       * group index in `groupContentBlocks`). Carried into the drawer payload so
+       * the open panel re-derives live text instead of freezing `content`.
+       */
+      messageId?: string;
+      groupIndex?: number;
     }
   | {
       variant: "tool";
@@ -211,7 +218,7 @@ export function SingleActivity(props: SingleActivityProps) {
   let view: ResolvedView;
 
   if (props.variant === "thinking") {
-    const { content, isStreaming = false } = props;
+    const { content, isStreaming = false, messageId, groupIndex } = props;
     // While streaming, render even before any reasoning text has landed so this
     // link can be the single thinking affordance from the start of the turn.
     // Once settled, an empty thought process has nothing to show, so collapse it.
@@ -229,11 +236,17 @@ export function SingleActivity(props: SingleActivityProps) {
       ),
       label: isStreaming ? "Thinking" : "Thought process",
       tone: "default",
-      // Thinking payloads carry an empty `toolCallId`, so we match on the
-      // thinking text instead (mirrors the in-card thinking pill).
+      // Thinking payloads carry an empty `toolCallId`; the bare panel addresses
+      // the whole group (no segment index), so match on its (message, group)
+      // identity — `sameThinkingTarget` holds the highlight while the reasoning
+      // streams, and falls back to text for identity-less callers.
       active:
         activeDetail?.kind === "thinking" &&
-        activeDetail.thinkingText === content,
+        sameThinkingTarget(activeDetail, {
+          messageId,
+          thinkingGroupIndex: groupIndex,
+          thinkingText: content,
+        }),
       onClick: () =>
         toggleToolDetail({
           kind: "thinking",
@@ -244,6 +257,8 @@ export function SingleActivity(props: SingleActivityProps) {
           input: {},
           status: "completed",
           thinkingText: content,
+          messageId,
+          thinkingGroupIndex: groupIndex,
         }),
     };
   } else {
