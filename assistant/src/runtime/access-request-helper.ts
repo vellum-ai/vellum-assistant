@@ -124,7 +124,7 @@ export function notifyGuardianOfAccessRequest(
     sourceGuardian &&
     sourceGuardian.contact.principalId === assistantGuardianPrincipalId
   ) {
-    guardianExternalUserId = sourceGuardian.channel.externalUserId;
+    guardianExternalUserId = sourceGuardian.channel.address;
     guardianPrincipalId = sourceGuardian.contact.principalId;
     guardianBindingChannel = sourceGuardian.channel.type;
     guardianResolutionSource = "source-channel-contact";
@@ -133,8 +133,7 @@ export function notifyGuardianOfAccessRequest(
   // Access requests always require a principal. If source-channel resolution
   // did not match the assistant anchor, use the anchored vellum identity.
   if (!guardianPrincipalId && vellumGuardian) {
-    guardianExternalUserId =
-      vellumGuardian.channel.externalUserId ?? guardianExternalUserId;
+    guardianExternalUserId = vellumGuardian.channel.address;
     guardianPrincipalId = assistantGuardianPrincipalId ?? null;
     guardianBindingChannel = guardianBindingChannel ?? "vellum";
     guardianResolutionSource = "vellum-anchor";

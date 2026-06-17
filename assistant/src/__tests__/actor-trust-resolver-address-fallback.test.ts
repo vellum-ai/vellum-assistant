@@ -43,7 +43,6 @@ const PHONE = "+15559871234";
 function makeContact(
   role: "guardian" | "contact" = "contact",
   status: "unverified" | "active" = "unverified",
-  externalUserId: string | null = null,
 ): ContactWithChannels {
   const channelId = "ch-test";
   return {
@@ -64,7 +63,6 @@ function makeContact(
         contactId: "contact-test",
         type: "phone",
         address: PHONE,
-        externalUserId,
         externalChatId: null,
         isPrimary: true,
         status,
@@ -94,7 +92,7 @@ describe("resolveActorTrust — address fallback", () => {
 
   test("finds unverified channel via address when externalUserId is null", () => {
     // Simulate a contact registered by name-capture: address set, externalUserId null.
-    _byAddress = makeContact("contact", "unverified", null);
+    _byAddress = makeContact("contact", "unverified");
 
     const result = resolveActorTrust({
       assistantId: "asst-1",
@@ -111,7 +109,7 @@ describe("resolveActorTrust — address fallback", () => {
   });
 
   test("address lookup is the sole member resolution path", () => {
-    _byAddress = makeContact("contact", "active", null);
+    _byAddress = makeContact("contact", "active");
 
     const result = resolveActorTrust({
       assistantId: "asst-1",
@@ -141,7 +139,7 @@ describe("resolveActorTrust — address fallback", () => {
   test("address-found active channel elevates trust to trusted_contact", () => {
     // An active channel found via address (e.g. after manual verify without externalUserId set)
     // should still yield trusted_contact trust class.
-    _byAddress = makeContact("contact", "active", null);
+    _byAddress = makeContact("contact", "active");
 
     const result = resolveActorTrust({
       assistantId: "asst-1",

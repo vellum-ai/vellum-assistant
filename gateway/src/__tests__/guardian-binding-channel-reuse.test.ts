@@ -73,7 +73,6 @@ beforeEach(() => {
       contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
       type TEXT NOT NULL,
       address TEXT NOT NULL,
-      external_user_id TEXT,
       external_chat_id TEXT,
       is_primary INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'unverified',
@@ -119,10 +118,10 @@ function seedSlackContactChannel(address: string): void {
   db()
     .prepare(
       `INSERT INTO contact_channels
-         (id, contact_id, type, address, external_user_id, external_chat_id,
+         (id, contact_id, type, address, external_chat_id,
           is_primary, status, policy, created_at, updated_at)
        VALUES
-         ('seed-channel', 'seed-contact', 'slack', ?, 'U123EXAMPLE',
+         ('seed-channel', 'seed-contact', 'slack', ?,
           'D123EXAMPLE', 0, 'unverified', 'allow', 1, 1)`,
     )
     .run(address);
@@ -132,11 +131,11 @@ function seedRevokedGuardianSlackChannel(): void {
   db()
     .prepare(
       `INSERT INTO contact_channels
-         (id, contact_id, type, address, external_user_id, external_chat_id,
+         (id, contact_id, type, address, external_chat_id,
           is_primary, status, policy, created_at, updated_at)
        VALUES
          ('guardian-channel', 'guardian-contact', 'slack', 'U123EXAMPLE',
-          'U123EXAMPLE', 'D123EXAMPLE', 1, 'revoked', 'deny', 1, 1)`,
+          'D123EXAMPLE', 1, 'revoked', 'deny', 1, 1)`,
     )
     .run();
 }
@@ -164,7 +163,6 @@ describe("createGuardianBinding", () => {
           id: string;
           contact_id: string;
           address: string;
-          external_user_id: string;
           status: string;
           policy: string;
           is_primary: number;
@@ -177,7 +175,6 @@ describe("createGuardianBinding", () => {
       id: "seed-channel",
       contact_id: "guardian-contact",
       address: "U123EXAMPLE",
-      external_user_id: "U123EXAMPLE",
       status: "active",
       policy: "allow",
       is_primary: 1,
@@ -203,12 +200,11 @@ describe("createGuardianBinding", () => {
           id: string;
           contact_id: string;
           address: string;
-          external_user_id: string;
           status: string;
         },
         []
       >(
-        `SELECT id, contact_id, address, external_user_id, status
+        `SELECT id, contact_id, address, status
          FROM contact_channels
          WHERE type = 'slack'`,
       )
@@ -218,7 +214,6 @@ describe("createGuardianBinding", () => {
         id: "seed-channel",
         contact_id: "guardian-contact",
         address: "U123EXAMPLE",
-        external_user_id: "U123EXAMPLE",
         status: "active",
       },
     ]);

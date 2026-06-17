@@ -18,7 +18,6 @@ function formatContactSummary(c: ContactWithChannels): string {
       .map((ch) => {
         let s = `${ch.type}:${ch.address}${ch.isPrimary ? "*" : ""}`;
         const extras: string[] = [];
-        if (ch.externalUserId) extras.push(`userId: ${ch.externalUserId}`);
         if (ch.externalChatId) extras.push(`chatId: ${ch.externalChatId}`);
         if (extras.length > 0) s += ` (${extras.join(", ")})`;
         return s;

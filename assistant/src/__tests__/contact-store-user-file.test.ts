@@ -75,7 +75,6 @@ describe("upsertContact user_file selection", () => {
         {
           type: "vellum",
           address: "vellum-principal-abc",
-          externalUserId: "vellum-principal-abc",
         },
       ],
     });
@@ -91,7 +90,6 @@ describe("upsertContact user_file selection", () => {
         {
           type: "slack",
           address: "u123456",
-          externalUserId: "U123456",
           externalChatId: "D987654",
         },
       ],
@@ -109,7 +107,6 @@ describe("upsertContact user_file selection", () => {
         {
           type: "slack",
           address: "ualice",
-          externalUserId: "UALICE",
           externalChatId: "DALICE",
         },
       ],
@@ -125,7 +122,6 @@ describe("upsertContact user_file selection", () => {
         {
           type: "slack",
           address: "ubob1",
-          externalUserId: "UBOB1",
           externalChatId: "DBOB1",
         },
       ],
@@ -137,7 +133,6 @@ describe("upsertContact user_file selection", () => {
         {
           type: "slack",
           address: "ubob2",
-          externalUserId: "UBOB2",
           externalChatId: "DBOB2",
         },
       ],
@@ -164,7 +159,6 @@ describe("upsertContact user_file selection", () => {
         {
           type: "phone",
           address: "+15550000",
-          externalUserId: "+15550000",
           externalChatId: "+15550000",
         },
       ],

@@ -162,7 +162,6 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
         {
           type: "telegram",
           address: "telegram-user-default",
-          externalUserId: "telegram-user-default",
           status: "active",
           policy: "allow",
         },
