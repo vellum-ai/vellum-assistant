@@ -48,6 +48,7 @@
 import type { PluginHookFn, PostToolUseContext } from "@vellumai/plugin-api";
 
 import type { ContentBlock, Message } from "../../../../providers/types.js";
+import { isWeakOpenModel } from "../../../../providers/weak-open-model.js";
 
 /**
  * Canonical nudge notice. Module-level constant so tests and wrapping plugins
@@ -65,17 +66,6 @@ export const TASK_PROGRESS_NUDGE_TEXT =
  * nudged, and only once. Lower from telemetry if cards still arrive too late.
  */
 export const TASK_PROGRESS_NUDGE_ROUND_THRESHOLD = 3;
-
-/**
- * Weaker open models that disregard the static progress-card instruction and
- * so get the mid-turn nudge: Kimi, DeepSeek, and MiniMax. Family-level matching
- * spans provider naming conventions (OpenRouter `moonshotai/kimi-k2.6`,
- * `deepseek/deepseek-chat`, `minimax/minimax-m3`; Fireworks
- * `accounts/fireworks/models/minimax-m3`, `kimi-k2p6`). Extend as other models
- * show the same gap. Capable models (Claude, GPT) follow the prompt and are
- * intentionally excluded.
- */
-const WEAK_MODEL_PATTERN = /kimi|deepseek|minimax/i;
 
 /**
  * Round count at the last nudge, per conversation. A non-zero entry means the
@@ -145,7 +135,7 @@ function scanTurn(messages: ReadonlyArray<Message>): {
 }
 
 const postToolUse: PluginHookFn<PostToolUseContext> = async (ctx) => {
-  if (!WEAK_MODEL_PATTERN.test(ctx.model)) return;
+  if (!isWeakOpenModel(ctx.model)) return;
 
   const { rounds, taskProgressShown } = scanTurn(ctx.messages);
 
