@@ -196,6 +196,7 @@ import {
   migrateRenameVerificationTable,
   migrateRenameVoiceToPhone,
   migrateScheduleCapabilities,
+  migrateScheduleDefaultNoReuseConversation,
   migrateScheduleDescription,
   migrateScheduleInferenceProfile,
   migrateScheduleOneShotRouting,
@@ -521,6 +522,7 @@ export function initializeDb(): void {
     migrateContactChannelsUniqueExtUser,
     migrateScheduleCapabilities,
     migrateContactChannelsRenormalizeAddresses,
+    migrateScheduleDefaultNoReuseConversation,
   ];
 
   // Run each migration step, catching and logging individual failures so one
