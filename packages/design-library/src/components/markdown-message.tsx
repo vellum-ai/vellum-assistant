@@ -169,9 +169,7 @@ export type MarkdownLinkComponent = (
  * We wrap emoji grapheme runs in a `font-style: normal` span so they render
  * upright while the surrounding emphasized text stays italic.
  *
- * Emoji detection mirrors the macOS app's `Character.rendersAsEmoji`
- * (clients/macos/.../MarkdownSegmentView.swift) so web and native agree on what
- * counts as an emoji: U+FE0F (VS16) forces emoji presentation; U+FE0E (VS15)
+ * Emoji detection: U+FE0F (VS16) forces emoji presentation; U+FE0E (VS15)
  * forces text presentation; otherwise the Unicode `Emoji_Presentation` property
  * decides. This keeps digits / `#` / `*` (bare Emoji but text-presentation) and
  * VS15 sequences italic.

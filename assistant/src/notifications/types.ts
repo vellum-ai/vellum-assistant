@@ -1,15 +1,19 @@
 /**
  * Core domain types for the unified notification system.
  *
- * Defines the channel-adapter interfaces that the broadcaster and adapters
- * depend on, plus the decision engine output contract.
+ * Data shapes are defined as Zod schemas — types derived via `z.infer`
+ * so runtime validation and compile-time types stay in sync.
+ *
+ * Behavioral interfaces (ChannelAdapter) remain as TypeScript interfaces.
  */
+
+import { ApprovalUIMetadataSchema } from "@vellumai/gateway-client";
+import { z } from "zod";
 
 import type { ChannelPolicies } from "../channels/config.js";
 import type { ChannelId } from "../channels/types.js";
-import type { ApprovalUIMetadata } from "../runtime/channel-approval-types.js";
-import type { ParsedAccessRequestPayload } from "./access-request-copy.js";
-import type { AttentionHints } from "./signal.js";
+import { AccessRequestPayloadSchema } from "./access-request-copy.js";
+import { UrgencySchema } from "./signal.js";
 
 /**
  * Derived from the channel policy registry: only channels whose
@@ -22,38 +26,39 @@ export type NotificationChannel = {
 }[keyof ChannelPolicies] &
   ChannelId;
 
-export type NotificationDeliveryStatus =
-  | "pending"
-  | "sent"
-  | "failed"
-  | "skipped";
+export const NotificationDeliveryStatusSchema = z.enum([
+  "pending",
+  "sent",
+  "failed",
+  "skipped",
+]);
+export type NotificationDeliveryStatus = z.infer<
+  typeof NotificationDeliveryStatusSchema
+>;
 
-/** Result of attempting to deliver a notification to a single channel. */
-export interface NotificationDeliveryResult {
-  channel: NotificationChannel;
-  destination: string;
-  status: NotificationDeliveryStatus;
-  errorCode?: string;
-  errorMessage?: string;
-  sentAt?: number;
-  conversationId?: string;
-  messageId?: string;
-  conversationStrategy?: string;
-}
+export const NotificationDeliveryResultSchema = z.object({
+  channel: z.string(),
+  destination: z.string(),
+  status: NotificationDeliveryStatusSchema,
+  errorCode: z.string().optional(),
+  errorMessage: z.string().optional(),
+  sentAt: z.number().optional(),
+  conversationId: z.string().optional(),
+  messageId: z.string().optional(),
+  conversationStrategy: z.string().optional(),
+});
+export type NotificationDeliveryResult = z.infer<
+  typeof NotificationDeliveryResultSchema
+>;
 
-// -- Channel adapter interfaces -----------------------------------------------
+// -- Channel adapter data shapes ----------------------------------------------
 
-/** Result returned by a channel adapter after attempting to send. */
-export interface DeliveryResult {
-  success: boolean;
-  error?: string;
-  /**
-   * Channel-native message identifier captured at send time (e.g. Slack `ts`).
-   * Persisted onto `notification_deliveries.messageId` so later edits can
-   * target the same message via `ChannelAdapter.update()`.
-   */
-  messageId?: string;
-}
+export const DeliveryResultSchema = z.object({
+  success: z.boolean(),
+  error: z.string().optional(),
+  messageId: z.string().optional(),
+});
+export type DeliveryResult = z.infer<typeof DeliveryResultSchema>;
 
 /** Resolved destination for a specific channel. */
 export interface ChannelDestination {
@@ -70,57 +75,43 @@ export interface ChannelDestination {
  * conversations keyed by (sourceChannel, externalChatId).
  */
 export interface DestinationBindingContext {
-  /** The channel this binding belongs to (e.g. "telegram", "slack"). */
   sourceChannel: NotificationChannel;
-  /** The channel-specific chat/conversation identifier (e.g. Telegram chat ID, phone number). */
   externalChatId: string;
-  /** Optional external user identifier within the chat. */
   externalUserId?: string;
 }
 
-/**
- * Delivery payload assembled from the decision engine's rendered copy
- * plus contextual fields the adapters need for formatting and routing.
- */
-export interface ChannelDeliveryPayload {
-  /** Delivery audit record ID — passed through to the client for ack correlation. */
-  deliveryId?: string;
-  sourceEventName: string;
-  copy: RenderedChannelCopy;
-  deepLinkTarget?: Record<string, unknown>;
-  /** Original signal context payload — available for channel-specific structured rendering. */
-  contextPayload?: Record<string, unknown>;
-  /**
-   * Forwarded from the originating signal so adapters can make
-   * urgency-aware decisions (e.g. the vellum adapter suppresses the OS
-   * banner for non-urgent intents while still emitting the conversation
-   * pairing side effects).
-   */
-  urgency: AttentionHints["urgency"];
-  /**
-   * Structured approval context for notifications that require guardian
-   * action buttons (approve/reject). Built centrally by the broadcaster
-   * so adapters can render channel-native approval UI without re-parsing
-   * `contextPayload`.
-   */
-  approvalContext?: ApprovalUIMetadata;
-  /**
-   * Pre-parsed access request context for `ingress.access_request` signals.
-   * Built centrally by the broadcaster so adapters can render structured
-   * access-request cards without re-parsing `contextPayload`.
-   */
-  accessRequestContext?: ParsedAccessRequestPayload;
-}
+// -- Rendered copy & delivery payload -----------------------------------------
 
-/**
- * Patch supplied when an already-delivered notification is edited.
- * Adapters only need to act on `title` and `body` — feed-only fields
- * like `urgency` and `status` are handled by the home-feed patch.
- */
+export const RenderedChannelCopySchema = z.object({
+  title: z.string(),
+  body: z.string(),
+  deliveryText: z.string().optional(),
+  conversationTitle: z.string().optional(),
+  conversationSeedMessage: z.string().optional(),
+  seedContentBlocks: z.array(z.unknown()).optional(),
+});
+export type RenderedChannelCopy = z.infer<typeof RenderedChannelCopySchema>;
+
+export const ChannelDeliveryPayloadSchema = z.object({
+  deliveryId: z.string().optional(),
+  sourceEventName: z.string(),
+  copy: RenderedChannelCopySchema,
+  deepLinkTarget: z.record(z.string(), z.unknown()).optional(),
+  contextPayload: z.record(z.string(), z.unknown()).optional(),
+  urgency: UrgencySchema,
+  approvalContext: ApprovalUIMetadataSchema.optional(),
+  accessRequestContext: AccessRequestPayloadSchema.optional(),
+});
+export type ChannelDeliveryPayload = z.infer<
+  typeof ChannelDeliveryPayloadSchema
+>;
+
 export interface ChannelUpdatePayload {
   title?: string;
   body?: string;
 }
+
+// -- Channel adapter interface ------------------------------------------------
 
 /** Interface that each channel adapter must implement. */
 export interface ChannelAdapter {
@@ -129,77 +120,57 @@ export interface ChannelAdapter {
     payload: ChannelDeliveryPayload,
     destination: ChannelDestination,
   ): Promise<DeliveryResult>;
-  /**
-   * Optional: edit a previously-sent message in place. Channels that
-   * cannot edit (push, email, SMS) omit this and the router treats
-   * them as `"unsupported"`. Adapters that implement it use
-   * `delivery.messageId` (captured at send time) as the channel-native
-   * handle for the in-place update.
-   */
   update?(
     delivery: ChannelUpdateContext,
     patch: ChannelUpdatePayload,
   ): Promise<DeliveryResult>;
 }
 
-/** Per-delivery state an adapter needs to update a previously-sent message. */
 export interface ChannelUpdateContext {
-  /** notification_deliveries.id */
   deliveryId: string;
-  /** Channel-native destination (e.g. Slack chat id). */
   destination: string;
-  /** Channel-native message identifier captured at send time. */
   messageId: string | null;
-}
-
-// -- Decision engine output ---------------------------------------------------
-
-/** Rendered notification copy for a single channel. */
-export interface RenderedChannelCopy {
-  title: string;
-  body: string;
-  /** Channel-native delivery text (e.g. Telegram chat message body). */
-  deliveryText?: string;
-  conversationTitle?: string;
-  conversationSeedMessage?: string;
-  /**
-   * Structured content blocks for the seed message. When present,
-   * conversation pairing stores `JSON.stringify(seedContentBlocks)` as the
-   * message content instead of the plain-text seed, enabling Surface
-   * rendering in the web/macOS/iOS apps.
-   *
-   * Typically includes a `ui_surface` block (rendered as an interactive
-   * card) followed by a `text` block (plain-text fallback for search,
-   * backward-compatible clients, and CLI display).
-   */
-  seedContentBlocks?: unknown[];
 }
 
 // -- Conversation action types ------------------------------------------------
 
-/** Start a new conversation for the notification delivery. */
-export interface ConversationActionStartNew {
-  action: "start_new";
-}
+export const ConversationActionSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("start_new") }),
+  z.object({
+    action: z.literal("reuse_existing"),
+    conversationId: z.string(),
+  }),
+]);
+export type ConversationAction = z.infer<typeof ConversationActionSchema>;
 
-/** Reuse an existing conversation identified by conversationId. */
-export interface ConversationActionReuseExisting {
-  action: "reuse_existing";
-  conversationId: string;
-}
+// -- Decision engine output ---------------------------------------------------
 
-/** Per-channel conversation action — either start a new conversation or reuse an existing one. */
-export type ConversationAction =
-  | ConversationActionStartNew
-  | ConversationActionReuseExisting;
+export const NotificationDecisionSchema = z.object({
+  shouldNotify: z.boolean(),
+  selectedChannels: z.array(z.string()),
+  reasoningSummary: z.string(),
+  renderedCopy: z.record(z.string(), RenderedChannelCopySchema),
+  conversationActions: z
+    .record(z.string(), ConversationActionSchema)
+    .optional(),
+  deepLinkTarget: z.record(z.string(), z.unknown()).optional(),
+  dedupeKey: z.string(),
+  confidence: z.number(),
+  fallbackUsed: z.boolean(),
+  persistedDecisionId: z.string().optional(),
+});
 
-/** Output produced by the notification decision engine for a given signal. */
+/**
+ * Decision engine output. `selectedChannels` and `renderedCopy` are keyed
+ * by `NotificationChannel` — narrower than the Zod schema's `string` since
+ * `NotificationChannel` is a computed type derived from the channel config
+ * registry and cannot be expressed as a Zod enum.
+ */
 export interface NotificationDecision {
   shouldNotify: boolean;
   selectedChannels: NotificationChannel[];
   reasoningSummary: string;
   renderedCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>>;
-  /** Per-channel conversation actions decided by the model. Absent channels default to start_new. */
   conversationActions?: Partial<
     Record<NotificationChannel, ConversationAction>
   >;
@@ -207,6 +178,5 @@ export interface NotificationDecision {
   dedupeKey: string;
   confidence: number;
   fallbackUsed: boolean;
-  /** UUID of the persisted decision row (set after persistence in the decision engine). */
   persistedDecisionId?: string;
 }

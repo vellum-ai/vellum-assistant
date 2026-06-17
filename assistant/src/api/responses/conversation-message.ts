@@ -390,10 +390,8 @@ export const ConversationMessageSchema = z.object({
   /**
    * @deprecated Superseded by `contentBlocks`. Flat plain-text body (joined
    * text segments). Redundant with `textSegments`/`contentOrder` for clients
-   * that render from the positional arrays (web, CLI), but the legacy Swift
-   * macOS client reads `content` directly and drops any history row missing it
-   * (its `HistoryReconstructionService` skips rows with empty text). The
-   * serializer always emits it — do not remove without updating that client.
+   * that render from the positional arrays (web, CLI). The serializer always
+   * emits it — do not remove without auditing clients that read it directly.
    */
   content: z
     .string()

@@ -112,7 +112,7 @@ export function createFeatureFlagsGetHandler() {
   };
 }
 
-export function createFeatureFlagsPatchHandler() {
+export function createFeatureFlagsPatchHandler(onFlagChanged?: () => void) {
   return async (req: Request, flagKey: string): Promise<Response> => {
     // Validate flagKey is non-empty and matches allowed key charset
     if (!flagKey) {
@@ -169,11 +169,24 @@ export function createFeatureFlagsPatchHandler() {
 
     try {
       writeFeatureFlag(flagKey, enabled);
-      log.info({ flagKey, enabled }, "Feature flag updated");
-      return Response.json({ key: flagKey, enabled });
     } catch (err) {
       log.error({ err, flagKey }, "Failed to update feature flag");
       return Response.json({ error: "Internal server error" }, { status: 500 });
     }
+
+    log.info({ flagKey, enabled }, "Feature flag updated");
+
+    // Notify connected clients synchronously with the write. The
+    // FeatureFlagWatcher also fires on the file change, but its fs.watch +
+    // debounce can lag or miss atomic-rename writes, so emitting here is the
+    // reliable path for API-driven flips. A notification failure must not fail
+    // an already-committed write, so it is logged and swallowed.
+    try {
+      onFlagChanged?.();
+    } catch (err) {
+      log.warn({ err, flagKey }, "Feature flag change notification failed");
+    }
+
+    return Response.json({ key: flagKey, enabled });
   };
 }

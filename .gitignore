@@ -31,11 +31,6 @@ storybook-static/
 assistant/src/config/feature-flag-registry.json
 gateway/src/feature-flag-registry.json
 
-# Working copy overwritten on every macOS build by clients/macos/build.sh from
-# build-resources/icons/$VELLUM_ENVIRONMENT/. Source of truth lives in
-# build-resources/icons/<env>/.
-clients/macos/build-resources/AppIcon.icon/
-
 # misc
 worktrees/
 .worktrees/
@@ -125,9 +120,6 @@ next-env.d.ts
 # bun build artifacts
 *.bun-build
 vellum-assistant-safe-do-permissions
-
-# macOS binary
-clients/macos/assistant-bin/vellum-assistant
 vellum-assistant-do-fix-retriever-null-check
 
 # Chrome browser extension build
@@ -140,10 +132,10 @@ gateway/src/db/migrations/
 clients/chrome-extension/vellum-browser-relay.zip
 
 # vel command
-apps/web/.vel/watchers.json
+clients/web/.vel/watchers.json
 
 # Build-generated skill assets copied into SPA public dir
-apps/web/public/skills/
+clients/web/public/skills/
 
 # Generated at release time by the publish-meta jobs (release.yml)
 meta/package-lock.json

@@ -72,13 +72,11 @@ Native clients fetch this metadata at launch via `GET /v1/stt/providers`. No sep
 | `google-gemini`  | `gemini`             | shared        |
 | `xai`            | `xai`                | exclusive     |
 
-When the provider ID differs from the credential provider name (e.g. `google-gemini` maps to `gemini`), the key is **shared** with other services that use the same credential. The `sttKeyIsExclusive` / `sttKeyIsShared` helpers in the macOS settings layer derive this automatically from the catalog.
+When the provider ID differs from the credential provider name (e.g. `google-gemini` maps to `gemini`), the key is **shared** with other services that use the same credential.
 
-### macOS settings key behavior
+### Client settings key behavior
 
-**File:** `clients/macos/vellum-assistant/Features/Settings/SettingsStore.swift`
-
-The `sttKeyIsExclusive(for:)` / `sttKeyIsShared(for:)` helpers derive shared-vs-exclusive key behavior from the catalog automatically: if `apiKeyProviderName == id`, the key is exclusive; otherwise it is shared. No new conditionals are needed unless the provider has a non-standard key-ownership model.
+Clients derive shared-vs-exclusive key behavior from the catalog automatically: if `apiKeyProviderName == id`, the key is exclusive; otherwise it is shared. No new conditionals are needed unless the provider has a non-standard key-ownership model. The web settings UI lives in `clients/web/src/domains/settings/ai/speech-to-text-card.tsx`.
 
 ## 7. Verify unified STT architecture
 

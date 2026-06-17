@@ -7041,6 +7041,71 @@ paths:
       responses:
         "202":
           description: Successful response
+  /v1/conversations/{id}/slash:
+    post:
+      operationId: conversations_by_id_slash_post
+      summary: Resolve a local meta slash command
+      description:
+        "Run a local meta slash command (/clean, /status, /commands, /models) without starting a turn: no messages
+        are persisted and no turn events are emitted. /clean also strips runtime injections from the history. Returns
+        the text to render and, for /clean, the post-strip context usage."
+      tags:
+        - conversations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                command:
+                  type: string
+                  description: The slash command text, e.g. `/clean` or `/status`.
+              required:
+                - command
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kind:
+                    type: string
+                    enum:
+                      - clean
+                      - info
+                  text:
+                    type: string
+                  contextUsage:
+                    type: object
+                    properties:
+                      tokens:
+                        type: number
+                      maxTokens:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      fillRatio:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                    required:
+                      - tokens
+                      - maxTokens
+                      - fillRatio
+                    additionalProperties: false
+                required:
+                  - kind
+                  - text
+                additionalProperties: false
   /v1/conversations/{id}/surface:
     post:
       operationId: conversations_by_id_surface_post
@@ -13176,7 +13241,7 @@ paths:
             type: string
           description:
             "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, openrouter, openai-compatible,
-            minimax"
+            minimax, atlascloud"
       responses:
         "200":
           description: Successful response
@@ -17627,6 +17692,7 @@ paths:
               properties:
                 deliveryId:
                   type: string
+                  minLength: 1
                   description: Notification delivery ID
                 success:
                   type: boolean
@@ -17704,9 +17770,100 @@ paths:
                     type: boolean
                   feedItem:
                     type: object
-                    propertyNames:
-                      type: string
-                    additionalProperties: {}
+                    properties:
+                      id:
+                        type: string
+                      type:
+                        type: string
+                        const: notification
+                      priority:
+                        type: integer
+                        minimum: 0
+                        maximum: 100
+                      title:
+                        type: string
+                      summary:
+                        type: string
+                      timestamp:
+                        type: string
+                      status:
+                        default: new
+                        type: string
+                        enum:
+                          - new
+                          - seen
+                          - acted_on
+                          - dismissed
+                      expiresAt:
+                        type: string
+                      actions:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            label:
+                              type: string
+                            prompt:
+                              type: string
+                          required:
+                            - id
+                            - label
+                            - prompt
+                          additionalProperties: false
+                      urgency:
+                        type: string
+                        enum:
+                          - low
+                          - medium
+                          - high
+                          - critical
+                      conversationId:
+                        type: string
+                      detailPanel:
+                        type: object
+                        properties:
+                          kind:
+                            type: string
+                            enum:
+                              - emailDraft
+                              - documentPreview
+                              - permissionChat
+                              - paymentAuth
+                              - toolPermission
+                              - updatesList
+                        required:
+                          - kind
+                        additionalProperties: false
+                      category:
+                        type: string
+                        enum:
+                          - security
+                          - scheduling
+                          - background
+                          - email
+                          - system
+                      noteworthy:
+                        type: boolean
+                      fromAssistant:
+                        type: boolean
+                      metadata:
+                        type: object
+                        propertyNames:
+                          type: string
+                        additionalProperties: {}
+                      createdAt:
+                        type: string
+                    required:
+                      - id
+                      - type
+                      - priority
+                      - summary
+                      - timestamp
+                      - status
+                      - createdAt
+                    additionalProperties: false
                   channels:
                     type: array
                     items:
@@ -19508,6 +19665,35 @@ paths:
                       - type: string
                       - type: "null"
                     description: Marketplace fetch error message, when the catalog could not be read.
+                  surfaces:
+                    anyOf:
+                      - type: object
+                        properties:
+                          skills:
+                            type: array
+                            items:
+                              type: string
+                            description: Skill ids shipped at `skills/<id>/SKILL.md`.
+                          hooks:
+                            type: array
+                            items:
+                              type: string
+                            description: Lifecycle hook names from `hooks/<name>.{ts,js}` (e.g. `pre-model-call`).
+                          tools:
+                            type: array
+                            items:
+                              type: string
+                            description:
+                              Registered tool names from `tools/<name>.{ts,js}` (filenames derived to tool names, e.g. `create-issue` →
+                              `create_issue`).
+                        required:
+                          - skills
+                          - hooks
+                          - tools
+                        additionalProperties: false
+                        description: Surfaces the installed copy contributes, read from its on-disk tree.
+                      - type: "null"
+                    description: Surfaces the installed copy contributes (skills, hooks, tools); null when the plugin is not installed.
                 required:
                   - name
                   - installed
@@ -19515,6 +19701,7 @@ paths:
                   - local
                   - remote
                   - remoteError
+                  - surfaces
                 additionalProperties: false
         "400":
           description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
@@ -19531,11 +19718,12 @@ paths:
         commit already equals the pin; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching
         the install. Installs lacking provenance are re-pinned to the current SHA. The assistant must be restarted to
         load the upgraded code. `strategy` controls how local edits are reconciled: `overwrite` (default) discards them
-        and re-installs the pin wholesale; `ours`/`theirs` perform a three-way merge against the re-materialized install
-        commit, carrying non-conflicting edits from both sides forward and resolving conflicting hunks toward the local
-        edit or the pin respectively; `assistant` is not yet supported (400). A merge strategy whose install-time
-        baseline cannot be reconstructed returns 409. Mirrors the CLI''s `assistant plugins upgrade <name> [--strategy
-        <s>]`.'
+        and re-installs the pin wholesale; `ours`/`theirs`/`assistant` perform a three-way merge against the
+        re-materialized install commit, carrying non-conflicting edits from both sides forward and resolving conflicting
+        hunks toward the local edit (`ours`) or the pin (`theirs`), or writing git conflict markers into the file and
+        reporting them in `conflicts`/`binaryConflicts` for the assistant to resolve (`assistant`). A merge strategy
+        whose install-time baseline cannot be reconstructed returns 409. Mirrors the CLI''s `assistant plugins upgrade
+        <name> [--strategy <s>]`.'
       tags:
         - plugins
       parameters:
@@ -19624,6 +19812,20 @@ paths:
                       - overwrite
                       - assistant
                     description: Conflict-resolution strategy the upgrade applied.
+                  conflicts:
+                    type: array
+                    items:
+                      type: string
+                    description:
+                      "Paths left for the assistant to resolve under the `assistant` strategy: text files carry git conflict
+                      markers, modify/delete divergences keep the surviving content. Empty for other strategies."
+                  binaryConflicts:
+                    type: array
+                    items:
+                      type: string
+                    description:
+                      Binary files that conflicted under the `assistant` strategy; the local copy was kept since markers cannot
+                      be written into binary content. Empty for other strategies.
                   provenanceWasUnknown:
                     type: boolean
                     description:
@@ -19640,12 +19842,12 @@ paths:
                   - fileCount
                   - dryRun
                   - strategy
+                  - conflicts
+                  - binaryConflicts
                   - provenanceWasUnknown
                 additionalProperties: false
         "400":
-          description:
-            The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters), or the
-            `assistant` strategy was requested (not yet supported).
+          description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
         "404":
           description: No copy of the plugin is installed, or its source resolves to nothing.
         "409":
@@ -28134,6 +28336,7 @@ components:
         - openrouter
         - openai-compatible
         - minimax
+        - atlascloud
     ProfilePatchEntry:
       type: object
       properties:
@@ -28491,6 +28694,7 @@ components:
         - openrouter
         - openai-compatible
         - minimax
+        - atlascloud
     Auth:
       oneOf:
         - type: object

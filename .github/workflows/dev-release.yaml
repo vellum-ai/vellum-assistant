@@ -1536,7 +1536,8 @@ jobs:
   # ── Electron DMG ──────────────────────────────────────────────────────
 
   build-electron:
-    needs: [compute-version, publish-meta-dev]
+    # No publish dep: the bundled CLI floats to the `dev` dist-tag at runtime.
+    needs: [compute-version]
     runs-on: macos-26
     timeout-minutes: 30
     continue-on-error: ${{ matrix.experimental }}
@@ -1556,7 +1557,7 @@ jobs:
             experimental: true
     defaults:
       run:
-        working-directory: apps/macos
+        working-directory: clients/macos
     env:
       KEYCHAIN_NAME: build-electron.keychain
       KEYCHAIN_PASSWORD: temporary-ci-password
@@ -1614,32 +1615,27 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Install web dependencies
-        working-directory: apps/web
+        working-directory: clients/web
         run: |
           if ! bun install --frozen-lockfile; then
             rm -f bun.lock && rm -rf node_modules && bun install
           fi
 
       - name: Generate API clients
-        working-directory: apps/web
+        working-directory: clients/web
         run: bun run openapi-ts
 
       - name: Build web SPA
-        working-directory: apps/web
+        working-directory: clients/web
         env:
           VITE_PLATFORM_MODE: "false"
         run: bun run build
 
       - name: Bundle web dist into Electron resources
-        run: mkdir -p resources && cp -R ../../apps/web/dist resources/web-dist
+        run: mkdir -p resources && cp -R ../../clients/web/dist resources/web-dist
 
       - name: Stamp dev version into package.json
         run: jq --arg v "${{ needs.compute-version.outputs.version }}" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
-
-      - name: Stamp PINNED_CLI_VERSION for dev
-        run: |
-          VERSION="${{ needs.compute-version.outputs.version }}"
-          sed -i '' "s/export const PINNED_CLI_VERSION = \".*\"/export const PINNED_CLI_VERSION = \"$VERSION\"/" src/main/cli-installer.ts
 
       - name: Build and package Electron app
         env:
@@ -1730,7 +1726,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.artifact_name }}
-          path: apps/macos/dist/${{ matrix.dmg_name }}
+          path: clients/macos/dist/${{ matrix.dmg_name }}
           if-no-files-found: error
           retention-days: 30
 
@@ -1739,9 +1735,9 @@ jobs:
         with:
           name: ${{ matrix.update_artifact_name }}
           path: |
-            apps/macos/dist/*-mac.yml
-            apps/macos/dist/*.zip
-            apps/macos/dist/*.zip.blockmap
+            clients/macos/dist/*-mac.yml
+            clients/macos/dist/*.zip
+            clients/macos/dist/*.zip.blockmap
           if-no-files-found: warn
           retention-days: 7
 
@@ -1758,8 +1754,10 @@ jobs:
   # its own path: mac-electron/dev/{arch}/.
 
   upload-electron-updates:
-    needs: [compute-version, build-electron]
-    if: ${{ needs.build-electron.result == 'success' }}
+    # Gate the GCS update-feed publish (an external side effect) on the dev meta
+    # publish: never offer an auto-update for a release that didn't publish.
+    needs: [compute-version, build-electron, publish-meta-dev]
+    if: ${{ always() && !cancelled() && needs.build-electron.result == 'success' && needs.publish-meta-dev.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: dev
@@ -2000,30 +1998,30 @@ jobs:
         working-directory: packages/design-library
         run: bun install --frozen-lockfile
       - name: Install web dependencies
-        working-directory: apps/web
+        working-directory: clients/web
         run: |
           if ! bun install --frozen-lockfile; then
             rm -f bun.lock && rm -rf node_modules && bun install
           fi
       - name: Generate API clients
-        working-directory: apps/web
+        working-directory: clients/web
         run: bun run openapi-ts
       - name: Install shared packages
         uses: ./.github/actions/install-shared-packages
         with:
           packages: packages/environments packages/local-mode
       - name: Build
-        working-directory: apps/web
+        working-directory: clients/web
         env:
           VITE_PLATFORM_MODE: "false"
         run: bun run build
       - name: Rewrite package.json for publish
-        working-directory: apps/web
+        working-directory: clients/web
         run: |
           VERSION="${{ needs.compute-version.outputs.version }}"
           jq --arg v "$VERSION" '{name, version: $v, license, type, description, files}' package.json > tmp && mv tmp package.json
       - name: Pack tarball
-        working-directory: apps/web
+        working-directory: clients/web
         run: |
           mkdir -p /tmp/npm-dist
           npm pack --pack-destination /tmp/npm-dist

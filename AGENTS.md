@@ -4,10 +4,10 @@
 
 Bun + TypeScript monorepo with multiple packages:
 
-- `apps/` — End-user app surfaces: `apps/web/` (Vite + React Router v7 SPA), `apps/ios/` (Capacitor iOS shell that loads the web app in a WKWebView), and `apps/macos/` (Electron desktop shell that wraps `apps/web/`; daemon/gateway lifecycle is owned by the `vellum` CLI, which the app invokes as a subprocess; auto-update via `electron-updater`; CI workflows are `pr-macos.yaml` / `ci-main-macos.yaml`). See [`apps/README.md`](apps/README.md) and [`apps/AGENTS.md`](apps/AGENTS.md).
+- `clients/` — End-user app surfaces: `clients/web/` (Vite + React Router v7 SPA), `clients/ios/` (Capacitor iOS shell that loads the web app in a WKWebView), and `clients/macos/` (Electron desktop shell that wraps `clients/web/`; daemon/gateway lifecycle is owned by the `vellum` CLI, which the app invokes as a subprocess; auto-update via `electron-updater`; CI workflows are `pr-macos.yaml` / `ci-main-macos.yaml`). See [`clients/README.md`](clients/README.md) and [`clients/AGENTS.md`](clients/AGENTS.md).
 - `assistant/` — Main backend service (Bun + TypeScript)
 - `cli/` — Multi-assistant management CLI (Bun + TypeScript). See `cli/AGENTS.md`.
-- `clients/` — Client apps (macOS, browser extension, etc). See `clients/AGENTS.md` and platform docs like `clients/macos/AGENTS.md`.
+- `clients/` — Chrome extension client. See `clients/chrome-extension/README.md`.
 - `gateway/` — Channel ingress gateway (Bun + TypeScript)
 - `packages/` — Shared internal packages (e.g. `service-contracts` for CES wire-protocol schemas)
 - `scripts/` — Utility scripts
@@ -23,7 +23,7 @@ Defend technical positions with evidence. Don't flip-flop to placate the user �
 ## Development
 
 - **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
-- **Imports**: Packages that compile to JS (`assistant/`, `gateway/`, `cli/`) use NodeNext module resolution with `.js` extensions on all imports. Bundler-only packages (`apps/web/`, `packages/design-library/`) use `moduleResolution: "Bundler"` and omit `.js` extensions.
+- **Imports**: Packages that compile to JS (`assistant/`, `gateway/`, `cli/`) use NodeNext module resolution with `.js` extensions on all imports. Bundler-only packages (`clients/web/`, `packages/design-library/`) use `moduleResolution: "Bundler"` and omit `.js` extensions.
 - **Package manager**: Use `bun install` for dependencies (each package has its own `bun.lock`).
 
 ```bash
@@ -67,7 +67,7 @@ Docker `cache-to: type=gha` must set `ignore-error=true`. The GHA cache is a bui
 
 ### iOS release
 
-The Capacitor iOS source-of-truth lives in [`apps/ios/`](./apps/ios/) and is built locally from `apps/web/` via `bun run ios:open`. See [`apps/ios/README.md`](./apps/ios/README.md) for the local build flow and full release pipeline mapping.
+The Capacitor iOS source-of-truth lives in [`clients/ios/`](./clients/ios/) and is built locally from `clients/web/` via `bun run ios:open`. See [`clients/ios/README.md`](./clients/ios/README.md) for the local build flow and full release pipeline mapping.
 
 TestFlight builds are produced by the `release-ios.yaml` reusable workflow in this repo. Both `dev-release.yaml` and `release.yml` call it as a same-repo `uses:` job with `{ environment, version }` inputs. The workflow runs on `macos-15`, installs web dependencies, runs `cap sync ios`, generates the Xcode project via XcodeGen, archives, signs, and uploads to TestFlight.
 
@@ -240,7 +240,7 @@ Docker instances use six per-service volumes enforcing least-privilege at the co
 - **Local mode**: Use the credential store (`assistant credentials`) or `GATEWAY_SECURITY_DIR` (resolved by `getGatewaySecurityDir()` in `gateway/src/paths.ts`) for sensitive data. Do **not** create new secrets in the daemon's `protected/` directory — that directory is being phased out; all new security-sensitive files belong in the gateway security dir or CES.
 - **Docker mode**: Sensitive files are isolated on dedicated security volumes that only the owning service can access. Trust rules (`trust.json`, `actor-token-signing-key`), capability-token secrets, and other gateway-owned security material live on the gateway security volume (`/gateway-security`). Credential keys (`keys.enc`, `store.key`) live on the CES security volume (`/ces-security`). The assistant and gateway access credentials via the CES HTTP API (`CES_CREDENTIAL_URL`), and the assistant accesses trust rules via the gateway's trust HTTP API. Neither the assistant nor the gateway has direct filesystem access to the other service's security volume.
 - **The daemon must never read from `GATEWAY_SECURITY_DIR`** or any gateway-owned directory. Any data the daemon needs from the gateway (e.g. capability token verification, feature flags, trust rules) must flow through IPC or HTTP APIs.
-- **Do not access the user's `~/.vellum` directory from client packages** (`clients/chrome-extension/`, `clients/macos/`). Clients should read configuration from their own package directory or from `GATEWAY_SECURITY_DIR`. Existing `~/.vellum` references in client code are legacy and should be removed.
+- **Do not access the user's `~/.vellum` directory from client packages** (`clients/chrome-extension/`). Clients should read configuration from their own package directory or from `GATEWAY_SECURITY_DIR`. Existing `~/.vellum` references in client code are legacy and should be removed.
 
 ## Release Notes
 
@@ -262,7 +262,7 @@ When making changes that could affect the cloud platform, review the sibling `..
 
 ## Build Environment (`VELLUM_ENVIRONMENT`)
 
-`VELLUM_ENVIRONMENT` identifies the runtime environment for all clients (macOS, CLI, Chrome extension). It's embedded into the app bundle at build time by each platform's `build.sh`, or injected via `--define` for the Chrome-ext bundler. CI/devs can override by exporting it before invoking `build.sh`; per-client default-resolution logic lives in each client's `build.sh`.
+`VELLUM_ENVIRONMENT` identifies the runtime environment for all clients (Electron macOS app, CLI, Chrome extension). It's embedded at build time by each platform's build tooling, or injected via `--define` for the Chrome-ext bundler. CI/devs can override by exporting it before building; per-client default-resolution logic lives in each client's build script.
 
 | Value | Use cases |
 |---|---|
@@ -279,7 +279,7 @@ When making changes that could affect the cloud platform, review the sibling `..
 
 ## Sentry & Linear Integration
 
-Error reporting uses Sentry. Two projects exist: one for the daemon/runtime (Node) and one for the macOS app (Swift). DSNs are configured via environment variables (`SENTRY_DSN_ASSISTANT`, `SENTRY_DSN_MACOS`) — see `.env.example`.
+Error reporting uses Sentry. The daemon/runtime (Node) project's DSN is configured via the `SENTRY_DSN_ASSISTANT` environment variable — see `.env.example`.
 
 **Sentry CLI**: Use the newer `sentry` CLI (not the legacy `sentry-cli`). Install from `https://cli.sentry.dev/install`. Authenticate with `sentry auth login`.
 

@@ -4,8 +4,9 @@
  * The merge is exercised against three real temp directories (base/ours/theirs)
  * and the merged tree is read back from a fourth (dest). `git merge-file` runs
  * for real — these tests assert the line-level merge behavior (non-conflicting
- * hunks from both sides survive; conflicts resolve toward the strategy), the
- * file-level add/delete resolution, and binary whole-file handling.
+ * hunks from both sides survive; conflicts resolve toward `ours`/`theirs` or
+ * get conflict markers under `assistant`), the file-level add/delete
+ * resolution, and binary whole-file handling.
  */
 
 import {
@@ -97,7 +98,9 @@ describe("mergePluginTree", () => {
     expect(read("local-only.txt")).toBe("local\n");
     expect(read("remote-only.txt")).toBe("remote\n");
     expect(read("conflict.txt")).toBe("ours\n");
-    expect(count).toBe(4);
+    expect(count.fileCount).toBe(4);
+    expect(count.conflicts).toEqual([]);
+    expect(count.binaryConflicts).toEqual([]);
   });
 
   test("resolves conflicts toward the pin under the theirs strategy", async () => {
@@ -289,7 +292,7 @@ describe("mergePluginTree", () => {
 
     // THEN the sidecar is never carried through (the caller rewrites it)
     expect(read("install-meta.json")).toBeNull();
-    expect(count).toBe(1);
+    expect(count.fileCount).toBe(1);
   });
 
   test("merges files in nested directories", async () => {
@@ -309,5 +312,132 @@ describe("mergePluginTree", () => {
 
     // THEN the nested path is preserved and resolved
     expect(read("src/a/b.txt")).toBe("ours\n");
+  });
+
+  test("writes git conflict markers and reports the path under the assistant strategy", async () => {
+    // GIVEN a file edited on disjoint lines by each side plus one true conflict
+    writeTree(baseDir, { "common.txt": "a\nb\nc\n", "conflict.txt": "base\n" });
+    writeTree(oursDir, { "common.txt": "A\nb\nc\n", "conflict.txt": "ours\n" });
+    writeTree(theirsDir, {
+      "common.txt": "a\nb\nC\n",
+      "conflict.txt": "theirs\n",
+    });
+
+    // WHEN merged with the `assistant` strategy
+    const result = await mergePluginTree({
+      baseDir,
+      oursDir,
+      theirsDir,
+      destDir,
+      strategy: "assistant",
+    });
+
+    // THEN the non-conflicting edits still auto-merge and only the true
+    // conflict carries markers naming both sides, and its path is reported
+    expect(read("common.txt")).toBe("A\nb\nC\n");
+    const conflict = read("conflict.txt") ?? "";
+    expect(conflict).toContain("<<<<<<<");
+    expect(conflict).toContain("=======");
+    expect(conflict).toContain(">>>>>>>");
+    expect(conflict).toContain("ours\n");
+    expect(conflict).toContain("theirs\n");
+    expect(result.conflicts).toEqual(["conflict.txt"]);
+    expect(result.binaryConflicts).toEqual([]);
+  });
+
+  test("uses the supplied conflict labels in the markers", async () => {
+    // GIVEN a true conflict and custom marker labels
+    writeTree(baseDir, { "f.txt": "base\n" });
+    writeTree(oursDir, { "f.txt": "ours\n" });
+    writeTree(theirsDir, { "f.txt": "theirs\n" });
+
+    // WHEN merged with the `assistant` strategy and explicit labels
+    await mergePluginTree({
+      baseDir,
+      oursDir,
+      theirsDir,
+      destDir,
+      strategy: "assistant",
+      conflictLabels: {
+        ours: "local edits (was abc1234)",
+        base: "install baseline abc1234",
+        theirs: "upgrade pin def5678",
+      },
+    });
+
+    // THEN the marker lines carry those labels
+    const merged = read("f.txt") ?? "";
+    expect(merged).toContain("<<<<<<< local edits (was abc1234)");
+    expect(merged).toContain(">>>>>>> upgrade pin def5678");
+  });
+
+  test("auto-merges with no markers when the assistant strategy hits no true conflict", async () => {
+    // GIVEN edits on disjoint lines of the same file (no overlapping hunk)
+    writeTree(baseDir, { "f.txt": "a\nb\nc\n" });
+    writeTree(oursDir, { "f.txt": "A\nb\nc\n" });
+    writeTree(theirsDir, { "f.txt": "a\nb\nC\n" });
+
+    // WHEN merged with the `assistant` strategy
+    const result = await mergePluginTree({
+      baseDir,
+      oursDir,
+      theirsDir,
+      destDir,
+      strategy: "assistant",
+    });
+
+    // THEN both edits merge cleanly with no markers and nothing is reported
+    const merged = read("f.txt") ?? "";
+    expect(merged).toBe("A\nb\nC\n");
+    expect(merged).not.toContain("<<<<<<<");
+    expect(result.conflicts).toEqual([]);
+    expect(result.binaryConflicts).toEqual([]);
+  });
+
+  test("keeps the local copy and reports a binary conflict under the assistant strategy", async () => {
+    // GIVEN a binary file (NUL bytes) diverged on both sides
+    const base = Buffer.from([0x00, 0x01, 0x02]);
+    const ours = Buffer.from([0x00, 0xaa, 0xbb]);
+    const theirs = Buffer.from([0x00, 0xcc, 0xdd]);
+    writeTree(baseDir, { "img.bin": base });
+    writeTree(oursDir, { "img.bin": ours });
+    writeTree(theirsDir, { "img.bin": theirs });
+
+    // WHEN merged with the `assistant` strategy
+    const result = await mergePluginTree({
+      baseDir,
+      oursDir,
+      theirsDir,
+      destDir,
+      strategy: "assistant",
+    });
+
+    // THEN the local copy is kept byte-for-byte (markers are impossible) and
+    // the path is surfaced as a binary conflict, not a marker conflict
+    expect(readFileSync(join(destDir, "img.bin")).equals(ours)).toBe(true);
+    expect(result.binaryConflicts).toEqual(["img.bin"]);
+    expect(result.conflicts).toEqual([]);
+  });
+
+  test("keeps the surviving content and reports a modify/delete conflict under the assistant strategy", async () => {
+    // GIVEN a file edited locally but deleted at the pin
+    writeTree(baseDir, { "f.txt": "base\n" });
+    writeTree(oursDir, { "f.txt": "local edit\n" });
+    writeTree(theirsDir, {});
+
+    // WHEN merged with the `assistant` strategy
+    const result = await mergePluginTree({
+      baseDir,
+      oursDir,
+      theirsDir,
+      destDir,
+      strategy: "assistant",
+    });
+
+    // THEN the local edit is preserved (never silently dropped) and the
+    // modify/delete divergence is reported for resolution
+    expect(read("f.txt")).toBe("local edit\n");
+    expect(result.conflicts).toEqual(["f.txt"]);
+    expect(result.binaryConflicts).toEqual([]);
   });
 });

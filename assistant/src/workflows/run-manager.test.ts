@@ -22,7 +22,6 @@ import {
   WorkflowRunCapError,
   WorkflowRunManager,
   type WorkflowRunManagerDeps,
-  WorkflowsDisabledError,
 } from "./run-manager.js";
 
 const TRUST: TrustContext = {
@@ -144,7 +143,6 @@ interface EngineResult {
  * deterministically), an in-memory journal, and spies for broadcast + wake.
  */
 function makeHarness(opts?: {
-  flagEnabled?: boolean;
   maxConcurrentRuns?: number;
   /** Custom engine impl; defaults to the deferred-resolver fake. */
   engine?: WorkflowRunManagerDeps["executeWorkflow"];
@@ -190,7 +188,6 @@ function makeHarness(opts?: {
     }) as unknown as WorkflowRunManagerDeps["leafRunner"],
     journal: fake.journal,
     getConfig: () => makeConfig(opts?.maxConcurrentRuns),
-    isFlagEnabled: () => opts?.flagEnabled ?? true,
     wake: (async (wakeOpts) => {
       wakes.push({
         conversationId: wakeOpts.conversationId,
@@ -226,22 +223,6 @@ function makeHarness(opts?: {
     },
   };
 }
-
-describe("WorkflowRunManager.start — flag gate", () => {
-  test("flag off → start throws and the engine is never invoked", () => {
-    const h = makeHarness({ flagEnabled: false });
-    expect(() =>
-      h.manager.start({
-        scriptSource: "export const meta = { name: 'x', description: 'y' }",
-        args: {},
-        manifest: { tools: [], hostFunctions: [], persona: false },
-        trustContext: TRUST,
-      }),
-    ).toThrow(WorkflowsDisabledError);
-    expect(h.executeCalls).toHaveLength(0);
-    expect(h.fake.rows.size).toBe(0);
-  });
-});
 
 describe("WorkflowRunManager.start — concurrent-run cap", () => {
   test("the (N+1)th concurrent start is rejected", () => {
@@ -701,11 +682,5 @@ describe("WorkflowRunManager.resume", () => {
     seedRun(h, { id: "run-x", status: "interrupted" });
 
     expect(() => h.manager.resume("run-x")).toThrow(WorkflowRunCapError);
-  });
-
-  test("resume is rejected when the flag is off", () => {
-    const h = makeHarness({ flagEnabled: false });
-    seedRun(h, { id: "run-x", status: "interrupted" });
-    expect(() => h.manager.resume("run-x")).toThrow(WorkflowsDisabledError);
   });
 });

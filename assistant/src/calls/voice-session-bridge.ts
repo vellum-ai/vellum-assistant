@@ -553,8 +553,8 @@ export async function startVoiceTurn(
     } else if (msg.type === "secret_request") {
       if (usesLocalInteractiveApprovals) {
         // Local live voice runs alongside the desktop client, which has a
-        // secret-entry UI (SecretPromptManager). Forward the broadcast and
-        // let the prompter's existing registration handle the response.
+        // secret-entry UI. Forward the broadcast and let the prompter's
+        // existing registration handle the response.
         broadcastMessage(msg);
         return;
       }
