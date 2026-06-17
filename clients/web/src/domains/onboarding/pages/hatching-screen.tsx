@@ -102,11 +102,9 @@ export function HatchingScreen() {
   const electron = isElectron();
   const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
   const sessionStatus = useAuthStore.use.sessionStatus();
-  // The local hatch flow drives `sessionStatus` itself — the connect handoff
-  // below flips it to "authenticated" — so a local hatch keys its effect on
-  // settled-ness alone; an authenticated↔unauthenticated flip must not tear
-  // down and restart the in-flight hatch. Platform hatches still react to the
-  // raw status so a session lost mid-hatch redirects to login.
+  // Local hatches drive `sessionStatus` themselves (the connect handoff below
+  // flips it), so they gate on settled-ness to avoid self-restarting; platform
+  // hatches react to the raw status so a mid-hatch session loss redirects to login.
   const sessionGateKey = useLocalHatch
     ? isSessionSettled(sessionStatus)
     : sessionStatus;
