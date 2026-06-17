@@ -117,7 +117,7 @@ mock.module("@/runtime/session-token", () => ({
 
 mock.module("@/lib/auth/gateway-session", () => ({
   isGatewayAuthEnabled: () => mockIsGatewayAuth,
-  isGatewayAuthMode: () => mockIsGatewayAuth,
+  isGatewayAuthMode: () => mockIsGatewayAuth && mockGatewayToken !== null,
   ensureGatewayToken: ensureGatewayTokenMock,
   clearGatewayToken: () => {},
   getGatewayToken: () => mockGatewayToken,
@@ -383,6 +383,23 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(useAuthStore.getState().platformSession).toBe("absent");
   });
 
+  test("refreshSession preserves a local session when the gateway is enabled but its token is not yet minted", async () => {
+    // The local gateway is the auth source (enabled) but its token isn't minted
+    // yet — the gateway is still starting during hatch, or the token was just
+    // cleared/expired. The platform is not the authority on a local-only
+    // machine, so refreshSession must not probe it and settle "unauthenticated".
+    mockIsLocalMode = true;
+    mockIsGatewayAuth = true; // isGatewayAuthEnabled() === true
+    mockGatewayToken = null; // isGatewayAuthMode() === false (token not minted)
+    useAuthStore.setState({ sessionStatus: "authenticated" });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(getSessionCallCount).toBe(0); // platform never probed
+    expect(ensureGatewayTokenMock).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+  });
+
   test("initSession uses server consent when server has a consent record", async () => {
     sessionUser = { id: "user-1", email: "user@example.com" };
     mockFetchMeResult = {
@@ -592,6 +609,7 @@ describe("session cleanup on logout", () => {
   // active state mid-logout.
   test("gateway logout resets the lifecycle before clearing the selection", async () => {
     mockIsGatewayAuth = true;
+    mockGatewayToken = "access-token";
     useAuthStore.setState({ sessionStatus: "authenticated" });
     const order: string[] = [];
     lifecycleResetForLogoutMock.mockImplementationOnce(() => {
@@ -630,6 +648,7 @@ describe("platform session probe resolution", () => {
   // consumers don't flicker mid-session.
   test("a re-run gateway probe retains the last status until it settles", async () => {
     mockIsGatewayAuth = true;
+    mockGatewayToken = "access-token";
     mockIsLocalMode = false;
     sessionUser = { id: "user-1", email: "user@example.com" };
     useAuthStore.setState({ platformSession: "absent" });
@@ -655,6 +674,7 @@ describe("platform session probe resolution", () => {
   // probe's outcome.
   test("a stale probe completing after a newer one does not change status", async () => {
     mockIsGatewayAuth = true;
+    mockGatewayToken = "access-token";
     mockIsLocalMode = false;
     sessionUser = { id: "user-1", email: "user@example.com" };
     useAuthStore.setState({ platformSession: "absent" });

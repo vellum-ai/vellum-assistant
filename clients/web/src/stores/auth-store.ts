@@ -690,6 +690,16 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       return true;
     }
 
+    // Gateway is the auth source but its token isn't minted yet — the local
+    // gateway is still starting (first hatch), or its token was just cleared or
+    // expired. The platform is not the authority in gateway mode, so don't probe
+    // it and settle "unauthenticated"; preserve the current state. The gateway
+    // settles the session once its token is minted (initSession on reload, the
+    // hatch flow via connectLocalAssistant).
+    if (isGatewayAuthEnabled()) {
+      return isAuthenticated(get().sessionStatus);
+    }
+
     let result: Awaited<ReturnType<typeof getSession>> | null = null;
     try {
       result = await getSession();
