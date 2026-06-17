@@ -1284,6 +1284,35 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     apiKeyUrl: "https://platform.minimax.io/",
     apiKeyPlaceholder: "sk-cp-...",
   },
+  {
+    id: "atlascloud",
+    displayName: "Atlas Cloud",
+    subtitle:
+      "Atlas Cloud AI models (OpenAI-compatible). Requires an Atlas Cloud API key.",
+    setupMode: "api-key",
+    setupHint: "Enter your Atlas Cloud API key to enable Atlas Cloud models.",
+    envVar: "ATLASCLOUD_API_KEY",
+    credentialsGuide: {
+      description: "Sign in to the Atlas Cloud console and create an API key.",
+      url: "https://www.atlascloud.ai/console",
+      linkLabel: "Open Atlas Cloud Console",
+    },
+    models: [
+      {
+        id: "deepseek-ai/deepseek-v4-pro",
+        displayName: "DeepSeek V4 Pro",
+        contextWindowTokens: 128000,
+        maxOutputTokens: 8192,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+      },
+    ],
+    defaultModel: "deepseek-ai/deepseek-v4-pro",
+    apiKeyUrl: "https://www.atlascloud.ai/console",
+    apiKeyPlaceholder: "apikey-...",
+  },
 ];
 
 export const PROVIDER_CATALOG: ProviderCatalogEntry[] =
