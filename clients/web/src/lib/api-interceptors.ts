@@ -74,7 +74,96 @@ const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>(["conversations"]);
 const PLATFORM_OWNED_FIRST_SEGMENTS = new Set<string>(["oauth"]);
 
 const ASSISTANT_PATH_RE =
-  /^\/v1\/assistants\/[^/]+\/([^/?#]+)(?:\/.*)?$/;
+  /^\/v1\/assistants\/([^/]+)\/([^/?#]+)(?:\/.*)?$/;
+
+const platformAssistantIdCache = new Map<string, Promise<string | null>>();
+
+/** @internal Exposed for test teardown only. */
+export function resetPlatformAssistantIdCacheForTesting(): void {
+  platformAssistantIdCache.clear();
+}
+
+async function resolvePlatformAssistantIdForRuntime(
+  runtimeAssistantId: string,
+  ingressUrl: string,
+): Promise<string | null> {
+  const token = getSelfHostedActorToken();
+  if (!token) return null;
+
+  const cacheKey = `${ingressUrl}::${runtimeAssistantId}`;
+  const cached = platformAssistantIdCache.get(cacheKey);
+  if (cached) return cached;
+
+  const promise = (async () => {
+    const statusUrl = new URL(ingressUrl);
+    const prefix = statusUrl.pathname.replace(/\/$/, "");
+    const encodedAssistantId = encodeURIComponent(runtimeAssistantId);
+    statusUrl.pathname =
+      `${prefix}/v1/assistants/${encodedAssistantId}/platform/status`;
+
+    const headers = new Headers({
+      Accept: "application/json",
+      Authorization: `Bearer ${token}`,
+    });
+    if (isRemoteGatewayMode()) {
+      headers.set(NGROK_SKIP_BROWSER_WARNING_HEADER, "true");
+    }
+
+    const response = await fetch(statusUrl.toString(), {
+      headers,
+      credentials: "omit",
+    }).catch(() => null);
+    if (!response?.ok) return null;
+
+    const body = (await response.json().catch(() => null)) as
+      | { assistantId?: unknown }
+      | null;
+    return typeof body?.assistantId === "string" && body.assistantId.trim()
+      ? body.assistantId.trim()
+      : null;
+  })();
+
+  platformAssistantIdCache.set(cacheKey, promise);
+  const result = await promise;
+  if (!result) {
+    platformAssistantIdCache.delete(cacheKey);
+  }
+  return result;
+}
+
+async function rewritePlatformOwnedAssistantRequest(
+  request: Request,
+): Promise<Request | null> {
+  const ingressUrl = getSelfHostedIngressUrl();
+  if (!ingressUrl) return null;
+
+  const url = new URL(request.url);
+  const match = ASSISTANT_PATH_RE.exec(url.pathname);
+  if (!match) return null;
+
+  const [, runtimeAssistantId, firstSegment] = match;
+  if (
+    !runtimeAssistantId ||
+    !firstSegment ||
+    !PLATFORM_OWNED_FIRST_SEGMENTS.has(firstSegment)
+  ) {
+    return null;
+  }
+
+  const platformAssistantId = await resolvePlatformAssistantIdForRuntime(
+    decodeURIComponent(runtimeAssistantId),
+    ingressUrl,
+  );
+  if (!platformAssistantId || platformAssistantId === runtimeAssistantId) {
+    return null;
+  }
+
+  url.pathname = url.pathname.replace(
+    /^\/v1\/assistants\/[^/]+\//,
+    `/v1/assistants/${encodeURIComponent(platformAssistantId)}/`,
+  );
+  return new Request(url.toString(), request);
+}
 
 /**
  * Rewrites a request bound for `/v1/assistants/{id}/{runtime-segment}/...`
@@ -106,7 +195,7 @@ export async function rewriteForSelfHostedIngress(
 
   const match = ASSISTANT_PATH_RE.exec(url.pathname);
   if (!match) return null;
-  const firstSegment = match[1];
+  const firstSegment = match[2];
   if (
     firstSegment &&
     !skipSegmentAllowlist &&
@@ -201,6 +290,16 @@ export function authorizeRemoteGatewayRequest(
   if (url.origin !== ingress.origin) return null;
   if (!url.pathname.startsWith(`${prefix}/v1/`)) return null;
 
+  const assistantMatch = ASSISTANT_PATH_RE.exec(
+    url.pathname.slice(prefix.length),
+  );
+  if (
+    assistantMatch?.[2] &&
+    PLATFORM_OWNED_FIRST_SEGMENTS.has(assistantMatch[2])
+  ) {
+    return null;
+  }
+
   const headers = new Headers(request.headers);
   headers.delete("X-CSRFToken");
   headers.delete("Vellum-Organization-Id");
@@ -232,7 +331,7 @@ export function authorizeRemoteGatewayRequest(
  */
 function createInterceptor({ skipSegmentAllowlist = false } = {}) {
   return async (request: Request): Promise<Request> => {
-    const newRequest = new Request(request);
+    let newRequest = new Request(request);
 
     // Per-tab client identity — sent on *every* request (GET included)
     // so SSE-via-fetch readers and short-lived mutations carry the same
@@ -252,6 +351,11 @@ function createInterceptor({ skipSegmentAllowlist = false } = {}) {
     });
     if (selfHosted) {
       return selfHosted;
+    }
+
+    const platformOwned = await rewritePlatformOwnedAssistantRequest(newRequest);
+    if (platformOwned) {
+      newRequest = platformOwned;
     }
 
     const remoteGateway = authorizeRemoteGatewayRequest(newRequest);

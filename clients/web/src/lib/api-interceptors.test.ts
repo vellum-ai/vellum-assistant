@@ -61,6 +61,7 @@ import {
   platformFeaturesGate,
   requestInterceptor,
   resetGw401RecoveryFlag,
+  resetPlatformAssistantIdCacheForTesting,
 } from "@/lib/api-interceptors";
 import { ApiError } from "@/utils/api-errors";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
@@ -233,6 +234,7 @@ const SELF_HOSTED_ID = "01h1234567890abcdefg";
 const INGRESS = "https://my-gateway.example";
 const ACTOR_TOKEN = "test-actor-token-abc123";
 const RUNTIME_PROXIED_PATH = `/v1/assistants/${SELF_HOSTED_ID}/conversations/`;
+const PLATFORM_ASSISTANT_ID = "11111111-2222-4333-8444-555555555555";
 
 describe("api-interceptors / self-hosted rewriting", () => {
   beforeAll(() => {
@@ -246,6 +248,8 @@ describe("api-interceptors / self-hosted rewriting", () => {
 
   afterEach(() => {
     setSelfHostedConnection(null);
+    resetPlatformAssistantIdCacheForTesting();
+    globalThis.fetch = nativeFetch;
   });
 
   test("rewrites the URL origin to the configured ingress", async () => {
@@ -372,8 +376,20 @@ describe("api-interceptors / self-hosted rewriting", () => {
     }
   });
 
-  test("does NOT rewrite platform-owned OAuth routes in local mode", async () => {
+  const nativeFetch = globalThis.fetch;
+
+  test("rewrites platform-owned OAuth routes to the registered platform assistant id in local mode", async () => {
     setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    const fetchMock = mock((_input: RequestInfo | URL, _init?: RequestInit) =>
+      Promise.resolve(
+        Response.json({
+          assistantId: PLATFORM_ASSISTANT_ID,
+          available: true,
+        }),
+      ),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
     const savedPlatformMode = process.env.VITE_PLATFORM_MODE;
     delete process.env.VITE_PLATFORM_MODE;
 
@@ -390,15 +406,49 @@ describe("api-interceptors / self-hosted rewriting", () => {
       ]) {
         const input = new Request(`https://platform.test${path}`, { method });
         const output = await requestInterceptor(input);
-        expect(new URL(output.url).origin).toBe("https://platform.test");
+        const outUrl = new URL(output.url);
+        expect(outUrl.origin).toBe("https://platform.test");
+        expect(outUrl.pathname).toBe(
+          path.replace(SELF_HOSTED_ID, PLATFORM_ASSISTANT_ID),
+        );
         expect(output.headers.get("Authorization")).toBeNull();
         expect(output.headers.get("Vellum-Organization-Id")).toBe(TEST_ORG_ID);
       }
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [statusUrl, init] = fetchMock.mock.calls[0]!;
+      expect(statusUrl).toBe(
+        `${INGRESS}/v1/assistants/${SELF_HOSTED_ID}/platform/status`,
+      );
+      expect((init as RequestInit).credentials).toBe("omit");
+      expect(
+        new Headers((init as RequestInit).headers).get("Authorization"),
+      ).toBe(`Bearer ${ACTOR_TOKEN}`);
     } finally {
       if (savedPlatformMode !== undefined) {
         process.env.VITE_PLATFORM_MODE = savedPlatformMode;
       }
     }
+  });
+
+  test("leaves platform-owned OAuth routes unchanged when no platform assistant id is available", async () => {
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    globalThis.fetch = mock((_input: RequestInfo | URL, _init?: RequestInit) =>
+      Promise.resolve(Response.json({ assistantId: "" })),
+    ) as unknown as typeof fetch;
+    const input = new Request(
+      `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/oauth/connections/`,
+    );
+
+    const output = await requestInterceptor(input);
+
+    const outUrl = new URL(output.url);
+    expect(outUrl.origin).toBe("https://platform.test");
+    expect(outUrl.pathname).toBe(
+      `/v1/assistants/${SELF_HOSTED_ID}/oauth/connections/`,
+    );
+    expect(output.headers.get("Authorization")).toBeNull();
+    expect(output.headers.get("Vellum-Organization-Id")).toBe(TEST_ORG_ID);
   });
 
   test("does NOT rewrite the bare retrieve route", async () => {
