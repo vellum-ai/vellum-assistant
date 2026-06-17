@@ -1509,6 +1509,30 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/assistants/{assistant_id}/model-profiles/:
+    get:
+      operationId: assistants_model_profiles_list
+      description: Return the platform's managed default model profiles.
+      parameters:
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      security:
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedProfilesResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/assistants/{assistant_id}/oauth/{provider}/start/:
     post:
       operationId: assistants_oauth_start_create
@@ -6596,6 +6620,72 @@ components:
       required:
       - debug_pod_name
       - enabled
+    ManagedProfile:
+      type: object
+      properties:
+        key:
+          type: string
+        intent:
+          type: string
+        provider:
+          type: string
+        connection_name:
+          type: string
+        source:
+          type: string
+        label:
+          type: string
+        description:
+          type: string
+        max_tokens:
+          type: integer
+        effort:
+          type: string
+        thinking:
+          $ref: '#/components/schemas/ManagedProfileThinking'
+        context_window:
+          $ref: '#/components/schemas/ManagedProfileContextWindow'
+      required:
+      - connection_name
+      - context_window
+      - description
+      - effort
+      - intent
+      - key
+      - label
+      - max_tokens
+      - provider
+      - source
+      - thinking
+    ManagedProfileContextWindow:
+      type: object
+      properties:
+        max_input_tokens:
+          type: integer
+      required:
+      - max_input_tokens
+    ManagedProfileThinking:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        stream_thinking:
+          type: boolean
+      required:
+      - enabled
+      - stream_thinking
+    ManagedProfilesResponse:
+      type: object
+      properties:
+        schema_version:
+          type: integer
+        profiles:
+          type: array
+          items:
+            $ref: '#/components/schemas/ManagedProfile'
+      required:
+      - profiles
+      - schema_version
     ManagedSearchProxyErrorResponse:
       type: object
       properties:
