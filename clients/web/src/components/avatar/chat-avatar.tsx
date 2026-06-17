@@ -2,6 +2,7 @@ import { motion, useReducedMotion } from "motion/react";
 import { memo, useCallback, useMemo, useState, type CSSProperties } from "react";
 
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import { getSoundManager } from "@/lib/sounds/sound-manager";
 import { AnimatedAvatar } from "./animated-avatar";
 
 export interface ChatAvatarProps {
@@ -79,6 +80,9 @@ function ChatAvatarComponent({
   const [isPoking, setIsPoking] = useState(false);
 
   const triggerBounce = useCallback(() => {
+    // Sound is independent of motion preference, so it plays before the
+    // reduced-motion short-circuit that skips the bounce animation.
+    void getSoundManager().play("character_poke");
     if (reduce) return;
     setIsPoking(true);
     window.setTimeout(() => setIsPoking(false), 360);

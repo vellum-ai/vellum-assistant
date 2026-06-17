@@ -8,6 +8,7 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
+import { getSoundManager } from "@/lib/sounds/sound-manager";
 
 /**
  * Navigate to an existing conversation, resetting subagent state and updating
@@ -40,7 +41,10 @@ export function navigateToNewConversation(
   navigate: NavigateFunction,
   options?: { silent?: boolean },
 ): void {
-  if (!options?.silent) haptic.light();
+  if (!options?.silent) {
+    haptic.light();
+    void getSoundManager().play("new_conversation");
+  }
   useViewerStore.getState().setMainView("chat");
   useSubagentStore.getState().reset();
   const draftId = createDraftConversationId();

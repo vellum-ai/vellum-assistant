@@ -1,9 +1,9 @@
 import { ChevronDown, Play, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import type { AvailableSound } from "@/domains/settings/api/sounds";
+import type { AvailableSound } from "@/lib/sounds/api";
 import {
     defaultSoundsConfig,
     displayLabelForFilename,
@@ -11,8 +11,8 @@ import {
     SOUND_EVENT_IDS,
     type SoundEventConfig,
     type SoundEventId,
-} from "@/domains/settings/types/sounds";
-import { getSoundManager } from "@/domains/settings/utils/sound-manager";
+} from "@/lib/sounds/types";
+import { getSoundManager } from "@/lib/sounds/sound-manager";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import {
   soundsAvailableGetOptions,
@@ -239,16 +239,6 @@ export function SoundsPage() {
       void queryClient.invalidateQueries({ queryKey: configOptions.queryKey });
     },
   });
-
-  useEffect(() => {
-    const manager = getSoundManager();
-    manager.setAssistantId(assistantId || null);
-    manager.setConfig(config);
-    manager.setFeatureEnabled(true);
-    return () => {
-      manager.setFeatureEnabled(false);
-    };
-  }, [assistantId, config]);
 
   const updateConfig = useCallback(
     (producer: (prev: SoundsConfig) => SoundsConfig) => {
