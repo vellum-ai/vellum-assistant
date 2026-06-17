@@ -25,12 +25,17 @@ import {
 
 const isLocalModeMock = mock(() => !process.env.VITE_PLATFORM_MODE);
 const isPlatformDisabledMock = mock(() => false);
+const isRemoteGatewayModeMock = mock(
+  () => window.__VELLUM_CONFIG__?.mode === "remote-gateway",
+);
 mock.module("@/lib/local-mode", () => ({
   isLocalMode: isLocalModeMock,
   isPlatformDisabled: isPlatformDisabledMock,
+  isRemoteGatewayMode: isRemoteGatewayModeMock,
 }));
 
 import {
+  authorizeRemoteGatewayRequest,
   daemonErrorInterceptor,
   daemonRequestInterceptor,
   localGatewayAuthRecoveryInterceptor,
@@ -55,7 +60,10 @@ function clearCsrfCookie(): void {
   document.cookie = "csrftoken=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
 }
 
-async function intercept(method: string, url = "https://example.test/v1/probe") {
+async function intercept(
+  method: string,
+  url = "https://example.test/v1/probe",
+) {
   const request = new Request(url, { method });
   const result = await requestInterceptor(request);
   return result.headers;
@@ -117,7 +125,9 @@ describe("api-interceptors / requestInterceptor", () => {
   });
 
   test("returns a new Request, leaving the input headers untouched", async () => {
-    const input = new Request("https://example.test/v1/probe", { method: "POST" });
+    const input = new Request("https://example.test/v1/probe", {
+      method: "POST",
+    });
     expect(input.headers.get("X-Vellum-Client-Id")).toBeNull();
 
     const output = await requestInterceptor(input);
@@ -226,7 +236,9 @@ describe("api-interceptors / self-hosted rewriting", () => {
 
   test("rewrites the URL origin to the configured ingress", async () => {
     setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
-    const input = new Request(`https://platform.test${RUNTIME_PROXIED_PATH}?limit=50`);
+    const input = new Request(
+      `https://platform.test${RUNTIME_PROXIED_PATH}?limit=50`,
+    );
     const output = await requestInterceptor(input);
     const outUrl = new URL(output.url);
     expect(outUrl.origin).toBe(INGRESS);
@@ -393,7 +405,11 @@ describe("api-interceptors / daemon client self-hosted rewriting", () => {
 
   test("rewrites daemon paths that are NOT in the platform allowlist", async () => {
     setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
-    for (const path of [DAEMON_SKILLS_PATH, DAEMON_PLUGINS_PATH, DAEMON_MEMORY_PATH]) {
+    for (const path of [
+      DAEMON_SKILLS_PATH,
+      DAEMON_PLUGINS_PATH,
+      DAEMON_MEMORY_PATH,
+    ]) {
       const input = new Request(`https://platform.test${path}`);
       const output = await daemonRequestInterceptor(input);
       const outUrl = new URL(output.url);
@@ -438,6 +454,76 @@ describe("api-interceptors / daemon client self-hosted rewriting", () => {
     const output = await daemonRequestInterceptor(input);
     expect(output.headers.get("X-Vellum-Client-Id")).toBe(getClientId());
     expect(output.headers.get("X-Vellum-Interface-Id")).toBe("vellum");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Remote gateway direct requests
+// ---------------------------------------------------------------------------
+//
+// Remote web serves the SPA from the same nginx edge as the gateway. Some
+// platform-generated clients still call flat same-origin `/v1/...` routes
+// directly instead of `/v1/assistants/{id}/...`; those need the paired browser
+// token too.
+
+describe("api-interceptors / remote gateway direct requests", () => {
+  beforeEach(() => {
+    window.__VELLUM_CONFIG__ = { mode: "remote-gateway" };
+    useOrganizationStore.setState({ currentOrganizationId: TEST_ORG_ID });
+    setCsrfCookie("test-csrf-token");
+  });
+
+  afterEach(() => {
+    window.__VELLUM_CONFIG__ = undefined;
+    setSelfHostedConnection(null);
+    clearCsrfCookie();
+  });
+
+  test("authorizes same-origin flat /v1 requests with the paired browser token", async () => {
+    setSelfHostedConnection({
+      url: window.location.origin,
+      token: ACTOR_TOKEN,
+    });
+    const input = new Request(
+      `${window.location.origin}/v1/feature-flags/client-flag-values/`,
+      { headers: { "Vellum-Organization-Id": TEST_ORG_ID } },
+    );
+
+    const output = await requestInterceptor(input);
+
+    expect(output.url).toBe(input.url);
+    expect(output.credentials).toBe("omit");
+    expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
+    expect(output.headers.get("Vellum-Organization-Id")).toBeNull();
+    expect(output.headers.get("X-CSRFToken")).toBeNull();
+    expect(output.headers.get("X-Vellum-Client-Id")).toBe(getClientId());
+  });
+
+  test("preserves a remote ingress path prefix for flat /v1 requests", () => {
+    setSelfHostedConnection({
+      url: `${window.location.origin}/assistant-123`,
+      token: ACTOR_TOKEN,
+    });
+    const input = new Request(
+      `${window.location.origin}/assistant-123/v1/feature-flags/client-flag-values/`,
+    );
+
+    const output = authorizeRemoteGatewayRequest(input);
+
+    expect(output?.url).toBe(input.url);
+    expect(output?.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
+  });
+
+  test("does not authorize non-prefixed /v1 requests when the remote ingress is path-prefixed", () => {
+    setSelfHostedConnection({
+      url: `${window.location.origin}/assistant-123`,
+      token: ACTOR_TOKEN,
+    });
+    const input = new Request(
+      `${window.location.origin}/v1/feature-flags/client-flag-values/`,
+    );
+
+    expect(authorizeRemoteGatewayRequest(input)).toBeNull();
   });
 });
 
@@ -524,13 +610,23 @@ describe("api-interceptors / daemonErrorInterceptor", () => {
   test("passes through existing ApiError instances unchanged", () => {
     const existing = new ApiError(401, "Unauthorized");
     const response = new Response(null, { status: 401 });
-    const result = daemonErrorInterceptor(existing, response, undefined, throwing);
+    const result = daemonErrorInterceptor(
+      existing,
+      response,
+      undefined,
+      throwing,
+    );
     expect(result).toBe(existing);
   });
 
   test("passes through errors with no response (network failures)", () => {
     const networkError = new TypeError("fetch failed");
-    const result = daemonErrorInterceptor(networkError, undefined, undefined, throwing);
+    const result = daemonErrorInterceptor(
+      networkError,
+      undefined,
+      undefined,
+      throwing,
+    );
     expect(result).toBe(networkError);
   });
 
@@ -547,13 +643,24 @@ describe("api-interceptors / daemonErrorInterceptor", () => {
     const result = daemonErrorInterceptor(body, response, undefined, throwing);
     expect(result).toBeInstanceOf(ApiError);
     expect((result as ApiError).status).toBe(400);
-    expect((result as ApiError).message).toBe("Organization-Id header is required");
+    expect((result as ApiError).message).toBe(
+      "Organization-Id header is required",
+    );
   });
 
   test("preserves raw error body when throwOnError is false", () => {
-    const body = { accepted: false, error: "secret_blocked", message: "Missing API key" };
+    const body = {
+      accepted: false,
+      error: "secret_blocked",
+      message: "Missing API key",
+    };
     const response = new Response(null, { status: 422 });
-    const result = daemonErrorInterceptor(body, response, undefined, nonThrowing);
+    const result = daemonErrorInterceptor(
+      body,
+      response,
+      undefined,
+      nonThrowing,
+    );
     expect(result).toBe(body);
     expect(result).not.toBeInstanceOf(ApiError);
   });
@@ -616,7 +723,10 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
   }
 
   function gatewayResponse(status: number): Response {
-    return makeResponse(status, GATEWAY_URL + "/v1/assistants/123/conversations");
+    return makeResponse(
+      status,
+      GATEWAY_URL + "/v1/assistants/123/conversations",
+    );
   }
 
   let originalReload: typeof window.location.reload;

@@ -36,10 +36,14 @@ import { client as gatewayClient } from "@/generated/gateway/client.gen";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { ApiError, extractErrorMessage } from "@/utils/api-errors";
-import { isLocalMode, isPlatformDisabled } from "@/lib/local-mode";
 import {
-    getSelfHostedActorToken,
-    getSelfHostedIngressUrl,
+  isLocalMode,
+  isPlatformDisabled,
+  isRemoteGatewayMode,
+} from "@/lib/local-mode";
+import {
+  getSelfHostedActorToken,
+  getSelfHostedIngressUrl,
 } from "@/lib/self-hosted/connection";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import { getDeviceId } from "@/runtime/device-id";
@@ -71,8 +75,7 @@ function getRendererTupleOrigin(): string {
  */
 const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>(["conversations"]);
 
-const ASSISTANT_PATH_RE =
-  /^\/v1\/assistants\/[^/]+\/([^/?#]+)(?:\/.*)?$/;
+const ASSISTANT_PATH_RE = /^\/v1\/assistants\/[^/]+\/([^/?#]+)(?:\/.*)?$/;
 
 /**
  * Rewrites a request bound for `/v1/assistants/{id}/{runtime-segment}/...`
@@ -147,7 +150,9 @@ export async function rewriteForSelfHostedIngress(
   // the Request carries a finite-length payload. Platform self-hosted
   // uses TLS, so keep the streaming body to avoid buffering large uploads.
   const body = isLocalMode()
-    ? (request.body ? await request.arrayBuffer() : null)
+    ? request.body
+      ? await request.arrayBuffer()
+      : null
     : request.body;
 
   const init: RequestInit = {
@@ -164,6 +169,44 @@ export async function rewriteForSelfHostedIngress(
     (init as RequestInit & { duplex: "half" }).duplex = "half";
   }
   return new Request(rewrittenUrl.toString(), init);
+}
+
+/**
+ * Remote-gateway mode serves the app and the gateway from the same nginx edge.
+ * Some platform-generated clients still call same-origin flat `/v1/...` routes
+ * (for example client feature flags), so they do not pass through the
+ * `/v1/assistants/{id}/...` self-hosted rewrite above. Treat those as gateway
+ * requests too: attach the paired browser token and strip platform-only auth.
+ */
+export function authorizeRemoteGatewayRequest(
+  request: Request,
+): Request | null {
+  if (!isRemoteGatewayMode()) return null;
+
+  const ingressUrl = getSelfHostedIngressUrl();
+  if (!ingressUrl) return null;
+
+  const url = new URL(request.url);
+  const ingress = new URL(ingressUrl);
+  const prefix = ingress.pathname.replace(/\/$/, "");
+  if (url.origin !== ingress.origin) return null;
+  if (!url.pathname.startsWith(`${prefix}/v1/`)) return null;
+
+  const headers = new Headers(request.headers);
+  headers.delete("X-CSRFToken");
+  headers.delete("Vellum-Organization-Id");
+
+  const token = getSelfHostedActorToken();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  } else {
+    headers.delete("Authorization");
+  }
+
+  return new Request(request, {
+    headers,
+    credentials: "omit",
+  });
 }
 
 /**
@@ -199,6 +242,11 @@ function createInterceptor({ skipSegmentAllowlist = false } = {}) {
     });
     if (selfHosted) {
       return selfHosted;
+    }
+
+    const remoteGateway = authorizeRemoteGatewayRequest(newRequest);
+    if (remoteGateway) {
+      return remoteGateway;
     }
 
     // Platform path — Django session auth.
@@ -283,7 +331,9 @@ export function resetGw401RecoveryFlag(): void {
   gw401RecoveryFired = false;
 }
 
-export function localGatewayAuthRecoveryInterceptor(response: Response): Response {
+export function localGatewayAuthRecoveryInterceptor(
+  response: Response,
+): Response {
   if (response.status !== 401) {
     return response;
   }
@@ -380,7 +430,12 @@ gatewayClient.interceptors.error.use(daemonErrorInterceptor);
 // sites (blob downloads) explicitly override `parseAs` per-request.
 //
 // Reference: https://heyapi.dev/openapi-ts/clients/fetch#parser
-for (const apiClient of [daemonClient, gatewayClient, platformClient, authClient]) {
+for (const apiClient of [
+  daemonClient,
+  gatewayClient,
+  platformClient,
+  authClient,
+]) {
   apiClient.setConfig({ parseAs: "json" });
 }
 
