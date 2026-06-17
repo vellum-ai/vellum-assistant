@@ -7,7 +7,7 @@ import {
     X,
 } from "lucide-react";
 
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { AvatarRenderer } from "@/components/avatar-renderer";
 import { StatusBadge } from "@/domains/chat/components/subagent-status-badge";
@@ -45,32 +45,78 @@ function formatCost(cost: number): string {
 
 const ANIMATION_DURATION_MS = 300;
 
+/** Read the user's reduced-motion preference, re-evaluating if it changes. */
+function usePrefersReducedMotion(): boolean {
+  const supported =
+    typeof window !== "undefined" && typeof window.matchMedia === "function";
+  const [reduced, setReduced] = useState(() =>
+    supported
+      ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      : false,
+  );
+  useEffect(() => {
+    if (!supported) return;
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const onChange = () => setReduced(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, [supported]);
+  return reduced;
+}
+
+/**
+ * Eases a displayed number toward `target`. A single rAF loop tracks a moving
+ * target: when `target` changes mid-flight (frequent during streaming) we just
+ * update the goal rather than cancelling and restarting a fresh tween on every
+ * update, so the three metric counters never spawn overlapping rAF loops. The
+ * loop self-terminates once it catches up, and snaps instantly when the user
+ * prefers reduced motion.
+ */
 function useAnimatedNumber(target: number): number {
+  const reduceMotion = usePrefersReducedMotion();
   const [displayed, setDisplayed] = useState(target);
-  const rafRef = useRef<number>(0);
   const displayedRef = useRef(target);
+  const targetRef = useRef(target);
+  const rafRef = useRef<number>(0);
 
   useEffect(() => {
-    const from = displayedRef.current;
-    if (from === target) return;
+    targetRef.current = target;
 
-    cancelAnimationFrame(rafRef.current);
-    const start = performance.now();
+    if (reduceMotion) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = 0;
+      displayedRef.current = target;
+      setDisplayed(target);
+      return;
+    }
+
+    // Already at the target, or a loop is already running toward the
+    // (just-updated) target — nothing new to start.
+    if (displayedRef.current === target || rafRef.current) return;
+
+    const startTime = performance.now();
+    const startValue = displayedRef.current;
 
     const step = (now: number) => {
-      const elapsed = now - start;
-      const progress = Math.min(elapsed / ANIMATION_DURATION_MS, 1);
+      // Re-read the goal each frame so a target that changed mid-tween is
+      // tracked without restarting the animation.
+      const goal = targetRef.current;
+      const progress = Math.min((now - startTime) / ANIMATION_DURATION_MS, 1);
       const eased = 1 - (1 - progress) ** 3;
-      const value = from + (target - from) * eased;
-      displayedRef.current = value;
-      setDisplayed(value);
+      displayedRef.current =
+        progress >= 1 ? goal : startValue + (goal - startValue) * eased;
+      setDisplayed(displayedRef.current);
       if (progress < 1) {
         rafRef.current = requestAnimationFrame(step);
+      } else {
+        rafRef.current = 0;
       }
     };
     rafRef.current = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [target]);
+  }, [target, reduceMotion]);
+
+  // Cancel any in-flight frame on unmount.
+  useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
   return displayed;
 }
@@ -143,6 +189,9 @@ export function SubagentDetailPanel({
 }: SubagentDetailPanelProps) {
   const isRunning = isActiveStatus(entry.status);
   const components = useBundledAvatarComponents();
+  // Compute the avatar traits once per subagent instead of hashing the id
+  // three separate times in the JSX below.
+  const traits = useMemo(() => subagentTraits(entry.subagentId), [entry.subagentId]);
 
   useEffect(() => {
     if (onRequestDetail && entry.conversationId && entry.events.length === 0) {
@@ -157,9 +206,9 @@ export function SubagentDetailPanel({
         {components ? (
           <AvatarRenderer
             components={components}
-            bodyShapeId={subagentTraits(entry.subagentId).bodyShape}
-            eyeStyleId={subagentTraits(entry.subagentId).eyeStyle}
-            colorId={subagentTraits(entry.subagentId).color}
+            bodyShapeId={traits.bodyShape}
+            eyeStyleId={traits.eyeStyle}
+            colorId={traits.color}
             size={32}
           />
         ) : (

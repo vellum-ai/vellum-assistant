@@ -5,7 +5,7 @@ import {
     TriangleAlert,
     Wrench,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 
 import type { SubagentTimelineEvent } from "@/domains/chat/subagent-store";
 import { Typography } from "@vellumai/design-library";
@@ -15,6 +15,15 @@ import { Typography } from "@vellumai/design-library";
 // ---------------------------------------------------------------------------
 
 const MAX_COLLAPSED_LINES = 4;
+
+/**
+ * Connector line style — identical for every row, so hoist it to a stable
+ * module-level object instead of allocating a new one on each render.
+ */
+const CONNECTOR_STYLE = {
+  backgroundColor: "var(--border-subtle)",
+  minHeight: 16,
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -157,7 +166,7 @@ function CollapsibleContent({ content }: { content: string }) {
 // Timeline event row
 // ---------------------------------------------------------------------------
 
-function TimelineEventRow({
+const TimelineEventRow = memo(function TimelineEventRow({
   event,
   isLast,
 }: {
@@ -165,7 +174,11 @@ function TimelineEventRow({
   isLast: boolean;
 }) {
   return (
-    <div className="relative flex gap-3">
+    // `content-visibility: auto` lets the browser skip layout/paint for rows
+    // that are off-screen in the panel's scroll container; `contain-intrinsic-
+    // size: auto 72px` reserves a placeholder (and remembers each row's real
+    // size once measured) so the scrollbar doesn't jump.
+    <div className="relative flex gap-3 [content-visibility:auto] [contain-intrinsic-size:auto_72px]">
       {/* Left: icon node + connector line */}
       <div className="flex flex-col items-center">
         <div
@@ -175,13 +188,7 @@ function TimelineEventRow({
           <TimelineIcon event={event} />
         </div>
         {!isLast && (
-          <div
-            className="w-0.5 flex-1 rounded-full"
-            style={{
-              backgroundColor: "var(--border-subtle)",
-              minHeight: 16,
-            }}
-          />
+          <div className="w-0.5 flex-1 rounded-full" style={CONNECTOR_STYLE} />
         )}
       </div>
 
@@ -248,7 +255,7 @@ function TimelineEventRow({
       </div>
     </div>
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // Main component
