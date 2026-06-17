@@ -76,3 +76,37 @@ Concretely:
 - **Destructive ops** (e.g. `rmSync(dbPath, ...)`) in tests must call `assertNotLiveDb(path)` from `src/__tests__/assert-not-live-db.js` immediately before the destructive call. The check is a per-callsite belt to the preload-verifier suspenders.
 
 When in doubt: **if a piece of test infrastructure (preload / helper / verifier) can live in `__tests__/` without reaching into `src/`, it must.** Reach for source-code coupling only when there is no `__tests__/`-only alternative that achieves the same invariant. This restriction is about preload-time infrastructure, not the test files themselves.
+
+## Channel Identity & Trust Classes
+
+**`TrustClass`** emitted by `actor-trust-resolver.ts:280-292`:
+
+| Value | Rank |
+|---|---|
+| `guardian` | 4 — assistant owner |
+| `trusted_contact` | 3 — verified across at least one channel |
+| `unverified_contact` | 2 — contact row exists with status `unverified`/`pending` |
+| `unknown` | 1 — no matching contact |
+| `blocked` / `revoked` | 0 — short-circuit before classification, hard-deny regardless of floor |
+
+**`AdmissionPolicy`** (gateway-owned, attached to inbound via `sourceMetadata.admissionPolicy`):
+
+| Value | Floor | Behavior |
+|---|---|---|
+| `no_one` | 5 | Gateway kill switch — deny pre-forward, including guardian. |
+| `guardian_only` | 4 | |
+| `trusted_contacts` | 3 | **Default** when the gateway's row is missing. |
+| `any_contact` | 2 | |
+| `strangers` | 1 | |
+
+Gate: `TRUST_CLASS_RANK[trustClass] >= ADMISSION_FLOOR[policy]` → admit.
+
+**Locked invocation rules** (§8 decisions, 2026-06-16):
+
+- Channels `vellum`, `platform`, `a2a` are exempt — the runtime short-circuits to `admitted: true` *before* any floor check. The gateway rejects `PUT /v1/channel-admission-policy/:channelType` with 403 for these ids. Do not add floor checks to `vellum`: it's the local desktop/macOS client path — a guardian setting `no_one` on it would lock themselves out of their own UI.
+- `unverified_contact` is admission-only — downstream it follows `trusted_contact` semantics. Six explicit `=== "trusted_contact"` widenings implement the propagation (Wave B plan §5.1): `actor-trust-resolver.ts:280`, `trust-context-resolver.ts:74`, `tool-approval-handler.ts:512`, `guardian-approval-interception.ts:226`, `disk-pressure-policy.ts:82`, `message-provenance.ts:27`. `isUntrustedTrustClass()` widens to include `unverified_contact` — single helper edit propagates the rule to 10 production call sites.
+- Silent denials: when runtime denies at `trusted_contacts`/`guardian_only`, fire no Slack DM or email upgrade challenge. Reuse `acl-enforcement.ts` canned-reply + guardian-notify pipeline. Only `any_contact`/`strangers` floors may surface the upgrade UX — those admit once verification completes.
+- Per-conversation override (`inbound.conversationOverride: AdmissionPolicy | null`) may lift the type-level floor for a specific conversation. If set and ≠ type-floor, override prevails. P5 client UI is the writer.
+- Blocked / revoked contacts use rank 0 regardless and never reach the floor comparison — `acl-enforcement.ts:454` re-checks `resolvedMember.channel.status` before ACL and emits `member_blocked` / `member_revoked` short-circuits.
+
+`isUntrustedTrustClass()` widens to include `unverified_contact` — centralizes the "treat like trusted_contact downstream" rule into every consumer of the helper. Add a new trust class by: (a) updating the type union in `actor-trust-resolver.ts:46`, (b) adding the rank to `TRUST_CLASS_RANK`, (c) extending `parseProvenanceTrustClass` in `message-provenance.ts:27-29` so historical rows round-trip, and (d) auditing the 6 explicit-branch sites in §5.1 for which arm they belong to.
