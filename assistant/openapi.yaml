@@ -17692,6 +17692,7 @@ paths:
               properties:
                 deliveryId:
                   type: string
+                  minLength: 1
                   description: Notification delivery ID
                 success:
                   type: boolean
@@ -17769,9 +17770,100 @@ paths:
                     type: boolean
                   feedItem:
                     type: object
-                    propertyNames:
-                      type: string
-                    additionalProperties: {}
+                    properties:
+                      id:
+                        type: string
+                      type:
+                        type: string
+                        const: notification
+                      priority:
+                        type: integer
+                        minimum: 0
+                        maximum: 100
+                      title:
+                        type: string
+                      summary:
+                        type: string
+                      timestamp:
+                        type: string
+                      status:
+                        default: new
+                        type: string
+                        enum:
+                          - new
+                          - seen
+                          - acted_on
+                          - dismissed
+                      expiresAt:
+                        type: string
+                      actions:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            label:
+                              type: string
+                            prompt:
+                              type: string
+                          required:
+                            - id
+                            - label
+                            - prompt
+                          additionalProperties: false
+                      urgency:
+                        type: string
+                        enum:
+                          - low
+                          - medium
+                          - high
+                          - critical
+                      conversationId:
+                        type: string
+                      detailPanel:
+                        type: object
+                        properties:
+                          kind:
+                            type: string
+                            enum:
+                              - emailDraft
+                              - documentPreview
+                              - permissionChat
+                              - paymentAuth
+                              - toolPermission
+                              - updatesList
+                        required:
+                          - kind
+                        additionalProperties: false
+                      category:
+                        type: string
+                        enum:
+                          - security
+                          - scheduling
+                          - background
+                          - email
+                          - system
+                      noteworthy:
+                        type: boolean
+                      fromAssistant:
+                        type: boolean
+                      metadata:
+                        type: object
+                        propertyNames:
+                          type: string
+                        additionalProperties: {}
+                      createdAt:
+                        type: string
+                    required:
+                      - id
+                      - type
+                      - priority
+                      - summary
+                      - timestamp
+                      - status
+                      - createdAt
+                    additionalProperties: false
                   channels:
                     type: array
                     items:

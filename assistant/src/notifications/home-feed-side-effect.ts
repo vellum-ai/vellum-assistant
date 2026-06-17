@@ -15,7 +15,6 @@ import {
   type FeedItemCategory,
   type FeedItemDetailPanelKind,
   feedItemSchema,
-  type FeedItemUrgency,
 } from "../home/feed-types.js";
 import { appendFeedItem } from "../home/feed-writer.js";
 import { getConversation } from "../memory/conversation-crud.js";
@@ -27,13 +26,6 @@ import type { NotificationSignal } from "./signal.js";
 import type { NotificationDecision, RenderedChannelCopy } from "./types.js";
 
 const log = getLogger("home-feed-side-effect");
-
-const FEED_ITEM_URGENCIES: ReadonlySet<string> = new Set<FeedItemUrgency>([
-  "low",
-  "medium",
-  "high",
-  "critical",
-]);
 
 /**
  * Append a `FeedItem` for the given notification signal when the
@@ -97,9 +89,7 @@ export async function writeHomeFeedItemForSignal(
     return null;
   }
 
-  const urgency = FEED_ITEM_URGENCIES.has(signal.attentionHints.urgency)
-    ? (signal.attentionHints.urgency as FeedItemUrgency)
-    : undefined;
+  const urgency = signal.attentionHints.urgency;
   const now = new Date().toISOString();
 
   const category = deriveCategory(signal);
@@ -109,7 +99,7 @@ export async function writeHomeFeedItemForSignal(
     signal.contextPayload &&
     typeof signal.contextPayload === "object" &&
     !Array.isArray(signal.contextPayload)
-      ? { ...(signal.contextPayload as Record<string, unknown>) }
+      ? { ...signal.contextPayload }
       : undefined;
 
   // Link scheduled-run notifications back to their schedule. `notify`-mode
@@ -187,7 +177,7 @@ function deriveDetailPanelKind(
     const payload = signal.contextPayload;
     const kind =
       payload && typeof payload === "object" && "requestKind" in payload
-        ? (payload as Record<string, unknown>).requestKind
+        ? payload.requestKind
         : undefined;
     if (kind === "tool_approval" || kind === "tool_grant_request") {
       return "permissionChat";

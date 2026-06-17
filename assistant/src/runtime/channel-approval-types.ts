@@ -12,11 +12,15 @@ import type { ApprovalActionOption } from "@vellumai/gateway-client";
 
 import type { GuardianDecisionAction } from "./guardian-decision-types.js";
 
-// Re-export shared wire types so existing daemon imports keep working.
 export type {
   ApprovalActionOption,
   ApprovalUIMetadata,
   PermissionRequestDetails,
+} from "@vellumai/gateway-client";
+// Re-export shared wire types + schemas so existing daemon imports keep working.
+export {
+  ApprovalUIMetadataSchema,
+  PermissionRequestDetailsSchema,
 } from "@vellumai/gateway-client";
 
 // ---------------------------------------------------------------------------
