@@ -1536,7 +1536,8 @@ jobs:
   # ── Electron DMG ──────────────────────────────────────────────────────
 
   build-electron:
-    needs: [compute-version, publish-meta-dev]
+    # No publish dep: the bundled CLI floats to the `dev` dist-tag at runtime.
+    needs: [compute-version]
     runs-on: macos-26
     timeout-minutes: 30
     continue-on-error: ${{ matrix.experimental }}
