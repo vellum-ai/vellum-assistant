@@ -183,13 +183,14 @@ describe("remote web pairing challenge", () => {
     });
   });
 
-  test("rate limits repeated challenge creation for one public base URL", async () => {
+  test("rate limits repeated challenge creation globally across rotated public hosts", async () => {
     for (let i = 0; i < 20; i++) {
+      const host = `paired-${i}.example.com`;
       const res = await handleCreateRemoteWebPairingChallenge(
         makeRequest({
           edgeForwarded: true,
-          host: "paired.example.com",
-          publicBaseUrl: `${PUBLIC_BASE_URL}/prefix-${i}`,
+          host,
+          publicBaseUrl: `https://${host}/prefix-${i}`,
         }),
         LOOPBACK_IP,
       );

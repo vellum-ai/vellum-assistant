@@ -110,7 +110,7 @@ export async function handleCreateRemoteWebPairingChallenge(
     );
   }
 
-  const rateLimited = recordRemoteWebPairingChallengeCreation(publicBaseUrl);
+  const rateLimited = recordRemoteWebPairingChallengeCreation();
   if (rateLimited) return rateLimitedResponse(rateLimited);
 
   const challenge = createRemoteWebPairingChallenge(publicBaseUrl);
