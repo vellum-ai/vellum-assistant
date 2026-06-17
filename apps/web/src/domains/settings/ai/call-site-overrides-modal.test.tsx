@@ -2,8 +2,9 @@
  * Tests for `CallSiteOverridesModal` feature-flag gating.
  *
  * The modal auto-enumerates every call-site catalog entry, so flag-gated
- * entries (`workflowLeaf`, `analyzeConversation`) must be filtered out of the
- * rendered list when their flag is off. We seed the catalog + config query
+ * entries (`analyzeConversation`) must be filtered out of the rendered list
+ * when their flag is off. `workflowLeaf` is always rendered — the workflow
+ * engine is GA and no longer flag-gated. We seed the catalog + config query
  * caches and drive the feature-flag store via `mock.module` (zustand v5 SSR —
  * never `setState`).
  */
@@ -28,7 +29,6 @@ mock.module("@/stores/assistant-feature-flag-store", () => {
   const store = () => null;
   store.use = {
     analyzeConversation: () => flags.analyzeConversation ?? false,
-    workflows: () => flags.workflows ?? false,
     queryComplexityRouting: () => false,
   };
   return { useAssistantFeatureFlagStore: store };
@@ -105,9 +105,21 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("CallSiteOverridesModal — workflows flag gating", () => {
-  test("hides Workflow Leaf when the workflows flag is off", async () => {
-    flags = { workflows: false, analyzeConversation: false };
+describe("CallSiteOverridesModal — call-site flag gating", () => {
+  test("always shows Workflow Leaf (workflow engine is GA, not flag-gated)", async () => {
+    flags = { analyzeConversation: false };
+    render(
+      <Wrapper>
+        <CallSiteOverridesModal isOpen assistantId="asst-1" onClose={() => {}} />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(renderedText()).toContain("Workflow Leaf");
+    });
+  });
+
+  test("hides Analyze Conversation when the analyzeConversation flag is off", async () => {
+    flags = { analyzeConversation: false };
     render(
       <Wrapper>
         <CallSiteOverridesModal isOpen assistantId="asst-1" onClose={() => {}} />
@@ -116,31 +128,20 @@ describe("CallSiteOverridesModal — workflows flag gating", () => {
     await waitFor(() => {
       expect(document.body.textContent).toContain("Action Overrides");
     });
-    expect(renderedText()).not.toContain("Workflow Leaf");
-  });
-
-  test("shows Workflow Leaf when the workflows flag is on", async () => {
-    flags = { workflows: true, analyzeConversation: false };
-    render(
-      <Wrapper>
-        <CallSiteOverridesModal isOpen assistantId="asst-1" onClose={() => {}} />
-      </Wrapper>,
-    );
-    await waitFor(() => {
-      expect(renderedText()).toContain("Workflow Leaf");
-    });
-  });
-
-  test("analyzeConversation gating is independent of the workflows flag", async () => {
-    flags = { workflows: true, analyzeConversation: false };
-    render(
-      <Wrapper>
-        <CallSiteOverridesModal isOpen assistantId="asst-1" onClose={() => {}} />
-      </Wrapper>,
-    );
-    await waitFor(() => {
-      expect(renderedText()).toContain("Workflow Leaf");
-    });
     expect(renderedText()).not.toContain("Analyze Conversation");
+    // workflowLeaf is unaffected by the analyzeConversation flag.
+    expect(renderedText()).toContain("Workflow Leaf");
+  });
+
+  test("shows Analyze Conversation when the analyzeConversation flag is on", async () => {
+    flags = { analyzeConversation: true };
+    render(
+      <Wrapper>
+        <CallSiteOverridesModal isOpen assistantId="asst-1" onClose={() => {}} />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(renderedText()).toContain("Analyze Conversation");
+    });
   });
 });
