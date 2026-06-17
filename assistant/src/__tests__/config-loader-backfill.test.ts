@@ -1487,4 +1487,51 @@ describe("seedInferenceProfiles injected managed templates", () => {
       "Remote Economy",
     );
   });
+
+  test("hatch disable resolves the selected managed connection from the injected template source", () => {
+    // Source-of-truth guard: when an injected template changes a managed
+    // profile's connectionName (still a canonical managed connection, just a
+    // different one), the hatch "keep the selected managed connection active"
+    // decision must read that connection from the SAME injected map the
+    // materialization loop uses — not the built-in MANAGED_PROFILE_TEMPLATES.
+    //
+    // Setup: BYOK hatch (off-platform, isHatch + preserveActiveProfile) with
+    // activeProfile=balanced but no provider_connection on the on-disk entry,
+    // so the helper falls back to the template connectionName. The injected
+    // balanced template points at "gemini-managed" instead of the built-in
+    // "anthropic-managed". The materialization loop seeds balanced with
+    // gemini-managed, so balanced is the selected connection and must stay
+    // enabled; the other managed profiles get disabled.
+    const templates = cloneBuiltInTemplates();
+    templates.balanced.connectionName = "gemini-managed";
+
+    writeConfig({
+      llm: {
+        default: { provider: "anthropic", model: "claude-opus-4-7" },
+        profiles: {
+          // No provider_connection → forces the template-source fallback.
+          balanced: { source: "managed", provider: "anthropic" },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    seedInferenceProfiles({
+      managedProfileTemplates: templates,
+      isHatch: true,
+      preserveActiveProfile: true,
+    });
+    const config = loadConfig();
+
+    expect(config.llm.profiles.balanced?.provider_connection).toBe(
+      "gemini-managed",
+    );
+    // Selected managed connection stays enabled because the helper resolved
+    // gemini-managed from the injected map (pre-fix it read anthropic-managed
+    // from the built-ins and balanced would have been disabled).
+    expect("status" in (config.llm.profiles.balanced ?? {})).toBe(false);
+    // Unselected managed profiles are disabled on the BYOK hatch.
+    expect(config.llm.profiles["quality-optimized"]?.status).toBe("disabled");
+    expect(config.llm.profiles["cost-optimized"]?.status).toBe("disabled");
+  });
 });
