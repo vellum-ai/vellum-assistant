@@ -49,6 +49,17 @@ describe("detectPluginSurfaces", () => {
     expect(surfaces.skills).toEqual(["first-skill", "second-skill"]);
   });
 
+  test("reports tools under their registered name, not the raw filename", () => {
+    // GIVEN a tool whose filename is not already a valid tool-name segment
+    touch("tools/create-issue.ts");
+
+    // WHEN its surfaces are detected
+    const surfaces = detectPluginSurfaces(pluginDir);
+
+    // THEN the derived (registered) name is reported, matching the loader
+    expect(surfaces.tools).toEqual(["create_issue"]);
+  });
+
   test("omits surface types the plugin does not contribute", () => {
     // GIVEN a plugin that ships only a hook
     touch("hooks/post-model-call.ts");

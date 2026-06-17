@@ -384,7 +384,9 @@ const pluginSurfacesSchema = z
       ),
     tools: z
       .array(z.string())
-      .describe("Tool names from `tools/<name>.{ts,js}`."),
+      .describe(
+        "Registered tool names from `tools/<name>.{ts,js}` (filenames derived to tool names, e.g. `create-issue` \u2192 `create_issue`).",
+      ),
   })
   .describe(
     "Surfaces the installed copy contributes, read from its on-disk tree.",

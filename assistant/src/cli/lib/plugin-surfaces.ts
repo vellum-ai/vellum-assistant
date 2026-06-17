@@ -27,8 +27,27 @@ export interface PluginSurfaces {
   readonly skills: readonly string[];
   /** Lifecycle hook names from `hooks/<name>.{ts,js}` (e.g. `pre-model-call`). */
   readonly hooks: readonly string[];
-  /** Tool names from `tools/<name>.{ts,js}`. */
+  /**
+   * Registered tool names from `tools/<name>.{ts,js}`. The loader derives a
+   * tool's name from its filename via {@link deriveToolName} (e.g.
+   * `create-issue.ts` registers as `create_issue`), so the derived form is
+   * reported rather than the raw basename. A tool module that overrides its own
+   * name via an exported `name` is not reflected here: that would require
+   * importing and executing untrusted plugin code, which inspection avoids.
+   */
   readonly tools: readonly string[];
+}
+
+/**
+ * Derive a tool's registered name from its file basename, mirroring the
+ * external plugin loader's `deriveToolName`: non-alphanumeric runs collapse to
+ * `_`, leading/trailing `_` are trimmed, and an empty result falls back to
+ * `tool`. Keeps the inspected tool name aligned with the callable tool name.
+ */
+function deriveToolName(basename: string): string {
+  return (
+    basename.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "tool"
+  );
 }
 
 /**
@@ -74,9 +93,12 @@ function listSkillIds(skillsDir: string): string[] {
  * back as empty arrays; callers omit empty types from the rendered output.
  */
 export function detectPluginSurfaces(pluginDir: string): PluginSurfaces {
+  const toolNames = listModuleBasenames(join(pluginDir, "tools")).map(
+    deriveToolName,
+  );
   return {
     skills: listSkillIds(join(pluginDir, "skills")),
     hooks: listModuleBasenames(join(pluginDir, "hooks")),
-    tools: listModuleBasenames(join(pluginDir, "tools")),
+    tools: [...new Set(toolNames)].sort(),
   };
 }

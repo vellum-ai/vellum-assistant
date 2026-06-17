@@ -19591,7 +19591,9 @@ paths:
                             type: array
                             items:
                               type: string
-                            description: Tool names from `tools/<name>.{ts,js}`.
+                            description:
+                              Registered tool names from `tools/<name>.{ts,js}` (filenames derived to tool names, e.g. `create-issue` →
+                              `create_issue`).
                         required:
                           - skills
                           - hooks
