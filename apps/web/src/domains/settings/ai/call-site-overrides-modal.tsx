@@ -118,7 +118,6 @@ function CallSiteOverridesModalInner({
   const [showResetConfirmation, setShowResetConfirmation] = useState(false);
   const analyzeConversationEnabled =
     useAssistantFeatureFlagStore.use.analyzeConversation();
-  const workflowsEnabled = useAssistantFeatureFlagStore.use.workflows();
 
   const {
     data: catalog,
@@ -139,11 +138,8 @@ function CallSiteOverridesModalInner({
     if (!analyzeConversationEnabled) {
       all = all.filter((cs) => cs.id !== "analyzeConversation");
     }
-    if (!workflowsEnabled) {
-      all = all.filter((cs) => cs.id !== "workflowLeaf");
-    }
     return all;
-  }, [catalog, analyzeConversationEnabled, workflowsEnabled]);
+  }, [catalog, analyzeConversationEnabled]);
 
   const catalogLoaded = !isLoading && !isError && !!catalog;
   const daemonConfigLoaded = !!daemonConfig;

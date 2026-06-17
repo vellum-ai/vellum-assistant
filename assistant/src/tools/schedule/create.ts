@@ -1,5 +1,3 @@
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
-import { getConfig } from "../../config/loader.js";
 import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
 import { formatIntegrationSummary } from "../../schedule/integration-status.js";
 import { validateRruleSetLines } from "../../schedule/recurrence-engine.js";
@@ -121,13 +119,9 @@ export async function executeScheduleCreate(
       };
     }
   } else if (mode === "workflow") {
-    // Workflow mode is gated by the `workflows` flag (a scheduled run would
-    // otherwise hard-fail at trigger time) and requires a saved workflow name —
-    // mirrors the HTTP route's create-side validation so the assistant-facing
-    // path and the settings route enforce the same shape.
-    if (!isAssistantFeatureFlagEnabled("workflows", getConfig())) {
-      return { content: "Error: workflows are not enabled.", isError: true };
-    }
+    // Workflow mode requires a saved workflow name — mirrors the HTTP route's
+    // create-side validation so the assistant-facing path and the settings route
+    // enforce the same shape.
     if (!workflowName) {
       return {
         content:

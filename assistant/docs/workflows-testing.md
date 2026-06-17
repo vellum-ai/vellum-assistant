@@ -2,14 +2,13 @@
 
 This runbook covers the parts of the workflow engine that automated tests do not:
 real provider calls, real journaled resume across a restart, capability
-containment under a live model, flag-off inertness, and persona-leaf voice. Unit
+containment under a live model, and persona-leaf voice. Unit
 and integration coverage lives under `assistant/src/workflows/*.test.ts` and
 `assistant/src/__tests__/`; this is the human-in-the-loop pass that runs **last**,
 on throwaway instances first, and only touches a real inbox or a production
 instance at the very end.
 
-Work through the steps in order. The `workflows` flag is **off by default**, so
-every step that exercises the engine first enables it on a throwaway instance.
+Work through the steps in order, on throwaway instances first.
 
 > **Safety rule:** Nothing in this runbook touches a real inbox, a real workspace,
 > or a production instance until every throwaway-instance step has passed. The
@@ -17,7 +16,7 @@ every step that exercises the engine first enables it on a throwaway instance.
 
 ---
 
-## 1. Hatch a throwaway instance and enable the flag
+## 1. Hatch a throwaway instance
 
 Hatch a disposable Docker instance built from local source:
 
@@ -26,25 +25,14 @@ vellum hatch --remote docker --source .
 ```
 
 Note the instance name it prints (e.g. `vellum-<adjective>-<animal>`). Use it as
-`--assistant <name>` for everything below, or set it active.
-
-Enable the `workflows` flag via that instance's feature-flag override file. The
-override lives in the instance's `protected/feature-flags.json` (overrides here
-win over the registry default — see the feature-flag-overrides gotcha):
-
-```jsonc
-// .../<instance>/protected/feature-flags.json
-{ "workflows": true }
-```
-
-Restart the instance so it re-reads the override, then confirm it is up:
+`--assistant <name>` for everything below, or set it active. Confirm it is up:
 
 ```
 vellum ps
 ```
 
-Sanity-check that the surface is now live: `vellum workflows runs --assistant <name>`
-should return an (empty) table rather than a 404.
+Sanity-check that the workflow surface is live: `vellum workflows runs --assistant <name>`
+should return an (empty) table.
 
 ---
 
@@ -168,27 +156,9 @@ or a send tool, with `capabilities.tools` left empty). Run it and confirm:
 
 ---
 
-## 6. Flag-off inertness
+## 6. Real-data smoke (throwaway TEST account)
 
-On a **default** instance (no `workflows` override, or set back to `false` and
-restart), confirm the whole surface is gone:
-
-- `run_workflow` and `manage_workflows` are **absent** from the tool set (the
-  assistant cannot call them).
-- The routes 404:
-
-  ```
-  vellum workflows runs --assistant <default-instance>   # request fails (404)
-  ```
-
-- A scheduler `workflow`-mode job is **rejected** (the engine gate throws before
-  any run is launched).
-
----
-
-## 7. Real-data smoke (throwaway TEST account)
-
-Only after steps 1–6 pass: run the full path against a **throwaway TEST Google or
+Only after steps 1–5 pass: run the full path against a **throwaway TEST Google or
 Slack account** with about a dozen messages — never a real account. Drive the
 end-to-end flow:
 
@@ -203,17 +173,16 @@ real content, and every side effect was one the manifest declared.
 
 ---
 
-## 8. Production / persona instance — LAST
+## 7. Production / persona instance — LAST
 
-Flip the `workflows` flag on a real (e.g. persona) instance **only after** the
-throwaway instances above pass, and only after the instance is on current code:
+Run on a real (e.g. persona) instance **only after** the throwaway instances
+above pass, and only after the instance is on current code:
 
 1. `git pull` and **restart** the instance so it runs the merged code (a restart
    alone re-runs stale code — see the deploy gotcha).
-2. Enable the flag and restart.
-3. Start with the **smallest real slice** — a few items, dry-run actions where the
+2. Start with the **smallest real slice** — a few items, dry-run actions where the
    tool supports it — before any larger or side-effecting run.
-4. **Human-eval the persona-leaf voice**: read a persona leaf's output and confirm
+3. **Human-eval the persona-leaf voice**: read a persona leaf's output and confirm
    it reads as the assistant, not as a generic worker.
 
 Stop and reassess if any run's `agentsSpawned` approaches `maxAgentsPerRun`, if
