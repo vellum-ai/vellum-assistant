@@ -1,7 +1,7 @@
 // Regenerates the emoji catalog from upstream gemoji data.
 //
 // Outputs:
-//   apps/web/src/domains/chat/components/chat-composer/emoji-catalog-data.ts
+//   clients/web/src/domains/chat/components/chat-composer/emoji-catalog-data.ts
 //
 // Run: bun run scripts/generate-emoji-catalog.ts
 //
@@ -24,7 +24,7 @@ const REPO_ROOT = process.cwd();
 const GEMOJI_COMMIT = "0eca75db9301421efc8710baf7a7576793ae452a";
 const GEMOJI_URL = `https://raw.githubusercontent.com/github/gemoji/${GEMOJI_COMMIT}/db/emoji.json`;
 const GEMOJI_CACHE = resolve(REPO_ROOT, "scripts/data/gemoji.json");
-const TS_OUT = resolve(REPO_ROOT, "apps/web/src/domains/chat/components/chat-composer/emoji-catalog-data.ts");
+const TS_OUT = resolve(REPO_ROOT, "clients/web/src/domains/chat/components/chat-composer/emoji-catalog-data.ts");
 
 interface GemojiEntry {
   emoji: string;

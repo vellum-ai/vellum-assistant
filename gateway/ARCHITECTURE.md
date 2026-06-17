@@ -48,7 +48,7 @@ The request carries base64-encoded WAV audio and a MIME type. The daemon resolve
 | ------------------------------------------------ | ------------------------------------------------------------------------- |
 | `gateway/src/http/routes/runtime-proxy.ts`       | Assistant-scoped path rewriting (`/v1/assistants/:id/...` → `/v1/...`)    |
 | `assistant/src/runtime/routes/stt-routes.ts`     | Daemon HTTP endpoint: validates audio, resolves transcriber, returns text |
-| `apps/web/src/domains/chat/voice/stt-api.ts`     | Web client: POSTs audio to the gateway, returns a typed result            |
+| `clients/web/src/domains/chat/voice/stt-api.ts`     | Web client: POSTs audio to the gateway, returns a typed result            |
 
 ### STT Streaming WebSocket Proxy
 
@@ -79,7 +79,7 @@ Clients open WebSocket connections through the gateway to the daemon's real-time
 | `gateway/src/index.ts`                            | Route registration: wires upgrade handler to the gateway's Bun HTTP server                                         |
 | `assistant/src/runtime/http-server.ts`            | Daemon-side WebSocket upgrade at `/v1/stt/stream`, session creation and registry                                   |
 | `assistant/src/stt/stt-stream-session.ts`         | Runtime session orchestrator: drives the `StreamingTranscriber` from the WebSocket                                 |
-| `apps/web/src/domains/chat/voice/dictation-stream.ts` | Web client: opens the gateway WebSocket, parses transcript events, reports failures                            |
+| `clients/web/src/domains/chat/voice/dictation-stream.ts` | Web client: opens the gateway WebSocket, parses transcript events, reports failures                            |
 
 ### Assistant Feature Flags API
 

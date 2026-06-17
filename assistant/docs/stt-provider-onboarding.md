@@ -76,7 +76,7 @@ When the provider ID differs from the credential provider name (e.g. `google-gem
 
 ### Client settings key behavior
 
-Clients derive shared-vs-exclusive key behavior from the catalog automatically: if `apiKeyProviderName == id`, the key is exclusive; otherwise it is shared. No new conditionals are needed unless the provider has a non-standard key-ownership model. The web settings UI lives in `apps/web/src/domains/settings/ai/speech-to-text-card.tsx`.
+Clients derive shared-vs-exclusive key behavior from the catalog automatically: if `apiKeyProviderName == id`, the key is exclusive; otherwise it is shared. No new conditionals are needed unless the provider has a non-standard key-ownership model. The web settings UI lives in `clients/web/src/domains/settings/ai/speech-to-text-card.tsx`.
 
 ## 7. Verify unified STT architecture
 

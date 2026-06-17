@@ -132,10 +132,10 @@ gateway/src/db/migrations/
 clients/chrome-extension/vellum-browser-relay.zip
 
 # vel command
-apps/web/.vel/watchers.json
+clients/web/.vel/watchers.json
 
 # Build-generated skill assets copied into SPA public dir
-apps/web/public/skills/
+clients/web/public/skills/
 
 # Generated at release time by the publish-meta jobs (release.yml)
 meta/package-lock.json

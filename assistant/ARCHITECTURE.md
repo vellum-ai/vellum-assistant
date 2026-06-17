@@ -678,7 +678,7 @@ Two provider adapters are supported, each implementing the `StreamingTranscriber
 
 **Session lifecycle (client side):**
 
-The web client streaming dictation client lives at `apps/web/src/domains/chat/voice/dictation-stream.ts`; it opens the gateway WebSocket to `/v1/stt/stream`, parses `partial`/`final` frames, and reports failures so the caller can fall back to batch transcription. Before opening a session the client checks the configured provider's `conversationStreamingMode` from the `GET /v1/stt/providers` API. When the stream delivers at least one `final` event and has not failed, the streaming final text is used directly; otherwise the batch STT path (`apps/web/src/domains/chat/voice/stt-api.ts`) provides the fallback.
+The web client streaming dictation client lives at `clients/web/src/domains/chat/voice/dictation-stream.ts`; it opens the gateway WebSocket to `/v1/stt/stream`, parses `partial`/`final` frames, and reports failures so the caller can fall back to batch transcription. Before opening a session the client checks the configured provider's `conversationStreamingMode` from the `GET /v1/stt/providers` API. When the stream delivers at least one `final` event and has not failed, the streaming final text is used directly; otherwise the batch STT path (`clients/web/src/domains/chat/voice/stt-api.ts`) provides the fallback.
 
 **Fallback semantics:**
 
@@ -710,8 +710,8 @@ The conversation streaming path degrades gracefully to the existing batch STT pa
 | `src/providers/speech-to-text/resolve.ts`                   | `resolveStreamingTranscriber()`: credential-aware factory for streaming adapters; `resolveConversationStreamingSttCapability()`: capability validator |
 | `src/runtime/http-server.ts`                                | Runtime WebSocket upgrade handler for `/v1/stt/stream`, session registry (`activeSttStreamSessions`), graceful shutdown                               |
 | `gateway/src/http/routes/stt-stream-websocket.ts`           | Gateway WebSocket proxy: authenticates client, opens upstream WS to daemon with service token                                                         |
-| `apps/web/src/domains/chat/voice/dictation-stream.ts`       | Web streaming dictation client: WebSocket session, event parsing, failure reporting                                                                   |
-| `apps/web/src/domains/chat/voice/voice-recording-store.ts`  | Web voice recording state: streaming/batch priority, fallback on failure                                                                              |
+| `clients/web/src/domains/chat/voice/dictation-stream.ts`       | Web streaming dictation client: WebSocket session, event parsing, failure reporting                                                                   |
+| `clients/web/src/domains/chat/voice/voice-recording-store.ts`  | Web voice recording state: streaming/batch priority, fallback on failure                                                                              |
 
 **Live voice channel boundary:**
 
@@ -744,7 +744,7 @@ All product-facing dictation and voice-streaming paths use a service-first STT s
 - The gateway proxies the request via assistant-scoped path rewriting: `/v1/assistants/:id/stt/transcribe` is rewritten to `/v1/stt/transcribe` on the daemon.
 - `stt-routes.ts` (`src/runtime/routes/stt-routes.ts`) defines the HTTP endpoint, validates the audio payload, and delegates to `resolveBatchTranscriber()`.
 
-The web client implements these flows in `apps/web/src/domains/chat/voice/`: `stt-api.ts` (batch transcribe), `dictation-stream.ts` (streaming dictation), and `voice-recording-store.ts` (recording state, streaming/batch priority, fallback). Push-to-talk dictation and conversation chat capture prefer a streaming final when available and fall back to batch transcription when streaming was not used, failed, or produced no finals.
+The web client implements these flows in `clients/web/src/domains/chat/voice/`: `stt-api.ts` (batch transcribe), `dictation-stream.ts` (streaming dictation), and `voice-recording-store.ts` (recording state, streaming/batch priority, fallback). Push-to-talk dictation and conversation chat capture prefer a streaming final when available and fall back to batch transcription when streaming was not used, failed, or produced no finals.
 
 **Cross-boundary notes:**
 

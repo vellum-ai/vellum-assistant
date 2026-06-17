@@ -10,7 +10,7 @@
  * `import.meta.dir.startsWith("/$bunfs/")`, so at test time only the
  * source-mode early-return is exercised here; the compiled branch is
  * covered structurally via the Electron signing + packaging step in
- * `apps/macos/scripts/pack.sh`.
+ * `clients/macos/scripts/pack.sh`.
  */
 
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
