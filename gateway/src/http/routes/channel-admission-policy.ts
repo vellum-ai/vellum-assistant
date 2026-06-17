@@ -25,6 +25,7 @@ import { invalidateAdmissionPolicyCache } from "../../risk/admission-policy-cach
 import {
   CHANNEL_IDS,
   isChannelId,
+  parseChannelFromConversationId,
   type ChannelId,
 } from "../../channels/types.js";
 import { getLogger } from "../../logger.js";
@@ -309,6 +310,18 @@ export function createConversationAdmissionDeleteHandler() {
       conversationId = decodeURIComponent(rawConversationId);
     } catch {
       return Response.json({ error: "Invalid conversationId encoding" }, { status: 400 });
+    }
+    // §8.1 + §8.4: symmetric with the POST/PUT handler — block writes for
+    // exempt channels (vellum/platform/a2a/phone). Parse channel from the
+    // conversationId prefix so the check fires even without a body.
+    const parsedChannel = parseChannelFromConversationId(conversationId);
+    if (parsedChannel && isExemptChannelType(parsedChannel)) {
+      return Response.json(
+        {
+          error: `Channel "${parsedChannel}" is internal and is not user-configurable.`,
+        },
+        { status: 403 },
+      );
     }
     try {
       const store = new AdmissionPolicyStore();

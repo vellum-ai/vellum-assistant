@@ -81,9 +81,14 @@ export interface ConversationOverrideView {
 
 /**
  * Internal channels that must not receive user-configurable overrides (§8.1).
- * Matches the client-side list in `apps/web/src/lib/channel-admission-policy/types.ts`.
+ * Matches the client-side list in `apps/web/src/lib/channel-admission-policy/types.ts`
+ * and ADMISSION_POLICY_EXEMPT_CHANNELS in `packages/gateway-client`.
+ *
+ * `phone` is exempt per §8.4: Twilio voice ingress does not yet read
+ * AdmissionPolicyStore, so stored phone policies would silently have no
+ * effect. Remove once the voice path enforces admission.
  */
-export const EXEMPT_CHANNEL_TYPES = new Set<string>(["vellum", "platform", "a2a"]);
+export const EXEMPT_CHANNEL_TYPES = new Set<string>(["vellum", "platform", "a2a", "phone"]);
 
 export function isExemptChannelType(channelType: string): boolean {
   return EXEMPT_CHANNEL_TYPES.has(channelType);

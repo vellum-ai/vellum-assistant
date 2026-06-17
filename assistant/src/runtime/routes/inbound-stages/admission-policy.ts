@@ -124,23 +124,21 @@ export function enforceAdmissionPolicy(
     return { admitted: true };
   }
 
-  // Blocked members never clear admission regardless of floor.
-  // `enforceIngressAcl` already short-circuits on blocked status, so this
-  // path is unreachable in production. Kept so unit tests can drive the
-  // floor stage in isolation and so a future refactor that flips stage
-  // order doesn't silently admit a blocked actor.
-  if (input.memberStatus === "blocked") {
+  // Blocked and revoked members never clear admission regardless of floor.
+  // `enforceIngressAcl` already short-circuits on both: blocked always, and
+  // revoked under any policy including `strangers` (§8 fix: revoked is an
+  // explicit governance action, not the same as an unknown stranger). The
+  // checks here are defense-in-depth so unit tests can drive the floor stage
+  // in isolation and a future refactor that reorders stages doesn't silently
+  // admit a blocked/revoked actor.
+  if (input.memberStatus === "blocked" || input.memberStatus === "revoked") {
     return {
       admitted: false,
-      reason: "member_blocked",
+      reason: input.memberStatus === "blocked" ? "member_blocked" : "member_revoked",
       shouldChallenge: false,
       effectivePolicy: input.policy,
     };
   }
-  // NOTE: revoked members are NOT short-circuited here. Under `strangers`
-  // (floor 1), a revoked sender's trust class resolves to `unknown` (rank 1),
-  // which meets the floor. The rank-vs-floor check below decides; a revoked
-  // sender is only denied when the effective floor exceeds their rank.
 
   const effectivePolicy = resolveEffectivePolicy(
     input.policy,

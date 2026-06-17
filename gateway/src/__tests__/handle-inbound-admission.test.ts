@@ -208,4 +208,27 @@ describe("handle-inbound admission policy", () => {
       runtimePayloads[0]!.sourceMetadata!.admissionPolicy,
     ).toBeUndefined();
   });
+
+  test("§8.4: phone skips kill switch even when `no_one` is persisted (voice ingress not wired)", async () => {
+    // Storing a `no_one` policy for phone would have no runtime effect since
+    // the voice webhook path does not read AdmissionPolicyStore. Exempt it
+    // so the gateway kill-switch also skips phone, making the exemption
+    // consistent end-to-end.
+    store.set("phone", "no_one");
+    resetAdmissionPolicyCache();
+    initAdmissionPolicyCache();
+
+    const result = await handleInbound(
+      makeConfig(),
+      makeEvent({ sourceChannel: "phone" }),
+      { routingOverride: { assistantId: "asst-1", routeSource: "default" } },
+    );
+
+    expect(result.forwarded).toBe(true);
+    expect(forwardToRuntimeMock).toHaveBeenCalledTimes(1);
+    // No admissionPolicy attached for exempt channels.
+    expect(
+      runtimePayloads[0]!.sourceMetadata!.admissionPolicy,
+    ).toBeUndefined();
+  });
 });

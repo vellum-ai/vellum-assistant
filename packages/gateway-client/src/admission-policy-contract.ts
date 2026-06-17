@@ -54,11 +54,19 @@ export const ADMISSION_FLOOR: Record<AdmissionPolicy, number> = {
  *
  * Reason: prevents a guardian from accidentally configuring `no_one` for
  * the `vellum` channel and locking themselves out of their own client.
+ *
+ * §8.4 NOTE: `phone` is included here because the Twilio voice-webhook path
+ * (twilio-voice-webhook → relay-setup-router) does not yet read
+ * AdmissionPolicyStore / sourceMetadata.admissionPolicy. Storing a policy for
+ * `phone` would have no runtime effect, so we exclude it from the API surface
+ * until voice ingress is wired in a follow-up PR. Remove `"phone"` from this
+ * set once the voice path enforces admission.
  */
 export const ADMISSION_POLICY_EXEMPT_CHANNELS: ReadonlySet<string> = new Set([
   "vellum",
   "platform",
   "a2a",
+  "phone",
 ]);
 
 export function isAdmissionPolicyExemptChannel(channelType: string): boolean {

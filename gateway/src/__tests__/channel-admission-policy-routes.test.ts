@@ -12,6 +12,7 @@ import {
 import {
   createChannelAdmissionPolicyListHandler,
   createChannelAdmissionPolicySetHandler,
+  createConversationAdmissionDeleteHandler,
 } from "../http/routes/channel-admission-policy.js";
 import { CHANNEL_IDS } from "../channels/types.js";
 import { isAdmissionPolicyExemptChannel } from "@vellumai/gateway-client";
@@ -112,9 +113,9 @@ describe("GET /v1/channel-admission-policy", () => {
     expect(tg?.note).toBe("off");
     expect(tg?.updatedAt).toBeGreaterThan(0);
 
+    // phone is now exempt (§8.4) — it must not appear in the list.
     const phone = body.policies.find((p) => p.channelType === "phone");
-    expect(phone?.policy).toBe(ADMISSION_POLICY_DEFAULT);
-    expect(phone?.updatedAt).toBeNull();
+    expect(phone).toBeUndefined();
   });
 
   test("§8.1: omits exempt channels (`vellum`, `a2a`) from the response even when persisted", async () => {
@@ -252,5 +253,85 @@ describe("PUT /v1/channel-admission-policy/:channelType", () => {
     );
     expect(res.status).toBe(403);
     expect(store.get("a2a")).toBe(ADMISSION_POLICY_DEFAULT);
+  });
+
+  test("§8.4: rejects PUT for `phone` with 403 (voice ingress not yet wired)", async () => {
+    const handler = createChannelAdmissionPolicySetHandler();
+    const res = await handler(
+      jsonRequest("http://localhost/v1/channel-admission-policy/phone", "PUT", {
+        policy: "strangers",
+      }),
+      "phone",
+    );
+    expect(res.status).toBe(403);
+    // Nothing was persisted.
+    expect(store.get("phone")).toBe(ADMISSION_POLICY_DEFAULT);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /v1/channel-admission-policy (phone exempt)
+// ---------------------------------------------------------------------------
+
+describe("GET /v1/channel-admission-policy — phone exempt §8.4", () => {
+  test("omits `phone` from the list response", async () => {
+    const handler = createChannelAdmissionPolicyListHandler();
+    const res = await handler(
+      jsonRequest("http://localhost/v1/channel-admission-policy", "GET"),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { policies: Array<{ channelType: string }> };
+    const seen = new Set(body.policies.map((p) => p.channelType));
+    expect(seen.has("phone")).toBe(false);
+    // Confirm non-exempt channels still appear.
+    expect(seen.has("telegram")).toBe(true);
+    expect(seen.has("slack")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /v1/channel-admission-policy/conversations/:id — exempt check (§8.1 + §8.4)
+// ---------------------------------------------------------------------------
+
+describe("DELETE conversation override — exempt channel guard", () => {
+  test("§8.1: rejects DELETE for vellum conversation with 403", async () => {
+    const handler = createConversationAdmissionDeleteHandler();
+    const res = await handler(
+      jsonRequest(
+        "http://localhost/v1/channel-admission-policy/conversations/vellum%3Aabc",
+        "DELETE",
+      ),
+      "vellum%3Aabc",
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("internal");
+  });
+
+  test("§8.4: rejects DELETE for phone conversation with 403", async () => {
+    const handler = createConversationAdmissionDeleteHandler();
+    const res = await handler(
+      jsonRequest(
+        "http://localhost/v1/channel-admission-policy/conversations/phone%3A%2B15555550100",
+        "DELETE",
+      ),
+      "phone%3A%2B15555550100",
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("internal");
+  });
+
+  test("allows DELETE for a non-exempt conversation (slack)", async () => {
+    const handler = createConversationAdmissionDeleteHandler();
+    const res = await handler(
+      jsonRequest(
+        "http://localhost/v1/channel-admission-policy/conversations/slack%3AC0123",
+        "DELETE",
+      ),
+      "slack%3AC0123",
+    );
+    // No override row exists, but delete still succeeds (idempotent).
+    expect(res.status).toBe(200);
   });
 });
