@@ -1,14 +1,14 @@
 /**
- * Verifies that the `memory-v3-live` cache-anchor signal surfaces on every
- * `SendMessageOptions.config` the loop emits. When the flag is on, the latest
+ * Verifies that the memory-v3-live cache-anchor signal surfaces on every
+ * `SendMessageOptions.config` the loop emits. When v3-live is on, the latest
  * user message carries a volatile `<memory>` block, so the loop sets
  * `providerConfig.mutableLatestUserMessage` to tell the provider to anchor its
  * long-TTL cache breakpoint on the most recent STABLE message instead.
  *
- * The loop reads the flag directly where it assembles `providerConfig`, so the
- * signal is sourced from the flag rather than a run option. When the flag is
- * off the field is omitted (not `false`/`undefined`) so the wire stays
- * byte-identical to today.
+ * The loop reads `config.memory.v3.live` directly where it assembles
+ * `providerConfig`, so the signal is sourced from config rather than a run
+ * option. When v3-live is off the field is omitted (not `false`/`undefined`) so
+ * the wire stays byte-identical to today.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -19,11 +19,14 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
+// AgentLoop reads the v3-live gate (`config.memory.v3.live`) via
+// `isMemoryV3Live` to decide the cache-anchor signal; drive it per-test.
+let memoryV3LiveSlot = false;
+mock.module("../config/memory-v3-gate.js", () => ({
+  isMemoryV3Live: () => memoryV3LiveSlot,
+}));
+
 import { AgentLoop } from "../agent/loop.js";
-import {
-  clearCachedOverrides,
-  setCachedOverrides,
-} from "../config/feature-flag-cache.js";
 import type {
   Message,
   Provider,
@@ -82,12 +85,12 @@ function makeRecordingProvider(responses: ProviderResponse[]): {
 
 describe("AgentLoop.run — mutableLatestUserMessage from memory-v3-live", () => {
   afterEach(() => {
-    clearCachedOverrides();
+    memoryV3LiveSlot = false;
   });
 
   test("sets mutableLatestUserMessage on every LLM call when memory-v3-live is on (multi-turn)", async () => {
     // GIVEN memory-v3-live is enabled
-    setCachedOverrides({ "memory-v3-live": true }, { fromGateway: true });
+    memoryV3LiveSlot = true;
 
     // AND a provider that records the config of each LLM call across a tool round-trip
     const { provider, configs } = makeRecordingProvider([
@@ -131,7 +134,7 @@ describe("AgentLoop.run — mutableLatestUserMessage from memory-v3-live", () =>
 
   test("omits mutableLatestUserMessage when memory-v3-live is off (flag-off byte-identity)", async () => {
     // GIVEN memory-v3-live is off (no override; registry default is false)
-    clearCachedOverrides();
+    memoryV3LiveSlot = false;
 
     // AND a provider that records the config of each LLM call
     const { provider, configs } = makeRecordingProvider([textResponse("hi")]);
