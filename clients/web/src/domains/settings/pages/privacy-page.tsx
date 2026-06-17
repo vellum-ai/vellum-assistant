@@ -72,6 +72,9 @@ export function PrivacyPage() {
   const [shareDiagnostics, setShareDiagnostics] = useState(
     () => getDeviceBool("shareDiagnostics", true),
   );
+  const [shareProductImprovement, setShareProductImprovement] = useState(
+    () => getDeviceBool("shareProductImprovement", true),
+  );
   const [retentionId, setRetentionId] = useState(() =>
     getDeviceSetting("llmLogRetention", DEFAULT_RETENTION_ID),
   );
@@ -86,6 +89,12 @@ export function PrivacyPage() {
     const next = !shareDiagnostics;
     setShareDiagnostics(next);
     savePreferenceToggle("share_diagnostics", next, hasPlatformSession);
+  };
+
+  const handleProductImprovementToggle = () => {
+    const next = !shareProductImprovement;
+    setShareProductImprovement(next);
+    savePreferenceToggle("share_product_improvement", next, hasPlatformSession);
   };
 
   const handleRetentionChange = (value: string) => {
@@ -113,6 +122,13 @@ export function PrivacyPage() {
             helperText="Send crash reports and performance metrics. Your conversations and personal data are never included."
             checked={shareDiagnostics}
             onChange={handleDiagnosticsToggle}
+          />
+          <Divider />
+          <SettingRow
+            label="Help improve Vellum"
+            helperText="Enables web session recording and collection of conversation and agent-execution traces to debug issues and improve the product. Unlike the options above, this can include your conversation content. On by default; opt out anytime."
+            checked={shareProductImprovement}
+            onChange={handleProductImprovementToggle}
           />
           <Divider />
           <AccessConsentSetting />

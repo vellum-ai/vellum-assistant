@@ -21,7 +21,7 @@ import { setDeviceBool } from "@/utils/device-settings";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 import { patchConsent, type UserConsent } from "@/domains/account/profile";
 
-export const CONSENT_VERSION = "2026-06-08";
+export const CONSENT_VERSION = "2026-06-16";
 
 function consentKey(field: string, userId: string): string {
   return `device:consent:${field}:v${CONSENT_VERSION}:${userId}`;
@@ -83,14 +83,29 @@ export function clearConsentForUser(userId: string | null): void {
 
 export function resolveServerConsent(
   consent: UserConsent | null | undefined,
-): { tos: boolean; ai: boolean; shareAnalytics: boolean | null; shareDiagnostics: boolean | null } {
-  if (!consent) return { tos: false, ai: false, shareAnalytics: null, shareDiagnostics: null };
+): {
+  tos: boolean;
+  ai: boolean;
+  shareAnalytics: boolean | null;
+  shareDiagnostics: boolean | null;
+  shareProductImprovement: boolean | null;
+} {
+  if (!consent) {
+    return {
+      tos: false,
+      ai: false,
+      shareAnalytics: null,
+      shareDiagnostics: null,
+      shareProductImprovement: null,
+    };
+  }
   return {
     tos: consent.tos_accepted_version === CONSENT_VERSION
       && consent.privacy_policy_accepted_version === CONSENT_VERSION,
     ai: consent.ai_data_sharing_accepted_version === CONSENT_VERSION,
     shareAnalytics: consent.share_analytics,
     shareDiagnostics: consent.share_diagnostics,
+    shareProductImprovement: consent.share_product_improvement,
   };
 }
 
@@ -104,6 +119,7 @@ export function saveConsent(opts: {
   ai: boolean;
   shareAnalytics: boolean;
   shareDiagnostics: boolean;
+  shareProductImprovement: boolean;
   hasPlatformSession: boolean;
 }): void {
   const store = useOnboardingStore.getState();
@@ -111,6 +127,7 @@ export function saveConsent(opts: {
   store.setAiDataConsent(opts.ai);
   store.setShareAnalytics(opts.shareAnalytics);
   store.setShareDiagnostics(opts.shareDiagnostics);
+  store.setShareProductImprovement(opts.shareProductImprovement);
 
   persistConsentForUser(opts.userId, opts.tos, opts.ai);
 
@@ -121,12 +138,13 @@ export function saveConsent(opts: {
       ai_data_sharing_accepted_version: opts.ai ? CONSENT_VERSION : "",
       share_analytics: opts.shareAnalytics,
       share_diagnostics: opts.shareDiagnostics,
+      share_product_improvement: opts.shareProductImprovement,
     }).catch(() => {});
   }
 }
 
 export function savePreferenceToggle(
-  field: "share_analytics" | "share_diagnostics",
+  field: "share_analytics" | "share_diagnostics" | "share_product_improvement",
   value: boolean,
   hasPlatformSession: boolean,
 ): void {
@@ -134,9 +152,12 @@ export function savePreferenceToggle(
   if (field === "share_analytics") {
     store.setShareAnalytics(value);
     setDeviceBool("shareAnalytics", value);
-  } else {
+  } else if (field === "share_diagnostics") {
     store.setShareDiagnostics(value);
     setDeviceBool("shareDiagnostics", value);
+  } else {
+    store.setShareProductImprovement(value);
+    setDeviceBool("shareProductImprovement", value);
   }
 
   if (hasPlatformSession) {

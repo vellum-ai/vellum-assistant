@@ -64,6 +64,19 @@ export function useShareDiagnostics(): [boolean, (next: boolean) => void] {
   return [value, setter];
 }
 
+/**
+ * Help improve Vellum. Defaults to `true`. A single combined opt-out that
+ * gates both web session replay (LogRocket) and conversation/agent trace
+ * collection. Backed by the SAME localStorage key as `/settings/privacy`.
+ */
+export function useShareProductImprovement(): [boolean, (next: boolean) => void] {
+  const value = useOnboardingStore.use.shareProductImprovement();
+  const setter = useCallback((next: boolean) => {
+    useOnboardingStore.getState().setShareProductImprovement(next);
+  }, []);
+  return [value, setter];
+}
+
 /** Whether the user accepted Terms of Service during onboarding. Defaults to `false`. */
 export function useTosAccepted(): [boolean, (next: boolean) => void] {
   const value = useOnboardingStore.use.tosAccepted();

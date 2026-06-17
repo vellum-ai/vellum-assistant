@@ -12,6 +12,7 @@ import { AppProviders } from "@/components/providers";
 import { WindowDragRegion } from "@/components/window-drag-region";
 import { isChunkLoadError } from "@/lib/chunk-errors";
 import { isLocalMode, loadLockfile } from "@/lib/local-mode";
+import { initLogRocket } from "@/lib/logrocket/logrocket-init";
 import { initSentry } from "@/lib/sentry/sentry-init";
 import { setupAuthListeners, useAuthStore } from "@/stores/auth-store";
 import { setupOrganizationStore } from "@/stores/organization-store";
@@ -27,6 +28,7 @@ async function boot() {
   initInputModality();
   await initSafeAreaBridge();
   initSentry();
+  initLogRocket();
 
   setupOrganizationStore();
   if (isLocalMode()) {

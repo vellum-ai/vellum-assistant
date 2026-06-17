@@ -14,6 +14,12 @@ interface ImportMetaEnv {
   readonly VITE_SENTRY_DSN?: string;
   /** Sentry environment tag (e.g. "production", "staging"). */
   readonly VITE_SENTRY_ENVIRONMENT?: string;
+  /**
+   * LogRocket application id (`org/app`) for session replay. Injected by the
+   * CI/CD pipeline. When unset, LogRocket is never initialized — the feature
+   * stays dark without this value.
+   */
+  readonly VITE_LOGROCKET_APP_ID?: string;
   /** Stripe publishable key for payment forms. Injected by CI/CD pipeline. */
   readonly VITE_STRIPE_PUBLISHABLE_KEY?: string;
   /** App version stamp for diagnostic reporting. */

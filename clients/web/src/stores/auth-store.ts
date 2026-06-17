@@ -255,6 +255,8 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
           store.setShareAnalytics(resolved.shareAnalytics);
         if (resolved.shareDiagnostics !== null)
           store.setShareDiagnostics(resolved.shareDiagnostics);
+        if (resolved.shareProductImprovement !== null)
+          store.setShareProductImprovement(resolved.shareProductImprovement);
         persistConsentForUser(nextUserId, resolved.tos, resolved.ai);
         syncOrganizationState(nextUserId);
         return;

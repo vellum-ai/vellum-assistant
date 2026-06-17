@@ -47,6 +47,7 @@ const resolveServerConsentMock = mock((_consent: unknown) => ({
   ai: false,
   shareAnalytics: null,
   shareDiagnostics: null,
+  shareProductImprovement: null,
 }));
 
 let mockFetchMeResult: unknown = {
@@ -170,7 +171,7 @@ mock.module("@/utils/onboarding-cleanup", () => ({
   restoreConsentForUser: restoreConsentForUserMock,
   persistConsentForUser: persistConsentForUserMock,
   resolveServerConsent: resolveServerConsentMock,
-  CONSENT_VERSION: "2026-06-08",
+  CONSENT_VERSION: "2026-06-16",
 }));
 
 mock.module("@/domains/onboarding/onboarding-store", () => ({
@@ -180,6 +181,7 @@ mock.module("@/domains/onboarding/onboarding-store", () => ({
       setAiDataConsent: () => {},
       setShareAnalytics: () => {},
       setShareDiagnostics: () => {},
+      setShareProductImprovement: () => {},
     }),
   },
 }));

@@ -15,6 +15,7 @@ export interface UserConsent {
   ai_data_sharing_accepted_at: string | null;
   share_analytics: boolean;
   share_diagnostics: boolean;
+  share_product_improvement: boolean;
 }
 
 export type ConsentPatch = Partial<

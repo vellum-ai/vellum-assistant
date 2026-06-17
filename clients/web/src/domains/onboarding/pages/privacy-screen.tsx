@@ -15,6 +15,7 @@ import {
     useAiDataConsent,
     useShareAnalytics,
     useShareDiagnostics,
+    useShareProductImprovement,
     useTosAccepted,
 } from "@/domains/onboarding/prefs";
 import { isElectron } from "@/runtime/is-electron";
@@ -79,6 +80,8 @@ export function PrivacyScreen() {
     onboardingFunnelVariantFromExperiment(preChatExperimentArm);
   const [shareAnalytics, setShareAnalyticsReal] = useShareAnalytics();
   const [shareDiagnostics, setShareDiagnosticsReal] = useShareDiagnostics();
+  const [shareProductImprovement, setShareProductImprovementReal] =
+    useShareProductImprovement();
   const [tosAccepted, setTosAcceptedReal] = useTosAccepted();
   const [aiDataConsent, setAiDataConsentReal] = useAiDataConsent();
   const hasPlatformSession = useHasPlatformSession();
@@ -93,6 +96,9 @@ export function PrivacyScreen() {
   const noop = useCallback((_next: boolean) => {}, []);
   const setShareAnalytics = isPreview ? noop : setShareAnalyticsReal;
   const setShareDiagnostics = isPreview ? noop : setShareDiagnosticsReal;
+  const setShareProductImprovement = isPreview
+    ? noop
+    : setShareProductImprovementReal;
   const setTosAccepted = isPreview ? noop : setTosAcceptedReal;
   const setAiDataConsent = isPreview ? noop : setAiDataConsentReal;
 
@@ -106,7 +112,7 @@ export function PrivacyScreen() {
       return;
     }
 
-    saveConsent({ userId, tos: tosAccepted, ai: aiDataConsent, shareAnalytics, shareDiagnostics, hasPlatformSession });
+    saveConsent({ userId, tos: tosAccepted, ai: aiDataConsent, shareAnalytics, shareDiagnostics, shareProductImprovement, hasPlatformSession });
     if (!isNative) {
       const variant = resolveOnboardingFunnelVariant(preferredFunnelVariant);
       emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
@@ -130,6 +136,7 @@ export function PrivacyScreen() {
     searchParams,
     shareAnalytics,
     shareDiagnostics,
+    shareProductImprovement,
     tosAccepted,
     userId,
   ]);
@@ -220,8 +227,18 @@ export function PrivacyScreen() {
             <div className="h-px bg-[var(--surface-active)] dark:bg-[var(--surface-lift)]" />
             <div className="flex items-center gap-2 text-body-small-default text-[var(--content-tertiary)]">
               <EyeOff className="h-4 w-4 shrink-0" />
-              <span>Your conversations and personal data are never included.</span>
+              <span>
+                Share Analytics and Share Diagnostics never include your
+                conversations or personal data.
+              </span>
             </div>
+            <div className="h-px bg-[var(--surface-active)] dark:bg-[var(--surface-lift)]" />
+            <SettingRow
+              label="Help improve Vellum"
+              helperText="Enables web session recording and collection of conversation and agent-execution traces to debug issues and improve the product. Unlike the options above, this can include your conversation content. On by default; opt out anytime here or in Settings."
+              checked={shareProductImprovement}
+              onChange={setShareProductImprovement}
+            />
           </div>
         </Card>
 

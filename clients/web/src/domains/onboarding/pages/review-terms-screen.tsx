@@ -6,6 +6,7 @@ import {
     useAiDataConsent,
     useShareAnalytics,
     useShareDiagnostics,
+    useShareProductImprovement,
     useTosAccepted,
 } from "@/domains/onboarding/prefs";
 import { hardNavigate } from "@/lib/auth/hard-navigate";
@@ -32,9 +33,10 @@ export function ReviewTermsScreen() {
   const [aiDataConsent, setAiDataConsent] = useAiDataConsent();
   const [shareAnalytics] = useShareAnalytics();
   const [shareDiagnostics] = useShareDiagnostics();
+  const [shareProductImprovement] = useShareProductImprovement();
 
   const onContinue = useCallback(() => {
-    saveConsent({ userId, tos: tosAccepted, ai: aiDataConsent, shareAnalytics, shareDiagnostics, hasPlatformSession });
+    saveConsent({ userId, tos: tosAccepted, ai: aiDataConsent, shareAnalytics, shareDiagnostics, shareProductImprovement, hasPlatformSession });
 
     const destination = sanitizeReturnTo(searchParams.get("returnTo"), routes.assistant);
     void navigate(destination, { replace: true });
@@ -45,6 +47,7 @@ export function ReviewTermsScreen() {
     searchParams,
     shareAnalytics,
     shareDiagnostics,
+    shareProductImprovement,
     tosAccepted,
     userId,
   ]);
