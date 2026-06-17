@@ -104,7 +104,7 @@ function currentResponse(toolUseId: string): ToolResultContent {
   };
 }
 
-/** A weak-model id that matches WEAK_MODEL_PATTERN (the gated population). */
+/** A weak-model id that matches WEAK_OPEN_MODEL_PATTERN (the gated population). */
 const WEAK_MODEL = "minimax/minimax-m3";
 
 function makeCtx(
