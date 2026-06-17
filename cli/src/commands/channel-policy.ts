@@ -338,12 +338,18 @@ async function conversationSet(
   floor: AdmissionPolicy,
   assistantName?: string,
 ): Promise<void> {
+  // Derive channelType from the conversationId prefix (e.g. "slack:C0123" → "slack").
+  // The gateway requires channelType in the body for the §8.1 internal-channel
+  // exemption check (SetConversationOverrideBodySchema uses z.enum(CHANNEL_IDS)).
+  const colonIdx = conversationId.indexOf(":");
+  const channelType = colonIdx !== -1 ? conversationId.slice(0, colonIdx) : undefined;
+
   const client = createClient(assistantName);
   let res: Response;
   try {
     res = await client.post(
       `/channel-admission-policy/conversations/${encodeURIComponent(conversationId)}`,
-      { floor },
+      { floor, ...(channelType !== undefined ? { channelType } : {}) },
     );
   } catch (err) {
     rethrowFetchError(err);
