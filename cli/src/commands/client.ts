@@ -355,7 +355,7 @@ function findWebDistDir(): string | null {
 
   let dir = import.meta.dir;
   for (let depth = 0; depth < 8; depth++) {
-    const candidate = path.join(dir, "apps", "web", "dist", "index.html");
+    const candidate = path.join(dir, "clients", "web", "dist", "index.html");
     if (existsSync(candidate)) {
       return path.dirname(candidate);
     }
@@ -373,7 +373,7 @@ function findWebDistDir(): string | null {
 function findWebSourceDir(): string | null {
   let dir = import.meta.dir;
   for (let depth = 0; depth < 8; depth++) {
-    const candidate = path.join(dir, "apps", "web", "vite.config.ts");
+    const candidate = path.join(dir, "clients", "web", "vite.config.ts");
     if (existsSync(candidate)) {
       return path.dirname(candidate);
     }

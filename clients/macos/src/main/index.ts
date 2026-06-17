@@ -180,7 +180,7 @@ const resolveRendererRoot = (): string => {
   }
   // Dev source tree: clients/web/dist — requires `bun run build` in clients/web/.
   const repoRoot = path.resolve(app.getAppPath(), "..", "..");
-  return path.join(repoRoot, "apps", "web", "dist");
+  return path.join(repoRoot, "clients", "web", "dist");
 };
 
 const registerAppProtocol = (): void => {

@@ -100,7 +100,7 @@ export function findWebDistDir(): string | null {
 
   let dir = import.meta.dir;
   for (let depth = 0; depth < 8; depth++) {
-    const candidate = join(dir, "apps", "web", "dist", "index.html");
+    const candidate = join(dir, "clients", "web", "dist", "index.html");
     if (existsSync(candidate)) {
       return dirname(candidate);
     }
