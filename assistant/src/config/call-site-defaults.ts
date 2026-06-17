@@ -1,7 +1,13 @@
 import { type LLMCallSite } from "./schemas/llm.js";
 
 type CallSiteDefaultConfig = {
-  profile: string;
+  /**
+   * Named profile the call site resolves to. Omit to inherit the workspace
+   * default config (`llm.default`, with the active profile applied) — used for
+   * call sites that must resolve to a credentialed provider on every install
+   * rather than pinning a profile that may be unavailable.
+   */
+  profile?: string;
   maxTokens?: number;
   effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
   temperature?: number | null;
@@ -125,8 +131,12 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     thinking: { enabled: false },
     disableCache: true,
   },
+  // Anonymous and schema leaves inherit the workspace default config (no pinned
+  // profile) so they always resolve to a credentialed provider. Pinning a
+  // managed profile like `cost-optimized` breaks BYOK installs where the managed
+  // profiles are uncredentialed. A per-leaf `profile` option or a `workflowLeaf`
+  // call-site override still takes precedence for cost control.
   workflowLeaf: {
-    profile: "cost-optimized",
     effort: "low",
     thinking: { enabled: false },
   },
