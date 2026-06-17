@@ -62,8 +62,6 @@ import { SkillsTab } from "./components/tabs/skills-tab";
  *   the turn containing that message. The same dropdown stays visible;
  *   selecting "All messages" drops back into conversation mode.
  *
- * Web counterpart of macOS's `MessageInspectorView`
- * (`clients/macos/vellum-assistant/Features/Chat/MessageInspectorView.swift`).
  * The selected call is encoded as `?callId=...` in the URL so each row in
  * the rail is a real hyperlink — sharable, right-click-openable, and
  * back/forward navigable. Falls back to the most recent call when `callId`

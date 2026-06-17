@@ -613,14 +613,12 @@ export function HatchingScreen() {
 
   return (
     <OnboardingLayout>
-      {/* Electron mirrors the Swift HatchingStepView layout: title pinned
-          84px from the window top (the shared step-title position), the
-          creature centered in the leftover space via auto margins (Swift's
-          Spacer pair), and the progress section near the bottom — pb-28
-          keeps it clear of the fixed CreatureFooter art, which Swift renders
-          in-flow below the progress bar. The 200px bar cap and 10px label
-          mirror HatchingStepView.swift (widthCap(200), VFont.labelSmall).
-          Web/iOS keep the centered layout. */}
+      {/* Electron layout: title pinned 84px from the window top (the shared
+          step-title position), the creature centered in the leftover space via
+          auto margins, and the progress section near the bottom — pb-28 keeps
+          it clear of the fixed CreatureFooter art below the progress bar. The
+          bar caps at 200px with a 10px label. Web/iOS keep the centered
+          layout. */}
       <div className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-28 electron-prechat-type" : "min-h-screen justify-center px-6 pb-40"} text-center text-[var(--content-default)]`}>
         <h1 className={electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}>
           {phase === "ready" ? "Your assistant is ready!" : "Waking up…"}

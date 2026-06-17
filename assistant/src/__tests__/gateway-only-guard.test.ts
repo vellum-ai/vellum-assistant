@@ -23,10 +23,6 @@ const ALLOWLIST = new Set([
 
   // --- Intentional local daemon-control paths ---
   "assistant/src/cli/commands/conversations.ts", // CLI wipe talks to runtime directly
-  "clients/shared/Network/DaemonClient.swift",
-  "clients/shared/App/Auth/PlatformOAuthService.swift", // comment explaining runtimeUrl vs platformUrl
-  "clients/macos/vellum-assistant/App/AppDelegate.swift",
-  "clients/macos/vellum-assistant/Features/Settings/SettingsConnectTab.swift",
   "apps/macos/src/main/bundle-flow.ts", // Electron main calls the local gateway (gatewayPort) with a Guardian token to scan bundles
   ".claude/skills/update/SKILL.md", // daemon health check script
 

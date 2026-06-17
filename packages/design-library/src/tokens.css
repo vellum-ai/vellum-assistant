@@ -20,16 +20,12 @@
  * --------------------------------------------------------------------------- */
 
 /* ---------------------------------------------------------------------------
- * Brand fonts — the same files the Swift macOS client bundles
- * (clients/macos/vellum-assistant/Resources/Fonts), so text renders
- * identically across the native and web/Electron clients.
+ * Brand fonts.
  *
- * DM Sans ships as a single variable font; the Swift client drives its
- * weights (300–700) through the `wght` axis of this same file, so one
- * @font-face with a variable weight range mirrors that exactly. DM Mono and
- * Instrument Serif are static cuts. Italic is intentionally not bundled —
- * the Swift client synthesizes oblique too (TypographyTokens.swift), so
- * browser-synthesized italics match.
+ * DM Sans ships as a single variable font driving weights (300–700) through
+ * the `wght` axis, so one @font-face with a variable weight range covers the
+ * full range. DM Mono and Instrument Serif are static cuts. Italic is
+ * intentionally not bundled — browser-synthesized oblique is used instead.
  * --------------------------------------------------------------------------- */
 
 @font-face {

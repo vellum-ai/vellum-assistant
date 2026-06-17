@@ -9,9 +9,8 @@
  * branches (macOS `.app` Resources, next-to-binary) key off
  * `import.meta.dir.startsWith("/$bunfs/")`, so at test time only the
  * source-mode early-return is exercised here; the compiled branch is
- * covered structurally via the signing + packaging step in
- * `clients/macos/build.sh` and will be exercised end-to-end by the
- * supervisor integration test added in PR 27.
+ * covered structurally via the Electron signing + packaging step in
+ * `apps/macos/scripts/pack.sh`.
  */
 
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";

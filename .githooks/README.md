@@ -79,10 +79,8 @@ Runs fast static checks before pushing. **Tests are not run here — CI is the s
 
 **What it checks:**
 
-1. **Swift build** (`clients/`) — `swift build --product vellum-assistant` when `.swift` files changed. Skip with `SKIP_SWIFT_BUILD=1`.
-2. **Design token guard** (`clients/`) — strict-mode `check-design-tokens.sh` when `.swift` files changed.
-3. **TypeScript type check** — `tsc --noEmit` on `assistant/` and `clients/chrome-extension/` when their `.ts`/`.tsx` files changed. Backstops the pre-commit type check which is skipped in worktrees for performance.
-4. **Lint** — `eslint` on changed `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs` files in `assistant/`, `cli/`, `gateway/`, and `clients/chrome-extension/`.
+1. **TypeScript type check** — `tsc --noEmit` on `assistant/` and `clients/chrome-extension/` when their `.ts`/`.tsx` files changed. Backstops the pre-commit type check which is skipped in worktrees for performance.
+2. **Lint** — `eslint` on changed `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs` files in `assistant/`, `cli/`, `gateway/`, and `clients/chrome-extension/`.
 
 Tests used to run here via a dependency-graph + filename-heuristic discovery pass, but were removed: small changes routinely pulled 900+ tests into the push path, blocking agents and pushing humans to `--no-verify` by default. CI runs the suite; that's enough.
 
