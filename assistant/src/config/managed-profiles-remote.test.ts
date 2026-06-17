@@ -10,6 +10,10 @@ let mockClient: {
   fetch: (path: string, init?: RequestInit) => Promise<Response>;
 } | null = null;
 let lastFetchPath: string | undefined;
+// When set, `VellumPlatformClient.create()` returns this promise instead of
+// resolving to `mockClient`. Lets a test simulate a slow/hung credential
+// subsystem inside `create()`.
+let mockCreate: (() => Promise<unknown>) | undefined;
 
 // ---------------------------------------------------------------------------
 // Module mocks (must be registered before importing the module under test)
@@ -21,7 +25,7 @@ mock.module("./env-registry.js", () => ({
 
 mock.module("../platform/client.js", () => ({
   VellumPlatformClient: {
-    create: async () => mockClient,
+    create: () => (mockCreate ? mockCreate() : Promise.resolve(mockClient)),
   },
 }));
 
@@ -97,10 +101,12 @@ describe("fetchManagedProfileTemplates", () => {
     mockDisableRemote = false;
     mockClient = null;
     lastFetchPath = undefined;
+    mockCreate = undefined;
   });
 
   afterEach(() => {
     mockClient = null;
+    mockCreate = undefined;
   });
 
   test("happy path: maps 4 valid profiles with camelCase keys", async () => {
@@ -249,5 +255,48 @@ describe("fetchManagedProfileTemplates", () => {
     );
     const result = await fetchManagedProfileTemplates();
     expect(result).toBeNull();
+  });
+
+  test("canonical connection but mismatched provider → null", async () => {
+    const profiles = fourValidProfiles();
+    // anthropic-managed is a canonical connection, but it belongs to the
+    // "anthropic" provider, not "openai".
+    (profiles[0] as Record<string, unknown>).provider = "openai";
+    mockClient = makeClient(() =>
+      jsonResponse({ schema_version: 1, profiles }),
+    );
+    const result = await fetchManagedProfileTemplates();
+    expect(result).toBeNull();
+  });
+
+  test("client creation hangs → null within budget, does not throw", async () => {
+    // Simulate a slow/unreachable credential subsystem: create() never
+    // resolves within the budget. The whole operation must still fall back to
+    // null bounded by the timeout, not by create()'s ~45s internal timeout.
+    mockCreate = () => new Promise(() => {});
+
+    const start = Date.now();
+    const result = await fetchManagedProfileTemplates({ timeoutMs: 50 });
+    const elapsed = Date.now() - start;
+
+    expect(result).toBeNull();
+    // Generous upper bound to stay deterministic on a loaded CI box while still
+    // proving we did NOT wait for create()'s internal timeout.
+    expect(elapsed).toBeLessThan(2000);
+  });
+
+  test("late client-creation rejection does not produce an unhandled rejection", async () => {
+    // create() rejects AFTER the timeout has already won the race. The losing
+    // promise must be handled so the late rejection can't crash the process.
+    mockCreate = () =>
+      new Promise((_resolve, reject) => {
+        setTimeout(() => reject(new Error("late CES failure")), 30);
+      });
+
+    const result = await fetchManagedProfileTemplates({ timeoutMs: 5 });
+    expect(result).toBeNull();
+    // Give the late rejection time to fire so an unhandled rejection would
+    // surface within this test rather than leaking to another.
+    await new Promise((resolve) => setTimeout(resolve, 50));
   });
 });

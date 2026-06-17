@@ -24,6 +24,7 @@ import { EffortEnum, LLMProvider, ProfileSource } from "./schemas/llm.js";
 import {
   AUTO_PROFILE_KEY,
   MANAGED_PROFILE_NAMES,
+  MANAGED_PROFILE_TEMPLATES,
   type ManagedProfileTemplate,
 } from "./seed-inference-profiles.js";
 
@@ -90,6 +91,28 @@ const ALLOWED_REMOTE_KEYS = new Set(
 );
 
 /**
+ * Canonical connection-name → provider mapping, derived from the built-in
+ * `MANAGED_PROFILE_TEMPLATES` so there is a single source of truth. A remote
+ * payload's `(provider, connection_name)` pairing must agree with the built-in
+ * pairing for that connection — otherwise the seeded profile's provider and
+ * `provider_connection` would disagree and the provider resolver would treat it
+ * as a hard config error or auto-reroute, breaking the managed profile instead
+ * of falling back wholesale.
+ */
+const CANONICAL_CONNECTION_PROVIDER = new Map<string, string>(
+  Object.values(MANAGED_PROFILE_TEMPLATES).map((t) => [
+    t.connectionName,
+    t.provider,
+  ]),
+);
+
+/**
+ * Sentinel returned by the timeout arm of the bounded race. Distinct from
+ * `null` so we can tell "timed out" from a legitimate `null` failure result.
+ */
+const TIMED_OUT = Symbol("managed-profiles-remote-timeout");
+
+/**
  * Fetch the managed model-profile templates from the platform.
  *
  * Performs at most one bounded GET. Returns a `key → ManagedProfileTemplate`
@@ -106,6 +129,47 @@ export async function fetchManagedProfileTemplates(opts?: {
     return null;
   }
 
+  const budgetMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+  // Bound the ENTIRE operation — client creation included — by the budget.
+  // `VellumPlatformClient.create()` performs unbounded secure-key reads (CES
+  // can take ~45s) and honors no abort signal, so we race the whole async path
+  // against a single timer. The GET also gets its own `AbortSignal.timeout` so
+  // the underlying socket is actually cancelled when the timer wins.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<typeof TIMED_OUT>((resolve) => {
+    timer = setTimeout(() => resolve(TIMED_OUT), budgetMs);
+  });
+
+  // Attach a no-op catch so that if the work promise rejects AFTER the timeout
+  // has already won the race, the late rejection doesn't surface as an
+  // unhandled rejection and crash the process.
+  const work = fetchManagedProfileTemplatesUnbounded(budgetMs);
+  work.catch(() => {});
+
+  try {
+    const result = await Promise.race([work, timeout]);
+    if (result === TIMED_OUT) {
+      log.warn(
+        { budgetMs },
+        "Remote model-profiles fetch exceeded timeout budget — using built-ins",
+      );
+      return null;
+    }
+    return result;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/**
+ * The unbounded fetch + validate + map pipeline. Never throws (every failure
+ * path returns `null`); the caller in `fetchManagedProfileTemplates` is
+ * responsible for bounding total wall-clock time via `Promise.race`.
+ */
+async function fetchManagedProfileTemplatesUnbounded(
+  budgetMs: number,
+): Promise<Record<string, ManagedProfileTemplate> | null> {
   try {
     const { VellumPlatformClient } = await import("../platform/client.js");
     const client = await VellumPlatformClient.create();
@@ -118,7 +182,7 @@ export async function fetchManagedProfileTemplates(opts?: {
 
     const path = `/v1/assistants/${encodeURIComponent(client.platformAssistantId)}/model-profiles/`;
     const response = await client.fetch(path, {
-      signal: AbortSignal.timeout(opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS),
+      signal: AbortSignal.timeout(budgetMs),
     });
 
     if (!response.ok) {
@@ -161,6 +225,20 @@ export async function fetchManagedProfileTemplates(opts?: {
         log.warn(
           { key: remote.key, connectionName: remote.connection_name },
           "Remote model-profiles payload referenced a non-canonical managed connection — using built-ins",
+        );
+        return null;
+      }
+      if (
+        CANONICAL_CONNECTION_PROVIDER.get(remote.connection_name) !==
+        remote.provider
+      ) {
+        log.warn(
+          {
+            key: remote.key,
+            provider: remote.provider,
+            connectionName: remote.connection_name,
+          },
+          "Remote model-profiles payload paired a managed connection with the wrong provider — using built-ins",
         );
         return null;
       }
