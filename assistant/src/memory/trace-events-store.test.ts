@@ -8,10 +8,11 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// Consent reflection the store gates on. Both must be true for trace
-// collection to be enabled (DARK by default).
+// Consent reflection the store gates on. Trace collection requires
+// `collectUsageData` AND product-improvement consent (local config OR server),
+// and is DARK by default.
 let collectUsageData = true;
-let shareProductImprovement = true;
+let shareProductImprovement = false;
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
@@ -24,6 +25,10 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
+// The server-consent read is exercised end-to-end in platform-consent.test.ts;
+// here we drive its cache directly via the real module's test seam (rather than
+// mocking the module, which would leak globally across test files).
+import { _setServerConsentForTests } from "../telemetry/platform-consent.js";
 import type { TraceTelemetryEvent } from "../telemetry/types.js";
 import { getDb } from "./db-connection.js";
 import { initializeDb } from "./db-init.js";
@@ -35,6 +40,11 @@ import {
 } from "./trace-events-store.js";
 
 initializeDb();
+
+/** Set the server-consent dimension of the gate. */
+function setServerConsent(value: boolean): void {
+  _setServerConsentForTests(value);
+}
 
 const SAMPLE_TRACE: TraceTelemetryEvent["trace"] = {
   exit_reason: "completed",
@@ -77,14 +87,19 @@ function insertRow(id: string, createdAt: number): void {
 
 describe("trace-events-store", () => {
   beforeEach(() => {
+    // Default the non-gate tests to "enabled" via the local override so the
+    // round-trip/cursor tests record. The gate tests set their own values.
     collectUsageData = true;
     shareProductImprovement = true;
+    setServerConsent(false);
     getDb().delete(telemetryTraceEvents).run();
   });
 
   describe("consent gate (DARK by default)", () => {
-    test("records nothing when shareProductImprovement is off", () => {
+    test("dark by default: nothing recorded when both local and server are off", () => {
       shareProductImprovement = false;
+      setServerConsent(false);
+      expect(traceCollectionEnabled()).toBe(false);
       recordTraceEvent({
         conversationId: "conv-1",
         requestId: "req-1",
@@ -93,28 +108,9 @@ describe("trace-events-store", () => {
       expect(queryUnreportedTraceEvents(0, undefined, 10)).toHaveLength(0);
     });
 
-    test("records nothing when collectUsageData is off", () => {
-      collectUsageData = false;
-      recordTraceEvent({
-        conversationId: "conv-1",
-        requestId: "req-1",
-        trace: SAMPLE_TRACE,
-      });
-      expect(queryUnreportedTraceEvents(0, undefined, 10)).toHaveLength(0);
-    });
-
-    test("records nothing when both are off", () => {
-      collectUsageData = false;
-      shareProductImprovement = false;
-      recordTraceEvent({
-        conversationId: "conv-1",
-        requestId: "req-1",
-        trace: SAMPLE_TRACE,
-      });
-      expect(queryUnreportedTraceEvents(0, undefined, 10)).toHaveLength(0);
-    });
-
-    test("records only when both consents are on", () => {
+    test("enabled by the local shareProductImprovement override", () => {
+      shareProductImprovement = true;
+      setServerConsent(false);
       expect(traceCollectionEnabled()).toBe(true);
       recordTraceEvent({
         conversationId: "conv-1",
@@ -122,6 +118,31 @@ describe("trace-events-store", () => {
         trace: SAMPLE_TRACE,
       });
       expect(queryUnreportedTraceEvents(0, undefined, 10)).toHaveLength(1);
+    });
+
+    test("enabled by server consent alone (local override off)", () => {
+      shareProductImprovement = false;
+      setServerConsent(true);
+      expect(traceCollectionEnabled()).toBe(true);
+      recordTraceEvent({
+        conversationId: "conv-1",
+        requestId: "req-1",
+        trace: SAMPLE_TRACE,
+      });
+      expect(queryUnreportedTraceEvents(0, undefined, 10)).toHaveLength(1);
+    });
+
+    test("collectUsageData opt-out overrides any product-improvement consent", () => {
+      collectUsageData = false;
+      shareProductImprovement = true;
+      setServerConsent(true);
+      expect(traceCollectionEnabled()).toBe(false);
+      recordTraceEvent({
+        conversationId: "conv-1",
+        requestId: "req-1",
+        trace: SAMPLE_TRACE,
+      });
+      expect(queryUnreportedTraceEvents(0, undefined, 10)).toHaveLength(0);
     });
   });
 

@@ -19,8 +19,30 @@ mock.module("../memory/trace-events-store.js", () => ({
   },
 }));
 
+// Controllable analytics gate. Drives whether the constructor warms the
+// consent cache.
+let collectUsageData = true;
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({ collectUsageData }),
+}));
+
+// The constructor warms the real consent cache via `refreshPlatformConsent`,
+// which calls `VellumPlatformClient.create()`. Spy on `create` to observe the
+// warm trigger without mocking `platform-consent` itself (which would leak the
+// stub into platform-consent.test.ts in the shared test process).
+let createCount = 0;
+mock.module("../platform/client.js", () => ({
+  VellumPlatformClient: {
+    create: () => {
+      createCount += 1;
+      return Promise.resolve(null);
+    },
+  },
+}));
+
 import type { AgentEvent } from "../agent/loop.js";
 import type { Message } from "../providers/types.js";
+import { _resetPlatformConsentCacheForTests } from "./platform-consent.js";
 import { TurnTraceAccumulator } from "./turn-trace-accumulator.js";
 
 function assistantMessage(content: Message["content"]): Message {
@@ -30,6 +52,29 @@ function assistantMessage(content: Message["content"]): Message {
 describe("TurnTraceAccumulator", () => {
   beforeEach(() => {
     recorded.length = 0;
+    collectUsageData = true;
+    createCount = 0;
+    // Reset so each warming test sees a refresh as "due".
+    _resetPlatformConsentCacheForTests();
+  });
+
+  describe("consent-cache warming", () => {
+    test("warms the platform consent cache on construction when analytics is on", async () => {
+      collectUsageData = true;
+      new TurnTraceAccumulator("conv-1", "req-1");
+      // The refresh is fire-and-forget; let the microtask drain.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(createCount).toBe(1);
+    });
+
+    test("does not fetch consent when analytics is opted out", async () => {
+      collectUsageData = false;
+      new TurnTraceAccumulator("conv-1", "req-1");
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(createCount).toBe(0);
+    });
   });
 
   test("assembles llm calls, tool calls, and usage into one buffered trace", () => {

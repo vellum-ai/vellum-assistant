@@ -2,29 +2,39 @@ import { and, asc, eq, gt, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
+import { productImprovementConsentFromServer } from "../telemetry/platform-consent.js";
 import type { TraceTelemetryEvent } from "../telemetry/types.js";
 import { getDb } from "./db-connection.js";
 import { telemetryTraceEvents } from "./schema.js";
 
 /**
  * Whether per-turn execution traces may be buffered. Trace collection is DARK
- * by default and only turns on when the platform consent says
- * current-version-accepted AND the combined product-improvement toggle is on.
+ * by default and only turns on when the user has affirmatively consented to
+ * product-improvement data sharing AND has not opted out of analytics.
  *
- * The daemon reflects that consent through two config keys:
- *  - `collectUsageData` — the existing analytics opt-out (defaults on) every
- *    other telemetry buffer already gates on; and
- *  - `shareProductImprovement` — the combined opt-out covering full-content
- *    trace collection (defaults OFF).
+ * Two independent gates, both required:
  *
- * Requiring both means a trace is never buffered until the user explicitly
- * accepts the product-improvement consent, even for users already opted into
- * analytics — and unknown/unsynced consent reads as off because
- * `shareProductImprovement` defaults to `false`.
+ *  1. `collectUsageData` (local config, defaults on) — the existing analytics
+ *     opt-out every other telemetry buffer already honors.
+ *  2. Product-improvement consent — affirmatively on. Resolved from EITHER:
+ *       - the local `shareProductImprovement` config key (defaults OFF) — an
+ *         explicit local override, e.g. when a client mirrors the consent into
+ *         daemon config directly; OR
+ *       - the user's `share_product_improvement` consent on the platform,
+ *         fetched and TTL-cached via {@link productImprovementConsentFromServer}.
+ *
+ * The server read fails closed (returns `false` when unknown / unreachable /
+ * stale), and the local key defaults `false`, so unknown consent ⇒ off. This
+ * keeps the pipeline dark until the user opts in (the platform consent defaults
+ * on once the user accepts the current version, at which point the cached
+ * server read flips this on).
  */
 export function traceCollectionEnabled(): boolean {
   const config = getConfig();
-  return config.collectUsageData && config.shareProductImprovement;
+  if (!config.collectUsageData) return false;
+  return (
+    config.shareProductImprovement || productImprovementConsentFromServer()
+  );
 }
 
 // ---------------------------------------------------------------------------

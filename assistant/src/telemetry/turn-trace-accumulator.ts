@@ -18,14 +18,16 @@
  */
 
 import type { AgentEvent } from "../agent/loop.js";
+import { getConfig } from "../config/loader.js";
 import { recordTraceEvent } from "../memory/trace-events-store.js";
 import { redactSensitiveFields } from "../security/redaction.js";
+import { getLogger } from "../util/logger.js";
+import { refreshPlatformConsent } from "./platform-consent.js";
 import type {
   TraceLlmCall,
   TraceTelemetryEvent,
   TraceToolCall,
-} from "../telemetry/types.js";
-import { getLogger } from "../util/logger.js";
+} from "./types.js";
 
 const log = getLogger("turn-trace");
 
@@ -58,6 +60,19 @@ export class TurnTraceAccumulator {
   constructor(conversationId: string, requestId: string | null) {
     this.conversationId = conversationId;
     this.requestId = requestId;
+    // Warm the platform consent cache on the edge of the turn path (a turn is
+    // starting). The recording decision reads the cache synchronously, so this
+    // background, TTL-gated, single-flight fetch keeps it fresh without
+    // blocking the hot `agent_loop_exit` write. Gated on `collectUsageData` so
+    // analytics-opted-out users never trigger a consent fetch; fire-and-forget
+    // and fail-closed, so it can never affect the turn.
+    try {
+      if (getConfig().collectUsageData) {
+        void refreshPlatformConsent().catch(() => {});
+      }
+    } catch {
+      // getConfig() can throw in degraded startup; ignore — fail closed.
+    }
   }
 
   /** The currently-open LLM call (the last one started), or null. */
