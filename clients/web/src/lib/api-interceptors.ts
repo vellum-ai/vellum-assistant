@@ -36,14 +36,10 @@ import { client as gatewayClient } from "@/generated/gateway/client.gen";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { ApiError, extractErrorMessage } from "@/utils/api-errors";
+import { isLocalMode, isPlatformDisabled, isRemoteGatewayMode } from "@/lib/local-mode";
 import {
-  isLocalMode,
-  isPlatformDisabled,
-  isRemoteGatewayMode,
-} from "@/lib/local-mode";
-import {
-  getSelfHostedActorToken,
-  getSelfHostedIngressUrl,
+    getSelfHostedActorToken,
+    getSelfHostedIngressUrl,
 } from "@/lib/self-hosted/connection";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import { getDeviceId } from "@/runtime/device-id";
@@ -76,7 +72,8 @@ function getRendererTupleOrigin(): string {
  */
 const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>(["conversations"]);
 
-const ASSISTANT_PATH_RE = /^\/v1\/assistants\/[^/]+\/([^/?#]+)(?:\/.*)?$/;
+const ASSISTANT_PATH_RE =
+  /^\/v1\/assistants\/[^/]+\/([^/?#]+)(?:\/.*)?$/;
 
 /**
  * Rewrites a request bound for `/v1/assistants/{id}/{runtime-segment}/...`
@@ -156,9 +153,7 @@ export async function rewriteForSelfHostedIngress(
   // the Request carries a finite-length payload. Platform self-hosted
   // uses TLS, so keep the streaming body to avoid buffering large uploads.
   const body = isLocalMode()
-    ? request.body
-      ? await request.arrayBuffer()
-      : null
+    ? (request.body ? await request.arrayBuffer() : null)
     : request.body;
 
   const init: RequestInit = {
@@ -338,9 +333,7 @@ export function resetGw401RecoveryFlag(): void {
   gw401RecoveryFired = false;
 }
 
-export function localGatewayAuthRecoveryInterceptor(
-  response: Response,
-): Response {
+export function localGatewayAuthRecoveryInterceptor(response: Response): Response {
   if (response.status !== 401) {
     return response;
   }
@@ -437,12 +430,7 @@ gatewayClient.interceptors.error.use(daemonErrorInterceptor);
 // sites (blob downloads) explicitly override `parseAs` per-request.
 //
 // Reference: https://heyapi.dev/openapi-ts/clients/fetch#parser
-for (const apiClient of [
-  daemonClient,
-  gatewayClient,
-  platformClient,
-  authClient,
-]) {
+for (const apiClient of [daemonClient, gatewayClient, platformClient, authClient]) {
   apiClient.setConfig({ parseAs: "json" });
 }
 
