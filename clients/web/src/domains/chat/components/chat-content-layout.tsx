@@ -51,7 +51,12 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const activeSubagentId = useViewerStore.use.activeSubagentId();
   const activeToolDetail = useViewerStore.use.activeToolDetail();
   const closeToolDetail = useViewerStore.use.closeToolDetail();
-  const subagentById = useSubagentStore((s) => s.byId);
+  // Subscribe to only the active subagent's entry rather than the whole `byId`
+  // map, so streaming events from *other* subagents don't re-render the chat
+  // layout (and the chat transcript it hosts) on every token.
+  const activeSubagentEntry = useSubagentStore((s) =>
+    activeSubagentId ? s.byId[activeSubagentId] : undefined,
+  );
 
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
@@ -245,7 +250,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   // Subagent detail side panel
   if (mainView === "subagent-detail" && activeSubagentId && !isMobile) {
-    const activeEntry = subagentById[activeSubagentId];
+    const activeEntry = activeSubagentEntry;
     if (activeEntry) {
       return (
         <ResizablePanel
