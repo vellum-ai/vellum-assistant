@@ -35,5 +35,5 @@ No fan-out leaf marks an article as final. Authoring leaves write `status: draft
 ## Recovery
 
 - Mid-run interruption (crash, deploy): the authoring workflow's resume replays completed clusters; re-launch the same `run_workflow` with the same `args`.
-- Bad cutover: `.mv3/backup-concepts.<timestamp>/` is the rollback point. `rsync -a --delete` it back over `memory/concepts/`, flip `memory-v3-live` off, restart. Keep the backup and snapshot until the user confirms the live wiki is good.
+- Bad cutover: `.mv3/backup-concepts.<timestamp>/` is the rollback point. `rsync -a --delete` it back over `memory/concepts/`, then `assistant config set memory.v3.live false` (leave `memory.v2.enabled true`). Keep the backup and snapshot until the user confirms the live wiki is good.
 - Nothing is deleted on the live side until the user confirms — archive, never delete.

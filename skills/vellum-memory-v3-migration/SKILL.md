@@ -12,7 +12,7 @@ metadata:
       - "When the user asks to migrate the memory wiki to v3 / the section-grain format"
       - "When memory-v3 retrieval is available but /workspace/memory/concepts/ is still v2-shaped (flat bullet pages, class folders, summary: frontmatter)"
     avoid-when:
-      - "When the corpus is already in v3 article shape (leads + ## sections, no summary:) and memory-v3-live is on"
+      - "When the corpus is already in v3 article shape (leads + ## sections, no summary:) and memory.v3.live is already true"
       - "When /workspace/memory/concepts/ is empty or near-empty (run vellum-memory-v2-migration first — there is nothing to reform)"
 ---
 
@@ -52,14 +52,13 @@ assistant memory v3 --help
 
 Expect at least `backfill-sections` and `rebuild-index` (used at cutover, Step 8). If absent, the binary predates v3 — upgrade before proceeding.
 
-**(2) Retrieval engine + flag mechanism.** Determine how memory-v3 is gated on this install and how you would flip it, _without flipping anything yet_. Probe in order and record what works:
+**(2) Cutover switch.** Memory-v3 is gated by the workspace config `memory.v3.live` (a boolean the assistant sets directly — no feature flag, no operator hand-off). Confirm you can read it now, _without changing it_:
 
 ```
-assistant config get memory 2>/dev/null
-assistant flags get memory-v3-live 2>/dev/null || vellum flags get memory-v3-live 2>/dev/null
+assistant config get memory.v3.live    # expect: false — you flip it at cutover (Step 9)
 ```
 
-The `memory-v3-live` flag is gateway-owned; on some installs the assistant can flip it via its own CLI, on others it is an **operator action**. If you cannot find a flip mechanism you control, that is fine — you will stage a complete cutover and hand the final flip to the user/operator in Step 9. Note which case you're in now.
+If `assistant config get/set memory.v3.live` errors, the binary predates the config gate — upgrade before proceeding. This is also the `assistant config set` path you use to pause consolidation in Step 1.
 
 **(3) Workflow engine.** The heavy authoring + auditing fans out through the native workflow engine. Confirm it's reachable: the `run_workflow` tool should be available (load the `workflows` skill if needed). If workflows are unavailable, you can still run this skill **inline** for a small corpus (Step 5 branches on size) — but a large corpus without workflows will be slow and is not recommended.
 
@@ -86,12 +85,19 @@ assistant ui confirm "I'll snapshot the memory wiki, rewrite every page into the
 
 If the user declines, stop — no snapshot, no work. If `assistant ui confirm` is unavailable, ask in conversation.
 
-### Step 1 — Snapshot + sentinel commit (loss-proof staging)
+### Step 1 — Freeze consolidation + snapshot (loss-proof staging)
 
-`/workspace` is a git repo. Establish the paper trail and the read-only baseline:
+First **pause consolidation** so nothing writes to the live corpus while you reform it. Consolidation is the only process that writes `memory/concepts/`; if it fires mid-migration it adds pages that aren't in your snapshot (so they never get reformed) and that the cutover would then clobber. Setting `memory.v2.enabled false` makes the consolidation job bail — it also pauses v2 retrieval/injection for the duration, which is fine for a focused migration. You restore it at cutover (Step 9).
 
 ```
 cd /workspace
+assistant config set memory.v2.enabled false   # pause consolidation — the only live-corpus writer
+assistant config get memory.v2.enabled         # expect: false
+```
+
+Then establish the paper trail and the read-only baseline:
+
+```
 git add -A && git commit -m "memory-v3-migration: start" --allow-empty
 cp -R memory/concepts .mv3/snapshot/concepts          # read-only baseline — NEVER edit
 mkdir -p .mv3/staging .mv3/provenance .mv3/audit .mv3/eval
@@ -159,9 +165,9 @@ assistant memory v3 eval --snapshot .mv3/snapshot/concepts --staging .mv3/stagin
 
 That writes `.mv3/eval/packets.json` (blinded A/B memory sets per turn) and `.mv3/eval/key.json` (the unblinding map). Then launch the **blind-judge workflow** (adapt `references/workflows.md` §3, pass `packets.json` as `args.packets`) to score each turn on coverage, map the verdicts back through `key.json`, and tally. The gate: the wiki must **win or tie**. If it loses, the losing turns name the clusters that under-retrieve (thin lead, over-merged article, missing link) — repair, re-run `eval`, re-judge. Do **not** cut over on a losing or unrun eval. See `references/eval-gate.md` for the methodology. (Embedding both corpora can take a while on a large corpus; `--no-dense` gives a fast lexical-only pass for iteration.)
 
-### Step 9 — Cutover (deploy + flip)
+### Step 9 — Cutover (deploy + go live)
 
-Coupled, in one window — staged articles have no `summary:`, so live v2 degrades the moment they land; deploy and flip must not be separated.
+Coupled, in one window — staged articles have no `summary:`, so live retrieval degrades the moment they land; deploy and go-live must not be separated.
 
 ```
 cd /workspace
@@ -169,9 +175,12 @@ cp -R memory/concepts .mv3/backup-concepts.$(date +%Y%m%d-%H%M%S)   # rollback p
 rsync -a --delete .mv3/staging/ memory/concepts/                     # deploy the reviewed wiki (flat)
 assistant memory v3 backfill-sections                                # seed section embeddings; verify non-zero
 assistant memory v3 rebuild-index                                    # invalidate lanes so next turn rebuilds
+assistant config set memory.v3.live true                             # v3 becomes the live injected source
+assistant config set memory.v2.enabled true                          # resume consolidation (now writes v3-shape pages)
+assistant config get memory.v3.live                                  # expect: true
 ```
 
-Then flip `memory-v3-live` via the mechanism you identified in Step 0.5(2). If that's an operator action you don't control, **stop here and hand off**: report that the wiki is deployed and embedded, and the only remaining step is flipping `memory-v3-live` (with the exact command or operator instruction). Keep `.mv3/backup-concepts.*` and `.mv3/snapshot/` until the user confirms the live wiki is good — rollback is `rsync -a --delete` from the backup, then flag off.
+`memory.v3.live` is plain workspace config the assistant owns — no feature flag, no operator hand-off. **Order matters:** set `memory.v3.live true` _before_ re-enabling consolidation, so it resumes in v3 shape, not v2. Keep `.mv3/backup-concepts.*` and `.mv3/snapshot/` until the user confirms the live wiki is good. **Rollback:** `rsync -a --delete` from the backup over `memory/concepts/`, then `assistant config set memory.v3.live false` (leave `memory.v2.enabled true` so v2-shape consolidation resumes on the restored corpus).
 
 ```
 git add -A && git commit -m "memory-v3-migration: complete (wiki deployed, sections backfilled)" --allow-empty
@@ -179,7 +188,7 @@ git add -A && git commit -m "memory-v3-migration: complete (wiki deployed, secti
 
 ### Step 10 — Close out
 
-Close the inference session if you opened one (`assistant inference session close`). Report: cluster + article counts, over-fragmentation collapse ratio, loss-audit result (load-bearing drops found + patched, drop-check clean), eval verdict (wiki vs v2), cutover state (deployed / flipped / handed-off), the backup path, and the three `memory-v3-migration:` sentinel commits. Note anything deferred (known-dangling links, unrouted pages).
+Close the inference session if you opened one (`assistant inference session close`). Report: cluster + article counts, over-fragmentation collapse ratio, loss-audit result (load-bearing drops found + patched, drop-check clean), eval verdict (wiki vs v2), cutover state (deployed, `memory.v3.live=true`, consolidation resumed), the backup path, and the three `memory-v3-migration:` sentinel commits. Note anything deferred (known-dangling links, unrouted pages).
 
 ## Hard rules
 
@@ -190,6 +199,7 @@ Close the inference session if you opened one (`assistant inference session clos
 - **Editorial judgment is the assistant's.** Taxonomy (Step 3) and final review (Step 7) are the assistant's calls; fan-out leaves draft, they never mark an article final.
 - **Cluster-grain authoring.** One agent per topic cluster, not per page — keeps the run under the engine's 500-agent cap and keeps topical judgment coherent.
 - **No eval, no cutover.** The wiki ships only after the blind judge says it retrieves ≥ the v2 corpus.
+- **Pause consolidation, then go live by config.** Set `memory.v2.enabled false` before the snapshot (Step 1) — consolidation is the only live-corpus writer. At cutover (Step 9) set `memory.v3.live true` _then_ `memory.v2.enabled true`; the order keeps the resumed consolidation in v3 shape.
 - **Lowercase, dash-separated flat slugs.** `the-cutover.md`, not `Arcs/The-Cutover.md`. v3 slugs are flat; hubs organize via `main:`/`links:`, not folders.
 - **Three sentinel commits**, all prefixed `memory-v3-migration:` — start / staged+audited / complete.
 
