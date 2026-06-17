@@ -506,7 +506,13 @@ async function main() {
   const handleLogExport = createLogExportHandler(config);
   const handleLogTail = createLogTailHandler(config);
   const handleFeatureFlagsGet = createFeatureFlagsGetHandler();
-  const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
+  // Assigned once `ipcServer` exists (see `emitFlagChanged` below). Passing a
+  // thunk lets the PATCH handler push flag changes to connected clients the
+  // moment a write commits, rather than waiting on the FeatureFlagWatcher.
+  let emitFlagChanged: () => void = () => {};
+  const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler(() =>
+    emitFlagChanged(),
+  );
   const handlePrivacyConfigGet = createPrivacyConfigGetHandler();
   const handlePrivacyConfigPatch = createPrivacyConfigPatchHandler();
   const handleGlobalThresholdGet = createGlobalThresholdGetHandler();
@@ -2397,7 +2403,7 @@ async function main() {
     assistantRuntimeBaseUrl: config.assistantRuntimeBaseUrl,
   });
 
-  const emitFlagChanged = () => {
+  emitFlagChanged = () => {
     ipcServer.emit("feature_flags_changed");
     // A `voice-mode` flip (e.g. after a warm-pool claim syncs the assistant's
     // flags) should bring up the Velay tunnel so web live voice can connect
