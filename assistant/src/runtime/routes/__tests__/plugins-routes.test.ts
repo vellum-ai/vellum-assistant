@@ -224,6 +224,7 @@ const uninstallHandler = findHandler("plugins_uninstall");
 const getHandler = findHandler("plugins_get");
 const installHandler = findHandler("plugins_install");
 const inspectHandler = findHandler("plugins_inspect");
+const surfacesHandler = findHandler("plugins_surfaces");
 const upgradeHandler = findHandler("plugins_upgrade");
 const diffHandler = findHandler("plugins_diff");
 
@@ -1004,7 +1005,12 @@ function inspection(
     remoteError: overrides.remoteError ?? null,
     surfaces:
       overrides.surfaces === undefined
-        ? { skills: [], hooks: ["post-model-call"], tools: [] }
+        ? {
+            skills: [],
+            hooks: ["post-model-call"],
+            tools: [],
+            registered: null,
+          }
         : overrides.surfaces,
   };
 }
@@ -1085,6 +1091,28 @@ describe("GET /v1/plugins/:name/inspect", () => {
     }
     expect(caught).toBeInstanceOf(InternalError);
     expect((caught as Error).message).toContain("EUNEXPECTED");
+  });
+});
+
+describe("GET /v1/plugins/:name/surfaces", () => {
+  // The registry-reading logic is unit-tested in
+  // registered-plugin-surfaces.test.ts; here we only assert the route wiring —
+  // name sanitization and the live-snapshot shape — without mutating the shared
+  // global registries this file's other suites rely on.
+
+  test("returns empty arrays for a plugin with nothing registered", () => {
+    const result = surfacesHandler({ pathParams: { name: "ghost" } });
+    expect(result).toEqual({ hooks: [], tools: [] });
+  });
+
+  test("InvalidPluginNameError → BadRequestError (400)", () => {
+    expect(() =>
+      surfacesHandler({ pathParams: { name: "../escape" } }),
+    ).toThrow(BadRequestError);
+  });
+
+  test("a missing name is rejected as a bad request", () => {
+    expect(() => surfacesHandler({})).toThrow(BadRequestError);
   });
 });
 

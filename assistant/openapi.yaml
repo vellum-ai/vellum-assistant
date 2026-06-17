@@ -19594,12 +19594,39 @@ paths:
                             description:
                               Registered tool names from `tools/<name>.{ts,js}` (filenames derived to tool names, e.g. `create-issue` →
                               `create_issue`).
+                          registered:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  hooks:
+                                    type: array
+                                    items:
+                                      type: string
+                                    description: Hook names registered in the daemon's plugin registry for this plugin.
+                                  tools:
+                                    type: array
+                                    items:
+                                      type: string
+                                    description:
+                                      Tool names registered in the daemon's tool registry owned by this plugin (their real registered names,
+                                      including any an exported `tool.name` overrode).
+                                required:
+                                  - hooks
+                                  - tools
+                                additionalProperties: false
+                                description: The subset of a plugin's hook/tool surfaces actually live in the daemon's in-memory registries.
+                              - type: "null"
+                            description:
+                              The subset of `hooks`/`tools` actually registered in the running daemon; null when the daemon could not be
+                              consulted (an object of empty arrays means the daemon is running but has nothing
+                              registered for this plugin).
                         required:
                           - skills
                           - hooks
                           - tools
+                          - registered
                         additionalProperties: false
-                        description: Surfaces the installed copy contributes, read from its on-disk tree.
+                        description: Surfaces the installed copy contributes (read from its on-disk tree), plus the subset live in the daemon.
                       - type: "null"
                     description: Surfaces the installed copy contributes (skills, hooks, tools); null when the plugin is not installed.
                 required:
@@ -19615,6 +19642,52 @@ paths:
           description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
         "404":
           description: No installed copy and no catalog entry claims the given name.
+  /v1/plugins/{name}/surfaces:
+    get:
+      operationId: plugins_by_name_surfaces_get
+      summary: List a plugin's live registered surfaces
+      description:
+        Report the subset of a plugin's hooks and tools actually registered in the running daemon's in-memory
+        registries — what the runtime has *loaded*, as opposed to what the install tree *ships* (the latter is `plugins
+        inspect`'s on-disk walk). Reads the plugin and tool registries directly, so a hook that failed to load is absent
+        and a tool that renamed itself via an exported `name` appears under its real registered name. An unregistered
+        plugin (not loaded, or installed on disk but never booted) returns empty arrays rather than 404. Powers the
+        registration annotations in `assistant plugins inspect <name>`.
+      tags:
+        - plugins
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hooks:
+                    type: array
+                    items:
+                      type: string
+                    description: Hook names registered in the daemon's plugin registry for this plugin.
+                  tools:
+                    type: array
+                    items:
+                      type: string
+                    description:
+                      Tool names registered in the daemon's tool registry owned by this plugin (their real registered names,
+                      including any an exported `tool.name` overrode).
+                required:
+                  - hooks
+                  - tools
+                additionalProperties: false
+                description: The subset of a plugin's hook/tool surfaces actually live in the daemon's in-memory registries.
+        "400":
+          description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
   /v1/plugins/{name}/upgrade:
     post:
       operationId: plugins_by_name_upgrade_post

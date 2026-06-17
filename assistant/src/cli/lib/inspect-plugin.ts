@@ -39,6 +39,7 @@ import {
 import {
   detectPluginSurfaces,
   type PluginSurfaces,
+  type RegisteredPluginSurfaces,
 } from "./plugin-surfaces.js";
 
 /** Full commit SHA (40 hex SHA-1 or 64 hex SHA-256). */
@@ -137,8 +138,10 @@ export interface PluginInspection {
   readonly remoteError: string | null;
   /**
    * Surfaces the installed copy contributes (skills, hooks, tools), read from
-   * its on-disk tree. `null` when the plugin is not installed — there is no
-   * tree to inspect, and the marketplace metadata does not enumerate surfaces.
+   * its on-disk tree, plus the subset actually registered in the running daemon
+   * (`surfaces.registered`) when {@link InspectPluginDeps.readRegisteredSurfaces}
+   * resolves it. `null` when the plugin is not installed — there is no tree to
+   * inspect, and the marketplace metadata does not enumerate surfaces.
    */
   readonly surfaces: PluginSurfaces | null;
 }
@@ -165,6 +168,16 @@ export interface InspectPluginDeps {
   readonly fetch: FetchLike;
   /** Override the workspace plugins directory. Falls back to the live workspace. */
   readonly workspacePluginsDir?: string;
+  /**
+   * Resolve the subset of a plugin's hooks/tools actually registered in the
+   * running daemon, keyed by install name. The CLI passes an IPC-backed reader
+   * (best-effort: it returns `null` when the daemon is unreachable so offline
+   * inspection still works); the daemon route passes one that reads its own
+   * in-process registries. Omitted entirely → `surfaces.registered` is `null`.
+   */
+  readonly readRegisteredSurfaces?: (
+    name: string,
+  ) => Promise<RegisteredPluginSurfaces | null>;
 }
 
 function readLocal(
@@ -276,7 +289,18 @@ export async function inspectPlugin(
   });
   const installed = entry !== null;
   const local = entry ? readLocal(entry, readInstallMeta(entry.target)) : null;
-  const surfaces = entry ? detectPluginSurfaces(entry.target) : null;
+  // Surfaces pair the on-disk contribution walk with the live registered subset.
+  // The registered view is best-effort: a missing reader (or one that returns
+  // null because the daemon is unreachable) leaves `registered: null` without
+  // failing the inspection — the disk listing still stands on its own.
+  let surfaces: PluginSurfaces | null = null;
+  if (entry) {
+    const contributed = detectPluginSurfaces(entry.target);
+    const registered = deps.readRegisteredSurfaces
+      ? await deps.readRegisteredSurfaces(name)
+      : null;
+    surfaces = { ...contributed, registered };
+  }
 
   let remote: PluginRemoteInfo | null = null;
   let remoteError: string | null = null;

@@ -398,12 +398,67 @@ describe("inspectPlugin", () => {
       { fetch, workspacePluginsDir: workspace },
     );
 
-    // THEN the contributed surfaces are listed (sorted) and tools is empty
+    // THEN the contributed surfaces are listed (sorted) and tools is empty;
+    // with no registered-surface reader, the live subset is unknown (null)
     expect(result.surfaces).toEqual({
       skills: ["first-skill", "second-skill"],
       hooks: ["init", "post-model-call"],
       tools: [],
+      registered: null,
     });
+  });
+
+  test("threads the daemon's registered surfaces onto the contributed listing", async () => {
+    // GIVEN an installed plugin shipping two hooks and one tool on disk
+    installPlugin(workspace, "level-up", {
+      sidecar: { commit: SHA_A },
+      surfaces: { hooks: ["init", "post-model-call"], tools: ["summarize"] },
+    });
+    const fetch = makeFetch({ marketplace: manifestWith("level-up", SHA_A) });
+
+    // AND a reader reporting only a subset is live in the daemon
+    const result = await inspectPlugin(
+      { name: "level-up" },
+      {
+        fetch,
+        workspacePluginsDir: workspace,
+        readRegisteredSurfaces: async (name) => {
+          expect(name).toBe("level-up");
+          return { hooks: ["init"], tools: ["summarize"] };
+        },
+      },
+    );
+
+    // THEN the contributed listing is unchanged and the live subset is attached
+    expect(result.surfaces).toEqual({
+      skills: [],
+      hooks: ["init", "post-model-call"],
+      tools: ["summarize"],
+      registered: { hooks: ["init"], tools: ["summarize"] },
+    });
+  });
+
+  test("leaves registered null when the daemon cannot be consulted", async () => {
+    // GIVEN an installed plugin and a reader that signals the daemon is down
+    installPlugin(workspace, "level-up", {
+      sidecar: { commit: SHA_A },
+      surfaces: { hooks: ["init"] },
+    });
+    const fetch = makeFetch({ marketplace: manifestWith("level-up", SHA_A) });
+
+    // WHEN it is inspected with a reader that returns null (unreachable)
+    const result = await inspectPlugin(
+      { name: "level-up" },
+      {
+        fetch,
+        workspacePluginsDir: workspace,
+        readRegisteredSurfaces: async () => null,
+      },
+    );
+
+    // THEN the disk listing still stands and the live subset is unknown
+    expect(result.surfaces?.hooks).toEqual(["init"]);
+    expect(result.surfaces?.registered).toBeNull();
   });
 
   test("leaves surfaces null when the plugin is not installed", async () => {

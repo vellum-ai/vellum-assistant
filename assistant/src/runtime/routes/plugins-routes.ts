@@ -40,6 +40,7 @@ import {
   PluginAlreadyInstalledError,
   PluginNotFoundError,
   PluginSourceUnavailableError,
+  sanitizePluginName,
 } from "../../cli/lib/install-from-github.js";
 import {
   type InstalledPluginInfo,
@@ -68,6 +69,7 @@ import {
   upgradePlugin,
 } from "../../cli/lib/upgrade-plugin.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { readRegisteredPluginSurfaces } from "../registered-plugin-surfaces.js";
 import {
   BadRequestError,
   ConflictError,
@@ -372,6 +374,23 @@ const pluginRemoteInfoSchema = z
   })
   .describe("The marketplace's current pin and advertised metadata.");
 
+const registeredPluginSurfacesSchema = z
+  .object({
+    hooks: z
+      .array(z.string())
+      .describe(
+        "Hook names registered in the daemon's plugin registry for this plugin.",
+      ),
+    tools: z
+      .array(z.string())
+      .describe(
+        "Tool names registered in the daemon's tool registry owned by this plugin (their real registered names, including any an exported `tool.name` overrode).",
+      ),
+  })
+  .describe(
+    "The subset of a plugin's hook/tool surfaces actually live in the daemon's in-memory registries.",
+  );
+
 const pluginSurfacesSchema = z
   .object({
     skills: z
@@ -387,9 +406,14 @@ const pluginSurfacesSchema = z
       .describe(
         "Registered tool names from `tools/<name>.{ts,js}` (filenames derived to tool names, e.g. `create-issue` \u2192 `create_issue`).",
       ),
+    registered: registeredPluginSurfacesSchema
+      .nullable()
+      .describe(
+        "The subset of `hooks`/`tools` actually registered in the running daemon; null when the daemon could not be consulted (an object of empty arrays means the daemon is running but has nothing registered for this plugin).",
+      ),
   })
   .describe(
-    "Surfaces the installed copy contributes, read from its on-disk tree.",
+    "Surfaces the installed copy contributes (read from its on-disk tree), plus the subset live in the daemon.",
   );
 
 const pluginInspectResponseSchema = z.object({
@@ -831,7 +855,13 @@ async function handleInspectPlugin({ pathParams = {} }: RouteHandlerArgs) {
     // message in `remoteError`. It only throws when there is nothing to show.
     return await inspectPlugin(
       { name: rawName },
-      { fetch: globalThis.fetch.bind(globalThis) },
+      {
+        fetch: globalThis.fetch.bind(globalThis),
+        // This handler runs inside the daemon, so the registries are in
+        // process — read them directly rather than round-tripping over IPC.
+        readRegisteredSurfaces: async (name) =>
+          readRegisteredPluginSurfaces(name),
+      },
     );
   } catch (err) {
     if (err instanceof InvalidPluginNameError) {
@@ -844,6 +874,27 @@ async function handleInspectPlugin({ pathParams = {} }: RouteHandlerArgs) {
       err instanceof Error ? err.message : "plugin inspect failed",
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Handler — registered surfaces (live daemon registries)
+// ---------------------------------------------------------------------------
+
+function handlePluginSurfaces({ pathParams = {} }: RouteHandlerArgs) {
+  let name: string;
+  try {
+    name = sanitizePluginName(pathParams.name ?? "");
+  } catch (err) {
+    if (err instanceof InvalidPluginNameError) {
+      throw new BadRequestError(err.message);
+    }
+    throw err;
+  }
+  // Authoritative snapshot of what the running daemon has registered for this
+  // plugin. Unlike inspect's disk walk, this never 404s on a missing install
+  // tree — an unregistered plugin simply yields empty arrays, which is the
+  // honest answer for "what is live right now".
+  return readRegisteredPluginSurfaces(name);
 }
 
 // ---------------------------------------------------------------------------
@@ -1149,6 +1200,35 @@ export const ROUTES: RouteDefinition[] = [
       },
     },
     handler: handleInspectPlugin,
+  },
+  {
+    operationId: "plugins_surfaces",
+    endpoint: "plugins/:name/surfaces",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "List a plugin's live registered surfaces",
+    description:
+      "Report the subset of a plugin's hooks and tools actually registered in the running daemon's in-memory registries — what the runtime has *loaded*, as opposed to what the install tree *ships* (the latter is `plugins inspect`'s on-disk walk). Reads the plugin and tool registries directly, so a hook that failed to load is absent and a tool that renamed itself via an exported `name` appears under its real registered name. An unregistered plugin (not loaded, or installed on disk but never booted) returns empty arrays rather than 404. Powers the registration annotations in `assistant plugins inspect <name>`.",
+    tags: ["plugins"],
+    pathParams: [
+      {
+        name: "name",
+        type: "string",
+        description:
+          "Install name. Must match the kebab-case name accepted by `assistant plugins install`.",
+      },
+    ],
+    responseBody: registeredPluginSurfacesSchema,
+    additionalResponses: {
+      "400": {
+        description:
+          "The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).",
+      },
+    },
+    handler: handlePluginSurfaces,
   },
   {
     operationId: "plugins_diff",

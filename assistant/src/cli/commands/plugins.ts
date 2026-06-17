@@ -31,6 +31,7 @@ import {
 import { listInstalledPlugins } from "../lib/list-installed-plugins.js";
 import type { FingerprintComparison } from "../lib/plugin-fingerprint.js";
 import { registerCommand } from "../lib/register-command.js";
+import { fetchRegisteredPluginSurfaces } from "../lib/registered-plugin-surfaces.js";
 import {
   InvalidSearchPatternError,
   searchPlugins,
@@ -187,7 +188,13 @@ Examples:
           try {
             const inspection = await inspectPlugin(
               { name },
-              { fetch: globalThis.fetch.bind(globalThis) },
+              {
+                fetch: globalThis.fetch.bind(globalThis),
+                // Ask the running daemon which of the on-disk hooks/tools it
+                // actually has registered; best-effort, so inspect still works
+                // when the daemon is down (the registered view shows as unknown).
+                readRegisteredSurfaces: fetchRegisteredPluginSurfaces,
+              },
             );
 
             if (opts.json) {
@@ -563,6 +570,31 @@ function formatInspection(inspection: PluginInspection): string[] {
     lines.push(label);
     for (const item of items) lines.push(`  ${item}`);
   };
+  // A surface block for hooks/tools, annotated with what the running daemon
+  // actually has registered. `registered === null` means the daemon could not
+  // be consulted (offline inspect), so items render unannotated and a note is
+  // emitted once below. When it is consulted, each name is marked registered or
+  // not — and a name registered under one the disk walk could not predict (a
+  // tool that renamed itself) still appears, sourced from the live registry.
+  const liveSurfaceBlock = (
+    label: string,
+    contributed: readonly string[],
+    registered: readonly string[] | null,
+  ) => {
+    const names = [...new Set([...contributed, ...(registered ?? [])])].sort();
+    if (names.length === 0) return;
+    lines.push(label);
+    if (registered === null) {
+      for (const name of names) lines.push(`  ${name}`);
+      return;
+    }
+    const registeredSet = new Set(registered);
+    const width = Math.max(...names.map((n) => n.length));
+    for (const name of names) {
+      const mark = registeredSet.has(name) ? "registered" : "not registered";
+      lines.push(`  ${name.padEnd(width)}  ${mark}`);
+    }
+  };
 
   topRow("status", statusLine(status));
 
@@ -599,8 +631,24 @@ function formatInspection(inspection: PluginInspection): string[] {
 
   if (surfaces) {
     surfaceBlock("skills", surfaces.skills);
-    surfaceBlock("hooks", surfaces.hooks);
-    surfaceBlock("tools", surfaces.tools);
+    liveSurfaceBlock(
+      "hooks",
+      surfaces.hooks,
+      surfaces.registered?.hooks ?? null,
+    );
+    liveSurfaceBlock(
+      "tools",
+      surfaces.tools,
+      surfaces.registered?.tools ?? null,
+    );
+    if (
+      surfaces.registered === null &&
+      (surfaces.hooks.length > 0 || surfaces.tools.length > 0)
+    ) {
+      lines.push(
+        "  (assistant unreachable — live hook/tool registration unknown)",
+      );
+    }
   }
 
   for (const issue of local?.issues ?? []) topRow("issue", issue);
