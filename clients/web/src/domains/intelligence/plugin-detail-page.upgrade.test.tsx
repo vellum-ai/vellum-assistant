@@ -160,6 +160,7 @@ function inspectResponse(
       marketplaceRef: "main",
     },
     remoteError: null,
+    surfaces: null,
   };
 }
 
