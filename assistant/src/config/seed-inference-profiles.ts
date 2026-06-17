@@ -264,18 +264,19 @@ export function seedInferenceProfiles(
   //        boots and existing installs are never auto-disabled. A user
   //        re-enable persists across boots via the key-presence preservation
   //        below.
-  const hatchSelectedManagedConnection = getHatchSelectedManagedConnection(
-    llm,
-    profiles,
-    options,
-  );
-
   // Injected templates (from the platform model-profiles endpoint) override the
   // seeded content of the known managed keys; the key set itself is unchanged
   // (v1 scope guard — callers validate that the keys are a subset of the
   // built-ins). When omitted, the built-in templates are the source of truth.
   const managedTemplates =
     options.managedProfileTemplates ?? MANAGED_PROFILE_TEMPLATES;
+
+  const hatchSelectedManagedConnection = getHatchSelectedManagedConnection(
+    llm,
+    profiles,
+    options,
+    managedTemplates,
+  );
 
   for (const [name, template] of Object.entries(managedTemplates)) {
     if (preservedProfileNames.has(name)) continue;
@@ -462,6 +463,7 @@ function getHatchSelectedManagedConnection(
   llm: Record<string, unknown>,
   profiles: Record<string, Record<string, unknown>>,
   options: SeedInferenceProfilesOptions,
+  managedTemplates: Record<string, ManagedProfileTemplate>,
 ): string | undefined {
   if (!options.isHatch || options.preserveActiveProfile !== true) {
     return undefined;
@@ -487,8 +489,7 @@ function getHatchSelectedManagedConnection(
       : undefined;
   }
 
-  const templateConnection =
-    MANAGED_PROFILE_TEMPLATES[activeProfile]?.connectionName;
+  const templateConnection = managedTemplates[activeProfile]?.connectionName;
   return templateConnection && MANAGED_CONNECTION_NAMES.has(templateConnection)
     ? templateConnection
     : undefined;
