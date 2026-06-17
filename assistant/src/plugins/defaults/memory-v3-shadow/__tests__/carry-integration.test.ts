@@ -172,6 +172,7 @@ mock.module("../../../../config/loader.js", () => ({
       ? {
           memory: {
             v3: {
+              live: true,
               spotlight: {
                 n: SPOTLIGHT_N,
                 windowTurns: SPOTLIGHT_WINDOW_TURNS,

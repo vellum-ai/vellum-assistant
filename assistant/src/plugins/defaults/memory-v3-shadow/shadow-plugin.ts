@@ -69,7 +69,6 @@ import {
 } from "./types.js";
 
 export const MEMORY_V3_SHADOW = "memory-v3-shadow" as const;
-export const MEMORY_V3_LIVE = "memory-v3-live" as const;
 
 const log = getLogger("memory-v3-shadow");
 

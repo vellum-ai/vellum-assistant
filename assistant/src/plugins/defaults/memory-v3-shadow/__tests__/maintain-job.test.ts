@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { setOverridesForTesting } from "../../../../__tests__/feature-flag-test-helpers.js";
 import type { AssistantConfig } from "../../../../config/types.js";
@@ -16,12 +16,17 @@ import { buildSectionIndex } from "../sections.js";
 import type { Section, SectionIndex, Slug } from "../types.js";
 
 const FLAG_SHADOW = "memory-v3-shadow";
-const FLAG_LIVE = "memory-v3-live";
 
-// The flag resolver ignores the passed config and reads the override cache; the
-// config arg only satisfies the signature. Flags are driven via
-// `setOverridesForTesting` below.
+// The shadow flag resolver ignores the passed config and reads the override
+// cache; the config arg only satisfies the signature. Shadow is driven via
+// `setOverridesForTesting`; v3-live (now config-gated) is driven through the
+// `isMemoryV3Live` mock slot below.
 const CONFIG = {} as AssistantConfig;
+
+let memoryV3LiveSlot = false;
+mock.module("../../../../config/memory-v3-gate.js", () => ({
+  isMemoryV3Live: () => memoryV3LiveSlot,
+}));
 
 function makeSection(article: Slug, ordinal: number): Section {
   return {
@@ -44,6 +49,7 @@ const JOB = { id: "job-1", type: "memory_v3_maintain" } as unknown as MemoryJob;
 describe("maintainJob", () => {
   afterEach(() => {
     setOverridesForTesting({});
+    memoryV3LiveSlot = false;
   });
 
   function deps(overrides: Partial<MaintainJobDeps> = {}): {
@@ -96,7 +102,7 @@ describe("maintainJob", () => {
   }
 
   test("no-op when both v3 flags are off", async () => {
-    setOverridesForTesting({ [FLAG_SHADOW]: false, [FLAG_LIVE]: false });
+    setOverridesForTesting({ [FLAG_SHADOW]: false });
     const { deps: d, calls } = deps({
       selectChangedPages: async () => ["page-a"],
     });
@@ -130,7 +136,7 @@ describe("maintainJob", () => {
   });
 
   test("runs when only the live flag is on", async () => {
-    setOverridesForTesting({ [FLAG_LIVE]: true });
+    memoryV3LiveSlot = true;
     const { deps: d, calls } = deps({
       selectChangedPages: async () => ["page-a"],
     });
@@ -452,6 +458,7 @@ describe("computeChangedPages", () => {
 describe("backfillAllSections", () => {
   afterEach(() => {
     setOverridesForTesting({});
+    memoryV3LiveSlot = false;
   });
 
   function deps(overrides: Partial<BackfillJobDeps> = {}): {

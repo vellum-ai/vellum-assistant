@@ -1,7 +1,7 @@
 import * as Sentry from "@sentry/node";
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import { isMemoryV3Live } from "../config/memory-v3-gate.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import {
@@ -1271,7 +1271,7 @@ export class AgentLoop {
         // volatile latest one. Read here alongside the rest of the provider
         // config; only set when true so the wire/config stays byte-identical
         // when off.
-        if (isAssistantFeatureFlagEnabled("memory-v3-live", getConfig())) {
+        if (isMemoryV3Live(getConfig())) {
           providerConfig.mutableLatestUserMessage = true;
         }
 
