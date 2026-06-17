@@ -210,7 +210,10 @@ export async function resolveMetaSlashCommand(
     // `compact` / `passthrough` are real turns, not local meta commands.
     throw new UserError(`\`${command.trim()}\` is not a local meta command.`);
   } finally {
-    if (conversation.trustContext !== priorTrustContext) {
+    // Only undo the temporary guardian context this handler installed. If a
+    // new turn started at an `await` boundary and legitimately updated
+    // trustContext, the reference will differ and we leave it alone.
+    if (conversation.trustContext === INTERNAL_GUARDIAN_TRUST_CONTEXT) {
       conversation.setTrustContext(priorTrustContext ?? null);
     }
   }
