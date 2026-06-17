@@ -14,7 +14,7 @@
  * silently widen an inbound surface without realising it.
  */
 
-import { extractAssistantFlag } from "../lib/arg-utils.js";
+import { extractAssistantFlag, extractValueFlag } from "../lib/arg-utils.js";
 import { AssistantClient } from "../lib/assistant-client.js";
 import {
   formatAssistantLookupError,
@@ -112,7 +112,7 @@ function printUsage(): void {
     "  conversation-list <conversation-id>        Show override + type-floor for one conversation",
   );
   console.log(
-    "  conversation-set <conversation-id> <floor> Set the per-conversation override",
+    "  conversation-set <conversation-id> <floor> [--channel-type <type>]  Set the per-conversation override",
   );
   console.log("");
   console.log("Floors (least to most restrictive):");
@@ -337,12 +337,16 @@ async function conversationSet(
   conversationId: string,
   floor: AdmissionPolicy,
   assistantName?: string,
+  explicitChannelType?: string,
 ): Promise<void> {
-  // Derive channelType from the conversationId prefix (e.g. "slack:C0123" → "slack").
-  // The gateway requires channelType in the body for the §8.1 internal-channel
-  // exemption check (SetConversationOverrideBodySchema uses z.enum(CHANNEL_IDS)).
+  // Derive channelType from the conversationId prefix when not provided explicitly.
+  // Simple conversation IDs use format "<channel>:<key>" (e.g. "slack:C0123").
+  // Scoped conversation keys use format "asst:self:<channel>:<key>" — for those,
+  // pass --channel-type <type> explicitly since the first segment is "asst", not
+  // the channel identifier.
   const colonIdx = conversationId.indexOf(":");
-  const channelType = colonIdx !== -1 ? conversationId.slice(0, colonIdx) : undefined;
+  const derivedChannelType = colonIdx !== -1 ? conversationId.slice(0, colonIdx) : undefined;
+  const channelType = explicitChannelType ?? derivedChannelType;
 
   const client = createClient(assistantName);
   let res: Response;
@@ -566,16 +570,19 @@ export async function channelPolicy(): Promise<void> {
     }
 
     case "conversation-set": {
+      // Accept --channel-type <type> for scoped conversation keys whose first
+      // segment is not the channel (e.g. "asst:self:slack:C0123" needs --channel-type slack).
+      const explicitChannelType = extractValueFlag(args, "channel-type");
       const conversationId = args[1];
       const rawFloor = args[2];
       if (!conversationId || !rawFloor) {
         console.error(
-          "Usage: vellum channel-policy conversation-set <conversation-id> <floor>",
+          "Usage: vellum channel-policy conversation-set <conversation-id> <floor> [--channel-type <type>]",
         );
         process.exit(1);
       }
       const floor = parseFloor(rawFloor, conversationId);
-      await conversationSet(conversationId, floor, assistantName);
+      await conversationSet(conversationId, floor, assistantName, explicitChannelType);
       return;
     }
 
