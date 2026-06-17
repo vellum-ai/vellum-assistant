@@ -30,6 +30,7 @@ const DEPS_TO_INLINE = [
   "@vellumai/ipc-contract",
   "@vellumai/local-mode",
   "@vellumai/environments",
+  "@sentry/node",
 ];
 
 // Resolved at config-evaluation time and inlined into the main bundle via
@@ -63,6 +64,7 @@ const BUILD_DEFINES = {
     process.env.VELLUM_ENABLE_CHROME_DEVTOOLS === "true" ||
       process.env.VELLUM_ENABLE_CHROME_DEVTOOLS === "1",
   ),
+  __SENTRY_DSN_MACOS__: JSON.stringify(process.env.SENTRY_DSN_MACOS || ""),
 };
 
 export default defineConfig({

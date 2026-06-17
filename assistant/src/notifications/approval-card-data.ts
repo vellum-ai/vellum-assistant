@@ -14,10 +14,8 @@
  */
 
 import {
+  buildAccessRequestCardView,
   buildAccessRequestContractText,
-  buildAccessRequestWarnings,
-  buildSlackMessagePermalink,
-  isSlackDmConversation,
   parseAccessRequestPayload,
 } from "./access-request-copy.js";
 import {
@@ -33,11 +31,7 @@ import {
   resolveGuardianInstructionModeFromFields,
   resolveGuardianInstructionModeFromPayload,
 } from "./guardian-question-mode.js";
-import {
-  nonEmpty,
-  sanitizeIdentityField,
-  sanitizeMessagePreview,
-} from "./notification-utils.js";
+import { nonEmpty, sanitizeIdentityField } from "./notification-utils.js";
 
 // ── Typed card data ─────────────────────────────────────────────────────────
 
@@ -62,51 +56,42 @@ export type ApprovalCardData = AccessRequestCardData | ToolApprovalCardData;
 
 // ── Access-request resolution ────────────────────────────────────────────────
 
-/** Shape the parsed access-request payload into card params. */
+/** Shape the parsed access-request payload into card params via the view model. */
 function resolveAccessRequestCard(
   payload: Record<string, unknown>,
 ): ApprovalCardParams {
-  const p = parseAccessRequestPayload(payload);
-
-  const rawName = nonEmpty(p.actorDisplayName) ?? nonEmpty(p.senderIdentifier);
-  const displayName = rawName ? sanitizeIdentityField(rawName) : "Someone";
+  const view = buildAccessRequestCardView(parseAccessRequestPayload(payload));
 
   const metadata: Array<{ label: string; value: string }> = [];
 
-  if (p.actorUsername) {
+  if (view.username) {
     metadata.push({
       label: "Username",
-      value: `@${sanitizeIdentityField(p.actorUsername)}`,
+      value: `@${view.username}`,
     });
   }
 
-  if (p.sourceChannel === "slack" && p.conversationExternalId) {
-    const isDm = isSlackDmConversation(p.conversationExternalId);
+  if (view.sourceChannel === "slack" && view.conversationExternalId) {
     metadata.push({
       label: "Source",
-      value: isDm
+      value: view.isSlackDm
         ? "Slack — Direct message"
-        : `Slack — #${p.conversationExternalId}`,
+        : `Slack — #${view.conversationExternalId}`,
     });
-  } else if (p.sourceChannel) {
-    metadata.push({ label: "Source", value: p.sourceChannel });
+  } else if (view.sourceChannel) {
+    metadata.push({ label: "Source", value: view.sourceChannel });
   }
 
-  const warnings = buildAccessRequestWarnings(p);
   const bodyParts: string[] = [];
 
-  if (p.messagePreview) {
-    bodyParts.push(`> "${sanitizeMessagePreview(p.messagePreview)}"`);
+  if (view.messagePreview) {
+    bodyParts.push(`> "${view.messagePreview}"`);
   }
-  for (const w of warnings) {
+  for (const w of view.warnings) {
     bodyParts.push(`⚠️ ${w}`);
   }
-  if (p.sourceChannel === "slack" && p.conversationExternalId && p.messageTs) {
-    const permalink = buildSlackMessagePermalink(
-      p.conversationExternalId,
-      p.messageTs,
-    );
-    bodyParts.push(`[View message](${permalink})`);
+  if (view.messagePermalink) {
+    bodyParts.push(`[View message](${view.messagePermalink})`);
   }
 
   const body =
@@ -117,11 +102,11 @@ function resolveAccessRequestCard(
   return {
     surfaceIdPrefix: "access-request",
     cardTitle: "Access Request",
-    requesterName: displayName,
+    requesterName: view.displayName,
     subtitle: "Requesting access to the assistant",
     body,
     metadata,
-    requestId: p.requestId,
+    requestId: view.requestId,
     fallbackText: buildAccessRequestContractText(payload),
   };
 }
