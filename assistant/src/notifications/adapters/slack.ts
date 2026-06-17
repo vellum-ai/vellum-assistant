@@ -16,18 +16,11 @@ import { sendSlackReply } from "../../messaging/providers/slack/send.js";
 import type { ApprovalUIMetadata } from "../../runtime/channel-approval-types.js";
 import { getLogger } from "../../util/logger.js";
 import {
+  type AccessRequestCardView,
+  buildAccessRequestCardView,
   buildAccessRequestInviteDirective,
-  buildAccessRequestWarnings,
-  buildSlackMessagePermalink,
-  isSlackDmConversation,
-  type ParsedAccessRequestPayload,
 } from "../access-request-copy.js";
-import {
-  nonEmpty,
-  sanitizeIdentityField,
-  sanitizeMessagePreview,
-  truncate,
-} from "../notification-utils.js";
+import { truncate } from "../notification-utils.js";
 import type {
   ChannelAdapter,
   ChannelDeliveryPayload,
@@ -61,57 +54,48 @@ function buildCardActions(approval: ApprovalUIMetadata): unknown[] {
 // ---------------------------------------------------------------------------
 
 /** Concise requester identity for the card subtitle (≤150 chars). */
-function buildAccessRequestSubtitle(p: ParsedAccessRequestPayload): string {
-  const rawName = nonEmpty(p.actorDisplayName) ?? nonEmpty(p.senderIdentifier);
-  const displayName = rawName ? sanitizeIdentityField(rawName) : "Someone";
-  const parts = [displayName];
+function buildAccessRequestSubtitle(view: AccessRequestCardView): string {
+  const parts = [view.displayName];
 
-  const username = nonEmpty(p.actorUsername);
-  if (username) {
-    const safe = sanitizeIdentityField(username);
-    if (safe !== displayName) parts.push(`(@${safe})`);
+  if (view.username && view.username !== view.displayName) {
+    parts.push(`(@${view.username})`);
   }
 
-  if (p.sourceChannel) parts.push(`via ${p.sourceChannel}`);
+  if (view.sourceChannel) parts.push(`via ${view.sourceChannel}`);
 
   return truncate(parts.join(" "), 150);
 }
 
 /** Card body: message preview when available, otherwise a default label. */
-function buildAccessRequestBody(p: ParsedAccessRequestPayload): string {
-  if (p.messagePreview) {
-    const sanitized = sanitizeMessagePreview(p.messagePreview);
-    if (sanitized) {
-      // Truncate content before wrapping so formatting chars stay balanced.
-      // Wrapper `> _"..."_` is 6 chars; reserve space for them.
-      const trimmed = truncate(sanitized, 200 - 6);
-      return `> _"${trimmed}"_`;
-    }
+function buildAccessRequestBody(view: AccessRequestCardView): string {
+  if (view.messagePreview) {
+    // Truncate content before wrapping so formatting chars stay balanced.
+    // Wrapper `> _"..."_` is 6 chars; reserve space for them.
+    const trimmed = truncate(view.messagePreview, 200 - 6);
+    return `> _"${trimmed}"_`;
   }
   return "Requesting access to the assistant";
 }
 
 /** Source-channel context block with Slack permalink when available. */
 function buildSourceContextBlock(
-  p: ParsedAccessRequestPayload,
+  view: AccessRequestCardView,
 ): unknown | undefined {
-  if (p.sourceChannel !== "slack" || !p.conversationExternalId) {
+  if (view.sourceChannel !== "slack" || !view.conversationExternalId) {
     return undefined;
   }
 
-  const permalink = p.messageTs
-    ? buildSlackMessagePermalink(p.conversationExternalId, p.messageTs)
-    : undefined;
+  const permalink = view.messagePermalink;
 
   let sourceText: string;
-  if (isSlackDmConversation(p.conversationExternalId)) {
+  if (view.isSlackDm) {
     sourceText = permalink
       ? `Source: Slack — Direct message · <${permalink}|View message>`
       : "Source: Slack — Direct message";
   } else {
     sourceText = permalink
-      ? `Source: Slack — <#${p.conversationExternalId}> · <${permalink}|View message>`
-      : `Source: Slack — <#${p.conversationExternalId}>`;
+      ? `Source: Slack — <#${view.conversationExternalId}> · <${permalink}|View message>`
+      : `Source: Slack — <#${view.conversationExternalId}>`;
   }
 
   return {
@@ -122,27 +106,12 @@ function buildSourceContextBlock(
 
 /** Stable requester identifier context block (external ID when it adds info). */
 function buildRequesterIdBlock(
-  p: ParsedAccessRequestPayload,
+  view: AccessRequestCardView,
 ): unknown | undefined {
-  const safeExternalId = nonEmpty(
-    p.actorExternalId ? sanitizeIdentityField(p.actorExternalId) : undefined,
-  );
+  const safeExternalId = view.externalId;
   if (!safeExternalId) return undefined;
 
-  const displayedName = nonEmpty(
-    p.actorDisplayName
-      ? sanitizeIdentityField(p.actorDisplayName)
-      : p.senderIdentifier
-        ? sanitizeIdentityField(p.senderIdentifier)
-        : undefined,
-  );
-  const displayedUsername = nonEmpty(
-    p.actorUsername ? sanitizeIdentityField(p.actorUsername) : undefined,
-  );
-  if (
-    safeExternalId === displayedName ||
-    safeExternalId === displayedUsername
-  ) {
+  if (safeExternalId === view.displayName || safeExternalId === view.username) {
     return undefined;
   }
 
@@ -166,16 +135,15 @@ function buildAccessRequestCardBlocks(
   payload: ChannelDeliveryPayload,
 ): unknown[] {
   const approval = payload.approvalContext!;
-  const p = payload.accessRequestContext!;
+  const view = buildAccessRequestCardView(payload.accessRequestContext!);
   const blocks: unknown[] = [];
 
-  const subtitle = buildAccessRequestSubtitle(p);
-  const body = buildAccessRequestBody(p);
+  const subtitle = buildAccessRequestSubtitle(view);
+  const body = buildAccessRequestBody(view);
 
-  const warnings = buildAccessRequestWarnings(p);
   const subtext =
-    warnings.length > 0
-      ? truncate(warnings.map((w) => `:warning: ${w}`).join(" · "), 200)
+    view.warnings.length > 0
+      ? truncate(view.warnings.map((w) => `:warning: ${w}`).join(" · "), 200)
       : undefined;
 
   const card: Record<string, unknown> = {
@@ -188,10 +156,10 @@ function buildAccessRequestCardBlocks(
   if (subtext) card.subtext = { type: "mrkdwn", text: subtext };
   blocks.push(card);
 
-  const sourceContext = buildSourceContextBlock(p);
+  const sourceContext = buildSourceContextBlock(view);
   if (sourceContext) blocks.push(sourceContext);
 
-  const idBlock = buildRequesterIdBlock(p);
+  const idBlock = buildRequesterIdBlock(view);
   if (idBlock) blocks.push(idBlock);
 
   blocks.push({
@@ -200,16 +168,16 @@ function buildAccessRequestCardBlocks(
   });
 
   if (
-    (p.guardianResolutionSource === "vellum-anchor" ||
-      p.guardianResolutionSource === "none") &&
-    p.sourceChannel
+    (view.guardianResolutionSource === "vellum-anchor" ||
+      view.guardianResolutionSource === "none") &&
+    view.sourceChannel
   ) {
     blocks.push({
       type: "context",
       elements: [
         {
           type: "mrkdwn",
-          text: `_You haven't verified your identity on ${p.sourceChannel} yet. If this was you trying to message your assistant, say "help me verify as guardian on ${p.sourceChannel}" to set up direct access._`,
+          text: `_You haven't verified your identity on ${view.sourceChannel} yet. If this was you trying to message your assistant, say "help me verify as guardian on ${view.sourceChannel}" to set up direct access._`,
         },
       ],
     });
@@ -280,8 +248,10 @@ function buildToolApprovalCardBlocks(
 /**
  * Build Slack blocks for any notification carrying approval context.
  * Dispatches to the appropriate card builder based on source event type.
+ *
+ * Exported for characterization tests of the approval-card block output.
  */
-function buildApprovalNotificationBlocks(
+export function buildApprovalNotificationBlocks(
   payload: ChannelDeliveryPayload,
   messageText: string,
 ): unknown[] {
