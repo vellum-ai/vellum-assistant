@@ -107,7 +107,7 @@ import {
   runAgentLoopImpl,
 } from "./conversation-agent-loop.js";
 import type { HistoryConversationContext } from "./conversation-history.js";
-import { undo as undoImpl } from "./conversation-history.js";
+import { isToolResultBlock, undo as undoImpl } from "./conversation-history.js";
 import {
   abortConversation,
   disposeConversation,
@@ -194,7 +194,7 @@ function startsNewTurn(role: string, content: string): boolean {
         (block: unknown) =>
           block != null &&
           typeof block === "object" &&
-          (block as { type?: unknown }).type === "tool_result",
+          isToolResultBlock(block as Record<string, unknown>),
       )
     ) {
       return false;
