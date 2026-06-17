@@ -324,6 +324,23 @@ export function HatchingScreen() {
           }
           if (cancelled) return;
 
+          // The gateway is ready and its token is minted, but the hatch flow
+          // has not yet established an authenticated session. Drive the same
+          // canonical connect primitive the returning-user picker and the
+          // re-pair flow use, so `sessionStatus` is "authenticated" before we
+          // hand off to chat. Without this, a session refresh that fires
+          // during the long hatch window — while the gateway is "enabled"
+          // (the lockfile has its URL) but its token isn't minted yet, so
+          // `isGatewayAuthMode()` is false — re-derives the session from the
+          // platform probe, gets a settled 401 on a local-only machine, and
+          // leaves `sessionStatus` stuck at "unauthenticated". That hides
+          // auth-gated UI such as the Preferences menu until a full reload.
+          if (result.assistantId) {
+            await useAuthStore
+              .getState()
+              .connectLocalAssistant(result.assistantId);
+          }
+
           // Apply the model-provider key collected on the API-key step to the
           // freshly hatched assistant. Non-blocking on failure — onboarding
           // proceeds and the user can fix it in Settings.
