@@ -178,6 +178,20 @@ export const routeTree = [
           path: "select-assistant",
           lazy: { Component: () => import("@/domains/onboarding/pages/select-assistant-screen").then((m) => m.SelectAssistantScreen) },
         },
+        // SPIKE — research-onboarding front door. Placed here (not in the
+        // onboarding funnel block) so it's reachable on demand behind auth
+        // alone, without the onboarding-completed guard bouncing already-
+        // onboarded users away. Visit `/assistant/onboarding/research`.
+        {
+          path: "onboarding/research",
+          lazy: { Component: () => import("@/domains/onboarding/pages/research-onboarding-route").then((m) => m.ResearchOnboardingRoute) },
+        },
+        // SPIKE — mock harness for iterating on the research results UI without
+        // running the real job. Static fixtures + local state.
+        {
+          path: "onboarding/research-mock",
+          lazy: { Component: () => import("@/domains/chat/onboarding-research/research-mock-page").then((m) => m.ResearchMockPage) },
+        },
         {
           path: "review-terms",
           lazy: { Component: () => import("@/domains/onboarding/pages/review-terms-screen").then((m) => m.ReviewTermsScreen) },
