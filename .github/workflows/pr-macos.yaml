@@ -4,7 +4,7 @@ on:
   pull_request:
     types: [synchronize, opened, reopened]
     paths:
-      - 'apps/macos/**'
+      - 'clients/macos/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
       - '.github/workflows/pr-macos.yaml'
@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: apps/macos
+        working-directory: clients/macos
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -46,7 +46,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: apps/macos
+        working-directory: clients/macos
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -72,7 +72,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: apps/macos
+        working-directory: clients/macos
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

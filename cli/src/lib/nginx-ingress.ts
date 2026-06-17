@@ -85,7 +85,7 @@ function saveRawConfig(
  *
  * Resolution order:
  *   1. npm-installed package — require.resolve('@vellumai/web/package.json')
- *   2. Source checkout — walk up from cli/ to find apps/web/dist/
+ *   2. Source checkout — walk up from cli/ to find clients/web/dist/
  */
 export function findWebDistDir(): string | null {
   try {

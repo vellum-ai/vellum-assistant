@@ -35,7 +35,7 @@ Managed-sign-in users should get the integration pre-enabled by setting `service
 
 ### 4. Set the logo URL — `seed-providers.ts`
 
-The `logoUrl` field in `seed-providers.ts` is the source of truth for a provider's logo. Most providers use a [Simple Icons](https://simpleicons.org) (CC0-licensed) CDN URL like `https://cdn.simpleicons.org/acme`. The web client resolves logos from this field (see `apps/web/src/components/integrations/integration-icon.tsx`) and falls back to an initials avatar.
+The `logoUrl` field in `seed-providers.ts` is the source of truth for a provider's logo. Most providers use a [Simple Icons](https://simpleicons.org) (CC0-licensed) CDN URL like `https://cdn.simpleicons.org/acme`. The web client resolves logos from this field (see `clients/web/src/components/integrations/integration-icon.tsx`) and falls back to an initials avatar.
 
 For brands Simple Icons doesn't host (e.g. Salesforce, which Simple Icons removed for trademark reasons), use the `glincker/thesvg` source via jsDelivr — `https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/<key>/default.svg`. The recognised `logoUrl` prefixes are enforced by `oauth-provider-seed-logos.test.ts`; if you need a third source, extend that allowlist.
 

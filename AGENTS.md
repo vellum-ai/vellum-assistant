@@ -4,7 +4,7 @@
 
 Bun + TypeScript monorepo with multiple packages:
 
-- `apps/` — End-user app surfaces: `apps/web/` (Vite + React Router v7 SPA), `apps/ios/` (Capacitor iOS shell that loads the web app in a WKWebView), and `apps/macos/` (Electron desktop shell that wraps `apps/web/`; daemon/gateway lifecycle is owned by the `vellum` CLI, which the app invokes as a subprocess; auto-update via `electron-updater`; CI workflows are `pr-macos.yaml` / `ci-main-macos.yaml`). See [`apps/README.md`](apps/README.md) and [`apps/AGENTS.md`](apps/AGENTS.md).
+- `clients/` — End-user app surfaces: `clients/web/` (Vite + React Router v7 SPA), `clients/ios/` (Capacitor iOS shell that loads the web app in a WKWebView), and `clients/macos/` (Electron desktop shell that wraps `clients/web/`; daemon/gateway lifecycle is owned by the `vellum` CLI, which the app invokes as a subprocess; auto-update via `electron-updater`; CI workflows are `pr-macos.yaml` / `ci-main-macos.yaml`). See [`clients/README.md`](clients/README.md) and [`clients/AGENTS.md`](clients/AGENTS.md).
 - `assistant/` — Main backend service (Bun + TypeScript)
 - `cli/` — Multi-assistant management CLI (Bun + TypeScript). See `cli/AGENTS.md`.
 - `clients/` — Chrome extension client. See `clients/chrome-extension/README.md`.
@@ -23,7 +23,7 @@ Defend technical positions with evidence. Don't flip-flop to placate the user �
 ## Development
 
 - **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
-- **Imports**: Packages that compile to JS (`assistant/`, `gateway/`, `cli/`) use NodeNext module resolution with `.js` extensions on all imports. Bundler-only packages (`apps/web/`, `packages/design-library/`) use `moduleResolution: "Bundler"` and omit `.js` extensions.
+- **Imports**: Packages that compile to JS (`assistant/`, `gateway/`, `cli/`) use NodeNext module resolution with `.js` extensions on all imports. Bundler-only packages (`clients/web/`, `packages/design-library/`) use `moduleResolution: "Bundler"` and omit `.js` extensions.
 - **Package manager**: Use `bun install` for dependencies (each package has its own `bun.lock`).
 
 ```bash
@@ -67,7 +67,7 @@ Docker `cache-to: type=gha` must set `ignore-error=true`. The GHA cache is a bui
 
 ### iOS release
 
-The Capacitor iOS source-of-truth lives in [`apps/ios/`](./apps/ios/) and is built locally from `apps/web/` via `bun run ios:open`. See [`apps/ios/README.md`](./apps/ios/README.md) for the local build flow and full release pipeline mapping.
+The Capacitor iOS source-of-truth lives in [`clients/ios/`](./clients/ios/) and is built locally from `clients/web/` via `bun run ios:open`. See [`clients/ios/README.md`](./clients/ios/README.md) for the local build flow and full release pipeline mapping.
 
 TestFlight builds are produced by the `release-ios.yaml` reusable workflow in this repo. Both `dev-release.yaml` and `release.yml` call it as a same-repo `uses:` job with `{ environment, version }` inputs. The workflow runs on `macos-15`, installs web dependencies, runs `cap sync ios`, generates the Xcode project via XcodeGen, archives, signs, and uploads to TestFlight.
 

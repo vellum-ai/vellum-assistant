@@ -1224,7 +1224,7 @@ function dynamicPageHtml(
  * In-memory `localStorage` / `sessionStorage` shim prepended into the
  * sandboxed surface iframe. Without `allow-same-origin` those globals throw a
  * `SecurityError`, breaking any page that touches them during init. Mirrors
- * the canonical bridge in apps/web/src/utils/sandbox-bridge.ts (the web chat
+ * the canonical bridge in clients/web/src/utils/sandbox-bridge.ts (the web chat
  * renders the same surfaces); kept inline because evals is a separate build
  * unit that can't import the web app.
  */
@@ -1246,7 +1246,7 @@ const SURFACE_STORAGE_POLYFILL = `<script>
 
 /**
  * No-op `window.vellum` bridge prepended into the sandboxed surface iframe.
- * App-backed pages expect the host APIs that apps/web/src/utils/sandbox-bridge.ts
+ * App-backed pages expect the host APIs that clients/web/src/utils/sandbox-bridge.ts
  * injects (`window.vellum.sendAction` / `window.vellum.fetch`) and call them
  * during init; a static report has no daemon to forward to, so this stub keeps
  * those pages from throwing on startup — actions are dropped and fetches reject.

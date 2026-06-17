@@ -298,7 +298,7 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 | `assistant/src/security/secret-scanner.ts`                  | Prefix + shape-based secret regex detection (used by display-time `redactSecrets`) |
 | `assistant/src/security/secret-ingress.ts`                  | Prefix-only ingress check on user messages                                         |
 | `assistant/src/util/log-redact.ts`                          | Pino log serializers — prefix-based redaction for logs                             |
-| `apps/web/src/domains/chat/components/secret-prompt-card.tsx` | UI for secure credential entry                                                    |
+| `clients/web/src/domains/chat/components/secret-prompt-card.tsx` | UI for secure credential entry                                                    |
 
 ---
 

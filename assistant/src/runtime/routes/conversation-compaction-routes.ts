@@ -72,7 +72,7 @@ const log = getLogger("conversation-compaction-routes");
  * `responseBody` (below) is the source-of-truth for the generated
  * OpenAPI client type the frontend imports
  * (`ConversationsByIdCompactionGetResponse` in
- * `apps/web/src/generated/daemon/types.gen`); regenerate the client with
+ * `clients/web/src/generated/daemon/types.gen`); regenerate the client with
  * `bun run openapi-ts` after changing the schema.
  *
  * `null` means the value isn't known for the underlying row — either the
