@@ -64,6 +64,25 @@ describe("buildTranscriptItems", () => {
     expect(items).toEqual([]);
   });
 
+  test("projects ephemeralMetaResults as tail cards after messages", () => {
+    const user = makeMessage({ id: "m1", role: "user", ...textBody("Hi") });
+
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [user],
+      ephemeralMetaResults: [
+        { id: "e1", kind: "clean", text: "Context Cleaned" },
+        { id: "e2", kind: "info", text: "Available models" },
+      ],
+    });
+
+    expect(items).toHaveLength(3);
+    expect(items[0]).toMatchObject({ kind: "message", key: "m1" });
+    expect(items[1]).toMatchObject({ kind: "ephemeralMeta", key: "meta-e1" });
+    expect(items[2]).toMatchObject({ kind: "ephemeralMeta", key: "meta-e2" });
+    expectDistinctNonEmptyKeys(items);
+  });
+
   test("surfaces on messages are rendered within the message item (no standalone rows)", () => {
     const user = makeMessage({ id: "m1", role: "user", ...textBody("Hi"),  });
     const surface = makeSurface({

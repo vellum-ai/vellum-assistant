@@ -40,6 +40,19 @@ export interface SlackRuntimeMessage {
   threadLink?: SlackMessageLink;
 }
 
+/**
+ * Result of a local meta slash command (`/clean`, `/status`, `/commands`,
+ * `/models`). Rendered as an ephemeral card at the transcript tail — never
+ * persisted, cleared on the next real send, conversation switch, or reload.
+ */
+export interface EphemeralMetaResult {
+  /** Stable key for the transcript row. */
+  id: string;
+  kind: "clean" | "info";
+  /** User-facing text to render (clean stats card or info listing). */
+  text: string;
+}
+
 export interface DisplayMessage {
   /**
    * Row identity. Server-assigned message id for confirmed rows; a

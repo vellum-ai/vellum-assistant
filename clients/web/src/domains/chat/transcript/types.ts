@@ -2,7 +2,11 @@
 // React / DOM imports so `buildTranscriptItems` and `partitionLatestTurn`
 // can be unit-tested under `bun test` without a Node test runner.
 
-import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
+import type {
+  DisplayMessage,
+  EphemeralMetaResult,
+  Surface,
+} from "@/domains/chat/types/types";
 import type { RuntimeSubagentNotification } from "@/domains/chat/api/messages";
 
 export type TranscriptItemKind =
@@ -13,6 +17,7 @@ export type TranscriptItemKind =
   | "pendingConfirmation"
   | "pendingContactRequest"
   | "surface"
+  | "ephemeralMeta"
   | "onboardingChoice";
 
 export interface TranscriptItemBase {
@@ -67,6 +72,11 @@ export interface OnboardingChoiceItem extends TranscriptItemBase {
   kind: "onboardingChoice";
 }
 
+export interface EphemeralMetaItem extends TranscriptItemBase {
+  kind: "ephemeralMeta";
+  result: EphemeralMetaResult;
+}
+
 export type TranscriptItem =
   | MessageItem
   | ThinkingItem
@@ -75,6 +85,7 @@ export type TranscriptItem =
   | PendingConfirmationItem
   | PendingContactRequestItem
   | SurfaceItem
+  | EphemeralMetaItem
   | OnboardingChoiceItem;
 
 /** Result of splitting the transcript into stable history and the

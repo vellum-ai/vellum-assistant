@@ -1,6 +1,7 @@
 
 import { memo, type ReactNode } from "react";
 
+import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
@@ -166,6 +167,15 @@ export const TranscriptRow = memo(function TranscriptRow({
 
     case "pendingContactRequest":
       return <PendingContactRequestRow />;
+
+    case "ephemeralMeta":
+      return (
+        <div className="flex justify-start">
+          <div className="max-w-full rounded-[var(--radius-lg)] bg-[var(--surface-overlay)] px-4 py-3 text-body-small-default text-[var(--content-secondary)]">
+            <ChatMarkdownMessage content={item.result.text} hardLineBreaks />
+          </div>
+        </div>
+      );
 
     case "onboardingChoice":
       if (renderOnboardingChoice) {
