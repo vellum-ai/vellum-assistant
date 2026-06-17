@@ -24,7 +24,6 @@ import { invalidateAdmissionPolicyCache } from "../../risk/admission-policy-cach
 import {
   CHANNEL_IDS,
   isChannelId,
-  parseChannelFromConversationId,
   type ChannelId,
 } from "../../channels/types.js";
 import { getLogger } from "../../logger.js";
@@ -153,7 +152,9 @@ export function createChannelAdmissionPolicySetHandler() {
 
 const SetConversationOverrideBodySchema = z.object({
   floor: z.enum(ADMISSION_POLICY_VALUES as readonly [string, ...string[]]).nullable(),
-  channelType: z.string().nullable().optional(),
+  // channelType is required so the §8.1 internal-channel exemption check always
+  // fires and the stored row always has a resolved channel context.
+  channelType: z.enum(CHANNEL_IDS as readonly [string, ...string[]]),
 });
 
 // ---------------------------------------------------------------------------
@@ -213,36 +214,17 @@ export function createConversationAdmissionSetHandler() {
     if (!parsed.success) {
       return Response.json(
         {
-          error: `Invalid request body: "floor" must be one of: ${(ADMISSION_POLICY_VALUES as readonly string[]).join(", ")} or null`,
+          error: `Invalid request body: "floor" must be one of: ${(ADMISSION_POLICY_VALUES as readonly string[]).join(", ")} or null, and "channelType" must be one of: ${(CHANNEL_IDS as readonly string[]).join(", ")}`,
           issues: parsed.error.issues,
         },
         { status: 400 },
       );
     }
 
-    const { floor } = parsed.data;
+    // channelType is required and validated by the schema — always a known ChannelId.
+    const { floor, channelType: resolvedChannelType } = parsed.data;
 
-    // Resolve channelType: body value > conversationId prefix derivation > reject 400.
-    // Keeping channelType optional in the body schema preserves backward compat,
-    // but we always require a resolved value server-side so the §8.1 exempt check
-    // runs against the real channel regardless of whether the caller supplies it.
-    const rawChannelType = parsed.data.channelType;
-    const resolvedChannelType: string | null =
-      rawChannelType != null
-        ? rawChannelType
-        : parseChannelFromConversationId(conversationId);
-
-    if (resolvedChannelType === null) {
-      return Response.json(
-        {
-          error:
-            "channelType is required and could not be derived from conversationId",
-        },
-        { status: 400 },
-      );
-    }
-
-    // §8.1: reject writes for exempt internal channels (check resolved type).
+    // §8.1: reject writes for exempt internal channels.
     if (isExemptChannelType(resolvedChannelType)) {
       return Response.json(
         {

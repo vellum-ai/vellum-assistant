@@ -190,6 +190,12 @@ const EXCLUDED_FROM_SCHEMA = new Set([
 const SCHEMA_ONLY_PATHS = new Set([
   // Served by the catch-all runtime proxy, not a dedicated route
   "/{path}",
+  // Assistant-scoped mirror for conversation overrides (§8.3). The route regex
+  // uses a non-capturing [^/]+ for the assistant segment so regexToOpenApiPath()
+  // returns null and the path cannot be round-tripped through extraction. The
+  // flat /v1/channel-admission-policy/conversations/{conversationId} entry already
+  // covers the canonical path; this entry documents the auto-prefix mirror.
+  "/v1/assistants/{assistantId}/channel-admission-policy/conversations/{conversationId}",
 ]);
 
 describe("route-schema sync guard", () => {
