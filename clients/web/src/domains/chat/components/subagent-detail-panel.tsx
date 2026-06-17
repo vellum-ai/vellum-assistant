@@ -7,7 +7,14 @@ import {
     X,
 } from "lucide-react";
 
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { AvatarRenderer } from "@/components/avatar-renderer";
 import { StatusBadge } from "@/domains/chat/components/subagent-status-badge";
@@ -192,6 +199,10 @@ export function SubagentDetailPanel({
   // Compute the avatar traits once per subagent instead of hashing the id
   // three separate times in the JSX below.
   const traits = useMemo(() => subagentTraits(entry.subagentId), [entry.subagentId]);
+  // Defer the timeline's events so heavy streaming updates render at low
+  // priority (interruptible) and never block the panel-open animation or
+  // input. The memoized SubagentTimeline bails out on the urgent pass.
+  const deferredEvents = useDeferredValue(entry.events);
 
   useEffect(() => {
     if (onRequestDetail && entry.conversationId && entry.events.length === 0) {
@@ -299,7 +310,7 @@ export function SubagentDetailPanel({
           >
             Timeline
           </Typography>
-          <SubagentTimeline events={entry.events} />
+          <SubagentTimeline events={deferredEvents} />
         </div>
       </div>
     </div>

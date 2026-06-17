@@ -28,15 +28,19 @@ import { useEditApp } from "@/hooks/use-edit-app";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { routes } from "@/utils/routes";
 
+// Extracted import thunks so the chunks can be prefetched during idle (see the
+// effect below) as well as loaded lazily on first render. Once a thunk has run,
+// the browser module cache makes React.lazy resolve it synchronously.
+const importSubagentDetailPanel = () =>
+  import("@/domains/chat/components/subagent-detail-panel");
+const importToolDetailPanel = () =>
+  import("@/domains/chat/components/tool-detail-panel");
+
 const SubagentDetailPanel = lazy(() =>
-  import("@/domains/chat/components/subagent-detail-panel").then((m) => ({
-    default: m.SubagentDetailPanel,
-  })),
+  importSubagentDetailPanel().then((m) => ({ default: m.SubagentDetailPanel })),
 );
 const ToolDetailPanel = lazy(() =>
-  import("@/domains/chat/components/tool-detail-panel").then((m) => ({
-    default: m.ToolDetailPanel,
-  })),
+  importToolDetailPanel().then((m) => ({ default: m.ToolDetailPanel })),
 );
 
 // ---------------------------------------------------------------------------
@@ -156,6 +160,21 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isMobile]);
+
+  // Warm the lazy side-panel chunks while the browser is idle so the first
+  // open renders immediately instead of stalling on a dynamic import.
+  useEffect(() => {
+    const run = () => {
+      void importSubagentDetailPanel();
+      void importToolDetailPanel();
+    };
+    if (typeof window.requestIdleCallback === "function") {
+      const id = window.requestIdleCallback(run);
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = window.setTimeout(run, 200);
+    return () => window.clearTimeout(id);
+  }, []);
 
   // -------------------------------------------------------------------------
   // Layout routing

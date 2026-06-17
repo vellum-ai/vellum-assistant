@@ -265,7 +265,9 @@ export interface SubagentTimelineProps {
   events: SubagentTimelineEvent[];
 }
 
-export function SubagentTimeline({ events }: SubagentTimelineProps) {
+export const SubagentTimeline = memo(function SubagentTimeline({
+  events,
+}: SubagentTimelineProps) {
   const filteredEvents = useMemo(() => filterEvents(events), [events]);
 
   if (filteredEvents.length === 0) {
@@ -290,4 +292,4 @@ export function SubagentTimeline({ events }: SubagentTimelineProps) {
       ))}
     </div>
   );
-}
+});
