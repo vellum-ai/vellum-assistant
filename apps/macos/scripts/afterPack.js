@@ -1,7 +1,8 @@
 // afterPack hook for electron-builder (macOS only).
 //
 // Runs after files are packaged but before code signing. Handles:
-//   1. Compiling and embedding Quick Look extensions (.appex) for .vellum files.
+//   1. Restoring the executable bit on node-pty's unpacked spawn-helper.
+//   2. Compiling and embedding Quick Look extensions (.appex) for .vellum files.
 //
 // electron-builder skips signing Contents/PlugIns (intended for kexts but also
 // affects app extensions — see https://github.com/electron-userland/electron-builder/issues/9627),
@@ -10,6 +11,38 @@
 const { execSync } = require("child_process");
 const path = require("path");
 const fs = require("fs");
+
+/**
+ * Re-assert +x on node-pty's spawn-helper inside the packaged app.
+ *
+ * node-pty@1.1.0 ships the prebuilt helper without the executable bit, which
+ * makes opening a terminal fail with "posix_spawnp failed." (see
+ * scripts/fix-node-pty-perms.ts). The postinstall fix corrects node_modules and
+ * electron-builder copies modes through to app.asar.unpacked, but we re-apply it
+ * here so a packaged build is runnable regardless of install ordering in CI.
+ *
+ * @param {string} contentsDir - Path to the app bundle's Contents/ directory.
+ */
+function fixNodePtyHelperPerms(contentsDir) {
+  const prebuildsDir = path.join(
+    contentsDir,
+    "Resources",
+    "app.asar.unpacked",
+    "node_modules",
+    "node-pty",
+    "prebuilds",
+  );
+  if (!fs.existsSync(prebuildsDir)) {
+    return;
+  }
+  for (const entry of fs.readdirSync(prebuildsDir)) {
+    const helper = path.join(prebuildsDir, entry, "spawn-helper");
+    if (fs.existsSync(helper)) {
+      fs.chmodSync(helper, 0o755);
+      console.log(`afterPack: chmod +x prebuilds/${entry}/spawn-helper`);
+    }
+  }
+}
 
 // Quick Look extensions to compile from the legacy Swift client source.
 // Each entry maps to clients/macos/<name>/ which contains a .swift file
@@ -30,7 +63,10 @@ const QL_EXTENSIONS = [
 ];
 
 // electron-builder Arch enum → swiftc -target triple prefix
-const SWIFTC_TARGETS = { 1: "x86_64-apple-macosx15.0", 3: "arm64-apple-macosx15.0" };
+const SWIFTC_TARGETS = {
+  1: "x86_64-apple-macosx15.0",
+  3: "arm64-apple-macosx15.0",
+};
 
 /**
  * Build a Quick Look .appex bundle from Swift source.
@@ -47,13 +83,22 @@ const SWIFTC_TARGETS = { 1: "x86_64-apple-macosx15.0", 3: "arm64-apple-macosx15.
  * @param {string} swiftTarget - The swiftc -target triple (e.g. "arm64-apple-macosx15.0").
  * @returns {boolean} true if the extension was built successfully.
  */
-function buildQLExtension(ext, plugInsDir, appBundleId, identity, timestampFlag, swiftTarget) {
+function buildQLExtension(
+  ext,
+  plugInsDir,
+  appBundleId,
+  identity,
+  timestampFlag,
+  swiftTarget,
+) {
   // Resolve source directory relative to the repo root (two levels up from apps/macos/scripts/).
   const repoRoot = path.resolve(__dirname, "..", "..", "..");
   const sourceDir = path.join(repoRoot, "clients", "macos", ext.name);
 
   if (!fs.existsSync(sourceDir)) {
-    console.warn(`afterPack: ${ext.name} source not found at ${sourceDir}, skipping`);
+    console.warn(
+      `afterPack: ${ext.name} source not found at ${sourceDir}, skipping`,
+    );
     return false;
   }
 
@@ -82,7 +127,7 @@ function buildQLExtension(ext, plugInsDir, appBundleId, identity, timestampFlag,
         `-o "${binaryPath}"`,
         `"${sourceFile}"`,
       ].join(" "),
-      { stdio: "inherit" }
+      { stdio: "inherit" },
     );
   } catch (err) {
     console.error(`afterPack: failed to compile ${ext.name}: ${err.message}`);
@@ -115,10 +160,12 @@ function buildQLExtension(ext, plugInsDir, appBundleId, identity, timestampFlag,
   try {
     execSync(
       `codesign --force --options runtime --sign "${identity}"${timestampFlag} "${appexDir}"`,
-      { stdio: "inherit" }
+      { stdio: "inherit" },
     );
   } catch (err) {
-    console.error(`afterPack: failed to sign ${ext.name}.appex: ${err.message}`);
+    console.error(
+      `afterPack: failed to sign ${ext.name}.appex: ${err.message}`,
+    );
     fs.rmSync(appexDir, { recursive: true, force: true });
     return false;
   }
@@ -137,8 +184,11 @@ exports.default = async function afterPack(context) {
   const productName = packager.appInfo.productFilename;
   const appDir = path.join(appOutDir, `${productName}.app`);
   const contentsDir = path.join(appDir, "Contents");
-  const identity = process.env.CSC_NAME || process.env.APPLE_SIGNING_IDENTITY || "-";
+  const identity =
+    process.env.CSC_NAME || process.env.APPLE_SIGNING_IDENTITY || "-";
   const timestampFlag = identity === "-" ? "" : " --timestamp";
+
+  fixNodePtyHelperPerms(contentsDir);
 
   // Copy Assets.car into the app bundle if generate-icon.sh produced one.
   // Assets.car provides the Liquid Glass icon (Tahoe) and rounded raster
@@ -158,6 +208,13 @@ exports.default = async function afterPack(context) {
   const swiftTarget = SWIFTC_TARGETS[context.arch] || "arm64-apple-macosx15.0";
 
   for (const ext of QL_EXTENSIONS) {
-    buildQLExtension(ext, plugInsDir, appBundleId, identity, timestampFlag, swiftTarget);
+    buildQLExtension(
+      ext,
+      plugInsDir,
+      appBundleId,
+      identity,
+      timestampFlag,
+      swiftTarget,
+    );
   }
 };

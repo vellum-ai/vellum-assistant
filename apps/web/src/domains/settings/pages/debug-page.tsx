@@ -33,7 +33,14 @@ export function DebugPage() {
         if (tab.id === "terminal" && platformGate === "gated") {
           return false;
         }
-        if (tab.id === "local-terminal" && !isElectron()) {
+        // Local terminal targets a self-hosted assistant's workspace, so it
+        // shows only in Electron when the active assistant is self-hosted
+        // (`platformGate === "gated"`) — the inverse of the platform-routed
+        // "terminal" tab above, keeping the two mutually exclusive.
+        if (
+          tab.id === "local-terminal" &&
+          (!isElectron() || platformGate !== "gated")
+        ) {
           return false;
         }
         if (tab.id === "doctor" && platformGate === "gated") {

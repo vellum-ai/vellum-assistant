@@ -1,7 +1,8 @@
 /**
- * Self-contained local terminal panel. Spawns a PTY shell on the user's
- * machine via the Electron main-process `node-pty` manager. Manages its
- * own connection lifecycle — mount it and it handles connect/disconnect,
+ * Self-contained workspace terminal panel. Opens an interactive shell in a
+ * self-hosted assistant's workspace via the Electron main-process `node-pty`
+ * manager (which runs `vellum exec -it`). Manages its own connection lifecycle
+ * — mount it with an `assistantId` and it handles connect/disconnect,
  * input/output, and resize.
  */
 
@@ -14,22 +15,32 @@ import {
   killLocalTerminal,
   onLocalTerminalData,
   onLocalTerminalExit,
+  openLocalTerminal,
   resizeLocalTerminal,
-  spawnLocalTerminal,
   writeLocalTerminal,
 } from "@/runtime/local-terminal";
 
 interface LocalTerminalPanelProps {
+  /** Self-hosted assistant whose workspace the shell opens in. */
+  assistantId: string;
+  /** Target service within the assistant (default: "assistant"). */
+  service?: string;
   className?: string;
 }
 
-export function LocalTerminalPanel({ className }: LocalTerminalPanelProps) {
+export function LocalTerminalPanel({
+  assistantId,
+  service,
+  className,
+}: LocalTerminalPanelProps) {
   const [status, setStatus] = useState<TerminalStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const writeToTerminalRef = useRef<((data: string) => void) | null>(null);
   const mountedRef = useRef(true);
-  const pendingDimensionsRef = useRef<{ cols: number; rows: number } | null>(null);
+  const pendingDimensionsRef = useRef<{ cols: number; rows: number } | null>(
+    null,
+  );
 
   useEffect(() => {
     mountedRef.current = true;
@@ -77,9 +88,12 @@ export function LocalTerminalPanel({ className }: LocalTerminalPanelProps) {
     setErrorMessage(null);
 
     const dims = pendingDimensionsRef.current ?? undefined;
-    const result = await spawnLocalTerminal(
-      dims ? { cols: dims.cols, rows: dims.rows } : undefined,
-    );
+    const result = await openLocalTerminal({
+      assistantId,
+      service,
+      cols: dims?.cols,
+      rows: dims?.rows,
+    });
 
     if (!mountedRef.current) {
       if (result.ok) {
@@ -100,7 +114,7 @@ export function LocalTerminalPanel({ className }: LocalTerminalPanelProps) {
     if (dims) {
       resizeLocalTerminal(result.sessionId, dims.cols, dims.rows);
     }
-  }, []);
+  }, [assistantId, service]);
 
   const disconnect = useCallback(async () => {
     const id = sessionIdRef.current;

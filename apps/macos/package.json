@@ -5,7 +5,7 @@
   "description": "Electron wrapper for the Vellum Assistant macOS app.",
   "main": "out/main/index.js",
   "scripts": {
-    "postinstall": "node node_modules/electron/install.js && bun run scripts/install-file-deps.ts && bash scripts/build-mac-helper.sh",
+    "postinstall": "node node_modules/electron/install.js && bun run scripts/install-file-deps.ts && bun run scripts/fix-node-pty-perms.ts && bash scripts/build-mac-helper.sh",
     "rebuild:native": "electron-rebuild -f -w node-pty",
     "dev": "bun run install:all && bun scripts/dev.ts",
     "dev:standalone": "bun run install:all && bun run scripts/reclaim-dev-port.ts && concurrently --kill-others --names web,electron --prefix-colors blue,green \"bun run dev:web\" \"bun run dev:electron\"",

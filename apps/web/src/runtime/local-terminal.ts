@@ -1,10 +1,11 @@
 /**
  * Per-capability wrapper for the Electron host's local terminal bridge.
  *
- * Spawns a PTY shell on the user's machine via the main-process
- * `node-pty` manager. Off Electron (web, Capacitor iOS): all functions
- * are safe no-ops — spawn returns an error result, subscriptions return
- * unsubscribe-noops, and imperative methods are swallowed.
+ * Opens an interactive shell in a self-hosted assistant's workspace via the
+ * main-process `node-pty` manager (which runs `vellum exec -it`). Off Electron
+ * (web, Capacitor iOS): all functions are safe no-ops — open returns an error
+ * result, subscriptions return unsubscribe-noops, and imperative methods are
+ * swallowed.
  */
 
 import { isElectron } from "@/runtime/is-electron";
@@ -13,16 +14,21 @@ export type LocalTerminalSpawnResult =
   | { ok: true; sessionId: string }
   | { ok: false; error: string };
 
-/** Spawn a local PTY shell session. Returns error off Electron. */
-export async function spawnLocalTerminal(options?: {
+/** Open an interactive shell in the assistant's workspace. Returns error off Electron. */
+export async function openLocalTerminal(options: {
+  assistantId: string;
+  service?: string;
   cols?: number;
   rows?: number;
 }): Promise<LocalTerminalSpawnResult> {
   if (!isElectron()) {
-    return { ok: false, error: "Local terminal is only available in the desktop app" };
+    return {
+      ok: false,
+      error: "Local terminal is only available in the desktop app",
+    };
   }
   return (
-    (await window.vellum?.terminal?.spawn(options)) ?? {
+    (await window.vellum?.terminal?.open(options)) ?? {
       ok: false,
       error: "Terminal bridge unavailable",
     }

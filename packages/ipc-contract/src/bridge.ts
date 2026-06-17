@@ -116,7 +116,9 @@ export interface VellumBridge {
        * PCM — the offline transcript authority. Result arrives via
        * `onTranscribed`.
        */
-      transcribe?(audio: ArrayBuffer): Promise<{ ok: boolean; reason?: string }>;
+      transcribe?(
+        audio: ArrayBuffer,
+      ): Promise<{ ok: boolean; reason?: string }>;
       onTranscribed?(
         callback: (event: DictationPartialEvent) => void,
       ): () => void;
@@ -238,16 +240,16 @@ export interface VellumBridge {
     onState(callback: (state: UpdateState) => void): () => void;
   };
   terminal: {
-    spawn(options?: {
+    open(options: {
+      assistantId: string;
+      service?: string;
       cols?: number;
       rows?: number;
     }): Promise<{ ok: true; sessionId: string } | { ok: false; error: string }>;
     write(sessionId: string, data: string): void;
     resize(sessionId: string, cols: number, rows: number): void;
     kill(sessionId: string): Promise<void>;
-    onData(
-      callback: (sessionId: string, data: string) => void,
-    ): () => void;
+    onData(callback: (sessionId: string, data: string) => void): () => void;
     onExit(
       callback: (sessionId: string, exitCode: number, signal: number) => void,
     ): () => void;
