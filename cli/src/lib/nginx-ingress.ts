@@ -255,8 +255,6 @@ function buildRemoteWebIngressLocations(opts: {
     location = /v1/pair/ { return 404; }
     location = /v1/pair/web-init { return 404; }
     location = /v1/pair/web-init/ { return 404; }
-    location = /v1/remote-web/pairing-challenge { return 404; }
-    location = /v1/remote-web/pairing-challenge/ { return 404; }
     location = /v1/devices { return 404; }
     location = /v1/devices/ { return 404; }
     location = /v1/devices/revoke { return 404; }
