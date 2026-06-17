@@ -10,9 +10,7 @@ desktop wrappers that users interact with directly.
 
 ## What does not belong here
 
-- Shared libraries — these live in `packages/` or `clients/shared/`.
-- Native Swift macOS client — `clients/macos/` (legacy; being replaced by
-  `apps/macos/` Electron).
+- Shared libraries — these live in `packages/`.
 - Backend services — `assistant/`, `gateway/`, `credential-executor/`, `cli/`
   stay at the repo root.
 

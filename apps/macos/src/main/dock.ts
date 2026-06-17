@@ -21,18 +21,12 @@ import {
  * Dock integration: avatar icon + unread-count badge + visibility state
  * machine.
  *
- * Mirrors what the Swift app does today (`AppDelegate+WindowsAndSurfaces.swift`
- * → `NSApp.dockTile.badgeLabel`, `NSApplication.ActivationPolicy.regular`
- * ⇄ `.accessory`, and `AvatarAppearanceManager` →
- * `NSApplication.applicationIconImage`) so users see no regression when they
- * cut over to Electron.
- *
  * The Dock icon is the assistant avatar clipped to a rounded square
  * ("squircle"), inset with ~10% padding inside a 512px canvas to match the
  * macOS icon grid. The renderer publishes the avatar over
  * `vellum:icon:setAvatar`; this module masks and applies it via
  * `app.dock.setIcon`. With no avatar the bundled app icon shows through
- * naturally, exactly as the native app falls back to its bundled mark.
+ * naturally.
  *
  * The Dock tile is the only icon surface Electron exposes directly;
  * LaunchServices-resolved surfaces (Finder, the notification daemon) read
@@ -67,13 +61,8 @@ import {
  */
 
 // Format the badge string per macOS Dock conventions: "" clears,
-// "1"–"99" pass through, anything beyond becomes "99+" (the Slack-style
-// truncation Swift Vellum already uses — `\"99+\"` shows up at
-// `clients/macos/.../AppDelegate+WindowsAndSurfaces.swift:660-691`).
-//
-// `> 999 → "999+"` is what we'd want if we ever exposed a triple-digit
-// counter, but macOS truncates very long strings and Swift caps at 99
-// today; we match Swift.
+// "1"–"99" pass through, anything beyond becomes "99+" (Slack-style
+// truncation). macOS truncates very long strings, so the counter caps at 99.
 export const formatBadge = (count: number): string => {
   if (!Number.isFinite(count) || count <= 0) return "";
   if (count > 99) return "99+";

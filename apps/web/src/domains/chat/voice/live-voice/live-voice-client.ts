@@ -1,8 +1,7 @@
 /**
  * Browser live-voice channel client (WebSocket transport).
  *
- * Web-app counterpart to the macOS `LiveVoiceChannelClient`
- * (`clients/shared/Network/LiveVoiceChannelClient.swift`). One instance drives
+ * One instance drives
  * one live-voice session: it resolves the transport URL (cloud velay token or
  * self-hosted gateway + actor token, via {@link resolveLiveVoiceWsUrl}), opens
  * the WebSocket, sends the `start` frame on open, streams microphone PCM as

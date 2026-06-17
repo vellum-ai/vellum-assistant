@@ -7,8 +7,7 @@ import { conversations, messageBookmarks, messages } from "./schema.js";
 
 /**
  * Wire-shape representation of a bookmark, joined with the bookmarked
- * message and its parent conversation. Mirrors
- * `clients/shared/Network/BookmarkSummary.swift` — dates are emitted as
+ * message and its parent conversation. Dates are emitted as
  * unix-millisecond integers, and the message preview is capped to keep
  * the list payload bounded.
  */

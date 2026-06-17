@@ -1,17 +1,16 @@
 /**
  * `useLiveVoice()` — session controller for the browser live-voice channel.
  *
- * Web-app counterpart to the macOS `LiveVoiceChannelManager`
- * (`clients/macos/.../LiveVoiceChannelManager.swift`). It wires the three merged
- * primitives — {@link LiveVoiceChannelClient} (transport), {@link
- * LiveVoiceAudioCapture} (mic → PCM), {@link LiveVoiceAudioPlayer} (TTS
- * playback) — into the session state machine and projects observable state into
+ * It wires the three merged primitives — {@link LiveVoiceChannelClient}
+ * (transport), {@link LiveVoiceAudioCapture} (mic → PCM), {@link
+ * LiveVoiceAudioPlayer} (TTS playback) — into the session state machine and
+ * projects observable state into
  * {@link useLiveVoiceStore}.
  *
  * The state machine is held in `useLiveVoiceStore`; this module owns the imperative
  * glue (event wiring, barge-in, automatic push-to-talk release, teardown). One
  * controller instance drives at most one session at a time; `start()` while a
- * session is live is a no-op (matching the macOS guard).
+ * session is live is a no-op.
  *
  * ## Single-utterance sessions
  * A live-voice session handles exactly one utterance → one response. The runtime

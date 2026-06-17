@@ -60,10 +60,7 @@ interface CategoryAction {
 }
 
 /**
- * Action buttons per category. Mirrors the Swift app's
- * `UNNotificationCategory` registrations in
- * `clients/macos/.../App/AppDelegate+Notifications.swift` so users see the
- * same affordances and identical button labels on Electron and macOS.
+ * Action buttons per category.
  *
  * `activityComplete`      → "View Results" (navigate to the thread)
  * `toolConfirmation`      → "Allow" / "Deny"

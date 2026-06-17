@@ -15,8 +15,7 @@ import type { Conversation } from "@/types/conversation-types";
  *                       still lives in the app.
  *
  * Source of truth lives daemon-side as `channelBinding.sourceChannel`
- * with `conversationOriginChannel` as a fallback. See
- * `clients/macos/vellum-assistant/Features/MainWindow/ConversationModel.swift`.
+ * with `conversationOriginChannel` as a fallback.
  */
 export function isChannelConversation(
   conversation: Pick<Conversation, "originChannel"> | null | undefined,
