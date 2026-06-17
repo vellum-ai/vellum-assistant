@@ -180,7 +180,7 @@ Examples:
       plugins
         .command("inspect <name>")
         .description(
-          "Show a plugin's local install metadata and the marketplace pin, and whether an update is available",
+          "Show a plugin's local install metadata, the marketplace pin, whether an update is available, and the surfaces (skills, hooks, tools) it contributes",
         )
         .option("--json", "Emit machine-readable JSON instead of a summary")
         .action(async (name: string, opts: { json?: boolean }) => {
@@ -549,12 +549,20 @@ function remoteLocation(remote: PluginRemoteInfo): string {
  * `location`, with a `drift` line under the installed copy.
  */
 function formatInspection(inspection: PluginInspection): string[] {
-  const { name, status, local, remote, remoteError } = inspection;
+  const { name, status, local, remote, remoteError, surfaces } = inspection;
   const lines: string[] = [name, "─".repeat(44)];
   const topRow = (label: string, value: string) =>
     lines.push(`${label.padEnd(11)} ${value}`);
   const blockRow = (label: string, value: string) =>
     lines.push(`  ${label.padEnd(9)} ${value}`);
+  // A surface block: the surface type as a heading, then its items indented
+  // under it. Omitted entirely when the plugin contributes none of that type,
+  // so the listing only ever shows what the plugin actually contributes.
+  const surfaceBlock = (label: string, items: readonly string[]) => {
+    if (items.length === 0) return;
+    lines.push(label);
+    for (const item of items) lines.push(`  ${item}`);
+  };
 
   topRow("status", statusLine(status));
 
@@ -588,6 +596,12 @@ function formatInspection(inspection: PluginInspection): string[] {
 
   const description = remote?.description ?? local?.description ?? null;
   if (description) topRow("description", description);
+
+  if (surfaces) {
+    surfaceBlock("skills", surfaces.skills);
+    surfaceBlock("hooks", surfaces.hooks);
+    surfaceBlock("tools", surfaces.tools);
+  }
 
   for (const issue of local?.issues ?? []) topRow("issue", issue);
 

@@ -13241,7 +13241,7 @@ paths:
             type: string
           description:
             "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, openrouter, openai-compatible,
-            minimax"
+            minimax, atlascloud"
       responses:
         "200":
           description: Successful response
@@ -19573,6 +19573,33 @@ paths:
                       - type: string
                       - type: "null"
                     description: Marketplace fetch error message, when the catalog could not be read.
+                  surfaces:
+                    anyOf:
+                      - type: object
+                        properties:
+                          skills:
+                            type: array
+                            items:
+                              type: string
+                            description: Skill ids shipped at `skills/<id>/SKILL.md`.
+                          hooks:
+                            type: array
+                            items:
+                              type: string
+                            description: Lifecycle hook names from `hooks/<name>.{ts,js}` (e.g. `pre-model-call`).
+                          tools:
+                            type: array
+                            items:
+                              type: string
+                            description: Tool names from `tools/<name>.{ts,js}`.
+                        required:
+                          - skills
+                          - hooks
+                          - tools
+                        additionalProperties: false
+                        description: Surfaces the installed copy contributes, read from its on-disk tree.
+                      - type: "null"
+                    description: Surfaces the installed copy contributes (skills, hooks, tools); null when the plugin is not installed.
                 required:
                   - name
                   - installed
@@ -19580,6 +19607,7 @@ paths:
                   - local
                   - remote
                   - remoteError
+                  - surfaces
                 additionalProperties: false
         "400":
           description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
@@ -28214,6 +28242,7 @@ components:
         - openrouter
         - openai-compatible
         - minimax
+        - atlascloud
     ProfilePatchEntry:
       type: object
       properties:
@@ -28571,6 +28600,7 @@ components:
         - openrouter
         - openai-compatible
         - minimax
+        - atlascloud
     Auth:
       oneOf:
         - type: object
