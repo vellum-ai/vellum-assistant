@@ -12,6 +12,7 @@ import {
   oauthCompletionStorageKey,
   type OAuthCompletePayload,
 } from "@/lib/auth/oauth-popup";
+import { resolveManagedOAuthAssistantId } from "@/lib/local-managed-oauth-identity";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { isNativePlatform } from "@/runtime/native-auth";
 import {
@@ -169,10 +170,23 @@ export async function connectManagedOAuthProvider({
   providerKey,
   providerLabel,
 }: ManagedOAuthConnectOptions): Promise<ManagedOAuthConnectResult> {
+  let oauthAssistantId: string;
+  try {
+    oauthAssistantId = await resolveManagedOAuthAssistantId(assistantId);
+  } catch (error) {
+    return {
+      status: "error",
+      message:
+        error instanceof Error
+          ? error.message
+          : `Failed to start ${providerLabel} authorization.`,
+    };
+  }
+
   const requestId = crypto.randomUUID();
   const native = isNativePlatform();
   const baselineSignatures = getProviderConnectionSignatures(
-    await listOAuthConnections(assistantId).catch(() => []),
+    await listOAuthConnections(oauthAssistantId).catch(() => []),
     providerKey,
   );
 
@@ -216,7 +230,7 @@ export async function connectManagedOAuthProvider({
 
     const finishConnectedAfterPoll = async () => {
       const connection = await waitForProviderConnection(
-        assistantId,
+        oauthAssistantId,
         providerKey,
         baselineSignatures,
       );
@@ -283,7 +297,7 @@ export async function connectManagedOAuthProvider({
       }
 
       const connection = await waitForProviderConnection(
-        assistantId,
+        oauthAssistantId,
         providerKey,
         baselineSignatures,
       );
@@ -323,7 +337,7 @@ export async function connectManagedOAuthProvider({
 
       try {
         const connectUrl = await startManagedOAuth(
-          assistantId,
+          oauthAssistantId,
           providerKey,
           requestId,
           native,

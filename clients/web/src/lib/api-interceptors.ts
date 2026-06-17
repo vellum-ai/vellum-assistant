@@ -109,7 +109,6 @@ export async function rewriteForSelfHostedIngress(
   if (
     !firstSegment ||
     (!skipSegmentAllowlist &&
-      !isLocalMode() &&
       !RUNTIME_PROXIED_FIRST_SEGMENTS.has(firstSegment))
   ) {
     return null;
