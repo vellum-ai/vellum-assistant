@@ -134,15 +134,24 @@ interface LockfileData {
 }
 
 /**
+ * Derive the workspace directory from a resources object. This is the
+ * assistant's working directory — where the daemon roots its `bash` tool.
+ * When no resources are available, falls back to `~/.vellum/workspace`.
+ */
+export function getWorkspaceDir(resources?: LocalInstanceResources): string {
+  const vellumDir = resources
+    ? join(resources.instanceDir, ".vellum")
+    : join(homedir(), ".vellum");
+  return join(vellumDir, "workspace");
+}
+
+/**
  * Derive the daemon PID file path from a resources object. The PID file
  * lives inside the instance's workspace directory. When no resources are
  * available, falls back to `~/.vellum/workspace/vellum.pid`.
  */
 export function getDaemonPidPath(resources?: LocalInstanceResources): string {
-  const vellumDir = resources
-    ? join(resources.instanceDir, ".vellum")
-    : join(homedir(), ".vellum");
-  return join(vellumDir, "workspace", "vellum.pid");
+  return join(getWorkspaceDir(resources), "vellum.pid");
 }
 
 function readLockfile(): LockfileData {

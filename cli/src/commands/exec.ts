@@ -1,6 +1,11 @@
 import { spawn } from "child_process";
+import { existsSync } from "fs";
 
-import { resolveAssistant, resolveCloud } from "../lib/assistant-config";
+import {
+  getWorkspaceDir,
+  resolveAssistant,
+  resolveCloud,
+} from "../lib/assistant-config";
 import { dockerResourceNames } from "../lib/docker";
 import type { ServiceName } from "../lib/docker";
 import { execAppleContainer } from "../lib/exec-apple-container";
@@ -11,6 +16,9 @@ import {
   nonInteractiveExec,
   shellEscapeArgs,
 } from "../lib/terminal-session";
+
+/** Workspace mount path inside containerized assistants (docker / apple-container). */
+const CONTAINER_WORKSPACE_DIR = "/workspace";
 
 const SERVICE_ALIASES: Record<string, ServiceName> = {
   assistant: "assistant",
@@ -156,7 +164,14 @@ export async function exec(): Promise<void> {
   const cloud = resolveCloud(entry);
 
   if (cloud === "local") {
-    const child = spawn(command[0], command.slice(1), { stdio: "inherit" });
+    // Interactive sessions open in the assistant's workspace (where the daemon
+    // roots its `bash` tool); non-interactive exec keeps the caller's cwd.
+    const workspace = getWorkspaceDir(entry.resources);
+    const cwd = interactive && existsSync(workspace) ? workspace : undefined;
+    const child = spawn(command[0], command.slice(1), {
+      cwd,
+      stdio: "inherit",
+    });
     await new Promise<void>((resolve) => {
       child.on("close", (code) => {
         process.exitCode = code ?? 0;
@@ -174,7 +189,11 @@ export async function exec(): Promise<void> {
   if (cloud === "apple-container") {
     const fullServiceName = `vellum-${service}`;
     if (interactive) {
-      await sshAppleContainer(entry, command, fullServiceName);
+      // Land in the workspace; fall back gracefully if it doesn't exist.
+      const inner =
+        `cd ${shellEscapeArgs([CONTAINER_WORKSPACE_DIR])} 2>/dev/null; ` +
+        `exec ${shellEscapeArgs(command)}`;
+      await sshAppleContainer(entry, ["sh", "-c", inner], fullServiceName);
     } else {
       await execAppleContainer(entry, command, fullServiceName);
     }
@@ -184,7 +203,7 @@ export async function exec(): Promise<void> {
   if (cloud === "docker") {
     const container = resolveDockerContainer(entry.assistantId, service);
     const dockerArgs = interactive
-      ? ["exec", "-it", container, ...command]
+      ? ["exec", "-it", "-w", CONTAINER_WORKSPACE_DIR, container, ...command]
       : ["exec", container, ...command];
 
     const child = spawn("docker", dockerArgs, { stdio: "inherit" });
@@ -220,7 +239,11 @@ export async function exec(): Promise<void> {
 
     if (interactive) {
       // Interactive mode: shell-escape argv and delegate to full terminal
-      await interactiveSession(assistant, shellEscapeArgs(command), serviceParam);
+      await interactiveSession(
+        assistant,
+        shellEscapeArgs(command),
+        serviceParam,
+      );
       return;
     }
 
