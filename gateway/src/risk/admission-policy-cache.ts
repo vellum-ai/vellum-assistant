@@ -11,14 +11,13 @@ import type { ChannelId } from "../channels/types.js";
 
 /**
  * In-memory cache of per-channel admission policies. Mirrors
- * {@link import("./trust-rule-cache.js").initTrustRuleCache} — load once
- * at startup, hit on every inbound, refresh on mutation via
+ * {@link import("./trust-rule-cache.js").initTrustRuleCache} — load once at
+ * startup, hit by `handle-inbound` on every inbound, refresh on mutation via
  * {@link invalidateAdmissionPolicyCache}.
  *
- * Nothing reads from this cache in P2 — it's wired up here so the P3
- * `handle-inbound` admission gate has zero new infrastructure to land. The
- * read path (`get`) and the invalidation hook (called from the HTTP routes)
- * are the seam.
+ * Per-channel defaults are owned by the startup seed
+ * (`seedAdmissionPolicyDefaults`), so the cache holds only what's in the DB
+ * and does not re-derive defaults.
  */
 class AdmissionPolicyCache {
   private store: AdmissionPolicyStore;
@@ -37,8 +36,10 @@ class AdmissionPolicyCache {
   }
 
   /**
-   * Resolve the policy for a channel. Missing rows fall back to the
-   * read-side default (matches `AdmissionPolicyStore.get`).
+   * Resolve the policy for a channel. Rows are seeded for every enforced
+   * channel, so this normally hits the map; the `ADMISSION_POLICY_DEFAULT`
+   * fallback is a safety net for a channel that has no row yet (e.g. one
+   * added between releases, before the next seed runs).
    */
   get(channelType: ChannelId): AdmissionPolicy {
     return this.policies.get(channelType) ?? ADMISSION_POLICY_DEFAULT;

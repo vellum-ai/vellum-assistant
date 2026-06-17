@@ -194,4 +194,18 @@ export class AdmissionPolicyStore {
       .run();
     return true;
   }
+
+  /**
+   * Insert a default row for a channel only if one does not already exist.
+   * Idempotent and non-destructive — a user-configured row is never
+   * overwritten (ON CONFLICT DO NOTHING). Used by the startup seed so the
+   * read paths can assume a row exists rather than each re-deriving defaults.
+   */
+  seedDefault(channelType: ChannelId, policy: AdmissionPolicy): void {
+    this.db.run(sql`
+      INSERT INTO channel_admission_policy (channel_type, policy, note, updated_at)
+      VALUES (${channelType}, ${policy}, ${null}, ${Date.now()})
+      ON CONFLICT (channel_type) DO NOTHING
+    `);
+  }
 }

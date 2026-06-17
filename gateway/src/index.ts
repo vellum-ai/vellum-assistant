@@ -1505,50 +1505,14 @@ async function main() {
       handler: (req, params) => handleTrustRulesDelete(req, params[0]),
     },
 
-    // ── Channel admission policy — flat routes ──
+    // ── Channel admission policy (assistant-scoped) ──
     // Storage + CRUD for the per-channel admission floor. Gateway-owned: the
-    // admission-policy store and cache live here, not in the daemon. The
-    // mutation regexes tolerate a trailing slash so GatewayHTTPClient requests
-    // built with `unprefixed: true` (which still append a trailing slash) match
-    // here instead of falling through to the runtime-proxy catch-all.
-    {
-      path: /^\/v1\/channel-admission-policy\/?$/,
-      method: "GET",
-      auth: "edge-scoped",
-      scope: "settings.read",
-      handler: (req) => handleChannelAdmissionPolicyList(req),
-    },
-    {
-      path: /^\/v1\/channel-admission-policy\/([^/]+)\/?$/,
-      method: "PUT",
-      auth: "edge-scoped",
-      scope: "settings.write",
-      handler: (req, params) => handleChannelAdmissionPolicySet(req, params[0]),
-    },
-    {
-      path: /^\/v1\/channel-admission-policy\/([^/]+)\/?$/,
-      method: "POST",
-      auth: "edge-scoped",
-      scope: "settings.write",
-      handler: (req, params) => handleChannelAdmissionPolicySet(req, params[0]),
-    },
-    {
-      path: /^\/v1\/channel-admission-policy\/([^/]+)\/?$/,
-      method: "DELETE",
-      auth: "edge-scoped",
-      scope: "settings.write",
-      handler: (req, params) => handleChannelAdmissionPolicyDelete(req, params[0]),
-    },
-
-    // ── Channel admission policy — assistant-scoped variants ──
-    // Mirror the flat routes for clients that use GatewayHTTPClient's
-    // auto-prefix, which builds URLs like
-    // /v1/assistants/<id>/channel-admission-policy/<channel>/. Without these,
-    // the request falls through to the runtime-proxy catch-all and the daemon
-    // serves 404 (the daemon does not implement this gateway storage API).
-    // Admission policy is gateway-global, so the assistant id is matched and
-    // discarded — same precedent as the assistant-scoped trust-rules routes
-    // below.
+    // admission-policy store and cache live here, not in the daemon. Clients
+    // reach these via GatewayHTTPClient's auto-prefix, which builds URLs like
+    // /v1/assistants/<id>/channel-admission-policy/<channel>/. The mutation
+    // regexes tolerate a trailing slash. Admission policy is gateway-global, so
+    // the assistant id is matched and discarded — same precedent as the
+    // assistant-scoped trust-rules routes below.
     {
       path: /^\/v1\/assistants\/[^/]+\/channel-admission-policy\/?$/,
       method: "GET",
