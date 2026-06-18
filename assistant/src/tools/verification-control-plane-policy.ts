@@ -10,6 +10,9 @@
  *   /v1/channel-verification-sessions/revoke
  */
 
+import type { TrustClass } from "../runtime/actor-trust-resolver.js";
+import { resolveCapabilities } from "../runtime/capabilities.js";
+
 const VERIFICATION_ENDPOINT_PATHS = [
   "/v1/channel-verification-sessions",
   "/v1/channel-verification-sessions/resend",
@@ -128,7 +131,15 @@ export function enforceVerificationControlPlanePolicy(
     return { denied: false };
   }
 
-  if (trustClass === "guardian") {
+  const tc: TrustClass | undefined =
+    trustClass === "guardian" ||
+    trustClass === "trusted_contact" ||
+    trustClass === "unverified_contact" ||
+    trustClass === "unknown"
+      ? trustClass
+      : undefined;
+
+  if (resolveCapabilities(tc).canUseVerificationControlPlane) {
     return { denied: false };
   }
 
