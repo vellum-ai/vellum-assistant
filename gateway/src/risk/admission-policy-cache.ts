@@ -3,7 +3,9 @@ import {
   AdmissionPolicyStore,
   type AdmissionPolicy,
 } from "../db/admission-policy-store.js";
-import type { ChannelId } from "../channels/types.js";
+import { isChannelId, type ChannelId } from "../channels/types.js";
+import { isAdmissionPolicyExemptChannel } from "@vellumai/gateway-client";
+import { isFeatureFlagEnabled } from "../feature-flag-resolver.js";
 
 // ---------------------------------------------------------------------------
 // Cache class
@@ -70,4 +72,28 @@ export function invalidateAdmissionPolicyCache(): void {
 
 export function resetAdmissionPolicyCache(): void {
   cache = null;
+}
+
+// ---------------------------------------------------------------------------
+// Resolution
+// ---------------------------------------------------------------------------
+
+// Gates all per-channel admission enforcement (kill switch + floor). When off,
+// no admission policy is resolved, so inbound falls back to the pre-feature
+// ACL-only behavior.
+export const CHANNEL_TRUST_FLOORS_FLAG = "channel-trust-floors" as const;
+
+/**
+ * Resolve a channel's admission policy, folding the feature-flag gate, the
+ * §8.1 exempt-channel skip, and the channel-id guard. Returns `null` when the
+ * flag is off, the channel is exempt, or the string is not a known channel —
+ * the single source of truth for every admission-policy call site.
+ */
+export function resolveAdmissionPolicy(
+  channelType: string,
+): AdmissionPolicy | null {
+  if (!isFeatureFlagEnabled(CHANNEL_TRUST_FLOORS_FLAG)) return null;
+  if (isAdmissionPolicyExemptChannel(channelType)) return null;
+  if (!isChannelId(channelType)) return null;
+  return getAdmissionPolicyCache().get(channelType);
 }

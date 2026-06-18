@@ -6,12 +6,9 @@
  * off, the channel is exempt, or the channel type is unknown.
  */
 
-import { isAdmissionPolicyExemptChannel } from "@vellumai/gateway-client";
 import { z } from "zod";
 
-import { isChannelId } from "../channels/types.js";
-import { isFeatureFlagEnabled } from "../feature-flag-resolver.js";
-import { getAdmissionPolicyCache } from "../risk/admission-policy-cache.js";
+import { resolveAdmissionPolicy } from "../risk/admission-policy-cache.js";
 import type { IpcRoute } from "./server.js";
 
 const GetChannelAdmissionPolicySchema = z.object({
@@ -24,12 +21,7 @@ export const admissionPolicyRoutes: IpcRoute[] = [
     schema: GetChannelAdmissionPolicySchema,
     handler: (params?: Record<string, unknown>) => {
       const { channelType } = GetChannelAdmissionPolicySchema.parse(params);
-
-      if (!isFeatureFlagEnabled("channel-trust-floors")) return { policy: null };
-      if (isAdmissionPolicyExemptChannel(channelType)) return { policy: null };
-      if (!isChannelId(channelType)) return { policy: null };
-
-      return { policy: getAdmissionPolicyCache().get(channelType) };
+      return { policy: resolveAdmissionPolicy(channelType) };
     },
   },
 ];
