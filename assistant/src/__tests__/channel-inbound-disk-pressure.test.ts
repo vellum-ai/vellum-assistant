@@ -236,7 +236,7 @@ describe("channel inbound disk pressure gate", () => {
     expect(db.select().from(messages).all()).toHaveLength(0);
   });
 
-  test("blocks non-guardian Slack reactions before persistence while locked", async () => {
+  test("blocks non-guardian Slack reactions silently (no reply) before persistence while locked", async () => {
     upsertContact({
       displayName: "Example Slack User",
       channels: [
@@ -274,18 +274,10 @@ describe("channel inbound disk pressure gate", () => {
       reason: "trusted-contact",
     });
     expect(processMessage).not.toHaveBeenCalled();
-    expect(deliverChannelReplyMock.mock.calls).toEqual([
-      [
-        "https://gateway.test/deliver/slack",
-        {
-          chatId: "slack-channel-1",
-          text: expectedRemoteBlockReply,
-          assistantId: "self",
-          ephemeral: true,
-          user: "slack-user-1",
-        },
-      ],
-    ]);
+    // Reactions are blocked silently during disk pressure: a passive signal
+    // has nothing to "try again", so no block reply is delivered (unlike the
+    // message path, which does reply).
+    expect(deliverChannelReplyMock).not.toHaveBeenCalled();
 
     const db = getDb();
     const event = db
