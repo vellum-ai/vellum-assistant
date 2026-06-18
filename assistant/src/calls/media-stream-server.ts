@@ -631,6 +631,17 @@ export class MediaStreamCallSession {
   }
 
   private handleDtmf(digit: string): void {
+    // Drop DTMF arriving while setup routing is still pending so a
+    // not-yet-authorized / floor-denied caller's digit is never persisted
+    // before the admission floor and trust ACL are applied.
+    if (this.setupRouting) {
+      log.debug(
+        { callSessionId: this.callSessionId, digit },
+        "DTMF received during setup routing — dropping",
+      );
+      return;
+    }
+
     log.info(
       { callSessionId: this.callSessionId, digit },
       "DTMF digit received on media-stream",

@@ -322,6 +322,15 @@ function makeMarkMessage(name: string): string {
   });
 }
 
+function makeDtmfMessage(digit: string): string {
+  return JSON.stringify({
+    event: "dtmf",
+    sequenceNumber: "60",
+    streamSid: "MZ00000000000000000000000000000000",
+    dtmf: { digit },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Setup / teardown
 // ---------------------------------------------------------------------------
@@ -1449,6 +1458,45 @@ describe("media-stream setup outcome scenarios", () => {
           e.eventType === "caller_spoke",
       );
       expect(callerSpoke.length).toBe(0);
+    });
+
+    test("a DTMF digit received during setup routing is dropped", async () => {
+      // Gate the admission read so setupRouting is still true when the DTMF
+      // frame arrives (simulating a digit during the admission IPC read).
+      let releaseGate!: () => void;
+      mockAdmissionGate = new Promise<void>((resolve) => {
+        releaseGate = resolve;
+      });
+
+      const mockWs = createMockWs();
+      mockSessions.set("call-dtmf-drop-1", {
+        id: "call-dtmf-drop-1",
+        conversationId: "conv-dtmf-drop-1",
+        status: "initiated",
+        task: null,
+        startedAt: null,
+        fromNumber: "+14155550000",
+        toNumber: "+15550001111",
+      });
+
+      const session = new MediaStreamCallSession(mockWs.ws, "call-dtmf-drop-1");
+      session.handleMessage(makeStartMessage());
+
+      // DTMF arrives while the admission read is still pending.
+      session.handleMessage(makeDtmfMessage("5"));
+
+      releaseGate();
+      await session.whenSetupSettled();
+
+      // The digit was dropped during setup: no caller_spoke event, no
+      // controller interaction.
+      const callerSpoke = mockEvents.filter(
+        (e) =>
+          e.callSessionId === "call-dtmf-drop-1" &&
+          e.eventType === "caller_spoke",
+      );
+      expect(callerSpoke.length).toBe(0);
+      expect(mockHandleCallerUtterance).not.toHaveBeenCalled();
     });
 
     test("session disposed during the admission read aborts setup — no controller, no greeting", async () => {
