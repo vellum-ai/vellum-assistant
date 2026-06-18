@@ -18,6 +18,7 @@ import { getBindingByConversation } from "../memory/external-conversation-store.
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
+import { isUnparseableToolArgs } from "../providers/unparseable-tool-args.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";
@@ -302,9 +303,29 @@ export function createToolExecutor(
     // risk level, permission checks, hooks, and lifecycle events all fire
     // with the real tool name.
     if (executionName === "skill_execute") {
+      // Recover from unparseable args caused by the coerceObjectArgsToJsonString
+      // decode failing on the `input` field. The outer JSON parsed fine (tool,
+      // activity are intact), so re-parse the raw args to get the envelope and
+      // let resolveSkillExecuteInput handle the raw string for `input`.
+      let envelope: Record<string, unknown> = executionInput;
+      if (isUnparseableToolArgs(executionInput)) {
+        try {
+          const parsed: unknown = JSON.parse(executionInput._raw);
+          if (
+            parsed != null &&
+            typeof parsed === "object" &&
+            !Array.isArray(parsed)
+          ) {
+            envelope = parsed as Record<string, unknown>;
+          }
+        } catch {
+          // Outer JSON genuinely broken — fall through to the normal error path.
+        }
+      }
+
       const rawToolName =
-        typeof executionInput.tool === "string" ? executionInput.tool : "";
-      const rawToolInput = resolveSkillExecuteInput(executionInput);
+        typeof envelope.tool === "string" ? envelope.tool : "";
+      const rawToolInput = resolveSkillExecuteInput(envelope);
 
       // Clone to avoid mutating shared input objects
       const { name: toolName, input: toolInput } = resolveToolInvocationAlias(
