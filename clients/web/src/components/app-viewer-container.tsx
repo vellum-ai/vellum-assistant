@@ -6,7 +6,6 @@ import { Minimize2 } from "lucide-react";
 import { AppNavBar } from "@/components/app-nav-bar";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useSandboxFetchProxy } from "@/hooks/use-sandbox-fetch-proxy";
-import { useViewerStore } from "@/stores/viewer-store";
 import { cn } from "@/utils/misc";
 import { routes } from "@/utils/routes";
 import { injectBridge } from "@/utils/sandbox-bridge";
@@ -81,8 +80,9 @@ export function AppViewerContainer({
 
   // Routes `relay_prompt` actions from sandboxed apps into the active
   // chat conversation via the `?prompt=` auto-send pathway (see
-  // `use-auto-send-effects.ts`). Closes the viewer so the conversation is
-  // visible. No-op when no conversation is active.
+  // `use-auto-send-effects.ts`). The viewer stays open so the app and
+  // conversation are visible side by side. No-op when no conversation
+  // is active.
   const navigate = useNavigate();
   const handleAppAction = useCallback(
     (actionId: string, data?: Record<string, unknown>) => {
@@ -92,7 +92,6 @@ export function AppViewerContainer({
       const activeConversationId =
         useChatSessionStore.getState().activeConversationId;
       if (!activeConversationId) return;
-      useViewerStore.getState().closeApp();
       void navigate(
         `${routes.conversation(activeConversationId)}?prompt=${encodeURIComponent(prompt)}`,
       );
