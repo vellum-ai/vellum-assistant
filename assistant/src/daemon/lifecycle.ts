@@ -579,7 +579,7 @@ export async function runDaemon(): Promise<void> {
     // Off-platform hatches additionally create user profiles + a personal
     // provider connection for the hatch provider.
     try {
-      seedInferenceProfiles({
+      await seedInferenceProfiles({
         preserveProfileNames: defaultConfigMerge.providedLlmProfileNames,
         preserveActiveProfile: defaultConfigMerge.providedLlmActiveProfile,
         isHatch: defaultConfigMerge.hadOverlay,
