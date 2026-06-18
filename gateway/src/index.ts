@@ -858,8 +858,12 @@ async function main() {
       path: "/v1/remote-web/pairing-challenge",
       method: "POST",
       auth: "none",
-      handler: (req, _params, getClientIp) =>
-        handleCreateRemoteWebPairingChallenge(req, getClientIp()),
+      handler: (req, _params, getClientIp, getRawPeerIp) =>
+        handleCreateRemoteWebPairingChallenge(
+          req,
+          getClientIp(),
+          getRawPeerIp(),
+        ),
     },
     {
       path: "/v1/remote-web/pairing-verification",
