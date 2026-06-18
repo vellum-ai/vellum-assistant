@@ -222,6 +222,23 @@ describe("onConsentResolved", () => {
     expect(received).toEqual([consent]);
   });
 
+  test("a throwing listener does not starve other listeners", async () => {
+    const received: OwnerConsent[] = [];
+    onConsentResolved(() => {
+      throw new Error("boom");
+    });
+    onConsentResolved((c) => received.push(c));
+
+    const consent: OwnerConsent = {
+      shareAnalytics: true,
+      shareDiagnostics: true,
+    };
+    setConsent(consent);
+    await refreshConsentCache();
+
+    expect(received).toEqual([consent]);
+  });
+
   test("a null fetch never fires; a later successful fetch does", async () => {
     const received: OwnerConsent[] = [];
     onConsentResolved((c) => received.push(c));

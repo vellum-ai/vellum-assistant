@@ -71,7 +71,13 @@ export async function refreshConsentCache(): Promise<void> {
     if (!firstConsentResolved) {
       firstConsentResolved = true;
       const listeners = consentResolvedListeners.splice(0);
-      for (const l of listeners) l(consent);
+      for (const l of listeners) {
+        try {
+          l(consent);
+        } catch (err) {
+          log.debug({ err }, "consent-resolved listener failed");
+        }
+      }
     }
   }
 }
