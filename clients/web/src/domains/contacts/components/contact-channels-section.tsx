@@ -113,6 +113,7 @@ interface ContactChannelsSectionProps {
   a2aEnabled?: boolean;
   setupLabel?: string;
   verifyLoading?: boolean;
+  verifySubject?: "self" | "contact";
   onSetupChannel?: (type: string) => void;
   onVerifyChannel?: (type: string) => void;
   onRevokeChannel?: (channelId: string, type: string) => void;
@@ -151,6 +152,7 @@ export function ContactChannelsSection({
   a2aEnabled,
   setupLabel = "Invite",
   verifyLoading,
+  verifySubject = "self",
   onSetupChannel,
   onVerifyChannel,
   onRevokeChannel,
@@ -230,7 +232,11 @@ export function ContactChannelsSection({
         <ConfirmDialog
           open={true}
           title={`Verify ${verifyPending.label}`}
-          message={`This will mark your ${verifyPending.label} channel as verified. Your assistant will recognize you when you reach out from it.`}
+          message={
+            verifySubject === "contact"
+              ? `This will mark this contact's ${verifyPending.label} channel as verified. Your assistant will recognize them when they reach out from it.`
+              : `This will mark your ${verifyPending.label} channel as verified. Your assistant will recognize you when you reach out from it.`
+          }
           confirmLabel="Verify"
           onConfirm={handleVerifyConfirm}
           onCancel={() => setVerifyPending(null)}
