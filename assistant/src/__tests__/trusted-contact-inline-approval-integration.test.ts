@@ -157,6 +157,7 @@ mock.module("../config/env.js", () => ({
 import { applyCanonicalGuardianDecision } from "../approvals/guardian-decision-primitive.js";
 import type { ActorContext } from "../approvals/guardian-request-resolvers.js";
 import { getResolver } from "../approvals/guardian-request-resolvers.js";
+import { upsertContactChannel } from "../contacts/contacts-write.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import {
   createCanonicalGuardianRequest,
@@ -1275,5 +1276,32 @@ describe("(g) access_request resolver: requester code delivery", () => {
     expect(courier!.payload.chatId).toBe("C_SHARED_CHANNEL");
     expect(courier!.payload.ephemeral).toBe(true);
     expect(courier!.payload.user).toBe(REQUESTER_UID);
+  });
+
+  test("guardian-facing reply uses the requester's display name, not the raw ID", async () => {
+    // Seed a contact so the resolver can resolve a display name.
+    upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: REQUESTER_UID,
+      displayName: "Alice",
+      status: "unverified",
+    });
+
+    const req = createAccessRequest();
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: "approve_once",
+      // Desktop decision → resolver returns guardianReplyText for assertion.
+      actorContext: guardianActor({
+        channel: "vellum",
+        actorExternalUserId: undefined,
+      }),
+    });
+
+    expect(result.applied).toBe(true);
+    const replyText = result.applied ? result.resolverReplyText : undefined;
+    expect(replyText).toContain("Alice");
+    expect(replyText).not.toContain(REQUESTER_UID);
   });
 });
