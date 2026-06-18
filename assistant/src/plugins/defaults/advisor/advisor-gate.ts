@@ -13,10 +13,10 @@ import { getConfig } from "../../../config/loader.js";
 /**
  * Whether the advisor is enabled for the chat profile this turn uses.
  *
- * `modelProfile` is the call's already-resolved profile (from
- * `PreModelCallContext.modelProfile`); pass `null` when it isn't known (e.g.
- * from the tool, which sees only the workspace config), in which case the
- * workspace active profile — or the `mainAgent` call-site default — applies.
+ * `modelProfile` is the call's already-resolved profile — `PreModelCallContext.modelProfile`
+ * from the steering hook, or `ToolContext.overrideProfile` from the tool. Pass
+ * `null` when no per-turn override applies, in which case the workspace active
+ * profile — or the `mainAgent` call-site default — applies.
  */
 export function advisorEnabledForProfile(modelProfile: string | null): boolean {
   const { llm } = getConfig();

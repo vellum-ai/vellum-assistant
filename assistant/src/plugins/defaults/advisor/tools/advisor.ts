@@ -37,8 +37,10 @@ const advisorTool: ToolDefinition = {
     ctx: ToolContext,
   ): Promise<ToolExecutionResult> {
     // Defense-in-depth: the steering is already gated per profile, but a model
-    // could still call the tool. Honor the chat profile's advisor toggle.
-    if (!advisorEnabledForProfile(null)) {
+    // could still call the tool. Honor the chat profile this turn runs under —
+    // the per-turn override (per-conversation / profile-session) when present,
+    // else the workspace active profile.
+    if (!advisorEnabledForProfile(ctx.overrideProfile ?? null)) {
       return {
         content: "(advisor is disabled for the active profile)",
         isError: false,
