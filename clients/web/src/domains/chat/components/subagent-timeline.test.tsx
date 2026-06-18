@@ -18,6 +18,7 @@ import {
   renderedRowCount,
   TimelineHarness,
 } from "@/domains/chat/components/__fixtures__/subagent-timeline-harness";
+import { SubagentTimeline } from "@/domains/chat/components/subagent-timeline";
 import type { SubagentTimelineEvent } from "@/domains/chat/subagent-store";
 
 // jsdom/happy-dom report 0 for all layout; give rows a fixed measured height so
@@ -128,5 +129,20 @@ describe("SubagentTimeline — virtualization windows the list", () => {
     const rendered = renderedRowCount(screen);
     expect(rendered).toBeGreaterThan(0); // guard: not a vacuous pass
     expect(rendered).toBeLessThan(60);
+  });
+});
+
+describe("SubagentTimeline — renders before the scroll element is measured", () => {
+  test("batch-loaded events render even when the scroll element is never measured", () => {
+    // Reproduces the empty-timeline-on-reopen bug for a completed/history
+    // subagent: events are present in one batch and the external scroll element
+    // is not measured (here it never attaches, so the virtualizer's outerSize
+    // stays at its initialRect). Without a non-zero initialRect height the
+    // visible window is empty and getVirtualItems() returns [] — a blank
+    // timeline. The seeded initialRect makes the first paint render rows.
+    const scrollRef = { current: null } as { current: HTMLElement | null };
+    render(<SubagentTimeline scrollRef={scrollRef} events={makeSyntheticEvents(20)} />);
+
+    expect(renderedRowCount(screen)).toBeGreaterThan(0);
   });
 });

@@ -27,6 +27,20 @@ const DEFAULT_ROW_ESTIMATE = 96;
 const OVERSCAN = 6;
 
 /**
+ * Fallback viewport height (px) used before the scroll element is measured. The
+ * virtualizer derives its visible window from the scroll element's height
+ * (`outerSize`); when that is 0 it renders nothing (`calculateRange` returns an
+ * empty range). The scroll element is the panel body, owned by a parent whose
+ * ref attaches only after this child's mount effect runs, so on the first paint
+ * the height reads 0. A live subagent masks this — each streamed event triggers
+ * a re-render once the box is measured — but a completed/history subagent loads
+ * its events in one batch with no follow-up render, so the timeline would stay
+ * blank. Seeding a non-zero initial height makes the first paint compute a real
+ * window; the true height replaces it as soon as the scroll element is measured.
+ */
+const INITIAL_VIEWPORT_ESTIMATE = 800;
+
+/**
  * Compute the `scrollMargin` for the virtualizer: the list's top offset within
  * the scroll container's content, so virtual positions account for any header
  * rendered above the list.
@@ -103,5 +117,8 @@ export function useTimelineVirtualizer({
     measureElement,
     overscan: OVERSCAN,
     scrollMargin,
+    // Non-zero until the scroll element is measured, so the first paint computes
+    // a real window instead of zero rows (see INITIAL_VIEWPORT_ESTIMATE).
+    initialRect: { width: 0, height: INITIAL_VIEWPORT_ESTIMATE },
   });
 }
