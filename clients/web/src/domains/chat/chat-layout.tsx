@@ -34,7 +34,7 @@ import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
 import {
     navigateToConversation,
     navigateToNewConversation,
-} from "@/domains/chat/utils/conversation-navigation";
+} from "@/utils/conversation-navigation";
 import { haptic } from "@/utils/haptics";
 
 import {
