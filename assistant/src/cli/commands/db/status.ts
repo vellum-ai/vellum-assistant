@@ -28,7 +28,7 @@ import { Database } from "bun:sqlite";
 
 import type { Command } from "commander";
 
-import { getDbPath } from "../../../util/platform.js";
+import { getDbPath, getLogsDbPath } from "../../../util/platform.js";
 import { red } from "../../lib/cli-colors.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 import {
@@ -74,6 +74,14 @@ interface DbFacts {
 interface StatusReport {
   file: FileFacts;
   db: DbFacts | null;
+  /**
+   * The secondary append-only database (`assistant-logs.db`). Omitted from the
+   * report when the file does not exist yet — it is created the first time the
+   * daemon opens (and ATTACHes) the DB, so a fresh install that has never run
+   * the daemon won't have one.
+   */
+  logsFile?: FileFacts;
+  logsDb?: DbFacts | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -242,8 +250,7 @@ function row(label: string, value: string): string {
   return `${label.padEnd(LABEL_WIDTH)}${value}\n`;
 }
 
-function renderHuman(report: StatusReport): string {
-  const { file, db } = report;
+function renderDbBlock(file: FileFacts, db: DbFacts | null): string {
   let out = "";
 
   out += row("Path", file.path);
@@ -297,6 +304,19 @@ function renderHuman(report: StatusReport): string {
         ? formatBytes(t.metric)
         : `${formatCount(t.metric)} rows`;
     out += `  ${t.name.padEnd(nameWidth)}  ${metric}\n`;
+  }
+
+  return out;
+}
+
+function renderHuman(report: StatusReport): string {
+  let out = renderDbBlock(report.file, report.db);
+
+  // The secondary append-only file is only reported once it exists on disk.
+  if (report.logsFile?.exists) {
+    out += "\n";
+    out += "Logs database (append-only tables)\n";
+    out += renderDbBlock(report.logsFile, report.logsDb ?? null);
   }
 
   return out;
@@ -356,7 +376,20 @@ export function registerDbStatus(parent: Command): void {
         process.exit(1);
       }
 
-      const report: StatusReport = { file, db };
+      // Best-effort probe of the secondary append-only DB. It may not exist
+      // yet (fresh install that has never started the daemon), and a probe
+      // failure must never mask the main-DB report.
+      const logsFile = readFileFacts(getLogsDbPath());
+      let logsDb: DbFacts | null = null;
+      if (logsFile.exists) {
+        try {
+          logsDb = readDbFacts(logsFile.path);
+        } catch {
+          logsDb = null;
+        }
+      }
+
+      const report: StatusReport = { file, db, logsFile, logsDb };
       if (shouldOutputJson(this)) {
         writeOutput(this, report);
       } else {
