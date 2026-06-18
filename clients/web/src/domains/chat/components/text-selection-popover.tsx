@@ -8,7 +8,7 @@
  */
 
 import { MessageSquareQuote } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
 
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { isPointerCoarse } from "@/utils/pointer";
@@ -20,7 +20,7 @@ import { isPointerCoarse } from "@/utils/pointer";
  * message element (identified by `data-message-id` + `data-message-role`).
  */
 interface TextSelectionPopoverProps {
-  containerRef: React.RefObject<HTMLElement | null>;
+  containerRef: RefObject<HTMLElement | null>;
 }
 
 export function TextSelectionPopover({ containerRef }: TextSelectionPopoverProps) {
@@ -112,16 +112,25 @@ export function TextSelectionPopover({ containerRef }: TextSelectionPopoverProps
     };
   }, [popover]);
 
-  // Attach mouseup listener to the transcript container.
+  // Listen for mouseup on the document and validate the selection target is
+  // within the transcript container. Using document-level listeners avoids
+  // the stale-ref problem where containerRef.current is null on initial
+  // mount (before the Transcript element renders).
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) {
-      return;
-    }
+    const handler = (e: MouseEvent) => {
+      const container = containerRef.current;
+      if (!container) {
+        return;
+      }
+      const target = e.target as Node | null;
+      if (target && container.contains(target)) {
+        handleMouseUp();
+      }
+    };
 
-    container.addEventListener("mouseup", handleMouseUp);
+    document.addEventListener("mouseup", handler);
     return () => {
-      container.removeEventListener("mouseup", handleMouseUp);
+      document.removeEventListener("mouseup", handler);
     };
   }, [containerRef, handleMouseUp]);
 

@@ -28,6 +28,7 @@ import { useRuleEditorBridge } from "@/domains/chat/hooks/use-rule-editor-bridge
 import { useChatBannerSlots } from "@/domains/chat/hooks/use-chat-banner-slots";
 import { QuoteReplyBubble } from "@/domains/chat/components/quote-reply-bubble";
 import { TextSelectionPopover } from "@/domains/chat/components/text-selection-popover";
+import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
@@ -323,16 +324,16 @@ export function ChatMainPanel({
     transcriptContainerRef.current = el;
   });
 
-  const handleQuoteReplyNow = useCallback(
-    (quotedText: string, replyText: string) => {
-      const blockquote = quotedText
-        .split("\n")
-        .map((line) => `> ${line}`)
-        .join("\n");
-      void sendMessage(`${blockquote}\n\n${replyText}`);
-    },
-    [sendMessage],
-  );
+  // Clear staged quotes and dismiss the reply bubble when the active
+  // conversation changes to prevent quotes from one conversation leaking
+  // into another.
+  useEffect(() => {
+    const store = useQuoteReplyStore.getState();
+    if (store.stagedQuotes.length > 0 || store.replyBubble) {
+      store.clearStagedQuotes();
+      store.closeReplyBubble();
+    }
+  }, [activeConversationId]);
 
   const handleClearContext = useCallback(
     () => void sendMessage("/clean"),
@@ -442,6 +443,20 @@ export function ChatMainPanel({
     isChannelReadonly;
 
   const sendDisabled = isSendDisabledFromTurn || typingDisabled;
+
+  const handleQuoteReplyNow = useCallback(
+    (quotedText: string, replyText: string) => {
+      if (sendDisabled || isChannelReadonly) {
+        return;
+      }
+      const blockquote = quotedText
+        .split("\n")
+        .map((line) => `> ${line}`)
+        .join("\n");
+      void sendMessage(`${blockquote}\n\n${replyText}`);
+    },
+    [sendMessage, sendDisabled, isChannelReadonly],
+  );
 
   const isEmptyConversation =
     !!activeConversationId &&
@@ -837,7 +852,7 @@ export function ChatMainPanel({
       />
       {sendErrorModalNode}
       {ruleEditorModalNode}
-      {quoteReplyEnabled && (
+      {quoteReplyEnabled && !isChannelReadonly && (
         <>
           <TextSelectionPopover containerRef={transcriptContainerRef} />
           <QuoteReplyBubble onSendNow={handleQuoteReplyNow} />
