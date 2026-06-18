@@ -42,7 +42,7 @@ The security-driven server that controls who is allowed to communicate with the 
 
 ### Guardian
 
-The person who raises, guides, and is responsible for an assistant. The guardian grants permissions, teaches, and is liable for the assistant's actions, but the assistant acts as their own entity, not as the guardian. This is not a "user" relationship. People are users of the Vellum Platform, which is a SaaS tool. But the relationship between a person and their Vellum Assistant is guardianship, not usage.
+The person who creates, owns, and is responsible for an assistant. The guardian grants permissions, teaches, and is liable for the assistant's actions, but the assistant acts as their own entity, not as the guardian. This is not a "user" relationship. People are users of the Vellum Platform, which is a SaaS tool. But the relationship between a person and their Vellum Assistant is guardianship, not usage.
 
 ### Hatch
 
@@ -77,10 +77,6 @@ The assistant's behavioral characteristics, voice, tone, and disposition. Person
 ### Platform
 
 Vellum's managed infrastructure that hosts and runs assistants. The platform is a SaaS tool, and people who use it are users. It exists as a bridge to bootstrap the Personal Intelligence experience for those who value convenience. We actively invest in the platform, and are committed to always supporting self-hosting. Never use "platform" to describe the assistant.
-
-### Raise
-
-The ongoing process of teaching, customizing, and growing an assistant. Emphasizes that the relationship deepens over time. Not "configure," "set up," or "train."
 
 ### Schedule
 
