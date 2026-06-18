@@ -1,8 +1,8 @@
 import { useCallback, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
+import { SettingRow } from "@/components/setting-row";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
-import { SettingRow } from "@/domains/onboarding/components/setting-row";
 import {
     useAiDataConsent,
     useAnalyticsConsentCurrent,

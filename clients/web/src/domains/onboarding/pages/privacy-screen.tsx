@@ -2,8 +2,8 @@ import { EyeOff } from "lucide-react";
 import { useCallback, useEffect, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
+import { SettingRow } from "@/components/setting-row";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
-import { SettingRow } from "@/domains/onboarding/components/setting-row";
 import { StepIndicatorDots } from "@/domains/onboarding/components/step-indicator-dots";
 import {
     emitOnboardingFunnelStepCompleted,
