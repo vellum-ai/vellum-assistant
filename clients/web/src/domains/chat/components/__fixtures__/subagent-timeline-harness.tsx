@@ -23,11 +23,11 @@ import type { screen } from "@testing-library/react";
 import { SubagentTimeline } from "@/domains/chat/components/subagent-timeline";
 import type { SubagentTimelineEvent } from "@/domains/chat/subagent-store";
 
-/** Default per-row height (px); mirrors the hook's `DEFAULT_ROW_ESTIMATE`. */
-export const ROW_HEIGHT = 96;
+/** Default per-row height (px); mirrors the hook's row-height estimate. */
+const ROW_HEIGHT = 96;
 
 /** Per-event card titles, one per (non-filtered) event. */
-export const ROW_TITLES = ["Response", "Tool Call", "Tool Result", "Error"];
+const ROW_TITLES = ["Response", "Tool Call", "Tool Result", "Error"];
 
 /** Count rendered timeline rows by summing every per-event title occurrence. */
 export function renderedRowCount(screenApi: typeof screen): number {
@@ -42,7 +42,7 @@ export function renderedRowCount(screenApi: typeof screen): number {
  * duration of the suite, restoring the original descriptor afterwards. Call at
  * the top level of a `describe` (or file).
  */
-export function installRowHeightStub(rowHeight = ROW_HEIGHT): void {
+export function installRowHeightStub(): void {
   let original: PropertyDescriptor | undefined;
   beforeAll(() => {
     original = Object.getOwnPropertyDescriptor(
@@ -52,7 +52,7 @@ export function installRowHeightStub(rowHeight = ROW_HEIGHT): void {
     Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
       configurable: true,
       get() {
-        return rowHeight;
+        return ROW_HEIGHT;
       },
     });
   });

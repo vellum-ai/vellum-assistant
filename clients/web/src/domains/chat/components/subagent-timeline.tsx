@@ -208,12 +208,14 @@ const TimelineEventRow = memo(function TimelineEventRow({
   toggleExpand: (id: string) => void;
 }) {
   return (
-    // The inter-row gap lives in this row's `pb-4` padding (not the card's
-    // margin): the virtualizer measures rows via `getBoundingClientRect`, which
-    // excludes margins, so a margin-based gap would make absolutely-positioned
-    // rows overlap. As padding it's part of the measured height, and the
-    // connector's `flex-1` fill still spans through it to the next row.
-    <div className="relative flex gap-3 pb-4">
+    // The inter-row gap is the card's bottom margin (`mb-4`). The card is a flex
+    // item, so its margin grows the flex line's cross-size: the left rail — and
+    // its `flex-1` connector — stretches to that height and visually spans the
+    // gap down to the next row's icon. The margin is also part of the measured
+    // row height: `measureElement` measures the wrapper around this whole flex
+    // row, and a descendant flex item's margin counts toward that wrapper's
+    // border box, so absolutely-positioned rows don't overlap.
+    <div className="relative flex gap-3">
       {/* Left: icon node + connector line */}
       <div className="flex flex-col items-center">
         <div
@@ -228,7 +230,7 @@ const TimelineEventRow = memo(function TimelineEventRow({
       </div>
 
       {/* Right: content card */}
-      <div className="min-w-0 flex-1 rounded-lg bg-[var(--surface-overlay)] px-4 py-3">
+      <div className="mb-4 min-w-0 flex-1 rounded-lg bg-[var(--surface-overlay)] px-4 py-3">
         <Typography
           variant="body-medium-default"
           className="text-[var(--content-default)]"
