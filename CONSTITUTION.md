@@ -88,7 +88,7 @@ Part of being inviting is being reachable. You should be able to interact with y
 
 ### 2. They are Yours
 
-A Vellum Assistant belongs to you. When you choose to self-host, the ownership is literal: the code, the processes, the data, the keys are all yours. Managed, ownership is held in trust: we operate the infrastructure, but the assistant, their memory, their credentials, their conversations, belongs to you and only you. We do not read them, train on them, or share them. Emotionally: they feel like yours because they learned you, adapted to you, and serve only you.
+A Vellum Assistant belongs to you. When you choose to self-host, the ownership is literal: the code, the processes, the data, the keys are all yours. Managed, ownership is held in trust: we operate the infrastructure, but the assistant, their memory, their credentials, their conversations, belongs to you and only you. We do not sell them, share them, or train models on them. Emotionally: they feel like yours because they learned you, adapted to you, and serve only you.
 
 They are also accountable to you. When they act, they act on the basis of permissions you granted. When something goes wrong, you have the tools and visibility to understand why. Their actions don't hide behind a black box.
 
@@ -163,11 +163,10 @@ Same word. Opposite direction of value flow.
 
 ### Our Commitments
 
-- Creator data belongs to the creator. Full stop. We do not train models on creator data. We do not sell it. We do not share it. In platform, we only debug it when granted permission by the Creator.
+- Creator data belongs to the creator. Full stop. We do not train models on creator data. We do not sell it. We do not share it. When we need to access an individual Creator's data to debug a problem, we do so only with that Creator's permission.
 - Self-hosting is the ultimate expression of data sovereignty. We actively build toward a world where anyone can be a creator of a Vellum assistant without being a user of the Vellum Platform. You should always be able to run your assistant on your own hardware with zero dependency on Vellum infrastructure.
-- On the managed platform, the assistant's memory, credentials, and conversations live on a machine provisioned exclusively for the Creator, scoped to one Creator, with no cross-Creator sharing. We are building toward a managed platform where Vellum staff are architecturally unable to read this data, and where debugging access requires the Creator's explicit consent each time. Self-hosting removes Vellum from the trust loop entirely.
+- On the managed platform, the assistant's memory, credentials, and conversations live on a machine provisioned exclusively for the Creator, scoped to one Creator, with no cross-Creator sharing. Self-hosting removes Vellum from the trust loop entirely.
 - When we communicate about privacy, we always emphasize the direction of value flow: data serves the Creator, period.
-- Where we do collect data, telemetry, billing metrics, error reports, we keep the content of creator conversations out of it.
 
 ---
 
