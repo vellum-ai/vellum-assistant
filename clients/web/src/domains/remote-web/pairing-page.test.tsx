@@ -92,6 +92,24 @@ describe("RemoteWebPairingPage", () => {
     expect(createRemoteWebPairingChallengeMock).not.toHaveBeenCalled();
   });
 
+  test("shows progress state while creating a challenge", () => {
+    remoteGatewayMode = true;
+    createRemoteWebPairingChallengeMock.mockImplementationOnce(
+      async () => new Promise<never>(() => {}),
+    );
+
+    const { container } = render(
+      <MemoryRouter initialEntries={["/assistant/pair"]}>
+        <RemoteWebPairingPage />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Starting pairing")).not.toBeNull();
+    expect(container.querySelector(".animate-spin.text-blue-600")).not.toBeNull();
+    expect(container.querySelector(".text-red-600")).toBeNull();
+    expect(exchangeRemoteWebPairingTokenMock).not.toHaveBeenCalled();
+  });
+
   test("creates a challenge when opened without a device code", async () => {
     remoteGatewayMode = true;
 

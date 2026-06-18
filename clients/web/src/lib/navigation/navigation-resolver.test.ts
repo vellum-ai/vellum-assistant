@@ -10,6 +10,7 @@ import {
 const base: NavigationState = {
   isLocalMode: false,
   isRemoteGateway: false,
+  remoteGatewayPublicPathPrefix: "",
   isGatewayAuth: false,
   hasAssistants: true,
   sessionSettled: true,
@@ -68,6 +69,24 @@ describe("resolveNavigation", () => {
           hasAssistants: true,
         }),
         "/assistant/conversations/self?tab=latest",
+      );
+
+      expect(result).toEqual({
+        action: "redirect",
+        to: "/assistant/pair?returnTo=%2Fassistant%2Fconversations%2Fself%3Ftab%3Dlatest",
+      });
+    });
+
+    test("strips remote-gateway public prefix from pairing returnTo", () => {
+      const result = guard(
+        s({
+          isAuthenticated: false,
+          isLocalMode: true,
+          isRemoteGateway: true,
+          remoteGatewayPublicPathPrefix: "/assistant-123",
+          hasAssistants: true,
+        }),
+        "/assistant-123/assistant/conversations/self?tab=latest",
       );
 
       expect(result).toEqual({

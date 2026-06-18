@@ -60,7 +60,7 @@ function StatusIcon({ state }: { state: PairingState }) {
   if (state.kind === "approved") {
     return <CheckCircle2 className="h-5 w-5 text-green-600" aria-hidden />;
   }
-  if (state.kind === "polling") {
+  if (state.kind === "starting" || state.kind === "polling") {
     return (
       <LoaderCircle
         className="h-5 w-5 animate-spin text-blue-600"
