@@ -199,7 +199,7 @@ describe("leaf lifecycle", () => {
     expect(getState().byId["wf-i"]!.leaves).toBe(before);
   });
 
-  it("aggregates leaf usage into the run-level totals (delta, no double-count)", () => {
+  it("aggregates leaf usage into the run-level totals (no double-count)", () => {
     getState().leafStarted({ runId: "wf-tok", seq: 0 });
     getState().leafStarted({ runId: "wf-tok", seq: 1 });
 
@@ -234,6 +234,35 @@ describe("leaf lifecycle", () => {
 
     expect(getState().byId["wf-tok"]!.inputTokens).toBe(130);
     expect(getState().byId["wf-tok"]!.outputTokens).toBe(50);
+  });
+
+  it("does not double-count tokens when a journal aggregate precedes a late finish", () => {
+    getState().leafStarted({ runId: "wf-dc", seq: 0, label: "Leaf" });
+
+    // The journal fetch wins the race: it folds seq 0's usage into the run
+    // aggregate (resp.inputTokens) and repairs the leaf to completed, but journal
+    // leaves carry no per-leaf tokens.
+    getState().backfillFromJournal("wf-dc", {
+      runId: "wf-dc",
+      inputTokens: 100,
+      outputTokens: 40,
+      leaves: [{ seq: 0, kind: "agent", status: "completed", createdAt: NOW }],
+    });
+    expect(getState().byId["wf-dc"]!.inputTokens).toBe(100);
+    expect(getState().byId["wf-dc"]!.leaves.get(0)!.inputTokens).toBeUndefined();
+
+    // The delayed workflow_leaf_finished for seq 0 must not add its tokens again
+    // on top of the aggregate that already includes them.
+    getState().leafFinished({
+      runId: "wf-dc",
+      seq: 0,
+      status: "completed",
+      inputTokens: 100,
+      outputTokens: 40,
+    });
+
+    expect(getState().byId["wf-dc"]!.inputTokens).toBe(100);
+    expect(getState().byId["wf-dc"]!.outputTokens).toBe(40);
   });
 });
 

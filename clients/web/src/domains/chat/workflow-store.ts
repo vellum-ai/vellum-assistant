@@ -386,21 +386,29 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
 
     const nextLeaves = new Map(base.leaves).set(params.seq, leaf);
 
-    // Roll this leaf's usage into the run-level totals the panel metrics read,
-    // so they tick up live instead of staying 0 until workflow_completed. Apply
-    // the DELTA against the leaf's prior contribution so a duplicate/repeated
-    // finish event for the same seq does not double-count. completeRun later
-    // overwrites these with the authoritative final totals.
-    const deltaIn = (leaf.inputTokens ?? 0) - (current?.inputTokens ?? 0);
-    const deltaOut = (leaf.outputTokens ?? 0) - (current?.outputTokens ?? 0);
+    // Surface live run-level token usage (the panel metrics read the run, not
+    // the leaves) without staying 0 until workflow_completed. Take the per-leaf
+    // SUM but never drop below an aggregate a server snapshot already set
+    // (backfillFromJournal / completeRun). Recomputing the sum — rather than
+    // delta-accumulating — counts each leaf exactly once regardless of arrival
+    // order: a journal fetch that already folded a leaf's usage into the run
+    // aggregate cannot be double-counted by a late workflow_leaf_finished (whose
+    // journal-repaired leaf carries no tokens), and a duplicate finish is
+    // idempotent. completeRun still overwrites with the authoritative final.
+    let leafInputTokens = 0;
+    let leafOutputTokens = 0;
+    for (const l of nextLeaves.values()) {
+      leafInputTokens += l.inputTokens ?? 0;
+      leafOutputTokens += l.outputTokens ?? 0;
+    }
 
     set({
       byId: {
         ...byId,
         [params.runId]: {
           ...base,
-          inputTokens: base.inputTokens + deltaIn,
-          outputTokens: base.outputTokens + deltaOut,
+          inputTokens: Math.max(base.inputTokens, leafInputTokens),
+          outputTokens: Math.max(base.outputTokens, leafOutputTokens),
           leaves: nextLeaves,
         },
       },
