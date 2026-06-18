@@ -31,6 +31,8 @@ export const WorkflowLeafSchema = z.object({
   promptSummary: z.string().optional(),
   status: z.string(),
   resultSummary: z.string().optional(),
+  inputTokens: z.number().optional(),
+  outputTokens: z.number().optional(),
   createdAt: z.number().nullable(),
 });
 

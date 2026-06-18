@@ -681,6 +681,21 @@ describe("executeWorkflow — resume", () => {
     );
     expect(journalA.map((e) => e.seq)).toEqual([0, 1, 2]);
   });
+
+  test("a completed leaf persists its per-leaf token usage in the journal", async () => {
+    const runner = makeFakeRunner();
+    await execute("wf-leaf-tokens", `return agent("alpha");`, runner.runner);
+
+    const journal = journalStore.getJournal("wf-leaf-tokens");
+    expect(journal).toHaveLength(1);
+    // The fake runner reports 10/5 per leaf; the completed entry carries them.
+    expect(journal[0]).toMatchObject({
+      seq: 0,
+      status: "completed",
+      inputTokens: 10,
+      outputTokens: 5,
+    });
+  });
 });
 
 describe("executeWorkflow — schema vs tool leaf tool forwarding", () => {

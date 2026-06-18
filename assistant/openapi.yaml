@@ -27783,6 +27783,10 @@ paths:
                           type: string
                         resultSummary:
                           type: string
+                        inputTokens:
+                          type: number
+                        outputTokens:
+                          type: number
                         createdAt:
                           anyOf:
                             - type: number

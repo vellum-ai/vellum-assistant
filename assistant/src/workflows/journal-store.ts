@@ -68,6 +68,9 @@ export interface WorkflowJournalEntry {
   request: unknown;
   result: unknown;
   status: string;
+  /** Per-leaf token usage for a completed agent leaf; undefined otherwise. */
+  inputTokens?: number;
+  outputTokens?: number;
   createdAt: number | null;
 }
 
@@ -111,6 +114,9 @@ export interface AppendJournalEntryInput {
   request?: unknown;
   result?: unknown;
   status: string;
+  /** Per-leaf token usage; set for a completed agent leaf, omitted otherwise. */
+  inputTokens?: number;
+  outputTokens?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -145,6 +151,8 @@ interface WorkflowJournalRow {
   request_json: string | null;
   result_json: string | null;
   status: string;
+  input_tokens: number | null;
+  output_tokens: number | null;
   created_at: number | null;
 }
 
@@ -194,6 +202,8 @@ function rowToJournalEntry(row: WorkflowJournalRow): WorkflowJournalEntry {
     request: parseJsonColumn(row.request_json),
     result: parseJsonColumn(row.result_json),
     status: row.status,
+    inputTokens: row.input_tokens ?? undefined,
+    outputTokens: row.output_tokens ?? undefined,
     createdAt: row.created_at,
   };
 }
@@ -318,14 +328,17 @@ export function appendJournalEntry(
   rawRun(
     /*sql*/ `
     INSERT INTO workflow_journal (
-      run_id, seq, call_hash, kind, request_json, result_json, status, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      run_id, seq, call_hash, kind, request_json, result_json, status,
+      input_tokens, output_tokens, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(run_id, seq) DO UPDATE SET
       call_hash = excluded.call_hash,
       kind = excluded.kind,
       request_json = excluded.request_json,
       result_json = excluded.result_json,
-      status = excluded.status
+      status = excluded.status,
+      input_tokens = excluded.input_tokens,
+      output_tokens = excluded.output_tokens
     `,
     input.runId,
     input.seq,
@@ -334,6 +347,8 @@ export function appendJournalEntry(
     serializeJsonColumn(input.request),
     serializeJsonColumn(input.result),
     input.status,
+    input.inputTokens ?? null,
+    input.outputTokens ?? null,
     Date.now(),
   );
   return getJournalEntry(input.runId, input.seq)!;

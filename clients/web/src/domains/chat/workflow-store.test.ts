@@ -240,19 +240,28 @@ describe("leaf lifecycle", () => {
     getState().leafStarted({ runId: "wf-dc", seq: 0, label: "Leaf" });
 
     // The journal fetch wins the race: it folds seq 0's usage into the run
-    // aggregate (resp.inputTokens) and repairs the leaf to completed, but journal
-    // leaves carry no per-leaf tokens.
+    // aggregate (resp.inputTokens) AND repairs the leaf to completed, carrying the
+    // per-leaf tokens so the per-leaf sum is complete.
     getState().backfillFromJournal("wf-dc", {
       runId: "wf-dc",
       inputTokens: 100,
       outputTokens: 40,
-      leaves: [{ seq: 0, kind: "agent", status: "completed", createdAt: NOW }],
+      leaves: [
+        {
+          seq: 0,
+          kind: "agent",
+          status: "completed",
+          inputTokens: 100,
+          outputTokens: 40,
+          createdAt: NOW,
+        },
+      ],
     });
     expect(getState().byId["wf-dc"]!.inputTokens).toBe(100);
-    expect(getState().byId["wf-dc"]!.leaves.get(0)!.inputTokens).toBeUndefined();
+    expect(getState().byId["wf-dc"]!.leaves.get(0)!.inputTokens).toBe(100);
 
     // The delayed workflow_leaf_finished for seq 0 must not add its tokens again
-    // on top of the aggregate that already includes them.
+    // on top of the per-leaf sum that already includes them.
     getState().leafFinished({
       runId: "wf-dc",
       seq: 0,
@@ -263,6 +272,45 @@ describe("leaf lifecycle", () => {
 
     expect(getState().byId["wf-dc"]!.inputTokens).toBe(100);
     expect(getState().byId["wf-dc"]!.outputTokens).toBe(40);
+  });
+
+  it("counts a backfilled leaf's tokens in the per-leaf sum so a later finish adds correctly", () => {
+    // The journal backfill folds leaf 0's usage into the run aggregate AND now
+    // attributes it to the leaf (100 input). Previously the leaf carried no
+    // tokens, so a later leaf 1's finish recomputed the per-leaf sum as 30 and
+    // max(100, 30) stuck at 100 — undercounting leaf 1. With per-leaf tokens on
+    // the backfilled leaf, the sum is 100 + 30 = 130.
+    getState().backfillFromJournal("wf-uc", {
+      runId: "wf-uc",
+      inputTokens: 100,
+      outputTokens: 40,
+      leaves: [
+        {
+          seq: 0,
+          kind: "agent",
+          status: "completed",
+          inputTokens: 100,
+          outputTokens: 40,
+          createdAt: NOW,
+        },
+      ],
+    });
+    expect(getState().byId["wf-uc"]!.inputTokens).toBe(100);
+    expect(getState().byId["wf-uc"]!.leaves.get(0)!.inputTokens).toBe(100);
+
+    getState().leafStarted({ runId: "wf-uc", seq: 1, label: "Leaf 1" });
+    getState().leafFinished({
+      runId: "wf-uc",
+      seq: 1,
+      status: "completed",
+      inputTokens: 30,
+      outputTokens: 10,
+    });
+
+    // The per-leaf sum (100 + 30) now includes the backfilled leaf 0, so leaf 1
+    // is added correctly instead of being masked by max(aggregate, sum).
+    expect(getState().byId["wf-uc"]!.inputTokens).toBe(130);
+    expect(getState().byId["wf-uc"]!.outputTokens).toBe(50);
   });
 });
 

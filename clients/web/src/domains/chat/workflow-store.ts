@@ -466,6 +466,8 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
           label: journalLeaf.label,
           promptSummary: journalLeaf.promptSummary,
           resultSummary: journalLeaf.resultSummary,
+          inputTokens: journalLeaf.inputTokens,
+          outputTokens: journalLeaf.outputTokens,
         });
         continue;
       }
@@ -490,6 +492,8 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
           label: current.label ?? journalLeaf.label,
           promptSummary: current.promptSummary ?? journalLeaf.promptSummary,
           resultSummary: current.resultSummary ?? journalLeaf.resultSummary,
+          inputTokens: current.inputTokens ?? journalLeaf.inputTokens,
+          outputTokens: current.outputTokens ?? journalLeaf.outputTokens,
         });
       }
     }

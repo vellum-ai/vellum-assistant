@@ -726,6 +726,8 @@ export async function executeWorkflow(
         request: { prompt, opts: leafOpts },
         result: result.output,
         status: "completed",
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
       });
       onLeaf?.({
         type: "leaf_finished",

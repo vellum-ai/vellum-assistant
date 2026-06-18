@@ -337,6 +337,8 @@ interface WireLeaf {
   promptSummary?: string;
   status: string;
   resultSummary?: string;
+  inputTokens?: number;
+  outputTokens?: number;
   createdAt: number | null;
 }
 
@@ -364,6 +366,8 @@ describe("getWorkflowRunJournal", () => {
             },
             result: { summary: "found the flaky test" },
             status: "completed",
+            inputTokens: 120,
+            outputTokens: 45,
           }),
         ],
       },
@@ -383,9 +387,35 @@ describe("getWorkflowRunJournal", () => {
     expect(first.phase).toBe("triage");
     expect(first.promptSummary).toBe("Investigate the failing build");
     expect(first.resultSummary).toContain("found the flaky test");
+    // Per-leaf token usage is projected onto the wire leaf.
+    expect(first.inputTokens).toBe(120);
+    expect(first.outputTokens).toBe(45);
     // The bulky raw request/result payloads are dropped.
     expect(first).not.toHaveProperty("request");
     expect(first).not.toHaveProperty("result");
+  });
+
+  test("omits per-leaf token fields when the journal entry carries none", async () => {
+    setup({
+      runs: [makeRun({ id: "run-1" })],
+      journal: {
+        "run-1": [
+          makeJournalEntry({
+            seq: 0,
+            kind: "agent",
+            request: { prompt: "no tokens recorded", opts: {} },
+            status: "completed",
+          }),
+        ],
+      },
+    });
+    const result = (await route("getWorkflowRunJournal").handler({
+      pathParams: { id: "run-1" },
+    })) as WireJournal;
+
+    const leaf = result.leaves[0];
+    expect(leaf).not.toHaveProperty("inputTokens");
+    expect(leaf).not.toHaveProperty("outputTokens");
   });
 
   test("excludes kind:workflow entries so the backfill matches the live agent-only stream", async () => {
