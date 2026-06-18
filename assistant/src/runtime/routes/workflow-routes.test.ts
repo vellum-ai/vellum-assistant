@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import type { WorkflowRun } from "../../workflows/journal-store.js";
+import type {
+  WorkflowJournalEntry,
+  WorkflowRun,
+} from "../../workflows/journal-store.js";
 import type { SavedWorkflowEntry } from "../../workflows/library.js";
 import {
   WorkflowResumeNotPossibleError,
@@ -58,6 +61,22 @@ interface FakeManager {
   resume: (id: string) => { runId: string };
 }
 
+function makeJournalEntry(
+  overrides: Partial<WorkflowJournalEntry> = {},
+): WorkflowJournalEntry {
+  return {
+    runId: "run-1",
+    seq: 0,
+    callHash: "call-0",
+    kind: "agent",
+    request: null,
+    result: null,
+    status: "completed",
+    createdAt: 1000,
+    ...overrides,
+  };
+}
+
 function setup(opts: {
   runs?: WorkflowRun[];
   saved?: SavedWorkflowEntry[];
@@ -65,6 +84,8 @@ function setup(opts: {
   resume?: (id: string) => { runId: string };
   /** Resolved auto-approve threshold for the resume posture gate. */
   threshold?: "none" | "low" | "medium" | "high";
+  /** Journal entries returned by getJournal, keyed by run id. */
+  journal?: Record<string, WorkflowJournalEntry[]>;
 }): {
   aborted: string[];
   resumed: string[];
@@ -97,6 +118,7 @@ function setup(opts: {
     getManager: () => manager,
     listWorkflows: () => opts.saved ?? [],
     getAutoApproveThreshold: async () => opts.threshold ?? "none",
+    getJournal: (runId) => opts.journal?.[runId] ?? [],
   });
   return { aborted, resumed, listCalls };
 }
@@ -300,6 +322,148 @@ describe("workflow routes (happy paths)", () => {
         path: "/w/nightly.workflow.ts",
       },
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Journal projection
+// ---------------------------------------------------------------------------
+
+interface WireLeaf {
+  seq: number;
+  kind: string;
+  label?: string;
+  phase?: string;
+  promptSummary?: string;
+  status: string;
+  resultSummary?: string;
+  createdAt: number | null;
+}
+
+interface WireJournal {
+  runId: string;
+  status: string;
+  agentsSpawned: number;
+  inputTokens: number;
+  outputTokens: number;
+  leaves: WireLeaf[];
+}
+
+describe("getWorkflowRunJournal", () => {
+  test("projects leaves in seq order with label/phase/promptSummary/resultSummary extracted", async () => {
+    setup({
+      runs: [makeRun({ id: "run-1" })],
+      journal: {
+        "run-1": [
+          makeJournalEntry({
+            seq: 0,
+            kind: "agent",
+            request: {
+              prompt: "Investigate the failing build",
+              opts: { label: "investigate", phase: "triage" },
+            },
+            result: { summary: "found the flaky test" },
+            status: "completed",
+          }),
+          makeJournalEntry({
+            seq: 1,
+            kind: "workflow",
+            request: { prompt: "Run the child workflow", opts: {} },
+            result: "child done",
+            status: "completed",
+          }),
+        ],
+      },
+    });
+    const result = (await route("getWorkflowRunJournal").handler({
+      pathParams: { id: "run-1" },
+    })) as WireJournal;
+
+    expect(result.runId).toBe("run-1");
+    expect(result.status).toBe("running");
+    expect(result.agentsSpawned).toBe(2);
+    expect(result.leaves.map((l) => l.seq)).toEqual([0, 1]);
+
+    const first = result.leaves[0];
+    expect(first.kind).toBe("agent");
+    expect(first.label).toBe("investigate");
+    expect(first.phase).toBe("triage");
+    expect(first.promptSummary).toBe("Investigate the failing build");
+    expect(first.resultSummary).toContain("found the flaky test");
+    // The bulky raw request/result payloads are dropped.
+    expect(first).not.toHaveProperty("request");
+    expect(first).not.toHaveProperty("result");
+
+    const second = result.leaves[1];
+    expect(second.kind).toBe("workflow");
+    expect(second.label).toBeUndefined();
+    expect(second.resultSummary).toContain("child done");
+  });
+
+  test("surfaces a failed leaf's { error } result as resultSummary", async () => {
+    setup({
+      runs: [makeRun({ id: "run-1" })],
+      journal: {
+        "run-1": [
+          makeJournalEntry({
+            seq: 0,
+            status: "failed",
+            request: { prompt: "do the thing", opts: {} },
+            result: { error: "agent crashed: out of tokens" },
+          }),
+        ],
+      },
+    });
+    const result = (await route("getWorkflowRunJournal").handler({
+      pathParams: { id: "run-1" },
+    })) as WireJournal;
+
+    expect(result.leaves[0].status).toBe("failed");
+    expect(result.leaves[0].resultSummary).toContain(
+      "agent crashed: out of tokens",
+    );
+  });
+
+  test("truncates a long prompt/result to ~200 chars", async () => {
+    const longPrompt = "x".repeat(500);
+    const longResult = "y".repeat(500);
+    setup({
+      runs: [makeRun({ id: "run-1" })],
+      journal: {
+        "run-1": [
+          makeJournalEntry({
+            seq: 0,
+            request: { prompt: longPrompt, opts: {} },
+            result: longResult,
+          }),
+        ],
+      },
+    });
+    const result = (await route("getWorkflowRunJournal").handler({
+      pathParams: { id: "run-1" },
+    })) as WireJournal;
+
+    const leaf = result.leaves[0];
+    expect(leaf.promptSummary!.length).toBeLessThanOrEqual(201);
+    expect(leaf.promptSummary!.startsWith("x")).toBe(true);
+    // A truncated summary ends with the ellipsis marker.
+    expect(leaf.promptSummary!.endsWith("…")).toBe(true);
+    expect(leaf.resultSummary!.length).toBeLessThanOrEqual(201);
+  });
+
+  test("returns an empty leaf list for a run with no journal entries", async () => {
+    setup({ runs: [makeRun({ id: "run-1" })] });
+    const result = (await route("getWorkflowRunJournal").handler({
+      pathParams: { id: "run-1" },
+    })) as WireJournal;
+    expect(result.leaves).toEqual([]);
+  });
+
+  test("throws NotFoundError for an unknown id", () => {
+    setup({ runs: [] });
+    expect(() =>
+      route("getWorkflowRunJournal").handler({ pathParams: { id: "nope" } }),
+    ).toThrow(NotFoundError);
   });
 });
 
