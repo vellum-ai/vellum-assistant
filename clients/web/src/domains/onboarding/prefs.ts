@@ -2,7 +2,7 @@
  * Onboarding preference public API.
  *
  * Boolean preferences (`shareAnalytics`, `shareDiagnostics`, `tosAccepted`,
- * `aiDataConsent`) are owned by `useOnboardingStore` — a
+ * `privacyConsent`) are owned by `useOnboardingStore` — a
  * Zustand store with a custom per-key `persist` adapter that maps each
  * field to its existing localStorage key. This file exposes the hook +
  * non-React shim around the store, plus the non-store helpers for the
@@ -74,15 +74,15 @@ export function useTosAccepted(): [boolean, (next: boolean) => void] {
 }
 
 /**
- * Whether the user has explicitly acknowledged that conversation data is
- * sent to third-party AI providers. Defaults to `false`. Tracked separately
+ * Whether the user accepted the Privacy Policy and AI Data Sharing Policy
+ * (the second onboarding checkbox). Defaults to `false`. Tracked separately
  * from `useTosAccepted` so the consent surface remains specific (Apple
  * Guideline 5.1.2(i)).
  */
-export function useAiDataConsent(): [boolean, (next: boolean) => void] {
-  const value = useOnboardingStore.use.aiDataConsent();
+export function usePrivacyConsent(): [boolean, (next: boolean) => void] {
+  const value = useOnboardingStore.use.privacyConsent();
   const setter = useCallback((next: boolean) => {
-    useOnboardingStore.getState().setAiDataConsent(next);
+    useOnboardingStore.getState().setPrivacyConsent(next);
   }, []);
   return [value, setter];
 }
@@ -127,15 +127,15 @@ export function readTosAccepted(): boolean {
 }
 
 /**
- * SSR-safe, non-hook read of the AI data sharing consent flag. Used
- * alongside `readTosAccepted()` by the hatching gate so a user who
+ * SSR-safe, non-hook read of the Privacy Policy + AI Data Sharing consent
+ * flag. Used alongside `readTosAccepted()` by the hatching gate so a user who
  * somehow has only one of the two acknowledgments persisted (storage
  * race, partial restore from a sync mechanism) is bounced back through
  * the privacy screen rather than allowed to provision an assistant
- * without explicit AI consent.
+ * without explicit privacy consent.
  */
-export function readAiDataConsent(): boolean {
-  return useOnboardingStore.getState().aiDataConsent;
+export function readPrivacyConsent(): boolean {
+  return useOnboardingStore.getState().privacyConsent;
 }
 
 /**
