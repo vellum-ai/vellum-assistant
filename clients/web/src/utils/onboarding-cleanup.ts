@@ -24,7 +24,6 @@
 import { removeLocalSetting, getLocalBool, setLocalBool } from "@/utils/local-settings";
 import { setDeviceBool } from "@/utils/device-settings";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
-import { useAuthStore } from "@/stores/auth-store";
 import { patchConsent, type UserConsent } from "@/domains/account/profile";
 
 export const CONSENT_VERSION = "2026-06-08";
@@ -182,10 +181,10 @@ export function saveConsent(opts: {
 export function savePreferenceToggle(
   field: "share_analytics" | "share_diagnostics",
   value: boolean,
-  hasPlatformSession: boolean,
+  opts: { userId: string | null; hasPlatformSession: boolean },
 ): void {
   const store = useOnboardingStore.getState();
-  const userId = useAuthStore.getState().user?.id ?? null;
+  const { userId, hasPlatformSession } = opts;
   if (field === "share_analytics") {
     store.setShareAnalytics(value);
     setDeviceBool("shareAnalytics", value);
