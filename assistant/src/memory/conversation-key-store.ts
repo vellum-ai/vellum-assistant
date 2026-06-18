@@ -12,10 +12,7 @@ import { v4 as uuid } from "uuid";
 
 import { cleanupBootstrapFiles } from "../prompts/bootstrap-cleanup.js";
 import { initConversationDir } from "./conversation-disk-view.js";
-import {
-  AUTO_TITLE_LLM,
-  GENERATING_TITLE,
-} from "./conversation-title-service.js";
+import { GENERATING_TITLE } from "./conversation-title-service.js";
 import { getDb } from "./db-connection.js";
 import { conversationKeys, conversations } from "./schema.js";
 
@@ -219,17 +216,17 @@ export function getOrCreateConversation(
     const conversationId = uuid();
     const customTitle = opts?.title?.trim();
     const title = customTitle || GENERATING_TITLE;
-    // A caller-supplied title is user-set: mark it non-auto (0) so the async
-    // LLM title generator's `canReplaceTitle` check won't overwrite it. With no
-    // custom title, fall back to the auto-generated placeholder flow.
-    const isAutoTitle = customTitle ? 0 : AUTO_TITLE_LLM;
     const memoryScopeId = "default";
 
     tx.insert(conversations)
       .values({
         id: conversationId,
         title,
-        isAutoTitle,
+        // A caller-supplied title is user-set: mark it non-auto (0) so the
+        // async LLM title generator's `canReplaceTitle` check won't overwrite
+        // it. Without one, omit the column so it takes its default
+        // (AUTO_TITLE_LLM) and follows the auto-generated placeholder flow.
+        ...(customTitle ? { isAutoTitle: 0 } : {}),
         createdAt: now,
         updatedAt: now,
         totalInputTokens: 0,
