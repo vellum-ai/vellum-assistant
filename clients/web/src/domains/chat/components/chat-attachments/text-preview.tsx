@@ -1,9 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import { Download, Loader2 } from "lucide-react";
-
-import { Button } from "@vellumai/design-library";
+import { Loader2 } from "lucide-react";
 
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
+import { PreviewMessageCard } from "@/domains/chat/components/chat-attachments/preview-message-card";
 import { captureError } from "@/lib/sentry/capture-error";
 
 /**
@@ -78,7 +77,7 @@ export function TextPreview({ url, filename, mimeType }: TextPreviewProps) {
 
   if (error) {
     return (
-      <TextPreviewFallback
+      <PreviewMessageCard
         message={
           error instanceof TextTooLargeError
             ? "File too large to preview inline."
@@ -130,33 +129,5 @@ export function TextPreviewBody({
     <pre className="whitespace-pre-wrap break-words font-mono text-body-small-default">
       {text}
     </pre>
-  );
-}
-
-interface TextPreviewFallbackProps {
-  message: string;
-  filename: string;
-  onDownload: () => void;
-}
-
-function TextPreviewFallback({
-  message,
-  filename,
-  onDownload,
-}: TextPreviewFallbackProps) {
-  return (
-    <div className="w-full max-w-sm rounded-lg border border-white/15 bg-white/[0.08] p-8 text-center">
-      <p className="text-body-medium-lighter text-white/80">{message}</p>
-      <Button
-        variant="ghost"
-        leftIcon={<Download />}
-        onClick={onDownload}
-        aria-label={`Download ${filename}`}
-        className="mt-4 text-white/70 hover:bg-white/10 hover:text-white"
-        tintColor="currentColor"
-      >
-        Download
-      </Button>
-    </div>
   );
 }
