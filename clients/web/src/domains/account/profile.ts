@@ -15,10 +15,21 @@ export interface UserConsent {
   ai_data_sharing_accepted_at: string | null;
   share_analytics: boolean;
   share_diagnostics: boolean;
+  share_analytics_accepted_version: string;
+  share_analytics_accepted_at: string | null;
+  share_diagnostics_accepted_version: string;
+  share_diagnostics_accepted_at: string | null;
 }
 
 export type ConsentPatch = Partial<
-  Omit<UserConsent, "tos_accepted_at" | "privacy_policy_accepted_at" | "ai_data_sharing_accepted_at">
+  Omit<
+    UserConsent,
+    | "tos_accepted_at"
+    | "privacy_policy_accepted_at"
+    | "ai_data_sharing_accepted_at"
+    | "share_analytics_accepted_at"
+    | "share_diagnostics_accepted_at"
+  >
 >;
 
 export interface UserMe {
