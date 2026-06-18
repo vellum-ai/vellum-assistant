@@ -221,6 +221,27 @@ function makeShellEntry(runId: string, startedAt: number): WorkflowEntry {
 }
 
 /**
+ * Flip every still-running leaf to terminal `cancelled` — applied when a run
+ * ends abnormally (aborted / cap_exceeded / interrupted / failed): the engine
+ * emits no `leaf_finished` event and writes no journal row for in-flight leaves,
+ * so they would otherwise spin forever. Returns the SAME Map reference when
+ * nothing changed (a clean run with no running leaves) to keep selectors stable.
+ * Shared by `completeRun` and the terminal-transition path of
+ * `backfillFromJournal` so the two cannot diverge.
+ */
+function sweepRunningLeavesToCancelled(
+  leaves: Map<number, WorkflowLeaf>,
+): Map<number, WorkflowLeaf> {
+  let next = leaves;
+  for (const [seq, leaf] of leaves) {
+    if (leaf.status !== "running") continue;
+    if (next === leaves) next = new Map(leaves);
+    next.set(seq, { ...leaf, status: "cancelled" });
+  }
+  return next;
+}
+
+/**
  * Journal-fetch dedup key. A run is allowed one fetch while `live` and one
  * once `final` (terminal), so a `final` fetch can reconcile leaves a
  * dropped mid-run SSE event left stuck "running".
@@ -376,20 +397,12 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
     const existing = byId[params.runId];
     const base = existing ?? makeShellEntry(params.runId, Date.now());
 
-    // When a run ends abnormally (aborted / cap_exceeded / interrupted /
-    // failed) the engine emits no `leaf_finished` event and writes no journal
-    // row for leaves still in flight, so they would otherwise spin forever.
-    // Sweep any still-running leaf to terminal `cancelled` once the run goes
-    // terminal. Cloning only when a leaf actually changes keeps the Map
-    // reference stable for a clean `completed` run (no running leaves).
-    let nextLeaves = base.leaves;
-    if (!isActiveStatus(params.status)) {
-      for (const [seq, leaf] of base.leaves) {
-        if (leaf.status !== "running") continue;
-        if (nextLeaves === base.leaves) nextLeaves = new Map(base.leaves);
-        nextLeaves.set(seq, { ...leaf, status: "cancelled" });
-      }
-    }
+    // A run ending terminal sweeps any still-running leaf to `cancelled` so
+    // orphaned in-flight leaves (no leaf_finished, no journal row) don't spin
+    // forever; a clean `completed` run has none, so the Map reference is stable.
+    const nextLeaves = isActiveStatus(params.status)
+      ? base.leaves
+      : sweepRunningLeavesToCancelled(base.leaves);
 
     const updated: WorkflowEntry = {
       ...base,
@@ -463,11 +476,22 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
     // an already-terminal status over a stale active one, and treat the monotonic
     // counters as lower bounds (max), so a late stale response cannot flip a
     // finished run back to loading.
+    const nextStatus = isActiveStatus(base.status)
+      ? (resp.status ?? base.status)
+      : base.status;
+
+    // If the journal transitions an active run to terminal (the client missed
+    // `workflow_completed`, e.g. a reconnect gap), apply the same cancellation
+    // sweep completeRun does, so leaves that never wrote a journal row don't
+    // spin forever under a terminal run.
+    const finalLeaves =
+      isActiveStatus(base.status) && !isActiveStatus(nextStatus)
+        ? sweepRunningLeavesToCancelled(nextLeaves)
+        : nextLeaves;
+
     const updated: WorkflowEntry = {
       ...base,
-      status: isActiveStatus(base.status)
-        ? (resp.status ?? base.status)
-        : base.status,
+      status: nextStatus,
       agentsSpawned: Math.max(
         base.agentsSpawned,
         resp.agentsSpawned ?? base.agentsSpawned,
@@ -481,7 +505,7 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
         resp.outputTokens ?? base.outputTokens,
       ),
       phase: resp.phase ?? base.phase,
-      leaves: nextLeaves,
+      leaves: finalLeaves,
     };
 
     set({

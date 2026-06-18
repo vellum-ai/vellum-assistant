@@ -470,6 +470,37 @@ describe("backfillFromJournal", () => {
     expect(entry.inputTokens).toBe(900);
     expect(entry.outputTokens).toBe(300);
   });
+
+  it("sweeps orphaned running leaves when the journal marks the run terminal", () => {
+    // The client missed workflow_completed (reconnect gap): the run is still
+    // active with an in-flight leaf, then the journal fetch reports it aborted.
+    getState().leafStarted({ runId: "wf-orphan", seq: 0, label: "In-flight" });
+    expect(getState().byId["wf-orphan"]!.status).toBe("running");
+
+    // The aborted leaf wrote no journal row, so resp.leaves omits seq 0.
+    getState().backfillFromJournal("wf-orphan", {
+      runId: "wf-orphan",
+      status: "aborted",
+      leaves: [],
+    });
+
+    const entry = getState().byId["wf-orphan"]!;
+    expect(entry.status).toBe("aborted");
+    // The orphaned running leaf is swept to cancelled, not left spinning.
+    expect(entry.leaves.get(0)!.status).toBe("cancelled");
+  });
+
+  it("does not sweep leaves when the journal keeps the run active", () => {
+    getState().leafStarted({ runId: "wf-still", seq: 0, label: "Running" });
+
+    getState().backfillFromJournal("wf-still", {
+      runId: "wf-still",
+      status: "running",
+      leaves: [],
+    });
+
+    expect(getState().byId["wf-still"]!.leaves.get(0)!.status).toBe("running");
+  });
 });
 
 // ---------------------------------------------------------------------------
