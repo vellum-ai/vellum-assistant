@@ -13,11 +13,13 @@ import {
   searchDocumentsByTitle,
   updateDocumentContent,
 } from "../../documents/document-store.js";
+import { resolveCapabilities } from "../../runtime/capabilities.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 function isPrivilegedDocumentActor(context: ToolContext): boolean {
   return (
-    context.trustClass === "guardian" || context.executionChannel === "vellum"
+    resolveCapabilities(context.trustClass).canAccessPrivilegedDocuments ||
+    context.executionChannel === "vellum"
   );
 }
 
