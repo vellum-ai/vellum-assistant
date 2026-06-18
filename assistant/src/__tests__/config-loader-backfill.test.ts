@@ -1203,6 +1203,185 @@ describe("loadConfig startup behavior", () => {
     expect(LLMSchema.safeParse(raw.llm).success).toBe(true);
   });
 
+  test("no connection: mix arm referencing a pruned managed profile is removed; mix survives with remaining arms", async () => {
+    // A user built a mix while connected, weighting a managed profile
+    // (`balanced`) against their own profile. Losing the platform connection
+    // prunes `balanced`; the dangling arm must be removed so the mix (which
+    // still has two valid arms) keeps parsing under LLMSchema.
+    writeConfig({
+      llm: {
+        default: { provider: "anthropic", model: "claude-opus-4-7" },
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            model: "claude-sonnet-4-6",
+          },
+          "custom-quality-optimized": {
+            source: "user",
+            provider: "anthropic",
+            provider_connection: "anthropic-personal",
+            model: "claude-opus-4-7",
+          },
+          "custom-cost-optimized": {
+            source: "user",
+            provider: "anthropic",
+            provider_connection: "anthropic-personal",
+            model: "claude-haiku-4-5-20251001",
+          },
+          "my-mix": {
+            source: "user",
+            mix: [
+              { profile: "balanced", weight: 1 },
+              { profile: "custom-quality-optimized", weight: 1 },
+              { profile: "custom-cost-optimized", weight: 1 },
+            ],
+          },
+        },
+        profileOrder: ["auto", "balanced", "my-mix"],
+        activeProfile: "my-mix",
+      },
+    });
+
+    managedFetchResult = { status: "no-connection" };
+
+    await mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    // `balanced` is pruned; the mix loses that arm but keeps its valid ones.
+    expect(raw.llm.profiles.balanced).toBeUndefined();
+    expect(raw.llm.profiles["my-mix"]).toBeDefined();
+    expect(raw.llm.profiles["my-mix"].mix).toEqual([
+      { profile: "custom-quality-optimized", weight: 1 },
+      { profile: "custom-cost-optimized", weight: 1 },
+    ]);
+    expect(raw.llm.profileOrder).toContain("my-mix");
+    // The post-seed config parses cleanly — no dangling mix-arm reference.
+    expect(LLMSchema.safeParse(raw.llm).success).toBe(true);
+  });
+
+  test("no connection: mix falling below two arms is deleted and dropped from order/active", async () => {
+    // The mix's only other arm is itself a managed profile, so pruning leaves a
+    // single valid arm — below `MixSchema.min(2)`. The whole mix is removed and
+    // every reference to it (profileOrder, activeProfile) is cleaned up.
+    writeConfig({
+      llm: {
+        default: { provider: "anthropic", model: "claude-opus-4-7" },
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            model: "claude-sonnet-4-6",
+          },
+          "cost-optimized": {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            model: "claude-haiku-4-5-20251001",
+          },
+          "custom-quality-optimized": {
+            source: "user",
+            provider: "anthropic",
+            provider_connection: "anthropic-personal",
+            model: "claude-opus-4-7",
+          },
+          "my-mix": {
+            source: "user",
+            mix: [
+              { profile: "balanced", weight: 1 },
+              { profile: "cost-optimized", weight: 1 },
+            ],
+          },
+        },
+        profileOrder: ["auto", "balanced", "cost-optimized", "my-mix"],
+        activeProfile: "my-mix",
+        callSites: {
+          memoryRouter: { profile: "my-mix" },
+        },
+      },
+    });
+
+    managedFetchResult = { status: "no-connection" };
+
+    await mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    // Both managed arms are pruned, leaving the mix below its two-arm minimum,
+    // so the mix profile itself is deleted.
+    expect(raw.llm.profiles.balanced).toBeUndefined();
+    expect(raw.llm.profiles["cost-optimized"]).toBeUndefined();
+    expect(raw.llm.profiles["my-mix"]).toBeUndefined();
+    // The deleted mix is dropped from profileOrder and is not the active profile.
+    expect(raw.llm.profileOrder).not.toContain("my-mix");
+    expect(raw.llm.activeProfile).not.toBe("my-mix");
+    expect(raw.llm.profiles[raw.llm.activeProfile]).toBeDefined();
+    // The call-site pin to the deleted mix is scrubbed too (mix added to the
+    // pruned set before the call-site scrub).
+    expect(raw.llm.callSites.memoryRouter.profile).toBeUndefined();
+    // The post-seed config parses cleanly.
+    expect(LLMSchema.safeParse(raw.llm).success).toBe(true);
+  });
+
+  test("ok with a dropped managed key: mix arm to the dropped key is removed and config stays valid", async () => {
+    // The platform fetch drops `cost-optimized`; a mix that referenced it must
+    // shed that arm. Two other valid arms remain, so the mix survives.
+    writeConfig({
+      llm: {
+        default: { provider: "anthropic", model: "claude-opus-4-7" },
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            model: "claude-sonnet-4-6",
+          },
+          "cost-optimized": {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            model: "claude-haiku-4-5-20251001",
+          },
+          "custom-quality-optimized": {
+            source: "user",
+            provider: "anthropic",
+            provider_connection: "anthropic-personal",
+            model: "claude-opus-4-7",
+          },
+          "my-mix": {
+            source: "user",
+            mix: [
+              { profile: "balanced", weight: 2 },
+              { profile: "cost-optimized", weight: 1 },
+              { profile: "custom-quality-optimized", weight: 1 },
+            ],
+          },
+        },
+        profileOrder: ["auto", "balanced", "cost-optimized", "my-mix"],
+        activeProfile: "my-mix",
+      },
+    });
+
+    // Fetch returns balanced but NOT cost-optimized → cost-optimized is pruned.
+    managedFetchResult = {
+      status: "ok",
+      profiles: [managedProfileFixture("balanced")],
+    };
+
+    await mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles["cost-optimized"]).toBeUndefined();
+    expect(raw.llm.profiles["my-mix"]).toBeDefined();
+    expect(raw.llm.profiles["my-mix"].mix).toEqual([
+      { profile: "balanced", weight: 2 },
+      { profile: "custom-quality-optimized", weight: 1 },
+    ]);
+    expect(raw.llm.profileOrder).toContain("my-mix");
+    expect(LLMSchema.safeParse(raw.llm).success).toBe(true);
+  });
+
   test("connected: platform fetch is authoritative over any overlay fragment for managed keys", async () => {
     // The platform model-profiles endpoint — not the hatch overlay — owns
     // managed profile content. An overlay fragment for a managed key does not

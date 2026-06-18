@@ -190,6 +190,35 @@ export async function seedInferenceProfiles(
     }
   };
 
+  // Pruning a managed profile that a user mix references requires removing the
+  // dangling arm: `LLMSchema.superRefine` rejects a mix arm pointing at an
+  // undefined profile, so a config built while connected would fail to parse
+  // once the platform connection (and its managed profiles) goes away. For each
+  // mix, drop the arms whose target is pruned. A mix that falls below its
+  // two-arm minimum (`MixSchema.min(2)`) is removed entirely — it depended on a
+  // managed profile that is unavailable without a platform connection. Any mix
+  // removed this way is added to `prunedKeys` so the subsequent call-site scrub,
+  // active-profile fallback, and `profileOrder` filter also drop references to
+  // it. (A mix arm only ever references a standard profile per superRefine, so
+  // deleting a mix never cascades into another mix.)
+  const scrubMixProfileReferences = (prunedKeys: Set<string>): void => {
+    if (prunedKeys.size === 0) return;
+    for (const [mixName, entry] of Object.entries(profiles)) {
+      const profile = readObject(entry);
+      if (!profile || !Array.isArray(profile.mix)) continue;
+      const filteredArms = profile.mix.filter((arm) => {
+        const armProfile = readString(readObject(arm)?.profile);
+        return armProfile === undefined || !prunedKeys.has(armProfile);
+      });
+      if (filteredArms.length >= 2) {
+        profile.mix = filteredArms;
+      } else {
+        delete profiles[mixName];
+        prunedKeys.add(mixName);
+      }
+    }
+  };
+
   const managed = await fetchManagedProfiles();
   if (managed.status === "ok") {
     const fetchedKeys = new Set(managed.profiles.map((p) => p.key));
@@ -214,6 +243,7 @@ export async function seedInferenceProfiles(
         prunedKeys.add(key);
       }
     }
+    scrubMixProfileReferences(prunedKeys);
     clearCallSiteProfileRefs(prunedKeys);
   } else if (managed.status === "no-connection") {
     const prunedKeys = new Set<string>();
@@ -221,6 +251,7 @@ export async function seedInferenceProfiles(
       delete profiles[key];
       prunedKeys.add(key);
     }
+    scrubMixProfileReferences(prunedKeys);
     clearCallSiteProfileRefs(prunedKeys);
   }
   // status === "error": leave on-disk managed profiles untouched.
@@ -315,9 +346,9 @@ export async function seedInferenceProfiles(
       const desired = userConnectionName ? "custom-balanced" : "balanced";
       llm.activeProfile = resolveExistingProfile(desired);
     } else if (!requestedActiveExists) {
-      // The requested active profile no longer exists (e.g. `balanced` was
-      // just pruned). Fall back to a profile that does exist; `auto` is always
-      // seeded, so the chosen fallback is guaranteed to resolve.
+      // The requested active profile is absent from `profiles` (e.g. `balanced`
+      // is pruned when there is no platform connection). Fall back to a profile
+      // that exists; `auto` is always seeded, so the fallback always resolves.
       llm.activeProfile = resolveExistingProfile("custom-balanced");
     }
   }
