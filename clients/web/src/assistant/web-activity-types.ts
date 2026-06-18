@@ -7,6 +7,8 @@ export type WebSearchProviderId =
   | "tavily"
   | "firecrawl";
 
+export type WebFetchProviderId = "default" | "firecrawl";
+
 export interface WebSearchResultItem {
   rank: number;
   title: string;
@@ -30,6 +32,7 @@ export interface WebSearchMetadata {
 export interface WebFetchMetadata {
   url: string;
   finalUrl: string;
+  provider?: WebFetchProviderId;
   status: number;
   contentType?: string;
   byteCount: number;

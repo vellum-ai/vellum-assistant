@@ -12,6 +12,9 @@ export type WebSearchProviderId =
   | "tavily"
   | "firecrawl";
 
+/** Provider that backed a `web_fetch` call. `default` is the built-in fetcher. */
+export type WebFetchProviderId = "default" | "firecrawl";
+
 export interface WebSearchResultItem {
   rank: number; // 1-indexed
   title: string;
@@ -36,6 +39,8 @@ export interface WebSearchMetadata {
 export interface WebFetchMetadata {
   url: string;
   finalUrl: string;
+  /** Provider that served the fetch. Defaults to the built-in fetcher. */
+  provider?: WebFetchProviderId;
   status: number;
   contentType?: string;
   byteCount: number;

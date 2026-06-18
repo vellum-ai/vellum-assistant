@@ -536,6 +536,13 @@ const ConfigGetResponseSchema = z
           })
           .passthrough()
           .optional(),
+        "web-fetch": z
+          .object({
+            mode: ServiceModeSchema.optional(),
+            provider: z.string().optional(),
+          })
+          .passthrough()
+          .optional(),
         "image-generation": z
           .object({ mode: ServiceModeSchema.optional() })
           .passthrough()
@@ -626,6 +633,14 @@ const ConfigPatchRequestSchema = z
     services: z
       .object({
         "web-search": z
+          .object({
+            mode: ServiceModeSchema.optional(),
+            provider: z.string().optional(),
+          })
+          .passthrough()
+          .nullable()
+          .optional(),
+        "web-fetch": z
           .object({
             mode: ServiceModeSchema.optional(),
             provider: z.string().optional(),
