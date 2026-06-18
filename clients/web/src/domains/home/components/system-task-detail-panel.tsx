@@ -28,8 +28,7 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import type { SystemTaskKind } from "@/domains/settings/types/schedules";
 
-// Mirrors the private map in `system-task-detail-view.tsx`; redeclared here to
-// keep this change scoped to the home domain.
+// Each system task resolves its model from a dedicated LLM call site.
 const SYSTEM_TASK_PROFILE_CALL_SITES: Record<
   SystemTaskKind,
   ScheduleModelProfileCallSite
