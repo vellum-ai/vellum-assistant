@@ -10,7 +10,7 @@ import type {
 // network boundary. The mock is reassigned per-test via `journalImpl`.
 let journalImpl: (
   assistantId: string,
-  runId: string,
+  runId: string
 ) => Promise<WorkflowJournalResponse | null> = async () => null;
 
 mock.module("@/domains/chat/fetch-workflow-journal", () => ({
@@ -22,7 +22,7 @@ mock.module("@/domains/chat/fetch-workflow-journal", () => ({
 // without a network boundary.
 let runImpl: (
   assistantId: string,
-  runId: string,
+  runId: string
 ) => Promise<FetchWorkflowRunResult> = async () => null;
 
 mock.module("@/domains/chat/fetch-workflow-run", () => ({
@@ -143,6 +143,80 @@ describe("applyProgress", () => {
     // A newer message replaces the old one.
     getState().applyProgress({ runId: "wf-msg", message: "almost done" });
     expect(getState().byId["wf-msg"]!.message).toBe("almost done");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Resume re-activation (interrupted → running on live activity)
+// ---------------------------------------------------------------------------
+
+describe("resume re-activation", () => {
+  it("applyProgress flips an interrupted run back to running", () => {
+    getState().startRun({ runId: "wf-int", timestamp: NOW });
+    getState().completeRun({
+      runId: "wf-int",
+      status: "interrupted",
+      agentsSpawned: 1,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+    expect(getState().byId["wf-int"]!.status).toBe("interrupted");
+
+    // Resume emits no workflow_started; the first live signal is progress.
+    getState().applyProgress({ runId: "wf-int", phase: "resuming" });
+    expect(getState().byId["wf-int"]!.status).toBe("running");
+  });
+
+  it("leafStarted flips an interrupted run back to running", () => {
+    getState().startRun({ runId: "wf-int2", timestamp: NOW });
+    getState().completeRun({
+      runId: "wf-int2",
+      status: "interrupted",
+      agentsSpawned: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+
+    getState().leafStarted({ runId: "wf-int2", seq: 0, label: "Leaf" });
+    const entry = getState().byId["wf-int2"]!;
+    expect(entry.status).toBe("running");
+    expect(entry.leaves.get(0)!.status).toBe("running");
+  });
+
+  it("a re-run leaf flips the run to running but keeps the swept leaf terminal", () => {
+    getState().startRun({ runId: "wf-int3", timestamp: NOW });
+    getState().leafStarted({ runId: "wf-int3", seq: 0, label: "Leaf" });
+    // Interrupt: the in-flight leaf is swept to cancelled.
+    getState().completeRun({
+      runId: "wf-int3",
+      status: "interrupted",
+      agentsSpawned: 1,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+    expect(getState().byId["wf-int3"]!.leaves.get(0)!.status).toBe("cancelled");
+
+    // Resume re-runs the same leaf: the never-downgrade guard keeps the leaf
+    // terminal, but the run still flips to running so the card reads active.
+    getState().leafStarted({ runId: "wf-int3", seq: 0, label: "Leaf" });
+    const entry = getState().byId["wf-int3"]!;
+    expect(entry.status).toBe("running");
+    expect(entry.leaves.get(0)!.status).toBe("cancelled");
+  });
+
+  it("does not resurrect a genuinely completed run on a late progress event", () => {
+    getState().startRun({ runId: "wf-done", timestamp: NOW });
+    getState().completeRun({
+      runId: "wf-done",
+      status: "completed",
+      agentsSpawned: 1,
+      inputTokens: 10,
+      outputTokens: 5,
+    });
+
+    // A late, out-of-order progress event must not flip a finished run.
+    getState().applyProgress({ runId: "wf-done", phase: "stale" });
+    expect(getState().byId["wf-done"]!.status).toBe("completed");
   });
 });
 
@@ -389,7 +463,7 @@ describe("completeRun", () => {
       expect(leaves.get(0)!.status).toBe("cancelled");
       expect(leaves.get(1)!.status).toBe("completed");
       expect(leaves.get(2)!.status).toBe("failed");
-    },
+    }
   );
 
   it("preserves leaf fields when sweeping it to cancelled", () => {
@@ -540,7 +614,11 @@ describe("backfillFromJournal", () => {
   it("lets a journal terminal status repair a leaf swept to cancelled", () => {
     // A run completes but one leaf's finish event was dropped, so completeRun
     // swept the still-running leaf to "cancelled".
-    getState().leafStarted({ runId: "wf-repair", seq: 0, label: "Dropped-finish" });
+    getState().leafStarted({
+      runId: "wf-repair",
+      seq: 0,
+      label: "Dropped-finish",
+    });
     getState().completeRun({
       runId: "wf-repair",
       status: "completed",
@@ -548,7 +626,9 @@ describe("backfillFromJournal", () => {
       inputTokens: 0,
       outputTokens: 0,
     });
-    expect(getState().byId["wf-repair"]!.leaves.get(0)!.status).toBe("cancelled");
+    expect(getState().byId["wf-repair"]!.leaves.get(0)!.status).toBe(
+      "cancelled"
+    );
 
     // The journal holds the authoritative completed row → it repairs the placeholder.
     getState().backfillFromJournal("wf-repair", {
@@ -571,7 +651,11 @@ describe("backfillFromJournal", () => {
   });
 
   it("leaves a genuinely cancelled leaf (absent from the journal) as cancelled", () => {
-    getState().leafStarted({ runId: "wf-genuine", seq: 0, label: "Aborted leaf" });
+    getState().leafStarted({
+      runId: "wf-genuine",
+      seq: 0,
+      label: "Aborted leaf",
+    });
     getState().completeRun({
       runId: "wf-genuine",
       status: "aborted",
@@ -579,12 +663,19 @@ describe("backfillFromJournal", () => {
       inputTokens: 0,
       outputTokens: 0,
     });
-    expect(getState().byId["wf-genuine"]!.leaves.get(0)!.status).toBe("cancelled");
+    expect(getState().byId["wf-genuine"]!.leaves.get(0)!.status).toBe(
+      "cancelled"
+    );
 
     // The journal has no row for this leaf (it never finished) → it stays cancelled.
-    getState().backfillFromJournal("wf-genuine", { runId: "wf-genuine", leaves: [] });
+    getState().backfillFromJournal("wf-genuine", {
+      runId: "wf-genuine",
+      leaves: [],
+    });
 
-    expect(getState().byId["wf-genuine"]!.leaves.get(0)!.status).toBe("cancelled");
+    expect(getState().byId["wf-genuine"]!.leaves.get(0)!.status).toBe(
+      "cancelled"
+    );
   });
 
   it("does not regress a terminal run from a stale (running) journal response", () => {
@@ -727,7 +818,13 @@ describe("fetchJournalIfNeeded", () => {
       return {
         runId,
         leaves: [
-          { seq: 0, kind: "agent", label: "Leaf 0", status: "completed", createdAt: NOW },
+          {
+            seq: 0,
+            kind: "agent",
+            label: "Leaf 0",
+            status: "completed",
+            createdAt: NOW,
+          },
         ],
       };
     };
@@ -758,7 +855,13 @@ describe("hydrateRunIfNeeded", () => {
     journalImpl = async (_assistantId, runId) => ({
       runId,
       leaves: [
-        { seq: 0, kind: "agent", label: "Leaf 0", status: "completed", createdAt: NOW },
+        {
+          seq: 0,
+          kind: "agent",
+          label: "Leaf 0",
+          status: "completed",
+          createdAt: NOW,
+        },
       ],
     });
 
@@ -852,7 +955,9 @@ describe("hydrateRunIfNeeded", () => {
     // First attempt fails transiently (daemon unreachable); the second succeeds.
     runImpl = async () => {
       calls += 1;
-      return calls === 1 ? null : makeRunRow({ id: "wf-flaky", status: "completed" });
+      return calls === 1
+        ? null
+        : makeRunRow({ id: "wf-flaky", status: "completed" });
     };
     journalImpl = async (_assistantId, runId) => ({ runId, leaves: [] });
 

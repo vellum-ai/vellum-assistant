@@ -252,7 +252,7 @@ function makeShellEntry(runId: string, startedAt: number): WorkflowEntry {
  * `backfillFromJournal` so the two cannot diverge.
  */
 function sweepRunningLeavesToCancelled(
-  leaves: Map<number, WorkflowLeaf>,
+  leaves: Map<number, WorkflowLeaf>
 ): Map<number, WorkflowLeaf> {
   let next = leaves;
   for (const [seq, leaf] of leaves) {
@@ -279,6 +279,18 @@ function mapJournalLeafStatus(status: string): WorkflowLeafStatus {
   // The journal only records finished leaves, so an unknown status is
   // treated as a terminal success.
   return "completed";
+}
+
+/**
+ * The run status after a live activity event (progress / leaf start). A run
+ * hydrated as `interrupted` and then resumed emits no `workflow_started`
+ * (`resume()` suppresses it), so its first live signal is a progress or leaf
+ * event — which proves the run is active again, so flip it back to `running`.
+ * Genuine terminals (completed/failed/aborted/cap_exceeded) are preserved so a
+ * late, out-of-order event after completion can't resurrect a finished run.
+ */
+function statusAfterLiveActivity(status: WorkflowRunStatus): WorkflowRunStatus {
+  return status === "interrupted" ? "running" : status;
 }
 
 // ---------------------------------------------------------------------------
@@ -341,6 +353,9 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
     const base = existing ?? makeShellEntry(params.runId, Date.now());
     const updated: WorkflowEntry = {
       ...base,
+      // A live progress event proves the run is active — a resumed interrupted
+      // run flips back to running (resume() emits no workflow_started).
+      status: statusAfterLiveActivity(base.status),
       phase: params.phase ?? base.phase,
       // Keep the last log line when a phase-only event arrives; replace it
       // when this event carries a fresh one.
@@ -360,9 +375,22 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
     const existing = byId[params.runId];
     const base = existing ?? makeShellEntry(params.runId, Date.now());
 
+    // A live leaf event proves the run is active — a resumed interrupted run
+    // flips back to running (resume() emits no workflow_started).
+    const nextStatus = statusAfterLiveActivity(base.status);
+
     const current = base.leaves.get(params.seq);
-    // Never downgrade an already-terminal leaf back to running.
-    if (current && current.status !== "running") return;
+    // Never downgrade an already-terminal leaf back to running. The run-level
+    // status still flips (the leaf event proves activity); only the terminal
+    // leaf itself is left as-is.
+    if (current && current.status !== "running") {
+      if (nextStatus !== base.status) {
+        set({
+          byId: { ...byId, [params.runId]: { ...base, status: nextStatus } },
+        });
+      }
+      return;
+    }
 
     const leaf: WorkflowLeaf = {
       seq: params.seq,
@@ -385,6 +413,7 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
         ...byId,
         [params.runId]: {
           ...base,
+          status: nextStatus,
           agentsSpawned: nextAgentsSpawned,
           leaves: nextLeaves,
         },
@@ -545,7 +574,7 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
     // counters as lower bounds (max), so a late stale response cannot flip a
     // finished run back to loading.
     const nextStatus = isActiveStatus(base.status)
-      ? (resp.status ?? base.status)
+      ? resp.status ?? base.status
       : base.status;
 
     // If the journal transitions an active run to terminal (the client missed
@@ -562,15 +591,15 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
       status: nextStatus,
       agentsSpawned: Math.max(
         base.agentsSpawned,
-        resp.agentsSpawned ?? base.agentsSpawned,
+        resp.agentsSpawned ?? base.agentsSpawned
       ),
       inputTokens: Math.max(
         base.inputTokens,
-        resp.inputTokens ?? base.inputTokens,
+        resp.inputTokens ?? base.inputTokens
       ),
       outputTokens: Math.max(
         base.outputTokens,
-        resp.outputTokens ?? base.outputTokens,
+        resp.outputTokens ?? base.outputTokens
       ),
       phase: resp.phase ?? base.phase,
       leaves: finalLeaves,
