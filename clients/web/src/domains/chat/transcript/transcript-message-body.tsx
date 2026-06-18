@@ -305,12 +305,38 @@ export function TranscriptMessageBody({
       );
     }
     if (renderableToolCalls.length > 0) {
+      // A resolved run_workflow call is shown by its dedicated inline card, so
+      // drop it from the steps MultiActivityGroup renders too (the group filters
+      // subagent_spawn internally but not run_workflow). A FAILED workflow call
+      // has no card and is kept, so its error still renders as a step; subagent
+      // spawns are left for the group to filter internally.
+      const suppressedWorkflowIds = new Set(
+        groupToolCalls
+          .filter(
+            (tc) =>
+              isRunWorkflowCall(tc) &&
+              workflowRunIdForCall(tc, byToolUseIdWf) !== null,
+          )
+          .map((tc) => tc.id),
+      );
+      const groupCardToolCalls =
+        suppressedWorkflowIds.size === 0
+          ? groupToolCalls
+          : groupToolCalls.filter((tc) => !suppressedWorkflowIds.has(tc.id));
+      const groupCardItems =
+        suppressedWorkflowIds.size === 0
+          ? cardItems
+          : cardItems.filter(
+              (it) =>
+                it.kind !== "toolCall" ||
+                !suppressedWorkflowIds.has(it.toolCall.id),
+            );
       return (
         <Fragment key={key}>
           <div className="w-full">
             <MultiActivityGroup
-              toolCalls={groupToolCalls}
-              items={cardItems}
+              toolCalls={groupCardToolCalls}
+              items={groupCardItems}
               messageId={message.id}
               groupIndex={groupIndex}
               onOpenRuleEditor={onOpenRuleEditor}
