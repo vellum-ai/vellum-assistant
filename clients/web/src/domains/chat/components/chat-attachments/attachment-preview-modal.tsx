@@ -245,7 +245,6 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     if (isText && effectiveUrl) {
       return (
         <TextPreview
-          attachmentId={attachment.id}
           url={effectiveUrl}
           filename={attachment.filename}
           mimeType={attachment.mimeType}

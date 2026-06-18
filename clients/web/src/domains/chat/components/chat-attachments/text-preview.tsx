@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
+import { useMemo } from "react";
 
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
 import { PreviewMessageCard } from "@/domains/chat/components/chat-attachments/preview-message-card";
@@ -28,9 +29,17 @@ async function loadText(url: string): Promise<string> {
   return blob.text();
 }
 
+/** Small djb2 string hash → non-negative int. Derives a short, stable cache
+ *  key from a preview URL that may be a multi-megabyte base64 `data:` URI. */
+function hashString(str: string): number {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 33) ^ str.charCodeAt(i);
+  }
+  return Math.abs(hash);
+}
+
 interface TextPreviewProps {
-  /** Stable attachment id, used as the query cache key (never the URL). */
-  attachmentId: string;
   url: string;
   filename: string;
   mimeType: string;
@@ -42,20 +51,17 @@ interface TextPreviewProps {
  * renders as monospace source. Content sits on a themed surface so it stays
  * legible on the modal's dark backdrop across light, dark, and velvet themes.
  */
-export function TextPreview({
-  attachmentId,
-  url,
-  filename,
-  mimeType,
-}: TextPreviewProps) {
+export function TextPreview({ url, filename, mimeType }: TextPreviewProps) {
+  // Content-derived cache key. The URL uniquely identifies the bytes (an inline
+  // attachment's URL is the file itself, as a base64 `data:` URI), so hashing it
+  // avoids two distinct files colliding — the attachment id falls back to
+  // `filename` for inline drafts (display-attachments.ts) and isn't unique. We
+  // hash once (memoized) rather than key by the raw URL, so React Query never
+  // re-serializes a multi-megabyte data URI on every render.
+  const contentKey = useMemo(() => hashString(url), [url]);
+
   const { data, isLoading, error } = useQuery({
-    // Key by the stable attachment id, not the URL. For an inline attachment
-    // the URL is the entire file as a base64 `data:` URI, and React Query
-    // hashes and retains the key (with staleTime: Infinity) regardless of the
-    // byte cap enforced inside loadText — so keying by URL would serialize and
-    // cache the whole file just to then show "too large". The id maps 1:1 to
-    // immutable bytes.
-    queryKey: ["attachment-text-preview", attachmentId],
+    queryKey: ["attachment-text-preview", contentKey],
     queryFn: async () => {
       try {
         return await loadText(url);
