@@ -81,7 +81,7 @@ mock.module("@/stores/organization-store", () => ({
 
 const {
   resetLocalManagedOAuthIdentityCacheForTesting,
-  resolveManagedOAuthAssistantId,
+  resolveManagedOAuthPlatformAssistantId,
 } = await import("@/lib/local-managed-oauth-identity");
 
 const originalFetch = globalThis.fetch;
@@ -177,11 +177,12 @@ afterEach(() => {
   resetLocalManagedOAuthIdentityCacheForTesting();
 });
 
-describe("resolveManagedOAuthAssistantId", () => {
+describe("resolveManagedOAuthPlatformAssistantId", () => {
   test("returns the stored platform id without registration when the API key is present", async () => {
-    const assistantId = await resolveManagedOAuthAssistantId(RUNTIME_ASSISTANT_ID);
+    const platformAssistantId =
+      await resolveManagedOAuthPlatformAssistantId(RUNTIME_ASSISTANT_ID);
 
-    expect(assistantId).toBe(PLATFORM_ASSISTANT_ID);
+    expect(platformAssistantId).toBe(PLATFORM_ASSISTANT_ID);
     expect(requestNames()).toEqual(["status"]);
   });
 
@@ -196,9 +197,10 @@ describe("resolveManagedOAuthAssistantId", () => {
       assistant_api_key: null,
     };
 
-    const assistantId = await resolveManagedOAuthAssistantId(RUNTIME_ASSISTANT_ID);
+    const platformAssistantId =
+      await resolveManagedOAuthPlatformAssistantId(RUNTIME_ASSISTANT_ID);
 
-    expect(assistantId).toBe(PLATFORM_ASSISTANT_ID);
+    expect(platformAssistantId).toBe(PLATFORM_ASSISTANT_ID);
     expect(requestNames()).toEqual([
       "status",
       "ensure-registration",

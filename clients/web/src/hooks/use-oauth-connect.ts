@@ -14,7 +14,7 @@ import {
   parseOAuthCompletePayload,
   type OAuthCompletePayload,
 } from "@/lib/auth/oauth-popup";
-import { resolveManagedOAuthAssistantId } from "@/lib/local-managed-oauth-identity";
+import { resolveManagedOAuthPlatformAssistantId } from "@/lib/local-managed-oauth-identity";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import type { OAuthCompleteDeepLinkPayload } from "@/runtime/native-deep-link";
@@ -68,7 +68,7 @@ export function useOAuthConnect({
   const pendingRequestRef = useRef<{
     requestId: string;
     provider: string;
-    oauthAssistantId: string;
+    platformAssistantId: string;
     baselineConnectionSignatures: ReadonlyMap<string, string>;
   } | null>(null);
   const popupCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -128,7 +128,7 @@ export function useOAuthConnect({
 
   const waitForProviderConnection = useCallback(
     async (
-      oauthAssistantId: string,
+      platformAssistantId: string,
       baselineSignatures: ReadonlyMap<string, string>,
     ): Promise<boolean> => {
       if (!managedAvailable) return false;
@@ -142,7 +142,7 @@ export function useOAuthConnect({
           queryClient.invalidateQueries({ queryKey: connectionsQueryKey });
           const connections = await queryClient.fetchQuery({
             ...assistantsOauthConnectionsListOptions({
-              path: { assistant_id: oauthAssistantId },
+              path: { assistant_id: platformAssistantId },
             }),
             staleTime: 0,
           });
@@ -242,7 +242,7 @@ export function useOAuthConnect({
 
       void (async () => {
         const providerConnected = await waitForProviderConnection(
-          pendingRequest.oauthAssistantId,
+          pendingRequest.platformAssistantId,
           pendingRequest.baselineConnectionSignatures,
         );
         if (!pendingRequestRef.current) {
@@ -280,9 +280,9 @@ export function useOAuthConnect({
     setOAuthInProgress(true);
 
     const start = async (popup: Window | null) => {
-      let oauthAssistantId: string;
+      let platformAssistantId: string;
       try {
-        oauthAssistantId = await resolveManagedOAuthAssistantId(assistantId);
+        platformAssistantId = await resolveManagedOAuthPlatformAssistantId(assistantId);
       } catch (error) {
         closePopupWindow();
         clearPendingRequest();
@@ -297,12 +297,12 @@ export function useOAuthConnect({
       const baselineConnections = await queryClient
         .fetchQuery({
           ...assistantsOauthConnectionsListOptions({
-            path: { assistant_id: oauthAssistantId },
+            path: { assistant_id: platformAssistantId },
           }),
           staleTime: 0,
         })
         .catch(() =>
-          oauthAssistantId === assistantId ? (allConnections ?? []) : [],
+          platformAssistantId === assistantId ? (allConnections ?? []) : [],
         );
       const baselineConnectionSignatures = getProviderConnectionSignatures(
         baselineConnections,
@@ -312,13 +312,13 @@ export function useOAuthConnect({
       pendingRequestRef.current = {
         requestId,
         provider: providerKey,
-        oauthAssistantId,
+        platformAssistantId,
         baselineConnectionSignatures,
       };
 
       startOAuth.mutate(
         {
-          path: { assistant_id: oauthAssistantId, provider: providerKey },
+          path: { assistant_id: platformAssistantId, provider: providerKey },
           body: {
             requested_scopes: requestedScopes,
             redirect_after_connect: `${routes.account.oauth.popupComplete}?requestId=${requestId}${isNative ? "&native=1" : ""}`,
@@ -395,7 +395,7 @@ export function useOAuthConnect({
           }
 
           const providerConnected = await waitForProviderConnection(
-            pendingRequest.oauthAssistantId,
+            pendingRequest.platformAssistantId,
             pendingRequest.baselineConnectionSignatures,
           );
           if (!pendingRequestRef.current) {

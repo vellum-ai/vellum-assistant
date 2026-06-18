@@ -15,7 +15,7 @@ import { IntegrationRow } from "@/domains/settings/components/integration-row";
 import { assistantsOauthConnectionsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import type { OAuthConnection } from "@/generated/api/types.gen";
 import { oauthProvidersGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
-import { useManagedOAuthAssistantId } from "@/hooks/use-managed-oauth-assistant-id";
+import { useManagedOAuthPlatformAssistantId } from "@/hooks/use-managed-oauth-platform-assistant-id";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
 import { routes } from "@/utils/routes";
@@ -97,9 +97,9 @@ function IntegrationsPanelInner() {
   }, []);
 
   const {
-    assistantId: oauthAssistantId,
-    isLoading: oauthAssistantIdLoading,
-  } = useManagedOAuthAssistantId(assistant?.id, platformGate === "full");
+    platformAssistantId,
+    isLoading: platformAssistantIdLoading,
+  } = useManagedOAuthPlatformAssistantId(assistant?.id, platformGate === "full");
 
   const {
     data: providers,
@@ -115,9 +115,9 @@ function IntegrationsPanelInner() {
 
   const { data: connections, isLoading: connectionsLoading } = useQuery({
     ...assistantsOauthConnectionsListOptions({
-      path: { assistant_id: oauthAssistantId ?? "" },
+      path: { assistant_id: platformAssistantId ?? "" },
     }),
-    enabled: !!oauthAssistantId && platformGate === "full",
+    enabled: !!platformAssistantId && platformGate === "full",
   });
 
   // Handle OAuth callback query params.
@@ -204,7 +204,7 @@ function IntegrationsPanelInner() {
     assistantLoading ||
     providersLoading ||
     connectionsLoading ||
-    oauthAssistantIdLoading;
+    platformAssistantIdLoading;
   const selectedFilterLabel =
     FILTER_OPTIONS.find((o) => o.value === selectedFilter)?.label ?? "All";
 
@@ -343,7 +343,7 @@ function IntegrationsPanelInner() {
             {filteredProviders.map((provider) => (
               <IntegrationRow
                 key={provider.provider_key}
-                oauthAssistantId={oauthAssistantId ?? assistant.id}
+                platformAssistantId={platformAssistantId ?? assistant.id}
                 providerKey={provider.provider_key}
                 displayName={
                   provider.display_name ?? provider.provider_key
@@ -367,7 +367,7 @@ function IntegrationsPanelInner() {
       {selectedProvider && assistant && (
         <IntegrationDetailModal
           assistantId={assistant.id}
-          oauthAssistantId={oauthAssistantId ?? assistant.id}
+          platformAssistantId={platformAssistantId ?? assistant.id}
           providerKey={selectedProvider.provider_key}
           displayName={
             selectedProvider.display_name ?? selectedProvider.provider_key

@@ -23,7 +23,7 @@ import type { PlatformGateState } from "@/hooks/use-platform-gate";
 import { extractErrorMessage } from "@/utils/api-errors";
 
 interface IntegrationRowProps {
-  oauthAssistantId: string;
+  platformAssistantId: string;
   providerKey: string;
   displayName: string;
   description: string | null;
@@ -43,7 +43,7 @@ interface IntegrationRowProps {
  *   - "Disable":          disconnects the account (with confirmation).
  */
 export function IntegrationRow({
-  oauthAssistantId,
+  platformAssistantId,
   providerKey,
   displayName,
   description,
@@ -60,10 +60,10 @@ export function IntegrationRow({
   const isMobile = useIsMobile();
 
   const connectionsQueryKey = assistantsOauthConnectionsListQueryKey({
-    path: { assistant_id: oauthAssistantId },
+    path: { assistant_id: platformAssistantId },
   });
 
-  const connectionsOpts = { path: { assistant_id: oauthAssistantId } };
+  const connectionsOpts = { path: { assistant_id: platformAssistantId } };
 
   const disconnectOAuth = useAssistantsOauthDisconnectByConnectionCreateMutation({
     onSuccess(_data, variables) {
@@ -99,7 +99,7 @@ export function IntegrationRow({
       return;
     }
     disconnectOAuth.mutate({
-      path: { assistant_id: oauthAssistantId, connection_id: connection.id },
+      path: { assistant_id: platformAssistantId, connection_id: connection.id },
     });
   };
 

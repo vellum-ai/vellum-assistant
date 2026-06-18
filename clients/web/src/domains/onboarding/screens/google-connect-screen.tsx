@@ -16,7 +16,7 @@ import {
     oauthCompletionStorageKey,
     type OAuthCompletePayload,
 } from "@/lib/auth/oauth-popup";
-import { resolveManagedOAuthAssistantId } from "@/lib/local-managed-oauth-identity";
+import { resolveManagedOAuthPlatformAssistantId } from "@/lib/local-managed-oauth-identity";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
@@ -66,7 +66,7 @@ export function GoogleConnectScreen({
   const popupRef = useRef<Window | null>(null);
   const pendingRequestRef = useRef<{
     requestId: string;
-    oauthAssistantId: string;
+    platformAssistantId: string;
   } | null>(null);
   const popupCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const popupClosedGraceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -126,11 +126,11 @@ export function GoogleConnectScreen({
     };
   }, []);
 
-  const fetchActiveGoogleConnection = useCallback(async (oauthAssistantId: string): Promise<OAuthConnection | null> => {
+  const fetchActiveGoogleConnection = useCallback(async (platformAssistantId: string): Promise<OAuthConnection | null> => {
     try {
       const connections = await queryClient.fetchQuery({
         ...assistantsOauthConnectionsListOptions({
-          path: { assistant_id: oauthAssistantId },
+          path: { assistant_id: platformAssistantId },
         }),
         staleTime: 0,
       });
@@ -145,11 +145,11 @@ export function GoogleConnectScreen({
   }, [queryClient]);
 
   const handleOAuthSuccess = useCallback(async () => {
-    const oauthAssistantId = pendingRequestRef.current?.oauthAssistantId;
+    const platformAssistantId = pendingRequestRef.current?.platformAssistantId;
     closePopupWindow();
     clearPendingRequest();
-    const connection = oauthAssistantId
-      ? await fetchActiveGoogleConnection(oauthAssistantId)
+    const connection = platformAssistantId
+      ? await fetchActiveGoogleConnection(platformAssistantId)
       : null;
     onConnect(connection?.scopes_granted ?? []);
   }, [clearPendingRequest, closePopupWindow, fetchActiveGoogleConnection, onConnect]);
@@ -232,19 +232,19 @@ export function GoogleConnectScreen({
     if (isNative) {
       setOAuthInProgress(true);
       void (async () => {
-        let oauthAssistantId: string;
+        let platformAssistantId: string;
         try {
-          oauthAssistantId = await resolveManagedOAuthAssistantId(assistantId);
+          platformAssistantId = await resolveManagedOAuthPlatformAssistantId(assistantId);
         } catch {
           clearPendingRequest();
           return;
         }
 
-        pendingRequestRef.current = { requestId, oauthAssistantId };
+        pendingRequestRef.current = { requestId, platformAssistantId };
         startOAuth.mutate(
           {
             path: {
-              assistant_id: oauthAssistantId,
+              assistant_id: platformAssistantId,
               provider: GOOGLE_PROVIDER_KEY,
             },
             body: {
@@ -276,7 +276,7 @@ export function GoogleConnectScreen({
         }
         void (async () => {
           const connection = await fetchActiveGoogleConnection(
-            pendingRequest.oauthAssistantId,
+            pendingRequest.platformAssistantId,
           );
           if (!pendingRequestRef.current) return;
           if (connection) {
@@ -337,7 +337,7 @@ export function GoogleConnectScreen({
           }
 
           const connection = await fetchActiveGoogleConnection(
-            pendingRequest.oauthAssistantId,
+            pendingRequest.platformAssistantId,
           );
           if (!pendingRequestRef.current) return;
 
@@ -353,9 +353,9 @@ export function GoogleConnectScreen({
     }, 100);
 
     void (async () => {
-      let oauthAssistantId: string;
+      let platformAssistantId: string;
       try {
-        oauthAssistantId = await resolveManagedOAuthAssistantId(assistantId);
+        platformAssistantId = await resolveManagedOAuthPlatformAssistantId(assistantId);
       } catch {
         closePopupWindow();
         clearPendingRequest();
@@ -363,11 +363,11 @@ export function GoogleConnectScreen({
         return;
       }
 
-      pendingRequestRef.current = { requestId, oauthAssistantId };
+      pendingRequestRef.current = { requestId, platformAssistantId };
 
       startOAuth.mutate(
         {
-          path: { assistant_id: oauthAssistantId, provider: GOOGLE_PROVIDER_KEY },
+          path: { assistant_id: platformAssistantId, provider: GOOGLE_PROVIDER_KEY },
           body: {
             requested_scopes: [],
             redirect_after_connect: `${routes.account.oauth.popupComplete}?requestId=${requestId}`,

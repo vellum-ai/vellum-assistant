@@ -63,7 +63,7 @@ export function resetLocalManagedOAuthIdentityCacheForTesting(): void {
   platformAssistantIdCache.clear();
 }
 
-export async function resolveManagedOAuthAssistantId(
+export async function resolveManagedOAuthPlatformAssistantId(
   assistantId: string,
 ): Promise<string> {
   if (!isLocalMode() || isRemoteGatewayMode() || isUuid(assistantId)) {
