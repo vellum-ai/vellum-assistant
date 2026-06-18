@@ -875,18 +875,20 @@ const accessRequestResolver: GuardianRequestResolver = {
       }
 
       // Record the verification_sent lifecycle transition for the off-channel
-      // approve path too — parity with the on-channel branch above.
-      if (requesterNotified) {
-        emitVerificationSentSignal({
-          channel,
-          conversationId: request.conversationId,
-          requesterExternalUserId,
-          requesterChatId,
-          requesterDisplayName,
-          decidedByDisplayName,
-          verificationSessionId: session.sessionId,
-        });
-      }
+      // approve path. The session is minted and the request is approved
+      // regardless of whether the requester DM landed — the guardian still
+      // receives the code via guardianReplyText — so emit unconditionally,
+      // mirroring the on-channel branch which keys off guardian receipt rather
+      // than requester delivery.
+      emitVerificationSentSignal({
+        channel,
+        conversationId: request.conversationId,
+        requesterExternalUserId,
+        requesterChatId,
+        requesterDisplayName,
+        decidedByDisplayName,
+        verificationSessionId: session.sessionId,
+      });
     }
 
     const verificationReplyText = requesterNotified

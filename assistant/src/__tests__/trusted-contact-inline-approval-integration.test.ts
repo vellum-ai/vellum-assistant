@@ -1215,6 +1215,33 @@ describe("(g) access_request resolver: requester code delivery", () => {
     expect(verificationSent.length).toBe(1);
   });
 
+  test("off-channel approval still records verification_sent when the requester DM fails", async () => {
+    const req = createAccessRequest();
+    // Fail the direct DM and the courier fallback (both target the requester).
+    failDeliveryWhen = (payload) => payload.chatId === REQUESTER_UID;
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: "approve_once",
+      actorContext: guardianActor({
+        channel: "vellum",
+        actorExternalUserId: undefined,
+      }),
+    });
+
+    expect(result.applied).toBe(true);
+
+    // The guardian still receives the code via the inline reply, and the
+    // lifecycle signal is recorded even though the requester DM failed — the
+    // session was minted and the request was approved.
+    const replyText = result.applied ? result.resolverReplyText : undefined;
+    expect(replyText).toContain("123456");
+    const verificationSent = emittedSignals.filter(
+      (s) => s.sourceEventName === "ingress.trusted_contact.verification_sent",
+    );
+    expect(verificationSent.length).toBe(1);
+  });
+
   test("non-Slack channel keeps the courier message and never delivers the code to the requester chat", async () => {
     const req = createAccessRequest({
       sourceChannel: "telegram",
