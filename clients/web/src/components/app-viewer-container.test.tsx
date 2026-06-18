@@ -15,6 +15,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 
 mock.module("@/hooks/use-sandbox-fetch-proxy", () => ({
   useSandboxFetchProxy: () => {},
@@ -32,14 +33,16 @@ afterEach(() => {
 
 function renderViewer(props?: { enableFullscreen?: boolean; appId?: string }) {
   return render(
-    <AppViewerContainer
-      appId={props?.appId ?? "app-1"}
-      appName="My App"
-      html="<html><body>hi</body></html>"
-      assistantId="assistant-1"
-      onClose={() => {}}
-      enableFullscreen={props?.enableFullscreen}
-    />,
+    <MemoryRouter>
+      <AppViewerContainer
+        appId={props?.appId ?? "app-1"}
+        appName="My App"
+        html="<html><body>hi</body></html>"
+        assistantId="assistant-1"
+        onClose={() => {}}
+        enableFullscreen={props?.enableFullscreen}
+      />
+    </MemoryRouter>,
   );
 }
 
