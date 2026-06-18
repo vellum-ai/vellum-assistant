@@ -14,7 +14,6 @@ import {
   getPlatformOrganizationId,
   getPlatformUserId,
 } from "../config/env.js";
-import { getConfig } from "../config/loader.js";
 import { queryUnreportedAuthFallbackEvents } from "../memory/auth-fallback-events-store.js";
 import {
   getMemoryCheckpoint,
@@ -27,6 +26,7 @@ import { queryUnreportedSkillLoadedEvents } from "../memory/skill-loaded-events-
 import { queryUnreportedToolExecutedEvents } from "../memory/tool-executed-events-store.js";
 import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
 import { VellumPlatformClient } from "../platform/client.js";
+import { getCachedShareAnalytics } from "../platform/consent-cache.js";
 import { arePlatformFeaturesEnabled } from "../platform/feature-gate.js";
 import type { UsageAttributionProfileSource } from "../usage/types.js";
 import { getDeviceId } from "../util/device-id.js";
@@ -207,22 +207,23 @@ export class UsageTelemetryReporter {
     try {
       if (batchCount >= MAX_CONSECUTIVE_BATCHES) return;
 
-      // Respect opt-out: if the user has disabled usage data collection, skip
-      // the flush and advance watermarks so events recorded during the
-      // opt-out window are never sent retroactively. The daemon runs the
-      // reporter even when opted out specifically so this branch keeps
-      // executing — every cycle plus the final flush in stop() — which is
-      // what lets a later opt-in (runtime or via restart) resume from a
-      // watermark that already covers the opt-out window. One caveat: a
-      // RUNTIME false→true flip can still ship up to one flush interval
-      // (≤5 min) of pre-toggle rows recorded since the last opted-out flush;
+      // Respect opt-out: if the platform owner has not granted
+      // `share_analytics` consent, skip the flush and advance watermarks so
+      // events recorded during the opt-out window are never sent
+      // retroactively. The daemon runs the reporter even when opted out
+      // specifically so this branch keeps executing — every cycle plus the
+      // final flush in stop() — which is what lets a later opt-in (runtime or
+      // via restart) resume from a watermark that already covers the opt-out
+      // window. One caveat: a RUNTIME false→true flip can still ship up to one
+      // flush interval (≤5 min) of pre-toggle rows recorded since the last
+      // opted-out flush;
       // the restart path is fully covered by the final flush in stop(). The
       // caveat applies to the always-on tables without a write-time opt-out
       // gate (llm_usage, turn events) and to tool_invocations rows recorded
       // under builds predating the audit listener's write-time gate — new
       // opted-out tool_invocations rows persist NULL telemetry columns and
       // are unreportable by construction regardless of watermark timing.
-      if (!getConfig().collectUsageData) {
+      if (!getCachedShareAnalytics()) {
         // Advance the timestamp watermarks and pin the ID watermarks to a
         // sentinel that sorts above any real UUID. The sentinel (rather than
         // "") keeps the compound-cursor branch active — a falsy ID would
