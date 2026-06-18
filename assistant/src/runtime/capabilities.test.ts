@@ -79,6 +79,17 @@ describe("resolveCapabilities", () => {
     expect(resolveCapabilities("some_future_role")).toEqual(MATRIX.unknown);
   });
 
+  test("inherited Object.prototype keys fail-closed (no prototype read)", () => {
+    for (const key of [
+      "__proto__",
+      "constructor",
+      "toString",
+      "hasOwnProperty",
+    ]) {
+      expect(resolveCapabilities(key)).toEqual(MATRIX.unknown);
+    }
+  });
+
   test("unverified_contact is byte-for-byte identical to trusted_contact (admission-only distinction)", () => {
     expect(resolveCapabilities("unverified_contact")).toEqual(
       resolveCapabilities("trusted_contact"),

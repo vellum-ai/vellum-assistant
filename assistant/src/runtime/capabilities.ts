@@ -163,9 +163,19 @@ const CAPABILITIES_BY_CLASS: Record<TrustClass, CapabilitySet> = {
  * pass their raw trust value directly; they never re-derive "is this a known
  * class?" at the call site. The `(string & {})` member keeps autocomplete for
  * the known classes while still accepting an arbitrary string.
+ *
+ * The lookup uses an own-property check so raw values that name inherited
+ * members (`"__proto__"`, `"constructor"`, `"toString"`) fail closed to the
+ * `unknown` set rather than reading off `Object.prototype`.
  */
 export function resolveCapabilities(
   trustClass: TrustClass | (string & {}) | undefined,
 ): CapabilitySet {
-  return CAPABILITIES_BY_CLASS[trustClass as TrustClass] ?? UNKNOWN_CAPABILITIES;
+  if (
+    trustClass != null &&
+    Object.prototype.hasOwnProperty.call(CAPABILITIES_BY_CLASS, trustClass)
+  ) {
+    return CAPABILITIES_BY_CLASS[trustClass as TrustClass];
+  }
+  return UNKNOWN_CAPABILITIES;
 }
