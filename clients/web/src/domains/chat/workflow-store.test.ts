@@ -161,6 +161,21 @@ describe("leaf lifecycle", () => {
     expect(getState().orderedIds).toEqual(["wf-race"]);
   });
 
+  it("keeps agentsSpawned at least the live leaf count as leaves start", () => {
+    // A progress event reports the first batch's count.
+    getState().applyProgress({ runId: "wf-as", agentsSpawned: 2 });
+    getState().leafStarted({ runId: "wf-as", seq: 0 });
+    getState().leafStarted({ runId: "wf-as", seq: 1 });
+    // Still consistent with the progress count.
+    expect(getState().byId["wf-as"]!.agentsSpawned).toBe(2);
+
+    // A second batch spawns before the next progress event arrives — the Agents
+    // metric must reflect the new leaves immediately, not stay stale at 2.
+    getState().leafStarted({ runId: "wf-as", seq: 2 });
+    getState().leafStarted({ runId: "wf-as", seq: 3 });
+    expect(getState().byId["wf-as"]!.agentsSpawned).toBe(4);
+  });
+
   it("transitions a leaf to terminal and merges tokens, keeping the prior label", () => {
     getState().leafStarted({ runId: "wf-f", seq: 0, label: "Leaf A" });
     getState().leafFinished({

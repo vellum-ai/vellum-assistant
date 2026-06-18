@@ -347,8 +347,23 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
     };
     const nextLeaves = new Map(base.leaves).set(params.seq, leaf);
 
+    // workflow_leaf_started is the live spawn signal, so keep the run-level
+    // Agents metric (which reads agentsSpawned first) at least the number of
+    // leaves seen. Otherwise it stays stale between the sparser progress events
+    // — e.g. a second batch shows the prior batch's count until the next
+    // progress/completion arrives. Monotonic: progress/backfill/completion only
+    // raise it further.
+    const nextAgentsSpawned = Math.max(base.agentsSpawned, nextLeaves.size);
+
     set({
-      byId: { ...byId, [params.runId]: { ...base, leaves: nextLeaves } },
+      byId: {
+        ...byId,
+        [params.runId]: {
+          ...base,
+          agentsSpawned: nextAgentsSpawned,
+          leaves: nextLeaves,
+        },
+      },
       orderedIds: existing ? orderedIds : [...orderedIds, params.runId],
     });
   },
