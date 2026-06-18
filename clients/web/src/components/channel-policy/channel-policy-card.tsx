@@ -37,7 +37,7 @@ function humaniseChannel(channelType: string): string {
   // version of the id so future channels render OK without a code change.
   const LABELS: Record<string, string> = {
     telegram: "Telegram",
-    phone: "Phone / SMS",
+    phone: "Phone",
     whatsapp: "WhatsApp",
     slack: "Slack",
     email: "Email",
