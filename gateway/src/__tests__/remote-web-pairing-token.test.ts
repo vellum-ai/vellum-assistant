@@ -47,12 +47,51 @@ function makeTokenRequest(body: unknown): Request {
   });
 }
 
-function makeRefreshRequest(refreshToken: string): Request {
+function makeRefreshRequest(
+  refreshToken: string,
+  opts: {
+    origin?: string | null;
+    referer?: string | null;
+    secFetchSite?: string | null;
+    url?: string;
+  } = {},
+): Request {
+  const headers: Record<string, string> = {
+    cookie: `vellum_web_refresh=${encodeURIComponent(refreshToken)}`,
+  };
+  const secFetchSite = Object.prototype.hasOwnProperty.call(
+    opts,
+    "secFetchSite",
+  )
+    ? opts.secFetchSite
+    : "same-origin";
+  if (typeof secFetchSite === "string") {
+    headers["sec-fetch-site"] = secFetchSite;
+  }
+  if (typeof opts.origin === "string") {
+    headers.origin = opts.origin;
+  }
+  if (typeof opts.referer === "string") {
+    headers.referer = opts.referer;
+  }
+
+  return new Request(
+    opts.url ?? "https://paired.example.com/v1/guardian/refresh",
+    {
+      method: "POST",
+      headers,
+    },
+  );
+}
+
+function makeDeviceRefreshRequest(params: {
+  refreshToken: string;
+  deviceId: string;
+}): Request {
   return new Request("https://paired.example.com/v1/guardian/refresh", {
     method: "POST",
-    headers: {
-      cookie: `vellum_web_refresh=${encodeURIComponent(refreshToken)}`,
-    },
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(params),
   });
 }
 
@@ -223,6 +262,163 @@ describe("remote web pairing token exchange", () => {
       hashToken(rotatedRefreshToken),
     );
     expect(activeTokens()).toHaveLength(1);
+  });
+
+  test("browser refresh rejects non-same-origin fetch metadata", async () => {
+    const challenge = createRemoteWebPairingChallenge(PUBLIC_BASE_URL);
+    expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
+      "approved",
+    );
+
+    const exchange = await handleRemoteWebPairingToken(
+      makeTokenRequest({ deviceCode: challenge.deviceCode }),
+    );
+    const originalRefreshToken = cookieValue(
+      setCookies(exchange),
+      "vellum_web_refresh",
+    );
+
+    for (const secFetchSite of ["cross-site", "same-site", "none"]) {
+      const refresh = await handleGuardianRefresh(
+        makeRefreshRequest(originalRefreshToken, {
+          origin: PUBLIC_BASE_URL,
+          secFetchSite,
+        }),
+      );
+
+      expect(refresh.status).toBe(403);
+      expect(await refresh.json()).toEqual({
+        error: {
+          code: "FORBIDDEN",
+          message: "Browser refresh requires a same-origin request",
+        },
+      });
+      expect(setCookies(refresh)).toHaveLength(0);
+    }
+
+    expect(activeRefreshTokens()).toHaveLength(1);
+    expect(activeRefreshTokens()[0].tokenHash).toBe(
+      hashToken(originalRefreshToken),
+    );
+  });
+
+  test("browser refresh falls back to same-origin request headers when fetch metadata is missing", async () => {
+    const challenge = createRemoteWebPairingChallenge(PUBLIC_BASE_URL);
+    expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
+      "approved",
+    );
+
+    const originExchange = await handleRemoteWebPairingToken(
+      makeTokenRequest({ deviceCode: challenge.deviceCode }),
+    );
+    const originRefreshToken = cookieValue(
+      setCookies(originExchange),
+      "vellum_web_refresh",
+    );
+
+    const originRefresh = await handleGuardianRefresh(
+      makeRefreshRequest(originRefreshToken, {
+        origin: PUBLIC_BASE_URL,
+        secFetchSite: null,
+        url: "http://paired.example.com/v1/guardian/refresh",
+      }),
+    );
+
+    expect(originRefresh.status).toBe(200);
+    expect(
+      cookieValue(setCookies(originRefresh), "vellum_web_refresh"),
+    ).not.toBe(originRefreshToken);
+
+    const refererChallenge = createRemoteWebPairingChallenge(PUBLIC_BASE_URL);
+    expect(
+      approveRemoteWebPairingChallenge(refererChallenge.userCode).status,
+    ).toBe("approved");
+    const refererExchange = await handleRemoteWebPairingToken(
+      makeTokenRequest({ deviceCode: refererChallenge.deviceCode }),
+    );
+    const refererRefreshToken = cookieValue(
+      setCookies(refererExchange),
+      "vellum_web_refresh",
+    );
+
+    const refererRefresh = await handleGuardianRefresh(
+      makeRefreshRequest(refererRefreshToken, {
+        referer: `${PUBLIC_BASE_URL}/assistant/`,
+        secFetchSite: null,
+      }),
+    );
+
+    expect(refererRefresh.status).toBe(200);
+    expect(
+      cookieValue(setCookies(refererRefresh), "vellum_web_refresh"),
+    ).not.toBe(refererRefreshToken);
+  });
+
+  test("browser refresh rejects missing fetch metadata without a same-origin fallback", async () => {
+    const challenge = createRemoteWebPairingChallenge(PUBLIC_BASE_URL);
+    expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
+      "approved",
+    );
+
+    const exchange = await handleRemoteWebPairingToken(
+      makeTokenRequest({ deviceCode: challenge.deviceCode }),
+    );
+    const originalRefreshToken = cookieValue(
+      setCookies(exchange),
+      "vellum_web_refresh",
+    );
+
+    for (const opts of [
+      { secFetchSite: null },
+      {
+        origin: "https://attacker.example.com",
+        secFetchSite: null,
+      },
+      {
+        referer: "https://attacker.example.com/assistant/",
+        secFetchSite: null,
+      },
+    ]) {
+      const refresh = await handleGuardianRefresh(
+        makeRefreshRequest(originalRefreshToken, opts),
+      );
+
+      expect(refresh.status).toBe(403);
+      expect(await refresh.json()).toEqual({
+        error: {
+          code: "FORBIDDEN",
+          message: "Browser refresh requires a same-origin request",
+        },
+      });
+      expect(setCookies(refresh)).toHaveLength(0);
+    }
+
+    expect(activeRefreshTokens()).toHaveLength(1);
+    expect(activeRefreshTokens()[0].tokenHash).toBe(
+      hashToken(originalRefreshToken),
+    );
+  });
+
+  test("device-bound refresh path does not require fetch metadata", async () => {
+    const pair = mintAndRecordDeviceBoundTokenPair({
+      guardianPrincipalId: GUARDIAN_ID,
+      deviceId: "legacy-device",
+      platform: "cli",
+    });
+
+    const refresh = await handleGuardianRefresh(
+      makeDeviceRefreshRequest({
+        refreshToken: pair.refreshToken,
+        deviceId: "legacy-device",
+      }),
+    );
+
+    expect(refresh.status).toBe(200);
+    const body = (await refresh.json()) as Record<string, unknown>;
+    expect(typeof body.accessToken).toBe("string");
+    expect(typeof body.refreshToken).toBe("string");
+    expect(typeof body.refreshAfter).toBe("number");
+    expect(setCookies(refresh)).toHaveLength(0);
   });
 
   test("path-prefixed public base URLs keep refresh cookies on the public refresh path", async () => {
