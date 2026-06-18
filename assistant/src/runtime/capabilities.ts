@@ -17,8 +17,10 @@
  * is the "what they may do once inside" axis.
  *
  * Context-dependent decisions (interactivity routing, self-approval races,
- * channel-specific overrides) COMPOSE these primitives with runtime context at
- * the call site — they are not encoded in the table.
+ * channel-specific overrides) COMPOSE these primitives with runtime context.
+ * They are not encoded in the table; named composition helpers live in
+ * `effective-capabilities.ts` (and `resolveRoutingState` in
+ * `trust-context-resolver.ts`).
  */
 
 import type { TrustClass } from "./actor-trust-resolver.js";
@@ -76,8 +78,9 @@ export interface CapabilitySet {
    */
   canAccessMemory: boolean;
   /**
-   * May perform privileged (non-conversation-scoped) document operations.
-   * Composed at the call site with the `vellum`-channel override.
+   * May perform privileged (non-conversation-scoped) document operations from
+   * trust class alone. The effective decision also honors privileged channels —
+   * see `canActOnPrivilegedDocuments` in `effective-capabilities.ts`.
    */
   canAccessPrivilegedDocuments: boolean;
 
