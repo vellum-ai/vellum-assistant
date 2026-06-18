@@ -177,6 +177,25 @@ describe("ReviewTermsScreen", () => {
     expect(setTosAccepted).toHaveBeenCalledWith(true);
 
     rerender(<ReviewTermsScreen />);
+    // Staleness is snapshotted at mount, so the checkbox stays visible (now
+    // showing the checked state) instead of unmounting the instant it's checked.
+    const checkedTos = screen.getByLabelText(TOS_LABEL) as HTMLInputElement;
+    expect(checkedTos).toBeTruthy();
+    expect(checkedTos.checked).toBe(true);
     expect(continueButton().disabled).toBe(false);
+  });
+
+  test("heading stays on 'Updated Terms' after the last legal box is checked", () => {
+    tosAccepted = false; // tos stale -> "Updated Terms" heading
+    const { rerender } = render(<ReviewTermsScreen />);
+
+    expect(screen.getByText("Updated Terms")).toBeTruthy();
+
+    fireEvent.click(screen.getByLabelText(TOS_LABEL));
+    rerender(<ReviewTermsScreen />);
+
+    // Heading must not flip mid-flow once the box is checked.
+    expect(screen.getByText("Updated Terms")).toBeTruthy();
+    expect(screen.queryByText("Review your privacy preferences")).toBeNull();
   });
 });
