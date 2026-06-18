@@ -708,6 +708,7 @@ async function createCanonicalRequestForConfirmation(
       { summarizeToolInput },
       { DAEMON_INTERNAL_ASSISTANT_ID },
       { bridgeConfirmationRequestToGuardian },
+      { computeToolApprovalDigest },
     ] = await Promise.all([
       import("../daemon/conversation-registry.js"),
       import("../memory/canonical-guardian-store.js"),
@@ -715,6 +716,7 @@ async function createCanonicalRequestForConfirmation(
       import("../tools/tool-input-summary.js"),
       import("./assistant-scope.js"),
       import("./confirmation-request-guardian-bridge.js"),
+      import("../security/tool-approval-digest.js"),
     ]);
 
     const conversation = findConversation(conversationId);
@@ -737,6 +739,9 @@ async function createCanonicalRequestForConfirmation(
       guardianExternalUserId: trustContext?.guardianExternalUserId,
       guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
       toolName: msg.toolName,
+      // Lets an approval mint a tool_signature grant the tool-approval handler
+      // can consume on an identical retry.
+      inputDigest: computeToolApprovalDigest(msg.toolName, inputRecord),
       commandPreview:
         redactSecrets(summarizeToolInput(msg.toolName, inputRecord)) ||
         undefined,
