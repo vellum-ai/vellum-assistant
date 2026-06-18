@@ -435,11 +435,11 @@ describe("isLocalModeHostAvailable", () => {
   });
 });
 
-describe("web/dev transport resilience (LUM-2501)", () => {
-  // The managed host answers a POST to /assistant/__local/* with a 405 and a
-  // non-JSON body, so Safari's Response.json() throws
-  // "SyntaxError: The string did not match the expected pattern." The seam must
-  // fold that into its result contract, never let it escape as a throw.
+describe("web/dev transport resilience", () => {
+  // A host without the local-mode transport answers a POST to /assistant/__local/*
+  // with a 405 and a non-JSON body, so Safari's Response.json() throws
+  // "SyntaxError: The string did not match the expected pattern." The seam folds
+  // that into its result contract rather than letting it escape as a throw.
   const nonJsonResponse = () =>
     mock(async () => ({
       status: 405,

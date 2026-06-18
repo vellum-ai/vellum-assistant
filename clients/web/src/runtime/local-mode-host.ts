@@ -143,10 +143,8 @@ function readInjectedConfig(): { mode?: string } | undefined {
  *
  * Both still surface local / self-hosted assistants through the platform
  * `is_local` flag, so callers and UI MUST consult this before offering a local
- * action (wake / hatch / retire). It is the single source of truth that
- * replaces the old "not Electron ⇒ the dev middleware exists" assumption, which
- * turned a doomed request into an opaque `Response.json()` parse error
- * (LUM-2501).
+ * action (wake / hatch / retire). It is the single source of truth for whether
+ * the local-mode transport is reachable from this host.
  *
  * The signal is the runtime config those capable hosts inject — the dev plugin
  * (`vite-plugin-local-mode.ts`) and `vellum client` set `window.__VELLUM_CONFIG__`,
@@ -163,14 +161,13 @@ export function isLocalModeHostAvailable(): boolean {
 
 /**
  * POST a local-mode command to the dev / CLI host and read back its
- * `{ ok, ... }` result, upholding the seam's never-throw contract.
+ * `{ ok, ... }` result. Always resolves to a result; never throws.
  *
- * Two failure modes are folded into the result instead of thrown:
- *   1. No local-mode host backs this runtime — short-circuit, no doomed request.
- *   2. The host answered with a non-JSON body (a static host's `405`/HTML page,
- *      a proxy `502`). `Response.json()` rejects with an opaque
- *      `SyntaxError: The string did not match the expected pattern.` in that
- *      case (LUM-2501) — catch it and surface a structured failure.
+ * Two cases resolve to a structured `{ ok: false }`:
+ *   1. No local-mode host backs this runtime — short-circuits without a request.
+ *   2. The host answers with a non-JSON body (a static host's `405`/HTML page, a
+ *      proxy `502`), so `Response.json()` rejects with a parse error — caught
+ *      and returned as a failure result.
  */
 async function postLocalCommand<T extends { ok: boolean }>(
   path: string,
