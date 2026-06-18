@@ -19,6 +19,16 @@ export function getAcpSessionManager(): AcpSessionManager {
 }
 
 /**
+ * Returns the existing AcpSessionManager singleton, or null when none has been
+ * created yet. Use this on cleanup hot paths (e.g. cancelling a conversation)
+ * that must not spin up a manager just to discover there are no sessions to
+ * act on.
+ */
+export function peekAcpSessionManager(): AcpSessionManager | null {
+  return manager;
+}
+
+/**
  * Disposes the singleton AcpSessionManager and nulls the reference.
  */
 export function disposeAcpSessionManager(): void {
