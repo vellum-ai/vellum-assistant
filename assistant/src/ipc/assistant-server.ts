@@ -31,10 +31,7 @@
 import { existsSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 
-import {
-  ensureSocketDir,
-  SocketWatchdog,
-} from "@vellumai/ipc-server-utils";
+import { ensureSocketDir, SocketWatchdog } from "@vellumai/ipc-server-utils";
 
 import { findLocalGuardianPrincipalId } from "../runtime/local-actor-identity.js";
 import { RouteError } from "../runtime/routes/errors.js";
@@ -43,6 +40,7 @@ import type {
   RouteDefinition,
   RouteHandlerArgs,
 } from "../runtime/routes/types.js";
+import { RouteResponse } from "../runtime/routes/types.js";
 import { getLogger } from "../util/logger.js";
 import {
   type IpcEnvelope,
@@ -131,6 +129,26 @@ function isIpcBinaryResponse(value: unknown): value is IpcBinaryResponse {
     (value as IpcBinaryResponse).binary instanceof Uint8Array &&
     "headers" in value &&
     typeof (value as IpcBinaryResponse).headers === "object"
+  );
+}
+
+/**
+ * A handler result whose body is raw bytes or a stream rather than a JSON
+ * value — `RouteResponse` (e.g. `workspace/file/content` returns a
+ * `Bun.file`), or a bare `Uint8Array` / `ReadableStream` / `Blob`.
+ *
+ * These cannot be carried as a JSON `result` field, so over the IPC
+ * transport they are reported as a structured error rather than silently
+ * JSON-serialized into garbage. Distinct from the `IpcBinaryResponse` /
+ * `IpcStreamingResponse` wrappers, which are explicit binary envelopes the
+ * framing protocol does transmit.
+ */
+function isNonJsonIpcResult(value: unknown): boolean {
+  return (
+    value instanceof RouteResponse ||
+    value instanceof Uint8Array ||
+    value instanceof ReadableStream ||
+    value instanceof Blob
   );
 }
 
@@ -401,6 +419,8 @@ export class AssistantIpcServer {
    * Route a handler result to the appropriate send path:
    * - IpcStreamingResponse → chunked binary frames
    * - IpcBinaryResponse → single binary frame with content-length
+   * - A raw binary/stream result (RouteResponse, Uint8Array, ...) → structured
+   *   BINARY_UNSUPPORTED_OVER_IPC error (the transport can't carry it as JSON)
    * - Everything else → JSON response
    */
   private sendResult(
@@ -420,6 +440,19 @@ export class AssistantIpcServer {
         },
       };
       this.sendResponse(socket, reader, envelope, value.binary);
+    } else if (isNonJsonIpcResult(value)) {
+      // A binary/streaming handler result (e.g. a file-content RouteResponse
+      // wrapping a Bun.file) cannot be carried as a JSON `result`. Report a
+      // structured error instead of silently serializing it into garbage; the
+      // gateway IPC proxy treats this code as a signal to retry over HTTP,
+      // which streams binary correctly.
+      this.sendResponse(socket, reader, {
+        id: requestId,
+        error:
+          "Binary/streaming responses are not supported over the IPC transport; use HTTP",
+        statusCode: 421,
+        errorCode: "BINARY_UNSUPPORTED_OVER_IPC",
+      });
     } else {
       this.sendResponse(socket, reader, { id: requestId, result: value });
     }

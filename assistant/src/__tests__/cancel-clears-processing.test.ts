@@ -1,10 +1,14 @@
 /**
- * Regression test for the stuck "Thinking…" bug: a user cancel must drive the
- * conversation's processing flag to false even when the in-flight turn never
- * observes the AbortController signal (a wedged agent loop that never reaches
- * its `finally`). The processing flag is the authoritative source for the
- * client thinking indicator, so a latched-true flag pins every client on
- * "Thinking…" indefinitely.
+ * Cancel contract: a user cancel raises the conversation's AbortController and
+ * defers clearing the `processing` flag to the in-flight turn's `finally`.
+ *
+ * `cancelGeneration` no longer force-clears `processing` itself. Abort now
+ * propagates into the provider call and tool execution — and is backed by the
+ * agent loop's abort watchdog — so a cancelled turn always reaches its
+ * `finally` within a bounded time and tears down its own state there. The
+ * watchdog-driven path (turn reaches `finally`, processing clears) is covered
+ * by `conversation-agent-loop.test.ts`; this file pins the handler-side
+ * contract: cancel signals abort and leaves the flag to the turn.
  */
 import { afterEach, describe, expect, test } from "bun:test";
 
@@ -15,18 +19,18 @@ import {
 } from "../daemon/conversation-registry.js";
 import { cancelGeneration } from "../daemon/handlers/conversations.js";
 
-interface WedgedTurnConversation {
+interface CancelledConversation {
   isProcessing: () => boolean;
   setProcessingCalls: () => boolean[];
   abortCount: () => number;
 }
 
 /**
- * Register a conversation whose in-flight turn is wedged: it accepts the abort
- * signal but never unwinds, so it leaves the processing flag untouched. This
- * is the exact condition that latches `processing` true in production.
+ * Register a conversation whose in-flight turn is processing. The fake records
+ * abort calls and any `setProcessing` writes so the test can assert that
+ * `cancelGeneration` signals abort without flipping the flag itself.
  */
-function registerWedgedTurn(id: string): WedgedTurnConversation {
+function registerProcessingTurn(id: string): CancelledConversation {
   let processing = true;
   let abortCount = 0;
   const setProcessingCalls: boolean[] = [];
@@ -55,10 +59,9 @@ describe("cancelGeneration", () => {
     deleteConversation(conversationId);
   });
 
-  test("clears the processing flag when the in-flight turn ignores the abort signal", () => {
+  test("raises abort and defers clearing processing to the turn's finally", () => {
     // GIVEN a registered conversation that is processing
-    // AND whose in-flight turn ignores the abort signal (never clears processing)
-    const fake = registerWedgedTurn(conversationId);
+    const fake = registerProcessingTurn(conversationId);
     expect(fake.isProcessing()).toBe(true);
 
     // WHEN the user cancels generation
@@ -66,12 +69,12 @@ describe("cancelGeneration", () => {
 
     // THEN the cancel is acknowledged
     expect(cancelled).toBe(true);
-    // AND the abort signal is still raised on the conversation
+    // AND the abort signal is raised on the conversation
     expect(fake.abortCount()).toBe(1);
-    // AND the processing flag is cleared through setProcessing(false), which
-    // publishes the metadata sync invalidation that unblocks every client
-    expect(fake.setProcessingCalls()).toContain(false);
-    expect(fake.isProcessing()).toBe(false);
+    // AND cancelGeneration does NOT force-clear the flag itself — the in-flight
+    // turn's `finally` owns that teardown once abort drives it there.
+    expect(fake.setProcessingCalls()).not.toContain(false);
+    expect(fake.isProcessing()).toBe(true);
   });
 
   test("returns false for a conversation that is not registered", () => {

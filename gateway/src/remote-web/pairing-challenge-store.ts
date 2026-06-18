@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomInt } from "node:crypto";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
+const MAX_ACTIVE_CHALLENGES = 200;
 const USER_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const USER_CODE_LENGTH = 8;
 const DEVICE_CODE_BYTES = 32;
@@ -25,6 +26,10 @@ export interface CreatedRemoteWebPairingChallenge {
   expiresAt: string;
   expiresInSeconds: number;
   intervalSeconds: number;
+}
+
+export interface RemoteWebPairingChallengeCapacityLimit {
+  retryAfterSeconds: number;
 }
 
 export type ApproveRemoteWebPairingChallengeResult =
@@ -82,14 +87,32 @@ function normalizeUserCode(code: string): string {
   return code.replace(/[^A-Z0-9]/gi, "").toUpperCase();
 }
 
-function cleanupExpiredChallenges(): void {
-  const now = nowMs();
+function cleanupExpiredChallenges(now = nowMs()): void {
   for (const [hash, challenge] of challengesByUserCodeHash) {
     if (challenge.expiresAtMs <= now) {
       challengesByUserCodeHash.delete(hash);
       challengesByDeviceCodeHash.delete(challenge.deviceCodeHash);
     }
   }
+}
+
+export function checkRemoteWebPairingChallengeCapacity(): RemoteWebPairingChallengeCapacityLimit | null {
+  const now = nowMs();
+  cleanupExpiredChallenges(now);
+
+  if (challengesByUserCodeHash.size < MAX_ACTIVE_CHALLENGES) return null;
+
+  let earliestExpiresAtMs = Number.POSITIVE_INFINITY;
+  for (const challenge of challengesByUserCodeHash.values()) {
+    earliestExpiresAtMs = Math.min(earliestExpiresAtMs, challenge.expiresAtMs);
+  }
+
+  return {
+    retryAfterSeconds: Math.max(
+      1,
+      Math.ceil((earliestExpiresAtMs - now) / 1000),
+    ),
+  };
 }
 
 export function createRemoteWebPairingChallenge(

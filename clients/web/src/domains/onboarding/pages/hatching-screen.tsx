@@ -30,6 +30,7 @@ import { setSelectedAssistant } from "@/assistant/selection";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { isSessionSettled } from "@/stores/session-status";
 import type { CharacterTraits } from "@/types/avatar";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
@@ -101,6 +102,12 @@ export function HatchingScreen() {
   const electron = isElectron();
   const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
   const sessionStatus = useAuthStore.use.sessionStatus();
+  // Local hatches drive `sessionStatus` themselves (the connect handoff below
+  // flips it), so they gate on settled-ness to avoid self-restarting; platform
+  // hatches react to the raw status so a mid-hatch session loss redirects to login.
+  const sessionGateKey = useLocalHatch
+    ? isSessionSettled(sessionStatus)
+    : sessionStatus;
   const [hatchTraits] = useState<CharacterTraits>(() =>
     randomCharacterTraits(BUNDLED_COMPONENTS),
   );
@@ -324,6 +331,16 @@ export function HatchingScreen() {
           }
           if (cancelled) return;
 
+          // Assert an authenticated local session via the same canonical
+          // connect primitive the returning-user picker and re-pair flow use,
+          // so `sessionStatus` is "authenticated" at hand-off to chat. This
+          // keeps auth-gated UI such as the Preferences menu visible.
+          if (result.assistantId) {
+            await useAuthStore
+              .getState()
+              .connectLocalAssistant(result.assistantId);
+          }
+
           // Apply the model-provider key collected on the API-key step to the
           // freshly hatched assistant. Non-blocking on failure — onboarding
           // proceeds and the user can fix it in Settings.
@@ -500,7 +517,7 @@ export function HatchingScreen() {
     attempt,
     failParam,
     hatchTraits,
-    sessionStatus,
+    sessionGateKey,
     navigate,
     queryClient,
     transitionPhase,

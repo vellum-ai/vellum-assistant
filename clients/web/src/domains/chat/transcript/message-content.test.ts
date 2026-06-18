@@ -5,6 +5,7 @@ import type { Surface } from "@/domains/chat/types/types";
 import type { ConversationContentBlock } from "@vellumai/assistant-api";
 import {
   groupContentBlocks,
+  isRunWorkflowCall,
   isSubagentSpawnCall,
   isSuppressedUiTool,
   isTaskProgressSurface,
@@ -192,6 +193,35 @@ describe("isSubagentSpawnCall", () => {
     expect(isSubagentSpawnCall(toolCall({ id: "x", name: "bash" }))).toBe(false);
     expect(
       isSubagentSpawnCall(
+        toolCall({ id: "x", name: "skill_execute", input: { tool: "other" } }),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("isRunWorkflowCall", () => {
+  test("matches bare run_workflow", () => {
+    expect(isRunWorkflowCall(toolCall({ id: "x", name: "run_workflow" }))).toBe(
+      true,
+    );
+  });
+
+  test("matches skill_execute with input.tool === run_workflow", () => {
+    expect(
+      isRunWorkflowCall(
+        toolCall({
+          id: "x",
+          name: "skill_execute",
+          input: { tool: "run_workflow" },
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  test("does not match other tools or other skill_execute inputs", () => {
+    expect(isRunWorkflowCall(toolCall({ id: "x", name: "bash" }))).toBe(false);
+    expect(
+      isRunWorkflowCall(
         toolCall({ id: "x", name: "skill_execute", input: { tool: "other" } }),
       ),
     ).toBe(false);

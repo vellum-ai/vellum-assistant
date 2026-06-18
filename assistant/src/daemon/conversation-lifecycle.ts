@@ -16,10 +16,8 @@ import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { disposeContextWindowManager } from "../plugins/defaults/compaction/manager-store.js";
 import type { ContentBlock, Message } from "../providers/types.js";
-import {
-  isUntrustedTrustClass,
-  type TrustClass,
-} from "../runtime/actor-trust-resolver.js";
+import { type TrustClass } from "../runtime/actor-trust-resolver.js";
+import { resolveCapabilities } from "../runtime/capabilities.js";
 import { unregisterConversationSender } from "../tools/browser/browser-screencast.js";
 import { type AbortReason, createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
@@ -147,7 +145,7 @@ export function disposeConversation(ctx: DisposeContext): void {
   // Trigger graph extraction for end-of-conversation sweep.
   // Only extract from guardian conversations to preserve the memory trust
   // boundary — untrusted content must not influence future memory retrieval.
-  if (!isUntrustedTrustClass(ctx.trustContext?.trustClass)) {
+  if (resolveCapabilities(ctx.trustContext?.trustClass).canAccessMemory) {
     // Recursion guard: skip graph_extract for auto-analysis conversations.
     // The analysis agent writes memory directly via tools, so extracting
     // from its reflective musings would double-write into the memory graph.

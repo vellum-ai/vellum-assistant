@@ -1184,6 +1184,7 @@ export async function finalizePendingToolResultRow(
     let provenanceTrustClass:
       | "guardian"
       | "trusted_contact"
+      | "unverified_contact"
       | "unknown"
       | undefined;
     let automated: boolean | undefined;
@@ -1845,6 +1846,7 @@ export async function handleMessageComplete(
     let provenanceTrustClass:
       | "guardian"
       | "trusted_contact"
+      | "unverified_contact"
       | "unknown"
       | undefined;
     let automated: boolean | undefined;

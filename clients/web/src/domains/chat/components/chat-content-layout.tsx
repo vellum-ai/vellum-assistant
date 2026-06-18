@@ -24,6 +24,7 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useEditApp } from "@/hooks/use-edit-app";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { routes } from "@/utils/routes";
@@ -39,6 +40,11 @@ const importToolDetailPanel = () =>
 const SubagentDetailPanel = lazy(() =>
   importSubagentDetailPanel().then((m) => ({ default: m.SubagentDetailPanel })),
 );
+const WorkflowDetailPanel = lazy(() =>
+  import("@/domains/chat/components/workflow-detail-panel").then((m) => ({
+    default: m.WorkflowDetailPanel,
+  })),
+);
 const ToolDetailPanel = lazy(() =>
   importToolDetailPanel().then((m) => ({ default: m.ToolDetailPanel })),
 );
@@ -53,6 +59,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const openedDocumentState = useViewerStore.use.openedDocumentState();
   const editingConversationId = useConversationStore.use.editingConversationId();
   const activeSubagentId = useViewerStore.use.activeSubagentId();
+  const activeWorkflowRunId = useViewerStore.use.activeWorkflowRunId();
   const activeToolDetail = useViewerStore.use.activeToolDetail();
   const closeToolDetail = useViewerStore.use.closeToolDetail();
   // Subscribe to only the active subagent's entry rather than the whole `byId`
@@ -61,6 +68,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const activeSubagentEntry = useSubagentStore((s) =>
     activeSubagentId ? s.byId[activeSubagentId] : undefined,
   );
+  const workflowById = useWorkflowStore((s) => s.byId);
 
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
@@ -120,6 +128,21 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     void useSubagentStore.getState().fetchDetailIfNeeded(aid, id);
   }, []);
 
+  const onCloseWorkflowDetail = useCallback(() => {
+    useViewerStore.getState().closeWorkflowDetail();
+  }, []);
+
+  const onStopWorkflow = useCallback(
+    (runId: string) => void useWorkflowStore.getState().abortRun(runId),
+    [],
+  );
+
+  const onRequestWorkflowJournal = useCallback((runId: string) => {
+    const aid = useResolvedAssistantsStore.getState().activeAssistantId;
+    if (!aid) return;
+    void useWorkflowStore.getState().fetchJournalIfNeeded(aid, runId);
+  }, []);
+
   // -------------------------------------------------------------------------
   // Escape closes whichever right-hand side panel is open (tool detail /
   // thought process, subagent detail, document viewer). Surfaces stacked
@@ -148,6 +171,9 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
           break;
         case "subagent-detail":
           viewer.closeSubagentDetail();
+          break;
+        case "workflow-detail":
+          viewer.closeWorkflowDetail();
           break;
         case "document":
           viewer.closeDocument();
@@ -296,6 +322,36 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             onRiskBadgeClick={() => useViewerStore.getState().requestRuleEditorForActiveTool()}
           />
         </LazyBoundary>
+      );
+    }
+  }
+
+  // Workflow detail side panel. Rendered as its own ResizablePanel early-return
+  // (as introduced on main) rather than through the unified AnimatedRightDrawer
+  // below; switching between the workflow panel and the other right-hand panels
+  // remounts the chat, unlike document/subagent/tool-detail which share the drawer.
+  if (mainView === "workflow-detail" && activeWorkflowRunId && !isMobile) {
+    const activeEntry = workflowById[activeWorkflowRunId];
+    if (activeEntry) {
+      return (
+        <ResizablePanel
+          storageKey="workflowDetailPanelWidth"
+          hideDivider
+          defaultRightWidth={400}
+          minLeftWidth={300}
+          minRightWidth={400}
+          left={chatContent}
+          right={
+            <LazyBoundary>
+              <WorkflowDetailPanel
+                entry={activeEntry}
+                onClose={onCloseWorkflowDetail}
+                onStop={onStopWorkflow}
+                onRequestJournal={onRequestWorkflowJournal}
+              />
+            </LazyBoundary>
+          }
+        />
       );
     }
   }

@@ -58,6 +58,7 @@ import type { UIContext } from "@/domains/chat/turn-selectors";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { useViewerStore } from "@/stores/viewer-store";
 import { cmdEnterToSend } from "@/utils/composer-settings";
@@ -266,6 +267,15 @@ export function ChatMainPanel({
 
   const onStopSubagent = useCallback(
     (subagentId: string) => void useSubagentStore.getState().abortSubagent(subagentId),
+    [],
+  );
+
+  const onWorkflowClick = useCallback((runId: string) => {
+    useViewerStore.getState().openWorkflowDetail(runId);
+  }, []);
+
+  const onStopWorkflow = useCallback(
+    (runId: string) => void useWorkflowStore.getState().abortRun(runId),
     [],
   );
 
@@ -714,6 +724,8 @@ export function ChatMainPanel({
     },
     onSubagentClick,
     onStopSubagent,
+    onWorkflowClick,
+    onStopWorkflow,
     renderOnboardingChoice,
   };
 

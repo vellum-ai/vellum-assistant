@@ -82,8 +82,8 @@ describe("remote web ingress denylist", () => {
     ]);
 
     const publicRemoteWebRoutes = new Set([
+      "/v1/remote-web/pairing-challenge",
       "/v1/remote-web/pairing-token",
-      "/v1/remote-web/pairing-verification",
     ]);
 
     for (const path of unprotectedV1Routes) {

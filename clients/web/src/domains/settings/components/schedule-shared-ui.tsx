@@ -28,9 +28,8 @@ export function StatusDot({ status }: { status: string | null }) {
 // ScheduleUsageStats — cost + run count display for schedule rows
 // ---------------------------------------------------------------------------
 
-// Column labels live once in ScheduleListColumnsHeader; rows render bare
-// values. Zero values are dimmed so the eye lands on rows that actually
-// cost or ran something.
+// Rows render bare values (no inline column labels). Zero values are dimmed
+// so the eye lands on rows that actually cost or ran something.
 
 export function ScheduleUsageStats({
   scheduleName,
@@ -96,30 +95,6 @@ export function ScheduleUsageStats({
       >
         {runs}
       </span>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// ScheduleListColumnsHeader — one-time column labels for the schedule list
-// ---------------------------------------------------------------------------
-
-/**
- * Mirrors ScheduleRow's right-side layout (stats block + toggle + chevron)
- * so the labels line up over the value columns.
- */
-export function ScheduleListColumnsHeader() {
-  return (
-    <div aria-hidden="true" className="flex items-center gap-3 px-2 pb-1">
-      <div className="min-w-0 flex-1" />
-      <div className="flex shrink-0 items-center gap-3">
-        <div className="flex w-[156px] items-center justify-end gap-3 text-right text-label-small-default text-[var(--content-tertiary)]">
-          <span className="block min-w-[64px] px-1">Cost (7d)</span>
-          <span className="block min-w-[64px] px-1">Runs (7d)</span>
-        </div>
-        <span className="block w-9" />
-        <span className="block w-7" />
-      </div>
     </div>
   );
 }

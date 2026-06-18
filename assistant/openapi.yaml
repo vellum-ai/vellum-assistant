@@ -3951,6 +3951,14 @@ paths:
                       type: boolean
                     account:
                       type: string
+                    admissionPolicy:
+                      type: string
+                      enum:
+                        - no_one
+                        - guardian_only
+                        - trusted_contacts
+                        - any_contact
+                        - strangers
                     emailSubject:
                       type: string
                     emailRecipient:
@@ -12108,6 +12116,19 @@ paths:
                           propertyNames:
                             type: string
                           additionalProperties: {}
+                        sourceType:
+                          type: string
+                          enum:
+                            - heartbeat
+                            - memory_consolidation
+                            - schedule
+                            - auto_analysis
+                            - user
+                            - other
+                        sourceKey:
+                          type: string
+                        sourceLabel:
+                          type: string
                         createdAt:
                           type: string
                       required:
@@ -12288,6 +12309,19 @@ paths:
                     propertyNames:
                       type: string
                     additionalProperties: {}
+                  sourceType:
+                    type: string
+                    enum:
+                      - heartbeat
+                      - memory_consolidation
+                      - schedule
+                      - auto_analysis
+                      - user
+                      - other
+                  sourceKey:
+                    type: string
+                  sourceLabel:
+                    type: string
                   createdAt:
                     type: string
                 required:
@@ -12500,6 +12534,19 @@ paths:
                           propertyNames:
                             type: string
                           additionalProperties: {}
+                        sourceType:
+                          type: string
+                          enum:
+                            - heartbeat
+                            - memory_consolidation
+                            - schedule
+                            - auto_analysis
+                            - user
+                            - other
+                        sourceKey:
+                          type: string
+                        sourceLabel:
+                          type: string
                         createdAt:
                           type: string
                       required:
@@ -15202,6 +15249,81 @@ paths:
                 additionalProperties: false
         "409":
           description: Another memory item with this content already exists
+  /v1/memory/eval/run:
+    post:
+      operationId: memory_eval_run_post
+      summary: Build blinded A/B retrieval-eval packets over two concept corpora (snapshot vs staged wiki)
+      tags:
+        - memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                stagingDir:
+                  type: string
+                  minLength: 1
+                snapshotDir:
+                  type: string
+                  minLength: 1
+                outDir:
+                  type: string
+                  minLength: 1
+                turns:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                perConversationCap:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                k:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                dense:
+                  type: boolean
+                seed:
+                  type: integer
+                  minimum: -9007199254740991
+                  maximum: 9007199254740991
+              required:
+                - stagingDir
+                - snapshotDir
+                - outDir
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  turnsMined:
+                    type: number
+                  packetsWritten:
+                    type: number
+                  packetsPath:
+                    type: string
+                  keyPath:
+                    type: string
+                  snapshotPages:
+                    type: number
+                  stagingPages:
+                    type: number
+                  dense:
+                    type: boolean
+                required:
+                  - turnsMined
+                  - packetsWritten
+                  - packetsPath
+                  - keyPath
+                  - snapshotPages
+                  - stagingPages
+                  - dense
+                additionalProperties: false
   /v1/memory/v2/backfill:
     post:
       operationId: memory_v2_backfill_post
@@ -17853,6 +17975,19 @@ paths:
                         propertyNames:
                           type: string
                         additionalProperties: {}
+                      sourceType:
+                        type: string
+                        enum:
+                          - heartbeat
+                          - memory_consolidation
+                          - schedule
+                          - auto_analysis
+                          - user
+                          - other
+                      sourceKey:
+                        type: string
+                      sourceLabel:
+                        type: string
                       createdAt:
                         type: string
                     required:
@@ -27635,6 +27770,88 @@ paths:
                 required:
                   - ok
                   - runId
+                additionalProperties: false
+        "404":
+          description: Run not found
+  /v1/workflows/runs/{id}/journal:
+    get:
+      operationId: workflows_runs_by_id_journal_get
+      summary: Get workflow run journal
+      description: Return a workflow run's leaf journal as bounded per-leaf summaries (one entry per finished leaf).
+      tags:
+        - workflows
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runId:
+                    type: string
+                  status:
+                    type: string
+                    enum:
+                      - running
+                      - completed
+                      - failed
+                      - aborted
+                      - cap_exceeded
+                      - interrupted
+                  agentsSpawned:
+                    type: number
+                  inputTokens:
+                    type: number
+                  outputTokens:
+                    type: number
+                  phase:
+                    type: string
+                  leaves:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        seq:
+                          type: number
+                        kind:
+                          type: string
+                          enum:
+                            - agent
+                            - workflow
+                        label:
+                          type: string
+                        phase:
+                          type: string
+                        promptSummary:
+                          type: string
+                        status:
+                          type: string
+                        resultSummary:
+                          type: string
+                        inputTokens:
+                          type: number
+                        outputTokens:
+                          type: number
+                        createdAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                      required:
+                        - seq
+                        - kind
+                        - status
+                        - createdAt
+                      additionalProperties: false
+                required:
+                  - runId
+                  - leaves
                 additionalProperties: false
         "404":
           description: Run not found

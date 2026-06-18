@@ -64,18 +64,6 @@
       "category": "productivity",
       "homepage": "https://github.com/AnitaKirkovska/model-router",
       "license": "MIT"
-    },
-    {
-      "name": "advisor",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/advisor",
-        "ref": "02e81acd298c7516d25f20f402c80003453a9fc9"
-      },
-      "description": "Consult a stronger inference profile mid-task via an advisor tool, routed through the workspace's own inference (no API key).",
-      "category": "developer",
-      "homepage": "https://github.com/vellum-ai/advisor",
-      "license": "MIT"
     }
   ]
 }

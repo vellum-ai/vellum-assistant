@@ -20,7 +20,11 @@ import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { AvatarState } from "@/types/avatar";
 import { isAvatarState } from "@/types/avatar";
 
-import { fetchAvatarState, uploadAvatarImage } from "./avatar-api";
+import {
+  fetchAvatarImageUrl,
+  fetchAvatarState,
+  uploadAvatarImage,
+} from "./avatar-api";
 
 const CHARACTER_STATE: AvatarState = {
   kind: "character",
@@ -87,6 +91,8 @@ describe("isAvatarState", () => {
 type CapturedGetOptions = {
   url: string;
   path?: Record<string, unknown>;
+  query?: Record<string, unknown>;
+  parseAs?: string;
 };
 
 let captured: CapturedGetOptions | null = null;
@@ -173,6 +179,60 @@ describe("fetchAvatarState", () => {
     ) as typeof client.get;
 
     expect(await fetchAvatarState("asst-1")).toBeNull();
+  });
+});
+
+describe("fetchAvatarImageUrl", () => {
+  const originalCreateObjectURL = URL.createObjectURL;
+
+  afterEach(() => {
+    URL.createObjectURL = originalCreateObjectURL;
+  });
+
+  test("fetches the PNG via the daemon workspace file-content route as a blob", async () => {
+    URL.createObjectURL = mock(
+      () => "blob:avatar",
+    ) as typeof URL.createObjectURL;
+    stubGet({
+      data: new Blob([new Uint8Array([137, 80, 78, 71])], {
+        type: "image/png",
+      }),
+      error: undefined,
+      response: okResponse(),
+    });
+
+    const result = await fetchAvatarImageUrl("asst-1");
+
+    // Regression guard: the image must be fetched through the daemon client
+    // (the instance spied on here), not the platform `api` client. The latter
+    // issues a relative `/v1/...` URL that the dev proxy forwards to a
+    // different — and locally absent — backend, so the request never reaches
+    // the daemon and the avatar silently falls back to the default character.
+    expect(captured?.url).toBe(
+      "/v1/assistants/{assistant_id}/workspace/file/content",
+    );
+    expect(captured?.path).toEqual({ assistant_id: "asst-1" });
+    expect(captured?.query).toEqual({ path: "data/avatar/avatar-image.png" });
+    expect(captured?.parseAs).toBe("blob");
+    expect(result).toBe("blob:avatar");
+  });
+
+  test("returns null on a non-2xx response", async () => {
+    stubGet({
+      data: undefined,
+      error: { detail: "boom" },
+      response: errorResponse(404),
+    });
+
+    expect(await fetchAvatarImageUrl("asst-1")).toBeNull();
+  });
+
+  test("returns null on a transport throw", async () => {
+    client.get = mock(() =>
+      Promise.reject(new Error("network down")),
+    ) as typeof client.get;
+
+    expect(await fetchAvatarImageUrl("asst-1")).toBeNull();
   });
 });
 

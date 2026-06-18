@@ -115,7 +115,6 @@ function buildRemoteWebPairingUrl(
   const url = new URL(challenge.verificationUri);
   url.hash = new URLSearchParams({
     device_code: challenge.deviceCode,
-    user_code: challenge.userCode,
   }).toString();
   return url.toString();
 }
@@ -346,7 +345,7 @@ export async function pair(): Promise<void> {
     console.log("");
     console.log(`  ${pairUrl}`);
     console.log("");
-    console.log("When the browser shows this code, approve it locally:");
+    console.log("Approve this pairing locally when you're ready:");
     console.log("");
     const approveTarget = assistantName
       ? `${JSON.stringify(assistantName)} `

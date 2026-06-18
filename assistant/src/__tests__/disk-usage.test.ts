@@ -6,6 +6,8 @@ const GIB = 1024 * MIB;
 let existingPaths = new Set<string>();
 const workspaceDir = "/workspace";
 let minikubeStorageSize: string | undefined;
+let isContainerized = false;
+let isPlatform = false;
 let statfsResult = {
   bsize: 4096,
   blocks: 0,
@@ -34,6 +36,8 @@ mock.module("node:child_process", () => ({
 
 mock.module("../config/env-registry.js", () => ({
   getMinikubeStorageSize: () => minikubeStorageSize,
+  getIsContainerized: () => isContainerized,
+  getIsPlatform: () => isPlatform,
 }));
 
 mock.module("../util/platform.js", () => ({
@@ -55,6 +59,8 @@ describe("disk usage sampler", () => {
   beforeEach(() => {
     existingPaths = new Set([workspaceDir]);
     minikubeStorageSize = undefined;
+    isContainerized = false;
+    isPlatform = false;
     statfsResult = statfsFor(100 * MIB, 25 * MIB);
     spawnResult = { status: 0, stdout: "" };
     spawnCalls = [];
@@ -116,6 +122,65 @@ describe("disk usage sampler", () => {
     expect(usage?.usedMb).toBe(120);
     expect(spawnCalls).toEqual([
       { command: "du", args: ["-sb", "/workspace", "/data"] },
+    ]);
+  });
+
+  test("measures workspace du usage on a local Docker hatch", () => {
+    isContainerized = true;
+    isPlatform = false;
+    statfsResult = statfsFor(100 * GIB, 40 * GIB);
+    spawnResult = {
+      status: 0,
+      stdout: `${2 * GIB}\t/workspace\n`,
+    };
+
+    const usage = getDiskUsageInfo();
+
+    // Used reflects only the workspace (du), free reflects the host headroom
+    // the volume can grow into, and total is their sum.
+    expect(usage).toEqual({
+      path: "/workspace",
+      totalMb: 2048 + 40960,
+      usedMb: 2048,
+      freeMb: 40960,
+    });
+    expect(spawnCalls).toEqual([
+      { command: "du", args: ["-sb", "/workspace"] },
+    ]);
+  });
+
+  test("does not use du for platform-managed containerized instances", () => {
+    isContainerized = true;
+    isPlatform = true;
+    statfsResult = statfsFor(10 * GIB, 6 * GIB);
+
+    const usage = getDiskUsageInfo();
+
+    expect(usage).toEqual({
+      path: "/workspace",
+      totalMb: 10240,
+      usedMb: 4096,
+      freeMb: 6144,
+    });
+    expect(spawnCalls).toHaveLength(0);
+  });
+
+  test("falls back to statfs when du fails on a local Docker hatch", () => {
+    isContainerized = true;
+    isPlatform = false;
+    statfsResult = statfsFor(100 * GIB, 40 * GIB);
+    spawnResult = { status: 1, stdout: "" };
+
+    const usage = getDiskUsageInfo();
+
+    expect(usage).toEqual({
+      path: "/workspace",
+      totalMb: 102400,
+      usedMb: 61440,
+      freeMb: 40960,
+    });
+    expect(spawnCalls).toEqual([
+      { command: "du", args: ["-sb", "/workspace"] },
     ]);
   });
 

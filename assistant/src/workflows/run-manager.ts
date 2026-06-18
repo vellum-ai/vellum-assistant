@@ -114,6 +114,11 @@ interface StartWorkflowCommon {
    * scheduled run with no chat surface) — the summary is then events-only.
    */
   conversationId?: string;
+  /**
+   * The `skill_execute` tool-use block id that launched this run; forwarded on
+   * `workflow_started` so the client anchors the inline card to the spawn call.
+   */
+  toolUseId?: string;
   /** Human-readable label for display; defaults to the run id. */
   label?: string;
   /** Trust/auth context forwarded to every leaf. */
@@ -214,6 +219,19 @@ export class WorkflowRunManager {
 
     const controller = new AbortController();
     this.inflight.set(runId, controller);
+
+    // Announce the launch only when there's a conversation to scope it to (the
+    // same gate the in-flight/terminal broadcasts use). `resume` never emits
+    // this — the run already announced itself on its original `start`.
+    if (opts.conversationId) {
+      this.deps.broadcast({
+        type: "workflow_started",
+        runId,
+        conversationId: opts.conversationId,
+        ...(opts.toolUseId ? { toolUseId: opts.toolUseId } : {}),
+        label,
+      });
+    }
 
     // Fire-and-forget: the engine owns its own try/catch and always finishes
     // the run row. We never await it — `start` must return synchronously.
@@ -376,6 +394,14 @@ export class WorkflowRunManager {
     ctx: RunContext,
   ): Promise<void> {
     const config = this.deps.getConfig();
+    // `workflow_progress` / `workflow_completed` always broadcast: a run with no
+    // originating conversation emits them unscoped (no `conversationId`) for raw
+    // SSE listeners and the DB record, preserving the pre-scoping contract that
+    // surfaces conversationless scheduled runs. The conversation-only signals —
+    // `workflow_started`, the `onLeaf` leaf events, and the completion wake —
+    // stay gated on `conversationId` since they exist solely to drive the inline
+    // workflow card in that conversation.
+    const conversationId = ctx.conversationId;
     try {
       const result = await this.deps.executeWorkflow({
         runId,
@@ -393,6 +419,7 @@ export class WorkflowRunManager {
           this.deps.broadcast({
             type: "workflow_progress",
             runId,
+            ...(conversationId ? { conversationId } : {}),
             label,
             agentsSpawned,
             ...(event.type === "phase"
@@ -400,6 +427,41 @@ export class WorkflowRunManager {
               : { message: event.message }),
           });
         },
+        ...(conversationId
+          ? {
+              onLeaf: (event) => {
+                if (event.type === "leaf_started") {
+                  this.deps.broadcast({
+                    type: "workflow_leaf_started",
+                    runId,
+                    conversationId,
+                    seq: event.seq,
+                    ...(event.label !== undefined
+                      ? { label: event.label }
+                      : {}),
+                    ...(event.phase !== undefined
+                      ? { phase: event.phase }
+                      : {}),
+                    promptSummary: event.promptSummary,
+                  });
+                } else {
+                  this.deps.broadcast({
+                    type: "workflow_leaf_finished",
+                    runId,
+                    conversationId,
+                    seq: event.seq,
+                    status: event.status,
+                    ...(event.label !== undefined
+                      ? { label: event.label }
+                      : {}),
+                    inputTokens: event.inputTokens,
+                    outputTokens: event.outputTokens,
+                    resultSummary: event.resultSummary,
+                  });
+                }
+              },
+            }
+          : {}),
       });
 
       const summary = buildCompletionSummary(
@@ -412,6 +474,7 @@ export class WorkflowRunManager {
       this.deps.broadcast({
         type: "workflow_completed",
         runId,
+        ...(conversationId ? { conversationId } : {}),
         status: result.status,
         agentsSpawned: result.agentsSpawned,
         inputTokens: result.inputTokens,
@@ -473,6 +536,7 @@ interface RunContext {
 const VALID_TRUST_CLASSES: ReadonlySet<TrustContext["trustClass"]> = new Set([
   "guardian",
   "trusted_contact",
+  "unverified_contact",
   "unknown",
 ]);
 

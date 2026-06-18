@@ -48,6 +48,15 @@ const envOverrides = getEnvFlagOverridesForScope("client");
 
 interface ClientFeatureFlagMeta {
   stringFlags: Record<string, string>;
+  /**
+   * False until the first server flag response has been applied via
+   * `setFlags`. Routes that redirect on a default-off flag must wait for this
+   * before bouncing — otherwise a cold load races the async LD fetch and
+   * redirects away before the real value (possibly `true`) arrives. Stays
+   * meaningful regardless of local/env overrides, which are applied
+   * synchronously at store init and win over the server value anyway.
+   */
+  hydrated: boolean;
 }
 
 interface ClientFeatureFlagActions {
@@ -77,6 +86,7 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
       ...localOverrides,
       ...envOverrides.bool,
       stringFlags: { ...CLIENT_STRING_FLAG_DEFAULTS, ...localStringOverrides, ...envOverrides.str },
+      hydrated: false,
 
       setFlags: (flags: Record<string, boolean>) =>
         set((prev) => {
@@ -85,7 +95,13 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
           const changed = Object.keys(merged).some(
             (k) => merged[k] !== prev[k],
           );
-          return changed ? merged : prev;
+          // Always flip `hydrated` on the first server response, even when the
+          // merged values match the current defaults (nothing "changed"), so
+          // redirect-on-flag routes know the real value has landed.
+          if (!changed) {
+            return prev.hydrated ? prev : { hydrated: true };
+          }
+          return { ...merged, hydrated: true };
         }),
 
       setFlag: (key: string, value: boolean) => {

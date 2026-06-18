@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 import type {
   RuntimeInboundPayload,
@@ -52,6 +52,11 @@ const {
   getUserInfoCacheSize,
 } = await import("../slack/normalize.js");
 const { handleInbound } = await import("../handlers/handle-inbound.js");
+const { initGatewayDb, resetGatewayDb } = await import("../db/connection.js");
+const {
+  initAdmissionPolicyCache,
+  resetAdmissionPolicyCache,
+} = await import("../risk/admission-policy-cache.js");
 import type { SlackAppMentionEvent } from "../slack/normalize.js";
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
@@ -94,12 +99,21 @@ function makeEvent(
   };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  resetGatewayDb();
+  resetAdmissionPolicyCache();
+  await initGatewayDb();
+  initAdmissionPolicyCache();
   clearUserInfoCache();
   clearChannelInfoCache();
   clearInFlightFetches();
   runtimePayloads = [];
   forwardToRuntimeMock.mockClear();
+});
+
+afterEach(() => {
+  resetAdmissionPolicyCache();
+  resetGatewayDb();
 });
 
 describe("resolveSlackUser", () => {

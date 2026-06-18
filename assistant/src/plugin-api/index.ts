@@ -136,5 +136,9 @@ export { getModelProfiles } from "./model-profiles.js";
 // plugin can run inference through the workspace's configured profiles and
 // credentials — managed-proxy or BYOK — without supplying its own API key.
 // Pair with `getModelProfiles` to pick a profile. Returns `null` when no
-// provider is configured.
+// provider is configured. By default `overrideProfile` layers below any
+// per-call-site config the workspace has pinned (e.g. a cheap `inference`
+// profile), so it loses to that pin; pass `forceOverrideProfile: true` to
+// float the chosen profile above the call-site layers when the plugin must
+// run on a specific profile regardless of workspace tuning.
 export { getConfiguredProvider } from "../providers/provider-send-message.js";

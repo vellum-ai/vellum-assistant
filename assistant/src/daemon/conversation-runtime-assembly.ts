@@ -62,11 +62,11 @@ import type {
 import type { ContentBlock, Message } from "../providers/types.js";
 import {
   type ActorTrustContext,
-  isUntrustedTrustClass,
   resolveActorTrust,
   type TrustClass,
 } from "../runtime/actor-trust-resolver.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { resolveCapabilities } from "../runtime/capabilities.js";
 import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { SubagentState } from "../subagent/types.js";
@@ -125,8 +125,8 @@ export interface InboundActorContext {
   actorSenderDisplayName?: string;
   /** Guardian-managed display name from the contact record. */
   actorMemberDisplayName?: string;
-  /** Trust classification: guardian, trusted_contact, or unknown. */
-  trustClass: "guardian" | "trusted_contact" | "unknown";
+  /** Trust classification: see TrustClass. */
+  trustClass: TrustClass;
   /** Guardian identity for this (assistant, channel) binding. */
   guardianIdentity?: string;
   /** Member status when the actor has a contact record. */
@@ -916,7 +916,7 @@ function filterSlackConversationRowsForActor(
   rows: MessageRow[],
   trustClass: TrustClass | undefined,
 ): MessageRow[] {
-  if (!isUntrustedTrustClass(trustClass)) return rows;
+  if (resolveCapabilities(trustClass).canAccessMemory) return rows;
   const nonSlackVisibleRows = filterMessagesForUntrustedActor(rows);
   const nonSlackVisibleIds = new Set(nonSlackVisibleRows.map((row) => row.id));
   return rows.filter((row) => {
@@ -1009,6 +1009,7 @@ function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
       if (
         outer.provenanceTrustClass === "guardian" ||
         outer.provenanceTrustClass === "trusted_contact" ||
+        outer.provenanceTrustClass === "unverified_contact" ||
         outer.provenanceTrustClass === "unknown"
       ) {
         provenanceTrustClass = outer.provenanceTrustClass;
@@ -1322,9 +1323,9 @@ export function loadSlackChronologicalContext(
     options,
   );
   return assembleSlackChronologicalContext(rows, capabilities, {
-    contextSummary: isUntrustedTrustClass(options.trustClass)
-      ? null
-      : options.contextSummary,
+    contextSummary: resolveCapabilities(options.trustClass).canAccessMemory
+      ? options.contextSummary
+      : null,
   });
 }
 
