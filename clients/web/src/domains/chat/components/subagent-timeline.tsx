@@ -5,7 +5,7 @@ import {
     TriangleAlert,
     Wrench,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import type { SubagentTimelineEvent } from "@/domains/chat/subagent-store";
 import { Typography } from "@vellumai/design-library";
@@ -122,8 +122,15 @@ function eventTitle(event: SubagentTimelineEvent): string {
 // Collapsible text content
 // ---------------------------------------------------------------------------
 
-function CollapsibleContent({ content }: { content: string }) {
-  const [expanded, setExpanded] = useState(false);
+function CollapsibleContent({
+  content,
+  expanded,
+  onToggle,
+}: {
+  content: string;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
   const hasLongContent = isContentLong(content);
   const displayContent = hasLongContent && !expanded
     ? truncateContent(content)
@@ -141,7 +148,7 @@ function CollapsibleContent({ content }: { content: string }) {
       {hasLongContent && (
         <button
           type="button"
-          onClick={() => setExpanded((prev) => !prev)}
+          onClick={onToggle}
           className="mt-1 cursor-pointer hover:underline"
         >
           <Typography variant="body-small-default" className="text-[var(--content-default)]">
@@ -160,9 +167,13 @@ function CollapsibleContent({ content }: { content: string }) {
 function TimelineEventRow({
   event,
   isLast,
+  expanded,
+  toggleExpand,
 }: {
   event: SubagentTimelineEvent;
   isLast: boolean;
+  expanded: boolean;
+  toggleExpand: (id: string) => void;
 }) {
   return (
     <div className="relative flex gap-3">
@@ -228,7 +239,11 @@ function TimelineEventRow({
                 {event.content}
               </Typography>
             ) : (
-              <CollapsibleContent content={event.content} />
+              <CollapsibleContent
+                content={event.content}
+                expanded={expanded}
+                onToggle={() => toggleExpand(event.id)}
+              />
             )}
           </div>
         )}
@@ -261,6 +276,18 @@ export interface SubagentTimelineProps {
 export function SubagentTimeline({ events }: SubagentTimelineProps) {
   const filteredEvents = useMemo(() => filterEvents(events), [events]);
 
+  // Expand/collapse state is keyed by event.id and held here, above the row,
+  // so a row can unmount/remount (e.g. when virtualized) without losing it.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  const toggleExpand = useCallback((id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
   if (filteredEvents.length === 0) {
     return (
       <Typography
@@ -279,6 +306,8 @@ export function SubagentTimeline({ events }: SubagentTimelineProps) {
           key={event.id}
           event={event}
           isLast={index === filteredEvents.length - 1}
+          expanded={expandedIds.has(event.id)}
+          toggleExpand={toggleExpand}
         />
       ))}
     </div>
