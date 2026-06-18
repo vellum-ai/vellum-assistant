@@ -12,7 +12,10 @@ import { v4 as uuid } from "uuid";
 
 import { cleanupBootstrapFiles } from "../prompts/bootstrap-cleanup.js";
 import { initConversationDir } from "./conversation-disk-view.js";
-import { GENERATING_TITLE } from "./conversation-title-service.js";
+import {
+  AUTO_TITLE_LLM,
+  GENERATING_TITLE,
+} from "./conversation-title-service.js";
 import { getDb } from "./db-connection.js";
 import { conversationKeys, conversations } from "./schema.js";
 
@@ -135,7 +138,16 @@ export function resolveConversationId(idOrKey: string): string | null {
  */
 export function getOrCreateConversation(
   conversationKey: string,
-  opts?: { conversationType?: "standard" },
+  opts?: {
+    conversationType?: "standard";
+    /**
+     * Caller-supplied title for the conversation, used only when this call
+     * actually creates the row. Treated as a user-set title (`isAutoTitle = 0`)
+     * so the async LLM title generator's safe-overwrite check leaves it
+     * untouched. Ignored when the conversation already exists.
+     */
+    title?: string;
+  },
 ): {
   conversationId: string;
   conversationType: string;
@@ -205,13 +217,19 @@ export function getOrCreateConversation(
 
     const now = Date.now();
     const conversationId = uuid();
-    const title = GENERATING_TITLE;
+    const customTitle = opts?.title?.trim();
+    const title = customTitle || GENERATING_TITLE;
+    // A caller-supplied title is user-set: mark it non-auto (0) so the async
+    // LLM title generator's `canReplaceTitle` check won't overwrite it. With no
+    // custom title, fall back to the auto-generated placeholder flow.
+    const isAutoTitle = customTitle ? 0 : AUTO_TITLE_LLM;
     const memoryScopeId = "default";
 
     tx.insert(conversations)
       .values({
         id: conversationId,
         title,
+        isAutoTitle,
         createdAt: now,
         updatedAt: now,
         totalInputTokens: 0,

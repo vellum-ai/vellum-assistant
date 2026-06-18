@@ -1133,6 +1133,7 @@ export async function handleSendMessage(
       bootstrapTemplate?: string;
       initialMessage?: string;
       skills?: string[];
+      title?: string;
     };
   };
 
@@ -1310,8 +1311,13 @@ export async function handleSendMessage(
         : sourceChannel === "vellum"
           ? crypto.randomUUID()
           : `default:${sourceChannel}:${sourceInterface}`;
+    // An onboarding flow may supply an explicit title for the conversation it
+    // mints behind the scenes (e.g. the research pass) so it isn't left with an
+    // auto-generated title. Applied only when this call creates the row.
+    const onboardingTitle = body.onboarding?.title?.trim() || undefined;
     mapping = getOrCreateConversation(resolvedConversationKey, {
       conversationType: "standard",
+      title: onboardingTitle,
     });
   }
 
@@ -2717,6 +2723,12 @@ export const ROUTES: RouteDefinition[] = [
           bootstrapTemplate: z.string().optional(),
           initialMessage: z.string().optional(),
           skills: z.array(z.string()).optional(),
+          title: z
+            .string()
+            .optional()
+            .describe(
+              "Explicit title for the conversation minted on this first message. Persisted as a user-set title (never overwritten by the auto-titler). Used by onboarding flows that mint a conversation behind the scenes.",
+            ),
         })
         .describe("PreChat onboarding context, sent on the first message only")
         .optional(),

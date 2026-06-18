@@ -63,6 +63,8 @@ export function ResearchOnboardingRoute() {
       .filter(Boolean)
       .join(" ");
 
+    const trimmedFirstName = firstName.trim();
+
     const context: PreChatOnboardingContext = {
       // Required handoff fields — no tool/task/tone collection in this flow.
       tools: [],
@@ -72,6 +74,11 @@ export function ResearchOnboardingRoute() {
       ...(occupation.trim() ? { occupation: occupation.trim() } : {}),
       // The auto-sent first message: kick off the research pass.
       initialMessage: buildResearchPrompt({ firstName, lastName, occupation }),
+      // Set an explicit, friendly title on the behind-the-scenes research
+      // conversation so it isn't left with an auto-generated one.
+      title: trimmedFirstName
+        ? `Getting to know ${trimmedFirstName}`
+        : "Getting to know you",
     };
 
     setPendingPreChatContext(context);

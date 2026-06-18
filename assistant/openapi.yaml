@@ -16854,6 +16854,12 @@ paths:
                       type: array
                       items:
                         type: string
+                    title:
+                      description:
+                        Explicit title for the conversation minted on this first message. Persisted as a user-set title (never
+                        overwritten by the auto-titler). Used by onboarding flows that mint a conversation behind the
+                        scenes.
+                      type: string
                   required:
                     - tools
                     - tasks
