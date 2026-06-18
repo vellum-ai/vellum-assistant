@@ -54,20 +54,12 @@ export const ADMISSION_FLOOR: Record<AdmissionPolicy, number> = {
  *
  * `platform` / `a2a` are peer/internal channels with no human-trust model.
  *
- * NOTE: `phone` is exempt because the Twilio voice-webhook path
- * (twilio-voice-webhook → relay-setup-router) does not yet read
- * AdmissionPolicyStore / sourceMetadata.admissionPolicy. Storing a policy for
- * `phone` would have no runtime effect, so we exclude it from the API surface
- * until voice ingress is wired in a follow-up PR. Remove `"phone"` from this
- * set once the voice path enforces admission.
- *
  * `vellum` is intentionally NOT exempt — it is client-configurable, with the
  * single restriction in {@link KILL_SWITCH_FORBIDDEN_CHANNELS}.
  */
 export const ADMISSION_POLICY_EXEMPT_CHANNELS: ReadonlySet<string> = new Set([
   "platform",
   "a2a",
-  "phone",
 ]);
 
 export function isAdmissionPolicyExemptChannel(channelType: string): boolean {

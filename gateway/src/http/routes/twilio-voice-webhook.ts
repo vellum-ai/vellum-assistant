@@ -64,7 +64,7 @@ export function createTwilioVoiceWebhookHandler(
     if (!hasCallSessionId) {
       // `no_one` kill switch — mirrors handle-inbound.ts. Only inbound is
       // gated; outbound assistant-initiated calls are never kill-switched.
-      // No-op while `phone` stays in the admission exempt set (removed in PR 6).
+      // The exempt check stays defensive; `phone` is now an enforced channel.
       const phonePolicy =
         !isFeatureFlagEnabled("channel-trust-floors") ||
         isAdmissionPolicyExemptChannel("phone")

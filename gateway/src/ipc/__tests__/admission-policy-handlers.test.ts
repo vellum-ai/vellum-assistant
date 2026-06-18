@@ -54,9 +54,14 @@ describe("admissionPolicyRoutes", () => {
   });
 
   test("returns null policy for exempt channels", () => {
-    expect(getPolicy("phone")).toEqual({ policy: null });
     expect(getPolicy("platform")).toEqual({ policy: null });
     expect(getPolicy("a2a")).toEqual({ policy: null });
+  });
+
+  test("returns the resolved policy for the enforced `phone` channel", () => {
+    policiesByChannel.set("phone", "guardian_only");
+
+    expect(getPolicy("phone")).toEqual({ policy: "guardian_only" });
   });
 
   test("returns null policy for unknown channel strings", () => {

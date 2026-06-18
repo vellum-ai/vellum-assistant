@@ -85,7 +85,8 @@ A default row per enforced channel is **seeded at startup** (`seedAdmissionPolic
 
 - `platform` — internal platform control plane.
 - `a2a` — assistant-to-assistant peer traffic (out of human-trust model).
-- `phone` — exempt until voice ingress reads the policy (§8.4).
+
+`phone` is now an enforced channel (voice ingress reads the policy): it seeds the universal default `trusted_contacts` and accepts PUT like other enforced channels.
 
 For exempt ids, `PUT /v1/assistants/:id/channel-admission-policy/:channelType` returns **403**, the GET list omits them, and the runtime short-circuits `admitted: true` in `admission-policy.ts` (defense in depth). `vellum` is **not** exempt — it is configurable, but can never be set to `no_one`: the PUT route returns **422** and the picker omits the option, so the guardian (always max-rank on `vellum`) can't lock themselves out. Codex finding from #35006 review: exemption checks must live in *both* the gateway route handler AND the runtime stage — single-side enforcement creates a misuse wedge.
 

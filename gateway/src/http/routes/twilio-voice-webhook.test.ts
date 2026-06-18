@@ -11,12 +11,10 @@
  * - Assistant IDs are NOT forwarded to the daemon (daemon uses internal scope).
  * - The `no_one` admission kill switch rejects inbound voice with <Reject> TwiML.
  *
- * Kill-switch testing note: `phone` is still in the admission-policy exempt set
- * (removed in PR 6 of the voice-admission plan). To exercise the kill switch in
- * isolation here, the tests mock `isAdmissionPolicyExemptChannel` to force
- * `phone` enforced and mock the admission-policy cache directly, rather than
- * standing up a real store. The end-to-end (non-mocked exempt set) `no_one`
- * assertion lands with PR 6's test updates.
+ * Kill-switch testing note: `phone` is an enforced admission channel. The
+ * tests mock `isAdmissionPolicyExemptChannel` and the admission-policy cache
+ * directly (rather than standing up a real store) so each test can flip the
+ * resolved floor / flag in isolation.
  */
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 import { resolvePublicBaseWssUrl } from "../../runtime/client.js";
@@ -73,7 +71,7 @@ mock.module("../../voice/verification.js", () => ({
 // resolved policy without re-mocking. Defaults keep the kill switch a no-op
 // (flag off) so the pre-existing routing tests are unaffected.
 let flagEnabled = false;
-let phoneExempt = true;
+let phoneExempt = false;
 let phonePolicy = "everyone";
 
 mock.module("../../feature-flag-resolver.js", () => ({
@@ -161,7 +159,7 @@ describe("twilio voice webhook handler", () => {
     _lastForwardedOriginalUrl = undefined;
     forwardCalled = false;
     flagEnabled = false;
-    phoneExempt = true;
+    phoneExempt = false;
     phonePolicy = "everyone";
   });
 
@@ -322,7 +320,7 @@ describe("twilio voice webhook handler", () => {
 
   test("inbound call is rejected when phone admission policy is no_one (flag on, enforced)", async () => {
     flagEnabled = true;
-    phoneExempt = false; // PR 6 removes phone from the exempt set; forced here.
+    phoneExempt = false; // phone is enforced
     phonePolicy = "no_one";
 
     const handler = createTwilioVoiceWebhookHandler(
@@ -364,9 +362,9 @@ describe("twilio voice webhook handler", () => {
     expect(forwardCalled).toBe(true);
   });
 
-  test("kill switch is a no-op while phone remains exempt even with policy no_one", async () => {
+  test("kill switch is skipped if a channel is exempt even with policy no_one", async () => {
     flagEnabled = true;
-    phoneExempt = true; // current state: phone exempt → kill switch skipped
+    phoneExempt = true; // exercise the defensive exempt branch
     phonePolicy = "no_one";
 
     const handler = createTwilioVoiceWebhookHandler(

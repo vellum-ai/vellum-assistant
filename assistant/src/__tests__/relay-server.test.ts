@@ -125,10 +125,9 @@ mock.module("../calls/channel-admission-reader.js", () => ({
   },
 }));
 
-// Real floor semantics with the `phone` exemption bypassed, mirroring
-// relay-setup-router.test.ts. Until PR 6 removes `phone` from the exempt set,
-// the real enforceAdmissionPolicy short-circuits to admit for `phone`, so the
-// deny path could not be exercised end-to-end without this.
+// Real floor semantics, mirroring relay-setup-router.test.ts. The
+// enforceAdmissionPolicy mock omits the exempt-channel short-circuit so the
+// deny path can be exercised end-to-end regardless of channel.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const realAdmissionPolicyModule = require("../runtime/routes/inbound-stages/admission-policy.js");
 mock.module("../runtime/routes/inbound-stages/admission-policy.js", () => ({

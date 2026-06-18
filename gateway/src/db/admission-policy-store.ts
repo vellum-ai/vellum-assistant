@@ -60,11 +60,10 @@ export interface AdmissionPolicyRow {
  * Internal channels exempt from admission policy. Mirrors
  * ADMISSION_POLICY_EXEMPT_CHANNELS in `packages/gateway-client`.
  *
- * `phone` is exempt until Twilio voice ingress reads AdmissionPolicyStore.
  * `vellum` is NOT exempt — it is client-configurable (see
  * KILL_SWITCH_FORBIDDEN_CHANNELS), so it is intentionally absent here.
  */
-export const EXEMPT_CHANNEL_TYPES = new Set<string>(["platform", "a2a", "phone"]);
+export const EXEMPT_CHANNEL_TYPES = new Set<string>(["platform", "a2a"]);
 
 export function isExemptChannelType(channelType: string): boolean {
   return EXEMPT_CHANNEL_TYPES.has(channelType);

@@ -112,14 +112,14 @@ describe("GET /v1/channel-admission-policy", () => {
     expect(tg?.note).toBe("off");
     expect(tg?.updatedAt).toBeGreaterThan(0);
 
-    // phone is now exempt (§8.4) — it must not appear in the list.
+    // phone is an enforced channel — it appears with its seeded default.
     const phone = body.policies.find((p) => p.channelType === "phone");
-    expect(phone).toBeUndefined();
+    expect(phone?.policy).toBe(ADMISSION_POLICY_DEFAULT);
   });
 
-  test("omits exempt channels (`a2a`, `phone`) but includes the configurable `vellum`", async () => {
-    // a2a/phone stay exempt (filtered out); vellum is configurable and must
-    // surface so the client can manage it.
+  test("omits exempt channel `a2a` but includes the configurable `vellum` and enforced `phone`", async () => {
+    // a2a stays exempt (filtered out); vellum is configurable and phone is now
+    // enforced — both must surface so the client can manage them.
     store.set("a2a", "guardian_only");
     store.set("vellum", "guardian_only");
 
@@ -132,7 +132,7 @@ describe("GET /v1/channel-admission-policy", () => {
     };
     const seen = new Set(body.policies.map((p) => p.channelType));
     expect(seen.has("a2a")).toBe(false);
-    expect(seen.has("phone")).toBe(false);
+    expect(seen.has("phone")).toBe(true);
     expect(seen.has("vellum")).toBe(true);
   });
 });
@@ -266,7 +266,7 @@ describe("PUT /v1/channel-admission-policy/:channelType", () => {
     expect(store.get("a2a")).toBe(ADMISSION_POLICY_DEFAULT);
   });
 
-  test("§8.4: rejects PUT for `phone` with 403 (voice ingress not yet wired)", async () => {
+  test("upserts `phone` like any enforced channel (voice ingress wired)", async () => {
     const handler = createChannelAdmissionPolicySetHandler();
     const res = await handler(
       jsonRequest("http://localhost/v1/channel-admission-policy/phone", "PUT", {
@@ -274,18 +274,17 @@ describe("PUT /v1/channel-admission-policy/:channelType", () => {
       }),
       "phone",
     );
-    expect(res.status).toBe(403);
-    // Nothing was persisted.
-    expect(store.get("phone")).toBe(ADMISSION_POLICY_DEFAULT);
+    expect(res.status).toBe(200);
+    expect(store.get("phone")).toBe("strangers");
   });
 });
 
 // ---------------------------------------------------------------------------
-// GET /v1/channel-admission-policy (phone exempt)
+// GET /v1/channel-admission-policy (phone enforced)
 // ---------------------------------------------------------------------------
 
-describe("GET /v1/channel-admission-policy — phone exempt §8.4", () => {
-  test("omits `phone` from the list response", async () => {
+describe("GET /v1/channel-admission-policy — phone enforced", () => {
+  test("includes `phone` in the list response", async () => {
     const handler = createChannelAdmissionPolicyListHandler();
     const res = await handler(
       jsonRequest("http://localhost/v1/channel-admission-policy", "GET"),
@@ -293,8 +292,8 @@ describe("GET /v1/channel-admission-policy — phone exempt §8.4", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { policies: Array<{ channelType: string }> };
     const seen = new Set(body.policies.map((p) => p.channelType));
-    expect(seen.has("phone")).toBe(false);
-    // Confirm non-exempt channels still appear.
+    expect(seen.has("phone")).toBe(true);
+    // Confirm other non-exempt channels still appear.
     expect(seen.has("telegram")).toBe(true);
     expect(seen.has("slack")).toBe(true);
   });

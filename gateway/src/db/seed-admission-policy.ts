@@ -20,6 +20,10 @@ import { AdmissionPolicyStore, isExemptChannelType } from "./admission-policy-st
  * `vellum` (the local desktop/web client) defaults to `guardian_only`: only
  * the guardian's own local client is admitted by default. The guardian is
  * always max-rank on vellum, so this never locks them out.
+ *
+ * `phone` is intentionally absent — it now seeds with the universal
+ * `ADMISSION_POLICY_DEFAULT` (`trusted_contacts`), default-denying unknown /
+ * unverified inbound callers.
  */
 export const CHANNEL_ADMISSION_DEFAULTS: Partial<Record<ChannelId, AdmissionPolicy>> = {
   vellum: "guardian_only",
@@ -27,7 +31,7 @@ export const CHANNEL_ADMISSION_DEFAULTS: Partial<Record<ChannelId, AdmissionPoli
 
 /**
  * Insert a default row for every enforced channel that has none. Exempt
- * channels (`platform`/`a2a`/`phone`) are skipped — they carry no floor.
+ * channels (`platform`/`a2a`) are skipped — they carry no floor.
  */
 export function seedAdmissionPolicyDefaults(store: AdmissionPolicyStore): void {
   for (const channelType of CHANNEL_IDS) {
