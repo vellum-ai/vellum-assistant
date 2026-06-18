@@ -263,6 +263,8 @@ function buildRemoteWebIngressLocations(opts: {
     location = /v1/guardian/init/ { return 404; }
     location = /v1/guardian/reset-bootstrap { return 404; }
     location = /v1/guardian/reset-bootstrap/ { return 404; }
+    location = /v1/remote-web/pairing-verification { return 404; }
+    location = /v1/remote-web/pairing-verification/ { return 404; }
     location ^~ /assistant/__local/ { return 404; }
     location ^~ /assistant/__gateway/ { return 404; }
 
