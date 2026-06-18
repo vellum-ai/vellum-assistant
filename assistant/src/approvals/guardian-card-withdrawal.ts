@@ -22,10 +22,7 @@
  * Every surface is attempted independently; one failure never blocks the rest.
  */
 
-import {
-  completeSurfaceAndNotify,
-  markSurfaceCompleted,
-} from "../daemon/conversation-surfaces.js";
+import { completeSurfaceAndNotify } from "../daemon/conversation-surfaces.js";
 import {
   type CanonicalGuardianDelivery,
   type CanonicalGuardianRequest,
@@ -54,12 +51,10 @@ export interface WithdrawGuardianCardsParams {
   /**
    * Channel the decision originated on, when applicable.
    *
-   * The in-app client completes its own card optimistically on click and shows
-   * the resolver's reply text (e.g. a verification code) as the card summary, so
-   * broadcasting completion for the in-app card would clobber that. When the
-   * decision originated in-app the in-app card is still persisted (so it
-   * survives a reload) but not re-broadcast. Omit (e.g. the expiry sweep) to
-   * fully withdraw every surface.
+   * The acting in-app client completes its own card optimistically, so the
+   * in-app card is skipped when the decision originated in-app; it is withdrawn
+   * here only when the decision came from another surface. Omit (e.g. the expiry
+   * sweep) to withdraw every surface.
    */
   originChannel?: string;
 }
@@ -108,10 +103,9 @@ export async function withdrawGuardianRequestCards(
 }
 
 /**
- * Complete the in-app approval card so it stops showing live actions while
- * keeping its content. When the decision originated in-app the card is
- * persisted but not re-broadcast (see
- * {@link WithdrawGuardianCardsParams.originChannel}).
+ * Withdraw the in-app approval card so it stops offering live actions while
+ * keeping its content. Skipped when the decision originated in-app — the acting
+ * client already completed the card itself.
  */
 function withdrawVellumCard(
   request: CanonicalGuardianRequest,
@@ -119,23 +113,14 @@ function withdrawVellumCard(
   status: CanonicalRequestStatus,
   originChannel: string | undefined,
 ): void {
+  if (originChannel === "vellum") return;
   if (!delivery.destinationConversationId) return;
   const surfaceId = approvalCardSurfaceId(request.kind, request.id);
   if (!surfaceId) return;
-  const summary = SURFACE_STATUS_LABELS[status] ?? "Resolved";
-
-  if (originChannel === "vellum") {
-    markSurfaceCompleted(
-      { conversationId: delivery.destinationConversationId },
-      surfaceId,
-      summary,
-    );
-    return;
-  }
   completeSurfaceAndNotify(
     delivery.destinationConversationId,
     surfaceId,
-    summary,
+    SURFACE_STATUS_LABELS[status] ?? "Resolved",
   );
 }
 

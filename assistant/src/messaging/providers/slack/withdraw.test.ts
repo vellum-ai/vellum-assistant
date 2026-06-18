@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../../../util/logger.js", () => ({
+mock.module("../../../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
   truncateForLog: (value: string) => value,
@@ -15,12 +15,12 @@ const callSlackApi = mock(
     ts: "1.0",
   }),
 );
-mock.module("../api.js", () => ({ getSlackMessageBlocks, callSlackApi }));
+mock.module("./api.js", () => ({ getSlackMessageBlocks, callSlackApi }));
 
 import {
   stripApprovalActionBlocks,
   withdrawSlackApprovalCard,
-} from "../withdraw.js";
+} from "./withdraw.js";
 
 describe("stripApprovalActionBlocks", () => {
   test("strips the actions array from a native card block, keeping content", () => {

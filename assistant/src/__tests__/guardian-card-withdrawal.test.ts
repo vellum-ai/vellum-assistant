@@ -9,10 +9,8 @@ mock.module("../util/logger.js", () => ({
 }));
 
 const completeSurfaceAndNotify = mock(() => {});
-const markSurfaceCompleted = mock(() => {});
 mock.module("../daemon/conversation-surfaces.js", () => ({
   completeSurfaceAndNotify,
-  markSurfaceCompleted,
 }));
 
 const withdrawSlackApprovalCard = mock(
@@ -60,7 +58,6 @@ describe("withdrawGuardianRequestCards", () => {
   beforeEach(() => {
     resetTables();
     completeSurfaceAndNotify.mockClear();
-    markSurfaceCompleted.mockClear();
     withdrawSlackApprovalCard.mockClear();
   });
 
@@ -84,10 +81,9 @@ describe("withdrawGuardianRequestCards", () => {
       `access-request-${req.id}`,
       "Approved",
     );
-    expect(markSurfaceCompleted).not.toHaveBeenCalled();
   });
 
-  test("persists (without broadcasting) the in-app card when the decision originated in-app", async () => {
+  test("skips the in-app card when the decision originated in-app", async () => {
     const req = makeRequest();
     createCanonicalGuardianDelivery({
       requestId: req.id,
@@ -101,14 +97,7 @@ describe("withdrawGuardianRequestCards", () => {
       originChannel: "vellum",
     });
 
-    // Persist so the completion survives a reload, but don't broadcast — that
-    // would clobber the active client's optimistic summary (e.g. a code).
-    expect(markSurfaceCompleted).toHaveBeenCalledTimes(1);
-    expect(markSurfaceCompleted).toHaveBeenCalledWith(
-      { conversationId: "conv-1" },
-      `access-request-${req.id}`,
-      "Approved",
-    );
+    // The acting in-app client already completed its own card optimistically.
     expect(completeSurfaceAndNotify).not.toHaveBeenCalled();
   });
 
