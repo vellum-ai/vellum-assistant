@@ -80,7 +80,7 @@ du -sh /workspace/memory/concepts
 Reform of a multi-thousand-page corpus is many millions of tokens and real money. Use the CLI gate:
 
 ```
-assistant ui confirm "I'll snapshot the memory wiki, rewrite every page into the v3 shape, re-organize it into topical articles, verify nothing was lost, prove it retrieves at least as well as today, and only then cut over. This is judgment-heavy LLM work and scales with corpus size — it can take a while and cost real money. The live corpus stays untouched until the final step. Proceed?"
+assistant ui confirm --message "I'll snapshot the memory wiki, rewrite every page into the v3 shape, re-organize it into topical articles, verify nothing was lost, prove it retrieves at least as well as today, and only then cut over. This is judgment-heavy LLM work and scales with corpus size — it can take a while and cost real money. The live corpus stays untouched until the final step. Proceed?"
 ```
 
 If the user declines, stop — no snapshot, no work. If `assistant ui confirm` is unavailable, ask in conversation.
@@ -115,8 +115,8 @@ done
 
 ```
 git add -A && git commit -m "memory-v3-migration: start" --allow-empty
+mkdir -p .mv3/snapshot .mv3/staging .mv3/provenance .mv3/audit .mv3/eval
 cp -R memory/concepts .mv3/snapshot/concepts          # read-only baseline — NEVER edit
-mkdir -p .mv3/staging .mv3/provenance .mv3/audit .mv3/eval
 [ -f "$LOCK" ] && echo "WARN: a run started during the copy — re-snapshot"   # sanity
 ```
 

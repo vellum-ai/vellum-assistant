@@ -5,7 +5,7 @@ The heavy stages — authoring, loss-audit, blind-judge — fan out through the 
 ## Engine contract (violating any of these fails the run silently)
 
 - The script is **synchronous** — never `await`. Host calls (`agent`/`leaf`/`map`/`parallel`/`pipeline`) return their value directly; an `async` script deadlocks on its second host call.
-- `meta` must be a **pure literal** — no variables, calls, or template strings. It's parsed statically.
+- `meta` must be a **pure literal with only `name` + `description`** — no variables, calls, template strings, or nested objects/arrays. The extractor captures up to the **first `}`**, so any nested brace (e.g. a `phases:` array) truncates the literal and the run fails to launch before any leaf runs. Show progress with `phase(...)` calls in the body, not in `meta`.
 - The body must **`return`** its result (it runs as a function body; a bare trailing expression is discarded).
 - No `Date.now()` / `Math.random()` / argless `new Date()` — they throw in the sandbox. Pass timestamps/seeds via `args`.
 - Leaves get `file_read` / `file_list` / `recall` as baseline. `file_write` is granted only if you declare it in `capabilities.tools`, and resolves relative to the workspace dir.
@@ -23,7 +23,6 @@ export const meta = {
   name: "memory-v3-author-clusters",
   description:
     "Author one v3 wiki article-set per topic cluster into the staging tree, with provenance.",
-  phases: [{ title: "author" }],
 };
 
 phase("author");
@@ -75,7 +74,6 @@ export const meta = {
   name: "memory-v3-loss-audit",
   description:
     "Per-cluster reader panel: list substance present in the v2 sources but missing/weakened in the staged wiki.",
-  phases: [{ title: "audit" }],
 };
 
 const DROP_SCHEMA = {
@@ -147,7 +145,6 @@ export const meta = {
   name: "memory-v3-blind-judge",
   description:
     "Blind A/B content judge: per mined turn, score which memory set better covers what the reply needed.",
-  phases: [{ title: "judge" }],
 };
 
 const VERDICT_SCHEMA = {
