@@ -449,12 +449,29 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
       }
     }
 
+    // A journal response is a server-side snapshot from when the fetch ran, so a
+    // `:live` request in flight when `workflow_completed` arrives can resolve with
+    // a stale "running" status and lower counters. Never regress the entry: keep
+    // an already-terminal status over a stale active one, and treat the monotonic
+    // counters as lower bounds (max), so a late stale response cannot flip a
+    // finished run back to loading.
     const updated: WorkflowEntry = {
       ...base,
-      status: resp.status ?? base.status,
-      agentsSpawned: resp.agentsSpawned ?? base.agentsSpawned,
-      inputTokens: resp.inputTokens ?? base.inputTokens,
-      outputTokens: resp.outputTokens ?? base.outputTokens,
+      status: isActiveStatus(base.status)
+        ? (resp.status ?? base.status)
+        : base.status,
+      agentsSpawned: Math.max(
+        base.agentsSpawned,
+        resp.agentsSpawned ?? base.agentsSpawned,
+      ),
+      inputTokens: Math.max(
+        base.inputTokens,
+        resp.inputTokens ?? base.inputTokens,
+      ),
+      outputTokens: Math.max(
+        base.outputTokens,
+        resp.outputTokens ?? base.outputTokens,
+      ),
       phase: resp.phase ?? base.phase,
       leaves: nextLeaves,
     };

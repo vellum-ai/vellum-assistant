@@ -439,6 +439,34 @@ describe("backfillFromJournal", () => {
 
     expect(getState().byId["wf-genuine"]!.leaves.get(0)!.status).toBe("cancelled");
   });
+
+  it("does not regress a terminal run from a stale (running) journal response", () => {
+    // The panel opened mid-run (a :live journal request is in flight), then
+    // workflow_completed lands and marks the entry terminal with final counters.
+    getState().completeRun({
+      runId: "wf-race",
+      status: "completed",
+      agentsSpawned: 5,
+      inputTokens: 900,
+      outputTokens: 300,
+    });
+
+    // The stale :live response resolves afterwards with mid-run (lower) values.
+    getState().backfillFromJournal("wf-race", {
+      runId: "wf-race",
+      status: "running",
+      agentsSpawned: 2,
+      inputTokens: 100,
+      outputTokens: 40,
+      leaves: [],
+    });
+
+    const entry = getState().byId["wf-race"]!;
+    expect(entry.status).toBe("completed");
+    expect(entry.agentsSpawned).toBe(5);
+    expect(entry.inputTokens).toBe(900);
+    expect(entry.outputTokens).toBe(300);
+  });
 });
 
 // ---------------------------------------------------------------------------
