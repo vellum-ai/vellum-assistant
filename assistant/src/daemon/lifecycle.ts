@@ -60,6 +60,10 @@ import { sweepConceptPageFrontmatter } from "../memory/v2/frontmatter-sweep.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
+import {
+  startConsentRefresh,
+  stopConsentRefresh,
+} from "../platform/consent-cache.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
 import { resolveManagedProxyContext } from "../providers/platform-proxy/context.js";
@@ -130,6 +134,7 @@ import {
 } from "./providers-setup.js";
 import { DaemonServer } from "./server.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
+import { registerShutdownHook } from "./shutdown-registry.js";
 import { refreshSkillCapabilityMemories } from "./skill-memory-refresh.js";
 
 const log = getLogger("lifecycle");
@@ -669,6 +674,11 @@ export async function runDaemon(): Promise<void> {
         { collectUsageData: config.collectUsageData },
         "Usage telemetry reporter started",
       );
+
+      // Fire-and-forget: startConsentRefresh() runs an immediate non-blocking
+      // refresh, so the startup hot path is never blocked.
+      startConsentRefresh();
+      registerShutdownHook("consent-cache", () => stopConsentRefresh());
     }
 
     // CES lifecycle — kick off early so CES handshake runs concurrently with
