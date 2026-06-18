@@ -33,11 +33,13 @@ describe("enforceAdmissionPolicy — exempt channels", () => {
     expect(result.admitted).toBe(true);
   });
 
-  test("phone short-circuits to admitted (§8.4: voice ingress not wired)", () => {
+  test("phone is enforced (not exempt): the floor applies", () => {
+    // Voice ingress is wired, so `phone` is no longer exempt — an `unknown`
+    // caller is denied under `no_one`.
     const result = enforceAdmissionPolicy(
       makeInput({ sourceChannel: "phone", trustClass: "unknown", policy: "no_one" }),
     );
-    expect(result.admitted).toBe(true);
+    expect(result.admitted).toBe(false);
   });
 });
 

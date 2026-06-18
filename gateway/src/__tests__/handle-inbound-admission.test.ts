@@ -2,7 +2,7 @@
  * Gateway-side admission policy tests for `handle-inbound.ts`:
  *
  *  - `no_one` kill switch hard-denies pre-forward (P3 §4.2)
- *  - Exempt channels (`platform`, `a2a`, `phone`) skip the kill switch; `vellum` is configurable
+ *  - Exempt channels (`platform`, `a2a`) skip the kill switch; `vellum` and `phone` are enforced
  *  - `admissionPolicy` flows into `sourceMetadata` on forward
  *  - Default `trusted_contacts` is attached when no row is persisted
  *
@@ -215,12 +215,27 @@ describe("handle-inbound admission policy", () => {
     ).toBeUndefined();
   });
 
-  test("§8.4: phone skips kill switch even when `no_one` is persisted (voice ingress not wired)", async () => {
-    // Storing a `no_one` policy for phone would have no runtime effect since
-    // the voice webhook path does not read AdmissionPolicyStore. Exempt it
-    // so the gateway kill-switch also skips phone, making the exemption
-    // consistent end-to-end.
+  test("phone `no_one` hard-denies (voice ingress wired, no longer exempt)", async () => {
+    // phone is now an enforced channel: a persisted `no_one` floor trips the
+    // kill switch and the event never reaches the runtime.
     store.set("phone", "no_one");
+    resetAdmissionPolicyCache();
+    initAdmissionPolicyCache();
+
+    const result = await handleInbound(
+      makeConfig(),
+      makeEvent({ sourceChannel: "phone" }),
+      { routingOverride: { assistantId: "asst-1", routeSource: "default" } },
+    );
+
+    expect(result.forwarded).toBe(false);
+    expect(result.rejected).toBe(true);
+    expect(result.rejectionReason).toBe("admission_no_one");
+    expect(forwardToRuntimeMock).toHaveBeenCalledTimes(0);
+  });
+
+  test("phone attaches its floor to sourceMetadata.admissionPolicy when not `no_one`", async () => {
+    store.set("phone", "guardian_only");
     resetAdmissionPolicyCache();
     initAdmissionPolicyCache();
 
@@ -232,9 +247,8 @@ describe("handle-inbound admission policy", () => {
 
     expect(result.forwarded).toBe(true);
     expect(forwardToRuntimeMock).toHaveBeenCalledTimes(1);
-    // No admissionPolicy attached for exempt channels.
-    expect(
-      runtimePayloads[0]!.sourceMetadata!.admissionPolicy,
-    ).toBeUndefined();
+    expect(runtimePayloads[0]!.sourceMetadata!.admissionPolicy).toBe(
+      "guardian_only",
+    );
   });
 });

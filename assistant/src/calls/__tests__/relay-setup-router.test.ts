@@ -7,12 +7,10 @@
  * challenge, and active invites independently of any DB.
  *
  * The floor verdict is exercised through the REAL `enforceAdmissionPolicy`
- * floor tables (`TRUST_CLASS_RANK` × `ADMISSION_FLOOR`), but with the `phone`
- * exempt-channel short-circuit bypassed in the mock — `phone` is still exempt
- * in `@vellumai/gateway-client` until the activation PR, so calling the real
- * function with `sourceChannel: "phone"` would always admit. Bypassing only
- * the exemption lets these tests assert the true floor semantics that go live
- * once the channel is un-exempted.
+ * floor tables (`TRUST_CLASS_RANK` × `ADMISSION_FLOOR`), with the exempt-channel
+ * short-circuit bypassed in the mock so the tests assert the true floor
+ * semantics independent of any channel's exempt status (`phone` is now
+ * enforced).
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
