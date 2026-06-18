@@ -20,6 +20,8 @@ const MOCK_DEPRECATED_DIR = join(
 );
 const MOCK_HOOKS_DIR = join(homedir(), ".vellum", "workspace", "hooks");
 const MOCK_PLUGINS_DIR = join(homedir(), ".vellum", "workspace", "plugins");
+const MOCK_TOOLS_DIR = join(homedir(), ".vellum", "workspace", "tools");
+const MOCK_ROUTES_DIR = join(homedir(), ".vellum", "workspace", "routes");
 
 /** Skill source paths managed per-test via the context's skillSourceDirs. */
 let testSkillSourceDirs: string[] = [];
@@ -30,6 +32,8 @@ function makeContext(): FileClassificationContext {
     deprecatedDir: MOCK_DEPRECATED_DIR,
     hooksDir: MOCK_HOOKS_DIR,
     pluginsDir: MOCK_PLUGINS_DIR,
+    toolsDir: MOCK_TOOLS_DIR,
+    routesDir: MOCK_ROUTES_DIR,
     skillSourceDirs: testSkillSourceDirs,
   };
 }
@@ -268,6 +272,68 @@ describe("FileRiskClassifier", () => {
       });
       expect(result.riskLevel).toBe("low");
     });
+
+    // Tools directory escalation. The workspace-tool loader (and its live file
+    // watcher) dynamic-imports any <name>.{ts,js} written here and registers it
+    // as an executable tool, so a routine file_write here is code injection.
+    test("tools directory itself is high", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: MOCK_TOOLS_DIR,
+        workingDir: "/",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to tools directory");
+    });
+
+    test("tool override inside tools directory is high", async () => {
+      testSkillSourceDirs = [];
+      const toolFile = join(MOCK_TOOLS_DIR, "evil_tool.ts");
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: toolFile,
+        workingDir: "/",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to tools directory");
+    });
+
+    test("path containing 'tools' substring outside tools dir is low", async () => {
+      // Guard against substring matching: /workspace/tools-data/ must NOT escalate.
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: join(homedir(), ".vellum", "workspace", "tools-data", "x"),
+        workingDir: "/",
+      });
+      expect(result.riskLevel).toBe("low");
+    });
+
+    // Routes directory escalation. The user-route dispatcher dynamic-imports
+    // handler modules here and executes their exported HTTP-method functions.
+    test("routes directory itself is high", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: MOCK_ROUTES_DIR,
+        workingDir: "/",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to routes directory");
+    });
+
+    test("handler inside routes directory is high", async () => {
+      testSkillSourceDirs = [];
+      const routeFile = join(MOCK_ROUTES_DIR, "evil.ts");
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: routeFile,
+        workingDir: "/",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to routes directory");
+    });
   });
 
   // -- file_edit --------------------------------------------------------------
@@ -317,6 +383,30 @@ describe("FileRiskClassifier", () => {
       });
       expect(result.riskLevel).toBe("high");
       expect(result.reason).toBe("Writes to plugins directory");
+    });
+
+    test("tools directory path is high", async () => {
+      testSkillSourceDirs = [];
+      const toolFile = join(MOCK_TOOLS_DIR, "evil_tool.ts");
+      const result = await classifyInput({
+        toolName: "file_edit",
+        filePath: toolFile,
+        workingDir: "/",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to tools directory");
+    });
+
+    test("routes directory path is high", async () => {
+      testSkillSourceDirs = [];
+      const routeFile = join(MOCK_ROUTES_DIR, "evil.ts");
+      const result = await classifyInput({
+        toolName: "file_edit",
+        filePath: routeFile,
+        workingDir: "/",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to routes directory");
     });
   });
 
@@ -436,6 +526,28 @@ describe("FileRiskClassifier", () => {
       expect(result.riskLevel).toBe("high");
       expect(result.reason).toBe("Writes to plugins directory");
     });
+
+    test("tools directory is high", async () => {
+      testSkillSourceDirs = [];
+      const toolFile = join(MOCK_TOOLS_DIR, "evil_tool.ts");
+      const result = await classifyInput({
+        toolName: "host_file_write",
+        filePath: toolFile,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to tools directory");
+    });
+
+    test("routes directory is high", async () => {
+      testSkillSourceDirs = [];
+      const routeFile = join(MOCK_ROUTES_DIR, "evil.ts");
+      const result = await classifyInput({
+        toolName: "host_file_write",
+        filePath: routeFile,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to routes directory");
+    });
   });
 
   // -- host_file_edit ---------------------------------------------------------
@@ -484,6 +596,28 @@ describe("FileRiskClassifier", () => {
       });
       expect(result.riskLevel).toBe("high");
       expect(result.reason).toBe("Writes to plugins directory");
+    });
+
+    test("tools directory path is high", async () => {
+      testSkillSourceDirs = [];
+      const toolFile = join(MOCK_TOOLS_DIR, "evil_tool.ts");
+      const result = await classifyInput({
+        toolName: "host_file_edit",
+        filePath: toolFile,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to tools directory");
+    });
+
+    test("routes directory path is high", async () => {
+      testSkillSourceDirs = [];
+      const routeFile = join(MOCK_ROUTES_DIR, "evil.ts");
+      const result = await classifyInput({
+        toolName: "host_file_edit",
+        filePath: routeFile,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to routes directory");
     });
   });
 
@@ -563,6 +697,28 @@ describe("FileRiskClassifier", () => {
       });
       expect(result.riskLevel).toBe("high");
       expect(result.reason).toBe("Transfers to plugins directory");
+    });
+
+    test("tools directory is high", async () => {
+      testSkillSourceDirs = [];
+      const toolFile = join(MOCK_TOOLS_DIR, "evil_tool.ts");
+      const result = await classifyInput({
+        toolName: "host_file_transfer",
+        filePath: toolFile,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Transfers to tools directory");
+    });
+
+    test("routes directory is high", async () => {
+      testSkillSourceDirs = [];
+      const routeFile = join(MOCK_ROUTES_DIR, "evil.ts");
+      const result = await classifyInput({
+        toolName: "host_file_transfer",
+        filePath: routeFile,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Transfers to routes directory");
     });
   });
 

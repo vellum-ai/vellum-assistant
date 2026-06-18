@@ -223,6 +223,56 @@ describe("file classification", () => {
     expect(result.risk).toBe("high");
     expect(result.reason).toContain("skill source");
   });
+
+  test("file_write to tools dir is high risk", async () => {
+    const result = await classify({
+      tool: "file_write",
+      path: "/workspace/tools/evil_tool.ts",
+      workingDir: "/workspace",
+      fileContext: {
+        protectedDir: "/workspace/.vellum/protected",
+        hooksDir: "/workspace/.hooks",
+        toolsDir: "/workspace/tools",
+        routesDir: "/workspace/routes",
+        actorTokenSigningKeyPath:
+          "/workspace/.vellum/protected/actor-token-signing-key",
+        skillSourceDirs: ["/workspace/.vellum/skills"],
+      },
+    });
+    expect(result.risk).toBe("high");
+    expect(result.reason).toContain("tools");
+  });
+
+  test("file_write to routes dir is high risk", async () => {
+    const result = await classify({
+      tool: "file_write",
+      path: "/workspace/routes/evil.ts",
+      workingDir: "/workspace",
+      fileContext: {
+        protectedDir: "/workspace/.vellum/protected",
+        hooksDir: "/workspace/.hooks",
+        toolsDir: "/workspace/tools",
+        routesDir: "/workspace/routes",
+        actorTokenSigningKeyPath:
+          "/workspace/.vellum/protected/actor-token-signing-key",
+        skillSourceDirs: ["/workspace/.vellum/skills"],
+      },
+    });
+    expect(result.risk).toBe("high");
+    expect(result.reason).toContain("routes");
+  });
+
+  test("file_write to tools dir without context is NOT escalated (sentinel)", async () => {
+    // When the assistant does not forward a fileContext, the handler uses
+    // impossible sentinel paths so a tools-dir write is not falsely escalated
+    // (and, conversely, is not silently downgraded by a matching empty path).
+    const result = await classify({
+      tool: "file_write",
+      path: "/workspace/tools/evil_tool.ts",
+      workingDir: "/workspace",
+    });
+    expect(result.risk).toBe("low");
+  });
 });
 
 // ── Web classification ──────────────────────────────────────────────────────

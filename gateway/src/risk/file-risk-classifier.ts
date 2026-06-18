@@ -8,14 +8,25 @@
  * Risk escalation paths:
  * - file_read: Low by default, High if targeting the actor token signing key.
  * - file_write / file_edit: Low by default, High if targeting skill source
- *   code, the workspace hooks directory, or the user plugins directory.
+ *   code, the workspace hooks directory, the user plugins directory, the
+ *   workspace tools directory, or the workspace routes directory.
  * - host_file_read: Medium (tool registry default; no special escalation).
  * - host_file_write / host_file_edit: Medium by default, High if targeting
- *   skill source code, the workspace hooks directory, or the user plugins
+ *   skill source code, the workspace hooks directory, the user plugins
+ *   directory, the workspace tools directory, or the workspace routes
  *   directory.
  * - host_file_transfer: Medium by default, High if the host-side path
- *   targets skill source code, the workspace hooks directory, or the user
- *   plugins directory.
+ *   targets skill source code, the workspace hooks directory, the user
+ *   plugins directory, the workspace tools directory, or the workspace
+ *   routes directory.
+ *
+ * The tools and routes directories are escalated for the same reason as
+ * plugins: any file written under `<workspace>/tools/` is dynamic-imported
+ * and executed as a registered tool by the workspace-tool loader (and its
+ * live file watcher), and any file under `<workspace>/routes/` is
+ * dynamic-imported and executed as an HTTP route handler. A write to either
+ * is a code-injection sink, so it must clear the same High-risk approval gate
+ * as hooks and plugins.
  *
  * Gateway adaptation: accepts a FileClassificationContext parameter instead
  * of importing assistant platform utilities directly. The assistant is
@@ -55,6 +66,10 @@ export interface FileClassificationContext {
   hooksDir: string;
   /** Absolute path to the user plugins directory. */
   pluginsDir: string;
+  /** Absolute path to the workspace tools directory (dynamic-imported tool overrides). */
+  toolsDir: string;
+  /** Absolute path to the workspace routes directory (dynamic-imported HTTP route handlers). */
+  routesDir: string;
   /**
    * Absolute paths of all skill source root directories (managed, bundled,
    * and any extra dirs from config). The classifier checks whether a file
@@ -142,6 +157,44 @@ function isPluginsPath(
   return (
     resolvedPath === pluginsDirNoTrailingSlash ||
     resolvedPath.startsWith(normalizedPluginsDir)
+  );
+}
+
+/**
+ * Check whether a resolved absolute path falls inside the workspace tools
+ * directory (or IS the tools directory itself). Mirrors {@link isPluginsPath}:
+ * the workspace-tool loader dynamic-imports any `<name>.{ts,js}` written here
+ * and registers it as an executable tool (its file watcher does so live,
+ * without a restart), so a write here is code-injection risk.
+ */
+function isToolsPath(
+  resolvedPath: string,
+  context: FileClassificationContext,
+): boolean {
+  const normalizedToolsDir = normalizeDirPath(context.toolsDir);
+  const toolsDirNoTrailingSlash = normalizedToolsDir.slice(0, -1);
+  return (
+    resolvedPath === toolsDirNoTrailingSlash ||
+    resolvedPath.startsWith(normalizedToolsDir)
+  );
+}
+
+/**
+ * Check whether a resolved absolute path falls inside the workspace routes
+ * directory (or IS the routes directory itself). Mirrors {@link isPluginsPath}:
+ * the user-route dispatcher dynamic-imports any handler module written here
+ * and executes its exported HTTP-method functions on the next matching
+ * request, so a write here is code-injection risk.
+ */
+function isRoutesPath(
+  resolvedPath: string,
+  context: FileClassificationContext,
+): boolean {
+  const normalizedRoutesDir = normalizeDirPath(context.routesDir);
+  const routesDirNoTrailingSlash = normalizedRoutesDir.slice(0, -1);
+  return (
+    resolvedPath === routesDirNoTrailingSlash ||
+    resolvedPath.startsWith(normalizedRoutesDir)
   );
 }
 
@@ -314,6 +367,26 @@ export class FileRiskClassifier implements RiskClassifier<
             };
             break;
           }
+          if (isToolsPath(resolvedPath, context)) {
+            assessment = {
+              riskLevel: "high",
+              reason: "Writes to tools directory",
+              scopeOptions: [],
+              matchType: "registry",
+              allowlistOptions,
+            };
+            break;
+          }
+          if (isRoutesPath(resolvedPath, context)) {
+            assessment = {
+              riskLevel: "high",
+              reason: "Writes to routes directory",
+              scopeOptions: [],
+              matchType: "registry",
+              allowlistOptions,
+            };
+            break;
+          }
         }
         assessment = {
           riskLevel: "low",
@@ -373,6 +446,26 @@ export class FileRiskClassifier implements RiskClassifier<
             assessment = {
               riskLevel: "high",
               reason: `${actionVerb} to plugins directory`,
+              scopeOptions: [],
+              matchType: "registry",
+              allowlistOptions,
+            };
+            break;
+          }
+          if (isToolsPath(resolvedPath, context)) {
+            assessment = {
+              riskLevel: "high",
+              reason: `${actionVerb} to tools directory`,
+              scopeOptions: [],
+              matchType: "registry",
+              allowlistOptions,
+            };
+            break;
+          }
+          if (isRoutesPath(resolvedPath, context)) {
+            assessment = {
+              riskLevel: "high",
+              reason: `${actionVerb} to routes directory`,
               scopeOptions: [],
               matchType: "registry",
               allowlistOptions,

@@ -57,6 +57,8 @@ const ClassifyRiskSchema = z.object({
       deprecatedDir: z.string(),
       hooksDir: z.string(),
       pluginsDir: z.string().optional(),
+      toolsDir: z.string().optional(),
+      routesDir: z.string().optional(),
       actorTokenSigningKeyPath: z.string(),
       skillSourceDirs: z.array(z.string()),
     })
@@ -429,6 +431,8 @@ export async function handleClassifyRisk(
         deprecatedDir: fileCtx?.deprecatedDir ?? SENTINEL,
         hooksDir: fileCtx?.hooksDir ?? SENTINEL,
         pluginsDir: fileCtx?.pluginsDir ?? SENTINEL,
+        toolsDir: fileCtx?.toolsDir ?? SENTINEL,
+        routesDir: fileCtx?.routesDir ?? SENTINEL,
         skillSourceDirs: fileCtx?.skillSourceDirs ?? [],
       };
 

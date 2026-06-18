@@ -23,6 +23,8 @@ import {
   getWorkspaceDir,
   getWorkspaceHooksDir,
   getWorkspacePluginsDir,
+  getWorkspaceRoutesDir,
+  getWorkspaceToolsDir,
 } from "../util/platform.js";
 import {
   type ApprovalContext,
@@ -278,6 +280,8 @@ function buildFileContext(): FileContext {
     deprecatedDir: getDeprecatedDir(),
     hooksDir: getWorkspaceHooksDir(),
     pluginsDir: getWorkspacePluginsDir(),
+    toolsDir: getWorkspaceToolsDir(),
+    routesDir: getWorkspaceRoutesDir(),
     actorTokenSigningKeyPath: join(
       getProtectedDir(),
       "actor-token-signing-key",
