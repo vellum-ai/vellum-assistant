@@ -9,7 +9,6 @@ import {
 
 import {
   type ReactNode,
-  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -199,22 +198,12 @@ export function SubagentDetailPanel({
   // Compute the avatar traits once per subagent instead of hashing the id
   // three separate times in the JSX below.
   const traits = useMemo(() => subagentTraits(entry.subagentId), [entry.subagentId]);
-  // Defer the timeline's events so heavy streaming updates render at low
-  // priority (interruptible) and never block the panel-open animation or
-  // input. The memoized SubagentTimeline bails out on the urgent pass.
-  //
-  // The deferred value carries the subagent id alongside the events. The
-  // drawer stays mounted across subagent switches, so a bare deferred value
-  // can lag and render the previous subagent's timeline under the new
-  // subagent's header; when the deferred id doesn't match the current
-  // subagent, fall back to live events so the timeline is never mismatched.
-  const deferredInput = useMemo(
-    () => ({ id: entry.subagentId, events: entry.events }),
-    [entry.subagentId, entry.events],
-  );
-  const deferred = useDeferredValue(deferredInput);
-  const timelineEvents =
-    deferred.id === entry.subagentId ? deferred.events : entry.events;
+  // The timeline renders `entry.events` directly (no `useDeferredValue`).
+  // Virtualization already bounds each render to the visible window, so the
+  // heavy full-list render that deferral once hid no longer exists. Deferring
+  // here would only re-introduce a failure mode: under sustained high-frequency
+  // streaming the low-priority deferred render keeps getting preempted and never
+  // commits, freezing the timeline on a stale snapshot until the stream slows.
 
   useEffect(() => {
     if (onRequestDetail && entry.conversationId && entry.events.length === 0) {
@@ -338,7 +327,7 @@ export function SubagentDetailPanel({
           <SubagentTimeline
             key={entry.subagentId}
             scrollRef={scrollRef}
-            events={timelineEvents}
+            events={entry.events}
           />
         </div>
       </div>
