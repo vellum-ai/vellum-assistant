@@ -350,7 +350,6 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
           type: ch.type,
           address: ch.address,
           isPrimary: ch.isPrimary,
-          externalUserId: ch.externalUserId ?? null,
           externalChatId: ch.externalChatId ?? null,
           status: ch.status,
           policy: ch.policy,

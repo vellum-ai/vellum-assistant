@@ -102,6 +102,7 @@ import {
   migrateDropConflicts,
   migrateDropContactInteractionColumns,
   migrateDropEntityTables,
+  migrateDropExternalUserId,
   migrateDropLegacyMemberGuardianTables,
   migrateDropLoopbackPortColumn,
   migrateDropMemoryItemsTables,
@@ -525,6 +526,7 @@ export function initializeDb(): void {
     migrateContactChannelsRenormalizeAddresses,
     migrateScheduleDefaultNoReuseConversation,
     migrateWorkflowJournalLeafTokens,
+    migrateDropExternalUserId,
   ];
 
   // Run each migration step, catching and logging individual failures so one

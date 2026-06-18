@@ -10,10 +10,7 @@
 
 import { eq } from "drizzle-orm";
 
-import {
-  assistantDbQuery,
-  assistantDbRun,
-} from "../db/assistant-db-proxy.js";
+import { assistantDbQuery, assistantDbRun } from "../db/assistant-db-proxy.js";
 import { getGatewayDb } from "../db/connection.js";
 import { contactChannels as gwContactChannels } from "../db/schema.js";
 import { getLogger } from "../logger.js";
@@ -29,9 +26,9 @@ const log = getLogger("verification-bindings");
  */
 export async function getExistingGuardianBinding(
   channel: string,
-): Promise<{ externalUserId: string | null } | null> {
-  const rows = await assistantDbQuery<{ externalUserId: string | null }>(
-    `SELECT cc.external_user_id AS externalUserId
+): Promise<{ address: string } | null> {
+  const rows = await assistantDbQuery<{ address: string }>(
+    `SELECT cc.address
      FROM contacts c
      JOIN contact_channels cc ON cc.contact_id = c.id
      WHERE c.role = 'guardian' AND cc.type = ? AND cc.status = 'active'
@@ -127,12 +124,16 @@ export async function revokeExistingChannelGuardian(
   try {
     const gwDb = getGatewayDb();
     for (const id of ids) {
-      gwDb.update(gwContactChannels)
+      gwDb
+        .update(gwContactChannels)
         .set({ status: "revoked", policy: "deny", updatedAt: now })
         .where(eq(gwContactChannels.id, id))
         .run();
     }
   } catch (gwErr) {
-    log.warn({ err: gwErr }, "Gateway DB revoke dual-write failed (best-effort)");
+    log.warn(
+      { err: gwErr },
+      "Gateway DB revoke dual-write failed (best-effort)",
+    );
   }
 }

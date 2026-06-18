@@ -43,7 +43,6 @@ const PHONE = "+15559871234";
 function makeContact(
   role: "guardian" | "contact" = "contact",
   status: "unverified" | "active" = "unverified",
-  externalUserId: string | null = null,
 ): ContactWithChannels {
   const channelId = "ch-test";
   return {
@@ -64,7 +63,6 @@ function makeContact(
         contactId: "contact-test",
         type: "phone",
         address: PHONE,
-        externalUserId,
         externalChatId: null,
         isPrimary: true,
         status,
@@ -94,7 +92,7 @@ describe("resolveActorTrust — address fallback", () => {
 
   test("finds unverified channel via address when externalUserId is null", () => {
     // Simulate a contact registered by name-capture: address set, externalUserId null.
-    _byAddress = makeContact("contact", "unverified", null);
+    _byAddress = makeContact("contact", "unverified");
 
     const result = resolveActorTrust({
       assistantId: "asst-1",
@@ -112,7 +110,7 @@ describe("resolveActorTrust — address fallback", () => {
   });
 
   test("address lookup is the sole member resolution path", () => {
-    _byAddress = makeContact("contact", "active", null);
+    _byAddress = makeContact("contact", "active");
 
     const result = resolveActorTrust({
       assistantId: "asst-1",
@@ -142,7 +140,7 @@ describe("resolveActorTrust — address fallback", () => {
   test("address-found active channel elevates trust to trusted_contact", () => {
     // An active channel found via address (e.g. after manual verify without externalUserId set)
     // should still yield trusted_contact trust class.
-    _byAddress = makeContact("contact", "active", null);
+    _byAddress = makeContact("contact", "active");
 
     const result = resolveActorTrust({
       assistantId: "asst-1",
@@ -159,7 +157,7 @@ describe("resolveActorTrust — address fallback", () => {
   test("pending-status member is classified as unverified_contact", () => {
     // Mirrors the unverified branch but for `pending` status (e.g. a phone
     // contact registered by name-capture awaiting the DTMF challenge).
-    const contact = makeContact("contact", "unverified", PHONE);
+    const contact = makeContact("contact", "unverified");
     // Override status to "pending" — makeContact only accepts unverified/active
     contact.channels[0]!.status = "pending";
     _byAddress = contact;
@@ -178,7 +176,7 @@ describe("resolveActorTrust — address fallback", () => {
   test("blocked-status member is classified as unknown (not unverified_contact)", () => {
     // Hard-deny statuses (blocked, revoked) stay `unknown` — admission-layer
     // re-checks channel.status and emits the hard-deny reasons.
-    const contact = makeContact("contact", "unverified", PHONE);
+    const contact = makeContact("contact", "unverified");
     contact.channels[0]!.status = "blocked";
     _byAddress = contact;
 
@@ -194,7 +192,7 @@ describe("resolveActorTrust — address fallback", () => {
   });
 
   test("revoked-status member is classified as unknown", () => {
-    const contact = makeContact("contact", "unverified", PHONE);
+    const contact = makeContact("contact", "unverified");
     contact.channels[0]!.status = "revoked";
     _byAddress = contact;
 

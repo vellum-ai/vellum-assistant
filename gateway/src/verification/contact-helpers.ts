@@ -33,7 +33,7 @@ const log = getLogger("verification-contacts");
 export interface ContactChannelRow {
   channelId: string;
   contactId: string;
-  externalUserId: string | null;
+  address: string;
   externalChatId: string | null;
   displayName: string | null;
   status: string;
@@ -52,7 +52,7 @@ export async function findContactChannelByAddress(
 ): Promise<ContactChannelRow | null> {
   const rows = await assistantDbQuery<ContactChannelRow>(
     `SELECT cc.id AS channelId, cc.contact_id AS contactId,
-            cc.external_user_id AS externalUserId,
+            cc.address,
             cc.external_chat_id AS externalChatId,
             c.display_name AS displayName,
             cc.status
@@ -131,11 +131,11 @@ export async function upsertVerifiedContactChannel(params: {
       `UPDATE contact_channels
        SET address = ?,
            status = 'active', policy = 'allow',
-           external_user_id = ?, external_chat_id = ?,
+           external_chat_id = ?,
            revoked_reason = NULL, blocked_reason = NULL,
            updated_at = ?
        WHERE id = ?`,
-      [address, params.externalUserId, externalChatId, now, row.channelId],
+      [address, externalChatId, now, row.channelId],
     );
 
     // Dual-write to gateway DB
@@ -147,7 +147,6 @@ export async function upsertVerifiedContactChannel(params: {
           status: "active",
           policy: "allow",
           address,
-          externalUserId: params.externalUserId,
           externalChatId,
           revokedReason: null,
           blockedReason: null,
@@ -180,19 +179,10 @@ export async function upsertVerifiedContactChannel(params: {
 
   await assistantDbRun(
     `INSERT OR IGNORE INTO contact_channels
-       (id, contact_id, type, address, is_primary, external_user_id, external_chat_id,
+       (id, contact_id, type, address, is_primary, external_chat_id,
         status, policy, interaction_count, created_at, updated_at)
-     VALUES (?, ?, ?, ?, 0, ?, ?, 'active', 'allow', 0, ?, ?)`,
-    [
-      channelId,
-      contactId,
-      sourceChannel,
-      address,
-      params.externalUserId,
-      externalChatId,
-      now,
-      now,
-    ],
+     VALUES (?, ?, ?, ?, 0, ?, 'active', 'allow', 0, ?, ?)`,
+    [channelId, contactId, sourceChannel, address, externalChatId, now, now],
   );
 
   // Dual-write to gateway DB
@@ -218,7 +208,6 @@ export async function upsertVerifiedContactChannel(params: {
         type: sourceChannel,
         address,
         isPrimary: false,
-        externalUserId: params.externalUserId,
         externalChatId,
         status: "active",
         policy: "allow",
@@ -242,7 +231,7 @@ export async function upsertVerifiedContactChannel(params: {
  * existing status/policy. Used to seed contact records when new users are
  * first seen on a channel.
  *
- * - Existing channel: updates display name, external_user_id, external_chat_id.
+ * - Existing channel: updates display name, external_chat_id.
  *   Status and policy are left unchanged so blocked/revoked channels stay that way.
  * - New channel: inserts contact + channel with status='unverified', policy='allow'.
  *
@@ -297,17 +286,10 @@ export async function upsertContactChannel(params: {
     await assistantDbRun(
       `UPDATE contact_channels
        SET address = ?,
-           external_user_id = ?,
            external_chat_id = COALESCE(?, external_chat_id),
            updated_at = ?
        WHERE id = ?`,
-      [
-        address,
-        params.externalUserId,
-        externalChatId ?? null,
-        now,
-        row.channelId,
-      ],
+      [address, externalChatId ?? null, now, row.channelId],
     );
 
     try {
@@ -316,7 +298,6 @@ export async function upsertContactChannel(params: {
         .update(gwContactChannels)
         .set({
           address,
-          externalUserId: params.externalUserId,
           ...(externalChatId ? { externalChatId } : {}),
           updatedAt: now,
         })
@@ -342,15 +323,14 @@ export async function upsertContactChannel(params: {
   );
   await assistantDbRun(
     `INSERT OR IGNORE INTO contact_channels
-       (id, contact_id, type, address, is_primary, external_user_id, external_chat_id,
+       (id, contact_id, type, address, is_primary, external_chat_id,
         status, policy, interaction_count, created_at, updated_at)
-     VALUES (?, ?, ?, ?, 0, ?, ?, 'unverified', 'allow', 0, ?, ?)`,
+     VALUES (?, ?, ?, ?, 0, ?, 'unverified', 'allow', 0, ?, ?)`,
     [
       channelId,
       contactId,
       sourceChannel,
       address,
-      params.externalUserId,
       externalChatId ?? null,
       now,
       now,
@@ -378,7 +358,6 @@ export async function upsertContactChannel(params: {
         type: sourceChannel,
         address,
         isPrimary: false,
-        externalUserId: params.externalUserId,
         externalChatId: externalChatId ?? null,
         status: "unverified",
         policy: "allow",

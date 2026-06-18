@@ -96,8 +96,8 @@ function resolveUserFilename(
         filename = contactWithChannels.userFile ?? null;
       } else if (trustContext.trustClass === "guardian") {
         // Managed desktop: the JWT principal ID used as requesterExternalUserId
-        // may differ from the contact channel's external_user_id (they are
-        // separate identity concepts). Fall back to the channel-type guardian.
+        // may differ from the contact channel's address (they are separate
+        // identity concepts). Fall back to the channel-type guardian.
         const guardian = findGuardianForChannel(trustContext.sourceChannel);
         if (guardian) {
           filename = guardian.contact.userFile ?? "guardian.md";

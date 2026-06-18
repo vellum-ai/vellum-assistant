@@ -368,7 +368,6 @@ describe("redeemVoiceInviteCode", () => {
         {
           type: "phone",
           address: phone,
-          externalUserId: phone,
           status: "revoked",
         },
       ],

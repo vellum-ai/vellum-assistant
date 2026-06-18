@@ -295,11 +295,11 @@ async function applyGuardianSideEffects(params: {
 
   // Check for binding conflict — another user already holds guardian
   const existing = await getExistingGuardianBinding(sourceChannel);
-  if (existing?.externalUserId && existing.externalUserId !== canonicalUserId) {
+  if (existing?.address && existing.address !== canonicalUserId) {
     log.warn(
       {
         sourceChannel,
-        existingGuardian: existing.externalUserId,
+        existingGuardian: existing.address,
         newActor: canonicalUserId,
       },
       "Guardian binding conflict: another user already holds this channel",
