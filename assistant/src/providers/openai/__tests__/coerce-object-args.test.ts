@@ -68,8 +68,8 @@ describe("decodeCoercedObjectArgs", () => {
       input: '{"app_id": "5ee3d2d5-46e8-4a79-928f-00a7471d340b"}',
       activity: "Delete placeholder",
     };
-    const { input, failedKey } = decodeCoercedObjectArgs(onWire, objectKeys);
-    expect(failedKey).toBeUndefined();
+    const { input, failedKeys } = decodeCoercedObjectArgs(onWire, objectKeys);
+    expect(failedKeys).toEqual([]);
     expect(input.input).toEqual({
       app_id: "5ee3d2d5-46e8-4a79-928f-00a7471d340b",
     });
@@ -84,17 +84,21 @@ describe("decodeCoercedObjectArgs", () => {
 
   test("is idempotent when the value is already an object", () => {
     const args = { input: { app_id: "x" } };
-    const { input, failedKey } = decodeCoercedObjectArgs(args, ["input"]);
-    expect(failedKey).toBeUndefined();
+    const { input, failedKeys } = decodeCoercedObjectArgs(args, ["input"]);
+    expect(failedKeys).toEqual([]);
     expect(input.input).toEqual({ app_id: "x" });
   });
 
-  test("reports failedKey on invalid JSON instead of throwing", () => {
-    const { failedKey } = decodeCoercedObjectArgs(
-      { input: "{not valid json" },
+  test("collects failedKeys on invalid JSON instead of throwing", () => {
+    const { failedKeys, input } = decodeCoercedObjectArgs(
+      { tool: "app_delete", input: "{not valid json", activity: "test" },
       ["input"],
     );
-    expect(failedKey).toBe("input");
+    expect(failedKeys).toEqual(["input"]);
+    // Raw string is preserved so downstream handlers can attempt recovery.
+    expect(input.input).toBe("{not valid json");
+    // Non-coerced scalars pass through intact.
+    expect(input.tool).toBe("app_delete");
   });
 
   test("no-op when there are no coerced keys", () => {

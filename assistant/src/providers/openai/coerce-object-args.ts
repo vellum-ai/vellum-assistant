@@ -75,17 +75,19 @@ export function coerceObjectParamsToJsonString(
  * value arrived as a string, JSON-parse it back into an object. Values that are
  * already objects (e.g. replayed conversation history, or a model that sent the
  * object natively) are left untouched, so the decode is idempotent. An empty
- * string decodes to `{}`. If a non-empty string fails to parse, the key name is
- * returned in `failedKey` so the caller can surface a retryable error instead of
- * silently dispatching garbage.
+ * string decodes to `{}`. Keys whose non-empty string values fail to parse are
+ * collected in `failedKeys` and left as raw strings in the output — the caller
+ * and downstream tool handlers decide how to react (e.g.
+ * `resolveSkillExecuteInput` already parses string-typed `input` fields).
  */
 export function decodeCoercedObjectArgs(
   input: Record<string, unknown>,
   objectKeys: string[],
-): { input: Record<string, unknown>; failedKey?: string } {
-  if (objectKeys.length === 0) return { input };
+): { input: Record<string, unknown>; failedKeys: string[] } {
+  if (objectKeys.length === 0) return { input, failedKeys: [] };
 
   const result: Record<string, unknown> = { ...input };
+  const failedKeys: string[] = [];
   for (const key of objectKeys) {
     const value = result[key];
     if (typeof value !== "string") continue;
@@ -97,8 +99,8 @@ export function decodeCoercedObjectArgs(
     try {
       result[key] = JSON.parse(trimmed);
     } catch {
-      return { input: result, failedKey: key };
+      failedKeys.push(key);
     }
   }
-  return { input: result };
+  return { input: result, failedKeys };
 }

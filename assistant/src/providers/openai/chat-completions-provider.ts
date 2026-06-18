@@ -672,9 +672,13 @@ export class OpenAIChatCompletionsProvider implements Provider {
         const objectKeys = coercedObjectKeys.get(tc.name);
         if (objectKeys && !isUnparseableToolArgs(input)) {
           const decoded = decodeCoercedObjectArgs(input, objectKeys);
-          input = decoded.failedKey
-            ? wrapUnparseableToolArgs(tc.args)
-            : decoded.input;
+          // Use partially-decoded results even when some fields fail to
+          // JSON-parse. Raw strings are left in place for the downstream
+          // tool handler to deal with (e.g. resolveSkillExecuteInput
+          // already parses string-typed `input` values). This avoids
+          // rejecting the entire call with an opaque "not valid JSON"
+          // error when the envelope's scalar fields decoded fine.
+          input = decoded.input;
         }
         content.push({
           type: "tool_use",
