@@ -17,13 +17,14 @@
  * terminal-but-not-clean → error).
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
 import {
   useWorkflowStore,
   type WorkflowEntry,
   type WorkflowLeaf,
 } from "@/domains/chat/workflow-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { WorkflowRunStatus } from "@vellumai/assistant-api";
 import {
   type ToolCallCardData,
@@ -168,10 +169,26 @@ export function computeWorkflowCardData(
 /**
  * React hook: subscribe to the workflow store entry for `runId` and
  * project it into `ToolCallCardData`. Returns `null` when no entry exists
- * yet (spawn race) so callers can short-circuit rendering.
+ * yet (spawn race, or a history / post-reload card before hydration), so
+ * callers can short-circuit rendering.
+ *
+ * When the store has no entry, hydrates the run on demand from its row +
+ * journal. History and post-reload cards recover their runId from a
+ * persisted `run_workflow` tool result but get no live `workflow_started`
+ * event, so without this they would render `null` forever. Once hydration
+ * populates the store the subscription re-renders the card — the same
+ * settle-after-the-fact path as the spawn race.
  */
 export function useWorkflowCardData(runId: string): ToolCallCardData | null {
   const entry = useWorkflowStore((state) => state.byId[runId]);
+  const assistantId = useResolvedAssistantsStore((s) => s.activeAssistantId);
+
+  useEffect(() => {
+    if (!entry && assistantId) {
+      void useWorkflowStore.getState().hydrateRunIfNeeded(assistantId, runId);
+    }
+  }, [entry, assistantId, runId]);
+
   return useMemo(() => {
     if (!entry) return null;
     return computeWorkflowCardData(entry);

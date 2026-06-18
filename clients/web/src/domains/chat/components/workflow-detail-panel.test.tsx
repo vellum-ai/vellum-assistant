@@ -2,8 +2,9 @@
  * The detail panel renders the run header (label + status badge) and a live
  * leaf tree. Each leaf row is keyed by `seq` and shows a status icon that
  * resolves in place — a spinner while running, a check when completed, an
- * alert when failed. When a run has no leaves yet, the panel asks its host to
- * fetch the journal.
+ * alert when failed. The panel asks its host to fetch the journal on open
+ * and again when the run reaches a terminal state, reconciling leaves a
+ * dropped SSE event left stale.
  */
 
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
@@ -102,34 +103,76 @@ describe("WorkflowDetailPanel", () => {
     expect(container.querySelectorAll(".animate-spin").length).toBe(1);
   });
 
-  test("calls onRequestJournal when the run has no leaves", () => {
-    let requested: string | undefined;
+  test("requests the journal on open even when leaves are already present", () => {
+    const requested: string[] = [];
     render(
       <WorkflowDetailPanel
-        entry={makeEntry({ runId: "run-empty", leaves: new Map() })}
+        entry={makeEntry({
+          runId: "run-open",
+          leaves: leafMap([makeLeaf({ seq: 0 })]),
+        })}
         onClose={noop}
         onRequestJournal={(runId) => {
-          requested = runId;
+          requested.push(runId);
         }}
       />,
     );
 
-    expect(requested).toBe("run-empty");
+    expect(requested).toEqual(["run-open"]);
   });
 
-  test("does not call onRequestJournal when leaves are present", () => {
-    let called = false;
-    render(
+  test("requests the journal again when the run transitions to terminal", () => {
+    const requested: string[] = [];
+    const onRequestJournal = (runId: string) => {
+      requested.push(runId);
+    };
+    const { rerender } = render(
       <WorkflowDetailPanel
-        entry={makeEntry({ leaves: leafMap([makeLeaf({ seq: 0 })]) })}
+        entry={makeEntry({ runId: "run-final", status: "running" })}
         onClose={noop}
-        onRequestJournal={() => {
-          called = true;
-        }}
+        onRequestJournal={onRequestJournal}
+      />,
+    );
+    expect(requested).toEqual(["run-final"]);
+
+    rerender(
+      <WorkflowDetailPanel
+        entry={makeEntry({ runId: "run-final", status: "completed" })}
+        onClose={noop}
+        onRequestJournal={onRequestJournal}
+      />,
+    );
+    // One fetch on open (live) + one on the live→terminal transition.
+    expect(requested).toEqual(["run-final", "run-final"]);
+  });
+
+  test("does not re-request the journal across renders within the same phase", () => {
+    const requested: string[] = [];
+    const onRequestJournal = (runId: string) => {
+      requested.push(runId);
+    };
+    const { rerender } = render(
+      <WorkflowDetailPanel
+        entry={makeEntry({ runId: "run-stable", status: "running" })}
+        onClose={noop}
+        onRequestJournal={onRequestJournal}
       />,
     );
 
-    expect(called).toBe(false);
+    rerender(
+      <WorkflowDetailPanel
+        entry={makeEntry({
+          runId: "run-stable",
+          status: "running",
+          leaves: leafMap([makeLeaf({ seq: 0 })]),
+        })}
+        onClose={noop}
+        onRequestJournal={onRequestJournal}
+      />,
+    );
+
+    // Same run, same (live) phase — the effect's deps are unchanged.
+    expect(requested).toEqual(["run-stable"]);
   });
 
   test("shows the Stop button only for an active run", () => {

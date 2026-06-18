@@ -5,9 +5,15 @@
  * `WorkflowEntry → ToolCallCardData` mapping.
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
+import { cleanup, renderHook } from "@testing-library/react";
 
-import { computeWorkflowCardData } from "@/domains/chat/hooks/use-workflow-card-data";
+import {
+  computeWorkflowCardData,
+  useWorkflowCardData,
+} from "@/domains/chat/hooks/use-workflow-card-data";
+import { useWorkflowStore } from "@/domains/chat/workflow-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type {
   WorkflowEntry,
   WorkflowLeaf,
@@ -192,5 +198,70 @@ describe("computeWorkflowCardData — step count", () => {
   test("falls back to agentsSpawned when no leaves are tracked", () => {
     const data = computeWorkflowCardData(makeEntry({ agentsSpawned: 4 }));
     expect(data.stepCount).toBe("4 agents");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// useWorkflowCardData — on-demand hydration wiring
+// ---------------------------------------------------------------------------
+//
+// The store action itself (fetch row + journal, dedup, 404 handling) is
+// covered in workflow-store.test.ts. Here we only assert the hook wires the
+// effect: when the store has no entry and an assistant is active, it asks
+// the store to hydrate; otherwise it stays put.
+//
+// The real stores are driven via `setState` (with snapshot restore) rather
+// than `mock.module`, which is process-global and would leak into every
+// other test file in the run.
+
+describe("useWorkflowCardData — hydration wiring", () => {
+  afterEach(() => {
+    cleanup();
+    useWorkflowStore.getState().reset();
+    useResolvedAssistantsStore.setState({ activeAssistantId: null });
+    mock.restore();
+  });
+
+  test("returns null and hydrates on demand when the entry is absent", () => {
+    const realHydrate = useWorkflowStore.getState().hydrateRunIfNeeded;
+    const spy = mock(async (_assistantId: string, _runId: string) => {});
+    useWorkflowStore.setState({ hydrateRunIfNeeded: spy });
+    useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
+
+    const { result } = renderHook(() => useWorkflowCardData("wf-absent"));
+
+    expect(result.current).toBeNull();
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith("asst-1", "wf-absent");
+
+    useWorkflowStore.setState({ hydrateRunIfNeeded: realHydrate });
+  });
+
+  test("does not hydrate when an entry already exists", () => {
+    const realHydrate = useWorkflowStore.getState().hydrateRunIfNeeded;
+    const spy = mock(async (_assistantId: string, _runId: string) => {});
+    useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
+    useWorkflowStore.getState().startRun({ runId: "wf-present", timestamp: NOW });
+    useWorkflowStore.setState({ hydrateRunIfNeeded: spy });
+
+    const { result } = renderHook(() => useWorkflowCardData("wf-present"));
+
+    expect(result.current).not.toBeNull();
+    expect(spy).not.toHaveBeenCalled();
+
+    useWorkflowStore.setState({ hydrateRunIfNeeded: realHydrate });
+  });
+
+  test("does not hydrate when no assistant is active", () => {
+    const realHydrate = useWorkflowStore.getState().hydrateRunIfNeeded;
+    const spy = mock(async (_assistantId: string, _runId: string) => {});
+    useResolvedAssistantsStore.setState({ activeAssistantId: null });
+    useWorkflowStore.setState({ hydrateRunIfNeeded: spy });
+
+    renderHook(() => useWorkflowCardData("wf-no-asst"));
+
+    expect(spy).not.toHaveBeenCalled();
+
+    useWorkflowStore.setState({ hydrateRunIfNeeded: realHydrate });
   });
 });

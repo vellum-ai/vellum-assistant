@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 import type { WorkflowJournalResponse } from "@vellumai/assistant-api";
 
+import type { WorkflowRunRow } from "@/domains/chat/fetch-workflow-run";
+
 // Stub the journal fetch so fetchJournalIfNeeded is exercised without a
 // network boundary. The mock is reassigned per-test via `journalImpl`.
 let journalImpl: (
@@ -13,7 +15,37 @@ mock.module("@/domains/chat/fetch-workflow-journal", () => ({
     journalImpl(assistantId, runId),
 }));
 
+// Stub the run-row fetch the same way so hydrateRunIfNeeded is exercised
+// without a network boundary.
+let runImpl: (
+  assistantId: string,
+  runId: string,
+) => Promise<WorkflowRunRow | null> = async () => null;
+
+mock.module("@/domains/chat/fetch-workflow-run", () => ({
+  fetchWorkflowRun: (assistantId: string, runId: string) =>
+    runImpl(assistantId, runId),
+}));
+
 const { useWorkflowStore } = await import("@/domains/chat/workflow-store");
+
+function makeRunRow(overrides: Partial<WorkflowRunRow> = {}): WorkflowRunRow {
+  return {
+    id: "wf-1",
+    name: "Build report",
+    scriptHash: "hash-abc",
+    status: "completed",
+    conversationId: "conv-xyz",
+    agentsSpawned: 2,
+    inputTokens: 100,
+    outputTokens: 50,
+    error: null,
+    createdAt: NOW,
+    updatedAt: NOW,
+    finishedAt: NOW,
+    ...overrides,
+  };
+}
 
 function getState() {
   return useWorkflowStore.getState();
@@ -24,6 +56,7 @@ const NOW = 1700000000000;
 beforeEach(() => {
   getState().reset();
   journalImpl = async () => null;
+  runImpl = async () => null;
 });
 
 // ---------------------------------------------------------------------------
@@ -285,7 +318,7 @@ describe("backfillFromJournal", () => {
 // ---------------------------------------------------------------------------
 
 describe("fetchJournalIfNeeded", () => {
-  it("dedups a second call within the same startedAt", async () => {
+  it("dedups a second call within the same (run, phase)", async () => {
     getState().startRun({ runId: "wf-fetch", timestamp: NOW });
 
     let calls = 0;
@@ -298,16 +331,46 @@ describe("fetchJournalIfNeeded", () => {
     await getState().fetchJournalIfNeeded("asst-1", "wf-fetch");
 
     expect(calls).toBe(1);
-    expect(getState().fetchedAt.get("wf-fetch")).toBe(NOW);
+    // A running run is keyed under its `:live` phase.
+    expect(getState().fetchedAt.get("wf-fetch:live")).toBe(NOW);
   });
 
-  it("clears the marker on failure so callers can retry", async () => {
+  it("performs a second fetch once the run goes terminal", async () => {
+    getState().startRun({ runId: "wf-phase", timestamp: NOW });
+
+    let calls = 0;
+    journalImpl = async (_assistantId, runId) => {
+      calls += 1;
+      return { runId, leaves: [] };
+    };
+
+    // Live fetch.
+    await getState().fetchJournalIfNeeded("asst-1", "wf-phase");
+    expect(calls).toBe(1);
+
+    // Run finishes — a fresh `:final` key allows one more reconcile.
+    getState().completeRun({
+      runId: "wf-phase",
+      status: "completed",
+      agentsSpawned: 1,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+    await getState().fetchJournalIfNeeded("asst-1", "wf-phase");
+    await getState().fetchJournalIfNeeded("asst-1", "wf-phase");
+
+    expect(calls).toBe(2);
+    expect(getState().fetchedAt.get("wf-phase:live")).toBe(NOW);
+    expect(getState().fetchedAt.get("wf-phase:final")).toBe(NOW);
+  });
+
+  it("clears the phase marker on failure so callers can retry", async () => {
     getState().startRun({ runId: "wf-fail", timestamp: NOW });
 
     journalImpl = async () => null;
     await getState().fetchJournalIfNeeded("asst-1", "wf-fail");
 
-    expect(getState().fetchedAt.has("wf-fail")).toBe(false);
+    expect(getState().fetchedAt.has("wf-fail:live")).toBe(false);
   });
 
   it("no-ops when the run is unknown", async () => {
@@ -322,13 +385,107 @@ describe("fetchJournalIfNeeded", () => {
 });
 
 // ---------------------------------------------------------------------------
+// hydrateRunIfNeeded
+// ---------------------------------------------------------------------------
+
+describe("hydrateRunIfNeeded", () => {
+  it("populates a terminal run from its row and journal when absent", async () => {
+    runImpl = async () =>
+      makeRunRow({
+        id: "wf-hy",
+        name: "History run",
+        status: "completed",
+        agentsSpawned: 2,
+        inputTokens: 100,
+        outputTokens: 50,
+      });
+    journalImpl = async (_assistantId, runId) => ({
+      runId,
+      leaves: [
+        { seq: 0, kind: "agent", label: "Leaf 0", status: "completed", createdAt: NOW },
+      ],
+    });
+
+    await getState().hydrateRunIfNeeded("asst-1", "wf-hy");
+
+    const entry = getState().byId["wf-hy"]!;
+    expect(entry.status).toBe("completed");
+    expect(entry.label).toBe("History run");
+    expect(entry.agentsSpawned).toBe(2);
+    expect(entry.inputTokens).toBe(100);
+    expect(entry.outputTokens).toBe(50);
+    expect(entry.leaves.get(0)!.status).toBe("completed");
+    expect(getState().orderedIds).toEqual(["wf-hy"]);
+  });
+
+  it("hydrates a still-running run via applyProgress (no terminal counters)", async () => {
+    runImpl = async () =>
+      makeRunRow({ id: "wf-live", status: "running", agentsSpawned: 3 });
+    journalImpl = async (_assistantId, runId) => ({ runId, leaves: [] });
+
+    await getState().hydrateRunIfNeeded("asst-1", "wf-live");
+
+    const entry = getState().byId["wf-live"]!;
+    expect(entry.status).toBe("running");
+    expect(entry.agentsSpawned).toBe(3);
+  });
+
+  it("does not clobber an existing live entry", async () => {
+    getState().startRun({ runId: "wf-live2", label: "Live", timestamp: NOW });
+
+    let calls = 0;
+    runImpl = async () => {
+      calls += 1;
+      return makeRunRow({ id: "wf-live2" });
+    };
+
+    await getState().hydrateRunIfNeeded("asst-1", "wf-live2");
+
+    expect(calls).toBe(0);
+    expect(getState().byId["wf-live2"]!.label).toBe("Live");
+  });
+
+  it("attempts the fetch at most once per run", async () => {
+    let calls = 0;
+    runImpl = async () => {
+      calls += 1;
+      return makeRunRow({ id: "wf-dedup" });
+    };
+
+    await getState().hydrateRunIfNeeded("asst-1", "wf-dedup");
+    await getState().hydrateRunIfNeeded("asst-1", "wf-dedup");
+
+    expect(calls).toBe(1);
+  });
+
+  it("leaves no entry and stays marked when the run is unknown (404)", async () => {
+    let calls = 0;
+    runImpl = async () => {
+      calls += 1;
+      return null;
+    };
+
+    await getState().hydrateRunIfNeeded("asst-1", "wf-404");
+    // Re-attempt is suppressed even though no entry was created.
+    await getState().hydrateRunIfNeeded("asst-1", "wf-404");
+
+    expect(calls).toBe(1);
+    expect(getState().byId["wf-404"]).toBeUndefined();
+    expect(getState().hydratedRunIds.has("wf-404")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // reset
 // ---------------------------------------------------------------------------
 
 describe("reset", () => {
-  it("clears all runs, ordering, and indexes", () => {
+  it("clears all runs, ordering, and indexes", async () => {
     getState().startRun({ runId: "wf-r", toolUseId: "tu-r", timestamp: NOW });
     getState().leafStarted({ runId: "wf-r", seq: 0, label: "Leaf" });
+    // Mark a 404'd run so the hydrated set is non-empty before reset.
+    runImpl = async () => null;
+    await getState().hydrateRunIfNeeded("asst-1", "wf-404");
 
     getState().reset();
 
@@ -337,6 +494,7 @@ describe("reset", () => {
     expect(state.orderedIds).toEqual([]);
     expect(state.byToolUseId.size).toBe(0);
     expect(state.fetchedAt.size).toBe(0);
+    expect(state.hydratedRunIds.size).toBe(0);
   });
 });
 

@@ -21,12 +21,14 @@ import { create } from "zustand";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { workflowsRunsByIdAbortPost } from "@/generated/daemon/sdk.gen";
 import { createSelectors } from "@/utils/create-selectors";
+import { isActiveStatus } from "@/utils/workflow-status";
 import type {
   WorkflowRunStatus,
   WorkflowJournalResponse,
 } from "@vellumai/assistant-api";
 
 import { fetchWorkflowJournal } from "./fetch-workflow-journal";
+import { fetchWorkflowRun } from "./fetch-workflow-run";
 
 // ---------------------------------------------------------------------------
 // State
@@ -79,12 +81,23 @@ export interface WorkflowState {
    */
   byToolUseId: Map<string, string>;
   /**
-   * Tracks which runs have had their journal fetched, keyed by
-   * runId → startedAt at fetch time. Prevents redundant network requests
-   * while still allowing re-fetches when store rebuilds produce a new
-   * startedAt.
+   * Tracks journal fetches, keyed by a `${runId}:${phase}` tuple
+   * (`phase` is `"live"` while the run is active, `"final"` once it is
+   * terminal) → the entry's `startedAt` at fetch time. The phase split
+   * lets a run fetch its journal once mid-flight and once after it
+   * finishes, reconciling any leaves a dropped SSE event left stale,
+   * while still deduping repeat fetches within the same phase. The
+   * `startedAt` value allows a re-fetch when a store rebuild produces a
+   * newer entry.
    */
   fetchedAt: Map<string, number>;
+  /**
+   * RunIds whose row has been hydrated on demand (or attempted) for
+   * history / post-reload cards that have no live store entry. Prevents
+   * re-issuing the run-row fetch — including for genuinely unknown runs
+   * that 404 — so a perpetually-null card doesn't spam requests.
+   */
+  hydratedRunIds: Set<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -135,12 +148,24 @@ export interface WorkflowActions {
   backfillFromJournal: (runId: string, resp: WorkflowJournalResponse) => void;
 
   /**
-   * Fetch the journal from the daemon for a single run if not already
-   * fetched (or if the entry was rebuilt with a newer startedAt).
-   * Dedup state lives in the store so it survives component lifecycle.
-   * Clears the marker on failure so callers can retry.
+   * Fetch the journal from the daemon for a single run, deduped per
+   * `(runId, live|final)` phase so each run reconciles its leaves once
+   * mid-flight and once after it goes terminal (or if the entry was
+   * rebuilt with a newer startedAt). Dedup state lives in the store so it
+   * survives component lifecycle. Clears the phase marker on failure so
+   * callers can retry.
    */
   fetchJournalIfNeeded: (assistantId: string, runId: string) => Promise<void>;
+
+  /**
+   * Hydrate a run's store entry on demand from its row + journal. For
+   * history / post-reload cards whose runId is recoverable from a
+   * persisted `run_workflow` tool result but for which no live
+   * `workflow_started` event replays, so the store is otherwise empty.
+   * No-ops when the run is already present (live / already hydrated) and
+   * is attempted at most once per runId.
+   */
+  hydrateRunIfNeeded: (assistantId: string, runId: string) => Promise<void>;
 
   /**
    * Best-effort abort of a running workflow. Reads `assistantId` from the
@@ -163,6 +188,7 @@ const INITIAL_STATE: WorkflowState = {
   orderedIds: [],
   byToolUseId: new Map<string, string>(),
   fetchedAt: new Map<string, number>(),
+  hydratedRunIds: new Set<string>(),
 };
 
 // ---------------------------------------------------------------------------
@@ -180,6 +206,15 @@ function makeShellEntry(runId: string, startedAt: number): WorkflowEntry {
     startedAt,
     leaves: new Map<number, WorkflowLeaf>(),
   };
+}
+
+/**
+ * Journal-fetch dedup key. A run is allowed one fetch while `live` and one
+ * once `final` (terminal), so a `final` fetch can reconcile leaves a
+ * dropped mid-run SSE event left stuck "running".
+ */
+function journalFetchKey(status: WorkflowRunStatus, runId: string): string {
+  return `${runId}:${isActiveStatus(status) ? "live" : "final"}`;
 }
 
 /** Map a journal leaf's open-string status to a live leaf status. */
@@ -409,24 +444,58 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
     const entry = byId[runId];
     if (!entry) return;
 
-    const prev = fetchedAt.get(runId);
+    const key = journalFetchKey(entry.status, runId);
+    const prev = fetchedAt.get(key);
     if (prev !== undefined && prev >= entry.startedAt) return;
 
     // Mark as fetched before the await to prevent concurrent duplicates.
     const nextFetchedAt = new Map(fetchedAt);
-    nextFetchedAt.set(runId, entry.startedAt);
+    nextFetchedAt.set(key, entry.startedAt);
     set({ fetchedAt: nextFetchedAt });
 
     const resp = await fetchWorkflowJournal(assistantId, runId);
 
     if (!resp) {
       const next = new Map(get().fetchedAt);
-      next.delete(runId);
+      next.delete(key);
       set({ fetchedAt: next });
       return;
     }
 
     get().backfillFromJournal(runId, resp);
+  },
+
+  hydrateRunIfNeeded: async (assistantId, runId) => {
+    const { byId, hydratedRunIds } = get();
+    // Already live / hydrated — don't clobber an entry built from live
+    // events or a prior hydration.
+    if (byId[runId]) return;
+    // Attempt at most once per run, including unknown runs that 404.
+    if (hydratedRunIds.has(runId)) return;
+    set({ hydratedRunIds: new Set(hydratedRunIds).add(runId) });
+
+    const run = await fetchWorkflowRun(assistantId, runId);
+    // Genuinely unknown run — leave it marked so the null card doesn't spam.
+    if (!run) return;
+
+    get().startRun({
+      runId,
+      label: run.name ?? undefined,
+      timestamp: Date.now(),
+    });
+    if (isActiveStatus(run.status)) {
+      get().applyProgress({ runId, agentsSpawned: run.agentsSpawned });
+    } else {
+      get().completeRun({
+        runId,
+        status: run.status,
+        agentsSpawned: run.agentsSpawned,
+        inputTokens: run.inputTokens,
+        outputTokens: run.outputTokens,
+      });
+    }
+
+    await get().fetchJournalIfNeeded(assistantId, runId);
   },
 
   abortRun: async (runId) => {
@@ -448,6 +517,7 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
       orderedIds: [],
       byToolUseId: new Map<string, string>(),
       fetchedAt: new Map<string, number>(),
+      hydratedRunIds: new Set<string>(),
     }),
 }));
 

@@ -153,11 +153,14 @@ export function WorkflowDetailPanel({
   const title = entry.label ?? entry.runId;
   const agentCount = entry.agentsSpawned || entry.leaves.size;
 
+  // Reconcile leaves against the journal once on open (while live) and
+  // again when the run reaches a terminal state — a `final` fetch flips
+  // any leaf left stuck "running" by a dropped SSE event. The store
+  // dedups per `(runId, phase)`, so the repeat on re-render is cheap.
+  const journalPhase = isRunning ? "live" : "final";
   useEffect(() => {
-    if (onRequestJournal && entry.leaves.size === 0) {
-      onRequestJournal(entry.runId);
-    }
-  }, [entry.runId, entry.leaves.size, onRequestJournal]);
+    onRequestJournal?.(entry.runId);
+  }, [entry.runId, journalPhase, onRequestJournal]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
