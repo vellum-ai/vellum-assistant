@@ -31,7 +31,6 @@
  * - Media stream `stop` event / WebSocket close -> finalize call.
  */
 
-import type { AdmissionPolicy } from "@vellumai/gateway-client";
 import type { ServerWebSocket } from "bun";
 
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
@@ -375,17 +374,9 @@ export class MediaStreamCallSession {
 
     // Resolve the phone channel's inbound admission floor so the trust floor
     // (e.g. guardian_only) is enforced on this transport too — not just the
-    // gateway webhook's no_one kill switch. The reader fails open to `null`;
-    // the guard keeps a reader throw from ever aborting setup (admit in doubt).
-    let admissionPolicy: AdmissionPolicy | null = null;
-    try {
-      admissionPolicy = await getChannelAdmissionPolicy("phone");
-    } catch (err) {
-      log.warn(
-        { err, callSessionId: this.callSessionId },
-        "Failed to resolve phone admission policy — admitting (fail open)",
-      );
-    }
+    // gateway webhook's no_one kill switch. The reader fails open to `null`
+    // by contract, so a transport hiccup admits the caller.
+    const admissionPolicy = await getChannelAdmissionPolicy("phone");
 
     const { outcome, resolved } = routeSetup({
       callSessionId: this.callSessionId,

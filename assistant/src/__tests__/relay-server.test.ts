@@ -113,14 +113,12 @@ mock.module("../config/loader.js", () => ({
 let mockAdmissionPolicy:
   | import("@vellumai/gateway-client").AdmissionPolicy
   | null = null;
-let mockAdmissionReaderThrows = false;
 // Optional gate to hold the reader open mid-setup so tests can drive the
 // race window where a prompt arrives while handleSetup is still awaiting.
 let mockAdmissionGate: Promise<void> | null = null;
 mock.module("../calls/channel-admission-reader.js", () => ({
   getChannelAdmissionPolicy: async () => {
     if (mockAdmissionGate) await mockAdmissionGate;
-    if (mockAdmissionReaderThrows) throw new Error("reader boom");
     return mockAdmissionPolicy;
   },
 }));
@@ -464,7 +462,6 @@ describe("relay-server", () => {
     mockUserReference = "my human";
     mockAssistantName = "Vellum";
     mockAdmissionPolicy = null;
-    mockAdmissionReaderThrows = false;
     mockAdmissionGate = null;
     mockSendMessage.mockImplementation(createMockProviderResponse(["Hello"]));
     mockConfig.calls.verification.enabled = false;
@@ -2974,41 +2971,6 @@ describe("relay-server", () => {
     // Trusted contact proceeds normally — no deny.
     expect(relay.getConnectionState()).toBe("connected");
 
-    const updated = getCallSession(session.id);
-    expect(updated!.status).toBe("in_progress");
-
-    relay.destroy();
-  });
-
-  test("admission floor: reader throw fails open and admits the caller", async () => {
-    ensureConversation("conv-admission-floor-throw");
-    const session = createCallSession({
-      conversationId: "conv-admission-floor-throw",
-      provider: "twilio",
-      fromNumber: "+15557776666",
-      toNumber: "+15551111111",
-    });
-
-    addTrustedVoiceContact("+15557776666");
-    mockAdmissionReaderThrows = true; // reader cannot break setup
-
-    mockSendMessage.mockImplementation(
-      createMockProviderResponse(["Hello, how can I help you?"]),
-    );
-
-    const { relay } = createMockWs(session.id);
-
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "setup",
-        callSid: "CA_admission_floor_throw",
-        from: "+15557776666",
-        to: "+15551111111",
-      }),
-    );
-
-    // Fail open: reader failure admits the caller; setup completes normally.
-    expect(relay.getConnectionState()).toBe("connected");
     const updated = getCallSession(session.id);
     expect(updated!.status).toBe("in_progress");
 
