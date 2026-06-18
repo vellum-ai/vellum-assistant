@@ -87,20 +87,37 @@ If the user declines, stop — no snapshot, no work. If `assistant ui confirm` i
 
 ### Step 1 — Freeze consolidation + snapshot (loss-proof staging)
 
-First **pause consolidation** so nothing writes to the live corpus while you reform it. Consolidation is the only process that writes `memory/concepts/`; if it fires mid-migration it adds pages that aren't in your snapshot (so they never get reformed) and that the cutover would then clobber. Setting `memory.v2.enabled false` makes the consolidation job bail — it also pauses v2 retrieval/injection for the duration, which is fine for a focused migration. You restore it at cutover (Step 9).
+Consolidation is the **only** process that writes `memory/concepts/`. If it fires mid-migration it adds pages absent from your snapshot (never reformed) that the cutover then clobbers. Freeze it in two parts — disable the triggers, then wait out any run already in flight — before you snapshot. This leaves v2 retrieval live (unlike disabling `memory.v2.enabled` wholesale).
+
+**(a) Record, then disable, both triggers.** Consolidation fires on a size trigger (`consolidation_max_buffer_lines`) and a time trigger (`consolidation_interval_hours`) — those are the only two paths. Capture the current values first so you can restore them at cutover:
 
 ```
 cd /workspace
-assistant config set memory.v2.enabled false   # pause consolidation — the only live-corpus writer
-assistant config get memory.v2.enabled         # expect: false
+assistant config get memory.v2.consolidation_max_buffer_lines   # record (default 100)
+assistant config get memory.v2.consolidation_interval_hours     # record (default 4)
+assistant config set memory.v2.consolidation_max_buffer_lines null     # size trigger off
+assistant config set memory.v2.consolidation_interval_hours 876000     # time trigger off (~100y)
 ```
 
-Then establish the paper trail and the read-only baseline:
+**(b) Wait out any in-flight run.** A run holds `memory/.v2-state/consolidation.lock` (`<pid> <ms>`) while working (hard-capped at 15 min) and removes it when done. The triggers are off now, so no new run can start — just wait for the lock to clear:
+
+```
+LOCK=memory/.v2-state/consolidation.lock
+for _ in $(seq 1 80); do
+  [ -f "$LOCK" ] || { echo "consolidation idle"; break; }
+  PID=$(awk '{print $1}' "$LOCK" 2>/dev/null)
+  kill -0 "$PID" 2>/dev/null || { echo "stale lock (pid $PID dead) — proceeding"; break; }
+  echo "consolidation in progress (pid $PID) — waiting…"; sleep 15
+done
+```
+
+**(c) Snapshot** — paper trail + read-only baseline:
 
 ```
 git add -A && git commit -m "memory-v3-migration: start" --allow-empty
 cp -R memory/concepts .mv3/snapshot/concepts          # read-only baseline — NEVER edit
 mkdir -p .mv3/staging .mv3/provenance .mv3/audit .mv3/eval
+[ -f "$LOCK" ] && echo "WARN: a run started during the copy — re-snapshot"   # sanity
 ```
 
 `.mv3/` is your scratch tree, separate from live `memory/`. All authoring writes to `.mv3/staging/`. You commit again at two milestones (mid — after authoring + audit, Step 7; complete — after cutover, Step 9). All sentinels use the exact prefix `memory-v3-migration:` so `git log --grep` finds them as one set. See `references/loss-proofing.md` for the full contract.
@@ -176,11 +193,13 @@ rsync -a --delete .mv3/staging/ memory/concepts/                     # deploy th
 assistant memory v3 backfill-sections                                # seed section embeddings; verify non-zero
 assistant memory v3 rebuild-index                                    # invalidate lanes so next turn rebuilds
 assistant config set memory.v3.live true                             # v3 becomes the live injected source
-assistant config set memory.v2.enabled true                          # resume consolidation (now writes v3-shape pages)
+# restore the two triggers to the values you recorded in Step 1 (defaults shown — use YOUR recorded values):
+assistant config set memory.v2.consolidation_max_buffer_lines 100    # re-enable size trigger
+assistant config set memory.v2.consolidation_interval_hours 4        # re-enable time trigger
 assistant config get memory.v3.live                                  # expect: true
 ```
 
-`memory.v3.live` is plain workspace config the assistant owns — no feature flag, no operator hand-off. **Order matters:** set `memory.v3.live true` _before_ re-enabling consolidation, so it resumes in v3 shape, not v2. Keep `.mv3/backup-concepts.*` and `.mv3/snapshot/` until the user confirms the live wiki is good. **Rollback:** `rsync -a --delete` from the backup over `memory/concepts/`, then `assistant config set memory.v3.live false` (leave `memory.v2.enabled true` so v2-shape consolidation resumes on the restored corpus).
+`memory.v3.live` is plain workspace config the assistant owns — no feature flag, no operator hand-off. **Order matters:** set `memory.v3.live true` _before_ restoring the triggers, so the next consolidation is v3-shape, not v2. (`memory.v2.enabled` stayed `true` throughout — retrieval was never interrupted; only the triggers were paused.) Keep `.mv3/backup-concepts.*` and `.mv3/snapshot/` until the user confirms the live wiki is good. **Rollback:** `rsync -a --delete` from the backup over `memory/concepts/`, then `assistant config set memory.v3.live false` (the restored triggers then run v2-shape consolidation on the restored corpus).
 
 ```
 git add -A && git commit -m "memory-v3-migration: complete (wiki deployed, sections backfilled)" --allow-empty
@@ -199,7 +218,7 @@ Close the inference session if you opened one (`assistant inference session clos
 - **Editorial judgment is the assistant's.** Taxonomy (Step 3) and final review (Step 7) are the assistant's calls; fan-out leaves draft, they never mark an article final.
 - **Cluster-grain authoring.** One agent per topic cluster, not per page — keeps the run under the engine's 500-agent cap and keeps topical judgment coherent.
 - **No eval, no cutover.** The wiki ships only after the blind judge says it retrieves ≥ the v2 corpus.
-- **Pause consolidation, then go live by config.** Set `memory.v2.enabled false` before the snapshot (Step 1) — consolidation is the only live-corpus writer. At cutover (Step 9) set `memory.v3.live true` _then_ `memory.v2.enabled true`; the order keeps the resumed consolidation in v3 shape.
+- **Freeze consolidation, then go live by config.** Before the snapshot (Step 1) disable both consolidation triggers (`consolidation_max_buffer_lines: null`, `consolidation_interval_hours` huge) and wait out any in-flight run via `memory/.v2-state/consolidation.lock` — consolidation is the only live-corpus writer. At cutover (Step 9) set `memory.v3.live true` _then_ restore the triggers; the order keeps the next consolidation in v3 shape.
 - **Lowercase, dash-separated flat slugs.** `the-cutover.md`, not `Arcs/The-Cutover.md`. v3 slugs are flat; hubs organize via `main:`/`links:`, not folders.
 - **Three sentinel commits**, all prefixed `memory-v3-migration:` — start / staged+audited / complete.
 
