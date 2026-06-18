@@ -497,6 +497,20 @@ export async function getMemoryBackendStatus(config: AssistantConfig): Promise<{
   };
 }
 
+/**
+ * Thrown by {@link embedWithBackend} when no embedding backend is configured or
+ * available. This is a PROCESS-WIDE condition (backend selection is effectively
+ * cached for the run), so a caller embedding many items should treat the first
+ * occurrence as fatal to the whole batch rather than a per-item failure — see
+ * `backfillAllSections`, which aborts on it instead of churning through deletes.
+ */
+export class EmbeddingBackendUnavailableError extends Error {
+  constructor(message = "No memory embedding backend configured") {
+    super(message);
+    this.name = "EmbeddingBackendUnavailableError";
+  }
+}
+
 export async function embedWithBackend(
   config: AssistantConfig,
   inputs: EmbeddingInput[],
@@ -514,7 +528,7 @@ export async function embedWithBackend(
 
   const selection = await selectEmbeddingBackend(config);
   if (!selection.backend) {
-    throw new Error(
+    throw new EmbeddingBackendUnavailableError(
       selection.reason ?? "No memory embedding backend configured",
     );
   }
