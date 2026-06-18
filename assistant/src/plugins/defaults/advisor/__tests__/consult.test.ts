@@ -93,7 +93,7 @@ describe("consultAdvisor", () => {
     expect(lastText).not.toContain("words");
 
     const options = sendMessageArgs?.options as { systemPrompt: string };
-    expect(options.systemPrompt).toContain("senior staff engineer");
+    expect(options.systemPrompt).toContain("senior advisor");
     expect(options.systemPrompt).toContain("You are a coding agent.");
   });
 
