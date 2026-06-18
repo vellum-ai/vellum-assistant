@@ -137,12 +137,16 @@ export function resolveServerConsent(
   // returns the API defaults (empty versions, share booleans true). Any
   // non-empty version or any `false` share boolean can only have come from a
   // real stored row, so it proves a record whose data is worth preserving.
+  // Truthiness (not `!== ""`) so a response that OMITS the newer
+  // share-version fields — e.g. an older backend during rollout — reads as
+  // absent rather than as record evidence. `undefined` and `""` both mean
+  // "no version on record".
   const hasServerRecord =
-    consent.tos_accepted_version !== "" ||
-    consent.privacy_policy_accepted_version !== "" ||
-    consent.ai_data_sharing_accepted_version !== "" ||
-    consent.share_analytics_accepted_version !== "" ||
-    consent.share_diagnostics_accepted_version !== "" ||
+    !!consent.tos_accepted_version ||
+    !!consent.privacy_policy_accepted_version ||
+    !!consent.ai_data_sharing_accepted_version ||
+    !!consent.share_analytics_accepted_version ||
+    !!consent.share_diagnostics_accepted_version ||
     consent.share_analytics === false ||
     consent.share_diagnostics === false;
   return {

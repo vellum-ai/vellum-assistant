@@ -152,6 +152,23 @@ describe("resolveServerConsent", () => {
     expect(r.hasServerRecord).toBe(false);
   });
 
+  test("hasServerRecord is false when share-version fields are omitted (older backend)", () => {
+    // Simulate a rollout-window response that predates the share-version
+    // fields: they are absent (undefined), not empty strings.
+    const legacy = makeConsent({
+      tos_accepted_version: "",
+      privacy_policy_accepted_version: "",
+      ai_data_sharing_accepted_version: "",
+      share_analytics: true,
+      share_diagnostics: true,
+    }) as unknown as Record<string, unknown>;
+    delete legacy.share_analytics_accepted_version;
+    delete legacy.share_diagnostics_accepted_version;
+    expect(
+      resolveServerConsent(legacy as unknown as UserConsent).hasServerRecord,
+    ).toBe(false);
+  });
+
   test("hasServerRecord is false for null/undefined consent", () => {
     expect(resolveServerConsent(null).hasServerRecord).toBe(false);
     expect(resolveServerConsent(undefined).hasServerRecord).toBe(false);
