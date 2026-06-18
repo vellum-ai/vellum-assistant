@@ -227,6 +227,64 @@ describe("closeSubagentDetail", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Workflow detail
+// ---------------------------------------------------------------------------
+
+describe("openWorkflowDetail", () => {
+  it("saves current view and switches to workflow-detail", () => {
+    getState().openWorkflowDetail("run-1");
+    const state = getState();
+    expect(state.mainView).toBe("workflow-detail");
+    expect(state.activeWorkflowRunId).toBe("run-1");
+    expect(state.viewBeforeWorkflowDetail).toBe("chat");
+  });
+
+  it("preserves existing viewBeforeWorkflowDetail when already in workflow-detail", () => {
+    useViewerStore.setState({
+      mainView: "workflow-detail",
+      viewBeforeWorkflowDetail: "app",
+      activeWorkflowRunId: "run-1",
+    });
+    getState().openWorkflowDetail("run-2");
+    const state = getState();
+    expect(state.viewBeforeWorkflowDetail).toBe("app");
+    expect(state.activeWorkflowRunId).toBe("run-2");
+  });
+
+  it("saves non-chat view correctly", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().openWorkflowDetail("run-1");
+    expect(getState().viewBeforeWorkflowDetail).toBe("app");
+  });
+});
+
+describe("closeWorkflowDetail", () => {
+  it("restores viewBeforeWorkflowDetail and clears activeWorkflowRunId", () => {
+    useViewerStore.setState({
+      mainView: "workflow-detail",
+      viewBeforeWorkflowDetail: "chat",
+      activeWorkflowRunId: "run-1",
+    });
+    getState().closeWorkflowDetail();
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeWorkflowRunId).toBeNull();
+  });
+
+  it("restores a non-chat view", () => {
+    useViewerStore.setState({
+      mainView: "workflow-detail",
+      viewBeforeWorkflowDetail: "app",
+      activeWorkflowRunId: "run-1",
+    });
+    getState().closeWorkflowDetail();
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.activeWorkflowRunId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Tool detail
 // ---------------------------------------------------------------------------
 
@@ -251,6 +309,17 @@ describe("openToolDetail", () => {
   it("does not overwrite a real prior view with a transient one when already in subagent-detail", () => {
     useViewerStore.setState({
       mainView: "subagent-detail",
+      viewBeforeToolDetail: "app",
+    });
+    getState().openToolDetail(SAMPLE_TOOL);
+    const state = getState();
+    expect(state.mainView).toBe("tool-detail");
+    expect(state.viewBeforeToolDetail).toBe("app");
+  });
+
+  it("does not overwrite a real prior view with a transient one when already in workflow-detail", () => {
+    useViewerStore.setState({
+      mainView: "workflow-detail",
       viewBeforeToolDetail: "app",
     });
     getState().openToolDetail(SAMPLE_TOOL);

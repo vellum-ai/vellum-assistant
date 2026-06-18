@@ -11,9 +11,10 @@
  * - `isAppMinimized` — mobile-only: app viewer minimized
  * - `intelligenceTab` — sub-tab inside the intelligence panel
  * - `assetsRefreshKey` — counter bumped to force asset re-fetches
- * - `viewBeforeDocument` / `viewBeforeSubagentDetail` / `viewBeforeToolDetail` — previous view for restoration
+ * - `viewBeforeDocument` / `viewBeforeSubagentDetail` / `viewBeforeToolDetail` / `viewBeforeWorkflowDetail` — previous view for restoration
  * - `activeSubagentId` — subagent detail panel
  * - `activeToolDetail` — tool-call detail drawer payload
+ * - `activeWorkflowRunId` — workflow detail panel
  *
  * App share/deploy lifecycle lives in `domains/chat/deploy-store.ts`.
  *
@@ -28,7 +29,7 @@ import { primeAppHtmlCache } from "@/utils/app-html-cache";
 import { createSelectors } from "@/utils/create-selectors";
 
 /** Views that overlay the main content and track a "back" destination. */
-type OverlayView = "document" | "subagent-detail" | "tool-detail";
+type OverlayView = "document" | "subagent-detail" | "tool-detail" | "workflow-detail";
 
 /**
  * Resolve the "view before" value for overlay navigation.
@@ -84,10 +85,19 @@ export function isAppNotFoundError(err: unknown): boolean {
 
 function resolveViewBefore(
   state: ViewerState,
-  field: "viewBeforeDocument" | "viewBeforeSubagentDetail" | "viewBeforeToolDetail",
+  field:
+    | "viewBeforeDocument"
+    | "viewBeforeSubagentDetail"
+    | "viewBeforeToolDetail"
+    | "viewBeforeWorkflowDetail",
 ): Exclude<MainView, OverlayView> {
   const mv = state.mainView;
-  if (mv === "document" || mv === "subagent-detail" || mv === "tool-detail") {
+  if (
+    mv === "document" ||
+    mv === "subagent-detail" ||
+    mv === "tool-detail" ||
+    mv === "workflow-detail"
+  ) {
     return state[field];
   }
   return mv as Exclude<MainView, OverlayView>;
@@ -103,7 +113,8 @@ export type MainView =
   | "app-editing"
   | "document"
   | "subagent-detail"
-  | "tool-detail";
+  | "tool-detail"
+  | "workflow-detail";
 
 export type IntelligenceTab = "identity" | "skills" | "workspace" | "contacts";
 
@@ -198,11 +209,13 @@ export interface ViewerState {
   isAppMinimized: boolean;
   intelligenceTab: IntelligenceTab;
   assetsRefreshKey: number;
-  viewBeforeDocument: Exclude<MainView, "document" | "subagent-detail" | "tool-detail">;
+  viewBeforeDocument: Exclude<MainView, "document" | "subagent-detail" | "tool-detail" | "workflow-detail">;
   activeSubagentId: string | null;
-  viewBeforeSubagentDetail: Exclude<MainView, "document" | "subagent-detail" | "tool-detail">;
+  viewBeforeSubagentDetail: Exclude<MainView, "document" | "subagent-detail" | "tool-detail" | "workflow-detail">;
   activeToolDetail: ToolDetailPayload | null;
-  viewBeforeToolDetail: Exclude<MainView, "document" | "subagent-detail" | "tool-detail">;
+  viewBeforeToolDetail: Exclude<MainView, "document" | "subagent-detail" | "tool-detail" | "workflow-detail">;
+  activeWorkflowRunId: string | null;
+  viewBeforeWorkflowDetail: Exclude<MainView, "document" | "subagent-detail" | "tool-detail" | "workflow-detail">;
   /**
    * Monotonic counter bumped when a viewer (e.g. the mobile tool-detail
    * overlay, which lives in a separate portal subtree) asks to open the trust
@@ -231,6 +244,10 @@ export interface ViewerActions {
   // --- Subagent detail ---
   openSubagentDetail: (subagentId: string) => void;
   closeSubagentDetail: () => void;
+
+  // --- Workflow detail ---
+  openWorkflowDetail: (runId: string) => void;
+  closeWorkflowDetail: () => void;
 
   // --- Tool detail ---
   openToolDetail: (payload: ToolDetailPayload) => void;
@@ -279,6 +296,8 @@ const INITIAL_STATE: ViewerState = {
   viewBeforeSubagentDetail: "chat",
   activeToolDetail: null,
   viewBeforeToolDetail: "chat",
+  activeWorkflowRunId: null,
+  viewBeforeWorkflowDetail: "chat",
   ruleEditorRequestSeq: 0,
 };
 
@@ -401,6 +420,23 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     set({
       mainView: get().viewBeforeSubagentDetail,
       activeSubagentId: null,
+    });
+  },
+
+  // --- Workflow detail ---
+
+  openWorkflowDetail: (runId) => {
+    set({
+      mainView: "workflow-detail",
+      activeWorkflowRunId: runId,
+      viewBeforeWorkflowDetail: resolveViewBefore(get(), "viewBeforeWorkflowDetail"),
+    });
+  },
+
+  closeWorkflowDetail: () => {
+    set({
+      mainView: get().viewBeforeWorkflowDetail,
+      activeWorkflowRunId: null,
     });
   },
 
