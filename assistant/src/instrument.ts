@@ -64,6 +64,14 @@ export function initSentry(): void {
     dist: COMMIT_SHA,
     environment: process.env.VELLUM_ENVIRONMENT ?? "production",
     sendDefaultPii: false,
+    // Fail-closed: suppress client-report pings (discarded-event counts) so an
+    // assistant with unconfirmed share_diagnostics consent stays network-silent.
+    sendClientReports: false,
+    // Drop the default ProcessSession integration: it starts a release-health
+    // session on init and flushes a session envelope on process exit (a network
+    // request not covered by the beforeSend event gate), violating fail-closed.
+    integrations: (defaults) =>
+      defaults.filter((i) => i.name !== "ProcessSession"),
     serverName: hostname(),
     initialScope: {
       tags: {
