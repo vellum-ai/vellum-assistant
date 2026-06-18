@@ -70,9 +70,9 @@ import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
-import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { resolveCapabilities } from "../runtime/capabilities.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import type { ActivationMomentParam } from "../telemetry/activation-funnel.js";
 import type { UsageActor } from "../usage/actors.js";
@@ -1604,9 +1604,9 @@ export async function applyCompactionResult(
   // in-context boundary rather than the raw mirror so the persisted count
   // stays consistent with what the new summary represents and never
   // double-counts an unsliced untrusted view.
-  const inContextCompactedCount = isUntrustedTrustClass(
+  const inContextCompactedCount = !resolveCapabilities(
     ctx.trustContext?.trustClass,
-  )
+  ).canAccessMemory
     ? 0
     : ctx.contextCompactedMessageCount;
   ctx.contextCompactedMessageCount =

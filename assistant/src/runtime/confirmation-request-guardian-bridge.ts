@@ -21,6 +21,7 @@ import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
+import { resolveCapabilities } from "./capabilities.js";
 import { getGuardianBinding } from "./channel-verification-service.js";
 
 const log = getLogger("confirmation-request-guardian-bridge");
@@ -79,12 +80,12 @@ export function bridgeConfirmationRequestToGuardian(
     assistantId = DAEMON_INTERNAL_ASSISTANT_ID,
   } = params;
 
-  // Only bridge for identity-known non-guardian sessions (trusted_contact and
-  // unverified_contact). Guardians self-approve and unknown actors are
-  // fail-closed by the routing layer.
+  // Only bridge for actors whose sensitive tool approval escalates-and-waits.
+  // Guardians self-approve and unknown actors are fail-closed by the routing
+  // layer, so neither needs a guardian bridge.
   if (
-    trustContext.trustClass !== "trusted_contact" &&
-    trustContext.trustClass !== "unverified_contact"
+    resolveCapabilities(trustContext.trustClass).sensitiveToolApproval !==
+    "escalate-and-wait"
   ) {
     return { skipped: true, reason: "not_bridgeable_trust_class" };
   }

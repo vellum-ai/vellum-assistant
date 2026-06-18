@@ -5,7 +5,7 @@ import { bridgeCesApproval } from "../credential-execution/approval-bridge.js";
 import { isCesShellLockdownEnabled } from "../credential-execution/feature-gates.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { RiskLevel } from "../permissions/types.js";
-import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
+import { resolveCapabilities } from "../runtime/capabilities.js";
 import { redactSensitiveFields } from "../security/redaction.js";
 import { getCesClient } from "../security/secure-keys.js";
 import { TokenExpiredError } from "../security/token-manager.js";
@@ -129,7 +129,7 @@ export class ToolExecutor {
       if (
         name === "host_bash" &&
         isCesShellLockdownEnabled(getConfig()) &&
-        isUntrustedTrustClass(context.trustClass)
+        !resolveCapabilities(context.trustClass).unsandboxedShell
       ) {
         context.forcePromptSideEffects = true;
       }

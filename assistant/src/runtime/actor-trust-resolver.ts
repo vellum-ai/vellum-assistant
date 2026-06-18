@@ -73,18 +73,6 @@ export const TRUST_CLASS_RANK: Record<TrustClass, number> = {
   unknown: 1,
 };
 
-/** Returns `true` for actors that are not fully trusted (i.e. not the guardian). */
-export function isUntrustedTrustClass(
-  trustClass: TrustClass | undefined,
-): boolean {
-  return (
-    trustClass === "trusted_contact" ||
-    trustClass === "unverified_contact" ||
-    trustClass === "unknown" ||
-    trustClass === undefined
-  );
-}
-
 /**
  * Fully resolved trust context from the actor trust resolver.
  *

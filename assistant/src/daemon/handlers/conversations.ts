@@ -2,8 +2,8 @@ import { v4 as uuid } from "uuid";
 
 import { clearAll, getConversation } from "../../memory/conversation-crud.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
-import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
+import { resolveCapabilities } from "../../runtime/capabilities.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { createAbortReason } from "../../util/abort-reasons.js";
 import { UserError } from "../../util/errors.js";
@@ -184,7 +184,7 @@ export async function resolveMetaSlashCommand(
   // Temporarily apply the guardian context for hydration and restore it
   // afterward so the elevated class never leaks into a later turn's snapshot.
   const priorTrustContext = conversation.trustContext;
-  if (isUntrustedTrustClass(priorTrustContext?.trustClass)) {
+  if (!resolveCapabilities(priorTrustContext?.trustClass).canAccessMemory) {
     conversation.setTrustContext(INTERNAL_GUARDIAN_TRUST_CONTEXT);
   }
   try {

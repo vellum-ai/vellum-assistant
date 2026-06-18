@@ -16,6 +16,7 @@ import type {
   RiskThreshold,
 } from "../permissions/types.js";
 import { RiskLevel } from "../permissions/types.js";
+import { resolveCapabilities } from "../runtime/capabilities.js";
 import { getLogger } from "../util/logger.js";
 import { buildPolicyContext } from "./policy-context.js";
 import { isSideEffectTool } from "./side-effects.js";
@@ -238,7 +239,7 @@ export class PermissionChecker {
         result.decision === "prompt" &&
         context.isPlatformHosted &&
         name === "bash" &&
-        context.trustClass === "guardian" &&
+        resolveCapabilities(context.trustClass).canSelfApproveTools &&
         !context.requireFreshApproval
       ) {
         log.info(
@@ -274,7 +275,7 @@ export class PermissionChecker {
           true;
         if (
           context.isInteractive === false &&
-          context.trustClass === "guardian" &&
+          resolveCapabilities(context.trustClass).canSelfApproveTools &&
           !context.requireFreshApproval &&
           !isDynamicSkillLoad
         ) {

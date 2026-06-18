@@ -4,8 +4,8 @@ import { spawn } from "node:child_process";
 import { getConfig } from "../../config/loader.js";
 import { isCesShellLockdownEnabled } from "../../credential-execution/feature-gates.js";
 import { RiskLevel } from "../../permissions/types.js";
-import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
+import { resolveCapabilities } from "../../runtime/capabilities.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
 import { getDataDir } from "../../util/platform.js";
@@ -119,7 +119,7 @@ export const shellTool = {
     const config = getConfig();
     const shellLockdownActive =
       isCesShellLockdownEnabled(config) &&
-      isUntrustedTrustClass(context.trustClass);
+      !resolveCapabilities(context.trustClass).unsandboxedShell;
 
     const networkMode: "off" | "proxied" =
       input.network_mode === "proxied" ? "proxied" : "off";
