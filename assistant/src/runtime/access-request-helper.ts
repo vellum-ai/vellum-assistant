@@ -20,6 +20,7 @@ import {
   listCanonicalGuardianRequests,
   updateCanonicalGuardianDelivery,
 } from "../memory/canonical-guardian-store.js";
+import { recordCanonicalChannelDelivery } from "../notifications/canonical-delivery-recorder.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import type { GuardianResolutionSource } from "../notifications/signal.js";
 import type { NotificationDeliveryResult } from "../notifications/types.js";
@@ -269,12 +270,10 @@ export function notifyGuardianOfAccessRequest(
           continue;
         }
 
-        const delivery = createCanonicalGuardianDelivery({
-          requestId: canonicalRequest.id,
-          destinationChannel: result.channel,
-          destinationChatId:
-            result.destination.length > 0 ? result.destination : undefined,
-        });
+        const delivery = recordCanonicalChannelDelivery(
+          canonicalRequest.id,
+          result,
+        );
         applyDeliveryStatus(delivery.id, result);
       }
 

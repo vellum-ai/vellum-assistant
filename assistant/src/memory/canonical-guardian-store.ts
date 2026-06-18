@@ -74,7 +74,7 @@ export interface CanonicalGuardianRequest {
   updatedAt: number;
 }
 
-interface CanonicalGuardianDelivery {
+export interface CanonicalGuardianDelivery {
   id: string;
   requestId: string;
   destinationChannel: string;

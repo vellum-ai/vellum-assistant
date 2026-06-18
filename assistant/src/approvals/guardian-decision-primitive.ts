@@ -48,6 +48,7 @@ import type { ApplyGuardianDecisionResult } from "../runtime/guardian-decision-t
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { getLogger } from "../util/logger.js";
 import { mintGrantFromDecision } from "./approval-primitive.js";
+import { withdrawGuardianRequestCards } from "./guardian-card-withdrawal.js";
 import {
   type ActorContext,
   type ChannelDeliveryContext,
@@ -570,6 +571,17 @@ export async function applyCanonicalGuardianDecision(
     });
     grantMinted = grantResult.minted;
   }
+
+  // 6. Project the terminal status onto the request's approval cards on every
+  // surface it was delivered to (in-app, Slack, ...). The in-app card is
+  // skipped when the decision came from in-app — that client already completed
+  // it optimistically. Best-effort and non-throwing: the decision is already
+  // committed via CAS, so card withdrawal must never affect the result.
+  await withdrawGuardianRequestCards({
+    request: resolved,
+    status: targetStatus,
+    originChannel: actorContext.channel,
+  });
 
   log.info(
     {
