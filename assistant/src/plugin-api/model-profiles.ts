@@ -15,11 +15,13 @@ import type { ModelProfileInfo } from "./types.js";
  */
 export function getModelProfiles(): ModelProfileInfo[] {
   const { llm } = getConfig();
-  const { profiles, activeProfile } = llm;
+  const { profiles, activeProfile, advisorProfile } = llm;
   const result: ModelProfileInfo[] = [];
   for (const key of orderProfileKeys(profiles, llm.profileOrder)) {
     const entry = profiles[key];
     if (entry == null) continue;
+    // The advisor's own profile is not a chat-routing target.
+    if (key === advisorProfile) continue;
     result.push({
       key,
       label: entry.label ?? key,

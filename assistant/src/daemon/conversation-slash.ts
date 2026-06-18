@@ -139,7 +139,12 @@ async function resolveModelCommand(
     string,
     { label?: string; description?: string; status?: "active" | "disabled" }
   >;
-  const profileNames = orderProfileKeys(profiles, config.llm.profileOrder);
+  const advisorProfile = config.llm.advisorProfile;
+  // The advisor's own profile is not selectable as the chat profile.
+  const profileNames = orderProfileKeys(
+    profiles,
+    config.llm.profileOrder,
+  ).filter((name) => name !== advisorProfile);
   const activeProfile = config.llm.activeProfile;
 
   if (parse.kind === "list") {
@@ -170,6 +175,12 @@ async function resolveModelCommand(
   }
 
   const target = parse.profileName;
+  if (target === advisorProfile) {
+    return {
+      kind: "unknown",
+      message: `Profile \`${target}\` is the advisor profile and can't be used as your chat profile.`,
+    };
+  }
   if (!(target in profiles)) {
     const available = profileNames.map((n) => `\`${n}\``).join(", ");
     const hint = available.length > 0 ? ` Available: ${available}.` : "";

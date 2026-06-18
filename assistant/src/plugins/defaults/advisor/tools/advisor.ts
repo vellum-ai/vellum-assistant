@@ -16,6 +16,7 @@ import type {
 } from "@vellumai/plugin-api";
 import { RiskLevel } from "@vellumai/plugin-api";
 
+import { advisorEnabledForProfile } from "../advisor-gate.js";
 import { getCapture } from "../advisor-state-store.js";
 import { consultAdvisor } from "../consult.js";
 
@@ -35,6 +36,14 @@ const advisorTool: ToolDefinition = {
     _input: Record<string, unknown>,
     ctx: ToolContext,
   ): Promise<ToolExecutionResult> {
+    // Defense-in-depth: the steering is already gated per profile, but a model
+    // could still call the tool. Honor the chat profile's advisor toggle.
+    if (!advisorEnabledForProfile(null)) {
+      return {
+        content: "(advisor is disabled for the active profile)",
+        isError: false,
+      };
+    }
     try {
       const capture = getCapture(ctx.conversationId);
       const advice = await consultAdvisor({
