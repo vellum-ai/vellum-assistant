@@ -14,9 +14,8 @@ import {
   listCanonicalGuardianRequests,
 } from "../memory/canonical-guardian-store.js";
 import {
-  applyDeliveryResultStatus,
   recordApprovalCardDelivery,
-  recordChannelDeliveryResult,
+  recordGuardianRequestDeliveries,
 } from "../notifications/canonical-delivery-recorder.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { getLogger } from "../util/logger.js";
@@ -207,26 +206,11 @@ async function dispatchGuardianQuestionInner(
       },
     });
 
-    for (const result of signalResult.deliveryResults) {
-      if (result.channel === "vellum") {
-        if (!vellumDeliveryId) {
-          vellumDeliveryId = recordApprovalCardDelivery({
-            requestId: request.id,
-            channel: "vellum",
-            conversationId: result.conversationId,
-          })?.id;
-        }
-        if (vellumDeliveryId) {
-          applyDeliveryResultStatus(vellumDeliveryId, result);
-        }
-        continue;
-      }
-
-      const delivery = recordChannelDeliveryResult(request.id, result);
-      if (delivery) {
-        applyDeliveryResultStatus(delivery.id, result);
-      }
-    }
+    vellumDeliveryId = recordGuardianRequestDeliveries({
+      requestId: request.id,
+      deliveryResults: signalResult.deliveryResults,
+      vellumDeliveryId,
+    });
 
     if (!vellumDeliveryId) {
       recordApprovalCardDelivery({

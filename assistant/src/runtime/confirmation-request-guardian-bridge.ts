@@ -16,7 +16,7 @@ import type { TrustContext } from "../daemon/trust-context.js";
 import type { CanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import {
   recordApprovalCardDelivery,
-  recordChannelDeliveryResult,
+  recordGuardianRequestDeliveries,
 } from "../notifications/canonical-delivery-recorder.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
@@ -151,6 +151,10 @@ export function bridgeConfirmationRequestToGuardian(
     ? `Approve tool: ${toolName} — ${canonicalRequest.activityText}`
     : `Approve tool: ${toolName}`;
 
+  // The vellum delivery row is created up front in onConversationCreated so the
+  // in-app client sees it immediately; the post-resolve recorder reuses it.
+  let vellumDeliveryId: string | undefined;
+
   // Emit guardian.question notification so the guardian is alerted.
   const signalPromise = emitNotificationSignal({
     sourceEventName: "guardian.question",
@@ -180,21 +184,22 @@ export function bridgeConfirmationRequestToGuardian(
     },
     dedupeKey: `tc-confirmation-request:${canonicalRequest.id}`,
     onConversationCreated: (info) => {
-      recordApprovalCardDelivery({
+      vellumDeliveryId = recordApprovalCardDelivery({
         requestId: canonicalRequest.id,
         channel: "vellum",
         conversationId: info.conversationId,
-      });
+      })?.id;
     },
   });
 
-  // Record channel deliveries from the notification pipeline (fire-and-forget).
+  // Record deliveries from the notification pipeline (fire-and-forget).
   void signalPromise
     .then((signalResult) => {
-      for (const result of signalResult.deliveryResults) {
-        if (result.channel === "vellum") continue; // handled in onConversationCreated
-        recordChannelDeliveryResult(canonicalRequest.id, result);
-      }
+      recordGuardianRequestDeliveries({
+        requestId: canonicalRequest.id,
+        deliveryResults: signalResult.deliveryResults,
+        vellumDeliveryId,
+      });
     })
     .catch((err) => {
       log.warn(

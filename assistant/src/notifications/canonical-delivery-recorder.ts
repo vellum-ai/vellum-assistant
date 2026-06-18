@@ -16,9 +16,9 @@
  *     are pending in the same chat
  *     (`getPendingCanonicalRequestByDestinationMessage`).
  *
- * Every producer records through `recordApprovalCardDelivery` so the addressing
- * convention lives in exactly one place and cannot drift between the path that
- * writes the row and the paths that read it back.
+ * Every producer records through here so the addressing convention lives in one
+ * place and cannot drift between the path that writes the row and the paths that
+ * read it back.
  */
 
 import {
@@ -82,41 +82,58 @@ export function recordApprovalCardDelivery(
 }
 
 /**
- * Record a canonical guardian delivery from a notification-pipeline result.
+ * Record every delivery for a guardian request from a notification signal's
+ * results, persisting each delivery's terminal status.
  *
- * Maps the pipeline's channel-agnostic `NotificationDeliveryResult` onto the
- * addressing sink: the vellum result carries a `conversationId`; channel results
- * carry the delivered chat (`destination`) and channel-native id (`messageId`).
- * A blank `destination` is treated as "unknown" rather than persisting the
- * literal channel name as a chat id.
+ * This is the shared post-broadcast recording loop for the signal-based
+ * producers. The vellum row is normally created up front in the signal's
+ * `onConversationCreated` callback so the in-app client sees it immediately; pass
+ * that row's id as `vellumDeliveryId` and it is reused (only its status applied)
+ * — otherwise the vellum row is created here from the result.
+ *
+ * The pipeline result carries the delivered address directly: a `vellum` result
+ * carries a `conversationId`; channel results carry the chat (`destination`) and
+ * channel-native id (`messageId`). A blank `destination` is recorded as unknown
+ * rather than persisting the literal channel name as a chat id. Status is
+ * diagnostic — the read paths key off addressing, not status.
+ *
+ * Returns the vellum delivery id (passed in, or created here) so a caller can
+ * record its own "pipeline produced no vellum delivery" fallback.
  */
-export function recordChannelDeliveryResult(
-  requestId: string,
-  result: NotificationDeliveryResult,
-): CanonicalGuardianDelivery | null {
-  const isVellum = result.channel === "vellum";
-  return recordApprovalCardDelivery({
-    requestId,
-    channel: result.channel,
-    conversationId: isVellum ? result.conversationId : undefined,
-    chatId:
-      !isVellum && result.destination.length > 0
-        ? result.destination
-        : undefined,
-    messageId: isVellum ? undefined : result.messageId,
-  });
-}
+export function recordGuardianRequestDeliveries(params: {
+  requestId: string;
+  deliveryResults: NotificationDeliveryResult[];
+  vellumDeliveryId?: string;
+}): string | undefined {
+  const { requestId, deliveryResults } = params;
+  let vellumDeliveryId = params.vellumDeliveryId;
 
-/**
- * Persist the terminal delivery status from a pipeline result onto an existing
- * delivery row. A `sent` result marks the row `sent`; anything else (failed,
- * skipped, pending) marks it `failed` since the card did not reach the surface.
- */
-export function applyDeliveryResultStatus(
-  deliveryId: string,
-  result: NotificationDeliveryResult,
-): void {
-  updateCanonicalGuardianDelivery(deliveryId, {
-    status: result.status === "sent" ? "sent" : "failed",
-  });
+  for (const result of deliveryResults) {
+    let deliveryId: string | undefined;
+    if (result.channel === "vellum") {
+      if (!vellumDeliveryId) {
+        vellumDeliveryId = recordApprovalCardDelivery({
+          requestId,
+          channel: "vellum",
+          conversationId: result.conversationId,
+        })?.id;
+      }
+      deliveryId = vellumDeliveryId;
+    } else {
+      deliveryId = recordApprovalCardDelivery({
+        requestId,
+        channel: result.channel,
+        chatId: result.destination.length > 0 ? result.destination : undefined,
+        messageId: result.messageId,
+      })?.id;
+    }
+
+    if (deliveryId) {
+      updateCanonicalGuardianDelivery(deliveryId, {
+        status: result.status === "sent" ? "sent" : "failed",
+      });
+    }
+  }
+
+  return vellumDeliveryId;
 }
