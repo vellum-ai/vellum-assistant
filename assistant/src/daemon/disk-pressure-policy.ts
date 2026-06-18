@@ -1,5 +1,10 @@
 import type { InterfaceId } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import {
+  TRUST_CLASS_RANK,
+  type TrustClass,
+} from "../runtime/actor-trust-resolver.js";
+import { resolveCapabilities } from "../runtime/capabilities.js";
 import type { DiskPressureStatus } from "./disk-pressure-guard.js";
 import type { ConversationType } from "./message-types/shared.js";
 import type { TrustContext } from "./trust-context.js";
@@ -74,7 +79,7 @@ export function classifyDiskPressureTurnPolicy(
   }
 
   const trustClass = metadata.trustContext?.trustClass;
-  if (trustClass === "guardian") {
+  if (resolveCapabilities(toTrustClass(trustClass)).canActUnderDiskPressureCleanup) {
     return { action: "allow-cleanup-mode", reason: "guardian" };
   }
 
@@ -156,6 +161,15 @@ function isExplicitLocalOwnerCleanupTurn(
   }
   return (
     metadata.trustContext == null ||
-    metadata.trustContext.trustClass === "guardian"
+    resolveCapabilities(toTrustClass(metadata.trustContext.trustClass))
+      .canActUnderDiskPressureCleanup
   );
+}
+
+const TRUST_CLASSES = new Set<string>(Object.keys(TRUST_CLASS_RANK));
+
+function toTrustClass(
+  v: DiskPressureTurnTrustClass | undefined,
+): TrustClass | undefined {
+  return v != null && TRUST_CLASSES.has(v) ? (v as TrustClass) : undefined;
 }
