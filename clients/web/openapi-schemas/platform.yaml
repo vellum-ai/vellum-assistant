@@ -1693,6 +1693,30 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/assistants/{assistant_id}/owner-consent/:
+    get:
+      operationId: assistants_owner_consent
+      description: GET /v1/assistants/<uuid:assistant_id>/owner-consent/
+      parameters:
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      security:
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnerConsent'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/assistants/{assistant_id}/push-tokens/:
     post:
       operationId: assistants_push_tokens_upsert
@@ -5823,12 +5847,14 @@ components:
       - ios
       - web
       - cli
+      - electron
       type: string
       description: |-
         * `macos` - macOS
         * `ios` - iOS
         * `web` - Web
         * `cli` - CLI
+        * `electron` - Electron
     ClientFeatureFlagsResponse:
       type: object
       properties:
@@ -7257,6 +7283,46 @@ components:
       required:
       - id
       - name
+    OwnerConsent:
+      type: object
+      description: |-
+        Share-preference toggles exposed to assistant-key callers (the daemon).
+
+        Each toggle is accompanied by the version and timestamp of the consent the
+        owner accepted, so the daemon can tell *which* policy version a preference
+        was recorded against. The versioned legal-consent fields (ToS, privacy
+        policy, AI data sharing) are intentionally excluded — the daemon only needs
+        the share preferences.
+      properties:
+        share_analytics:
+          type: boolean
+          readOnly: true
+        share_analytics_accepted_version:
+          type: string
+          readOnly: true
+        share_analytics_accepted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        share_diagnostics:
+          type: boolean
+          readOnly: true
+        share_diagnostics_accepted_version:
+          type: string
+          readOnly: true
+        share_diagnostics_accepted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - share_analytics
+      - share_analytics_accepted_at
+      - share_analytics_accepted_version
+      - share_diagnostics
+      - share_diagnostics_accepted_at
+      - share_diagnostics_accepted_version
     PaginatedAssistantDomainList:
       type: object
       required:
