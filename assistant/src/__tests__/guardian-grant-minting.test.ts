@@ -220,8 +220,8 @@ describe("guardian grant minting on tool-approval decisions", () => {
   });
 
   // Reaction-based approvals are exercised against the canonical pipeline in
-  // slack-reaction-canonical-approval.test.ts — they no longer route through
-  // handleApprovalInterception.
+  // slack-reaction-canonical-approval.test.ts — reactions route through
+  // routeGuardianReply, not handleApprovalInterception.
 
   // ── 2. approve_once for non-tool-approval does NOT mint a grant ──
 
