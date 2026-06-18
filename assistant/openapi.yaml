@@ -13839,6 +13839,11 @@ paths:
                     type: string
                   botUsername:
                     type: string
+                  threadMode:
+                    type: string
+                    enum:
+                      - mention_only
+                      - mention_then_thread
                   error:
                     type: string
                   warning:
@@ -13849,6 +13854,7 @@ paths:
                   - hasAppToken
                   - hasUserToken
                   - connected
+                  - threadMode
                 additionalProperties: false
     get:
       operationId: integrations_slack_channel_config_get
@@ -13884,6 +13890,11 @@ paths:
                     type: string
                   botUsername:
                     type: string
+                  threadMode:
+                    type: string
+                    enum:
+                      - mention_only
+                      - mention_then_thread
                   error:
                     type: string
                   warning:
@@ -13894,6 +13905,71 @@ paths:
                   - hasAppToken
                   - hasUserToken
                   - connected
+                  - threadMode
+                additionalProperties: false
+    patch:
+      operationId: integrations_slack_channel_config_patch
+      summary: Update Slack channel settings
+      description: Update Slack channel behavior settings (e.g. thread mode).
+      tags:
+        - integrations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                threadMode:
+                  type: string
+                  enum:
+                    - mention_only
+                    - mention_then_thread
+                  description: Controls whether the bot follows threads after an initial @mention
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasBotToken:
+                    type: boolean
+                  hasAppToken:
+                    type: boolean
+                  hasUserToken:
+                    type: boolean
+                  connected:
+                    type: boolean
+                  teamId:
+                    type: string
+                  teamName:
+                    type: string
+                  teamUrl:
+                    type: string
+                  botUserId:
+                    type: string
+                  botUsername:
+                    type: string
+                  threadMode:
+                    type: string
+                    enum:
+                      - mention_only
+                      - mention_then_thread
+                  error:
+                    type: string
+                  warning:
+                    type: string
+                required:
+                  - success
+                  - hasBotToken
+                  - hasAppToken
+                  - hasUserToken
+                  - connected
+                  - threadMode
                 additionalProperties: false
     post:
       operationId: integrations_slack_channel_config_post
@@ -13945,6 +14021,11 @@ paths:
                     type: string
                   botUsername:
                     type: string
+                  threadMode:
+                    type: string
+                    enum:
+                      - mention_only
+                      - mention_then_thread
                   error:
                     type: string
                   warning:
@@ -13955,6 +14036,7 @@ paths:
                   - hasAppToken
                   - hasUserToken
                   - connected
+                  - threadMode
                 additionalProperties: false
   /v1/integrations/telegram/commands:
     post:

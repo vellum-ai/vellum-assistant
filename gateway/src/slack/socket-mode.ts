@@ -71,6 +71,8 @@ const CATCHUP_HISTORY_LIMIT = 50;
 const CATCHUP_CONCURRENCY = 4;
 const SLACK_MUTE_COMMANDS = new Set(["detach", "mute"]);
 
+export type SlackThreadMode = "mention_only" | "mention_then_thread";
+
 export type SlackSocketModeConfig = {
   appToken: string;
   botToken: string;
@@ -88,6 +90,13 @@ export type SlackSocketModeConfig = {
   botUsername?: string;
   /** Slack workspace/team name, resolved at startup via auth.test. */
   teamName?: string;
+  /**
+   * Controls whether the bot auto-follows threads after an initial @mention.
+   * - `mention_only`: only respond to explicit @mentions (no thread tracking).
+   * - `mention_then_thread`: after the first @mention, listen to all
+   *   subsequent replies in the thread for 24h.
+   */
+  threadMode: SlackThreadMode;
 };
 
 function escapeRegExp(value: string): string {
@@ -519,6 +528,8 @@ export class SlackSocketModeClient {
       | SlackReactionAddedEvent
       | SlackReactionRemovedEvent,
   ): void {
+    if (this.config.threadMode !== "mention_then_thread") return;
+
     const channelEvent = event as SlackChannelMessageEvent;
     const subtype = (event as SlackMessageChangedEvent).subtype;
     if (
@@ -1047,7 +1058,12 @@ export class SlackSocketModeClient {
         appMentionEvent.channel,
         appMentionEvent.user,
       );
-      if (threadTs && !isRejection(routing) && appMentionEvent.channel) {
+      if (
+        this.config.threadMode === "mention_then_thread" &&
+        threadTs &&
+        !isRejection(routing) &&
+        appMentionEvent.channel
+      ) {
         this.store.trackThread(
           threadTs,
           appMentionEvent.channel,
@@ -1329,7 +1345,9 @@ export class SlackSocketModeClient {
     // edits, or deletes arming unrelated threads.
     const threadTs = normalized.threadTs;
     const channelId = normalized.event.message.conversationExternalId;
-    const shouldTrackActiveThread = isAppMention || isActiveThreadReply;
+    const shouldTrackActiveThread =
+      this.config.threadMode === "mention_then_thread" &&
+      (isAppMention || isActiveThreadReply);
     if (shouldTrackActiveThread && threadTs && channelId) {
       this.store.trackThread(threadTs, channelId, ACTIVE_THREAD_TTL_MS);
     }

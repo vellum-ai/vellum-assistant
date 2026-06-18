@@ -4,11 +4,15 @@ import { useState } from "react";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Input } from "@vellumai/design-library/components/input";
+import { Radio, RadioGroup } from "@vellumai/design-library/components/radio";
+import { Typography } from "@vellumai/design-library/components/typography";
 
 import { DetailCard } from "@/components/detail-card";
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
 import { ShareConnectionLinkButton } from "@/domains/contacts/components/share-connection-link-button";
 import type { AssistantChannelState } from "@/domains/contacts/types";
+
+export type SlackThreadMode = "mention_only" | "mention_then_thread";
 
 type ChannelKey = AssistantChannelState["key"];
 
@@ -16,10 +20,13 @@ interface AssistantChannelsDetailProps {
   assistantName: string;
   channels: AssistantChannelState[];
   pendingChannelKey?: ChannelKey | null;
+  slackThreadMode?: SlackThreadMode;
+  slackThreadModePending?: boolean;
   onSetup?: (channelKey: ChannelKey) => void;
   onDisconnect?: (channelKey: ChannelKey) => void;
   onSaveTelegramToken?: (botToken: string) => Promise<void>;
   onSaveSlackConfig?: (botToken: string, appToken: string) => Promise<void>;
+  onSlackThreadModeChange?: (mode: SlackThreadMode) => void;
   onSaveTwilioCredentials?: (accountSid: string, authToken: string) => Promise<void>;
   onGenerateInviteLink?: () => void;
 }
@@ -52,10 +59,13 @@ export function AssistantChannelsDetail({
   assistantName,
   channels,
   pendingChannelKey = null,
+  slackThreadMode,
+  slackThreadModePending = false,
   onSetup,
   onDisconnect,
   onSaveTelegramToken,
   onSaveSlackConfig,
+  onSlackThreadModeChange,
   onSaveTwilioCredentials,
   onGenerateInviteLink,
 }: AssistantChannelsDetailProps) {
@@ -109,6 +119,9 @@ export function AssistantChannelsDetail({
                 }
                 onSaveTelegramToken={onSaveTelegramToken}
                 onSaveSlackConfig={onSaveSlackConfig}
+                slackThreadMode={slackThreadMode}
+                slackThreadModePending={slackThreadModePending}
+                onSlackThreadModeChange={onSlackThreadModeChange}
                 onSaveTwilioCredentials={onSaveTwilioCredentials}
               />
             </div>
@@ -149,6 +162,9 @@ interface ChannelRowProps {
   onDisconnect?: () => void;
   onSaveTelegramToken?: (botToken: string) => Promise<void>;
   onSaveSlackConfig?: (botToken: string, appToken: string) => Promise<void>;
+  slackThreadMode?: SlackThreadMode;
+  slackThreadModePending?: boolean;
+  onSlackThreadModeChange?: (mode: SlackThreadMode) => void;
   onSaveTwilioCredentials?: (accountSid: string, authToken: string) => Promise<void>;
 }
 
@@ -161,11 +177,14 @@ function ChannelRow({
   onDisconnect,
   onSaveTelegramToken,
   onSaveSlackConfig,
+  slackThreadMode,
+  slackThreadModePending = false,
+  onSlackThreadModeChange,
   onSaveTwilioCredentials,
 }: ChannelRowProps) {
   const meta = CHANNEL_META[channel.key];
   const connected = channel.status === "ready";
-  const isExpandable = connected ? channel.key !== "slack" : true;
+  const isExpandable = true;
 
   return (
     <div className="flex flex-col gap-2 py-4">
@@ -243,6 +262,14 @@ function ChannelRow({
 
       {connected && channel.key === "telegram" && expanded ? (
         <TelegramCredentialEntry onSave={onSaveTelegramToken} />
+      ) : null}
+
+      {connected && channel.key === "slack" && expanded ? (
+        <SlackThreadModeSection
+          threadMode={slackThreadMode}
+          pending={slackThreadModePending}
+          onThreadModeChange={onSlackThreadModeChange}
+        />
       ) : null}
 
       {connected && channel.key === "phone" && expanded ? (
@@ -375,6 +402,53 @@ function SlackCredentialEntry({ onSave }: SlackCredentialEntryProps) {
           {saving ? "Saving…" : "Save"}
         </Button>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Slack Thread Mode
+// ---------------------------------------------------------------------------
+
+interface SlackThreadModeSectionProps {
+  threadMode?: SlackThreadMode;
+  pending?: boolean;
+  onThreadModeChange?: (mode: SlackThreadMode) => void;
+}
+
+function SlackThreadModeSection({
+  threadMode,
+  pending = false,
+  onThreadModeChange,
+}: SlackThreadModeSectionProps) {
+  const mode = threadMode ?? "mention_only";
+
+  return (
+    <div className="flex flex-col gap-3 pl-7">
+      <Typography
+        as="span"
+        variant="body-small-emphasised"
+        className="text-[color:var(--content-secondary)]"
+      >
+        Thread Behavior
+      </Typography>
+      <RadioGroup<SlackThreadMode>
+        value={mode}
+        onValueChange={(next) => onThreadModeChange?.(next)}
+        disabled={pending || !onThreadModeChange}
+        aria-label="Slack thread behavior"
+      >
+        <Radio<SlackThreadMode>
+          value="mention_only"
+          label="Mentions only"
+          helperText="Bot only responds when @mentioned."
+        />
+        <Radio<SlackThreadMode>
+          value="mention_then_thread"
+          label="Follow threads after first mention"
+          helperText="After an @mention in a thread, bot listens to all subsequent replies."
+        />
+      </RadioGroup>
     </div>
   );
 }
