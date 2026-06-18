@@ -10,7 +10,7 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import { SubagentTimeline } from "@/domains/chat/components/subagent-timeline";
 import type { SubagentTimelineEvent } from "@/domains/chat/subagent-store";
@@ -26,6 +26,24 @@ function toolCallEvent(
     type: "tool_call",
     content: LONG_PATH,
     toolName: "Read",
+    timestamp: 0,
+    ...overrides,
+  };
+}
+
+/** Multi-line content that exceeds the collapsed line limit, so the row
+ *  renders a collapsible "Show more" affordance. */
+function longLines(label: string): string {
+  return Array.from({ length: 8 }, (_, i) => `${label} line ${i}`).join("\n");
+}
+
+function toolResultEvent(
+  overrides: Partial<SubagentTimelineEvent> = {},
+): SubagentTimelineEvent {
+  return {
+    id: "evt-result",
+    type: "tool_result",
+    content: longLines("result"),
     timestamp: 0,
     ...overrides,
   };
@@ -51,5 +69,34 @@ describe("SubagentTimeline — tool_call content wrapping", () => {
     const name = screen.getByText(longName);
     expect(name.className).toContain("min-w-0");
     expect(name.className).toContain("break-words");
+  });
+});
+
+describe("SubagentTimeline — expand state keyed by event.id", () => {
+  test("expanding one row, then toggling another, leaves the first expanded", () => {
+    const first = toolResultEvent({ id: "evt-a", content: longLines("a") });
+    const second = toolResultEvent({ id: "evt-b", content: longLines("b") });
+    render(<SubagentTimeline events={[first, second]} />);
+
+    // Both rows start collapsed.
+    const toggles = screen.getAllByText("Show more");
+    expect(toggles).toHaveLength(2);
+
+    // Expand the first row.
+    fireEvent.click(toggles[0]!);
+
+    // First is now expanded ("Show less"), second still collapsed.
+    expect(screen.getByText("Show less")).toBeDefined();
+    expect(screen.getByText("Show more")).toBeDefined();
+    // The first row's last line is only visible once expanded.
+    expect(screen.getByText(/a line 7/)).toBeDefined();
+
+    // Toggle the second row (it's the remaining "Show more").
+    fireEvent.click(screen.getByText("Show more"));
+
+    // The first row's expansion must be unaffected — both now expanded.
+    expect(screen.getAllByText("Show less")).toHaveLength(2);
+    expect(screen.getByText(/a line 7/)).toBeDefined();
+    expect(screen.getByText(/b line 7/)).toBeDefined();
   });
 });
