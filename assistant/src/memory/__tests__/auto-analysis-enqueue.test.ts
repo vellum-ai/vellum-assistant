@@ -76,17 +76,6 @@ mock.module("../jobs-store.js", () => ({
   },
 }));
 
-// Mirror production semantics from `isUntrustedTrustClass` in
-// actor-trust-resolver.ts: anything that isn't `guardian` is untrusted.
-// Keeping these in sync guards the compaction trust boundary — a drifting
-// mock would let regressions pass as false positives.
-mock.module("../../runtime/actor-trust-resolver.js", () => ({
-  isUntrustedTrustClass: (trustClass: string | undefined) =>
-    trustClass === "trusted_contact" ||
-    trustClass === "unknown" ||
-    trustClass === undefined,
-}));
-
 import {
   enqueueAutoAnalysisIfEnabled,
   enqueueAutoAnalysisOnCompaction,
@@ -315,9 +304,9 @@ describe("enqueueAutoAnalysisOnCompaction", () => {
   });
 
   test("undefined trust class — skips (fail-closed when trust is unresolved)", () => {
-    // `isUntrustedTrustClass(undefined)` is true in production, so
-    // compaction-triggered analysis must NOT fire when the caller cannot
-    // establish a trust class.
+    // `resolveCapabilities(undefined).canAccessMemory` is false in
+    // production, so compaction-triggered analysis must NOT fire when the
+    // caller cannot establish a trust class.
     enqueueAutoAnalysisOnCompaction("c1", undefined);
 
     expect(enqueueCalls).toHaveLength(0);
@@ -332,8 +321,8 @@ describe("enqueueAutoAnalysisOnCompaction", () => {
   });
 
   test("trusted_contact trust class — skips (only guardian is trusted)", () => {
-    // trusted_contact is in the untrusted set per production
-    // `isUntrustedTrustClass`, so compaction-triggered analysis must NOT
+    // trusted_contact lacks `canAccessMemory` per production
+    // `resolveCapabilities`, so compaction-triggered analysis must NOT
     // fire. Only `guardian` passes the gate.
     enqueueAutoAnalysisOnCompaction("c1", "trusted_contact");
 

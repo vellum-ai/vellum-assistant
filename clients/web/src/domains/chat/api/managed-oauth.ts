@@ -12,6 +12,7 @@ import {
   oauthCompletionStorageKey,
   type OAuthCompletePayload,
 } from "@/lib/auth/oauth-popup";
+import { resolveManagedOAuthPlatformAssistantId } from "@/lib/local-managed-oauth-identity";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { isNativePlatform } from "@/runtime/native-auth";
 import {
@@ -171,14 +172,12 @@ export async function connectManagedOAuthProvider({
 }: ManagedOAuthConnectOptions): Promise<ManagedOAuthConnectResult> {
   const requestId = crypto.randomUUID();
   const native = isNativePlatform();
-  const baselineSignatures = getProviderConnectionSignatures(
-    await listOAuthConnections(assistantId).catch(() => []),
-    providerKey,
-  );
 
   return new Promise((resolve) => {
     let popup: Window | null = null;
     let settled = false;
+    let platformAssistantId: string | null = null;
+    let baselineSignatures = getProviderConnectionSignatures([], providerKey);
     let popupCheckInterval: ReturnType<typeof setInterval> | null = null;
     let popupClosedGraceTimeout: ReturnType<typeof setTimeout> | null = null;
     let nativeFinishUnsub: (() => void) | null = null;
@@ -215,8 +214,15 @@ export async function connectManagedOAuthProvider({
     };
 
     const finishConnectedAfterPoll = async () => {
+      if (!platformAssistantId) {
+        finish({
+          status: "error",
+          message: `${providerLabel} connection finished, but no connected account was found.`,
+        });
+        return;
+      }
       const connection = await waitForProviderConnection(
-        assistantId,
+        platformAssistantId,
         providerKey,
         baselineSignatures,
       );
@@ -276,6 +282,13 @@ export async function connectManagedOAuthProvider({
     }
 
     const handlePopupClosed = async () => {
+      if (!platformAssistantId) {
+        finish({
+          status: "cancelled",
+          message: `${providerLabel} authorization popup closed.`,
+        });
+        return;
+      }
       const storedCompletion = readStoredCompletion(requestId);
       if (storedCompletion) {
         handleOAuthCompletePayload(storedCompletion);
@@ -283,7 +296,7 @@ export async function connectManagedOAuthProvider({
       }
 
       const connection = await waitForProviderConnection(
-        assistantId,
+        platformAssistantId,
         providerKey,
         baselineSignatures,
       );
@@ -322,8 +335,13 @@ export async function connectManagedOAuthProvider({
       }
 
       try {
+        platformAssistantId = await resolveManagedOAuthPlatformAssistantId(assistantId);
+        baselineSignatures = getProviderConnectionSignatures(
+          await listOAuthConnections(platformAssistantId).catch(() => []),
+          providerKey,
+        );
         const connectUrl = await startManagedOAuth(
-          assistantId,
+          platformAssistantId,
           providerKey,
           requestId,
           native,

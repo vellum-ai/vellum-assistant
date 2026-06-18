@@ -104,8 +104,9 @@ describe("resolveActorTrust — address fallback", () => {
     expect(result.memberRecord).not.toBeNull();
     expect(result.memberRecord?.contact.displayName).toBe("Patrick Test");
     expect(result.memberRecord?.channel.status).toBe("unverified");
-    // trustClass is 'unknown' for an unverified member (correct — not yet active)
-    expect(result.trustClass).toBe("unknown");
+    // trustClass is 'unverified_contact' for a member whose channel is
+    // pending or unverified — known to the guardian but not yet verified.
+    expect(result.trustClass).toBe("unverified_contact");
   });
 
   test("address lookup is the sole member resolution path", () => {
@@ -151,5 +152,58 @@ describe("resolveActorTrust — address fallback", () => {
     expect(result.memberRecord).not.toBeNull();
     expect(result.memberRecord?.channel.status).toBe("active");
     expect(result.trustClass).toBe("trusted_contact");
+  });
+
+  test("pending-status member is classified as unverified_contact", () => {
+    // Mirrors the unverified branch but for `pending` status (e.g. a phone
+    // contact registered by name-capture awaiting the DTMF challenge).
+    const contact = makeContact("contact", "unverified");
+    // Override status to "pending" — makeContact only accepts unverified/active
+    contact.channels[0]!.status = "pending";
+    _byAddress = contact;
+
+    const result = resolveActorTrust({
+      assistantId: "asst-1",
+      sourceChannel: "phone",
+      conversationExternalId: PHONE,
+      actorExternalId: PHONE,
+    });
+
+    expect(result.memberRecord?.channel.status).toBe("pending");
+    expect(result.trustClass).toBe("unverified_contact");
+  });
+
+  test("blocked-status member is classified as unknown (not unverified_contact)", () => {
+    // Hard-deny statuses (blocked, revoked) stay `unknown` — admission-layer
+    // re-checks channel.status and emits the hard-deny reasons.
+    const contact = makeContact("contact", "unverified");
+    contact.channels[0]!.status = "blocked";
+    _byAddress = contact;
+
+    const result = resolveActorTrust({
+      assistantId: "asst-1",
+      sourceChannel: "phone",
+      conversationExternalId: PHONE,
+      actorExternalId: PHONE,
+    });
+
+    expect(result.memberRecord?.channel.status).toBe("blocked");
+    expect(result.trustClass).toBe("unknown");
+  });
+
+  test("revoked-status member is classified as unknown", () => {
+    const contact = makeContact("contact", "unverified");
+    contact.channels[0]!.status = "revoked";
+    _byAddress = contact;
+
+    const result = resolveActorTrust({
+      assistantId: "asst-1",
+      sourceChannel: "phone",
+      conversationExternalId: PHONE,
+      actorExternalId: PHONE,
+    });
+
+    expect(result.memberRecord?.channel.status).toBe("revoked");
+    expect(result.trustClass).toBe("unknown");
   });
 });

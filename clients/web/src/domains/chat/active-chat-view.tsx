@@ -59,6 +59,7 @@ import { useDeepLinkApp } from "@/domains/chat/hooks/use-deep-link-app";
 import { useScrollToMessageParam } from "@/domains/chat/hooks/use-scroll-to-message";
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
+import { useOnboardingFocusStore } from "@/stores/onboarding-focus-store";
 import { Button } from "@vellumai/design-library/components/button";
 
 const AddCreditsModal = lazy(() =>
@@ -299,6 +300,18 @@ export function ActiveChatView() {
       message: "Connection lost. Please try again.",
     });
   }, [reachability.state.phase]);
+
+  // Focused research-onboarding "deeper dive": the results overlay (rendered
+  // by ChatLayout, outside this component) stages a follow-up message; send it
+  // through the real pipeline once the current turn is idle, then clear it.
+  const pendingFollowupMessage =
+    useOnboardingFocusStore.use.pendingFollowupMessage();
+  useEffect(() => {
+    if (!pendingFollowupMessage) return;
+    if (isSending(useTurnStore.getState().phase)) return;
+    useOnboardingFocusStore.getState().clearFollowup();
+    void sendMessage(pendingFollowupMessage);
+  }, [pendingFollowupMessage, sendMessage]);
 
   // Post-hatch "Connecting…" overlay lifecycle — pre-chat detector,
   // messages-arrived clear, safety timer, conversation-switch clear.

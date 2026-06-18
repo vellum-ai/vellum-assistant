@@ -1187,6 +1187,22 @@
           }
         },
         {
+          "id": "z-ai/glm-5.2",
+          "displayName": "GLM-5.2",
+          "contextWindowTokens": 1048576,
+          "maxOutputTokens": 131072,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": false,
+          "supportsVision": false,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 1.4,
+            "outputPer1mTokens": 4.4
+          }
+        },
+        {
           "id": "mistralai/mistral-medium-3",
           "displayName": "Mistral Medium 3",
           "contextWindowTokens": 131072,

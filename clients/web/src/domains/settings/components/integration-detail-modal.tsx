@@ -21,11 +21,13 @@ import { extractErrorMessage } from "@/utils/api-errors";
 
 import { ManagedTab } from "@/domains/settings/components/managed-oauth-tab";
 import { YourOwnTab } from "@/domains/settings/components/your-own-oauth-tab";
+import { getConnectPresets } from "@/domains/settings/oauth-scope-presets";
 
 type ModalTab = "managed" | "your-own";
 
 interface IntegrationDetailModalProps {
   assistantId: string;
+  platformAssistantId: string;
   providerKey: string;
   displayName: string;
   description: string | null;
@@ -41,6 +43,7 @@ interface IntegrationDetailModalProps {
  */
 export function IntegrationDetailModal({
   assistantId,
+  platformAssistantId,
   providerKey,
   displayName,
   description,
@@ -60,12 +63,12 @@ export function IntegrationDetailModal({
     useState<OAuthConnection | null>(null);
 
   const connectionsQueryKey = assistantsOauthConnectionsListQueryKey({
-    path: { assistant_id: assistantId },
+    path: { assistant_id: platformAssistantId },
   });
 
   const { data: allConnections, isLoading: connectionsLoading } = useQuery({
     ...assistantsOauthConnectionsListOptions({
-      path: { assistant_id: assistantId },
+      path: { assistant_id: platformAssistantId },
     }),
     enabled: managedAvailable,
   });
@@ -83,7 +86,7 @@ export function IntegrationDetailModal({
     allConnections,
   });
 
-  const connectionsOpts = { path: { assistant_id: assistantId } };
+  const connectionsOpts = { path: { assistant_id: platformAssistantId } };
 
   const disconnectOAuth = useAssistantsOauthDisconnectByConnectionCreateMutation({
     onSuccess(_data, variables) {
@@ -136,7 +139,7 @@ export function IntegrationDetailModal({
     }
     setPendingDisconnectId(connection.id);
     disconnectOAuth.mutate({
-      path: { assistant_id: assistantId, connection_id: connection.id },
+      path: { assistant_id: platformAssistantId, connection_id: connection.id },
     });
   };
 
@@ -222,6 +225,7 @@ export function IntegrationDetailModal({
                 }
                 onConnect={handleConnect}
                 onDisconnect={handleDisconnect}
+                connectPresets={getConnectPresets(providerKey)}
               />
             )
           ) : (

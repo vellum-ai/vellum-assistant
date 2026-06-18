@@ -214,6 +214,26 @@ export async function tryIpcProxy(
   } catch (err) {
     const duration = Math.round(performance.now() - start);
 
+    // A binary/streaming route can't be carried over the IPC transport (the
+    // gateway IPC client speaks newline-delimited JSON). The daemon signals
+    // this with BINARY_UNSUPPORTED_OVER_IPC; return null so the caller falls
+    // through to the HTTP proxy, which streams binary responses correctly.
+    if (
+      err instanceof IpcHandlerError &&
+      err.code === "BINARY_UNSUPPORTED_OVER_IPC"
+    ) {
+      log.info(
+        {
+          method: req.method,
+          path: pathname,
+          operationId: match.operationId,
+          duration,
+        },
+        "IPC proxy falling back to HTTP for binary response",
+      );
+      return null;
+    }
+
     if (err instanceof IpcHandlerError) {
       log.warn(
         {

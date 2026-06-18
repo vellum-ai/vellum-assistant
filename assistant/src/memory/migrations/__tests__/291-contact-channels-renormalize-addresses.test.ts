@@ -309,7 +309,7 @@ describe("migration 291 — renormalize addresses", () => {
     expect(rows[0].address).toBe("U12345ABC");
   });
 
-  test("no-op when external_user_id column is absent (re-run after migration 293)", () => {
+  test("no-op when external_user_id column is absent (re-run after migration 294)", () => {
     const db = createTestDb();
     bootstrap(db);
     const raw = getSqliteFrom(db);
@@ -324,7 +324,7 @@ describe("migration 291 — renormalize addresses", () => {
       status: "active",
     });
 
-    // Simulate a later startup where migration 293 has already dropped the
+    // Simulate a later startup where migration 294 has already dropped the
     // index and column. Migration steps re-run on every startup, so this must
     // tolerate the dropped column rather than throwing "no such column".
     raw.run("DROP INDEX IF EXISTS idx_contact_channels_type_ext_user");

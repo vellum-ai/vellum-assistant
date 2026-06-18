@@ -1,6 +1,7 @@
-import { ExternalLink, Loader2, Plus, Trash2 } from "lucide-react";
+import { CalendarPlus, ExternalLink, Loader2, Plus, Trash2 } from "lucide-react";
 
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
+import type { OAuthConnectPreset } from "@/domains/settings/oauth-scope-presets";
 import type { OAuthConnection } from "@/generated/api/types.gen";
 import { Button } from "@vellumai/design-library/components/button";
 
@@ -13,8 +14,11 @@ export interface ManagedTabProps {
   startPending: boolean;
   oauthInProgress: boolean;
   disconnectingId: string | null;
-  onConnect: () => void;
+  /** Pass `requestedScopes` to request a scoped subset; omit for full default. */
+  onConnect: (requestedScopes?: string[]) => void;
   onDisconnect: (connection: OAuthConnection) => void;
+  /** Optional scoped-connect presets (e.g. Google Calendar only). */
+  connectPresets?: OAuthConnectPreset[];
 }
 
 export function ManagedTab({
@@ -28,7 +32,9 @@ export function ManagedTab({
   disconnectingId,
   onConnect,
   onDisconnect,
+  connectPresets = [],
 }: ManagedTabProps) {
+  const connectBusy = startPending || oauthInProgress;
   if (connectionsLoading) {
     return (
       <div className="flex items-center justify-center py-10">
@@ -65,15 +71,29 @@ export function ManagedTab({
         <p className="text-body-medium-default text-[var(--content-secondary)]">
           Connect Account to continue
         </p>
-        <Button
-          variant="primary"
-          size="compact"
-          leftIcon={<Plus />}
-          onClick={onConnect}
-          disabled={startPending || oauthInProgress}
-        >
-          Connect Account
-        </Button>
+        <div className="flex flex-col items-center gap-2">
+          <Button
+            variant="primary"
+            size="compact"
+            leftIcon={<Plus />}
+            onClick={() => onConnect()}
+            disabled={connectBusy}
+          >
+            Connect Account
+          </Button>
+          {connectPresets.map((preset) => (
+            <Button
+              key={preset.id}
+              variant="outlined"
+              size="compact"
+              leftIcon={<CalendarPlus />}
+              onClick={() => onConnect(preset.scopes)}
+              disabled={connectBusy}
+            >
+              {preset.label}
+            </Button>
+          ))}
+        </div>
       </div>
     );
   }
@@ -110,21 +130,35 @@ export function ManagedTab({
         })}
       </ul>
       <div className="border-t border-[var(--border-base)] px-4 py-3 dark:border-[var(--border-base)]">
-        {startPending || oauthInProgress ? (
+        {connectBusy ? (
           <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
             Waiting for authorization...
           </div>
         ) : (
-          <Button
-            variant="primary"
-            size="compact"
-            leftIcon={<ExternalLink />}
-            onClick={onConnect}
-            disabled={startPending || oauthInProgress}
-          >
-            Connect account
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="primary"
+              size="compact"
+              leftIcon={<ExternalLink />}
+              onClick={() => onConnect()}
+              disabled={connectBusy}
+            >
+              Connect account
+            </Button>
+            {connectPresets.map((preset) => (
+              <Button
+                key={preset.id}
+                variant="outlined"
+                size="compact"
+                leftIcon={<CalendarPlus />}
+                onClick={() => onConnect(preset.scopes)}
+                disabled={connectBusy}
+              >
+                {preset.label}
+              </Button>
+            ))}
+          </div>
         )}
       </div>
     </div>

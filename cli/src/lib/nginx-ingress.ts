@@ -255,8 +255,6 @@ function buildRemoteWebIngressLocations(opts: {
     location = /v1/pair/ { return 404; }
     location = /v1/pair/web-init { return 404; }
     location = /v1/pair/web-init/ { return 404; }
-    location = /v1/remote-web/pairing-challenge { return 404; }
-    location = /v1/remote-web/pairing-challenge/ { return 404; }
     location = /v1/devices { return 404; }
     location = /v1/devices/ { return 404; }
     location = /v1/devices/revoke { return 404; }
@@ -265,6 +263,8 @@ function buildRemoteWebIngressLocations(opts: {
     location = /v1/guardian/init/ { return 404; }
     location = /v1/guardian/reset-bootstrap { return 404; }
     location = /v1/guardian/reset-bootstrap/ { return 404; }
+    location = /v1/remote-web/pairing-verification { return 404; }
+    location = /v1/remote-web/pairing-verification/ { return 404; }
     location ^~ /assistant/__local/ { return 404; }
     location ^~ /assistant/__gateway/ { return 404; }
 

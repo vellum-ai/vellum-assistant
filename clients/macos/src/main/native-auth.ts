@@ -1,10 +1,11 @@
-import { session, shell } from "electron";
+import { app, session, shell } from "electron";
 import crypto from "node:crypto";
 import { z } from "zod";
 
 import { resolveLocalConfigFromEnv } from "@vellumai/local-mode";
 
 import { handle, handleSync } from "./ipc";
+import { ensureVisible } from "./main-window";
 import {
     clearSessionToken,
     getSessionToken,
@@ -92,6 +93,10 @@ async function startOAuth(options: {
     );
 
     saveSessionToken(sessionToken);
+    // The system browser stays foregrounded because we use loopback redirect for PKCE flow.
+    // Manually refocus here after login completes.
+    app.focus({ steal: true });
+    void ensureVisible();
     return { sessionToken };
   } finally {
     clearTimeout(timer);

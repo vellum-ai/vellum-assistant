@@ -225,6 +225,7 @@ import {
   migrateUsageLlmCallCount,
   migrateVoiceInviteColumns,
   migrateVoiceInviteDisplayMetadata,
+  migrateWorkflowJournalLeafTokens,
   migrateWorkflowRuns,
   migrateWorkflowRunTrust,
   recoverCrashedMigrations,
@@ -524,6 +525,7 @@ export function initializeDb(): void {
     migrateScheduleCapabilities,
     migrateContactChannelsRenormalizeAddresses,
     migrateScheduleDefaultNoReuseConversation,
+    migrateWorkflowJournalLeafTokens,
     migrateDropExternalUserId,
   ];
 

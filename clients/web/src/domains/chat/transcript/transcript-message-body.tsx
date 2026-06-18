@@ -4,6 +4,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -13,6 +14,7 @@ import { MessageAttachments } from "@/domains/chat/components/chat-attachments/m
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
 import { SubagentInlineProgressCard } from "@/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card";
+import { WorkflowInlineProgressCard } from "@/domains/chat/components/workflow-inline-progress-card/workflow-inline-progress-card";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
 import { SingleActivity } from "@/domains/chat/components/single-activity/single-activity";
 import { MultiActivityGroup } from "@/domains/chat/components/multi-activity-group/multi-activity-group";
@@ -31,14 +33,18 @@ import { getSlackLinkUrl } from "@/domains/chat/types/types";
 import { wireSurfaceToDisplay } from "@/domains/chat/utils/map-runtime-message";
 import { isPointerCoarse } from "@/utils/pointer";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ConversationMessageSurface } from "@vellumai/assistant-api";
 import {
+  computeCardBackedWorkflowRunIds,
   isInteractiveClickTarget,
   lookupSubagentEntriesForMessage,
   resolveSpawnedSubagentIds,
+  resolveWorkflowRunIds,
   SlackMessageAttribution,
   type TranscriptMessageBodyProps,
+  workflowRunIdForCall,
 } from "@/domains/chat/transcript/transcript-message-body-shared";
 
 /**
@@ -69,6 +75,8 @@ export function TranscriptMessageBody({
   assistantId,
   onSubagentClick,
   onStopSubagent,
+  onWorkflowClick,
+  onStopWorkflow,
   isStreaming = false,
 }: TranscriptMessageBodyProps) {
   const isSlackMessage = Boolean(message.slackMessage);
@@ -135,7 +143,34 @@ export function TranscriptMessageBody({
     (s) => lookupSubagentEntriesForMessage(s.byParent, message),
   );
   const byToolUseId = useSubagentStore.use.byToolUseId();
+  const byToolUseIdWf = useWorkflowStore.use.byToolUseId();
+  // The runIds in THIS message whose `run_workflow` chip is suppressed in favor
+  // of an inline card ("card-backed"). Subscribed via a narrowed selector that
+  // returns a stable key, so the message re-renders only when a card's
+  // backed-state flips — an entry appears, or hydration definitively fails —
+  // never on every leaf event, honoring the store's reference-stability
+  // discipline. A failed call (no runId), a retention-pruned run (404), or a
+  // transient hydration failure is NOT card-backed: its tool result keeps
+  // rendering instead of vanishing behind a card with no entry to show.
+  const cardBackedKey = useWorkflowStore(
+    useCallback(
+      (s) =>
+        [...computeCardBackedWorkflowRunIds(message.toolCalls ?? [], s)].join(
+          "|",
+        ),
+      [message.toolCalls],
+    ),
+  );
+  const cardBackedWorkflowRunIds = useMemo(
+    () => new Set(cardBackedKey ? cardBackedKey.split("|") : []),
+    [cardBackedKey],
+  );
   const claimedSpawnIds = new Set<string>();
+  const claimedWorkflowIds = new Set<string>();
+  const cardBackedWorkflowRunId = (tc: ChatMessageToolCall): string | null => {
+    const rid = workflowRunIdForCall(tc, byToolUseIdWf);
+    return rid !== null && cardBackedWorkflowRunIds.has(rid) ? rid : null;
+  };
 
   const renderTextWithInlineSurfaces = (text: string, key: string) => {
     const inlineSegments = parseInlineSurfaces(text);
@@ -196,6 +231,27 @@ export function TranscriptMessageBody({
     );
   };
 
+  const renderInlineWorkflowCards = (toolCalls: ChatMessageToolCall[]) => {
+    const runIds = resolveWorkflowRunIds(
+      toolCalls,
+      byToolUseIdWf,
+      claimedWorkflowIds,
+    );
+    if (runIds.length === 0) return null;
+    return (
+      <div className="flex w-full flex-col gap-1.5">
+        {runIds.map((runId) => (
+          <WorkflowInlineProgressCard
+            key={runId}
+            runId={runId}
+            onWorkflowClick={onWorkflowClick}
+            onStopWorkflow={onStopWorkflow}
+          />
+        ))}
+      </div>
+    );
+  };
+
   const renderSurfaceNode = (
     surface: ConversationMessageSurface,
     key: string,
@@ -246,7 +302,10 @@ export function TranscriptMessageBody({
       }
     }
     const renderableToolCalls = groupToolCalls.filter(
-      (tc) => !isSubagentSpawnCall(tc),
+      // Suppress the raw chip only for a card-backed run_workflow call (see
+      // cardBackedWorkflowRunId). A failed call (no runId) or a 404/pruned run is
+      // not card-backed, so it renders its tool result instead of vanishing.
+      (tc) => !isSubagentSpawnCall(tc) && cardBackedWorkflowRunId(tc) === null,
     );
     const loneTool =
       cardItems.length === 1 &&
@@ -261,16 +320,39 @@ export function TranscriptMessageBody({
         <Fragment key={key}>
           <SingleActivity variant="tool" toolCall={loneTool} />
           {renderInlineSubagentCards(groupToolCalls)}
+          {renderInlineWorkflowCards(groupToolCalls)}
         </Fragment>
       );
     }
     if (renderableToolCalls.length > 0) {
+      // A card-backed run_workflow call is shown by its dedicated inline card, so
+      // drop it from the steps MultiActivityGroup renders too (the group filters
+      // subagent_spawn internally but not run_workflow). A failed or 404/pruned
+      // workflow call is not card-backed and is kept, so its tool result still
+      // renders as a step; subagent spawns are left for the group to filter.
+      const suppressedWorkflowIds = new Set(
+        groupToolCalls
+          .filter((tc) => cardBackedWorkflowRunId(tc) !== null)
+          .map((tc) => tc.id),
+      );
+      const groupCardToolCalls =
+        suppressedWorkflowIds.size === 0
+          ? groupToolCalls
+          : groupToolCalls.filter((tc) => !suppressedWorkflowIds.has(tc.id));
+      const groupCardItems =
+        suppressedWorkflowIds.size === 0
+          ? cardItems
+          : cardItems.filter(
+              (it) =>
+                it.kind !== "toolCall" ||
+                !suppressedWorkflowIds.has(it.toolCall.id),
+            );
       return (
         <Fragment key={key}>
           <div className="w-full">
             <MultiActivityGroup
-              toolCalls={groupToolCalls}
-              items={cardItems}
+              toolCalls={groupCardToolCalls}
+              items={groupCardItems}
               messageId={message.id}
               groupIndex={groupIndex}
               onOpenRuleEditor={onOpenRuleEditor}
@@ -281,6 +363,7 @@ export function TranscriptMessageBody({
             />
           </div>
           {renderInlineSubagentCards(groupToolCalls)}
+          {renderInlineWorkflowCards(groupToolCalls)}
         </Fragment>
       );
     }
@@ -301,6 +384,7 @@ export function TranscriptMessageBody({
           />
         )}
         {renderInlineSubagentCards(groupToolCalls)}
+        {renderInlineWorkflowCards(groupToolCalls)}
       </Fragment>
     );
   };

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { buildToolApprovalSeedContentBlocks } from "../notifications/tool-approval-copy.js";
+import { buildToolApprovalSeedContentBlocks } from "../notifications/approval-card-data.js";
 
 describe("buildToolApprovalSeedContentBlocks", () => {
   const toolApprovalPayload: Record<string, unknown> = {

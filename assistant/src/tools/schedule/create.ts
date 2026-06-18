@@ -1,3 +1,4 @@
+import { resolveCapabilities } from "../../runtime/capabilities.js";
 import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
 import { formatIntegrationSummary } from "../../schedule/integration-status.js";
 import { validateRruleSetLines } from "../../schedule/recurrence-engine.js";
@@ -15,7 +16,7 @@ import {
 } from "../../schedule/schedule-store.js";
 import {
   CapabilityManifestSchema,
-  resolveCapabilities,
+  resolveCapabilities as resolveWorkflowCapabilities,
 } from "../../workflows/capabilities.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
@@ -30,7 +31,7 @@ export async function executeScheduleCreate(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  if (context.trustClass !== "guardian") {
+  if (!resolveCapabilities(context.trustClass).canManageSchedules) {
     return {
       content:
         "Error: schedule_create is restricted to guardian actors because schedules execute with elevated privileges.",
@@ -138,7 +139,7 @@ export async function executeScheduleCreate(
     if (input.capabilities !== undefined) {
       try {
         const manifest = CapabilityManifestSchema.parse(input.capabilities);
-        resolveCapabilities(manifest);
+        resolveWorkflowCapabilities(manifest);
         capabilities = manifest;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

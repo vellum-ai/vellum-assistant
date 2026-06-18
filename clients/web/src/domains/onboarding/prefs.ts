@@ -87,6 +87,32 @@ export function useAiDataConsent(): [boolean, (next: boolean) => void] {
   return [value, setter];
 }
 
+/**
+ * Whether the analytics consent the user accepted is for the current toggle
+ * version. Set on session sync by the auth store. A stale value means the user
+ * must re-review the terms.
+ */
+export function useAnalyticsConsentCurrent(): [boolean, (next: boolean) => void] {
+  const value = useOnboardingStore.use.analyticsConsentCurrent();
+  const setter = useCallback((next: boolean) => {
+    useOnboardingStore.getState().setAnalyticsConsentCurrent(next);
+  }, []);
+  return [value, setter];
+}
+
+/**
+ * Whether the diagnostics consent the user accepted is for the current toggle
+ * version. Set on session sync by the auth store. A stale value means the user
+ * must re-review the terms.
+ */
+export function useDiagnosticsConsentCurrent(): [boolean, (next: boolean) => void] {
+  const value = useOnboardingStore.use.diagnosticsConsentCurrent();
+  const setter = useCallback((next: boolean) => {
+    useOnboardingStore.getState().setDiagnosticsConsentCurrent(next);
+  }, []);
+  return [value, setter];
+}
+
 // ---------------------------------------------------------------------------
 // Non-hook readers (for gates/guards outside React render)
 // ---------------------------------------------------------------------------
@@ -110,6 +136,24 @@ export function readTosAccepted(): boolean {
  */
 export function readAiDataConsent(): boolean {
   return useOnboardingStore.getState().aiDataConsent;
+}
+
+/**
+ * SSR-safe, non-hook read of whether analytics consent is for the current
+ * toggle version. Used by the navigation guard to redirect platform users
+ * back to review-terms when their consent has gone stale.
+ */
+export function readAnalyticsConsentCurrent(): boolean {
+  return useOnboardingStore.getState().analyticsConsentCurrent;
+}
+
+/**
+ * SSR-safe, non-hook read of whether diagnostics consent is for the current
+ * toggle version. Used alongside `readAnalyticsConsentCurrent()` by the
+ * navigation guard.
+ */
+export function readDiagnosticsConsentCurrent(): boolean {
+  return useOnboardingStore.getState().diagnosticsConsentCurrent;
 }
 
 /**

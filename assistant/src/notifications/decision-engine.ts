@@ -26,10 +26,13 @@ import { truncate } from "../util/truncate.js";
 import {
   buildAccessRequestContractText,
   buildAccessRequestInviteDirective,
-  buildAccessRequestSeedContentBlocks,
   hasAccessRequestInstructions,
   hasInviteFlowDirective,
 } from "./access-request-copy.js";
+import {
+  buildAccessRequestSeedContentBlocks,
+  buildToolApprovalSeedContentBlocks,
+} from "./approval-card-data.js";
 import {
   buildConversationCandidates,
   type ConversationCandidateSet,
@@ -46,7 +49,6 @@ import {
 import { nonEmpty, readPayloadString } from "./notification-utils.js";
 import { getPreferenceSummary } from "./preference-summary.js";
 import type { NotificationSignal, RoutingIntent } from "./signal.js";
-import { buildToolApprovalSeedContentBlocks } from "./tool-approval-copy.js";
 import type {
   ConversationAction,
   NotificationChannel,

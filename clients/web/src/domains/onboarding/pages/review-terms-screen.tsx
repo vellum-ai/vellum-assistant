@@ -1,9 +1,12 @@
-import { useCallback, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
+import { SettingRow } from "@/components/setting-row";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import {
     useAiDataConsent,
+    useAnalyticsConsentCurrent,
+    useDiagnosticsConsentCurrent,
     useShareAnalytics,
     useShareDiagnostics,
     useTosAccepted,
@@ -30,8 +33,19 @@ export function ReviewTermsScreen() {
 
   const [tosAccepted, setTosAccepted] = useTosAccepted();
   const [aiDataConsent, setAiDataConsent] = useAiDataConsent();
-  const [shareAnalytics] = useShareAnalytics();
-  const [shareDiagnostics] = useShareDiagnostics();
+  const [shareAnalytics, setShareAnalytics] = useShareAnalytics();
+  const [shareDiagnostics, setShareDiagnostics] = useShareDiagnostics();
+  const [analyticsConsentCurrent] = useAnalyticsConsentCurrent();
+  const [diagnosticsConsentCurrent] = useDiagnosticsConsentCurrent();
+
+  // Snapshot staleness at mount: these are the sections the user was routed
+  // here to address. Gating render on live values would unmount a checkbox the
+  // instant it's checked, so the user never sees the checked state.
+  const [tosStaleAtMount] = useState(() => !tosAccepted);
+  const [aiStaleAtMount] = useState(() => !aiDataConsent);
+  const [analyticsStaleAtMount] = useState(() => !analyticsConsentCurrent);
+  const [diagnosticsStaleAtMount] = useState(() => !diagnosticsConsentCurrent);
+  const onlyTogglesStaleAtMount = !tosStaleAtMount && !aiStaleAtMount;
 
   const onContinue = useCallback(() => {
     saveConsent({ userId, tos: tosAccepted, ai: aiDataConsent, shareAnalytics, shareDiagnostics, hasPlatformSession });
@@ -91,6 +105,11 @@ export function ReviewTermsScreen() {
     </span>
   );
 
+  // Only the legal checkboxes shown at mount gate Continue, driven by their
+  // live checked values. Toggles never block — off is a valid choice.
+  const continueDisabled =
+    (tosStaleAtMount && !tosAccepted) || (aiStaleAtMount && !aiDataConsent);
+
   return (
     <OnboardingLayout showCreatureFooter={false}>
       <div
@@ -100,40 +119,70 @@ export function ReviewTermsScreen() {
           className={electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}
           style={{ animation: "fadeInUp 0.5s ease-out 0.1s both" }}
         >
-          Updated Terms
+          {onlyTogglesStaleAtMount ? "Review your privacy preferences" : "Updated Terms"}
         </h1>
         <p
           className={`text-center text-body-medium-lighter text-[var(--content-tertiary)] ${electron ? "mt-3.5" : "mt-4"}`}
           style={{ animation: "fadeInUp 0.5s ease-out 0.3s both" }}
         >
-          We&apos;ve updated our terms. Please review and re-accept to continue.
+          {onlyTogglesStaleAtMount
+            ? "We've updated our privacy preferences. Please review them to continue."
+            : "We've updated our terms. Please review and re-accept to continue."}
         </p>
 
-        <div
-          className="mt-8 flex w-full items-start"
-          style={{ animation: "fadeInUp 0.5s ease-out 0.4s both" }}
-        >
-          <Checkbox
-            checked={aiDataConsent}
-            onCheckedChange={(next) => setAiDataConsent(next === true)}
-            label={aiConsentLabel}
-            aria-label="I agree to the AI Data Sharing Policy"
-            className={CONSENT_CHECKBOX_CLASS}
-          />
-        </div>
+        {(analyticsStaleAtMount || diagnosticsStaleAtMount) && (
+          <div
+            className="mt-8 flex w-full flex-col gap-4"
+            style={{ animation: "fadeInUp 0.5s ease-out 0.4s both" }}
+          >
+            {analyticsStaleAtMount && (
+              <SettingRow
+                label="Share Analytics"
+                helperText="Send anonymous product usage data."
+                checked={shareAnalytics}
+                onChange={setShareAnalytics}
+              />
+            )}
+            {diagnosticsStaleAtMount && (
+              <SettingRow
+                label="Share Diagnostics"
+                helperText="Send crash reports and performance metrics."
+                checked={shareDiagnostics}
+                onChange={setShareDiagnostics}
+              />
+            )}
+          </div>
+        )}
 
-        <div
-          className={`flex w-full items-start ${electron ? "mt-2" : "mt-4"}`}
-          style={{ animation: "fadeInUp 0.5s ease-out 0.45s both" }}
-        >
-          <Checkbox
-            checked={tosAccepted}
-            onCheckedChange={(next) => setTosAccepted(next === true)}
-            label={tosLabel}
-            aria-label="I agree to the Terms of Service and Privacy Policy"
-            className={CONSENT_CHECKBOX_CLASS}
-          />
-        </div>
+        {aiStaleAtMount && (
+          <div
+            className="mt-8 flex w-full items-start"
+            style={{ animation: "fadeInUp 0.5s ease-out 0.45s both" }}
+          >
+            <Checkbox
+              checked={aiDataConsent}
+              onCheckedChange={(next) => setAiDataConsent(next === true)}
+              label={aiConsentLabel}
+              aria-label="I agree to the AI Data Sharing Policy"
+              className={CONSENT_CHECKBOX_CLASS}
+            />
+          </div>
+        )}
+
+        {tosStaleAtMount && (
+          <div
+            className={`flex w-full items-start ${electron ? "mt-2" : "mt-4"}`}
+            style={{ animation: "fadeInUp 0.5s ease-out 0.5s both" }}
+          >
+            <Checkbox
+              checked={tosAccepted}
+              onCheckedChange={(next) => setTosAccepted(next === true)}
+              label={tosLabel}
+              aria-label="I agree to the Terms of Service and Privacy Policy"
+              className={CONSENT_CHECKBOX_CLASS}
+            />
+          </div>
+        )}
 
         <div
           className={`mt-8 flex w-full flex-col ${electron ? "gap-2.5" : "gap-2"}`}
@@ -143,7 +192,7 @@ export function ReviewTermsScreen() {
             variant="primary"
             size="regular"
             fullWidth
-            disabled={!tosAccepted || !aiDataConsent}
+            disabled={continueDisabled}
             onClick={onContinue}
             className={electron ? undefined : "h-11 text-base"}
           >

@@ -1,7 +1,7 @@
 import { getLogger } from "../../util/logger.js";
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 
-const log = getLogger("migration-293");
+const log = getLogger("migration-294");
 
 /**
  * Drops the `external_user_id` column and its index from `contact_channels`.

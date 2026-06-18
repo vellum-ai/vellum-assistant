@@ -25,8 +25,24 @@ let lastOpenedUrl = "";
 // Capture legacy-cookie eviction calls.
 const cookieRemoveCalls: Array<{ url: string; name: string }> = [];
 
+// Capture the post-login app-refocus calls.
+const refocus = { appFocusSteal: 0, ensureVisible: 0 };
+
+mock.module("./main-window", () => ({
+  ensureVisible: () => {
+    refocus.ensureVisible += 1;
+    return Promise.resolve();
+  },
+}));
+
 mock.module("electron", () => ({
-  app: { getVersion: () => "9.9.9", getPath: () => "/tmp" },
+  app: {
+    getVersion: () => "9.9.9",
+    getPath: () => "/tmp",
+    focus: (opts?: { steal?: boolean }) => {
+      if (opts?.steal) refocus.appFocusSteal += 1;
+    },
+  },
   net: {
     // Routed by URL: serves the real workos-pkce module's three network
     // legs (config discovery, WorkOS code exchange, session exchange) and
@@ -111,6 +127,8 @@ afterEach(() => {
   store.clearCalls = 0;
   lastOpenedUrl = "";
   cookieRemoveCalls.length = 0;
+  refocus.appFocusSteal = 0;
+  refocus.ensureVisible = 0;
   for (const key of Object.keys(ipcHandlers)) delete ipcHandlers[key];
   for (const key of Object.keys(ipcSyncHandlers)) delete ipcSyncHandlers[key];
 });
@@ -156,6 +174,9 @@ describe("installNativeAuth — session-token wiring", () => {
     const result = await pending;
     expect(result.sessionToken).toBe("sess-tok-123");
     expect(store.saved).toContain("sess-tok-123");
+    // Reopen the app: steal foreground from the browser and surface the window.
+    expect(refocus.appFocusSteal).toBe(1);
+    expect(refocus.ensureVisible).toBe(1);
   });
 
   test("evicts both legacy session cookies on install", () => {

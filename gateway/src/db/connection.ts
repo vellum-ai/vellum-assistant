@@ -5,6 +5,8 @@ import { homedir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { getGatewaySecurityDir, getLegacyRootDir } from "../paths.js";
 import * as schema from "./schema.js";
+import { AdmissionPolicyStore } from "./admission-policy-store.js";
+import { seedAdmissionPolicyDefaults } from "./seed-admission-policy.js";
 import { seedTrustRulesFromRegistry } from "./seed-trust-rules.js";
 import { TrustRuleStore } from "./trust-rule-store.js";
 
@@ -232,6 +234,8 @@ export async function initGatewayDb(): Promise<void> {
 
   const trustRuleStore = new TrustRuleStore(db);
   seedTrustRulesFromRegistry(trustRuleStore);
+
+  seedAdmissionPolicyDefaults(new AdmissionPolicyStore(db));
 }
 
 /**

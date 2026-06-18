@@ -133,14 +133,14 @@ describe("migration 131 — drop legacy member/guardian tables", () => {
     expect(tableExists(raw, "assistant_ingress_members")).toBe(false);
   });
 
-  test("drops the legacy tables without throwing when external_user_id is absent (re-run after migration 293)", () => {
+  test("drops the legacy tables without throwing when external_user_id is absent (re-run after migration 294)", () => {
     const db = createTestDb();
     const raw = getSqliteFrom(db);
     bootstrap(db);
     createLegacyTables(raw);
     seedLegacyRows(raw);
 
-    // Simulate a later startup where migration 293 has already dropped the
+    // Simulate a later startup where migration 294 has already dropped the
     // index + column. The sync references external_user_id, so 131 must skip it
     // and still drop the tables rather than failing on every boot.
     raw.run("DROP INDEX IF EXISTS idx_contact_channels_type_ext_user");

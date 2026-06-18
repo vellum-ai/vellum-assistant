@@ -24,6 +24,7 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useEditApp } from "@/hooks/use-edit-app";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { routes } from "@/utils/routes";
@@ -31,6 +32,11 @@ import { routes } from "@/utils/routes";
 const SubagentDetailPanel = lazy(() =>
   import("@/domains/chat/components/subagent-detail-panel").then((m) => ({
     default: m.SubagentDetailPanel,
+  })),
+);
+const WorkflowDetailPanel = lazy(() =>
+  import("@/domains/chat/components/workflow-detail-panel").then((m) => ({
+    default: m.WorkflowDetailPanel,
   })),
 );
 const ToolDetailPanel = lazy(() =>
@@ -49,9 +55,11 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const openedDocumentState = useViewerStore.use.openedDocumentState();
   const editingConversationId = useConversationStore.use.editingConversationId();
   const activeSubagentId = useViewerStore.use.activeSubagentId();
+  const activeWorkflowRunId = useViewerStore.use.activeWorkflowRunId();
   const activeToolDetail = useViewerStore.use.activeToolDetail();
   const closeToolDetail = useViewerStore.use.closeToolDetail();
   const subagentById = useSubagentStore((s) => s.byId);
+  const workflowById = useWorkflowStore((s) => s.byId);
 
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
@@ -111,6 +119,21 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     void useSubagentStore.getState().fetchDetailIfNeeded(aid, id);
   }, []);
 
+  const onCloseWorkflowDetail = useCallback(() => {
+    useViewerStore.getState().closeWorkflowDetail();
+  }, []);
+
+  const onStopWorkflow = useCallback(
+    (runId: string) => void useWorkflowStore.getState().abortRun(runId),
+    [],
+  );
+
+  const onRequestWorkflowJournal = useCallback((runId: string) => {
+    const aid = useResolvedAssistantsStore.getState().activeAssistantId;
+    if (!aid) return;
+    void useWorkflowStore.getState().fetchJournalIfNeeded(aid, runId);
+  }, []);
+
   // -------------------------------------------------------------------------
   // Escape closes whichever right-hand side panel is open (tool detail /
   // thought process, subagent detail, document viewer). Surfaces stacked
@@ -140,6 +163,9 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
         case "subagent-detail":
           viewer.closeSubagentDetail();
           break;
+        case "workflow-detail":
+          viewer.closeWorkflowDetail();
+          break;
         case "document":
           viewer.closeDocument();
           break;
@@ -161,6 +187,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     return (
       <ResizablePanel
         storageKey="appEditPanelWidth"
+        hideDivider
         defaultRightWidth={400}
         minLeftWidth={300}
         minRightWidth={400}
@@ -217,6 +244,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     return (
       <ResizablePanel
         storageKey="documentPanelWidth"
+        hideDivider
         defaultRightWidth={400}
         minLeftWidth={300}
         minRightWidth={400}
@@ -248,6 +276,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
       return (
         <ResizablePanel
           storageKey="subagentDetailPanelWidth"
+          hideDivider
           defaultRightWidth={400}
           minLeftWidth={300}
           minRightWidth={400}
@@ -259,6 +288,33 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
                 onClose={onCloseSubagentDetail}
                 onStop={onStopSubagent}
                 onRequestDetail={onRequestSubagentDetail}
+              />
+            </LazyBoundary>
+          }
+        />
+      );
+    }
+  }
+
+  // Workflow detail side panel
+  if (mainView === "workflow-detail" && activeWorkflowRunId && !isMobile) {
+    const activeEntry = workflowById[activeWorkflowRunId];
+    if (activeEntry) {
+      return (
+        <ResizablePanel
+          storageKey="workflowDetailPanelWidth"
+          hideDivider
+          defaultRightWidth={400}
+          minLeftWidth={300}
+          minRightWidth={400}
+          left={chatContent}
+          right={
+            <LazyBoundary>
+              <WorkflowDetailPanel
+                entry={activeEntry}
+                onClose={onCloseWorkflowDetail}
+                onStop={onStopWorkflow}
+                onRequestJournal={onRequestWorkflowJournal}
               />
             </LazyBoundary>
           }

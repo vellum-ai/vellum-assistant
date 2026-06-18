@@ -48,6 +48,7 @@ import { openPopoutWindow } from "@/runtime/popout-window";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
+import { useOnboardingFocusStore } from "@/stores/onboarding-focus-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { Conversation } from "@/types/conversation-types";
 import { requestComposerFocus } from "./composer-focus";
@@ -58,6 +59,8 @@ import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useCommandPaletteOrchestrator } from "@/domains/chat/hooks/use-command-palette-orchestrator";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { ResearchResultsOverlay } from "@/domains/chat/onboarding-research/research-results-overlay";
+import { OnboardingCheckinOverlay } from "@/components/onboarding-checkin-overlay";
 import { ChatConversationHeader } from "./chat-conversation-header";
 import { ChatLayoutHeader } from "./chat-layout-header";
 import { RenameDialogFromStore } from "./rename-dialog-from-store";
@@ -116,6 +119,14 @@ export function ChatLayout() {
   // persistent layout route — it stays mounted when child routes change, so
   // this initial value remains stable for the window's lifetime.
   const [isPopout] = useState(() => location.search.includes("popout=1"));
+
+  // SPIKE — research-onboarding focused presentation. When set, a full-viewport
+  // overlay (rendered below, on top of this layout) covers the chrome so the
+  // handoff chat reads as a focused step. Kept as an overlay rather than a
+  // separate render branch so `ActiveChatView` never remounts when focus
+  // toggles — otherwise a suggestion click's navigate + `?prompt=` auto-send
+  // gets raced by the remount and the message is lost.
+  const isFocused = useOnboardingFocusStore.use.focused();
 
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantStateKind = useAssistantLifecycleStore(
@@ -662,6 +673,17 @@ export function ChatLayout() {
           </main>
         </div>
       )}
+
+      {/* Focused research-onboarding results — a full-viewport layer ON TOP of
+          the normal layout (not a separate render branch), so `ActiveChatView`
+          stays continuously mounted. Toggling focus only adds/removes this
+          overlay; it never remounts the chat, so a suggestion click's
+          navigate + `?prompt=` auto-send isn't raced by a remount. */}
+      {isFocused ? <ResearchResultsOverlay /> : null}
+      {/* First step of the focused flow: the gcal "Let's chat tomorrow" page,
+          shown over the streaming research output until connect/skip. Self-gates
+          on `checkinPending`; top-level so it can compose the onboarding screen. */}
+      <OnboardingCheckinOverlay />
 
       <RenameDialogFromStore assistantId={assistantId} />
       {commandPalette.isOpen ? (

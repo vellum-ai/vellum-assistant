@@ -36,10 +36,14 @@ import { client as gatewayClient } from "@/generated/gateway/client.gen";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { ApiError, extractErrorMessage } from "@/utils/api-errors";
-import { isLocalMode, isPlatformDisabled, isRemoteGatewayMode } from "@/lib/local-mode";
 import {
-    getSelfHostedActorToken,
-    getSelfHostedIngressUrl,
+  isLocalMode,
+  isPlatformDisabled,
+  isRemoteGatewayMode,
+} from "@/lib/local-mode";
+import {
+  getSelfHostedActorToken,
+  getSelfHostedIngressUrl,
 } from "@/lib/self-hosted/connection";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import { getDeviceId } from "@/runtime/device-id";
@@ -70,7 +74,14 @@ function getRendererTupleOrigin(): string {
  * Once all daemon endpoints are migrated to the daemon SDK, this list
  * becomes dead code and can be removed.
  */
-const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>(["conversations"]);
+const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>([
+  "conversations",
+  "channel-admission-policy",
+  // Live SSE event stream — `subscribeEvents` opens it through the
+  // platform client, so it must be forwarded to the gateway in local /
+  // self-hosted mode like any other runtime route.
+  "events",
+]);
 
 const ASSISTANT_PATH_RE =
   /^\/v1\/assistants\/[^/]+\/([^/?#]+)(?:\/.*)?$/;
@@ -109,7 +120,6 @@ export async function rewriteForSelfHostedIngress(
   if (
     !firstSegment ||
     (!skipSegmentAllowlist &&
-      !isLocalMode() &&
       !RUNTIME_PROXIED_FIRST_SEGMENTS.has(firstSegment))
   ) {
     return null;
@@ -222,7 +232,10 @@ export function authorizeRemoteGatewayRequest(
  *   routes like maintenance-mode, system-events, etc. fall through
  *   to Django).
  */
-function createInterceptor({ skipSegmentAllowlist = false } = {}) {
+function createInterceptor({
+  skipSegmentAllowlist = false,
+  allowRemoteGatewayDirect = false,
+} = {}) {
   return async (request: Request): Promise<Request> => {
     const newRequest = new Request(request);
 
@@ -246,9 +259,11 @@ function createInterceptor({ skipSegmentAllowlist = false } = {}) {
       return selfHosted;
     }
 
-    const remoteGateway = authorizeRemoteGatewayRequest(newRequest);
-    if (remoteGateway) {
-      return remoteGateway;
+    if (allowRemoteGatewayDirect) {
+      const remoteGateway = authorizeRemoteGatewayRequest(newRequest);
+      if (remoteGateway) {
+        return remoteGateway;
+      }
     }
 
     // Platform path — Django session auth.
@@ -295,6 +310,7 @@ export const requestInterceptor = createInterceptor();
 /** Daemon client: bypasses the segment allowlist. */
 export const daemonRequestInterceptor = createInterceptor({
   skipSegmentAllowlist: true,
+  allowRemoteGatewayDirect: true,
 });
 
 /**
@@ -453,6 +469,29 @@ function arePlatformFeaturesEnabled(): boolean {
  * Exported for direct unit testing.
  */
 export function platformFeaturesGate(request: Request): Request {
+  if (isRemoteGatewayMode()) {
+    if (
+      request.headers
+        .get("Authorization")
+        ?.toLowerCase()
+        .startsWith("bearer ")
+    ) {
+      return request;
+    }
+    console.debug(
+      "remote-gateway mode — no-op platform request:",
+      new URL(request.url).pathname,
+    );
+    const aborted = new AbortController();
+    aborted.abort(
+      new DOMException(
+        "Platform routes disabled in remote-gateway mode",
+        "AbortError",
+      ),
+    );
+    return new Request(request.url, { signal: aborted.signal });
+  }
+
   if (!isLocalMode()) return request;
   if (arePlatformFeaturesEnabled()) return request;
 

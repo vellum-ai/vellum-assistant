@@ -80,12 +80,10 @@ import {
 } from "../prompts/system-prompt.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
-import {
-  isUntrustedTrustClass,
-  type TrustClass,
-} from "../runtime/actor-trust-resolver.js";
+import { type TrustClass } from "../runtime/actor-trust-resolver.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../runtime/auth/types.js";
+import { resolveCapabilities } from "../runtime/capabilities.js";
 import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import {
@@ -107,7 +105,7 @@ import {
   runAgentLoopImpl,
 } from "./conversation-agent-loop.js";
 import type { HistoryConversationContext } from "./conversation-history.js";
-import { undo as undoImpl } from "./conversation-history.js";
+import { isToolResultBlock, undo as undoImpl } from "./conversation-history.js";
 import {
   abortConversation,
   disposeConversation,
@@ -194,7 +192,7 @@ function startsNewTurn(role: string, content: string): boolean {
         (block: unknown) =>
           block != null &&
           typeof block === "object" &&
-          (block as { type?: unknown }).type === "tool_result",
+          isToolResultBlock(block as Record<string, unknown>),
       )
     ) {
       return false;
@@ -396,6 +394,13 @@ export class Conversation {
     workspaceDir: string,
   ) => Pick<WorkspaceGitService, "ensureInitialized">;
   /** @internal */ commitTurnChanges?: typeof commitTurnChanges;
+  /**
+   * Abort-watchdog timeout (ms) for the agent loop's bounded-unwind backstop.
+   * Overridable in tests to fire the watchdog quickly; defaults to the
+   * production constant in the agent loop when unset.
+   * @internal
+   */
+  abortWatchdogMs?: number;
   /**
    * The conversation's immutable creation type (`interactive`, `background`,
    * `scheduled`, …) as stored on the DB row. Cached on load (and set directly
@@ -854,10 +859,11 @@ export class Conversation {
 
   async loadFromDb(): Promise<void> {
     const trustClass = this.trustContext?.trustClass;
+    const canAccessMemory = resolveCapabilities(trustClass).canAccessMemory;
     const allDbMessages = getMessages(this.conversationId);
-    const dbMessages = isUntrustedTrustClass(trustClass)
-      ? filterMessagesForUntrustedActor(allDbMessages)
-      : allDbMessages;
+    const dbMessages = canAccessMemory
+      ? allDbMessages
+      : filterMessagesForUntrustedActor(allDbMessages);
 
     // Rehydrate the in-memory turn counter from persisted history. `turnCount`
     // is otherwise a fresh-zero field, so a reloaded conversation (eviction,
@@ -899,12 +905,12 @@ export class Conversation {
     // than exist. Slack chronological context is a separate consumer that
     // applies its own trust filtering downstream, so it reads the raw
     // mirrored count rather than this in-context boundary.
-    const inContextCompactedCount = isUntrustedTrustClass(trustClass)
-      ? 0
-      : Math.min(this.contextCompactedMessageCount, dbMessages.length);
-    const contextSummaryForHistory = isUntrustedTrustClass(trustClass)
-      ? null
-      : this.contextSummary?.trim() || null;
+    const inContextCompactedCount = canAccessMemory
+      ? Math.min(this.contextCompactedMessageCount, dbMessages.length)
+      : 0;
+    const contextSummaryForHistory = canAccessMemory
+      ? this.contextSummary?.trim() || null
+      : null;
 
     // Every injection-strip event (`/clean` or compaction) updates
     // `historyStrippedAt`. Messages older than this should skip metadata

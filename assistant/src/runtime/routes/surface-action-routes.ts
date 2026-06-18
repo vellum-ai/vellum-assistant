@@ -13,6 +13,7 @@ import type { ChannelId } from "../../channels/types.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { findGuardianForChannel } from "../../contacts/contact-store.js";
 import { getLogger } from "../../util/logger.js";
+import type { TrustClass } from "../actor-trust-resolver.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { processGuardianDecision } from "../guardian-action-service.js";
@@ -47,7 +48,7 @@ const log = getLogger("surface-action-routes");
 function applyTrustContext(
   conversation: {
     setTrustContext?(ctx: {
-      trustClass: "guardian" | "trusted_contact" | "unknown";
+      trustClass: TrustClass;
       sourceChannel: ChannelId;
     }): void;
   },
