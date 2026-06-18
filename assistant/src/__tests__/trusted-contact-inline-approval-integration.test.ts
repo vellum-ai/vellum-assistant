@@ -1206,6 +1206,13 @@ describe("(g) access_request resolver: requester code delivery", () => {
     expect(requesterCodeReply!.payload.text).toContain(
       "your access request was approved",
     );
+
+    // The off-channel approve path records the verification_sent lifecycle
+    // signal too — parity with the on-channel path.
+    const verificationSent = emittedSignals.filter(
+      (s) => s.sourceEventName === "ingress.trusted_contact.verification_sent",
+    );
+    expect(verificationSent.length).toBe(1);
   });
 
   test("non-Slack channel keeps the courier message and never delivers the code to the requester chat", async () => {

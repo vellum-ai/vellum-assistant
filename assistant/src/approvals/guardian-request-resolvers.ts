@@ -136,6 +136,46 @@ function buildRequesterChannelNotice(params: {
   return payload;
 }
 
+/**
+ * Emit the `verification_sent` lifecycle signal on guardian approve.
+ *
+ * Always `visibleInSourceNow: true` so the notification pipeline suppresses
+ * delivery — the requester already received the code directly, so this records
+ * the lifecycle transition without sending a redundant "approved" message. It
+ * also stands in for `guardian_decision` on approve (which would notify), so
+ * the pipeline doesn't announce approval before the requester has verified.
+ */
+function emitVerificationSentSignal(params: {
+  channel: NotificationSourceChannel;
+  conversationId: string | null | undefined;
+  requesterExternalUserId: string;
+  requesterChatId: string;
+  requesterDisplayName: string | null;
+  decidedByDisplayName: string | null;
+  verificationSessionId: string;
+}): void {
+  void emitNotificationSignal({
+    sourceEventName: "ingress.trusted_contact.verification_sent",
+    sourceChannel: params.channel,
+    sourceContextId: params.conversationId ?? "",
+    attentionHints: {
+      requiresAction: false,
+      urgency: "low",
+      isAsyncBackground: true,
+      visibleInSourceNow: true,
+    },
+    contextPayload: {
+      sourceChannel: params.channel,
+      requesterExternalUserId: params.requesterExternalUserId,
+      requesterChatId: params.requesterChatId,
+      requesterDisplayName: params.requesterDisplayName,
+      decidedByDisplayName: params.decidedByDisplayName,
+      verificationSessionId: params.verificationSessionId,
+    },
+    dedupeKey: `trusted-contact:verification-sent:${params.verificationSessionId}`,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -782,28 +822,16 @@ const accessRequestResolver: GuardianRequestResolver = {
         }
       }
 
-      // Emit verification_sent with visibleInSourceNow=true so the notification
-      // pipeline suppresses delivery — the guardian already received the code.
+      // Record the verification_sent lifecycle transition (delivery suppressed).
       if (codeDelivered) {
-        void emitNotificationSignal({
-          sourceEventName: "ingress.trusted_contact.verification_sent",
-          sourceChannel: channel,
-          sourceContextId: request.conversationId ?? "",
-          attentionHints: {
-            requiresAction: false,
-            urgency: "low",
-            isAsyncBackground: true,
-            visibleInSourceNow: true,
-          },
-          contextPayload: {
-            sourceChannel: channel,
-            requesterExternalUserId,
-            requesterChatId,
-            requesterDisplayName,
-            decidedByDisplayName,
-            verificationSessionId: session.sessionId,
-          },
-          dedupeKey: `trusted-contact:verification-sent:${session.sessionId}`,
+        emitVerificationSentSignal({
+          channel,
+          conversationId: request.conversationId,
+          requesterExternalUserId,
+          requesterChatId,
+          requesterDisplayName,
+          decidedByDisplayName,
+          verificationSessionId: session.sessionId,
         });
       }
     } else if (desktopDeliverUrl && requesterChatId) {
@@ -844,6 +872,20 @@ const accessRequestResolver: GuardianRequestResolver = {
             "Failed to notify requester of access request approval (desktop decision path)",
           );
         }
+      }
+
+      // Record the verification_sent lifecycle transition for the off-channel
+      // approve path too — parity with the on-channel branch above.
+      if (requesterNotified) {
+        emitVerificationSentSignal({
+          channel,
+          conversationId: request.conversationId,
+          requesterExternalUserId,
+          requesterChatId,
+          requesterDisplayName,
+          decidedByDisplayName,
+          verificationSessionId: session.sessionId,
+        });
       }
     }
 
