@@ -4,8 +4,8 @@ import { useNavigate } from "react-router";
 import { Minimize2 } from "lucide-react";
 
 import { AppNavBar } from "@/components/app-nav-bar";
-import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useSandboxFetchProxy } from "@/hooks/use-sandbox-fetch-proxy";
+import { useConversationStore } from "@/stores/conversation-store";
 import { cn } from "@/utils/misc";
 import { routes } from "@/utils/routes";
 import { injectBridge } from "@/utils/sandbox-bridge";
@@ -90,7 +90,7 @@ export function AppViewerContainer({
       const prompt = typeof data?.prompt === "string" ? data.prompt : null;
       if (!prompt) return;
       const activeConversationId =
-        useChatSessionStore.getState().activeConversationId;
+        useConversationStore.getState().activeConversationId;
       if (!activeConversationId) return;
       void navigate(
         `${routes.conversation(activeConversationId)}?prompt=${encodeURIComponent(prompt)}`,
