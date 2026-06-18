@@ -8,7 +8,10 @@
 import { getPlatformAssistantId } from "../config/env.js";
 import { resolveManagedProxyContext } from "../providers/platform-proxy/context.js";
 import { credentialKey } from "../security/credential-key.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
+import {
+  getSecureKeyAsync,
+  getSecureKeyResultAsync,
+} from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { arePlatformFeaturesEnabled } from "./feature-gate.js";
 
@@ -119,5 +122,65 @@ export class VellumPlatformClient {
 
   get platformAssistantId(): string {
     return this.assistantId;
+  }
+}
+
+/**
+ * Why `VellumPlatformClient.create()` returned null, for callers that must
+ * distinguish a genuinely off-platform install from a transient credential
+ * read failure.
+ *
+ * - `"absent"`: the credential read succeeded and returned nothing — the
+ *   install is genuinely off-platform.
+ * - `"unreachable"`: the credential backend could not be read (transient), OR
+ *   the credential is present but the client is still unavailable, OR the read
+ *   threw. Callers should treat all of these as transient and preserve
+ *   whatever local state they hold rather than pruning it.
+ */
+export type PlatformCredentialAvailability = "absent" | "unreachable";
+
+/**
+ * Classify whether platform credentials are genuinely absent or merely
+ * unreadable, for callers (e.g. managed-profiles) that must distinguish a
+ * genuinely off-platform install from a transient credential-backend failure.
+ *
+ * Re-reads the assistant API key (the same credential `create()` requires) via
+ * `getSecureKeyResultAsync`, which surfaces a distinct `unreachable` signal.
+ * Only an explicit "read succeeded, value absent" yields `"absent"`. An
+ * unreachable read, a present-but-unusable key, or any thrown read error all
+ * yield `"unreachable"` — when in doubt we prefer preservation.
+ *
+ * Note: this does NOT check `arePlatformFeaturesEnabled()` — callers that need
+ * the "features disabled" short-circuit should check it before calling this.
+ */
+export async function classifyMissingPlatformCredential(): Promise<PlatformCredentialAvailability> {
+  try {
+    const apiKey = await getSecureKeyResultAsync(
+      credentialKey("vellum", "assistant_api_key"),
+    );
+    if (apiKey.unreachable) {
+      // Credential backend could not be reached — transient.
+      log.warn(
+        "Platform features enabled but assistant API key unreadable (backend unreachable) — treating as transient",
+      );
+      return "unreachable";
+    }
+    if (!apiKey.value) {
+      // Read succeeded and the credential is genuinely absent — off-platform.
+      return "absent";
+    }
+    // The key exists but `create()` still returned null (e.g. base URL
+    // missing or another transient gap). Prefer the safe classification.
+    log.warn(
+      "Platform features enabled and assistant API key present but client unavailable — treating as transient",
+    );
+    return "unreachable";
+  } catch (err) {
+    // A thrown credential read is a transient/unreachable condition.
+    log.warn(
+      { err },
+      "Failed to read platform credentials while classifying missing client — treating as transient",
+    );
+    return "unreachable";
   }
 }

@@ -12,10 +12,11 @@ import { z } from "zod";
 
 import { EffortEnum, LLMProvider } from "../config/schemas/llm.js";
 import { isModelIntent } from "../providers/model-intents.js";
-import { credentialKey } from "../security/credential-key.js";
-import { getSecureKeyResultAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
-import { VellumPlatformClient } from "./client.js";
+import {
+  classifyMissingPlatformCredential,
+  VellumPlatformClient,
+} from "./client.js";
 import { arePlatformFeaturesEnabled } from "./feature-gate.js";
 
 const log = getLogger("managed-profiles");
@@ -142,12 +143,11 @@ export async function fetchManagedProfiles(): Promise<FetchManagedProfilesResult
  * status overrides + call-site pins on a blip, which is exactly the data-loss
  * the `error`/`no-connection` split exists to prevent. So we map it to `error`.
  *
- * We positively confirm "credentials absent" by re-reading the assistant API
- * key (the same credential `create()` requires) via `getSecureKeyResultAsync`,
- * which surfaces a distinct `unreachable` signal. Only an explicit "read
- * succeeded, value absent" yields `no-connection`; an unreachable read — or any
- * thrown read error — is treated as transient (`error`, preserve). When in
- * doubt we prefer preservation.
+ * The credential-reachability check is delegated to
+ * {@link classifyMissingPlatformCredential} in `client.ts` (the module
+ * authorized to read secure keys). Only an explicit "credentials absent"
+ * yields `no-connection`; everything else is treated as transient (`error`,
+ * preserve). When in doubt we prefer preservation.
  */
 async function classifyMissingClient(): Promise<FetchManagedProfilesResult> {
   // Platform explicitly disabled — the install is genuinely off-platform.
@@ -155,33 +155,6 @@ async function classifyMissingClient(): Promise<FetchManagedProfilesResult> {
     return { status: "no-connection" };
   }
 
-  try {
-    const apiKey = await getSecureKeyResultAsync(
-      credentialKey("vellum", "assistant_api_key"),
-    );
-    if (apiKey.unreachable) {
-      // Credential backend could not be reached — transient; preserve on disk.
-      log.warn(
-        "Platform features enabled but assistant API key unreadable (backend unreachable) — preserving on-disk managed profiles",
-      );
-      return { status: "error" };
-    }
-    if (!apiKey.value) {
-      // Read succeeded and the credential is genuinely absent — off-platform.
-      return { status: "no-connection" };
-    }
-    // The key exists but `create()` still returned null (e.g. base URL
-    // missing or another transient gap). Prefer the safe classification.
-    log.warn(
-      "Platform features enabled and assistant API key present but client unavailable — preserving on-disk managed profiles",
-    );
-    return { status: "error" };
-  } catch (err) {
-    // A thrown credential read is a transient/unreachable condition.
-    log.warn(
-      { err },
-      "Failed to read platform credentials while classifying missing client — preserving on-disk managed profiles",
-    );
-    return { status: "error" };
-  }
+  const avail = await classifyMissingPlatformCredential();
+  return avail === "absent" ? { status: "no-connection" } : { status: "error" };
 }

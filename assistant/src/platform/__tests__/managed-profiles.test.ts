@@ -7,26 +7,25 @@ interface MockPlatformClient {
 
 let mockClient: MockPlatformClient | null = null;
 
+// Controls for classifyMissingClient() — only consulted when `create()` returns
+// null. The credential-reachability classification now lives in `client.ts`
+// behind `classifyMissingPlatformCredential()`, so we mock that seam directly.
+// Defaults model a genuinely off-platform install with creds absent.
+let mockCredentialAvailability: () => Promise<
+  "absent" | "unreachable"
+> = async () => "absent";
+
 mock.module("../client.js", () => ({
   VellumPlatformClient: {
     create: async () => mockClient,
   },
+  classifyMissingPlatformCredential: () => mockCredentialAvailability(),
 }));
 
-// Controls for classifyMissingClient() — only consulted when `create()` returns
-// null. Defaults model a genuinely off-platform install with creds absent.
 let mockPlatformEnabled = false;
-let mockApiKey: () => Promise<{
-  value: string | undefined;
-  unreachable: boolean;
-}> = async () => ({ value: undefined, unreachable: false });
 
 mock.module("../feature-gate.js", () => ({
   arePlatformFeaturesEnabled: () => mockPlatformEnabled,
-}));
-
-mock.module("../../security/secure-keys.js", () => ({
-  getSecureKeyResultAsync: () => mockApiKey(),
 }));
 
 import { fetchManagedProfiles } from "../managed-profiles.js";
@@ -69,7 +68,7 @@ describe("fetchManagedProfiles", () => {
       fetch: mock(async () => jsonResponse(okBody())),
     };
     mockPlatformEnabled = false;
-    mockApiKey = async () => ({ value: undefined, unreachable: false });
+    mockCredentialAvailability = async () => "absent";
   });
 
   afterEach(() => {
@@ -85,31 +84,15 @@ describe("fetchManagedProfiles", () => {
   test("returns no-connection when platform enabled but creds confirmed absent", async () => {
     mockClient = null;
     mockPlatformEnabled = true;
-    mockApiKey = async () => ({ value: undefined, unreachable: false });
+    mockCredentialAvailability = async () => "absent";
     expect(await fetchManagedProfiles()).toEqual({ status: "no-connection" });
   });
 
   test("returns error when platform enabled but credential read is unreachable", async () => {
     mockClient = null;
     mockPlatformEnabled = true;
-    mockApiKey = async () => ({ value: undefined, unreachable: true });
+    mockCredentialAvailability = async () => "unreachable";
     // A transient backend failure must preserve on-disk profiles, not prune.
-    expect(await fetchManagedProfiles()).toEqual({ status: "error" });
-  });
-
-  test("returns error when platform enabled and key present but client null", async () => {
-    mockClient = null;
-    mockPlatformEnabled = true;
-    mockApiKey = async () => ({ value: "sk-abc", unreachable: false });
-    expect(await fetchManagedProfiles()).toEqual({ status: "error" });
-  });
-
-  test("returns error when classifying creds throws", async () => {
-    mockClient = null;
-    mockPlatformEnabled = true;
-    mockApiKey = async () => {
-      throw new Error("backend exploded");
-    };
     expect(await fetchManagedProfiles()).toEqual({ status: "error" });
   });
 
