@@ -176,6 +176,7 @@ import {
   loadConfig,
   mergeDefaultWorkspaceConfig,
 } from "../config/loader.js";
+import { LLMSchema } from "../config/schemas/llm.js";
 import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import type { DrizzleDb } from "../memory/db-connection.js";
 import { getConfigQuarantineNoticePath } from "../util/platform.js";
@@ -1045,6 +1046,125 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles.balanced).toBeUndefined();
     // activeProfile reset to a profile that exists in profiles.
     expect(raw.llm.profiles[raw.llm.activeProfile]).toBeDefined();
+  });
+
+  test("off-platform hatch without a user connection (ollama): active profile resolves to an existing profile after prune", async () => {
+    // Ollama hatches are excluded from custom-* user-profile creation, so
+    // `userConnectionName` is falsy. With no platform connection all managed
+    // profiles — including `balanced` — are pruned, so the hatch default must
+    // fall back to a profile that still exists (auto) rather than `balanced`.
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify({ llm: { default: { provider: "ollama" } } }, null, 2) +
+        "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+    managedFetchResult = { status: "no-connection" };
+
+    await mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    // No custom-* profiles for ollama, and all managed profiles pruned.
+    expect(raw.llm.profiles["custom-balanced"]).toBeUndefined();
+    expect(raw.llm.profiles.balanced).toBeUndefined();
+    // The hatch active-profile default must point at an existing profile —
+    // `balanced` no longer exists, so it resolves to `auto`.
+    expect(raw.llm.activeProfile).not.toBe("balanced");
+    expect(raw.llm.activeProfile).toBe("auto");
+    expect(raw.llm.profiles[raw.llm.activeProfile]).toBeDefined();
+  });
+
+  test("no connection: call-site pins to pruned managed profiles are cleared and config stays valid", async () => {
+    // An earlier workspace migration may have pinned background call sites at
+    // managed profiles. When those profiles are pruned the pins must be
+    // scrubbed, or `LLMSchema` rejects the raw config for referencing an
+    // undefined profile.
+    writeConfig({
+      llm: {
+        default: { provider: "anthropic", model: "claude-opus-4-7" },
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            model: "claude-sonnet-4-6",
+          },
+          "cost-optimized": {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            model: "claude-haiku-4-5-20251001",
+          },
+        },
+        profileOrder: ["auto", "balanced", "cost-optimized"],
+        activeProfile: "balanced",
+        callSites: {
+          memoryRouter: { profile: "cost-optimized" },
+          subagentSpawn: { profile: "balanced", maxTokens: 8192 },
+        },
+      },
+    });
+
+    managedFetchResult = { status: "no-connection" };
+
+    await mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    // Managed profiles pruned.
+    expect(raw.llm.profiles.balanced).toBeUndefined();
+    expect(raw.llm.profiles["cost-optimized"]).toBeUndefined();
+    // Pruned call-site `profile` pins removed; other overrides survive.
+    expect(raw.llm.callSites.memoryRouter.profile).toBeUndefined();
+    expect(raw.llm.callSites.subagentSpawn.profile).toBeUndefined();
+    expect(raw.llm.callSites.subagentSpawn.maxTokens).toBe(8192);
+    // Raw config parses cleanly — no undefined-profile-reference error.
+    expect(LLMSchema.safeParse(raw.llm).success).toBe(true);
+  });
+
+  test("ok with a dropped managed key: call-site pin to the dropped key is cleared", async () => {
+    // The platform fetch returns only a subset of managed keys; the absent key
+    // is pruned, and any call-site pin to it must be scrubbed too.
+    writeConfig({
+      llm: {
+        default: { provider: "anthropic", model: "claude-opus-4-7" },
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            model: "claude-sonnet-4-6",
+          },
+          "cost-optimized": {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            model: "claude-haiku-4-5-20251001",
+          },
+        },
+        profileOrder: ["auto", "balanced", "cost-optimized"],
+        activeProfile: "balanced",
+        callSites: {
+          memoryRouter: { profile: "cost-optimized" },
+        },
+      },
+    });
+
+    // Fetch returns balanced but NOT cost-optimized → cost-optimized is pruned.
+    managedFetchResult = {
+      status: "ok",
+      profiles: [managedProfileFixture("balanced")],
+    };
+
+    await mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles.balanced).toBeDefined();
+    expect(raw.llm.profiles["cost-optimized"]).toBeUndefined();
+    // The pin to the dropped key is cleared.
+    expect(raw.llm.callSites.memoryRouter.profile).toBeUndefined();
+    // The surviving key keeps any unrelated pins.
+    expect(LLMSchema.safeParse(raw.llm).success).toBe(true);
   });
 
   test("connected: platform fetch is authoritative over any overlay fragment for managed keys", async () => {

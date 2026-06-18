@@ -166,6 +166,24 @@ export async function seedInferenceProfiles(
   //    platform-controlled and refreshed verbatim. Carry the overrides by
   //    key-presence (not truthiness) so an explicit `null` (user cleared the
   //    label) survives too.
+  // Whenever a managed profile is pruned we must also scrub any call-site
+  // `profile` pin that still points at it: `LLMSchema.superRefine` rejects a
+  // call site referencing an undefined profile, and `loadConfig()` only strips
+  // that in memory — the raw config on disk would stay invalid otherwise.
+  const clearCallSiteProfileRefs = (prunedKeys: Set<string>): void => {
+    if (prunedKeys.size === 0) return;
+    const callSites = readObject(llm.callSites);
+    if (!callSites) return;
+    for (const entry of Object.values(callSites)) {
+      const site = readObject(entry);
+      if (!site) continue;
+      const pinned = readString(site.profile);
+      if (pinned !== undefined && prunedKeys.has(pinned)) {
+        delete site.profile;
+      }
+    }
+  };
+
   const managed = await fetchManagedProfiles();
   if (managed.status === "ok") {
     const fetchedKeys = new Set(managed.profiles.map((p) => p.key));
@@ -176,11 +194,21 @@ export async function seedInferenceProfiles(
       if (previous && "status" in previous) next.status = previous.status;
       profiles[p.key] = next as ProfileEntry;
     }
+    const prunedKeys = new Set<string>();
     for (const key of MANAGED_PROFILE_KEYS) {
-      if (!fetchedKeys.has(key)) delete profiles[key];
+      if (!fetchedKeys.has(key)) {
+        delete profiles[key];
+        prunedKeys.add(key);
+      }
     }
+    clearCallSiteProfileRefs(prunedKeys);
   } else if (managed.status === "no-connection") {
-    for (const key of MANAGED_PROFILE_KEYS) delete profiles[key];
+    const prunedKeys = new Set<string>();
+    for (const key of MANAGED_PROFILE_KEYS) {
+      delete profiles[key];
+      prunedKeys.add(key);
+    }
+    clearCallSiteProfileRefs(prunedKeys);
   }
   // status === "error": leave on-disk managed profiles untouched.
 
@@ -254,20 +282,30 @@ export async function seedInferenceProfiles(
   const shouldPreserveActiveProfile =
     options.preserveActiveProfile === true && requestedActiveExists;
 
+  // Resolve a profile key to one that actually exists, falling back through
+  // `custom-balanced → balanced → auto`. `auto` is always seeded, so this
+  // always lands on a profile present in `profiles`.
+  const resolveExistingProfile = (preferred: string): string => {
+    if (preferred in profiles) return preferred;
+    if ("custom-balanced" in profiles) return "custom-balanced";
+    if ("balanced" in profiles) return "balanced";
+    return AUTO_PROFILE_KEY;
+  };
+
   if (!shouldPreserveActiveProfile) {
     if (options.isHatch) {
-      // Hatch = fresh setup. Pick the right default based on platform mode.
-      llm.activeProfile = userConnectionName ? "custom-balanced" : "balanced";
+      // Hatch = fresh setup. Pick the right default based on platform mode,
+      // then verify it survived the managed-profile prune. An off-platform
+      // hatch without a user connection (e.g. ollama / openai-compatible)
+      // would otherwise point at `balanced`, which is pruned when there is no
+      // platform connection.
+      const desired = userConnectionName ? "custom-balanced" : "balanced";
+      llm.activeProfile = resolveExistingProfile(desired);
     } else if (!requestedActiveExists) {
       // The requested active profile no longer exists (e.g. `balanced` was
       // just pruned). Fall back to a profile that does exist; `auto` is always
       // seeded, so the chosen fallback is guaranteed to resolve.
-      llm.activeProfile =
-        "custom-balanced" in profiles
-          ? "custom-balanced"
-          : "balanced" in profiles
-            ? "balanced"
-            : AUTO_PROFILE_KEY;
+      llm.activeProfile = resolveExistingProfile("custom-balanced");
     }
   }
 
