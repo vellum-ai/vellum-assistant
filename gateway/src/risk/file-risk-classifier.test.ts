@@ -18,10 +18,11 @@ const MOCK_DEPRECATED_DIR = join(
   "workspace",
   "deprecated",
 );
-const MOCK_HOOKS_DIR = join(homedir(), ".vellum", "workspace", "hooks");
-const MOCK_PLUGINS_DIR = join(homedir(), ".vellum", "workspace", "plugins");
-const MOCK_TOOLS_DIR = join(homedir(), ".vellum", "workspace", "tools");
-const MOCK_ROUTES_DIR = join(homedir(), ".vellum", "workspace", "routes");
+const MOCK_WORKSPACE_DIR = join(homedir(), ".vellum", "workspace");
+const MOCK_HOOKS_DIR = join(MOCK_WORKSPACE_DIR, "hooks");
+const MOCK_PLUGINS_DIR = join(MOCK_WORKSPACE_DIR, "plugins");
+const MOCK_TOOLS_DIR = join(MOCK_WORKSPACE_DIR, "tools");
+const MOCK_ROUTES_DIR = join(MOCK_WORKSPACE_DIR, "routes");
 
 /** Skill source paths managed per-test via the context's skillSourceDirs. */
 let testSkillSourceDirs: string[] = [];
@@ -54,6 +55,8 @@ function classifyInput(
       filePath: input.filePath ?? "",
       workingDir: input.workingDir ?? WORKING_DIR,
       toolName: input.toolName,
+      transferSandboxDestPath: input.transferSandboxDestPath,
+      transferSandboxWorkingDir: input.transferSandboxWorkingDir,
     },
     makeContext(),
   );
@@ -333,6 +336,43 @@ describe("FileRiskClassifier", () => {
       });
       expect(result.riskLevel).toBe("high");
       expect(result.reason).toBe("Writes to routes directory");
+    });
+
+    // Container-style /workspace paths must be remapped to the working dir
+    // before the containment check — otherwise "/workspace/tools/evil.ts"
+    // resolves to the literal path (never matching the real tools dir) and
+    // falls through to Low, silently bypassing escalation.
+    test("/workspace-prefixed tools path is remapped and high", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: "/workspace/tools/evil.ts",
+        workingDir: MOCK_WORKSPACE_DIR,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to tools directory");
+    });
+
+    test("/workspace-prefixed routes path is remapped and high", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: "/workspace/routes/evil.ts",
+        workingDir: MOCK_WORKSPACE_DIR,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to routes directory");
+    });
+
+    test("relative tools path resolves against working dir and is high", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: "tools/evil.ts",
+        workingDir: MOCK_WORKSPACE_DIR,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to tools directory");
     });
   });
 
@@ -719,6 +759,44 @@ describe("FileRiskClassifier", () => {
       });
       expect(result.riskLevel).toBe("high");
       expect(result.reason).toBe("Transfers to routes directory");
+    });
+
+    // to_sandbox: `filePath` carries the benign host source, but the workspace
+    // destination is the code-injection sink and must be classified.
+    test("to_sandbox dest in tools directory is high", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "host_file_transfer",
+        filePath: "/tmp/payload.ts",
+        transferSandboxDestPath: "tools/evil.ts",
+        transferSandboxWorkingDir: MOCK_WORKSPACE_DIR,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Transfers to tools directory");
+    });
+
+    test("to_sandbox dest in routes directory (/workspace path) is high", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "host_file_transfer",
+        filePath: "/tmp/payload.ts",
+        transferSandboxDestPath: "/workspace/routes/evil.ts",
+        transferSandboxWorkingDir: MOCK_WORKSPACE_DIR,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Transfers to routes directory");
+    });
+
+    test("to_sandbox dest outside sinks stays medium", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "host_file_transfer",
+        filePath: "/tmp/payload.txt",
+        transferSandboxDestPath: "scratch/output.txt",
+        transferSandboxWorkingDir: MOCK_WORKSPACE_DIR,
+      });
+      expect(result.riskLevel).toBe("medium");
+      expect(result.reason).toBe("Host file transfer (default)");
     });
   });
 

@@ -353,15 +353,24 @@ function buildClassifyRiskParams(
   ) {
     const isHostTool = toolName.startsWith("host_");
     let filePath: string;
+    // For host_file_transfer to_sandbox, the file is written into the
+    // workspace at dest_path — forward it (plus the sandbox working dir) so the
+    // gateway can escalate writes that land in a code-injection sink, since
+    // `path` carries the host-side source.
+    let transferSandboxDestPath: string | undefined;
+    let transferSandboxWorkingDir: string | undefined;
     if (toolName === "host_file_transfer") {
-      // For host_file_transfer the security-sensitive path is the host-side
-      // path: source_path when reading from the host (to_sandbox), dest_path
-      // when writing to the host (to_host).
+      // For host_file_transfer the security-sensitive host-side path is
+      // source_path when reading from the host (to_sandbox), dest_path when
+      // writing to the host (to_host).
       const direction = getStringField(input, "direction");
-      filePath =
-        direction === "to_sandbox"
-          ? getStringField(input, "source_path")
-          : getStringField(input, "dest_path");
+      if (direction === "to_sandbox") {
+        filePath = getStringField(input, "source_path");
+        transferSandboxDestPath = getStringField(input, "dest_path");
+        transferSandboxWorkingDir = workingDir ?? process.cwd();
+      } else {
+        filePath = getStringField(input, "dest_path");
+      }
     } else {
       filePath = getStringField(input, "path", "file_path");
     }
@@ -370,6 +379,8 @@ function buildClassifyRiskParams(
       path: filePath,
       workingDir: isHostTool ? "/" : (workingDir ?? process.cwd()),
       fileContext: buildFileContext(),
+      transferSandboxDestPath,
+      transferSandboxWorkingDir,
     };
   }
 

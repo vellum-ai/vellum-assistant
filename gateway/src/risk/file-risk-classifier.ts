@@ -92,6 +92,17 @@ export interface FileClassifierInput {
     | "host_file_transfer";
   filePath: string;
   workingDir: string;
+  /**
+   * For `host_file_transfer` with `direction: "to_sandbox"`: the workspace-side
+   * destination path (where the copied file lands). `filePath` carries the
+   * host-side `source_path`, so without this the workspace write destination —
+   * the actual code-injection sink — would go unclassified. Resolved against
+   * {@link transferSandboxWorkingDir} with the same `/workspace` remap as
+   * sandbox file writes.
+   */
+  transferSandboxDestPath?: string;
+  /** Sandbox working directory used to resolve {@link transferSandboxDestPath}. */
+  transferSandboxWorkingDir?: string;
 }
 
 // -- Helpers ------------------------------------------------------------------
@@ -101,6 +112,39 @@ export interface FileClassifierInput {
  */
 function normalizeDirPath(dirPath: string): string {
   return dirPath.endsWith("/") ? dirPath : dirPath + "/";
+}
+
+// The Docker sandbox mounts the host workspace at /workspace inside the
+// container, and the model generates container-scoped paths (e.g.
+// "/workspace/tools/evil.ts") even on local/macOS turns. The file tools remap
+// these to the boundary (working) directory before writing — see
+// `sandboxPolicy` in assistant/src/tools/shared/filesystem/path-policy.ts.
+// The classifier MUST apply the same remap before its containment checks,
+// otherwise a "/workspace/tools/…" write resolves to the literal
+// "/workspace/…" path (which never matches the real tools/routes/hooks dirs)
+// and falls through to the Low default — silently bypassing escalation.
+const CONTAINER_WORKSPACE_PREFIX = "/workspace/";
+const CONTAINER_WORKSPACE_EXACT = "/workspace";
+
+/**
+ * Resolve a sandbox file path the same way `sandboxPolicy` does: remap a
+ * container-scoped `/workspace/...` path to `workingDir`, then resolve.
+ * Symlink resolution (realpath) is intentionally omitted — the classifier
+ * only needs the logical target for prefix containment, and the file tools
+ * apply realpath bounds-checking at execution time.
+ */
+function resolveSandboxPath(rawPath: string, workingDir: string): string {
+  let effectivePath = rawPath;
+  // Skip remapping if the path already starts with workingDir to avoid
+  // double-nesting (mirrors sandboxPolicy).
+  if (!rawPath.startsWith(workingDir + "/") && rawPath !== workingDir) {
+    if (rawPath.startsWith(CONTAINER_WORKSPACE_PREFIX)) {
+      effectivePath = rawPath.slice(CONTAINER_WORKSPACE_PREFIX.length);
+    } else if (rawPath === CONTAINER_WORKSPACE_EXACT) {
+      effectivePath = ".";
+    }
+  }
+  return resolve(workingDir, effectivePath);
 }
 
 /**
@@ -279,6 +323,38 @@ function buildFileAllowlistOptions(
   return options;
 }
 
+/**
+ * Classify a resolved (absolute) path against the code-injection sink
+ * directories: skill source, hooks, plugins, tools, and routes. A write to
+ * any of these plants code the daemon will dynamic-import and execute, so it
+ * must clear the High-risk approval gate. Returns a High assessment when the
+ * path lands in a sink, or `null` when it doesn't.
+ *
+ * `verb` distinguishes the user-facing reason: "Writes" for write/edit tools,
+ * "Transfers" for host_file_transfer.
+ */
+function classifyCodeInjectionSink(
+  resolvedPath: string,
+  context: FileClassificationContext,
+  verb: "Writes" | "Transfers",
+  allowlistOptions: AllowlistOption[],
+): RiskAssessment | null {
+  const high = (target: string): RiskAssessment => ({
+    riskLevel: "high",
+    reason: `${verb} to ${target}`,
+    scopeOptions: [],
+    matchType: "registry",
+    allowlistOptions,
+  });
+  if (isSkillSourcePath(resolvedPath, context))
+    return high("skill source code");
+  if (isHooksPath(resolvedPath, context)) return high("hooks directory");
+  if (isPluginsPath(resolvedPath, context)) return high("plugins directory");
+  if (isToolsPath(resolvedPath, context)) return high("tools directory");
+  if (isRoutesPath(resolvedPath, context)) return high("routes directory");
+  return null;
+}
+
 // -- Classifier ---------------------------------------------------------------
 
 /**
@@ -299,7 +375,13 @@ export class FileRiskClassifier implements RiskClassifier<
     input: FileClassifierInput,
     context: FileClassificationContext,
   ): Promise<RiskAssessment> {
-    const { toolName, filePath, workingDir } = input;
+    const {
+      toolName,
+      filePath,
+      workingDir,
+      transferSandboxDestPath,
+      transferSandboxWorkingDir,
+    } = input;
     const allowlistOptions = filePath
       ? buildFileAllowlistOptions(toolName, filePath)
       : [];
@@ -311,7 +393,7 @@ export class FileRiskClassifier implements RiskClassifier<
     switch (toolName) {
       case "file_read": {
         if (filePath) {
-          const resolvedPath = resolve(workingDir, filePath);
+          const resolvedPath = resolveSandboxPath(filePath, workingDir);
           if (isActorTokenSigningKeyPath(resolvedPath, workingDir, context)) {
             assessment = {
               riskLevel: "high",
@@ -336,55 +418,15 @@ export class FileRiskClassifier implements RiskClassifier<
       case "file_write":
       case "file_edit": {
         if (filePath) {
-          const resolvedPath = resolve(workingDir, filePath);
-          if (isSkillSourcePath(resolvedPath, context)) {
-            assessment = {
-              riskLevel: "high",
-              reason: "Writes to skill source code",
-              scopeOptions: [],
-              matchType: "registry",
-              allowlistOptions,
-            };
-            break;
-          }
-          if (isHooksPath(resolvedPath, context)) {
-            assessment = {
-              riskLevel: "high",
-              reason: "Writes to hooks directory",
-              scopeOptions: [],
-              matchType: "registry",
-              allowlistOptions,
-            };
-            break;
-          }
-          if (isPluginsPath(resolvedPath, context)) {
-            assessment = {
-              riskLevel: "high",
-              reason: "Writes to plugins directory",
-              scopeOptions: [],
-              matchType: "registry",
-              allowlistOptions,
-            };
-            break;
-          }
-          if (isToolsPath(resolvedPath, context)) {
-            assessment = {
-              riskLevel: "high",
-              reason: "Writes to tools directory",
-              scopeOptions: [],
-              matchType: "registry",
-              allowlistOptions,
-            };
-            break;
-          }
-          if (isRoutesPath(resolvedPath, context)) {
-            assessment = {
-              riskLevel: "high",
-              reason: "Writes to routes directory",
-              scopeOptions: [],
-              matchType: "registry",
-              allowlistOptions,
-            };
+          const resolvedPath = resolveSandboxPath(filePath, workingDir);
+          const sink = classifyCodeInjectionSink(
+            resolvedPath,
+            context,
+            "Writes",
+            allowlistOptions,
+          );
+          if (sink) {
+            assessment = sink;
             break;
           }
         }
@@ -418,58 +460,40 @@ export class FileRiskClassifier implements RiskClassifier<
         // "Writes" for write/edit (both mutate files), "Transfers" for transfer.
         const actionVerb =
           toolName === "host_file_transfer" ? "Transfers" : "Writes";
+
+        // host_file_transfer to_sandbox: the workspace-side destination is the
+        // file actually written into the sandbox, so it — not the host-side
+        // source in `filePath` — is the code-injection sink. Check it first,
+        // resolving with the same /workspace remap as sandbox file writes.
+        if (transferSandboxDestPath) {
+          const destResolved = resolveSandboxPath(
+            transferSandboxDestPath,
+            transferSandboxWorkingDir ?? process.cwd(),
+          );
+          const destSink = classifyCodeInjectionSink(
+            destResolved,
+            context,
+            "Transfers",
+            allowlistOptions,
+          );
+          if (destSink) {
+            assessment = destSink;
+            break;
+          }
+        }
+
         if (filePath) {
           // Host file tools resolve paths without workingDir — resolve(filePath)
           // treats the path as absolute or relative to cwd.
           const resolvedPath = resolve(filePath);
-          if (isSkillSourcePath(resolvedPath, context)) {
-            assessment = {
-              riskLevel: "high",
-              reason: `${actionVerb} to skill source code`,
-              scopeOptions: [],
-              matchType: "registry",
-              allowlistOptions,
-            };
-            break;
-          }
-          if (isHooksPath(resolvedPath, context)) {
-            assessment = {
-              riskLevel: "high",
-              reason: `${actionVerb} to hooks directory`,
-              scopeOptions: [],
-              matchType: "registry",
-              allowlistOptions,
-            };
-            break;
-          }
-          if (isPluginsPath(resolvedPath, context)) {
-            assessment = {
-              riskLevel: "high",
-              reason: `${actionVerb} to plugins directory`,
-              scopeOptions: [],
-              matchType: "registry",
-              allowlistOptions,
-            };
-            break;
-          }
-          if (isToolsPath(resolvedPath, context)) {
-            assessment = {
-              riskLevel: "high",
-              reason: `${actionVerb} to tools directory`,
-              scopeOptions: [],
-              matchType: "registry",
-              allowlistOptions,
-            };
-            break;
-          }
-          if (isRoutesPath(resolvedPath, context)) {
-            assessment = {
-              riskLevel: "high",
-              reason: `${actionVerb} to routes directory`,
-              scopeOptions: [],
-              matchType: "registry",
-              allowlistOptions,
-            };
+          const sink = classifyCodeInjectionSink(
+            resolvedPath,
+            context,
+            actionVerb,
+            allowlistOptions,
+          );
+          if (sink) {
+            assessment = sink;
             break;
           }
         }

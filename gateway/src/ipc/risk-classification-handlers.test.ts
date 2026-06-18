@@ -262,6 +262,28 @@ describe("file classification", () => {
     expect(result.reason).toContain("routes");
   });
 
+  test("host_file_transfer to_sandbox dest in tools dir is high risk", async () => {
+    const result = await classify({
+      tool: "host_file_transfer",
+      // path carries the benign host-side source for to_sandbox.
+      path: "/tmp/payload.ts",
+      workingDir: "/",
+      transferSandboxDestPath: "tools/evil.ts",
+      transferSandboxWorkingDir: "/workspace",
+      fileContext: {
+        protectedDir: "/workspace/.vellum/protected",
+        hooksDir: "/workspace/.hooks",
+        toolsDir: "/workspace/tools",
+        routesDir: "/workspace/routes",
+        actorTokenSigningKeyPath:
+          "/workspace/.vellum/protected/actor-token-signing-key",
+        skillSourceDirs: ["/workspace/.vellum/skills"],
+      },
+    });
+    expect(result.risk).toBe("high");
+    expect(result.reason).toContain("tools");
+  });
+
   test("file_write to tools dir without context is NOT escalated (sentinel)", async () => {
     // When the assistant does not forward a fileContext, the handler uses
     // impossible sentinel paths so a tools-dir write is not falsely escalated

@@ -97,4 +97,12 @@ export interface ClassifyRiskParams {
   registryDefaultRisk?: string;
   /** Number of credential references attached to this tool invocation. */
   credentialRefCount?: number;
+  /**
+   * For host_file_transfer with `direction: "to_sandbox"`: the workspace-side
+   * destination path and the sandbox working directory it resolves against, so
+   * the gateway can escalate transfers that install an executable file in a
+   * code-injection sink (tools/routes/hooks/plugins/skills).
+   */
+  transferSandboxDestPath?: string;
+  transferSandboxWorkingDir?: string;
 }
