@@ -114,8 +114,12 @@ let mockAdmissionPolicy:
   | import("@vellumai/gateway-client").AdmissionPolicy
   | null = null;
 let mockAdmissionReaderThrows = false;
+// Optional gate to hold the reader open mid-setup so tests can drive the
+// race window where a prompt arrives while handleSetup is still awaiting.
+let mockAdmissionGate: Promise<void> | null = null;
 mock.module("../calls/channel-admission-reader.js", () => ({
   getChannelAdmissionPolicy: async () => {
+    if (mockAdmissionGate) await mockAdmissionGate;
     if (mockAdmissionReaderThrows) throw new Error("reader boom");
     return mockAdmissionPolicy;
   },
@@ -462,6 +466,7 @@ describe("relay-server", () => {
     mockAssistantName = "Vellum";
     mockAdmissionPolicy = null;
     mockAdmissionReaderThrows = false;
+    mockAdmissionGate = null;
     mockSendMessage.mockImplementation(createMockProviderResponse(["Hello"]));
     mockConfig.calls.verification.enabled = false;
     mockConfig.calls.verification.maxAttempts = 3;
@@ -894,6 +899,121 @@ describe("relay-server", () => {
     expect(textMessages.length).toBe(1);
     expect(textMessages[0].token).toContain("still setting up");
     expect(textMessages[0].last).toBe(true);
+
+    relay.destroy();
+  });
+
+  test("handleMessage: prompt arriving during setup (setting_up) is dropped", async () => {
+    ensureConversation("conv-relay-setting-up");
+    const session = createCallSession({
+      conversationId: "conv-relay-setting-up",
+      provider: "twilio",
+      fromNumber: "+15551111111",
+      toNumber: "+15552222222",
+    });
+
+    addTrustedVoiceContact("+15551111111");
+
+    const { ws, relay } = createMockWs(session.id);
+
+    // Hold the admission reader open so handleSetup stays in "setting_up".
+    let releaseGate: () => void = () => {};
+    mockAdmissionGate = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+
+    // Fire setup without awaiting — it suspends inside getChannelAdmissionPolicy.
+    const setupPromise = relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_setting_up_123",
+        from: "+15551111111",
+        to: "+15552222222",
+      }),
+    );
+
+    // Let the setup task reach the await; state must be "setting_up".
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(relay.getConnectionState()).toBe("setting_up");
+
+    // A prompt arriving now must be dropped: no transcript, no fallback.
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "prompt",
+        voicePrompt: "Wire me money",
+        lang: "en-US",
+        last: true,
+      }),
+    );
+
+    const textMessages = ws.sentMessages
+      .map((m) => JSON.parse(m))
+      .filter((m: { type: string }) => m.type === "text");
+    expect(
+      textMessages.some((m) => (m.token ?? "").includes("still setting up")),
+    ).toBe(false);
+    expect(relay.getConversationHistory().length).toBe(0);
+    expect(
+      getMessages("conv-relay-setting-up").filter((m) => m.role === "user")
+        .length,
+    ).toBe(0);
+
+    // Release the reader and let setup finish.
+    releaseGate();
+    await setupPromise;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(relay.getConnectionState()).toBe("connected");
+
+    relay.destroy();
+  });
+
+  test("handleMessage: prompt after normal-call setup completes is handled", async () => {
+    ensureConversation("conv-relay-postsetup");
+    const session = createCallSession({
+      conversationId: "conv-relay-postsetup",
+      provider: "twilio",
+      fromNumber: "+15551111111",
+      toNumber: "+15552222222",
+    });
+
+    addTrustedVoiceContact("+15551111111");
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["Sure, happy to help."]),
+    );
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_postsetup_123",
+        from: "+15551111111",
+        to: "+15552222222",
+      }),
+    );
+
+    // Setup completed normally → "connected".
+    expect(relay.getConnectionState()).toBe("connected");
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // A subsequent prompt routes to the controller (no "still setting up").
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "prompt",
+        voicePrompt: "Hello there",
+        lang: "en-US",
+        last: true,
+      }),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const userMessages = getMessages("conv-relay-postsetup").filter(
+      (m) => m.role === "user",
+    );
+    expect(userMessages.length).toBeGreaterThan(0);
+    expect(relay.getConnectionState()).toBe("connected");
 
     relay.destroy();
   });
