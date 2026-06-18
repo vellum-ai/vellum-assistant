@@ -8,6 +8,7 @@
  * `false`), so we never report analytics without a confirmed opt-in.
  */
 
+import { getConfigReadOnly } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
 import { VellumPlatformClient } from "./client.js";
 
@@ -16,14 +17,21 @@ const log = getLogger("consent-cache");
 const REFRESH_INTERVAL_MS = 5 * 60_000; // refresh consent every 5 min
 
 let cachedShareAnalytics = false; // default-off until first success
+// Fail-closed marker for a workspace that locally opted out of usage data
+// before telemetry moved to platform `share_analytics` consent (migration 106).
+// While set, telemetry stays off regardless of platform consent. Cleared by a
+// future cross-repo reconciliation once the platform exposes an explicit
+// re-consent signal; not auto-cleared here.
+let legacyOptOut = false;
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
- * Synchronous hot-path accessor for the cached `share_analytics` consent.
- * Never does I/O; returns `false` until a successful refresh proves otherwise.
+ * Synchronous hot-path accessor for the effective `share_analytics` consent.
+ * Never does I/O; returns `false` until a successful refresh proves otherwise,
+ * and stays `false` while the legacy fail-closed opt-out marker is set.
  */
 export function getCachedShareAnalytics(): boolean {
-  return cachedShareAnalytics;
+  return cachedShareAnalytics && !legacyOptOut;
 }
 
 /**
@@ -36,6 +44,8 @@ export function getCachedShareAnalytics(): boolean {
  * so a known opt-in is not flipped off mid-session.
  */
 export async function refreshConsentCache(): Promise<void> {
+  legacyOptOut = getConfigReadOnly().legacyTelemetryOptOut === true;
+
   const client = await VellumPlatformClient.create();
   if (!client) {
     setCachedShareAnalytics(false);

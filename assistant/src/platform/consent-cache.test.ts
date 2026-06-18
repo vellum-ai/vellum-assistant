@@ -11,6 +11,9 @@ let mockClient: {
   getOwnerConsent: () => Promise<OwnerConsent | null>;
 } | null = null;
 let createCallCount = 0;
+// Legacy fail-closed opt-out marker surfaced via getConfigReadOnly(). Default
+// off/absent so existing behavior is unchanged.
+let mockLegacyTelemetryOptOut: boolean | undefined = false;
 
 // ---------------------------------------------------------------------------
 // Module mocks (must precede the import under test)
@@ -23,6 +26,12 @@ mock.module("./client.js", () => ({
       return mockClient;
     },
   },
+}));
+
+mock.module("../config/loader.js", () => ({
+  getConfigReadOnly: () => ({
+    legacyTelemetryOptOut: mockLegacyTelemetryOptOut,
+  }),
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -55,6 +64,7 @@ describe("consent-cache", () => {
   beforeEach(() => {
     mockClient = null;
     createCallCount = 0;
+    mockLegacyTelemetryOptOut = false;
     __setCachedShareAnalyticsForTest(false);
   });
 
@@ -106,6 +116,14 @@ describe("consent-cache", () => {
       "",
     );
     await refreshConsentCache();
+    expect(getCachedShareAnalytics()).toBe(false);
+  });
+
+  test("legacy opt-out marker keeps analytics off despite platform opt-in", async () => {
+    mockLegacyTelemetryOptOut = true;
+    mockClient = makeClient({ shareAnalytics: true, shareDiagnostics: false });
+    await refreshConsentCache();
+    // Platform reports opt-in, but the fail-closed marker forces off.
     expect(getCachedShareAnalytics()).toBe(false);
   });
 

@@ -140,6 +140,12 @@ export const AssistantConfigSchema = z
       .boolean()
       .default(true)
       .describe("Whether to send diagnostic/crash reports"),
+    legacyTelemetryOptOut: z
+      .boolean()
+      .optional()
+      .describe(
+        "Fail-closed telemetry marker: set for a workspace that had an explicit local usage-data opt-out before telemetry moved to platform share_analytics consent. While set, usage telemetry stays disabled regardless of platform consent.",
+      ),
     maxStepsPerSession: z
       .number({ error: "maxStepsPerSession must be a number" })
       .int("maxStepsPerSession must be an integer")
