@@ -42,12 +42,21 @@ const restoreConsentForUserMock = mock((_userId: string | null) => ({
 const persistConsentForUserMock = mock(
   (_userId: string | null, _tos: boolean, _ai: boolean) => {},
 );
-const resolveServerConsentMock = mock((_consent: unknown) => ({
-  tos: false,
-  ai: false,
-  shareAnalytics: null,
-  shareDiagnostics: null,
-}));
+const resolveServerConsentMock = mock(
+  (
+    _consent: unknown,
+  ): {
+    tos: boolean;
+    ai: boolean;
+    shareAnalytics: boolean | null;
+    shareDiagnostics: boolean | null;
+  } => ({
+    tos: false,
+    ai: false,
+    shareAnalytics: null,
+    shareDiagnostics: null,
+  }),
+);
 
 const EMPTY_CONSENT = {
   tos_accepted_version: "",
