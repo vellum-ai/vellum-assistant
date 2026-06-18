@@ -518,6 +518,8 @@ export async function postChatMessage(
       onboardingDict.initialMessage = normalizedOnboarding.initialMessage;
     if (normalizedOnboarding.skills !== undefined)
       onboardingDict.skills = normalizedOnboarding.skills;
+    if (normalizedOnboarding.title !== undefined)
+      onboardingDict.title = normalizedOnboarding.title;
     body.onboarding = onboardingDict;
   }
   if (normalizedOnboarding) {
