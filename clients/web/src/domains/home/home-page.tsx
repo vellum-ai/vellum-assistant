@@ -83,7 +83,7 @@ export function HomePage({
 
   const [createScheduleOpen, setCreateScheduleOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"schedules" | "notifications">(
-    "schedules",
+    "notifications",
   );
   const [selectedItem, setSelectedItem] = useState<FeedItem | null>(null);
   const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(
@@ -91,10 +91,17 @@ export function HomePage({
   );
   const [selectedSystemTaskKind, setSelectedSystemTaskKind] =
     useState<SystemTaskKind | null>(null);
+  // Accordion open-states are lifted here so they survive the section remount
+  // that happens when the detail drawer opens (the section reparents into
+  // ResizablePanel). Otherwise opening a row collapses its own accordion.
+  const [pastSchedulesOpen, setPastSchedulesOpen] = useState(false);
+  const [archivedFeedOpen, setArchivedFeedOpen] = useState(false);
+  const [dismissedFeedOpen, setDismissedFeedOpen] = useState(false);
 
   const selectedSchedule = selectedScheduleId
     ? (schedules.recurring.find((s) => s.id === selectedScheduleId) ??
       schedules.oneTime.find((s) => s.id === selectedScheduleId) ??
+      schedules.pastOneTime.find((s) => s.id === selectedScheduleId) ??
       null)
     : null;
 
@@ -196,7 +203,8 @@ export function HomePage({
   const canViewSelectedItemSchedule =
     selectedItemScheduleId != null &&
     (schedules.recurring.some((s) => s.id === selectedItemScheduleId) ||
-      schedules.oneTime.some((s) => s.id === selectedItemScheduleId));
+      schedules.oneTime.some((s) => s.id === selectedItemScheduleId) ||
+      schedules.pastOneTime.some((s) => s.id === selectedItemScheduleId));
 
   const itemDetail = selectedItem ? (
     <HomeDetailPanel
@@ -252,7 +260,14 @@ export function HomePage({
   // title and the tabs stay fixed above it.
   const mobileDetail = itemDetail ?? scheduleAreaDetail;
 
-  const withDrawer = (section: ReactNode, detail: ReactNode) =>
+  // `detailKey` re-mounts the animated wrapper on each new selection so the
+  // slide-in replays when switching between schedules / system tasks / items
+  // (not just on the initial null → open transition).
+  const withDrawer = (
+    section: ReactNode,
+    detail: ReactNode,
+    detailKey?: string,
+  ) =>
     detail && !isMobile ? (
       <ResizablePanel
         className="min-h-0 flex-1"
@@ -266,7 +281,11 @@ export function HomePage({
             {section}
           </div>
         }
-        right={detail}
+        right={
+          <div key={detailKey} className="home-detail-drawer">
+            {detail}
+          </div>
+        }
       />
     ) : (
       section
@@ -276,6 +295,7 @@ export function HomePage({
     <HomeSchedulesPanel
       recurring={schedules.recurring}
       oneTime={schedules.oneTime}
+      pastOneTime={schedules.pastOneTime}
       usageForSchedule={schedules.usageForSchedule}
       isLoading={schedules.isLoading}
       isError={schedules.isError}
@@ -285,6 +305,8 @@ export function HomePage({
       selectedScheduleId={selectedScheduleId}
       onStartNewChat={onStartNewChat}
       onCreateSchedule={() => setCreateScheduleOpen(true)}
+      pastOpen={pastSchedulesOpen}
+      onPastOpenChange={setPastSchedulesOpen}
       systemTasksSlot={
         <SystemTasksSection
           heartbeatConfig={systemTasks.heartbeatConfig}
@@ -326,6 +348,10 @@ export function HomePage({
         onRestoreItem={handleRestoreItem}
         onToggleRead={handleUpdateStatus}
         onGoToThread={handleGoToThread}
+        archivedOpen={archivedFeedOpen}
+        onArchivedOpenChange={setArchivedFeedOpen}
+        dismissedOpen={dismissedFeedOpen}
+        onDismissedOpenChange={setDismissedFeedOpen}
       />
     </div>
   );
@@ -342,20 +368,24 @@ export function HomePage({
       className="flex min-h-0 flex-1 flex-col"
     >
       <Tabs.List className="shrink-0">
-        <Tabs.Trigger value="schedules">Schedules</Tabs.Trigger>
         <Tabs.Trigger value="notifications">Notifications</Tabs.Trigger>
+        <Tabs.Trigger value="schedules">Schedules</Tabs.Trigger>
       </Tabs.List>
-      <Tabs.Panel
-        value="schedules"
-        className="mt-[var(--app-spacing-lg)] flex min-h-0 flex-1 flex-col"
-      >
-        {withDrawer(schedulesSection, scheduleAreaDetail)}
-      </Tabs.Panel>
       <Tabs.Panel
         value="notifications"
         className="mt-[var(--app-spacing-lg)] flex min-h-0 flex-1 flex-col"
       >
-        {withDrawer(notificationsSection, itemDetail)}
+        {withDrawer(notificationsSection, itemDetail, selectedItem?.id)}
+      </Tabs.Panel>
+      <Tabs.Panel
+        value="schedules"
+        className="mt-[var(--app-spacing-lg)] flex min-h-0 flex-1 flex-col"
+      >
+        {withDrawer(
+          schedulesSection,
+          scheduleAreaDetail,
+          selectedScheduleId ?? selectedSystemTaskKind ?? undefined,
+        )}
       </Tabs.Panel>
     </Tabs.Root>
   );

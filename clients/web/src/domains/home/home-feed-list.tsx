@@ -29,6 +29,18 @@ const TIME_GROUP_LABELS: Record<FeedTimeGroup, string> = {
   older: "Older",
 };
 
+const READ_ARCHIVE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * A notification the user has already read (seen or acted on — not "new")
+ * and that's older than ~7 days. These are folded into a collapsed accordion
+ * so the live feed stays focused on recent and unread activity.
+ */
+function isArchivedRead(item: FeedItem, now: number): boolean {
+  if (item.status === "new" || item.status === "dismissed") return false;
+  return now - new Date(item.createdAt).getTime() > READ_ARCHIVE_AGE_MS;
+}
+
 export interface HomeFeedListProps {
   items: FeedItem[];
   selectedItemId?: string | null;
@@ -38,6 +50,12 @@ export interface HomeFeedListProps {
   onRestoreItem: (itemId: string) => void;
   onToggleRead?: (itemId: string, newStatus: FeedItemStatus) => void;
   onGoToThread?: (conversationId: string) => void;
+  /** Controlled open-states for the archive accordions (lifted so they survive
+   * the section remount when the detail drawer opens). */
+  archivedOpen?: boolean;
+  onArchivedOpenChange?: (open: boolean) => void;
+  dismissedOpen?: boolean;
+  onDismissedOpenChange?: (open: boolean) => void;
 }
 
 export function HomeFeedList({
@@ -49,16 +67,31 @@ export function HomeFeedList({
   onRestoreItem,
   onToggleRead,
   onGoToThread,
+  archivedOpen,
+  onArchivedOpenChange,
+  dismissedOpen,
+  onDismissedOpenChange,
 }: HomeFeedListProps) {
   const [activeFilter, setActiveFilter] = useState<FeedItemCategory | null>(
     null,
   );
   const [activeSource, setActiveSource] = useState<string | null>(null);
+  // Stable per-mount "now" for the read-archive cutoff — calling Date.now()
+  // during render is impure (and flagged by react-hooks/purity).
+  const [now] = useState(() => Date.now());
 
   const visible = items.filter((item) => item.status !== "dismissed");
   const eligible = excludeHighUrgency(visible);
-  const presentCategories = getPresentCategories(eligible);
-  const presentSources = getPresentSources(eligible);
+
+  // Split off already-read items older than ~7 days into a collapsed archive,
+  // keeping the live feed (and its filters) focused on recent rows.
+  const recent = eligible.filter((item) => !isArchivedRead(item, now));
+  const archivedRead = sortFeedItems(
+    eligible.filter((item) => isArchivedRead(item, now)),
+  );
+
+  const presentCategories = getPresentCategories(recent);
+  const presentSources = getPresentSources(recent);
   const effectiveFilter =
     activeFilter && presentCategories.includes(activeFilter)
       ? activeFilter
@@ -83,7 +116,7 @@ export function HomeFeedList({
   }
 
   const filtered = filterBySource(
-    filterByCategory(eligible, effectiveFilter),
+    filterByCategory(recent, effectiveFilter),
     effectiveSource,
   );
   const sorted = sortFeedItems(filtered);
@@ -160,8 +193,49 @@ export function HomeFeedList({
         ))
       )}
 
+      {archivedRead.length > 0 && (
+        <Collapsible.Root
+          type="single"
+          collapsible
+          value={archivedOpen ? "archived-read" : ""}
+          onValueChange={(v) => onArchivedOpenChange?.(v === "archived-read")}
+        >
+          <Collapsible.Item value="archived-read">
+            <Collapsible.Trigger className="group gap-[var(--app-spacing-xs)] text-body-small-default text-[var(--content-tertiary)]">
+              <ChevronRight
+                size={14}
+                aria-hidden
+                className="shrink-0 transition-transform group-data-[state=open]:rotate-90"
+              />
+              <span>Earlier ({archivedRead.length})</span>
+            </Collapsible.Trigger>
+            <Collapsible.Content>
+              <div className="flex flex-col gap-[var(--app-spacing-xs)] pt-[var(--app-spacing-sm)]">
+                {archivedRead.map((item) => (
+                  <HomeRecapRow
+                    key={item.id}
+                    item={item}
+                    isActive={item.id === selectedItemId}
+                    validConversationIds={validConversationIds}
+                    onSelect={onSelectItem}
+                    onDismiss={onDismissItem}
+                    onToggleRead={onToggleRead}
+                    onGoToThread={onGoToThread}
+                  />
+                ))}
+              </div>
+            </Collapsible.Content>
+          </Collapsible.Item>
+        </Collapsible.Root>
+      )}
+
       {dismissed.length > 0 && (
-        <Collapsible.Root type="single" collapsible>
+        <Collapsible.Root
+          type="single"
+          collapsible
+          value={dismissedOpen ? "dismissed" : ""}
+          onValueChange={(v) => onDismissedOpenChange?.(v === "dismissed")}
+        >
           <Collapsible.Item value="dismissed">
             <Collapsible.Trigger className="group gap-[var(--app-spacing-xs)] text-body-small-default text-[var(--content-tertiary)]">
               <ChevronRight
