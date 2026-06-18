@@ -192,6 +192,7 @@ import {
 import { GatewayIpcServer } from "./ipc/server.js";
 import { contactRoutes } from "./ipc/contact-handlers.js";
 import { featureFlagRoutes } from "./ipc/feature-flag-handlers.js";
+import { admissionPolicyRoutes } from "./ipc/admission-policy-handlers.js";
 import { createLogTailRoutes } from "./ipc/log-tail-handlers.js";
 import { slackThreadRoutes } from "./ipc/slack-thread-handlers.js";
 import { thresholdRoutes } from "./ipc/threshold-handlers.js";
@@ -2480,6 +2481,7 @@ async function main() {
     ...contactRoutes,
     ...slackThreadRoutes,
     ...thresholdRoutes,
+    ...admissionPolicyRoutes,
     ...riskClassificationRoutes,
     ...createLogTailRoutes(config),
     ...trustRulesRoutes,
