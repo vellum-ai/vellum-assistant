@@ -407,7 +407,7 @@
       "scope": "client",
       "key": "research-onboarding",
       "label": "Research onboarding (spike)",
-      "description": "Spike: replace pre-chat onboarding with a web-research \"here's what I know about you\" flow. Gates the /assistant/onboarding/research route and its mock harness. Off by default; enable locally via the feature-flags panel.",
+      "description": "Spike: replace pre-chat onboarding with a web-research \"here's what I know about you\" flow, including a Google Calendar \"Let's chat tomorrow\" step shown over the streaming research. Gates the /assistant/onboarding/research route and the research mock harness. Off by default; enable locally via the feature-flags panel.",
       "defaultEnabled": false
     },
     {
