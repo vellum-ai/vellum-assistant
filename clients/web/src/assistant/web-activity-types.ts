@@ -4,7 +4,8 @@ export type WebSearchProviderId =
   | "anthropic-native"
   | "brave"
   | "perplexity"
-  | "tavily";
+  | "tavily"
+  | "firecrawl";
 
 export interface WebSearchResultItem {
   rank: number;

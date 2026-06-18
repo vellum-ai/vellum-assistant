@@ -8,6 +8,7 @@ let mockWebSearchMode: string | undefined = "your-own";
 let mockBraveSecureKey: string | undefined;
 let mockPerplexitySecureKey: string | undefined;
 let mockTavilySecureKey: string | undefined;
+let mockFirecrawlSecureKey: string | undefined;
 let mockManagedSearchProxyResult: any;
 let mockManagedSearchProxyCalls: Array<{
   provider: string;
@@ -40,6 +41,7 @@ mock.module("../../../security/secure-keys.js", () => ({
     if (provider === "brave") return mockBraveSecureKey;
     if (provider === "perplexity") return mockPerplexitySecureKey;
     if (provider === "tavily") return mockTavilySecureKey;
+    if (provider === "firecrawl") return mockFirecrawlSecureKey;
     return undefined;
   },
 }));
@@ -81,6 +83,7 @@ describe("web_search tool", () => {
     mockBraveSecureKey = undefined;
     mockPerplexitySecureKey = undefined;
     mockTavilySecureKey = undefined;
+    mockFirecrawlSecureKey = undefined;
     mockManagedSearchProxyCalls = [];
     mockManagedSearchProxyResult = {
       ok: true,
@@ -685,6 +688,129 @@ describe("web_search tool", () => {
     expect(callCount).toBe(4);
   });
 
+  // ---- Firecrawl provider -------------------------------------------------
+
+  test("executes Firecrawl search successfully", async () => {
+    mockWebSearchProvider = "firecrawl";
+    mockFirecrawlSecureKey = "fc-test-key";
+    globalThis.fetch = (async () => {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            web: [
+              {
+                title: "Firecrawl Result 1",
+                url: "https://example.com/fc-1",
+                description: "First Firecrawl result",
+              },
+              {
+                title: "Firecrawl Result 2",
+                url: "https://example.com/fc-2",
+                description: "Second Firecrawl result",
+              },
+            ],
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as any;
+
+    const result = await execute({ query: "what is TypeScript" });
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Firecrawl Result 1");
+    expect(result.content).toContain("https://example.com/fc-1");
+    expect(result.content).toContain("First Firecrawl result");
+  });
+
+  test("Firecrawl sends correct request format", async () => {
+    mockWebSearchProvider = "firecrawl";
+    mockFirecrawlSecureKey = "fc-test-key";
+    let capturedUrl = "";
+    let capturedBody: any = null;
+    let capturedHeaders: any = null;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      capturedUrl = url;
+      capturedBody = JSON.parse(init?.body as string);
+      capturedHeaders = new Headers(init?.headers);
+      return new Response(JSON.stringify({ success: true, data: { web: [] } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as any;
+
+    await execute({ query: "test query", count: 50, freshness: "pm" });
+    expect(capturedUrl).toContain("api.firecrawl.dev/v2/search");
+    expect(capturedBody.query).toBe("test query");
+    expect(capturedBody.limit).toBe(20);
+    expect(capturedBody.sources).toEqual(["web"]);
+    expect(capturedBody.tbs).toBe("qdr:m");
+    expect(capturedHeaders.get("authorization")).toBe("Bearer fc-test-key");
+    expect(capturedHeaders.get("x-client-source")).toBe("vellum-assistant");
+  });
+
+  test("Firecrawl skips invalid freshness values", async () => {
+    mockWebSearchProvider = "firecrawl";
+    mockFirecrawlSecureKey = "fc-key";
+    let capturedBody: any = null;
+    globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+      capturedBody = JSON.parse(init?.body as string);
+      return new Response(JSON.stringify({ success: true, data: { web: [] } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as any;
+
+    await execute({ query: "test", freshness: "invalid" });
+    expect(capturedBody.tbs).toBeUndefined();
+  });
+
+  test("Firecrawl returns no results message when response is empty", async () => {
+    mockWebSearchProvider = "firecrawl";
+    mockFirecrawlSecureKey = "fc-key";
+    globalThis.fetch = (async () => {
+      return new Response(JSON.stringify({ success: true, data: { web: [] } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as any;
+
+    const result = await execute({ query: "obscure query" });
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("No results found");
+  });
+
+  test.each([401, 403])("Firecrawl handles %d auth error", async (status) => {
+    mockWebSearchProvider = "firecrawl";
+    mockFirecrawlSecureKey = "bad-key";
+    globalThis.fetch = (async () => {
+      return new Response("Auth error", { status });
+    }) as any;
+
+    const result = await execute({ query: "test" });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Invalid or expired Firecrawl API key");
+  });
+
+  test("Firecrawl handles 429 rate limit after max retries", async () => {
+    mockWebSearchProvider = "firecrawl";
+    mockFirecrawlSecureKey = "fc-key";
+    let callCount = 0;
+    globalThis.fetch = (async () => {
+      callCount++;
+      return new Response("Too Many Requests", {
+        status: 429,
+        headers: { "retry-after": "0" },
+      });
+    }) as any;
+
+    const result = await execute({ query: "test" });
+    expect(result.isError).toBe(true);
+    // Post-retry rate limits surface the friendly recoverable copy (ATL-727).
+    expect(result.content).toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
+    expect(callCount).toBe(4);
+  });
+
   // ---- Provider fallback --------------------------------------------------
 
   test("falls back from perplexity to brave when perplexity has no key", async () => {
@@ -738,6 +864,23 @@ describe("web_search tool", () => {
     const result = await execute({ query: "fallback test" });
     expect(result.isError).toBe(false);
     expect(capturedUrl).toContain("tavily");
+  });
+
+  test("falls back to firecrawl when all earlier providers have no key", async () => {
+    mockWebSearchProvider = "perplexity";
+    mockFirecrawlSecureKey = "fc-fallback-key";
+    let capturedUrl = "";
+    globalThis.fetch = (async (url: string) => {
+      capturedUrl = url;
+      return new Response(JSON.stringify({ success: true, data: { web: [] } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as any;
+
+    const result = await execute({ query: "fallback test" });
+    expect(result.isError).toBe(false);
+    expect(capturedUrl).toContain("firecrawl");
   });
 
   test("falls back from tavily to perplexity when tavily has no key", async () => {

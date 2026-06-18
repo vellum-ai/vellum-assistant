@@ -16239,6 +16239,7 @@ paths:
                                           - brave
                                           - perplexity
                                           - tavily
+                                          - firecrawl
                                       resultCount:
                                         type: number
                                       durationMs:
@@ -16621,6 +16622,7 @@ paths:
                                                   - brave
                                                   - perplexity
                                                   - tavily
+                                                  - firecrawl
                                               resultCount:
                                                 type: number
                                               durationMs:
