@@ -35,32 +35,67 @@ const primeLocalGatewayConnectionWithRepairMock = mock(async () => {
 });
 const ensureGatewayTokenMock = mock(async () => {});
 const refreshRemoteGatewaySessionMock = mock(async () => false);
-const restoreConsentForUserMock = mock((_userId: string | null) => ({
-  tos: false,
-  ai: false,
-}));
+const restoreConsentForUserMock = mock(
+  (
+    _userId: string | null,
+  ): {
+    tos: boolean;
+    ai: boolean;
+    analyticsCurrent: boolean;
+    diagnosticsCurrent: boolean;
+  } => ({
+    tos: false,
+    ai: false,
+    analyticsCurrent: false,
+    diagnosticsCurrent: false,
+  }),
+);
 const persistConsentForUserMock = mock(
   (_userId: string | null, _tos: boolean, _ai: boolean) => {},
 );
-const resolveServerConsentMock = mock((_consent: unknown) => ({
-  tos: false,
-  ai: false,
-  shareAnalytics: null,
-  shareDiagnostics: null,
-}));
+const persistToggleConsentMock = mock(
+  (
+    _userId: string | null,
+    _acks: { analyticsCurrent?: boolean; diagnosticsCurrent?: boolean },
+  ) => {},
+);
+const resolveServerConsentMock = mock(
+  (
+    _consent: unknown,
+  ): {
+    tos: boolean;
+    ai: boolean;
+    shareAnalytics: boolean | null;
+    shareDiagnostics: boolean | null;
+    analyticsCurrent: boolean;
+    diagnosticsCurrent: boolean;
+    hasServerRecord: boolean;
+  } => ({
+    tos: false,
+    ai: false,
+    shareAnalytics: null,
+    shareDiagnostics: null,
+    analyticsCurrent: false,
+    diagnosticsCurrent: false,
+    hasServerRecord: false,
+  }),
+);
 
-let mockFetchMeResult: unknown = {
-  id: "user-1",
-  username: "test",
-  email: "test@example.com",
-  first_name: "",
-  last_name: "",
-  consent: null,
+const EMPTY_CONSENT = {
+  tos_accepted_version: "",
+  tos_accepted_at: null,
+  privacy_policy_accepted_version: "",
+  privacy_policy_accepted_at: null,
+  ai_data_sharing_accepted_version: "",
+  ai_data_sharing_accepted_at: null,
+  share_analytics: false,
+  share_diagnostics: false,
 };
-let mockFetchMeError: Error | null = null;
-const fetchMeMock = mock(async () => {
-  if (mockFetchMeError) throw mockFetchMeError;
-  return mockFetchMeResult;
+let mockFetchConsentResult: unknown = EMPTY_CONSENT;
+let mockFetchConsentError: Error | null = null;
+const fetchConsentMock = mock(async () => {
+  if (mockFetchConsentError) throw mockFetchConsentError;
+  return mockFetchConsentResult;
 });
 const clearOrganizationMock = mock(() => {});
 const logoutMock = mock(async () => {});
@@ -162,24 +197,38 @@ const clearUserScopedStorageMock = mock(() => {});
 const patchConsentMock = mock(async (_consent: unknown) => {});
 
 mock.module("@/domains/account/profile", () => ({
-  fetchMe: fetchMeMock,
+  fetchConsent: fetchConsentMock,
   patchConsent: patchConsentMock,
 }));
 
 mock.module("@/utils/onboarding-cleanup", () => ({
   restoreConsentForUser: restoreConsentForUserMock,
   persistConsentForUser: persistConsentForUserMock,
+  persistToggleConsent: persistToggleConsentMock,
   resolveServerConsent: resolveServerConsentMock,
   CONSENT_VERSION: "2026-06-08",
 }));
+
+const setAnalyticsConsentCurrentMock = mock((_value: boolean) => {});
+const setDiagnosticsConsentCurrentMock = mock((_value: boolean) => {});
+const setShareAnalyticsMock = mock((_value: boolean) => {});
+const setShareDiagnosticsMock = mock((_value: boolean) => {});
+// Mirror the store's device-initialized share values; the backfill reads these
+// to send the device opt-out value alongside the accepted version.
+let mockStoreShareAnalytics = true;
+let mockStoreShareDiagnostics = true;
 
 mock.module("@/domains/onboarding/onboarding-store", () => ({
   useOnboardingStore: {
     getState: () => ({
       setTosAccepted: () => {},
       setAiDataConsent: () => {},
-      setShareAnalytics: () => {},
-      setShareDiagnostics: () => {},
+      setShareAnalytics: setShareAnalyticsMock,
+      setShareDiagnostics: setShareDiagnosticsMock,
+      setAnalyticsConsentCurrent: setAnalyticsConsentCurrentMock,
+      setDiagnosticsConsentCurrent: setDiagnosticsConsentCurrentMock,
+      shareAnalytics: mockStoreShareAnalytics,
+      shareDiagnostics: mockStoreShareDiagnostics,
     }),
   },
 }));
@@ -288,18 +337,18 @@ beforeEach(() => {
   refreshRemoteGatewaySessionMock.mockClear();
   restoreConsentForUserMock.mockClear();
   persistConsentForUserMock.mockClear();
+  persistToggleConsentMock.mockClear();
   resolveServerConsentMock.mockClear();
-  fetchMeMock.mockClear();
+  setAnalyticsConsentCurrentMock.mockClear();
+  setDiagnosticsConsentCurrentMock.mockClear();
+  setShareAnalyticsMock.mockClear();
+  setShareDiagnosticsMock.mockClear();
+  mockStoreShareAnalytics = true;
+  mockStoreShareDiagnostics = true;
+  fetchConsentMock.mockClear();
   patchConsentMock.mockClear();
-  mockFetchMeResult = {
-    id: "user-1",
-    username: "test",
-    email: "test@example.com",
-    first_name: "",
-    last_name: "",
-    consent: null,
-  };
-  mockFetchMeError = null;
+  mockFetchConsentResult = EMPTY_CONSENT;
+  mockFetchConsentError = null;
   clearOrganizationMock.mockClear();
   clearUserScopedStorageMock.mockClear();
   logoutMock.mockClear();
@@ -444,57 +493,156 @@ describe("auth store onboarding flag reconciliation", () => {
 
   test("initSession uses server consent when server has a consent record", async () => {
     sessionUser = { id: "user-1", email: "user@example.com" };
-    mockFetchMeResult = {
-      id: "user-1",
-      username: "test",
-      email: "test@example.com",
-      first_name: "",
-      last_name: "",
-      consent: {
-        tos_accepted_version: "2026-06-08",
-        privacy_policy_accepted_version: "2026-06-08",
-        ai_data_sharing_accepted_version: "2026-06-08",
-        share_analytics: true,
-        share_diagnostics: true,
-      },
+    mockFetchConsentResult = {
+      tos_accepted_version: "2026-06-08",
+      tos_accepted_at: "2026-06-08T00:00:00Z",
+      privacy_policy_accepted_version: "2026-06-08",
+      privacy_policy_accepted_at: "2026-06-08T00:00:00Z",
+      ai_data_sharing_accepted_version: "2026-06-08",
+      ai_data_sharing_accepted_at: "2026-06-08T00:00:00Z",
+      share_analytics: true,
+      share_diagnostics: true,
     };
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: true,
+      ai: true,
+      shareAnalytics: true,
+      shareDiagnostics: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+      hasServerRecord: true,
+    });
 
     await useAuthStore.getState().initSession();
 
-    expect(fetchMeMock).toHaveBeenCalled();
+    expect(fetchConsentMock).toHaveBeenCalled();
     expect(resolveServerConsentMock).toHaveBeenCalled();
     expect(restoreConsentForUserMock).not.toHaveBeenCalled();
+    // Currency flags hydrate from the resolved server consent.
+    expect(setAnalyticsConsentCurrentMock).toHaveBeenCalledWith(true);
+    expect(setDiagnosticsConsentCurrentMock).toHaveBeenCalledWith(true);
+    expect(persistToggleConsentMock).toHaveBeenCalledWith("user-1", {
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+    });
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
   });
 
-  test("initSession falls through to device keys when server consent is null", async () => {
+  test("initSession falls through to device keys when server versions are empty", async () => {
     sessionUser = { id: "user-1", email: "user@example.com" };
 
     await useAuthStore.getState().initSession();
 
-    expect(fetchMeMock).toHaveBeenCalled();
-    expect(resolveServerConsentMock).not.toHaveBeenCalled();
+    expect(fetchConsentMock).toHaveBeenCalled();
+    expect(resolveServerConsentMock).toHaveBeenCalled();
     expect(restoreConsentForUserMock).toHaveBeenCalledWith("user-1");
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
   });
 
-  test("initSession backfills server when device keys show prior consent and server has no record", async () => {
+  test("initSession backfills server when device keys show prior consent and server versions are empty", async () => {
     sessionUser = { id: "user-1", email: "user@example.com" };
-    restoreConsentForUserMock.mockReturnValueOnce({ tos: true, ai: true });
+    restoreConsentForUserMock.mockReturnValueOnce({
+      tos: true,
+      ai: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+    });
 
     await useAuthStore.getState().initSession();
 
     expect(patchConsentMock).toHaveBeenCalled();
+    // The backfill branch hydrates the currency flags from the device acks.
+    expect(setAnalyticsConsentCurrentMock).toHaveBeenCalledWith(true);
+    expect(setDiagnosticsConsentCurrentMock).toHaveBeenCalledWith(true);
+    // Acks are persisted from the device-restored values, not the empty
+    // server values — otherwise the fallback would clobber its own input.
+    expect(persistToggleConsentMock).toHaveBeenLastCalledWith("user-1", {
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+    });
+    // Legal consent is persisted with the restored (true) values, after the
+    // fallback — never the empty server values that would erase device acks.
+    expect(persistConsentForUserMock).toHaveBeenLastCalledWith(
+      "user-1",
+      true,
+      true,
+    );
+    // The backfill patch carries the current toggle versions so the next
+    // server fetch doesn't re-mark them stale and re-route to review-terms.
+    expect(patchConsentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        share_analytics_accepted_version: expect.any(String),
+        share_diagnostics_accepted_version: expect.any(String),
+      }),
+    );
+    // The empty server record's default share booleans must NOT overwrite the
+    // device-local choices the store already holds.
+    expect(setShareAnalyticsMock).not.toHaveBeenCalled();
+    expect(setShareDiagnosticsMock).not.toHaveBeenCalled();
   });
 
-  test("initSession falls back to device keys when fetchMe fails", async () => {
+  test("backfill patch carries the device share VALUE alongside the accepted version (opt-out preserved)", async () => {
+    // Truly-empty server record (hasServerRecord=false), device legal consent
+    // current, and a device analytics opt-out. The backfill must send the
+    // share value so the next fetch can't read the API default (true) and
+    // overwrite the opt-out.
     sessionUser = { id: "user-1", email: "user@example.com" };
-    mockFetchMeError = new Error("Network error");
+    mockStoreShareAnalytics = false;
+    restoreConsentForUserMock.mockReturnValueOnce({
+      tos: true,
+      ai: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+    });
 
     await useAuthStore.getState().initSession();
 
-    expect(fetchMeMock).toHaveBeenCalled();
+    expect(patchConsentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        share_analytics_accepted_version: "2026-06-08",
+        share_analytics: false,
+      }),
+    );
+  });
+
+  test("stale-but-real record keeps server share values and skips the device fallback", async () => {
+    // hasServerRecord=true but legal consent is stale (tos=false). The server's
+    // share opt-out is authoritative and must be applied; the device fallback
+    // must NOT run (its values are not authoritative for a real record).
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: false,
+      ai: false,
+      shareAnalytics: false,
+      shareDiagnostics: true,
+      analyticsCurrent: false,
+      diagnosticsCurrent: false,
+      hasServerRecord: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(setShareAnalyticsMock).toHaveBeenCalledWith(false);
+    expect(restoreConsentForUserMock).not.toHaveBeenCalled();
+  });
+
+  test("initSession falls back to device keys when fetchConsent fails", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockFetchConsentError = new Error("Network error");
+    restoreConsentForUserMock.mockReturnValueOnce({
+      tos: true,
+      ai: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(fetchConsentMock).toHaveBeenCalled();
     expect(restoreConsentForUserMock).toHaveBeenCalledWith("user-1");
+    // A fully offline restore still reflects prior toggle acks.
+    expect(setAnalyticsConsentCurrentMock).toHaveBeenCalledWith(true);
+    expect(setDiagnosticsConsentCurrentMock).toHaveBeenCalledWith(true);
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
   });
 
@@ -502,48 +650,40 @@ describe("auth store onboarding flag reconciliation", () => {
     mockIsLocalMode = true;
     sessionUser = { id: "user-1", email: "user@example.com" };
     mockPlatformAssistants = [{ assistantId: "p1", cloud: "vellum" }];
-    mockFetchMeResult = {
-      id: "user-1",
-      username: "test",
-      email: "test@example.com",
-      first_name: "",
-      last_name: "",
-      consent: {
-        tos_accepted_version: "2026-06-08",
-        privacy_policy_accepted_version: "2026-06-08",
-        ai_data_sharing_accepted_version: "2026-06-08",
-        share_analytics: true,
-        share_diagnostics: true,
-      },
+    mockFetchConsentResult = {
+      tos_accepted_version: "2026-06-08",
+      tos_accepted_at: "2026-06-08T00:00:00Z",
+      privacy_policy_accepted_version: "2026-06-08",
+      privacy_policy_accepted_at: "2026-06-08T00:00:00Z",
+      ai_data_sharing_accepted_version: "2026-06-08",
+      ai_data_sharing_accepted_at: "2026-06-08T00:00:00Z",
+      share_analytics: true,
+      share_diagnostics: true,
     };
 
     await useAuthStore.getState().initSession();
 
-    expect(fetchMeMock).toHaveBeenCalled();
+    expect(fetchConsentMock).toHaveBeenCalled();
     expect(resolveServerConsentMock).toHaveBeenCalled();
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
   });
 
   test("refreshSession fetches consent from server for platform users", async () => {
     sessionUser = { id: "user-2", email: "user@example.com" };
-    mockFetchMeResult = {
-      id: "user-2",
-      username: "test",
-      email: "user@example.com",
-      first_name: "",
-      last_name: "",
-      consent: {
-        tos_accepted_version: "2026-06-08",
-        privacy_policy_accepted_version: "2026-06-08",
-        ai_data_sharing_accepted_version: "2026-06-08",
-        share_analytics: true,
-        share_diagnostics: true,
-      },
+    mockFetchConsentResult = {
+      tos_accepted_version: "2026-06-08",
+      tos_accepted_at: "2026-06-08T00:00:00Z",
+      privacy_policy_accepted_version: "2026-06-08",
+      privacy_policy_accepted_at: "2026-06-08T00:00:00Z",
+      ai_data_sharing_accepted_version: "2026-06-08",
+      ai_data_sharing_accepted_at: "2026-06-08T00:00:00Z",
+      share_analytics: true,
+      share_diagnostics: true,
     };
 
     await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
 
-    expect(fetchMeMock).toHaveBeenCalled();
+    expect(fetchConsentMock).toHaveBeenCalled();
     expect(resolveServerConsentMock).toHaveBeenCalled();
     expect(useAuthStore.getState().user?.id).toBe("user-2");
   });

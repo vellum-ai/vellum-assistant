@@ -16,6 +16,8 @@ const base: NavigationState = {
   platformSession: "present",
   tosAccepted: true,
   aiDataConsent: true,
+  analyticsConsentCurrent: true,
+  diagnosticsConsentCurrent: true,
 };
 
 function s(overrides: Partial<NavigationState>): NavigationState {
@@ -266,6 +268,47 @@ describe("resolveNavigation", () => {
       ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy" });
     });
 
+    // -- stale consent toggles --------------------------------------------
+
+    test("redirects platform user with current tos/ai but stale analytics toggle to review-terms", () => {
+      expect(
+        guard(s({ isLocalMode: false, analyticsConsentCurrent: false })),
+      ).toEqual({ action: "redirect", to: "/assistant/review-terms?returnTo=%2Fassistant" });
+    });
+
+    test("redirects platform user with stale diagnostics toggle to review-terms", () => {
+      expect(
+        guard(s({ isLocalMode: false, diagnosticsConsentCurrent: false })),
+      ).toEqual({ action: "redirect", to: "/assistant/review-terms?returnTo=%2Fassistant" });
+    });
+
+    test("allows platform user when all four consent flags are current", () => {
+      expect(
+        guard(
+          s({
+            isLocalMode: false,
+            tosAccepted: true,
+            aiDataConsent: true,
+            analyticsConsentCurrent: true,
+            diagnosticsConsentCurrent: true,
+          }),
+        ),
+      ).toEqual(ALLOW);
+    });
+
+    test("does not redirect local-mode user with stale toggles", () => {
+      expect(
+        guard(
+          s({
+            isLocalMode: true,
+            hasAssistants: true,
+            analyticsConsentCurrent: false,
+            diagnosticsConsentCurrent: false,
+          }),
+        ),
+      ).toEqual(ALLOW);
+    });
+
     test("does not redirect local-mode user without consent (handled by step 5)", () => {
       expect(
         guard(s({ isLocalMode: true, hasAssistants: true, tosAccepted: false, aiDataConsent: false })),
@@ -300,6 +343,38 @@ describe("resolveNavigation", () => {
         to: "/assistant/onboarding/hatching",
       });
     });
+
+    test("redirects consented platform user with stale analytics toggle and no assistant to review-terms, not hatching", () => {
+      expect(
+        guard(s({ hasAssistants: false, analyticsConsentCurrent: false })),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/review-terms?returnTo=%2Fassistant",
+      });
+    });
+
+    test("redirects consented platform user with stale diagnostics toggle and no assistant to review-terms", () => {
+      expect(
+        guard(s({ hasAssistants: false, diagnosticsConsentCurrent: false }), "/assistant/home"),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/review-terms?returnTo=%2Fassistant%2Fhome",
+      });
+    });
+
+    test("redirects brand-new platform user with no assistant to privacy, unaffected by stale-toggle gate", () => {
+      expect(
+        guard(
+          s({
+            hasAssistants: false,
+            tosAccepted: false,
+            aiDataConsent: false,
+            analyticsConsentCurrent: false,
+            diagnosticsConsentCurrent: false,
+          }),
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy" });
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -315,6 +390,15 @@ describe("resolveNavigation", () => {
 
     test("allows when tos and consent accepted", () => {
       expect(intercept(s({ tosAccepted: true, aiDataConsent: true }), "/assistant")).toEqual(ALLOW);
+    });
+
+    test("stale toggles do not change onboarding-intercept (hasCompletedOnboarding only)", () => {
+      expect(
+        intercept(
+          s({ analyticsConsentCurrent: false, diagnosticsConsentCurrent: false }),
+          "/assistant",
+        ),
+      ).toEqual(ALLOW);
     });
 
     test("allows destination outside /assistant", () => {
@@ -406,6 +490,24 @@ describe("resolveNavigation", () => {
 
     test("allows with full consent", () => {
       expect(hatch(s({ tosAccepted: true, aiDataConsent: true }))).toEqual(ALLOW);
+    });
+
+    test("redirects platform user with stale analytics toggle to review-terms", () => {
+      expect(
+        hatch(s({ analyticsConsentCurrent: false })),
+      ).toEqual({ action: "redirect", to: "/assistant/review-terms" });
+    });
+
+    test("redirects platform user with stale diagnostics toggle to review-terms", () => {
+      expect(
+        hatch(s({ diagnosticsConsentCurrent: false })),
+      ).toEqual({ action: "redirect", to: "/assistant/review-terms" });
+    });
+
+    test("does not gate local-mode user on stale toggles", () => {
+      expect(
+        hatch(s({ isLocalMode: true, analyticsConsentCurrent: false, diagnosticsConsentCurrent: false })),
+      ).toEqual(ALLOW);
     });
   });
 

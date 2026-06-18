@@ -15,6 +15,8 @@ export interface NavigationState {
   platformSession: PlatformSessionStatus;
   tosAccepted: boolean;
   aiDataConsent: boolean;
+  analyticsConsentCurrent: boolean;
+  diagnosticsConsentCurrent: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -48,6 +50,19 @@ export type NavigationDecision =
 
 function hasCompletedOnboarding(state: NavigationState): boolean {
   return state.tosAccepted && state.aiDataConsent;
+}
+
+/**
+ * Onboarding is complete AND every consent toggle is for the current version.
+ * A stale toggle means the user must re-review the terms even though they
+ * already finished onboarding.
+ */
+function consentIsCurrent(state: NavigationState): boolean {
+  return (
+    hasCompletedOnboarding(state) &&
+    state.analyticsConsentCurrent &&
+    state.diagnosticsConsentCurrent
+  );
 }
 
 const ONBOARDING_PREFIX = `${routes.assistant}/onboarding`;
@@ -242,7 +257,11 @@ function allowSetupRoutes(
   return null;
 }
 
-function requireAssistant(state: NavigationState): NavigationDecision | null {
+function requireAssistant(
+  state: NavigationState,
+  _path: string,
+  pathnameWithSearch: string,
+): NavigationDecision | null {
   if (state.hasAssistants) return null;
 
   if (state.isLocalMode) {
@@ -256,6 +275,11 @@ function requireAssistant(state: NavigationState): NavigationDecision | null {
   if (!hasCompletedOnboarding(state)) {
     return { action: "redirect", to: routes.onboarding.privacy };
   }
+  // A stale toggle must be re-reviewed before provisioning an assistant.
+  if (!consentIsCurrent(state)) {
+    const returnTo = encodeURIComponent(pathnameWithSearch);
+    return { action: "redirect", to: `${routes.reviewTerms}?returnTo=${returnTo}` };
+  }
   // A consented user with no assistant goes to the standard hatching screen.
   return { action: "redirect", to: routes.onboarding.hatching };
 }
@@ -265,7 +289,7 @@ function requireConsent(
   _path: string,
   pathnameWithSearch: string,
 ): NavigationDecision | null {
-  if (state.isLocalMode || hasCompletedOnboarding(state)) return null;
+  if (state.isLocalMode || consentIsCurrent(state)) return null;
 
   const returnTo = encodeURIComponent(pathnameWithSearch);
   return { action: "redirect", to: `${routes.reviewTerms}?returnTo=${returnTo}` };
@@ -304,6 +328,10 @@ function resolveHatchGate(state: NavigationState): NavigationDecision {
   }
   if (!hasCompletedOnboarding(state)) {
     return { action: "redirect", to: onboardingEntrypoint(state.isLocalMode) };
+  }
+  // A stale toggle must be re-reviewed before hatching, even via direct navigation.
+  if (!state.isLocalMode && !consentIsCurrent(state)) {
+    return { action: "redirect", to: routes.reviewTerms };
   }
   return { action: "allow" };
 }
