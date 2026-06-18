@@ -101,8 +101,12 @@ async function ensureLocalAssistantPlatformIdentity(
 ): Promise<string> {
   const gateway = await ensureGatewayAccess(assistant);
   const status = await fetchPlatformStatus(gateway, assistant.assistantId);
-  if (status?.assistantId && isUuid(status.assistantId)) {
-    return status.assistantId;
+  const statusPlatformAssistantId =
+    status?.assistantId && isUuid(status.assistantId)
+      ? status.assistantId
+      : null;
+  if (statusPlatformAssistantId && status?.hasAssistantApiKey !== false) {
+    return statusPlatformAssistantId;
   }
 
   const organizationId = await resolveOrganizationId(
@@ -114,11 +118,13 @@ async function ensureLocalAssistantPlatformIdentity(
   }
 
   const registration = await ensureRegistration(assistant, organizationId);
-  const platformAssistantId = firstString(
+  const registrationPlatformAssistantId = firstString(
     registration.assistant?.id,
     registration.assistant_id,
     registration.id,
   );
+  const platformAssistantId =
+    statusPlatformAssistantId ?? registrationPlatformAssistantId;
   if (!platformAssistantId || !isUuid(platformAssistantId)) {
     throw new Error(
       "The platform registration response did not include an assistant UUID.",
