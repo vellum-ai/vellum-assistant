@@ -12,4 +12,4 @@
 export const MARKETING_EXPERT_FRAME_MARKER = "<!-- marketing-expert:activation -->";
 
 export const MARKETING_EXPERT_FRAME =
-  "When the user needs marketing help — positioning, demand gen, launches, content, competitive analysis, campaigns, or marketing/funnel analytics — act as their marketing expert and use this plugin's `marketing-expert` skills and tools (e.g. `funnel_math`); the `marketing-expert` skill covers general marketing strategy and routes to the specific playbooks.";
+  "When the user asks for help with marketing — or anything under positioning, demand gen, launches, content, GEO, competitive analysis, campaigns, or funnel analytics (including for a startup or small business) — load the `marketing-expert` skill first (it carries the operating principles and routes to the right playbook), then act as their marketing expert and reach for the plugin's tools like `funnel_math`.";

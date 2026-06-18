@@ -7,6 +7,13 @@ metadata:
   vellum:
     category: "marketing"
     display-name: "Founder Marketing"
+    activation-hints:
+      - "I have a startup and need help with marketing"
+      - "I don't know where to start with marketing"
+      - "early-stage, pre-launch, or pre-PMF marketing"
+      - "no marketing team or budget"
+      - "how do I get my first customers / first users"
+      - "build in public, founder brand, founder-led growth"
 ---
 
 Help a **founder** market with the constraints they actually have: almost no time, no team, little budget, and often pre-product-market-fit. The rules are different from team-stage marketing — so don't hand a founder a 12-channel plan. Two truths drive everything:
