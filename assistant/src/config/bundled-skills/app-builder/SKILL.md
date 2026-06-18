@@ -303,11 +303,11 @@ The optional `context` arg exposes daemon singletons — e.g. `context.assistant
 
 ### Keep the assistant aware
 
-Wire `window.vellum.sendAction()` during the build so the assistant sees meaningful interactions. **Reactive** hooks trigger a response (form submissions, selections worth explaining); **silent** hooks (`state_update`) accumulate context without interrupting (tab changes, filter changes). Examples in `{baseDir}/references/INTERACTION_HOOKS.md`.
+Wire `window.vellum.sendAction()` during the build so the app can pull the assistant in. The host handles two actions: **`relay_prompt`** (`{ prompt, conversation }`) sends a message to the assistant as if the user typed it — the way to get an explanation, summary, or follow-up from inside the app (`conversation: "new"` starts a fresh chat instead of the open one); **`set_view`** (`{ view }`) arranges the app and chat (`"split"` / `"full"` / `"chat"`). Nothing else is routed from an opened app, so relay anything you want the assistant to act on as a self-contained prompt. Patterns in `{baseDir}/references/INTERACTION_HOOKS.md`.
 
 ### Actionable UI
 
-For triage/bulk-action UIs: render selectable items + action buttons → the user selects and clicks → the app posts the action ID + selected IDs back with `window.vellum.sendAction()` → the assistant runs the tools and reports back. Render your own confirmation for destructive actions.
+For triage/bulk-action UIs: render selectable items + action buttons → the user selects and clicks → relay the choice as a prompt with `window.vellum.sendAction("relay_prompt", { prompt: ... })`, listing the selected items in the text, so the assistant can run the tools and report back. Render your own confirmation for destructive actions.
 
 ---
 
@@ -334,5 +334,5 @@ Read with `file_read` using the `{baseDir}/references/...` paths (`{baseDir}` re
 - `WIDGETS.md` — CSS widget classes (no JS chart/format runtime)
 - `CUSTOM_ROUTES.md` — server-side persistence and custom API routes
 - `examples/` — complete copyable example apps
-- `INTERACTION_HOOKS.md` — sendAction patterns, reactive vs silent
+- `INTERACTION_HOOKS.md` — relay_prompt / set_view app→host actions
 - `SLIDES.md` — presentation slide design
