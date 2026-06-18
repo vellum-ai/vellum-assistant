@@ -23,9 +23,9 @@ import { getConfig } from "../../config/loader.js";
 import { isCesShellLockdownEnabled } from "../../credential-execution/feature-gates.js";
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
-import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
+import { resolveCapabilities } from "../../runtime/capabilities.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
 import {
@@ -206,7 +206,7 @@ export const hostShellTool = {
     // because execute() is called after permissions have already been evaluated.
     const hostLockdownActive =
       isCesShellLockdownEnabled(config) &&
-      isUntrustedTrustClass(context.trustClass);
+      !resolveCapabilities(context.trustClass).unsandboxedShell;
 
     // Guard: non-host-proxy interfaces need an explicit target when multiple
     // capable clients are connected to avoid ambiguous untargeted broadcasts.
