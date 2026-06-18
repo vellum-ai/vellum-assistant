@@ -102,7 +102,14 @@ export type LLMCallSite = z.infer<typeof LLMCallSiteEnum>;
  * All other values map to provider-specific tiers via each provider's own
  * mapping table.
  */
-const EffortEnum = z.enum(["none", "low", "medium", "high", "xhigh", "max"]);
+export const EffortEnum = z.enum([
+  "none",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
 
 export const SpeedEnum = z.enum(["standard", "fast"]);
 export type Speed = z.infer<typeof SpeedEnum>;
