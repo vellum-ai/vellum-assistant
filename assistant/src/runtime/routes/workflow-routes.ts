@@ -376,8 +376,12 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "getWorkflowRunJournal",
     endpoint: "workflows/runs/:id/journal",
     method: "GET",
+    // Unlike the run list/status routes (settings metadata), the journal returns
+    // per-leaf prompt/result summaries — conversation/work-product content — so it
+    // requires `chat.read`, matching the subagent-detail route (the analogous
+    // content surface), not the `settings.read` used by the management routes.
     policy: {
-      requiredScopes: ["settings.read"],
+      requiredScopes: ["chat.read"],
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Get workflow run journal",
