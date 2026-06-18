@@ -53,7 +53,7 @@ import {
 import { listAssistants } from "@/assistant/api";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
-import { fetchMe, patchConsent } from "@/domains/account/profile";
+import { fetchConsent, patchConsent } from "@/domains/account/profile";
 import {
   restoreConsentForUser,
   persistConsentForUser,
@@ -245,32 +245,30 @@ function broadcastAuthChange(): void {
 async function syncUserScopedState(nextUserId: string | null): Promise<void> {
   if (nextUserId) {
     try {
-      const me = await fetchMe();
-      if (me.consent) {
-        const resolved = resolveServerConsent(me.consent);
-        const store = useOnboardingStore.getState();
-        store.setTosAccepted(resolved.tos);
-        store.setAiDataConsent(resolved.ai);
-        if (resolved.shareAnalytics !== null)
-          store.setShareAnalytics(resolved.shareAnalytics);
-        if (resolved.shareDiagnostics !== null)
-          store.setShareDiagnostics(resolved.shareDiagnostics);
-        persistConsentForUser(nextUserId, resolved.tos, resolved.ai);
-        syncOrganizationState(nextUserId);
-        return;
-      }
-      // Server has no consent record — fall through to device keys.
-      // If device keys show prior acceptance, backfill the server.
-      const deviceConsent = restoreConsentForUser(nextUserId);
+      const consent = await fetchConsent();
+      const resolved = resolveServerConsent(consent);
       const store = useOnboardingStore.getState();
-      store.setTosAccepted(deviceConsent.tos);
-      store.setAiDataConsent(deviceConsent.ai);
-      if (deviceConsent.tos && deviceConsent.ai) {
-        void patchConsent({
-          tos_accepted_version: CONSENT_VERSION,
-          privacy_policy_accepted_version: CONSENT_VERSION,
-          ai_data_sharing_accepted_version: CONSENT_VERSION,
-        }).catch(() => {});
+      store.setTosAccepted(resolved.tos);
+      store.setAiDataConsent(resolved.ai);
+      if (resolved.shareAnalytics !== null)
+        store.setShareAnalytics(resolved.shareAnalytics);
+      if (resolved.shareDiagnostics !== null)
+        store.setShareDiagnostics(resolved.shareDiagnostics);
+      persistConsentForUser(nextUserId, resolved.tos, resolved.ai);
+      // The endpoint always returns an object, so empty/stale versions
+      // (not a null record) are the "never accepted" signal. If device
+      // keys show prior acceptance, restore the flags and backfill the server.
+      if (!resolved.tos && !resolved.ai) {
+        const deviceConsent = restoreConsentForUser(nextUserId);
+        if (deviceConsent.tos && deviceConsent.ai) {
+          store.setTosAccepted(true);
+          store.setAiDataConsent(true);
+          void patchConsent({
+            tos_accepted_version: CONSENT_VERSION,
+            privacy_policy_accepted_version: CONSENT_VERSION,
+            ai_data_sharing_accepted_version: CONSENT_VERSION,
+          }).catch(() => {});
+        }
       }
       syncOrganizationState(nextUserId);
       return;
