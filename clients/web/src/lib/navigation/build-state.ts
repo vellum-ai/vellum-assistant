@@ -1,7 +1,18 @@
 import { useAuthStore } from "@/stores/auth-store";
-import { isSessionSettled, isAuthenticated } from "@/stores/session-status";
-import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
-import { isLocalMode } from "@/lib/local-mode";
+import {
+  isSessionSettled,
+  isAuthenticated,
+  hasAppAccess,
+  hasLivePlatformSession,
+  type PlatformSessionStatus,
+} from "@/stores/session-status";
+import { canReachAssistant } from "@/assistant/can-reach-assistant";
+import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
+import {
+  isLocalMode,
+  getSelectedAssistant,
+  getActiveAssistant,
+} from "@/lib/local-mode";
 import {
   readTosAccepted,
   readAiDataConsent,
@@ -9,16 +20,44 @@ import {
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { NavigationState } from "./navigation-resolver";
 
+/**
+ * Whether the selected assistant is reachable right now, composed imperatively
+ * (no hooks) for the middleware/route-resolver context. Mirrors the reactive
+ * `useCanReachAssistant`, but reads the gateway token and the selected
+ * assistant directly: the route guard runs once per navigation rather than
+ * across renders, so it can read the non-reactive sources. Returns false when
+ * no assistant resolves.
+ */
+function canReachSelectedAssistant(
+  platformSession: PlatformSessionStatus,
+): boolean {
+  const selected = getSelectedAssistant() ?? getActiveAssistant();
+  if (!selected) return false;
+  return canReachAssistant(selected, {
+    gatewayTokenPresent: getGatewayToken() !== null,
+    platformSession,
+  });
+}
+
 export function buildNavigationState(
   overrides?: Partial<NavigationState>,
 ): NavigationState {
   const { sessionStatus, platformSession } = useAuthStore.getState();
+  // The route guard admits on app access — a real platform identity OR a
+  // reachable selected assistant — not on bare platform identity. So a
+  // local-only user (no platform session, gateway-reachable assistant) is
+  // admitted, and a platform `getSession()` 401 that drops `platformSession`
+  // cannot redirect them to login while their assistant is still reachable.
+  const canAccessApp = hasAppAccess({
+    hasPlatformIdentity: hasLivePlatformSession(platformSession),
+    canReachSelected: canReachSelectedAssistant(platformSession),
+  });
   return {
     isLocalMode: isLocalMode(),
     isGatewayAuth: isGatewayAuthMode(),
     hasAssistants: useResolvedAssistantsStore.getState().assistants.length > 0,
     sessionSettled: isSessionSettled(sessionStatus),
-    isAuthenticated: isAuthenticated(sessionStatus),
+    isAuthenticated: isAuthenticated(sessionStatus) || canAccessApp,
     platformSession,
     tosAccepted: readTosAccepted(),
     aiDataConsent: readAiDataConsent(),
