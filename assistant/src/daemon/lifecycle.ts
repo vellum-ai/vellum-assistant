@@ -642,9 +642,9 @@ export async function runDaemon(): Promise<void> {
     }
 
     // Privacy gating: Sentry crash/error reporting is gated by sendDiagnostics,
-    // while the usage telemetry reporter re-checks collectUsageData on every
-    // flush. Both are disabled in dev mode. Early-startup crashes before this
-    // point are still captured.
+    // while the usage telemetry reporter re-checks the platform share_analytics
+    // consent on every flush. Both are disabled in dev mode. Early-startup
+    // crashes before this point are still captured.
     const isDevMode = process.env.VELLUM_DEV === "1";
     const sendDiagnostics = !isDevMode && config.sendDiagnostics;
     if (!sendDiagnostics) {
@@ -652,11 +652,12 @@ export async function runDaemon(): Promise<void> {
     }
 
     // Construct and start the reporter even when usage collection is disabled:
-    // flush() re-checks collectUsageData each cycle and, when opted out, sends
-    // nothing but advances all watermarks (including the final flush in
-    // stop()). New opted-out tool_invocations rows are already unreportable by
-    // construction — the audit listener persists NULL telemetry columns for
-    // them, which the tool_executed projection filters out — so the opted-out
+    // flush() re-checks the platform share_analytics consent each cycle and,
+    // when opted out, sends nothing but advances all watermarks (including the
+    // final flush in stop()). New opted-out tool_invocations rows are already
+    // unreportable by construction — the audit listener persists NULL telemetry
+    // columns for them, which the tool_executed projection filters out — so the
+    // opted-out
     // flushes are defense in depth there (covering rows recorded under builds
     // that predate that write-time gate) and remain the primary guard for the
     // always-on tables without a write-time gate (llm_usage, turn events).
@@ -670,10 +671,7 @@ export async function runDaemon(): Promise<void> {
       telemetryReporter = new UsageTelemetryReporter();
       setUsageTelemetryReporter(telemetryReporter);
       telemetryReporter.start();
-      log.info(
-        { collectUsageData: config.collectUsageData },
-        "Usage telemetry reporter started",
-      );
+      log.info("Usage telemetry reporter started");
 
       // Fire-and-forget: startConsentRefresh() runs an immediate non-blocking
       // refresh, so the startup hot path is never blocked.

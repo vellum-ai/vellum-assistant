@@ -136,12 +136,6 @@ export const AssistantConfigSchema = z
       .describe(
         "Per-plugin configuration keyed by plugin name. Validated downstream by each plugin's manifest.config validator at bootstrap.",
       ),
-    collectUsageData: z
-      .boolean()
-      .default(true)
-      .describe(
-        "Whether to collect anonymous usage data to help improve the assistant",
-      ),
     sendDiagnostics: z
       .boolean()
       .default(true)

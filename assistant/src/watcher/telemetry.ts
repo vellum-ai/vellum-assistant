@@ -4,8 +4,8 @@
  * ahead of the planned watcher → skills-and-schedules migration.
  *
  * Both event shapes ship through the existing lifecycle-event telemetry
- * pipeline, so they inherit its `collectUsageData` opt-out gate and need
- * no wire-contract or platform-side changes:
+ * pipeline, so they inherit its platform `share_analytics` consent gate and
+ * need no wire-contract or platform-side changes:
  *
  * - `watcher_enabled:<providerId>` — one per enabled watcher, at most
  *   once per 24h per daemon. Counts devices that have watchers

@@ -129,7 +129,7 @@ export class UsageTelemetryReporter {
     // reporter shipping its rows: an absent watermark means no flush (opted
     // in or out) has ever advanced it, so rows recorded before this build —
     // including any opted-out period under older builds that gated the
-    // reporter on collectUsageData — would otherwise ship retroactively.
+    // reporter on the usage-data opt-out — would otherwise ship retroactively.
     // Initialize an absent watermark to "now" at construction. Construction
     // happens during daemon startup before any tool runs, so no legitimate
     // row falls behind the watermark — initializing at first FLUSH instead
@@ -138,8 +138,8 @@ export class UsageTelemetryReporter {
     // absent and re-initialize later. An EXISTING watermark is never touched:
     // opted-out sessions keep it advancing via the opt-out flush branch, and
     // overwriting it here would drop a legitimate unshipped backlog.
-    // `skill_loaded` needs no init: recording is gated on collectUsageData,
-    // so opt-out rows never exist and its standard 0 default is safe.
+    // `skill_loaded` needs no init: recording is gated on share_analytics
+    // consent, so opt-out rows never exist and its standard 0 default is safe.
     //
     // Best-effort: DB init failures are tolerated at daemon startup (degraded
     // mode), so this must never throw out of the constructor — matching
