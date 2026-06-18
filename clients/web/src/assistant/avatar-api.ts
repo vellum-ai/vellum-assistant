@@ -6,13 +6,13 @@
  * to `/v1/X` before forwarding to the daemon, which registers avatar
  * and workspace routes flat (`/v1/avatar/...`, `/v1/workspace/...`).
  */
-import { client } from "@/generated/api/client.gen";
 import {
   avatarCharactercomponentsGet,
   avatarImagePost,
   avatarRenderfromtraitsPost,
   avatarStateGet,
   workspaceDeletePost,
+  workspaceFileContentGet,
   workspaceFileGet,
   workspaceWritePost,
 } from "@/generated/daemon/sdk.gen";
@@ -177,15 +177,15 @@ export async function fetchAvatarImageUrl(
   assistantId: string,
 ): Promise<string | null> {
   try {
-    const { data, error, response } = await client.get({
-      url: "/v1/assistants/{assistant_id}/workspace/file/content/",
+    const { data, error, response } = await workspaceFileContentGet({
       path: { assistant_id: assistantId },
       query: { path: "data/avatar/avatar-image.png" },
       parseAs: "blob",
+      throwOnError: false,
     });
     assertHasResponse(response, error, "Failed to fetch avatar image");
     if (!response.ok || !data) return null;
-    return URL.createObjectURL(data as Blob);
+    return URL.createObjectURL(data);
   } catch {
     return null;
   }
