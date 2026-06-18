@@ -47,6 +47,19 @@ body {
   100% { transform: none; opacity: 1; }
 }
 
+/* Home Activity detail drawer (schedule / heartbeat / notification) sliding
+   in from the right. Ends at `transform: none` for the same containing-block
+   reason as fadeInUp above (the panel hosts fixed Dropdown/tooltip layers). */
+@keyframes drawer-slide-in {
+  0% { transform: translateX(16px); opacity: 0; }
+  100% { transform: none; opacity: 1; }
+}
+
+.home-detail-drawer {
+  animation: drawer-slide-in 0.2s ease-out both;
+  height: 100%;
+}
+
 @keyframes typing-dot-pulse {
   0%, 100% { opacity: 0.45; transform: scale(0.6); }
   50% { opacity: 1; transform: scale(1); }
@@ -283,5 +296,8 @@ body {
   .typing-dot {
     animation: none !important;
     opacity: 0.7 !important;
+  }
+  .home-detail-drawer {
+    animation: none;
   }
 }

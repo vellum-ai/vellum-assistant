@@ -1,10 +1,10 @@
 /**
  * `ChannelPolicyCard` — settings card surface for the per-channel
  * admission floor (§8.1). Lists every client-controllable channel with a
- * dropdown for its floor. Internal channels (`vellum`/`platform`/`a2a`)
- * are filtered out by `fetchChannelPolicies` and never rendered here, so
- * the user can't accidentally lock themselves out of the local desktop or
- * platform connection.
+ * dropdown for its floor. Internal channels (`platform`/`a2a`) and hidden
+ * channels (`vellum`/`whatsapp`) are filtered out by `fetchChannelPolicies`
+ * and never rendered here, so the user can't accidentally lock themselves
+ * out of the local desktop or platform connection.
  */
 
 import { ShieldAlert } from "lucide-react";
@@ -18,7 +18,6 @@ import {
 } from "@/lib/channel-admission-policy/api";
 import {
   ADMISSION_POLICY_VALUES,
-  isKillSwitchForbiddenChannel,
   POLICY_DESCRIPTIONS,
   POLICY_LABELS,
   type AdmissionPolicy,
@@ -32,16 +31,6 @@ const DROPDOWN_OPTIONS = ADMISSION_POLICY_VALUES.map((value) => ({
   value,
   label: POLICY_LABELS[value],
 }));
-
-/**
- * Options for a channel's dropdown. Kill-switch-forbidden channels (e.g.
- * `vellum`, the local client) omit `no_one` so the guardian can't lock
- * themselves out — mirrored by the gateway's 422 on a `no_one` write.
- */
-function optionsForChannel(channelType: string) {
-  if (!isKillSwitchForbiddenChannel(channelType)) return DROPDOWN_OPTIONS;
-  return DROPDOWN_OPTIONS.filter((o) => o.value !== "no_one");
-}
 
 function humaniseChannel(channelType: string): string {
   // Map known channel ids to display labels; fall back to a Title-Case
@@ -205,7 +194,7 @@ export function ChannelPolicyCard() {
               <Dropdown<AdmissionPolicy>
                 value={policy.policy}
                 onChange={(next) => handleChange(policy.channelType, next)}
-                options={optionsForChannel(policy.channelType)}
+                options={DROPDOWN_OPTIONS}
                 disabled={savingChannel === policy.channelType}
                 aria-label={`Floor for ${humaniseChannel(policy.channelType)}`}
                 data-testid={`channel-policy-dropdown-${policy.channelType}`}

@@ -9,7 +9,11 @@
  * user-configured row is never overwritten (ON CONFLICT DO NOTHING).
  */
 
-import { ADMISSION_POLICY_DEFAULT, type AdmissionPolicy } from "@vellumai/gateway-client";
+import {
+  ADMISSION_POLICY_DEFAULT,
+  isAdmissionPolicyHiddenChannel,
+  type AdmissionPolicy,
+} from "@vellumai/gateway-client";
 import { CHANNEL_IDS, type ChannelId } from "../channels/types.js";
 import { AdmissionPolicyStore, isExemptChannelType } from "./admission-policy-store.js";
 
@@ -20,6 +24,10 @@ import { AdmissionPolicyStore, isExemptChannelType } from "./admission-policy-st
  * `vellum` (the local desktop/web client) defaults to `guardian_only`: only
  * the guardian's own local client is admitted by default. The guardian is
  * always max-rank on vellum, so this never locks them out.
+ *
+ * `phone` is intentionally absent — it now seeds with the universal
+ * `ADMISSION_POLICY_DEFAULT` (`trusted_contacts`), default-denying unknown /
+ * unverified inbound callers.
  */
 export const CHANNEL_ADMISSION_DEFAULTS: Partial<Record<ChannelId, AdmissionPolicy>> = {
   vellum: "guardian_only",
@@ -27,14 +35,28 @@ export const CHANNEL_ADMISSION_DEFAULTS: Partial<Record<ChannelId, AdmissionPoli
 
 /**
  * Insert a default row for every enforced channel that has none. Exempt
- * channels (`platform`/`a2a`/`phone`) are skipped — they carry no floor.
+ * channels (`platform`/`a2a`) are skipped — they carry no floor.
+ *
+ * Hidden channels (`vellum`/`whatsapp`) are not surfaced in the Channel Trust
+ * Floors UI, so a legacy or stale row would strand the channel at a floor the
+ * user can no longer see or reset. They are pinned to their default here,
+ * overwriting any drifted row — unlike the non-destructive `seedDefault` used
+ * for configurable channels.
  */
 export function seedAdmissionPolicyDefaults(store: AdmissionPolicyStore): void {
   for (const channelType of CHANNEL_IDS) {
     if (isExemptChannelType(channelType)) continue;
-    store.seedDefault(
-      channelType,
-      CHANNEL_ADMISSION_DEFAULTS[channelType] ?? ADMISSION_POLICY_DEFAULT,
-    );
+    const policy =
+      CHANNEL_ADMISSION_DEFAULTS[channelType] ?? ADMISSION_POLICY_DEFAULT;
+    store.seedDefault(channelType, policy);
+    // Hidden channels aren't surfaced in the UI, so a legacy/stale row would
+    // strand them at a floor the user can't reset. `seedDefault` above is
+    // non-destructive, so overwrite any drift back to the default here.
+    if (
+      isAdmissionPolicyHiddenChannel(channelType) &&
+      store.get(channelType) !== policy
+    ) {
+      store.set(channelType, policy);
+    }
   }
 }

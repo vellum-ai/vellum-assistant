@@ -166,6 +166,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "memory v3",
   "memory v3 rebuild-index",
   "memory v3 backfill-sections",
+  "memory v3 eval",
   "notifications",
   "notifications send",
   "notifications list",
@@ -499,6 +500,12 @@ const riskOverrides: AssistantRiskOverride[] = [
     risk: "medium",
     reason:
       "Embeds every page's sections into the v3 dense store and advances the maintain checkpoint",
+  },
+  {
+    path: "memory v3 eval",
+    risk: "medium",
+    reason:
+      "Reads recent conversation turns and memory contents and writes them to eval packet/key files",
   },
   {
     path: "memory v3 rebuild-index",

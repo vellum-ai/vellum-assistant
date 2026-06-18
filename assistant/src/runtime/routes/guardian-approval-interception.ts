@@ -18,6 +18,7 @@ import {
 import { getLogger } from "../../util/logger.js";
 import { runApprovalConversationTurn } from "../approval-conversation-turn.js";
 import { composeApprovalMessageGenerative } from "../approval-message-composer.js";
+import { resolveCapabilities } from "../capabilities.js";
 import type { ApprovalDecisionResult } from "../channel-approval-types.js";
 import {
   getApprovalInfoByConversation,
@@ -106,7 +107,7 @@ export async function handleApprovalInterception(
   // When the sender is the guardian and there's a pending guardian approval
   // request targeting this chat, the message might be a decision on behalf
   // of a non-guardian requester. Delegated to the guardian callback strategy.
-  if (trustCtx.trustClass === "guardian" && actorExternalId) {
+  if (resolveCapabilities(trustCtx.trustClass).canSelfApproveTools && actorExternalId) {
     const guardianResult = await handleGuardianCallbackDecision({
       content,
       callbackData,
@@ -140,7 +141,7 @@ export async function handleApprovalInterception(
     callbackData?.startsWith("reaction:") &&
     !callbackData.startsWith("reaction_removed:")
   ) {
-    if (trustCtx.trustClass !== "guardian" || !actorExternalId) {
+    if (!resolveCapabilities(trustCtx.trustClass).canSelfApproveTools || !actorExternalId) {
       return { handled: true, type: "stale_ignored" };
     }
     const reactionDecision = parseReactionCallbackData(callbackData);
@@ -223,8 +224,8 @@ export async function handleApprovalInterception(
   // to decide. This covers trusted contacts, unverified contacts, and
   // identity-known non-member senders in shared channels.
   const isIdentityKnownNonGuardian =
-    trustCtx.trustClass === "trusted_contact" ||
-    trustCtx.trustClass === "unverified_contact" ||
+    resolveCapabilities(trustCtx.trustClass).sensitiveToolApproval ===
+      "escalate-and-wait" ||
     (trustCtx.trustClass === "unknown" &&
       !!trustCtx.requesterExternalUserId &&
       !!trustCtx.guardianExternalUserId);
@@ -466,7 +467,7 @@ export async function handleApprovalInterception(
       // standard conversational engine / legacy parser and resolve their own
       // pending request via handleChannelDecision.
       if (
-        trustCtx.trustClass !== "guardian" &&
+        !resolveCapabilities(trustCtx.trustClass).canSelfApproveTools &&
         trustCtx.guardianExternalUserId
       ) {
         log.info(

@@ -77,6 +77,9 @@ function getRendererTupleOrigin(): string {
 const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>([
   "conversations",
   "channel-admission-policy",
+  // Live SSE event stream — `subscribeEvents` opens it through the
+  // platform client, so it must be forwarded to the gateway in local /
+  // self-hosted mode like any other runtime route.
   "events",
 ]);
 

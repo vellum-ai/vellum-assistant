@@ -18,6 +18,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import type { MemoryEvalRunResult } from "../../runtime/routes/memory-eval-routes.js";
 import type {
   MemoryV3BackfillSectionsResult,
   MemoryV3RebuildIndexResult,
@@ -33,6 +34,13 @@ import { log } from "../logger.js";
  * keeps working.
  */
 const BACKFILL_IPC_TIMEOUT_MS = 30 * 60 * 1000;
+
+/**
+ * IPC timeout for `eval`. Embedding both corpora's sections runs through the
+ * embedder and easily outlasts the default 60s, so allow the same generous
+ * ceiling as the backfill.
+ */
+const EVAL_IPC_TIMEOUT_MS = 30 * 60 * 1000;
 
 export function registerMemoryV3Command(program: Command): void {
   // Reuse an existing `memory` parent if some other registrar attached to it
@@ -134,6 +142,91 @@ Examples:
                 : "."),
           );
         });
+
+      // ── eval ──────────────────────────────────────────────────────────────
+
+      v3.command("eval")
+        .description(
+          "Build blinded A/B retrieval-eval packets (snapshot corpus vs staged wiki)",
+        )
+        .requiredOption(
+          "--staging <dir>",
+          "Staged v3 wiki dir (relative to the workspace, or absolute)",
+        )
+        .requiredOption(
+          "--snapshot <dir>",
+          "Read-only v2 snapshot dir (relative to the workspace, or absolute)",
+        )
+        .requiredOption("--out <dir>", "Output dir for packets.json + key.json")
+        .option("--turns <n>", "Number of recent turns to mine", "30")
+        .option("--k <n>", "Pages per memory set", "8")
+        .option(
+          "--seed <n>",
+          "Blinding seed (reproducible A/B assignment)",
+          "1",
+        )
+        .option(
+          "--no-dense",
+          "Needle-only: skip section embedding (fast, cheaper, lower fidelity)",
+        )
+        .option("--json", "Emit raw JSON instead of a formatted summary")
+        .addHelpText(
+          "after",
+          `
+Mines recent user turns, retrieves the top pages from each corpus per turn, and
+writes blinded A/B packets (plus a separate unblinding key) for a blind-judge
+workflow. Both corpora are read in memory — nothing in the live lanes or Qdrant
+is touched. With the dense lane on (default) it embeds every section of both
+corpora, which can take a while on a large corpus; use --no-dense for a fast
+lexical-only pass.
+
+Examples:
+  $ assistant memory v3 eval --snapshot .mv3/snapshot/concepts --staging .mv3/staging --out .mv3/eval
+  $ assistant memory v3 eval --snapshot .mv3/snapshot/concepts --staging .mv3/staging --out .mv3/eval --turns 50 --no-dense`,
+        )
+        .action(
+          async (opts: {
+            staging: string;
+            snapshot: string;
+            out: string;
+            turns: string;
+            k: string;
+            seed: string;
+            dense: boolean;
+            json?: boolean;
+          }) => {
+            const result = await cliIpcCall<MemoryEvalRunResult>(
+              "memory_eval_run",
+              {
+                body: {
+                  stagingDir: opts.staging,
+                  snapshotDir: opts.snapshot,
+                  outDir: opts.out,
+                  turns: Number(opts.turns),
+                  k: Number(opts.k),
+                  seed: Number(opts.seed),
+                  dense: opts.dense,
+                },
+              },
+              { timeoutMs: EVAL_IPC_TIMEOUT_MS },
+            );
+            if (!result.ok) {
+              log.error(result.error ?? "Failed to build eval packets");
+              process.exitCode = 1;
+              return;
+            }
+            const payload = result.result!;
+            if (opts.json === true) {
+              log.info(JSON.stringify(payload, null, 2));
+              return;
+            }
+            log.info(
+              `Wrote ${payload.packetsWritten} packets from ${payload.turnsMined} turns ` +
+                `(snapshot ${payload.snapshotPages} pages vs staged ${payload.stagingPages} pages, ` +
+                `dense=${payload.dense}).\n  packets: ${payload.packetsPath}\n  key:     ${payload.keyPath}`,
+            );
+          },
+        );
     },
   });
 }

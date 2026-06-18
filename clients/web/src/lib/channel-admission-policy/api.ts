@@ -4,10 +4,10 @@
  *
  * Mirrors the Swift `ChannelAdmissionPolicyClient` in
  * `clients/shared/Network/ChannelAdmissionPolicyClient.swift` so naming
- * stays in lockstep across surfaces. Internal channels (vellum/platform/a2a)
- * are filtered client-side per §8.1 — the gateway is already supposed to
- * omit them from the list response, but we double-filter so a future
- * gateway regression can't leak them into the UI.
+ * stays in lockstep across surfaces. Internal channels (platform/a2a) and
+ * hidden channels (vellum/whatsapp) are filtered client-side — the gateway is
+ * already supposed to omit them from the list response, but we double-filter
+ * so a future gateway regression can't leak them into the UI.
  */
 
 import { client } from "@/generated/api/client.gen";
@@ -20,6 +20,7 @@ import {
 import {
   ADMISSION_POLICY_VALUES,
   INTERNAL_CHANNELS,
+  isHiddenChannel,
   type AdmissionPolicy,
   type ChannelPolicyView,
 } from "./types";
@@ -48,8 +49,9 @@ export function isInternalChannel(channelType: string): boolean {
 /**
  * List every client-controllable channel's admission floor.
  *
- * Channels in {@link INTERNAL_CHANNELS} are filtered out before returning,
- * so callers can render the result directly without re-filtering.
+ * Channels in {@link INTERNAL_CHANNELS} and {@link isHiddenChannel} are
+ * filtered out before returning, so callers can render the result directly
+ * without re-filtering.
  */
 export async function fetchChannelPolicies(
   assistantId: string,
@@ -68,7 +70,10 @@ export async function fetchChannelPolicies(
   }
   const policies = data?.policies ?? [];
   return policies
-    .filter((p) => !isInternalChannel(p.channelType))
+    .filter(
+      (p) =>
+        !isInternalChannel(p.channelType) && !isHiddenChannel(p.channelType),
+    )
     .map((p) => ({
       ...p,
       policy: isAdmissionPolicy(p.policy) ? p.policy : "trusted_contacts",

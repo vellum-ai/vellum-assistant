@@ -258,6 +258,23 @@ describe("api-interceptors / self-hosted rewriting", () => {
     expect(outUrl.search).toBe("?limit=50");
   });
 
+  test("rewrites the live events SSE stream to the ingress", async () => {
+    // The events stream opens through the platform client; in local /
+    // self-hosted mode it must route to the gateway like conversations
+    // rather than fall through to the platform proxy.
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    const eventsPath = `/v1/assistants/${SELF_HOSTED_ID}/events/`;
+    const input = new Request(
+      `https://platform.test${eventsPath}?lastSeenSeq=42`,
+    );
+    const output = await requestInterceptor(input);
+    const outUrl = new URL(output.url);
+    expect(outUrl.origin).toBe(INGRESS);
+    expect(outUrl.pathname).toBe(eventsPath);
+    expect(outUrl.search).toBe("?lastSeenSeq=42");
+    expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
+  });
+
   test("prepends the ingress path prefix when the ingress URL has a path", async () => {
     const prefixedIngress = "http://localhost:3000/__gateway/20100";
     setSelfHostedConnection({ url: prefixedIngress, token: ACTOR_TOKEN });

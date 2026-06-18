@@ -85,9 +85,16 @@ A default row per enforced channel is **seeded at startup** (`seedAdmissionPolic
 
 - `platform` — internal platform control plane.
 - `a2a` — assistant-to-assistant peer traffic (out of human-trust model).
-- `phone` — exempt until voice ingress reads the policy (§8.4).
 
-For exempt ids, `PUT /v1/assistants/:id/channel-admission-policy/:channelType` returns **403**, the GET list omits them, and the runtime short-circuits `admitted: true` in `admission-policy.ts` (defense in depth). `vellum` is **not** exempt — it is configurable, but can never be set to `no_one`: the PUT route returns **422** and the picker omits the option, so the guardian (always max-rank on `vellum`) can't lock themselves out. Codex finding from #35006 review: exemption checks must live in *both* the gateway route handler AND the runtime stage — single-side enforcement creates a misuse wedge.
+`phone` is now an enforced channel (voice ingress reads the policy): it seeds the universal default `trusted_contacts` and accepts PUT like other enforced channels.
+
+For exempt ids, `PUT /v1/assistants/:id/channel-admission-policy/:channelType` returns **403**, the GET list omits them, and the runtime short-circuits `admitted: true` in `admission-policy.ts` (defense in depth). Codex finding from #35006 review: exemption checks must live in *both* the gateway route handler AND the runtime stage — single-side enforcement creates a misuse wedge.
+
+**Hidden channels** (`ADMISSION_POLICY_HIDDEN_CHANNELS` = `vellum`, `whatsapp`) — managed automatically, **not** user-configurable, but (unlike exempt channels) **still enforced at runtime**:
+
+- The GET list omits them, and `PUT`/`DELETE` return **403** (`isAdmissionPolicyHiddenChannel`).
+- They are **not** exempt — the runtime still evaluates rank-vs-floor, so a real inbound channel like `whatsapp` keeps its admission floor.
+- Their floor is pinned to the seed default; `seedAdmissionPolicyDefaults` **overwrites** any drifted/legacy row at startup (e.g. a stale `whatsapp = no_one`), so a stranded floor can't silently block a channel the user can no longer see or reset. The guardian is always max-rank on `vellum`, so its `guardian_only` seed default never locks them out — there is **no** `no_one` picker or 422 kill-switch path for hidden channels.
 
 Only the **assistant-scoped** routes (`/v1/assistants/:id/channel-admission-policy/...`) exist; admission policy is gateway-global so the id is matched and discarded. (The flat `/v1/channel-admission-policy/...` variants were removed with the CLI that used them.)
 
@@ -100,3 +107,37 @@ Only the **assistant-scoped** routes (`/v1/assistants/:id/channel-admission-poli
 **Adding a new policy**: extend the `AdmissionPolicy` union in `packages/gateway-client/src/admission-policy-contract.ts`, add its floor in `ADMISSION_FLOOR`, update the openapi schema, and update `gateway/src/__tests__/channel-admission-policy-routes.test.ts` + `assistant/src/runtime/routes/inbound-stages/admission-policy.test.ts`. Do not add a 6th floor without also bumping the `TRUST_CLASS_RANK` ceiling to match.
 
 **Adding a new exempt channel**: update `ADMISSION_POLICY_EXEMPT_CHANNELS` in `packages/gateway-client/src/admission-policy-contract.ts` AND `EXEMPT_CHANNEL_TYPES` in `gateway/src/db/admission-policy-store.ts`. The gateway route (403), GET-list omission, runtime short-circuit, and seed-skip all read from these — symmetric enforcement is required so a stray runtime call (test harness, internal IPC) can't bypass the floor.
+
+**Hiding a channel from the UI (still enforced)**: add it to `ADMISSION_POLICY_HIDDEN_CHANNELS` in `packages/gateway-client/src/admission-policy-contract.ts` (and the web mirror `HIDDEN_CHANNELS` in `clients/web/src/lib/channel-admission-policy/types.ts`). The GET-list omission, `PUT`/`DELETE` 403, and seed re-pin all read from this set. Use this — **not** the exempt set — for a channel that must keep enforcing a floor but should not be user-configurable, so its admission check is never short-circuited.
+
+### Trust Classes → Capabilities (what an actor may do)
+
+Two orthogonal axes, do not conflate them:
+
+- **Admission** (above) — *who gets in the door*. `TRUST_CLASS_RANK` vs `ADMISSION_FLOOR`, enforced across gateway + runtime.
+- **Capabilities** — *what an actor may do once admitted*. Resolved in the runtime, never on the gateway.
+
+**Trust classes** (`TrustClass` in `assistant/src/runtime/actor-trust-resolver.ts`) are the *role*, ranked by `TRUST_CLASS_RANK`:
+
+| Class | Rank | Meaning |
+|---|---|---|
+| `guardian` | 4 | Matches the active guardian binding for this (assistant, channel). |
+| `trusted_contact` | 3 | Active contact channel, not the guardian. |
+| `unverified_contact` | 2 | Contact channel that is `pending`/`unverified` — known but not verified. |
+| `unknown` | 1 | No contact record, no identity, or blocked/revoked. Fail-closed. |
+
+The gateway classifies the actor at ingress (keyed on `actorExternalId`) and forwards the resolved `trustClass`; it is persisted in retry payloads, the journal store, and conversation CRUD. The gateway does **not** compute capabilities.
+
+**Capability resolution** lives in `assistant/src/runtime/capabilities.ts`. `resolveCapabilities(trustClass) → CapabilitySet` is the **single fail-closed trust boundary** for the "what may they do" axis, separating permissions from the raw class the way RBAC separates permissions from roles:
+
+- **Total & fail-closed.** Accepts any string or `undefined`; anything not a recognized class (incl. legacy strings like `"non_guardian"`) resolves to the `unknown` set. The lookup uses an own-property check so inherited keys (`"__proto__"`, `"constructor"`, `"toString"`) also fail closed.
+- **`trusted_contact` ≡ `unverified_contact`.** They share the same `CapabilitySet` object — the distinction is admission-only. Pinned by `capabilities.test.ts`.
+- **`CapabilitySet` fields**: `canSelfApproveTools`, `sensitiveToolApproval` (`self | escalate-and-wait | deny`), `canManageSchedules`, `canUseVerificationControlPlane`, `canSelfAuthorizeArchiveBySender`, `canAccessMemory`, `canAccessPrivilegedDocuments`, `canRunUnsandboxedShell`, `mayBeInteractive`, `canActUnderDiskPressureCleanup`, `promptTrustGuidance` (`none | social-engineering-defense | stranger-warning`). All the booleans except `mayBeInteractive` are guardian-only; `mayBeInteractive` is also true for contacts.
+
+**How call sites use it.** Read a named capability instead of re-deriving from the raw class — e.g. `if (!resolveCapabilities(trustClass).canAccessMemory) skip`. Context-dependent decisions **compose** a capability primitive with runtime context rather than encoding it in the table: `resolveRoutingState` uses `mayBeInteractive && guardianRouteResolvable`; `document-tool` uses `canAccessPrivilegedDocuments || executionChannel === "vellum"`; the self-approval race guard uses `!canSelfApproveTools && <pending-row state>`. The legacy `isUntrustedTrustClass` helper has been removed — use `!resolveCapabilities(x).<cap>`.
+
+**Stateless.** Capabilities are derived on read from the already-persisted/forwarded `trustClass`; nothing capability-shaped is stored or sent on the wire.
+
+**Adding a capability**: add the field to `CapabilitySet` + the three class records (`GUARDIAN_CAPABILITIES`, `CONTACT_CAPABILITIES`, `UNKNOWN_CAPABILITIES`) + the `MATRIX` in `capabilities.test.ts`. **Adding a trust class**: add a member to `TrustClass` (the `Record<TrustClass, …>` tables then fail to compile until every column is filled) and a matrix row.
+
+**Intentionally NOT capability-gated** (these are identity / admission-flow decisions, not permissions, and stay raw class checks): `calls/*` guardian-identity call routing, `inbound-message-handler` heartbeat/timezone side-effects, `surface-action-routes` drift-heal re-resolution, and `channel-retry-sweep` trust-class parsing.

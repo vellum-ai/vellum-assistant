@@ -129,8 +129,6 @@ export const routes = {
     general: r("/assistant/settings/general"),
     ai: r("/assistant/settings/ai"),
     integrations: r("/assistant/settings/integrations"),
-    schedules: r("/assistant/settings/schedules"),
-    schedule: (id: string) => dyn(r("/assistant/settings/schedules"), id),
     notifications: r("/assistant/settings/notifications"),
     keyboardShortcuts: r("/assistant/settings/keyboard-shortcuts"),
     sounds: r("/assistant/settings/sounds"),

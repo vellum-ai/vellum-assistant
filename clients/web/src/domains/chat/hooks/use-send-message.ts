@@ -52,6 +52,7 @@ import {
 } from "@/utils/conversation-cache-mutations";
 import { findConversation, patchConversation } from "@/utils/conversation-cache";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import {
   consumePendingPreChatContext,
   type PreChatOnboardingContext,
@@ -893,6 +894,7 @@ export function useSendMessage({
     setMessages(clearPendingConfirmationsFromMessages);
     useInteractionStore.getState().resetAll();
     useSubagentStore.getState().reset();
+    useWorkflowStore.getState().reset();
     useChatSessionStore.getState().clearConfirmationToolCallMap();
     try {
       await conversationsByIdCancelPost({

@@ -37,10 +37,8 @@ import type {
   ProviderResponse,
   ToolDefinition,
 } from "../providers/types.js";
-import {
-  isUntrustedTrustClass,
-  type TrustClass,
-} from "../runtime/actor-trust-resolver.js";
+import { type TrustClass } from "../runtime/actor-trust-resolver.js";
+import { resolveCapabilities } from "../runtime/capabilities.js";
 import { getLogger } from "../util/logger.js";
 import { stripInjectionsForCompaction } from "./strip-injections.js";
 import {
@@ -387,7 +385,7 @@ export function collectImageManifest(
   actorTrustClass?: TrustClass,
 ): ManifestEntry[] {
   const allRows = getMessages(conversationId);
-  const rows = isUntrustedTrustClass(actorTrustClass)
+  const rows = !resolveCapabilities(actorTrustClass).canAccessMemory
     ? filterMessagesForUntrustedActor(allRows)
     : allRows;
   const entries: ManifestEntry[] = [];

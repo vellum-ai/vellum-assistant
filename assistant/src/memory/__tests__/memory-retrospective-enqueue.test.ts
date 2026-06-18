@@ -31,13 +31,6 @@ mock.module("../jobs-store.js", () => ({
   },
 }));
 
-mock.module("../../runtime/actor-trust-resolver.js", () => ({
-  isUntrustedTrustClass: (trustClass: string | undefined) =>
-    trustClass === "trusted_contact" ||
-    trustClass === "unknown" ||
-    trustClass === undefined,
-}));
-
 import {
   enqueueMemoryRetrospectiveIfEnabled,
   enqueueMemoryRetrospectiveOnCompaction,

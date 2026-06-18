@@ -1,3 +1,4 @@
+import { resolveCapabilities } from "../../runtime/capabilities.js";
 import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
 import { validateRruleSetLines } from "../../schedule/recurrence-engine.js";
 import {
@@ -29,7 +30,7 @@ export async function executeScheduleUpdate(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  if (context.trustClass !== "guardian") {
+  if (!resolveCapabilities(context.trustClass).canManageSchedules) {
     return {
       content:
         "Error: schedule_update is restricted to guardian actors because schedules execute with elevated privileges.",

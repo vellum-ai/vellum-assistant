@@ -6,6 +6,8 @@
  * next — without performing any side effects itself.
  */
 
+import type { AdmissionPolicy } from "@vellumai/gateway-client";
+
 import { getConfig } from "../config/loader.js";
 import { findActiveVoiceInvites } from "../memory/invite-store.js";
 import {
@@ -14,6 +16,10 @@ import {
 } from "../runtime/actor-trust-resolver.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getPendingSession } from "../runtime/channel-verification-service.js";
+import {
+  type AdmissionPolicyResult,
+  enforceAdmissionPolicy,
+} from "../runtime/routes/inbound-stages/admission-policy.js";
 import { getLogger } from "../util/logger.js";
 import type { CallSession } from "./types.js";
 
@@ -27,6 +33,12 @@ interface SetupContext {
   from: string;
   to: string;
   customParameters?: Record<string, string>;
+  /**
+   * Per-channel inbound admission floor for the `phone` channel, supplied by
+   * the caller. When absent/`null`, the floor check is skipped entirely —
+   * preserving all pre-admission behavior.
+   */
+  admissionPolicy?: AdmissionPolicy | null;
 }
 
 // ── Setup outcomes ───────────────────────────────────────────────────
@@ -184,6 +196,50 @@ export function routeSetup(ctx: SetupContext): {
   // ── Inbound call ACL evaluation ─────────────────────────────────
   const pendingChallenge = getPendingSession("phone");
 
+  // An admission floor is "active" only when a policy applies and no pending
+  // verification challenge is in flight. While active, the floor IS the access
+  // decision: an admitted caller bypasses the legacy identity flows
+  // (unverified_caller / name_capture) and connects directly. When inactive
+  // (null policy, flag off, exempt channel, reader failed open, or a pending
+  // challenge), those legacy flows are preserved unchanged.
+  const floorActive = ctx.admissionPolicy != null && !pendingChallenge;
+
+  // Inbound admission floor verdict; defaults to admitted when inactive.
+  const floorVerdict = floorActive
+    ? enforceAdmissionPolicy({
+        sourceChannel: "phone",
+        trustClass: actorTrust.trustClass,
+        memberStatus: actorTrust.memberRecord?.channel.status,
+        policy: ctx.admissionPolicy!,
+      })
+    : ({ admitted: true } as const);
+
+  // Floor-deny outcome shared by the unknown-caller and member-caller branches.
+  // Live calls cannot await async re-verification, so the floor's
+  // `shouldChallenge` upgrade UX is not surfaced — same rationale as `escalate`.
+  const floorDeny = (
+    denyVerdict: Extract<AdmissionPolicyResult, { admitted: false }>,
+  ) => {
+    log.info(
+      {
+        callSessionId: ctx.callSessionId,
+        from: ctx.from,
+        trustClass: actorTrust.trustClass,
+        effectivePolicy: denyVerdict.effectivePolicy,
+      },
+      "Inbound voice ACL: admission floor denied caller",
+    );
+    return {
+      outcome: {
+        action: "deny" as const,
+        message:
+          "This number is not authorized to reach the assistant right now.",
+        logReason: `Inbound voice admission floor: ${denyVerdict.effectivePolicy}`,
+      },
+      resolved,
+    };
+  };
+
   if (
     (actorTrust.trustClass === "unknown" ||
       actorTrust.trustClass === "unverified_contact") &&
@@ -241,6 +297,21 @@ export function routeSetup(ctx: SetupContext): {
           friendName: matchedInvite.friendName,
           guardianName: matchedInvite.guardianName,
         },
+        resolved,
+      };
+    }
+
+    // When a floor is active it is the access decision: an admitted caller
+    // connects directly (skipping unverified_caller / name_capture), and a
+    // below-floor caller is denied. Invites (handled above) bypass the floor
+    // as an explicit grant. When the floor is inactive (null policy), fall
+    // through to the legacy identity flows below.
+    if (floorActive) {
+      if (!floorVerdict.admitted) {
+        return floorDeny(floorVerdict);
+      }
+      return {
+        outcome: { action: "normal_call" as const, isInbound: true },
         resolved,
       };
     }
@@ -347,6 +418,12 @@ export function routeSetup(ctx: SetupContext): {
       },
       resolved,
     };
+  }
+
+  // Admission floor: deny member/guardian callers below the floor (e.g.
+  // `guardian_only` denies a trusted_contact).
+  if (!floorVerdict.admitted) {
+    return floorDeny(floorVerdict);
   }
 
   // Guardian and trusted-contact callers proceed normally
