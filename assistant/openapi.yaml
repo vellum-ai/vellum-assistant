@@ -6152,6 +6152,12 @@ paths:
                   description: Only standard conversations are created by this endpoint
                   type: string
                   const: standard
+                title:
+                  description:
+                    Explicit title for the conversation. When provided on creation, it is persisted as a user-set title (never
+                    overwritten by the auto-titler). Used by flows that mint a conversation up-front and don't want an
+                    auto-generated title.
+                  type: string
       responses:
         "200":
           description: Successful response

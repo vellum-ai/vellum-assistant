@@ -18,10 +18,7 @@
  * from onboarding.
  */
 
-import {
-  conversationsPost,
-  messagesPost,
-} from "@/generated/daemon/sdk.gen";
+import { conversationsPost, messagesPost } from "@/generated/daemon/sdk.gen";
 import type { MessagesPostData } from "@/generated/daemon/types.gen";
 
 import { buildCheckinPrompt } from "@/domains/onboarding/checkin-prompt";
@@ -45,7 +42,7 @@ export async function scheduleCheckin({
   try {
     const conversation = await conversationsPost({
       path: { assistant_id: assistantId },
-      body: { conversationType: "standard" },
+      body: { conversationType: "standard", title: "Setting up your check-in" },
       throwOnError: false,
     });
     const conversationId = conversation.data?.id;
