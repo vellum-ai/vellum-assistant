@@ -36,6 +36,7 @@ import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen";
 import { useConnectivityState } from "@/hooks/use-connectivity-state";
 import { useNetworkStatus } from "@/hooks/use-network-status";
+import { isCliWakeableAssistant } from "@/lib/local-mode";
 import { captureError } from "@/lib/sentry/capture-error";
 import { isElectron } from "@/runtime/is-electron";
 import {
@@ -620,8 +621,12 @@ function useAssistantBannerConfig(): BannerConfig | null {
     canWakeLocalHealth(localHealth)
       ? "starting"
       : localHealth;
+  // Only offer "Wake up" when the CLI can actually start this assistant —
+  // `vellum wake` works on plain local entries, not Docker/apple-container.
   const localWakeAction =
-    canWakeLocalHealth(effectiveLocalHealth) ? (
+    canWakeLocalHealth(effectiveLocalHealth) &&
+    !!activeAssistantId &&
+    isCliWakeableAssistant(activeAssistantId) ? (
       <Button
         variant="outlined"
         size="compact"

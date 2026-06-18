@@ -53,6 +53,7 @@ let wakeLocalAssistantHostMock = mock(async (_assistantId: string) => ({
   ok: true,
 }));
 let isLocalModeHostAvailableMock = true;
+let isCliWakeableMock = true;
 let StatusBanner: ComponentType<{
   className?: string;
   placement?: "web" | "electron";
@@ -122,6 +123,10 @@ mock.module("@/runtime/local-mode-host", () => ({
   isLocalModeHostAvailable: () => isLocalModeHostAvailableMock,
 }));
 
+mock.module("@/lib/local-mode", () => ({
+  isCliWakeableAssistant: () => isCliWakeableMock,
+}));
+
 mock.module("@/assistant/lifecycle-store", () => ({
   useAssistantLifecycleStore: {
     use: {
@@ -183,6 +188,7 @@ beforeEach(() => {
     ok: true,
   }));
   isLocalModeHostAvailableMock = true;
+  isCliWakeableMock = true;
 });
 
 afterEach(() => {
@@ -479,6 +485,20 @@ describe("StatusBanner", () => {
       expect(html).toContain("Open the Vellum desktop app");
       expect(html).not.toContain("Wake up");
       expect(html).toContain('data-tone="neutral"');
+    });
+
+    test("hides the Wake up button for an assistant vellum wake can't start (e.g. Docker)", () => {
+      // Capable host, but the active assistant isn't CLI-wakeable (Docker /
+      // apple-container) — offering "Wake up" would call `vellum wake`, which
+      // refuses those. Show status without the button.
+      localHealthMock = "unreachable";
+      isLocalModeHostAvailableMock = true;
+      isCliWakeableMock = false;
+
+      const html = renderToStaticMarkup(<StatusBanner />);
+
+      expect(html).toContain("Your assistant is asleep");
+      expect(html).not.toContain("Wake up");
     });
 
     test("wakes the active local assistant from the banner action", async () => {
