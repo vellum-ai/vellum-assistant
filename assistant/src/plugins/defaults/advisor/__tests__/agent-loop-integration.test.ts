@@ -113,7 +113,7 @@ describe("advisor — agent-loop integration", () => {
     expect(transcript).toContain("Let me consult the advisor.");
 
     // The advisor saw the executor's system prompt (via pre-model-call).
-    expect(sub.options?.systemPrompt).toContain("senior technical advisor");
+    expect(sub.options?.systemPrompt).toContain("senior staff engineer");
     expect(sub.options?.systemPrompt).toContain("You are a coding agent.");
 
     // The advice flowed back into the executor's history as the tool result.
