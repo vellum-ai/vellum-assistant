@@ -4,13 +4,17 @@ import type { LockfileAssistant } from "@/lib/local-mode";
 import type { PlatformSessionStatus } from "@/stores/session-status";
 
 // The hosting-mode functions read runtime config (injected globals, env), so
-// drive them off plain flags the tests set per-case. `isLocalAssistant` /
-// `isPlatformAssistant` keep the real classification logic over the fixture's
-// `cloud`/`resources` fields, matching the auth-store test's mock style.
+// drive them off plain flags the tests set per-case. Spread the real module so
+// every other `@/lib/local-mode` export the dependency graph pulls in (via the
+// auth store, which `can-reach-assistant` imports for the reactive hook) stays
+// available; only the four functions the predicate branches on are overridden.
 let mockIsLocalMode = false;
 let mockIsRemoteGatewayMode = false;
 
+const localModeActual = await import("@/lib/local-mode");
+
 mock.module("@/lib/local-mode", () => ({
+  ...localModeActual,
   isLocalMode: () => mockIsLocalMode,
   isRemoteGatewayMode: () => mockIsRemoteGatewayMode,
   isLocalAssistant: (a: {
