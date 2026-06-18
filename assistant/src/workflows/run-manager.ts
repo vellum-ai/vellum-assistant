@@ -393,6 +393,7 @@ export class WorkflowRunManager {
           this.deps.broadcast({
             type: "workflow_progress",
             runId,
+            conversationId: ctx.conversationId ?? "",
             label,
             agentsSpawned,
             ...(event.type === "phase"
@@ -412,6 +413,7 @@ export class WorkflowRunManager {
       this.deps.broadcast({
         type: "workflow_completed",
         runId,
+        conversationId: ctx.conversationId ?? "",
         status: result.status,
         agentsSpawned: result.agentsSpawned,
         inputTokens: result.inputTokens,
