@@ -9,17 +9,17 @@ mock.module("../util/logger.js", () => ({
 }));
 
 const completeSurfaceAndNotify = mock(() => {});
+const markSurfaceCompleted = mock(() => {});
 mock.module("../daemon/conversation-surfaces.js", () => ({
   completeSurfaceAndNotify,
+  markSurfaceCompleted,
 }));
 
-const deliverChannelReply = mock(
-  async (_callbackUrl: string, _payload: Record<string, unknown>) => ({
-    ok: true,
-  }),
+const withdrawSlackApprovalCard = mock(
+  async (_params: Record<string, unknown>) => {},
 );
-mock.module("../runtime/gateway-client.js", () => ({
-  deliverChannelReply,
+mock.module("../messaging/providers/slack/withdraw.js", () => ({
+  withdrawSlackApprovalCard,
 }));
 
 import { withdrawGuardianRequestCards } from "../approvals/guardian-card-withdrawal.js";
@@ -60,10 +60,11 @@ describe("withdrawGuardianRequestCards", () => {
   beforeEach(() => {
     resetTables();
     completeSurfaceAndNotify.mockClear();
-    deliverChannelReply.mockClear();
+    markSurfaceCompleted.mockClear();
+    withdrawSlackApprovalCard.mockClear();
   });
 
-  test("withdraws the in-app card when the decision came from another surface", async () => {
+  test("withdraws + broadcasts the in-app card when the decision came from another surface", async () => {
     const req = makeRequest();
     createCanonicalGuardianDelivery({
       requestId: req.id,
@@ -83,9 +84,10 @@ describe("withdrawGuardianRequestCards", () => {
       `access-request-${req.id}`,
       "Approved",
     );
+    expect(markSurfaceCompleted).not.toHaveBeenCalled();
   });
 
-  test("skips the in-app card when the decision originated in-app", async () => {
+  test("persists (without broadcasting) the in-app card when the decision originated in-app", async () => {
     const req = makeRequest();
     createCanonicalGuardianDelivery({
       requestId: req.id,
@@ -99,13 +101,19 @@ describe("withdrawGuardianRequestCards", () => {
       originChannel: "vellum",
     });
 
-    // The in-app client completes its own card optimistically (and shows the
-    // resolver reply text); re-completing would clobber it.
+    // Persist so the completion survives a reload, but don't broadcast — that
+    // would clobber the active client's optimistic summary (e.g. a code).
+    expect(markSurfaceCompleted).toHaveBeenCalledTimes(1);
+    expect(markSurfaceCompleted).toHaveBeenCalledWith(
+      { conversationId: "conv-1" },
+      `access-request-${req.id}`,
+      "Approved",
+    );
     expect(completeSurfaceAndNotify).not.toHaveBeenCalled();
   });
 
-  test("edits the Slack card in place and removes its action buttons", async () => {
-    const req = makeRequest();
+  test("withdraws the Slack card with decider and decision time", async () => {
+    const req = makeRequest({ decidedByExternalUserId: "U-guardian" });
     createCanonicalGuardianDelivery({
       requestId: req.id,
       destinationChannel: "slack",
@@ -119,13 +127,17 @@ describe("withdrawGuardianRequestCards", () => {
       originChannel: "vellum",
     });
 
-    expect(deliverChannelReply).toHaveBeenCalledTimes(1);
-    const [url, payload] = deliverChannelReply.mock.calls[0];
-    expect(url).toBe("/deliver/slack");
-    expect(payload.chatId).toBe("C123");
-    expect(payload.messageTs).toBe("1700000000.0001");
-    // The replacement blocks carry no `apr:` action ids — the buttons are gone.
-    expect(JSON.stringify(payload.blocks)).not.toContain("apr:");
+    expect(withdrawSlackApprovalCard).toHaveBeenCalledTimes(1);
+    const [params] = withdrawSlackApprovalCard.mock.calls[0];
+    expect(params).toMatchObject({
+      channel: "C123",
+      messageTs: "1700000000.0001",
+      status: "denied",
+      decidedByExternalUserId: "U-guardian",
+    });
+    expect(typeof (params as { decidedAtMs?: number }).decidedAtMs).toBe(
+      "number",
+    );
   });
 
   test("skips the Slack edit when no channel message id was captured", async () => {
@@ -138,10 +150,10 @@ describe("withdrawGuardianRequestCards", () => {
 
     await withdrawGuardianRequestCards({ request: req, status: "approved" });
 
-    expect(deliverChannelReply).not.toHaveBeenCalled();
+    expect(withdrawSlackApprovalCard).not.toHaveBeenCalled();
   });
 
-  test("withdraws every surface (including in-app) when no origin channel", async () => {
+  test("withdraws every surface (including in-app broadcast) when no origin channel", async () => {
     const req = makeRequest();
     createCanonicalGuardianDelivery({
       requestId: req.id,
@@ -162,7 +174,7 @@ describe("withdrawGuardianRequestCards", () => {
       `access-request-${req.id}`,
       "Expired",
     );
-    expect(deliverChannelReply).toHaveBeenCalledTimes(1);
+    expect(withdrawSlackApprovalCard).toHaveBeenCalledTimes(1);
   });
 
   test("ignores channels without in-place edit support (telegram)", async () => {
@@ -176,11 +188,12 @@ describe("withdrawGuardianRequestCards", () => {
 
     await withdrawGuardianRequestCards({ request: req, status: "approved" });
 
-    expect(deliverChannelReply).not.toHaveBeenCalled();
+    expect(withdrawSlackApprovalCard).not.toHaveBeenCalled();
+    expect(completeSurfaceAndNotify).not.toHaveBeenCalled();
   });
 
   test("is best-effort: a failing surface never blocks the others or throws", async () => {
-    deliverChannelReply.mockImplementationOnce(async () => {
+    withdrawSlackApprovalCard.mockImplementationOnce(async () => {
       throw new Error("slack unavailable");
     });
     const req = makeRequest();
@@ -231,7 +244,10 @@ describe("withdrawGuardianRequestCards", () => {
 });
 
 describe("recordCanonicalChannelDelivery", () => {
-  beforeEach(() => resetTables());
+  beforeEach(() => {
+    resetTables();
+    withdrawSlackApprovalCard.mockClear();
+  });
 
   test("captures the channel-native message id so the card can be withdrawn", async () => {
     const req = makeRequest();
@@ -254,8 +270,10 @@ describe("recordCanonicalChannelDelivery", () => {
       status: "approved",
       originChannel: "vellum",
     });
-    const [, payload] = deliverChannelReply.mock.calls[0];
-    expect(payload.messageTs).toBe("1700000000.1234");
+    const [params] = withdrawSlackApprovalCard.mock.calls[0];
+    expect((params as { messageTs?: string }).messageTs).toBe(
+      "1700000000.1234",
+    );
   });
 
   test("omits chat id when the destination is empty", () => {

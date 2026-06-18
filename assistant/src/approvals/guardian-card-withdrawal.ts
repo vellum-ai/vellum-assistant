@@ -9,6 +9,10 @@
  * rendering projects `pending` onto each surface, withdrawal projects the
  * terminal status back onto each surface.
  *
+ * Withdrawal preserves the card's information and removes only the live
+ * affordances (it does not delete the message/card) so each surface keeps an
+ * audit trail of what was decided.
+ *
  * It is driven off `canonical_guardian_deliveries` — the per-request registry of
  * where each card was sent — so it stays correct as surfaces are added and is
  * agnostic to which surface originated the decision.
@@ -18,16 +22,18 @@
  * Every surface is attempted independently; one failure never blocks the rest.
  */
 
-import { completeSurfaceAndNotify } from "../daemon/conversation-surfaces.js";
+import {
+  completeSurfaceAndNotify,
+  markSurfaceCompleted,
+} from "../daemon/conversation-surfaces.js";
 import {
   type CanonicalGuardianDelivery,
   type CanonicalGuardianRequest,
   type CanonicalRequestStatus,
   listCanonicalGuardianDeliveries,
 } from "../memory/canonical-guardian-store.js";
+import { withdrawSlackApprovalCard } from "../messaging/providers/slack/withdraw.js";
 import { approvalCardSurfaceId } from "../notifications/approval-card-data.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { deliverChannelReply } from "../runtime/gateway-client.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("guardian-card-withdrawal");
@@ -40,23 +46,6 @@ const SURFACE_STATUS_LABELS: Partial<Record<CanonicalRequestStatus, string>> = {
   cancelled: "Cancelled",
 };
 
-/** Slack section text (with status glyph) for a resolved card. */
-const SLACK_STATUS_TEXT: Partial<Record<CanonicalRequestStatus, string>> = {
-  approved: ":white_check_mark: Approved",
-  denied: ":x: Denied",
-  expired: ":hourglass_done: Expired",
-  cancelled: ":no_entry_sign: Cancelled",
-};
-
-/**
- * Channels whose delivered card we can edit in place to drop its action
- * buttons. Slack `chat.update` is honoured by the direct-delivery path. Telegram
- * and WhatsApp direct delivery ignore `messageTs` (they would post a *new*
- * message), so their stale clicks are left to the existing "already resolved"
- * reply until in-place edit support lands for them.
- */
-const EDITABLE_CHANNELS: ReadonlySet<string> = new Set(["slack"]);
-
 export interface WithdrawGuardianCardsParams {
   /** The request, already transitioned to its terminal status. */
   request: CanonicalGuardianRequest;
@@ -67,10 +56,10 @@ export interface WithdrawGuardianCardsParams {
    *
    * The in-app client completes its own card optimistically on click and shows
    * the resolver's reply text (e.g. a verification code) as the card summary, so
-   * re-broadcasting completion for the in-app card would clobber that. The
-   * in-app (`vellum`) card is therefore skipped when the decision originated
-   * in-app. Channel cards have no optimistic self-update, so they are always
-   * withdrawn. Omit (e.g. the expiry sweep) to withdraw every surface.
+   * broadcasting completion for the in-app card would clobber that. When the
+   * decision originated in-app the in-app card is still persisted (so it
+   * survives a reload) but not re-broadcast. Omit (e.g. the expiry sweep) to
+   * fully withdraw every surface.
    */
   originChannel?: string;
 }
@@ -99,9 +88,12 @@ export async function withdrawGuardianRequestCards(
     try {
       if (delivery.destinationChannel === "vellum") {
         withdrawVellumCard(request, delivery, status, originChannel);
-      } else if (EDITABLE_CHANNELS.has(delivery.destinationChannel)) {
-        await withdrawChannelCard(delivery, status);
+      } else if (delivery.destinationChannel === "slack") {
+        await withdrawSlackCard(request, delivery, status);
       }
+      // Telegram/WhatsApp direct delivery can't edit a message in place (it
+      // would post a new one), so their stale clicks are left to the existing
+      // "already resolved" reply until in-place edit support lands.
     } catch (err) {
       log.warn(
         {
@@ -116,9 +108,10 @@ export async function withdrawGuardianRequestCards(
 }
 
 /**
- * Complete the in-app approval card so it stops showing live actions. Skipped
- * when the decision came from in-app — that client already completed the card
- * itself (see {@link WithdrawGuardianCardsParams.originChannel}).
+ * Complete the in-app approval card so it stops showing live actions while
+ * keeping its content. When the decision originated in-app the card is
+ * persisted but not re-broadcast (see
+ * {@link WithdrawGuardianCardsParams.originChannel}).
  */
 function withdrawVellumCard(
   request: CanonicalGuardianRequest,
@@ -126,34 +119,42 @@ function withdrawVellumCard(
   status: CanonicalRequestStatus,
   originChannel: string | undefined,
 ): void {
-  if (originChannel === "vellum") return;
   if (!delivery.destinationConversationId) return;
   const surfaceId = approvalCardSurfaceId(request.kind, request.id);
   if (!surfaceId) return;
+  const summary = SURFACE_STATUS_LABELS[status] ?? "Resolved";
+
+  if (originChannel === "vellum") {
+    markSurfaceCompleted(
+      { conversationId: delivery.destinationConversationId },
+      surfaceId,
+      summary,
+    );
+    return;
+  }
   completeSurfaceAndNotify(
     delivery.destinationConversationId,
     surfaceId,
-    SURFACE_STATUS_LABELS[status] ?? "Resolved",
+    summary,
   );
 }
 
 /**
- * Edit an editable-channel message in place to a resolved state with the
- * action buttons removed. No-ops when the channel-native message id was not
- * captured at delivery time.
+ * Edit the Slack message in place to its resolved state — original card content
+ * preserved, action buttons removed, an outcome/decider/time line appended.
+ * No-ops when the channel-native message id was not captured at delivery time.
  */
-async function withdrawChannelCard(
+async function withdrawSlackCard(
+  request: CanonicalGuardianRequest,
   delivery: CanonicalGuardianDelivery,
   status: CanonicalRequestStatus,
 ): Promise<void> {
   if (!delivery.destinationChatId || !delivery.destinationMessageId) return;
-
-  const text = SLACK_STATUS_TEXT[status] ?? "Resolved";
-  await deliverChannelReply(`/deliver/${delivery.destinationChannel}`, {
-    chatId: delivery.destinationChatId,
-    text,
-    blocks: [{ type: "section", text: { type: "mrkdwn", text } }],
+  await withdrawSlackApprovalCard({
+    channel: delivery.destinationChatId,
     messageTs: delivery.destinationMessageId,
-    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+    status,
+    decidedByExternalUserId: request.decidedByExternalUserId ?? undefined,
+    decidedAtMs: request.updatedAt,
   });
 }
