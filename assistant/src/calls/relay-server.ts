@@ -8,6 +8,7 @@
 
 import { randomInt } from "node:crypto";
 
+import type { AdmissionPolicy } from "@vellumai/gateway-client";
 import type { ServerWebSocket } from "bun";
 
 import {
@@ -47,6 +48,7 @@ import {
   updateCallSession,
 } from "./call-store.js";
 import { ConversationRelayTransport } from "./call-transport.js";
+import { getChannelAdmissionPolicy } from "./channel-admission-reader.js";
 import { finalizeCall } from "./finalize-call.js";
 import {
   classifyWaitUtterance,
@@ -170,6 +172,11 @@ export function setRelayBroadcast(fn: (msg: ServerMessage) => void): void {
  */
 type RelayConnectionState =
   | "connected"
+  // Transient state held synchronously from the start of handleSetup until
+  // routing/ACL completes. Prompts arriving in this window are dropped so a
+  // not-yet-authorized caller's speech is never persisted/emitted before the
+  // admission floor and trust ACL are applied.
+  | "setting_up"
   | "verification_pending"
   | "awaiting_name"
   | "awaiting_guardian_decision"
@@ -550,15 +557,67 @@ export class RelayConnection {
       "ConversationRelay setup received",
     );
 
+    // Enter the setup-pending state synchronously, before any await. The
+    // admission-policy read below yields the event loop, and inbound frames are
+    // dispatched fire-and-forget, so a `prompt` frame can arrive before routing
+    // completes. handlePrompt drops prompts while in "setting_up" so a blocked
+    // or admission-denied caller's speech is never stored before the ACL runs.
+    this.connectionState = "setting_up";
+
     const session = getCallSession(this.callSessionId);
     this.recordSetupBookkeeping(session, msg);
 
+    // Resolve the phone channel's inbound admission floor. The reader already
+    // fails open to `null`; the extra guard keeps a reader throw from ever
+    // aborting setup (admit when in doubt).
+    let admissionPolicy: AdmissionPolicy | null = null;
+    try {
+      admissionPolicy = await getChannelAdmissionPolicy("phone");
+    } catch (err) {
+      log.warn(
+        { err, callSessionId: this.callSessionId },
+        "Failed to resolve phone admission policy — admitting (fail open)",
+      );
+    }
+
+    try {
+      await this.routeSetupOutcome(msg, session, admissionPolicy);
+    } catch (err) {
+      // Never leave the connection stranded in "setting_up": a setup that
+      // throws before reaching a terminal outcome would otherwise drop every
+      // prompt forever. Tear the call down instead.
+      log.error(
+        { err, callSessionId: this.callSessionId },
+        "Setup routing failed — disconnecting",
+      );
+      this.connectionState = "disconnecting";
+      updateCallSession(this.callSessionId, {
+        status: "failed",
+        endedAt: Date.now(),
+        lastError: "Setup routing failed",
+      });
+      this.endSession("Setup routing failed");
+    }
+  }
+
+  /**
+   * Apply the routing/ACL outcome for a setup frame. Synchronous helpers that
+   * fire-and-forget (greeting, verification, name capture) are awaited here only
+   * when they themselves are async. Each reachable outcome transitions the
+   * connection out of "setting_up" into its terminal state.
+   */
+  private async routeSetupOutcome(
+    msg: RelaySetupMessage,
+    session: ReturnType<typeof getCallSession>,
+    admissionPolicy: AdmissionPolicy | null,
+  ): Promise<void> {
     const { outcome, resolved } = routeSetup({
       callSessionId: this.callSessionId,
       session,
       from: msg.from,
       to: msg.to,
       customParameters: msg.customParameters,
+      admissionPolicy,
     });
 
     const initialTrustContext = toTrustContext(
@@ -634,6 +693,9 @@ export class RelayConnection {
             );
           }
         }
+        // Routing/ACL cleared — leave the setup-pending state so subsequent
+        // prompts are handled normally.
+        this.connectionState = "connected";
         this.startNormalCallFlow(controller, outcome.isInbound);
         return;
     }
@@ -1822,6 +1884,13 @@ export class RelayConnection {
       return;
     }
 
+    // Prompts arriving before setup routing/ACL completes are dropped — never
+    // persisted or emitted — so a not-yet-authorized caller's speech can't be
+    // stored ahead of the admission floor / trust ACL decision.
+    if (this.connectionState === "setting_up") {
+      return;
+    }
+
     if (!msg.last) {
       // Partial transcript, wait for final
       return;
@@ -2021,6 +2090,12 @@ export class RelayConnection {
 
   private handleDtmf(msg: RelayDtmfMessage): void {
     if (this.connectionState === "disconnecting") {
+      return;
+    }
+
+    // Drop DTMF arriving before setup routing/ACL completes (same reasoning as
+    // handlePrompt): don't record input from a not-yet-authorized caller.
+    if (this.connectionState === "setting_up") {
       return;
     }
 
