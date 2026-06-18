@@ -144,8 +144,18 @@ const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
  */
 export const AUTO_PROFILE_KEY = "auto";
 
-export const MANAGED_PROFILE_NAMES = new Set([
-  ...Object.keys(MANAGED_PROFILE_TEMPLATES),
+/** Stable keys of the platform-managed profiles. The profile *content* now
+ *  comes from the platform model-profiles endpoint; only the key set lives
+ *  in code, so route validation and pruning can recognise managed profiles. */
+export const MANAGED_PROFILE_KEYS = [
+  "balanced",
+  "quality-optimized",
+  "cost-optimized",
+  "balanced-economy",
+] as const;
+
+export const MANAGED_PROFILE_NAMES = new Set<string>([
+  ...MANAGED_PROFILE_KEYS,
   AUTO_PROFILE_KEY,
 ]);
 
