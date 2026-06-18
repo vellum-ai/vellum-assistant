@@ -1,6 +1,6 @@
 # Widget Component Library
 
-A CSS/JS widget library is auto-injected alongside the design system. Use these for standard UI patterns - skip them when custom HTML serves the user better.
+A CSS widget library is auto-injected alongside the design system — the `.v-*` classes below. Use these for standard UI patterns; skip them when custom HTML serves the user better. (The JavaScript helpers historically listed here are **not currently available** — see the section below.)
 
 ## Layout widgets
 
@@ -18,7 +18,7 @@ A CSS/JS widget library is auto-injected alongside the design system. Use these 
 | `.v-progress-bar` / `.v-progress-track` / `.v-progress-fill` | Horizontal progress                                            |
 | `.v-status-badge`                                            | Colored pill with dot (`.success`/`.error`/`.warning`/`.info`) |
 | `.v-stat-row` / `.v-stat`                                    | Horizontal label-value pairs                                   |
-| `.v-toast`                                                   | Notification banner - prefer `vellum.widgets.toast()`          |
+| `.v-toast`                                                   | Notification banner (show/hide with your own JS)              |
 | `.v-avatar-row`                                              | Contact/team display                                           |
 | `.v-tag-group`                                               | Wrapping tag row                                               |
 
@@ -48,78 +48,19 @@ A CSS/JS widget library is auto-injected alongside the design system. Use these 
 | `.v-gradient-text`                               | Accent-colored gradient text                           |
 | `.v-animate-in`                                  | Staggered fade-in for children                         |
 
-## Widget JavaScript utilities
+## JavaScript utilities — NOT currently available
 
-Interactive utilities at `window.vellum.widgets.*`:
+> ⚠️ **`window.vellum.widgets.*` is not injected today. Do not call it — these functions are `undefined` at runtime and will throw.** The same applies to `window.vellum.confirm`, `window.vellum.openLink`, and `window.vellum.theme`. The only `window.vellum` APIs that exist are `sendAction`, `fetch`, and `route` (see [`INTERACTION_HOOKS.md`](./INTERACTION_HOOKS.md)).
+>
+> Until a JS runtime ships, build these by hand:
+> - **Charts** → hand-written inline SVG (or simple CSS bars), sized to the container to avoid overflow.
+> - **Notifications** → the `.v-toast` class, toggled with your own JS.
+> - **Table sort/filter, tabs, accordions, countdowns** → plain JS event handlers.
+> - **Formatting** → `Intl.NumberFormat` / `Intl.DateTimeFormat`.
+> - **Theme** → `@media (prefers-color-scheme: dark)` in CSS (don't read `window.vellum.theme`).
 
-### Charts
+## When to use the CSS widgets vs custom HTML
 
-Always use these instead of hand-coding SVG/CSS charts:
-
-```javascript
-vellum.widgets.sparkline("container-id", [10, 25, 15, 30], {
-  width: 200,
-  height: 40,
-  color: "var(--v-success)",
-  strokeWidth: 2,
-  fill: true,
-});
-vellum.widgets.barChart(
-  "container-id",
-  [
-    { label: "Jan", value: 120 },
-    { label: "Feb", value: 180, color: "var(--v-success)" },
-  ],
-  {
-    width: 400,
-    height: 200,
-    showLabels: true,
-    showValues: true,
-    horizontal: false,
-  },
-);
-vellum.widgets.lineChart(
-  "container-id",
-  [
-    { label: "Mon", value: 42 },
-    { label: "Tue", value: 58 },
-  ],
-  { width: 400, height: 200, showDots: true, showGrid: true, gridLines: 4 },
-);
-vellum.widgets.progressRing("container-id", 75, {
-  size: 100,
-  strokeWidth: 8,
-  color: "var(--v-success)",
-  label: "75%",
-});
-```
-
-### Data Formatting
-
-```javascript
-vellum.widgets.formatCurrency(1234.56, "USD"); // "$1,234.56"
-vellum.widgets.formatDate("2025-01-15", "relative"); // "3d ago"
-vellum.widgets.formatDate("2025-01-15", "short"); // "1/15/25"
-vellum.widgets.formatNumber(1234567, { compact: true }); // "1.2M"
-```
-
-### Interactive Behaviors
-
-```javascript
-vellum.widgets.sortTable("table-id"); // Wire th[data-sortable] click-to-sort
-vellum.widgets.filterTable("table-id", "input-id"); // Live text search
-vellum.widgets.tabs("tabs-id"); // Tab switching + keyboard nav
-vellum.widgets.accordion("accordion-id", { allowMultiple: true });
-vellum.widgets.multiSelect("table-id"); // Checkboxes + select-all
-vellum.widgets.toast("Saved!", "success", 4000); // Auto-dismiss notification
-vellum.widgets.countdown("timer-el", "2025-12-31T00:00:00Z", {
-  onComplete: () => {},
-});
-```
-
-## When to use widgets vs custom HTML
-
-- **Use widgets** for standard patterns - tables, metrics, timelines, notifications
-- **Use custom HTML** for novel or creative UIs - games, art tools, unique dashboards
-- **Mix freely** - widgets compose well together and with custom elements
-- **ALWAYS use `vellum.widgets.*` chart functions** instead of hand-coding SVG/CSS charts. They handle overflow clipping, bounds, scaling, and dark mode. Hand-coded charts break layouts.
+- **Use the CSS widget classes** for standard patterns — tables, metrics, timelines, notifications.
+- **Use custom HTML** for novel or creative UIs — games, art tools, unique dashboards.
+- **Mix freely** — the classes compose well together and with custom elements.
