@@ -136,10 +136,6 @@ export const AssistantConfigSchema = z
       .describe(
         "Per-plugin configuration keyed by plugin name. Validated downstream by each plugin's manifest.config validator at bootstrap.",
       ),
-    sendDiagnostics: z
-      .boolean()
-      .default(true)
-      .describe("Whether to send diagnostic/crash reports"),
     legacyTelemetryOptOut: z
       .boolean()
       .optional()
