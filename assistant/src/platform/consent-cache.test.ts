@@ -6,8 +6,10 @@ import type { OwnerConsent } from "./client.js";
 // Mutable mock state
 // ---------------------------------------------------------------------------
 
-let mockClient: { getOwnerConsent: () => Promise<OwnerConsent | null> } | null =
-  null;
+let mockClient: {
+  platformAssistantId: string;
+  getOwnerConsent: () => Promise<OwnerConsent | null>;
+} | null = null;
 let createCallCount = 0;
 
 // ---------------------------------------------------------------------------
@@ -42,8 +44,11 @@ import {
   stopConsentRefresh,
 } from "./consent-cache.js";
 
-function makeClient(consent: OwnerConsent | null) {
-  return { getOwnerConsent: async () => consent };
+function makeClient(consent: OwnerConsent | null, assistantId = "asst_1") {
+  return {
+    platformAssistantId: assistantId,
+    getOwnerConsent: async () => consent,
+  };
 }
 
 describe("consent-cache", () => {
@@ -87,6 +92,19 @@ describe("consent-cache", () => {
   test("a missing client flips a prior opt-in back to false", async () => {
     __setCachedShareAnalyticsForTest(true);
     mockClient = null;
+    await refreshConsentCache();
+    expect(getCachedShareAnalytics()).toBe(false);
+  });
+
+  test("a client without a resolvable assistant identity fails closed", async () => {
+    __setCachedShareAnalyticsForTest(true);
+    // Identity cleared mid-session (e.g. assistantId emptied while base URL +
+    // API key persist). getOwnerConsent must not be relied upon to preserve the
+    // prior opt-in here — fail closed instead.
+    mockClient = makeClient(
+      { shareAnalytics: true, shareDiagnostics: false },
+      "",
+    );
     await refreshConsentCache();
     expect(getCachedShareAnalytics()).toBe(false);
   });
