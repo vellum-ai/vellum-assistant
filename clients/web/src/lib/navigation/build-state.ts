@@ -1,7 +1,7 @@
 import { useAuthStore } from "@/stores/auth-store";
 import { isSessionSettled, isAuthenticated } from "@/stores/session-status";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
-import { isLocalMode } from "@/lib/local-mode";
+import { isLocalMode, isRemoteGatewayMode } from "@/lib/local-mode";
 import {
   readTosAccepted,
   readAiDataConsent,
@@ -15,6 +15,7 @@ export function buildNavigationState(
   const { sessionStatus, platformSession } = useAuthStore.getState();
   return {
     isLocalMode: isLocalMode(),
+    isRemoteGateway: isRemoteGatewayMode(),
     isGatewayAuth: isGatewayAuthMode(),
     hasAssistants: useResolvedAssistantsStore.getState().assistants.length > 0,
     sessionSettled: isSessionSettled(sessionStatus),

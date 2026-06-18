@@ -8,6 +8,7 @@ import { routes } from "@/utils/routes";
 
 export interface NavigationState {
   isLocalMode: boolean;
+  isRemoteGateway: boolean;
   isGatewayAuth: boolean;
   hasAssistants: boolean;
   sessionSettled: boolean;
@@ -151,6 +152,7 @@ type RouteGuardStep = (
 const ROUTE_GUARD_PIPELINE: RouteGuardStep[] = [
   waitForSession,
   allowGatewayAuth,
+  requireRemoteGatewayPairing,
   requireAuth,
   enforceModeBoundary,
   allowSetupRoutes,
@@ -178,6 +180,19 @@ function waitForSession(state: NavigationState): NavigationDecision | null {
 
 function allowGatewayAuth(state: NavigationState): NavigationDecision | null {
   return state.isGatewayAuth ? { action: "allow" } : null;
+}
+
+function requireRemoteGatewayPairing(
+  state: NavigationState,
+  _path: string,
+  pathnameWithSearch: string,
+): NavigationDecision | null {
+  if (!state.isRemoteGateway || state.isAuthenticated) return null;
+
+  return {
+    action: "redirect",
+    to: `${routes.remotePair}?returnTo=${encodeURIComponent(pathnameWithSearch)}`,
+  };
 }
 
 function requireAuth(

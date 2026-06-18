@@ -5,6 +5,7 @@ import {
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 
 const PAIRING_TOKEN_PATH = "/v1/remote-web/pairing-token";
+const PAIRING_CHALLENGE_PATH = "/v1/remote-web/pairing-challenge";
 const GUARDIAN_REFRESH_PATH = "/v1/guardian/refresh";
 const DEFAULT_POLL_INTERVAL_SECONDS = 5;
 const REFRESH_EARLY_MS = 5_000;
@@ -29,6 +30,15 @@ let refreshRemoteGatewaySessionPromise: Promise<boolean> | null = null;
 export interface RemoteWebPairingParams {
   deviceCode: string | null;
   userCode: string | null;
+}
+
+export interface RemoteWebPairingChallenge {
+  deviceCode: string;
+  userCode: string;
+  verificationUri: string;
+  expiresAt: string;
+  expiresInSeconds: number;
+  intervalSeconds: number;
 }
 
 export interface RemoteWebPairingPending {
@@ -111,6 +121,10 @@ export function remoteGatewayApiPath(
   return `${remoteGatewayPublicPathPrefix(location)}${path}`;
 }
 
+function remoteGatewayPublicBaseUrl(): string {
+  return `${window.location.origin}${remoteGatewayPublicPathPrefix()}`;
+}
+
 function toEpochMilliseconds(value: string | number): number {
   if (typeof value === "string") {
     const parsed = Date.parse(value);
@@ -134,6 +148,20 @@ function isApprovedPayload(value: unknown): value is RemoteWebPairingApproved {
       typeof payload.accessTokenExpiresAt === "number") &&
     (typeof payload.refreshAfter === "string" ||
       typeof payload.refreshAfter === "number")
+  );
+}
+
+function isChallengePayload(
+  value: unknown,
+): value is RemoteWebPairingChallenge {
+  const payload = value as Partial<RemoteWebPairingChallenge>;
+  return (
+    typeof payload?.deviceCode === "string" &&
+    typeof payload.userCode === "string" &&
+    typeof payload.verificationUri === "string" &&
+    typeof payload.expiresAt === "string" &&
+    typeof payload.expiresInSeconds === "number" &&
+    typeof payload.intervalSeconds === "number"
   );
 }
 
@@ -262,6 +290,35 @@ export async function exchangeRemoteWebPairingToken(
     throw new RemoteWebPairingError(
       502,
       "Pairing token exchange returned an invalid response",
+    );
+  }
+
+  return body;
+}
+
+export async function createRemoteWebPairingChallenge(
+  signal?: AbortSignal,
+): Promise<RemoteWebPairingChallenge> {
+  const response = await fetch(remoteGatewayApiPath(PAIRING_CHALLENGE_PATH), {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ publicBaseUrl: remoteGatewayPublicBaseUrl() }),
+    signal,
+  });
+  const body = (await response.json()) as unknown;
+
+  if (!response.ok) {
+    throw new RemoteWebPairingError(
+      response.status,
+      `Pairing challenge creation failed: ${response.status}`,
+    );
+  }
+
+  if (!isChallengePayload(body)) {
+    throw new RemoteWebPairingError(
+      502,
+      "Pairing challenge creation returned an invalid response",
     );
   }
 

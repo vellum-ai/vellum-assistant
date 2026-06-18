@@ -9,6 +9,7 @@ import {
 
 const base: NavigationState = {
   isLocalMode: false,
+  isRemoteGateway: false,
   isGatewayAuth: false,
   hasAssistants: true,
   sessionSettled: true,
@@ -55,6 +56,23 @@ describe("resolveNavigation", () => {
       expect(result).toEqual({
         action: "redirect",
         to: "/account/login?returnTo=%2Fassistant%2Fhome%3Ftab%3D1",
+      });
+    });
+
+    test("redirects unauthenticated remote-gateway browsers to pairing", () => {
+      const result = guard(
+        s({
+          isAuthenticated: false,
+          isLocalMode: true,
+          isRemoteGateway: true,
+          hasAssistants: true,
+        }),
+        "/assistant/conversations/self?tab=latest",
+      );
+
+      expect(result).toEqual({
+        action: "redirect",
+        to: "/assistant/pair?returnTo=%2Fassistant%2Fconversations%2Fself%3Ftab%3Dlatest",
       });
     });
 
