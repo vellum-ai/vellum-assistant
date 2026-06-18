@@ -539,8 +539,8 @@ describe("PATCH /v1/config/privacy handler — llmRequestLogRetentionMs", () => 
 });
 
 describe("PATCH /v1/config/privacy handler — existing behavior (regression guard)", () => {
-  test("PATCH with only collectUsageData (now an unrecognized field) returns 400 and writes nothing", async () => {
-    // collectUsageData is no longer a recognized privacy-config field: usage
+  test("PATCH with only the unrecognized collectUsageData field returns 400 and writes nothing", async () => {
+    // collectUsageData is not a recognized privacy-config field; usage
     // telemetry is gated by the platform `share_analytics` consent. A PATCH
     // that only contains it has no recognized fields and is rejected.
     const handler = createPrivacyConfigPatchHandler();
@@ -574,7 +574,7 @@ describe("PATCH /v1/config/privacy handler — existing behavior (regression gua
     const body = await res.json();
     // Gap B: PATCH response always includes llmRequestLogRetentionMs.
     expect(body.llmRequestLogRetentionMs).toBe(DEFAULT_RETENTION_MS);
-    // collectUsageData is no longer part of the privacy-config surface.
+    // collectUsageData is not part of the privacy-config surface.
     expect(body).not.toHaveProperty("collectUsageData");
 
     const config = readConfig();
@@ -639,11 +639,11 @@ describe("PATCH /v1/config/privacy handler — existing behavior (regression gua
     expect(body.error).toContain("valid JSON");
   });
 
-  test("PATCH containing only the removed collectUsageData field returns 400", async () => {
+  test("PATCH containing only the unrecognized collectUsageData field returns 400", async () => {
     const handler = createPrivacyConfigPatchHandler();
     const res = await handler(makePatch({ collectUsageData: "yes" }));
 
-    // collectUsageData is no longer recognized, so a body with no other
+    // collectUsageData is not recognized, so a body with no other
     // fields fails the "at least one of" check.
     expect(res.status).toBe(400);
     const body = await res.json();
@@ -663,10 +663,10 @@ describe("PATCH /v1/config/privacy handler — existing behavior (regression gua
 
 // Gap 2a-1: the PATCH response must always include sendDiagnostics — even when
 // config.json lacks the key — because the OpenAPI schema marks it `required`.
-// Previously the PATCH handler read the boolean directly from the post-write
-// config, producing an `undefined` value that Response.json() silently drops.
-// These regression tests fix the on-disk config to be "empty" before the PATCH
-// and assert the response still has sendDiagnostics populated from defaults.
+// The PATCH response always includes sendDiagnostics, falling back to the
+// schema default when the post-write config lacks a valid boolean.
+// These regression tests seed an "empty" on-disk config before the PATCH and
+// assert the response still has sendDiagnostics populated from defaults.
 describe("PATCH /v1/config/privacy handler — Gap 2a-1 boolean defaults in response", () => {
   test("PATCH with only llmRequestLogRetentionMs returns sendDiagnostics as default when config.json lacks it", async () => {
     // Empty config.json — no sendDiagnostics.
