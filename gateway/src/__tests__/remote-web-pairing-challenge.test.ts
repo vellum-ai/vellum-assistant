@@ -127,6 +127,7 @@ describe("remote web pairing challenge", () => {
         host: "paired.example.com",
         publicBaseUrl: PUBLIC_BASE_URL,
       }),
+      REMOTE_IP,
       LOOPBACK_IP,
     );
 
@@ -158,6 +159,21 @@ describe("remote web pairing challenge", () => {
         host: "paired.example.com",
         publicBaseUrl: PUBLIC_BASE_URL,
       }),
+      REMOTE_IP,
+      REMOTE_IP,
+    );
+
+    expect(res.status).toBe(403);
+  });
+
+  test("rejects spoofed edge marker when X-Forwarded-For appears loopback", async () => {
+    const res = await handleCreateRemoteWebPairingChallenge(
+      makeRequest({
+        edgeForwarded: true,
+        host: "paired.example.com",
+        publicBaseUrl: PUBLIC_BASE_URL,
+      }),
+      LOOPBACK_IP,
       REMOTE_IP,
     );
 
@@ -208,6 +224,34 @@ describe("remote web pairing challenge", () => {
 
     expect(limited.status).toBe(429);
     expect(limited.headers.get("Retry-After")).toBeTruthy();
+  });
+
+  test("caps active challenge records even when rate limit state is reset", async () => {
+    setRemoteWebPairingChallengeNowForTests(() => 1_000);
+
+    for (let i = 0; i < 200; i++) {
+      resetRemoteWebPairingChallengeRateLimiterForTests();
+      const res = await handleCreateRemoteWebPairingChallenge(
+        makeRequest(),
+        LOOPBACK_IP,
+      );
+      expect(res.status).toBe(200);
+    }
+
+    resetRemoteWebPairingChallengeRateLimiterForTests();
+    const limited = await handleCreateRemoteWebPairingChallenge(
+      makeRequest(),
+      LOOPBACK_IP,
+    );
+
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("Retry-After")).toBe("600");
+    expect(await limited.json()).toEqual({
+      error: {
+        code: "PAIRING_CHALLENGE_CAPACITY_EXCEEDED",
+        message: "too many pending remote web pairing challenges",
+      },
+    });
   });
 
   test("rejects oversized challenge request bodies", async () => {

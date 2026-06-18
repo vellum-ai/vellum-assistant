@@ -1,4 +1,8 @@
-import { createRemoteWebPairingChallenge } from "../../remote-web/pairing-challenge-store.js";
+import {
+  checkRemoteWebPairingChallengeCapacity,
+  createRemoteWebPairingChallenge,
+  type RemoteWebPairingChallengeCapacityLimit,
+} from "../../remote-web/pairing-challenge-store.js";
 import {
   recordRemoteWebPairingChallengeCreation,
   type RemoteWebPairingChallengeRateLimit,
@@ -44,6 +48,23 @@ function rateLimitedResponse(
   );
 }
 
+function capacityLimitedResponse(
+  capacityLimit: RemoteWebPairingChallengeCapacityLimit,
+): Response {
+  return Response.json(
+    {
+      error: {
+        code: "PAIRING_CHALLENGE_CAPACITY_EXCEEDED",
+        message: "too many pending remote web pairing challenges",
+      },
+    },
+    {
+      status: 429,
+      headers: { "Retry-After": String(capacityLimit.retryAfterSeconds) },
+    },
+  );
+}
+
 function publicBaseUrlMatchesRequestHost(
   req: Request,
   publicBaseUrl: string,
@@ -60,6 +81,7 @@ function publicBaseUrlMatchesRequestHost(
 export async function handleCreateRemoteWebPairingChallenge(
   req: Request,
   clientIp: string,
+  rawPeerIp = clientIp,
 ): Promise<Response> {
   if (req.method !== "POST") {
     return new Response("method not allowed", {
@@ -68,8 +90,9 @@ export async function handleCreateRemoteWebPairingChallenge(
     });
   }
 
+  const arrivedViaEdgeProxy = requestArrivedViaEdgeProxy(req);
   const arrivedViaTrustedEdgeProxy =
-    requestArrivedViaEdgeProxy(req) && isLoopbackAddress(clientIp);
+    arrivedViaEdgeProxy && isLoopbackAddress(rawPeerIp);
   if (!arrivedViaTrustedEdgeProxy) {
     const guardError = enforceLoopbackOnly(
       req,
@@ -112,6 +135,9 @@ export async function handleCreateRemoteWebPairingChallenge(
 
   const rateLimited = recordRemoteWebPairingChallengeCreation();
   if (rateLimited) return rateLimitedResponse(rateLimited);
+
+  const capacityLimited = checkRemoteWebPairingChallengeCapacity();
+  if (capacityLimited) return capacityLimitedResponse(capacityLimited);
 
   const challenge = createRemoteWebPairingChallenge(publicBaseUrl);
 
