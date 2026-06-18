@@ -1,5 +1,6 @@
 
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useReducedMotion } from "motion/react";
 
 import { Typography } from "@vellumai/design-library";
 
@@ -18,25 +19,6 @@ export function formatNumber(n: number): string {
 
 export const ANIMATION_DURATION_MS = 300;
 
-/** Read the user's reduced-motion preference, re-evaluating if it changes. */
-function usePrefersReducedMotion(): boolean {
-  const supported =
-    typeof window !== "undefined" && typeof window.matchMedia === "function";
-  const [reduced, setReduced] = useState(() =>
-    supported
-      ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
-      : false,
-  );
-  useEffect(() => {
-    if (!supported) return;
-    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const onChange = () => setReduced(mq.matches);
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, [supported]);
-  return reduced;
-}
-
 /**
  * Eases a displayed number toward `target`. A single rAF loop tracks a moving
  * target: when `target` changes mid-flight (frequent during streaming) we just
@@ -46,7 +28,7 @@ function usePrefersReducedMotion(): boolean {
  * reduced motion.
  */
 export function useAnimatedNumber(target: number): number {
-  const reduceMotion = usePrefersReducedMotion();
+  const reduceMotion = useReducedMotion();
   const [displayed, setDisplayed] = useState(target);
   const displayedRef = useRef(target);
   const targetRef = useRef(target);

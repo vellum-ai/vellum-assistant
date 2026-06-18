@@ -27,17 +27,6 @@ const CONNECTOR_STYLE = {
   minHeight: 16,
 };
 
-/**
- * Constant style fields shared by every absolutely-positioned virtual row; only
- * the per-row `transform` is spread in at the call site, so these don't get
- * reallocated per row.
- */
-const VIRTUAL_ROW_STYLE = {
-  position: "absolute",
-  top: 0,
-  width: "100%",
-} as const;
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -374,8 +363,8 @@ export const SubagentTimeline = memo(function SubagentTimeline({
               key={vi.key}
               data-index={vi.index}
               ref={virtualizer.measureElement}
+              className="absolute top-0 w-full"
               style={{
-                ...VIRTUAL_ROW_STYLE,
                 transform: `translateY(${vi.start - virtualizer.options.scrollMargin}px)`,
               }}
             >
