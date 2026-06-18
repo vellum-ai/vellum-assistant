@@ -173,16 +173,16 @@ export interface TurnTraceMessage {
 /**
  * One tool invocation in a turn trace, projected from the `tool_invocations`
  * audit table for the turn window. Carries the full tool call + result so the
- * platform sees the same transcript the assistant did. `input` is parsed JSON
- * with sensitive keys (tokens, secrets, credentials) field-level redacted via
- * the same redactor used for permission prompts; `result` is the stored result
- * string verbatim.
+ * platform sees the same transcript the assistant did. Both `input` and
+ * `result` are captured verbatim (full-fidelity) — no field-level redaction is
+ * applied. The protections for this PII are the owner consent gate, the
+ * PII-segregated `pii_turn_raw` table, and its 30-day TTL.
  */
 export interface TurnTraceToolCall {
   /** `tool_invocations.id`. */
   id: string;
   tool_name: string;
-  /** Parsed, key-redacted tool input. Falls back to the raw string if unparseable. */
+  /** Verbatim tool input — parsed JSON when it parses, else the raw string. */
   input: unknown;
   /** Stored tool result string (verbatim). */
   result: string;

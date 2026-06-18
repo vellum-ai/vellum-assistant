@@ -4,8 +4,9 @@
  * Verifies that a turn's transcript (user message, assistant responses, and
  * tool_result rows) plus its tool invocations are gathered into a faithful,
  * window-bounded trace, that the window stops at the next REAL user turn (and
- * never at the turn's own tool-result rows), that sensitive tool-input keys are
- * field-redacted, and that the size cap omits oversized traces fail-closed.
+ * never at the turn's own tool-result rows), that tool inputs/results are
+ * captured verbatim (no field-level redaction), and that the size cap omits
+ * oversized traces fail-closed.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -254,7 +255,10 @@ describe("assembleTurnTrace", () => {
     ]);
   });
 
-  test("redacts sensitive keys in tool inputs but keeps results verbatim", () => {
+  test("captures tool inputs verbatim — no field-level redaction, even for credential-shaped keys", () => {
+    // The consented trace is full-fidelity. Keys that look sensitive
+    // (access_token, api_key) are NOT redacted — the protections are the
+    // consent gate, the PII-segregated table, and its TTL, not redaction.
     const conv = createConversation({ conversationType: "standard" });
     insertMessage(conv.id, {
       id: "m-user-1",
@@ -262,31 +266,31 @@ describe("assembleTurnTrace", () => {
       content: [{ type: "text", text: "use my token" }],
       createdAt: 1000,
     });
+    const rawInput = {
+      url: "https://api.example.com",
+      access_token: "super-secret-value",
+      nested: { api_key: "also-secret" },
+    };
     insertTool(conv.id, {
       id: "ti-secret",
       toolName: "http_request",
-      input: JSON.stringify({
-        url: "https://api.example.com",
-        access_token: "super-secret-value",
-        nested: { api_key: "also-secret" },
-      }),
+      input: JSON.stringify(rawInput),
       result: JSON.stringify({ status: 200 }),
       createdAt: 1100,
     });
 
     const trace = assembleTurnTrace(boundary(conv.id, "m-user-1", 1000));
     const call = trace.tool_calls[0];
+    // Parsed input matches the raw stored input exactly — including the
+    // credential-shaped values, which are present verbatim (not redacted).
+    expect(call.input).toEqual(rawInput);
     const input = call.input as Record<string, unknown>;
-    // Non-sensitive keys pass through.
-    expect(input.url).toBe("https://api.example.com");
-    // Sensitive keys are redacted (value never appears).
-    expect(input.access_token).toBe("<redacted />");
+    expect(input.access_token).toBe("super-secret-value");
     expect((input.nested as Record<string, unknown>).api_key).toBe(
-      "<redacted />",
+      "also-secret",
     );
-    expect(JSON.stringify(call.input)).not.toContain("super-secret-value");
-    expect(JSON.stringify(call.input)).not.toContain("also-secret");
-    // Result is NOT key-redacted — forwarded verbatim.
+    expect(JSON.stringify(call.input)).not.toContain("<redacted />");
+    // Result is also forwarded verbatim.
     expect(call.result).toBe(JSON.stringify({ status: 200 }));
   });
 

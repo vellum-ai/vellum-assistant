@@ -1,6 +1,5 @@
 import { and, asc, eq, gt, lt, or, sql } from "drizzle-orm";
 
-import { redactSensitiveFields } from "../security/redaction.js";
 import type {
   TurnTrace,
   TurnTraceMessage,
@@ -132,20 +131,22 @@ function queryTurnMessages(
   }));
 }
 
-/** Parse + key-redact a stored tool-invocation input. */
-function redactToolInput(raw: string): unknown {
-  let parsed: unknown;
+/**
+ * Parse a stored tool-invocation input verbatim.
+ *
+ * The consented trace is full-fidelity: the input is forwarded exactly as
+ * stored (structured JSON when it parses, raw string otherwise — symmetric
+ * with how message content is handled). No field-level redaction is applied;
+ * the protections for this PII are the consent gate, the PII-segregated
+ * `pii_turn_raw` table, and its 30-day TTL.
+ */
+function parseToolInput(raw: string): unknown {
   try {
-    parsed = JSON.parse(raw) as unknown;
+    return JSON.parse(raw) as unknown;
   } catch {
-    // Non-JSON input — forward the raw string. Free-text inputs aren't
-    // key-redactable; the consent gate is the primary protection.
+    // Non-JSON input — forward the raw string verbatim.
     return raw;
   }
-  if (parsed != null && typeof parsed === "object" && !Array.isArray(parsed)) {
-    return redactSensitiveFields(parsed as Record<string, unknown>);
-  }
-  return parsed;
 }
 
 /**
@@ -191,7 +192,7 @@ function queryTurnToolCalls(
   return rows.map((r) => ({
     id: r.id,
     tool_name: r.toolName,
-    input: redactToolInput(r.input),
+    input: parseToolInput(r.input),
     result: r.result,
     decision: r.decision,
     duration_ms: r.durationMs,
