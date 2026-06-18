@@ -24,6 +24,7 @@ import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-su
 import { MobileToolDetailOverlay } from "@/domains/chat/components/mobile-tool-detail-overlay";
 import { MobileWorkflowDetailOverlay } from "@/domains/chat/components/mobile-workflow-detail-overlay";
 import { useMobileOverlayTarget } from "@/domains/chat/hooks/use-mobile-overlay-target";
+import { handleAppViewerAction } from "@/domains/chat/app-viewer-actions";
 
 export function MobileChatOverlays() {
   const overlayTarget = useMobileOverlayTarget();
@@ -58,6 +59,12 @@ export function MobileChatOverlays() {
     if (app && aid) void useDeployStore.getState().deployApp(aid, app.appId, app.name, app.html);
   }, []);
 
+  const handleAppAction = useCallback(
+    (actionId: string, data?: Record<string, unknown>) =>
+      handleAppViewerAction({ navigate }, actionId, data),
+    [navigate],
+  );
+
   const handleCloseDocument = useCallback(() => {
     useViewerStore.getState().closeDocument();
   }, []);
@@ -66,9 +73,7 @@ export function MobileChatOverlays() {
     const docState = useViewerStore.getState().openedDocumentState;
     if (!docState) return;
     const prompt = `Please review and address my comments on "${docState.documentName}".`;
-    navigate(
-      `${routes.conversation(docState.conversationId)}?prompt=${encodeURIComponent(prompt)}`,
-    );
+    navigate(routes.conversationWithPrompt(docState.conversationId, prompt));
   }, [navigate]);
 
   const handleCloseSubagentDetail = useCallback(() => {
@@ -114,9 +119,7 @@ export function MobileChatOverlays() {
   return createPortal(
     <>
       <MobileAppOverlay
-        openedAppState={
-          mainView === "app" || mainView === "app-split" ? openedAppState : null
-        }
+        openedAppState={mainView === "app" ? openedAppState : null}
         isAppMinimized={isAppMinimized}
         assistantId={assistantId}
         onToggleMinimized={() => {
@@ -127,6 +130,7 @@ export function MobileChatOverlays() {
         isSharing={isSharing}
         onDeploy={handleDeployApp}
         isDeploying={isDeploying}
+        onAction={handleAppAction}
       />
       <MobileDocumentOverlay
         openedDocumentState={mainView === "document" ? openedDocumentState : null}

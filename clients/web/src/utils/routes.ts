@@ -55,6 +55,11 @@ export const routes = {
    *  specific message on load. */
   conversationAtMessage: (conversationId: string, messageId: string) =>
     `${dyn(r("/assistant/conversations"), conversationId)}?${SCROLL_TO_MESSAGE_PARAM}=${encodeURIComponent(messageId)}`,
+  /** Conversation URL that auto-sends `prompt` on load via the `?prompt=`
+   *  pathway (see `use-auto-send-effects.ts`). Lets another surface (app
+   *  viewer, document feedback) relay a message into a conversation. */
+  conversationWithPrompt: (conversationId: string, prompt: string) =>
+    `${dyn(r("/assistant/conversations"), conversationId)}?prompt=${encodeURIComponent(prompt)}`,
   /**
    * LLM-context inspector for a single conversation. The conversation id
    * lives in the URL path so the link is sharable and the page can route

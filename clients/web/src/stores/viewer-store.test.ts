@@ -104,32 +104,6 @@ describe("closeApp", () => {
   });
 });
 
-describe("revealAppSplit", () => {
-  it("switches a full-width app view into the side-by-side split", () => {
-    useViewerStore.setState({ mainView: "app", openedAppState: SAMPLE_APP });
-    getState().revealAppSplit();
-    expect(getState().mainView).toBe("app-split");
-  });
-
-  it("keeps the opened app state when entering the split", () => {
-    useViewerStore.setState({ mainView: "app", openedAppState: SAMPLE_APP });
-    getState().revealAppSplit();
-    expect(getState().openedAppState).toBe(SAMPLE_APP);
-  });
-
-  it("is a no-op when no app is open", () => {
-    useViewerStore.setState({ mainView: "app", openedAppState: null });
-    getState().revealAppSplit();
-    expect(getState().mainView).toBe("app");
-  });
-
-  it("is a no-op when not in the full-width app view (e.g. editing stays put)", () => {
-    useViewerStore.setState({ mainView: "app-editing", openedAppState: SAMPLE_APP });
-    getState().revealAppSplit();
-    expect(getState().mainView).toBe("app-editing");
-  });
-});
-
 describe("toggleAppMinimized", () => {
   it("toggles from false to true", () => {
     getState().toggleAppMinimized();
@@ -156,13 +130,6 @@ describe("handleAppUnpinned", () => {
 
   it("resets when in app-editing view", () => {
     useViewerStore.setState({ mainView: "app-editing", activeAppId: "app-1" });
-    const didClose = getState().handleAppUnpinned("app-1");
-    expect(didClose).toBe(true);
-    expect(getState().mainView).toBe("chat");
-  });
-
-  it("resets when in app-split view", () => {
-    useViewerStore.setState({ mainView: "app-split", activeAppId: "app-1", openedAppState: SAMPLE_APP });
     const didClose = getState().handleAppUnpinned("app-1");
     expect(didClose).toBe(true);
     expect(getState().mainView).toBe("chat");

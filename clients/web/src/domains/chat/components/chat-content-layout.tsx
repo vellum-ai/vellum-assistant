@@ -19,6 +19,7 @@ import { LazyBoundary } from "@/components/lazy-boundary";
 import { AppViewerContainer } from "@/components/app-viewer-container";
 import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
 import { ChatMainPanel, type ChatMainPanelProps } from "@/domains/chat/components/chat-route-content";
+import { handleAppViewerAction } from "@/domains/chat/app-viewer-actions";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useDeployStore } from "@/stores/deploy-store";
@@ -99,6 +100,12 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     const aid = useResolvedAssistantsStore.getState().activeAssistantId;
     if (app && aid) void useDeployStore.getState().deployApp(aid, app.appId, app.name, app.html);
   }, []);
+
+  const handleAppAction = useCallback(
+    (actionId: string, data?: Record<string, unknown>) =>
+      handleAppViewerAction({ navigate }, actionId, data),
+    [navigate],
+  );
 
   const handleCloseDocument = useCallback(() => {
     useViewerStore.getState().closeDocument();
@@ -204,6 +211,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             isSharing={isSharing}
             onDeploy={handleDeployApp}
             isDeploying={isDeploying}
+            onAction={handleAppAction}
             isEditing
           />
         }
@@ -233,43 +241,12 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
         isSharing={isSharing}
         onDeploy={handleDeployApp}
         isDeploying={isDeploying}
+        onAction={handleAppAction}
       />
     );
   }
 
   const chatContent = <ChatMainPanel {...props} />;
-
-  // Desktop app + chat side-by-side (non-editing): chat on the left, the app
-  // in a resizable right panel. Entered when a `relay_prompt` action asks to
-  // keep the conversation and the app on screen together. Mobile shows the app
-  // as a full-screen overlay (MobileChatOverlays), so this branch is
-  // desktop-only.
-  if (mainView === "app-split" && !isMobile && openedAppState) {
-    return (
-      <ResizablePanel
-        storageKey="appSplitPanelWidth"
-        hideDivider
-        defaultRightWidth={480}
-        minLeftWidth={300}
-        minRightWidth={360}
-        left={chatContent}
-        right={
-          <AppViewerContainer
-            appId={openedAppState.appId}
-            appName={openedAppState.name}
-            html={openedAppState.html}
-            assistantId={assistantId ?? ""}
-            onClose={handleCloseApp}
-            onEdit={handleEditApp}
-            onShare={handleShareApp}
-            isSharing={isSharing}
-            onDeploy={handleDeployApp}
-            isDeploying={isDeploying}
-          />
-        }
-      />
-    );
-  }
 
   // Document viewer side panel
   if (mainView === "document" && !isMobile && openedDocumentState && assistantId) {
@@ -292,7 +269,10 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             onSubmitFeedback={() => {
               const prompt = `Please review and address my comments on "${openedDocumentState.documentName}".`;
               navigate(
-                `${routes.conversation(openedDocumentState.conversationId)}?prompt=${encodeURIComponent(prompt)}`,
+                routes.conversationWithPrompt(
+                  openedDocumentState.conversationId,
+                  prompt,
+                ),
               );
             }}
           />
