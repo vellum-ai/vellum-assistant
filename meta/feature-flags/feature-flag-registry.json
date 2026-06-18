@@ -409,6 +409,14 @@
       "label": "Research onboarding (spike)",
       "description": "Spike: replace pre-chat onboarding with a web-research \"here's what I know about you\" flow. Gates the /assistant/onboarding/research route and its mock harness. Off by default; enable locally via the feature-flags panel.",
       "defaultEnabled": false
+    },
+    {
+      "id": "channel-trust-floors",
+      "scope": "assistant",
+      "key": "channel-trust-floors",
+      "label": "Channel Trust Floors",
+      "description": "Expose the Channel Trust Floors settings card (per-channel inbound admission policy) on the Privacy settings page. When off, the card is hidden and channels fall back to their default admission floors. Off by default while the feature is in development.",
+      "defaultEnabled": false
     }
   ]
 }

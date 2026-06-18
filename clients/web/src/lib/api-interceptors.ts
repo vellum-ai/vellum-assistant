@@ -70,7 +70,10 @@ function getRendererTupleOrigin(): string {
  * Once all daemon endpoints are migrated to the daemon SDK, this list
  * becomes dead code and can be removed.
  */
-const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>(["conversations"]);
+const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>([
+  "conversations",
+  "channel-admission-policy",
+]);
 
 const ASSISTANT_PATH_RE =
   /^\/v1\/assistants\/[^/]+\/([^/?#]+)(?:\/.*)?$/;

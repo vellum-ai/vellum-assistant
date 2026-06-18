@@ -13,7 +13,7 @@ export interface TrustContext {
   /** Channel through which the inbound message arrived. */
   sourceChannel: ChannelId;
   /** Trust classification -- see {@link TrustClass} for semantics. */
-  trustClass: "guardian" | "trusted_contact" | "unknown";
+  trustClass: TrustClass;
   /** Chat/conversation ID for delivering guardian notifications. */
   guardianChatId?: string;
   /** Canonical external user ID of the guardian for this (assistant, channel) binding. */

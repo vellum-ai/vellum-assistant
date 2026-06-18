@@ -16,7 +16,9 @@
       "get": {
         "operationId": "featureFlagsGet",
         "summary": "List all feature flags",
-        "tags": ["feature-flags"],
+        "tags": [
+          "feature-flags"
+        ],
         "description": "Returns all feature flags with their current values.",
         "responses": {
           "200": {
@@ -72,7 +74,9 @@
                       }
                     }
                   },
-                  "required": ["flags"],
+                  "required": [
+                    "flags"
+                  ],
                   "additionalProperties": false
                 }
               }
@@ -85,7 +89,9 @@
       "patch": {
         "operationId": "featureFlagsPatch",
         "summary": "Update a feature flag",
-        "tags": ["feature-flags"],
+        "tags": [
+          "feature-flags"
+        ],
         "description": "Set the enabled state of a single feature flag.",
         "parameters": [
           {
@@ -116,7 +122,9 @@
                     ]
                   }
                 },
-                "required": ["enabled"]
+                "required": [
+                  "enabled"
+                ]
               }
             }
           }
@@ -143,7 +151,10 @@
                       ]
                     }
                   },
-                  "required": ["key", "enabled"],
+                  "required": [
+                    "key",
+                    "enabled"
+                  ],
                   "additionalProperties": false
                 }
               }

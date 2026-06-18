@@ -125,8 +125,8 @@ export interface InboundActorContext {
   actorSenderDisplayName?: string;
   /** Guardian-managed display name from the contact record. */
   actorMemberDisplayName?: string;
-  /** Trust classification: guardian, trusted_contact, or unknown. */
-  trustClass: "guardian" | "trusted_contact" | "unknown";
+  /** Trust classification: see TrustClass. */
+  trustClass: TrustClass;
   /** Guardian identity for this (assistant, channel) binding. */
   guardianIdentity?: string;
   /** Member status when the actor has a contact record. */
@@ -1009,6 +1009,7 @@ function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
       if (
         outer.provenanceTrustClass === "guardian" ||
         outer.provenanceTrustClass === "trusted_contact" ||
+        outer.provenanceTrustClass === "unverified_contact" ||
         outer.provenanceTrustClass === "unknown"
       ) {
         provenanceTrustClass = outer.provenanceTrustClass;

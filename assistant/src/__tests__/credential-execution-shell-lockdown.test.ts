@@ -26,6 +26,10 @@ describe("trust class categorization for CES lockdown", () => {
     expect(isUntrustedTrustClass("trusted_contact")).toBe(true);
   });
 
+  test("unverified_contact is untrusted", () => {
+    expect(isUntrustedTrustClass("unverified_contact")).toBe(true);
+  });
+
   test("unknown is untrusted", () => {
     expect(isUntrustedTrustClass("unknown")).toBe(true);
   });

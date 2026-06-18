@@ -64,3 +64,39 @@ Gateway inbound events use a channel-discriminated union model (`GatewayInboundE
 Trust/guardian decisions must be keyed on `actorExternalId` only — never fall back to `conversationExternalId` for actor identity.
 
 Physical DB column names (`externalUserId`, `externalChatId`) are unchanged; the rename is at the API/type layer only.
+
+## Channel Trust Classification & Admission Policy
+
+The gateway owns per-channel `AdmissionPolicy` storage (`gateway/src/db/admission-policy-store.ts`, HTTP in `gateway/src/http/routes/channel-admission-policy.ts`) and attaches the floor to every forwarded inbound via `sourceMetadata.admissionPolicy`. The runtime (`assistant/src/runtime/routes/inbound-stages/admission-policy.ts`) emits `admitted: true | false` based on `TRUST_CLASS_RANK[trustClass] >= ADMISSION_FLOOR[policy]`.
+
+A default row per enforced channel is **seeded at startup** (`seedAdmissionPolicyDefaults` in `gateway/src/db/seed-admission-policy.ts`) — `trusted_contacts` for every channel except `vellum` (`guardian_only`). Per-channel defaults live only in that seed; the store/cache fall back to `ADMISSION_POLICY_DEFAULT` (`trusted_contacts`) only if a row is somehow absent.
+
+**5 policies, ranked floors** (seed default `trusted_contacts`):
+
+| Policy | Floor | Notes |
+|---|---|---|
+| `no_one` | 5 | Hard-deny at gateway *before* forwarding (kill switch in `handle-inbound.ts`). Includes the guardian — this channel is *OFF*. |
+| `guardian_only` | 4 | Seeded default for `vellum`. |
+| `trusted_contacts` | 3 | Seeded default for all other channels; also the read-path safety fallback. |
+| `any_contact` | 2 | May surface Slack DM / email upgrade challenge on deny. |
+| `strangers` | 1 | May surface upgrade challenge. |
+
+**Exempt channels** (no policy ever applies — gateway **AND** runtime both short-circuit):
+
+- `platform` — internal platform control plane.
+- `a2a` — assistant-to-assistant peer traffic (out of human-trust model).
+- `phone` — exempt until voice ingress reads the policy (§8.4).
+
+For exempt ids, `PUT /v1/assistants/:id/channel-admission-policy/:channelType` returns **403**, the GET list omits them, and the runtime short-circuits `admitted: true` in `admission-policy.ts` (defense in depth). `vellum` is **not** exempt — it is configurable, but can never be set to `no_one`: the PUT route returns **422** and the picker omits the option, so the guardian (always max-rank on `vellum`) can't lock themselves out. Codex finding from #35006 review: exemption checks must live in *both* the gateway route handler AND the runtime stage — single-side enforcement creates a misuse wedge.
+
+Only the **assistant-scoped** routes (`/v1/assistants/:id/channel-admission-policy/...`) exist; admission policy is gateway-global so the id is matched and discarded. (The flat `/v1/channel-admission-policy/...` variants were removed with the CLI that used them.)
+
+**Split enforcement** (locked decision):
+
+- **Gateway kill switch** — `handle-inbound.ts` enforces the `no_one` floor before forwarding. Zero contact-table lookups, zero daemon I/O, true kill.
+- **Runtime floor** — every other policy flows through the gateway unchanged; the runtime evaluates rank-vs-floor inside `admission-policy.ts`. This keeps the canonical `actor-trust-resolver.ts:280` classifier as the single source of `TrustClass` truth (no fork).
+- **Gateway vs runtime reciprocity** — the gateway section in `gateway/CLAUDE.md` records *which channels the gateway enforces*; the assistant section records *how the runtime classifies*. Either side getting out of sync is a bug, not an over-defended boundary.
+
+**Adding a new policy**: extend the `AdmissionPolicy` union in `packages/gateway-client/src/admission-policy-contract.ts`, add its floor in `ADMISSION_FLOOR`, update the openapi schema, and update `gateway/src/__tests__/channel-admission-policy-routes.test.ts` + `assistant/src/runtime/routes/inbound-stages/admission-policy.test.ts`. Do not add a 6th floor without also bumping the `TRUST_CLASS_RANK` ceiling to match.
+
+**Adding a new exempt channel**: update `ADMISSION_POLICY_EXEMPT_CHANNELS` in `packages/gateway-client/src/admission-policy-contract.ts` AND `EXEMPT_CHANNEL_TYPES` in `gateway/src/db/admission-policy-store.ts`. The gateway route (403), GET-list omission, runtime short-circuit, and seed-skip all read from these — symmetric enforcement is required so a stray runtime call (test harness, internal IPC) can't bypass the floor.

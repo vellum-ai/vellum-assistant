@@ -5,6 +5,11 @@
  * invite token redemption.
  */
 import type { SourceMetadata } from "@vellumai/gateway-client";
+import {
+  ADMISSION_POLICY_DEFAULT,
+  type AdmissionPolicy,
+  isAdmissionPolicy,
+} from "@vellumai/gateway-client";
 
 import {
   attachmentsToContentBlocks,
@@ -17,6 +22,7 @@ import {
   isChannelId,
   parseInterfaceId,
 } from "../../channels/types.js";
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
 import {
   createApprovalConversationGenerator,
@@ -78,17 +84,24 @@ import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../../messaging/providers/slack/message-metadata.js";
+import { MESSAGE_PREVIEW_MAX_LENGTH } from "../../notifications/notification-utils.js";
 import type { ContentBlock } from "../../providers/types.js";
 import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
 import { getLogger } from "../../util/logger.js";
+import { truncate } from "../../util/truncate.js";
+import { notifyGuardianOfAccessRequest } from "../access-request-helper.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { deliverChannelReply } from "../gateway-client.js";
 import { resolveTrustContext } from "../trust-context-resolver.js";
 import { canonicalChannelAssistantId } from "./channel-route-shared.js";
 import { BadRequestError } from "./errors.js";
 import { handleApprovalInterception } from "./guardian-approval-interception.js";
-import { enforceIngressAcl } from "./inbound-stages/acl-enforcement.js";
+import {
+  channelStatusToMemberStatus,
+  enforceIngressAcl,
+} from "./inbound-stages/acl-enforcement.js";
+import { enforceAdmissionPolicy } from "./inbound-stages/admission-policy.js";
 import { processChannelMessageInBackground } from "./inbound-stages/background-dispatch.js";
 import { handleBootstrapIntercept } from "./inbound-stages/bootstrap-intercept.js";
 import { handleEditIntercept } from "./inbound-stages/edit-intercept.js";
@@ -100,6 +113,12 @@ import { tryTranscribeAudioAttachments } from "./inbound-stages/transcribe-audio
 import type { RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("runtime-http");
+
+// Gates the per-channel admission floor stage. When off, the floor is never
+// enforced and inbound falls back to ACL-only behavior (the gateway also skips
+// attaching a floor when off, so the ACL sees the default permissive policy).
+const CHANNEL_TRUST_FLOORS_FLAG = "channel-trust-floors" as const;
+
 const DISK_PRESSURE_REMOTE_BLOCK_REPLY =
   "Storage is critically low, so remote messages are ignored until the guardian frees enough space. Please try again later.";
 
@@ -383,6 +402,28 @@ export async function handleChannelInbound({
   });
   if (guardianActivationResponse) return guardianActivationResponse;
 
+  // ── Admission policy pre-computation ──
+  // Resolve the effective policy before ACL so it can skip its hard-deny
+  // paths for permissive policies (`strangers`, `any_contact`). The same
+  // value is reused by the floor stage below, which is gated on
+  // `channel-trust-floors`.
+  const channelTrustFloorsEnabled = isAssistantFeatureFlagEnabled(
+    CHANNEL_TRUST_FLOORS_FLAG,
+    getConfig(),
+  );
+  const admissionPolicyFromGateway = isAdmissionPolicy(
+    sourceMetadata?.admissionPolicy,
+  )
+    ? (sourceMetadata!.admissionPolicy as AdmissionPolicy)
+    : ADMISSION_POLICY_DEFAULT;
+  // Pass `undefined` to the ACL when the feature is off so it takes none of
+  // its policy-aware bypasses (the floor stage is skipped too). This keeps the
+  // flag-off path on the pre-feature ACL behavior and prevents a bypass from
+  // routing to a disabled floor stage and admitting unconditionally.
+  const effectiveAdmissionPolicyForAcl = channelTrustFloorsEnabled
+    ? admissionPolicyFromGateway
+    : undefined;
+
   // ── Ingress ACL enforcement ──
   const aclResult = await enforceIngressAcl({
     canonicalSenderId,
@@ -398,6 +439,7 @@ export async function handleChannelInbound({
     replyCallbackUrl: body.replyCallbackUrl,
     assistantId,
     externalMessageId,
+    effectiveAdmissionPolicy: effectiveAdmissionPolicyForAcl,
   });
   if (aclResult.earlyResponse) return aclResult.earlyResponse;
   const { resolvedMember } = aclResult;
@@ -656,6 +698,144 @@ export async function handleChannelInbound({
     }),
     slackActorTimezone,
   );
+
+  // ── Admission policy floor ──
+  // Sits between trust resolution and the agent loop. The gateway attaches
+  // the per-channel-type floor (`sourceMetadata.admissionPolicy`); the
+  // runtime evaluates `trustClass ≥ floor`. Denials reuse the same
+  // canned-reply / guardian-notify side effects as `not_a_member` (no
+  // re-verification challenge — §8.2). The gateway kill switch already
+  // dropped `no_one` upstream, but the stage handles it defensively.
+  //
+  // Internal channels (`vellum`, `platform`, `a2a`) short-circuit admit
+  // inside `enforceAdmissionPolicy` — defense in depth alongside the
+  // gateway's exempt-channel skip and the PUT-handler's 403.
+  //
+  // Bootstrap deep-link: when ACL flagged a validated pending_bootstrap
+  // session, skip the floor entirely. The bootstrap intercept stage below
+  // handles identity binding and emits its own reply; the sender has not
+  // yet acquired a trust class and should not be denied here.
+  // Gated by `channel-trust-floors`: when off, skip the floor entirely (admit)
+  // so inbound falls back to ACL-only behavior. The gateway also omits the
+  // floor when off, so the ACL above already saw the default permissive policy.
+  const admissionResult =
+    !channelTrustFloorsEnabled || aclResult.isValidatedBootstrap
+      ? ({ admitted: true } as const)
+      : enforceAdmissionPolicy({
+          sourceChannel,
+          trustClass: trustCtx.trustClass,
+          memberStatus: resolvedMember?.channel.status,
+          policy: admissionPolicyFromGateway,
+        });
+  if (!admissionResult.admitted) {
+    log.info(
+      {
+        sourceChannel,
+        conversationExternalId,
+        eventId: result.eventId,
+        trustClass: trustCtx.trustClass,
+        reason: admissionResult.reason,
+        effectivePolicy: admissionResult.effectivePolicy,
+        shouldChallenge: admissionResult.shouldChallenge,
+      },
+      "Inbound admission policy floor denied",
+    );
+
+    // §8.2 + webhook idempotency: skip guardian-notify + reply side
+    // effects on duplicate deliveries (matches the disk-pressure branch
+    // below at line ~810). Without this guard, a webhook retry of the
+    // same duplicated event that hit the floor re-fires the access
+    // request notification and the canned denial reply — visible to the
+    // guardian/sender without a re-evaluation.
+    if (result.duplicate) {
+      return {
+        accepted: true,
+        duplicate: result.duplicate,
+        eventId: result.eventId,
+        denied: true,
+        reason: admissionResult.reason,
+      };
+    }
+
+    // Notify the guardian about the access attempt — same surface as
+    // `acl-enforcement.ts:267-449` for `not_a_member`, so denials are
+    // visible in the same UI. previousMemberStatus is only meaningful when
+    // a member record exists; we pass it through when available so the
+    // guardian sees "previously pending" etc.
+    let guardianNotified = false;
+    try {
+      const accessResult = notifyGuardianOfAccessRequest({
+        canonicalAssistantId,
+        sourceChannel,
+        conversationExternalId,
+        actorExternalId: canonicalSenderId ?? rawSenderId,
+        actorDisplayName: body.actorDisplayName,
+        actorUsername: body.actorUsername,
+        ...(resolvedMember
+          ? {
+              previousMemberStatus: channelStatusToMemberStatus(
+                resolvedMember.channel.status,
+              ),
+            }
+          : {}),
+        messagePreview: truncate(trimmedContent, MESSAGE_PREVIEW_MAX_LENGTH),
+        ...(typeof sourceMetadata?.isStranger === "boolean"
+          ? { isStranger: sourceMetadata.isStranger }
+          : {}),
+        ...(typeof sourceMetadata?.isRestricted === "boolean"
+          ? { isRestricted: sourceMetadata.isRestricted }
+          : {}),
+        ...(typeof sourceMetadata?.messageId === "string"
+          ? { messageTs: sourceMetadata.messageId }
+          : {}),
+      });
+      guardianNotified = accessResult.notified;
+    } catch (err) {
+      log.error(
+        { err, sourceChannel, conversationExternalId },
+        "Failed to notify guardian of access request (admission policy)",
+      );
+    }
+
+    // Canned reply mirrors the not_a_member surface. §8.2: no upgrade
+    // challenge text for `trusted_contacts` / `guardian_only` denials —
+    // sender gets the standard "ask the guardian" copy.
+    const replyText = guardianNotified
+      ? "Hmm looks like you don't have access to talk to me. I'll let your guardian know you tried."
+      : "Sorry, you haven't been approved to message this assistant.";
+    let replyDelivered = false;
+    if (replyCallbackUrl) {
+      const replyPayload: Parameters<typeof deliverChannelReply>[1] = {
+        chatId: conversationExternalId,
+        text: replyText,
+        assistantId: canonicalAssistantId,
+      };
+      if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
+        replyPayload.ephemeral = true;
+        replyPayload.user = (canonicalSenderId ?? rawSenderId)!;
+      }
+      try {
+        await deliverChannelReply(replyCallbackUrl, replyPayload);
+        replyDelivered = true;
+      } catch (err) {
+        log.error(
+          { err, conversationExternalId },
+          "Failed to deliver admission policy denial reply",
+        );
+      }
+    }
+
+    if (!result.duplicate) markProcessed(result.eventId);
+
+    return {
+      accepted: true,
+      duplicate: result.duplicate,
+      eventId: result.eventId,
+      denied: true,
+      reason: admissionResult.reason,
+      ...(!replyDelivered && { replyText }),
+    };
+  }
 
   const diskPressureDecision = classifyDiskPressureTurnPolicy(
     getDiskPressureStatus(),
