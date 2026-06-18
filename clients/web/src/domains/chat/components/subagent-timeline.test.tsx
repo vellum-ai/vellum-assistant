@@ -12,8 +12,26 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-import { SubagentTimeline } from "@/domains/chat/components/subagent-timeline";
+import { makeSyntheticEvents } from "@/domains/chat/components/__fixtures__/subagent-timeline-fixtures";
+import {
+  installRowHeightStub,
+  renderedRowCount,
+  TimelineHarness,
+} from "@/domains/chat/components/__fixtures__/subagent-timeline-harness";
 import type { SubagentTimelineEvent } from "@/domains/chat/subagent-store";
+
+// jsdom/happy-dom report 0 for all layout; give rows a fixed measured height so
+// the virtualizer forms a real window (see the harness module for details).
+installRowHeightStub();
+
+function renderTimeline(
+  events: SubagentTimelineEvent[],
+  viewportHeight = 800,
+) {
+  return render(
+    <TimelineHarness events={events} viewportHeight={viewportHeight} />,
+  );
+}
 
 const LONG_PATH =
   "/workspaces/worktrees/p3-fixup-fork/clients/web/src/domains/channel/handler-inbound-admission.test.ts";
@@ -55,7 +73,7 @@ afterEach(() => {
 
 describe("SubagentTimeline — tool_call content wrapping", () => {
   test("long content carries wrapping classes so it can't overflow the card", () => {
-    render(<SubagentTimeline events={[toolCallEvent()]} />);
+    renderTimeline([toolCallEvent()]);
 
     const content = screen.getByText(LONG_PATH);
     expect(content.className).toContain("min-w-0");
@@ -64,7 +82,7 @@ describe("SubagentTimeline — tool_call content wrapping", () => {
 
   test("tool name carries wrapping classes too", () => {
     const longName = "some_extremely_long_tool_name_identifier_that_could_overflow";
-    render(<SubagentTimeline events={[toolCallEvent({ toolName: longName })]} />);
+    renderTimeline([toolCallEvent({ toolName: longName })]);
 
     const name = screen.getByText(longName);
     expect(name.className).toContain("min-w-0");
@@ -76,7 +94,7 @@ describe("SubagentTimeline — expand state keyed by event.id", () => {
   test("expanding one row, then toggling another, leaves the first expanded", () => {
     const first = toolResultEvent({ id: "evt-a", content: longLines("a") });
     const second = toolResultEvent({ id: "evt-b", content: longLines("b") });
-    render(<SubagentTimeline events={[first, second]} />);
+    renderTimeline([first, second]);
 
     // Both rows start collapsed.
     const toggles = screen.getAllByText("Show more");
@@ -98,5 +116,17 @@ describe("SubagentTimeline — expand state keyed by event.id", () => {
     expect(screen.getAllByText("Show less")).toHaveLength(2);
     expect(screen.getByText(/a line 7/)).toBeDefined();
     expect(screen.getByText(/b line 7/)).toBeDefined();
+  });
+});
+
+describe("SubagentTimeline — virtualization windows the list", () => {
+  test("mounts only a window of rows for a large list, not all of them", () => {
+    // A 300px viewport over ~96px rows windows to a handful of rows + overscan,
+    // so far fewer than all 300 events are in the DOM.
+    renderTimeline(makeSyntheticEvents(300), 300);
+
+    const rendered = renderedRowCount(screen);
+    expect(rendered).toBeGreaterThan(0); // guard: not a vacuous pass
+    expect(rendered).toBeLessThan(60);
   });
 });

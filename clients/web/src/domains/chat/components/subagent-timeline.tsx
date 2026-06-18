@@ -5,8 +5,10 @@ import {
     TriangleAlert,
     Wrench,
 } from "lucide-react";
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
+import type { RefObject } from "react";
 
+import { useTimelineVirtualizer } from "@/domains/chat/hooks/use-timeline-virtualizer";
 import type { SubagentTimelineEvent } from "@/domains/chat/subagent-store";
 import { Typography } from "@vellumai/design-library";
 
@@ -24,6 +26,17 @@ const CONNECTOR_STYLE = {
   backgroundColor: "var(--border-subtle)",
   minHeight: 16,
 };
+
+/**
+ * Constant style fields shared by every absolutely-positioned virtual row; only
+ * the per-row `transform` is spread in at the call site, so these don't get
+ * reallocated per row.
+ */
+const VIRTUAL_ROW_STYLE = {
+  position: "absolute",
+  top: 0,
+  width: "100%",
+} as const;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -195,11 +208,12 @@ const TimelineEventRow = memo(function TimelineEventRow({
   toggleExpand: (id: string) => void;
 }) {
   return (
-    // `content-visibility: auto` lets the browser skip layout/paint for rows
-    // that are off-screen in the panel's scroll container; `contain-intrinsic-
-    // size: auto 72px` reserves a placeholder (and remembers each row's real
-    // size once measured) so the scrollbar doesn't jump.
-    <div className="relative flex gap-3 [content-visibility:auto] [contain-intrinsic-size:auto_72px]">
+    // The inter-row gap lives in this row's `pb-4` padding (not the card's
+    // margin): the virtualizer measures rows via `getBoundingClientRect`, which
+    // excludes margins, so a margin-based gap would make absolutely-positioned
+    // rows overlap. As padding it's part of the measured height, and the
+    // connector's `flex-1` fill still spans through it to the next row.
+    <div className="relative flex gap-3 pb-4">
       {/* Left: icon node + connector line */}
       <div className="flex flex-col items-center">
         <div
@@ -214,7 +228,7 @@ const TimelineEventRow = memo(function TimelineEventRow({
       </div>
 
       {/* Right: content card */}
-      <div className="mb-4 min-w-0 flex-1 rounded-lg bg-[var(--surface-overlay)] px-4 py-3">
+      <div className="min-w-0 flex-1 rounded-lg bg-[var(--surface-overlay)] px-4 py-3">
         <Typography
           variant="body-medium-default"
           className="text-[var(--content-default)]"
@@ -288,15 +302,22 @@ const TimelineEventRow = memo(function TimelineEventRow({
 
 export interface SubagentTimelineProps {
   events: SubagentTimelineEvent[];
+  /**
+   * The panel's scroll container. The list virtualizes against this *external*
+   * element (not its own box) so the metrics/objective header above the list
+   * scrolls together with the rows.
+   */
+  scrollRef: RefObject<HTMLElement | null>;
 }
 
 export const SubagentTimeline = memo(function SubagentTimeline({
   events,
+  scrollRef,
 }: SubagentTimelineProps) {
   const filteredEvents = useMemo(() => filterEvents(events), [events]);
 
   // Expand/collapse state lives here, keyed by `event.id`, so it survives a row
-  // unmounting and remounting (e.g. when the list is virtualized). `toggleExpand`
+  // unmounting and remounting as the virtualizer windows the list. `toggleExpand`
   // is stable across renders so it can be passed through the `memo`'d row without
   // defeating its bail-out.
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
@@ -312,6 +333,22 @@ export const SubagentTimeline = memo(function SubagentTimeline({
     });
   }, []);
 
+  // The list element, used by the virtualizer to offset virtual positions
+  // (`scrollMargin`) relative to the scroll container's content.
+  const listRef = useRef<HTMLDivElement>(null);
+  // Memoized so the virtualizer's options don't churn on every render (e.g.
+  // expand/collapse); only reallocates when the event list itself changes.
+  const getItemKey = useCallback(
+    (index: number) => filteredEvents[index]!.id,
+    [filteredEvents],
+  );
+  const virtualizer = useTimelineVirtualizer({
+    count: filteredEvents.length,
+    scrollRef,
+    listRef,
+    getItemKey,
+  });
+
   if (filteredEvents.length === 0) {
     return (
       <Typography
@@ -324,16 +361,34 @@ export const SubagentTimeline = memo(function SubagentTimeline({
   }
 
   return (
-    <div className="flex flex-col">
-      {filteredEvents.map((event, index) => (
-        <TimelineEventRow
-          key={event.id}
-          event={event}
-          isLast={index === filteredEvents.length - 1}
-          expanded={expandedIds.has(event.id)}
-          toggleExpand={toggleExpand}
-        />
-      ))}
+    <div ref={listRef} className="flex flex-col">
+      {/* Spacer reserves the full list height (via `getTotalSize`) so the
+          scrollbar reflects all rows even though only a window is mounted. */}
+      <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+        {virtualizer.getVirtualItems().map((vi) => {
+          const event = filteredEvents[vi.index]!;
+          return (
+            <div
+              key={vi.key}
+              data-index={vi.index}
+              ref={virtualizer.measureElement}
+              style={{
+                ...VIRTUAL_ROW_STYLE,
+                transform: `translateY(${vi.start - virtualizer.options.scrollMargin}px)`,
+              }}
+            >
+              <TimelineEventRow
+                event={event}
+                // Absolute index, not the position within the rendered window,
+                // so the connector is omitted only for the genuine last row.
+                isLast={vi.index === filteredEvents.length - 1}
+                expanded={expandedIds.has(event.id)}
+                toggleExpand={toggleExpand}
+              />
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 });

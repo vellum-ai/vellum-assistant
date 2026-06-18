@@ -222,6 +222,11 @@ export function SubagentDetailPanel({
     }
   }, [entry.subagentId, entry.conversationId, entry.events.length, onRequestDetail]);
 
+  // The scroll container forwarded to the virtualized timeline: the timeline
+  // virtualizes against this *external* scroll element (the panel body) rather
+  // than its own list, so the metrics/objective header scrolls with the rows.
+  const scrollRef = useRef<HTMLDivElement>(null);
+
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
       {/* Header */}
@@ -270,7 +275,7 @@ export function SubagentDetailPanel({
       </div>
 
       {/* Scrollable body */}
-      <div className="flex-1 overflow-y-auto px-5 py-5">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-5">
         {/* Metrics row */}
         <div className="mb-5 grid grid-cols-3 gap-3">
           <AnimatedMetricCard
@@ -330,7 +335,11 @@ export function SubagentDetailPanel({
            * without a per-subagent reset an expanded `detail-N` would leak its
            * expanded state onto the next subagent's `detail-N`.
            */}
-          <SubagentTimeline key={entry.subagentId} events={timelineEvents} />
+          <SubagentTimeline
+            key={entry.subagentId}
+            scrollRef={scrollRef}
+            events={timelineEvents}
+          />
         </div>
       </div>
     </div>
