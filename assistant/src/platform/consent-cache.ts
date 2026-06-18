@@ -30,13 +30,20 @@ export function getCachedShareAnalytics(): boolean {
  * Refresh the cached consent from the platform.
  *
  * No platform session / features disabled (`create()` is null) → default-off.
- * A successful fetch adopts the reported value. A `null` fetch (transient
- * failure / undeployed endpoint) leaves the previous value unchanged so a known
- * opt-in is not flipped off mid-session.
+ * No resolvable assistant identity (no owner whose consent we can attest to) →
+ * fail closed. A successful fetch adopts the reported value. A `null` fetch
+ * (transient failure / undeployed endpoint) leaves the previous value unchanged
+ * so a known opt-in is not flipped off mid-session.
  */
 export async function refreshConsentCache(): Promise<void> {
   const client = await VellumPlatformClient.create();
   if (!client) {
+    setCachedShareAnalytics(false);
+    return;
+  }
+
+  // No resolvable owner identity → fail closed (don't ride a stale opt-in).
+  if (!client.platformAssistantId) {
     setCachedShareAnalytics(false);
     return;
   }
