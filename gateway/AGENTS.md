@@ -85,9 +85,16 @@ A default row per enforced channel is **seeded at startup** (`seedAdmissionPolic
 
 - `platform` — internal platform control plane.
 - `a2a` — assistant-to-assistant peer traffic (out of human-trust model).
-- `phone` — exempt until voice ingress reads the policy (§8.4).
 
-For exempt ids, `PUT /v1/assistants/:id/channel-admission-policy/:channelType` returns **403**, the GET list omits them, and the runtime short-circuits `admitted: true` in `admission-policy.ts` (defense in depth). `vellum` is **not** exempt — it is configurable, but can never be set to `no_one`: the PUT route returns **422** and the picker omits the option, so the guardian (always max-rank on `vellum`) can't lock themselves out. Codex finding from #35006 review: exemption checks must live in *both* the gateway route handler AND the runtime stage — single-side enforcement creates a misuse wedge.
+`phone` is now an enforced channel (voice ingress reads the policy): it seeds the universal default `trusted_contacts` and accepts PUT like other enforced channels.
+
+For exempt ids, `PUT /v1/assistants/:id/channel-admission-policy/:channelType` returns **403**, the GET list omits them, and the runtime short-circuits `admitted: true` in `admission-policy.ts` (defense in depth). Codex finding from #35006 review: exemption checks must live in *both* the gateway route handler AND the runtime stage — single-side enforcement creates a misuse wedge.
+
+**Hidden channels** (`ADMISSION_POLICY_HIDDEN_CHANNELS` = `vellum`, `whatsapp`) — managed automatically, **not** user-configurable, but (unlike exempt channels) **still enforced at runtime**:
+
+- The GET list omits them, and `PUT`/`DELETE` return **403** (`isAdmissionPolicyHiddenChannel`).
+- They are **not** exempt — the runtime still evaluates rank-vs-floor, so a real inbound channel like `whatsapp` keeps its admission floor.
+- Their floor is pinned to the seed default; `seedAdmissionPolicyDefaults` **overwrites** any drifted/legacy row at startup (e.g. a stale `whatsapp = no_one`), so a stranded floor can't silently block a channel the user can no longer see or reset. The guardian is always max-rank on `vellum`, so its `guardian_only` seed default never locks them out — there is **no** `no_one` picker or 422 kill-switch path for hidden channels.
 
 Only the **assistant-scoped** routes (`/v1/assistants/:id/channel-admission-policy/...`) exist; admission policy is gateway-global so the id is matched and discarded. (The flat `/v1/channel-admission-policy/...` variants were removed with the CLI that used them.)
 
@@ -100,6 +107,8 @@ Only the **assistant-scoped** routes (`/v1/assistants/:id/channel-admission-poli
 **Adding a new policy**: extend the `AdmissionPolicy` union in `packages/gateway-client/src/admission-policy-contract.ts`, add its floor in `ADMISSION_FLOOR`, update the openapi schema, and update `gateway/src/__tests__/channel-admission-policy-routes.test.ts` + `assistant/src/runtime/routes/inbound-stages/admission-policy.test.ts`. Do not add a 6th floor without also bumping the `TRUST_CLASS_RANK` ceiling to match.
 
 **Adding a new exempt channel**: update `ADMISSION_POLICY_EXEMPT_CHANNELS` in `packages/gateway-client/src/admission-policy-contract.ts` AND `EXEMPT_CHANNEL_TYPES` in `gateway/src/db/admission-policy-store.ts`. The gateway route (403), GET-list omission, runtime short-circuit, and seed-skip all read from these — symmetric enforcement is required so a stray runtime call (test harness, internal IPC) can't bypass the floor.
+
+**Hiding a channel from the UI (still enforced)**: add it to `ADMISSION_POLICY_HIDDEN_CHANNELS` in `packages/gateway-client/src/admission-policy-contract.ts` (and the web mirror `HIDDEN_CHANNELS` in `clients/web/src/lib/channel-admission-policy/types.ts`). The GET-list omission, `PUT`/`DELETE` 403, and seed re-pin all read from this set. Use this — **not** the exempt set — for a channel that must keep enforcing a floor but should not be user-configurable, so its admission check is never short-circuited.
 
 ### Trust Classes → Capabilities (what an actor may do)
 

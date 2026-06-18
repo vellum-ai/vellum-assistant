@@ -212,6 +212,22 @@ export function isSubagentSpawnCall(toolCall: ChatMessageToolCall): boolean {
 }
 
 /**
+ * Detect whether a tool call is a `run_workflow` invocation. Like
+ * `subagent_spawn`, the daemon exposes `run_workflow` as a bundled-skill tool,
+ * so the LLM emits a `skill_execute` call with `input.tool === "run_workflow"`
+ * — the `tool_use_start` event the frontend receives still carries
+ * `toolName: "skill_execute"`. Matching on the raw `toolName` alone would miss
+ * every launch and leave the inline workflow card unrendered.
+ */
+export function isRunWorkflowCall(toolCall: ChatMessageToolCall): boolean {
+  if (toolCall.name === "run_workflow") return true;
+  if (toolCall.name !== "skill_execute") return false;
+  const input = toolCall.input;
+  if (input == null || typeof input !== "object") return false;
+  return (input as Record<string, unknown>).tool === "run_workflow";
+}
+
+/**
  * Detect a task-progress card surface — `template === "task_progress"` with a
  * non-empty `steps` array. Single source of truth shared by `CardSurface`'s
  * render-detection and the activity-summary path's hoist-detection so the two

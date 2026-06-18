@@ -6,6 +6,7 @@ import { routes } from "@/utils/routes";
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { getSoundManager } from "@/lib/sounds/sound-manager";
@@ -23,6 +24,7 @@ export function navigateToConversation(
   haptic.light();
   useViewerStore.getState().setMainView("chat");
   useSubagentStore.getState().reset();
+  useWorkflowStore.getState().reset();
   useConversationStore.getState().setActiveConversationId(conversationId);
   void navigate(routes.conversation(conversationId));
 }
@@ -47,6 +49,7 @@ export function navigateToNewConversation(
   }
   useViewerStore.getState().setMainView("chat");
   useSubagentStore.getState().reset();
+  useWorkflowStore.getState().reset();
   const draftId = createDraftConversationId();
   useConversationStore.getState().setActiveConversationId(draftId);
   void navigate(routes.conversation(draftId));

@@ -24,6 +24,8 @@ import {
   getWorkspaceDir,
   getWorkspaceHooksDir,
   getWorkspacePluginsDir,
+  getWorkspaceRoutesDir,
+  getWorkspaceToolsDir,
 } from "../util/platform.js";
 import {
   type ApprovalContext,
@@ -284,6 +286,8 @@ function buildFileContext(): FileContext {
     deprecatedDir: resolveRealPath(getDeprecatedDir()),
     hooksDir: resolveRealPath(getWorkspaceHooksDir()),
     pluginsDir: resolveRealPath(getWorkspacePluginsDir()),
+    toolsDir: resolveRealPath(getWorkspaceToolsDir()),
+    routesDir: resolveRealPath(getWorkspaceRoutesDir()),
     actorTokenSigningKeyPath: join(protectedDir, "actor-token-signing-key"),
     skillSourceDirs: getSkillRoots(config.skills.load.extraDirs).map(
       resolveRealPath,
@@ -308,6 +312,25 @@ function buildFileContext(): FileContext {
  * filesystem this process cannot see (e.g. host_file paths proxied to a remote
  * client), so this never regresses below today's lexical behavior.
  */
+// The Docker sandbox mounts the workspace at /workspace, and the model emits
+// container-scoped paths (e.g. "/workspace/tools/evil.ts") even on local turns.
+// Mirror the gateway's resolveSandboxPath remap so the symlink-resolved path we
+// forward lines up with the gateway's lexical fallback and the protected dirs.
+const CONTAINER_WORKSPACE_PREFIX = "/workspace/";
+const CONTAINER_WORKSPACE_EXACT = "/workspace";
+
+function resolveSandboxBase(rawPath: string, workingDir: string): string {
+  let effectivePath = rawPath;
+  if (!rawPath.startsWith(workingDir + "/") && rawPath !== workingDir) {
+    if (rawPath.startsWith(CONTAINER_WORKSPACE_PREFIX)) {
+      effectivePath = rawPath.slice(CONTAINER_WORKSPACE_PREFIX.length);
+    } else if (rawPath === CONTAINER_WORKSPACE_EXACT) {
+      effectivePath = ".";
+    }
+  }
+  return resolve(workingDir, effectivePath);
+}
+
 function resolveClassificationPath(
   filePath: string,
   workingDir: string,
@@ -315,8 +338,12 @@ function resolveClassificationPath(
 ): string | undefined {
   if (!filePath) return undefined;
   // Mirror the gateway classifier's lexical base: host tools resolve the path
-  // as absolute/relative-to-cwd; sandbox tools resolve against workingDir.
-  const base = isHostTool ? resolve(filePath) : resolve(workingDir, filePath);
+  // as absolute/relative-to-cwd; sandbox tools apply the /workspace remap and
+  // resolve against workingDir. Then follow symlinks so a benign-looking name
+  // whose real target is a protected directory is still escalated.
+  const base = isHostTool
+    ? resolve(filePath)
+    : resolveSandboxBase(filePath, workingDir);
   return resolveRealPath(base);
 }
 
@@ -383,15 +410,24 @@ function buildClassifyRiskParams(
   ) {
     const isHostTool = toolName.startsWith("host_");
     let filePath: string;
+    // For host_file_transfer to_sandbox, the file is written into the
+    // workspace at dest_path — forward it (plus the sandbox working dir) so the
+    // gateway can escalate writes that land in a code-injection sink, since
+    // `path` carries the host-side source.
+    let transferSandboxDestPath: string | undefined;
+    let transferSandboxWorkingDir: string | undefined;
     if (toolName === "host_file_transfer") {
-      // For host_file_transfer the security-sensitive path is the host-side
-      // path: source_path when reading from the host (to_sandbox), dest_path
-      // when writing to the host (to_host).
+      // For host_file_transfer the security-sensitive host-side path is
+      // source_path when reading from the host (to_sandbox), dest_path when
+      // writing to the host (to_host).
       const direction = getStringField(input, "direction");
-      filePath =
-        direction === "to_sandbox"
-          ? getStringField(input, "source_path")
-          : getStringField(input, "dest_path");
+      if (direction === "to_sandbox") {
+        filePath = getStringField(input, "source_path");
+        transferSandboxDestPath = getStringField(input, "dest_path");
+        transferSandboxWorkingDir = workingDir ?? process.cwd();
+      } else {
+        filePath = getStringField(input, "dest_path");
+      }
     } else {
       filePath = getStringField(input, "path", "file_path");
     }
@@ -408,6 +444,18 @@ function buildClassifyRiskParams(
       ),
       workingDir: effectiveWorkingDir,
       fileContext: buildFileContext(),
+      transferSandboxDestPath,
+      transferSandboxWorkingDir,
+      // The to_sandbox destination is a workspace write — symlink-resolve it
+      // too so it can't mask a code-injection sink.
+      resolvedTransferDestPath:
+        transferSandboxDestPath != null
+          ? resolveClassificationPath(
+              transferSandboxDestPath,
+              transferSandboxWorkingDir ?? process.cwd(),
+              false,
+            )
+          : undefined,
     };
   }
 

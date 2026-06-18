@@ -284,6 +284,7 @@ export { migrateContactChannelsUniqueExtUser } from "./289-contact-channels-uniq
 export { migrateScheduleCapabilities } from "./290-schedule-capabilities.js";
 export { migrateContactChannelsRenormalizeAddresses } from "./291-contact-channels-renormalize-addresses.js";
 export { migrateScheduleDefaultNoReuseConversation } from "./292-schedule-default-no-reuse-conversation.js";
+export { migrateWorkflowJournalLeafTokens } from "./293-workflow-journal-leaf-tokens.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

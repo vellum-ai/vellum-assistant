@@ -53,6 +53,8 @@ export interface FileContext {
   deprecatedDir: string;
   hooksDir: string;
   pluginsDir: string;
+  toolsDir: string;
+  routesDir: string;
   actorTokenSigningKeyPath: string;
   skillSourceDirs: string[];
 }
@@ -102,4 +104,19 @@ export interface ClassifyRiskParams {
   registryDefaultRisk?: string;
   /** Number of credential references attached to this tool invocation. */
   credentialRefCount?: number;
+  /**
+   * For host_file_transfer with `direction: "to_sandbox"`: the workspace-side
+   * destination path and the sandbox working directory it resolves against, so
+   * the gateway can escalate transfers that install an executable file in a
+   * code-injection sink (tools/routes/hooks/plugins/skills).
+   */
+  transferSandboxDestPath?: string;
+  transferSandboxWorkingDir?: string;
+  /**
+   * The `to_sandbox` workspace destination with symlinks resolved
+   * (canonicalized by the daemon). Used for the code-injection-sink check so a
+   * symlinked destination cannot mask the real target. Falls back to lexical
+   * resolution of `transferSandboxDestPath` when absent.
+   */
+  resolvedTransferDestPath?: string;
 }

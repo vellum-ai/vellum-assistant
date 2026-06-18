@@ -27773,6 +27773,88 @@ paths:
                 additionalProperties: false
         "404":
           description: Run not found
+  /v1/workflows/runs/{id}/journal:
+    get:
+      operationId: workflows_runs_by_id_journal_get
+      summary: Get workflow run journal
+      description: Return a workflow run's leaf journal as bounded per-leaf summaries (one entry per finished leaf).
+      tags:
+        - workflows
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runId:
+                    type: string
+                  status:
+                    type: string
+                    enum:
+                      - running
+                      - completed
+                      - failed
+                      - aborted
+                      - cap_exceeded
+                      - interrupted
+                  agentsSpawned:
+                    type: number
+                  inputTokens:
+                    type: number
+                  outputTokens:
+                    type: number
+                  phase:
+                    type: string
+                  leaves:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        seq:
+                          type: number
+                        kind:
+                          type: string
+                          enum:
+                            - agent
+                            - workflow
+                        label:
+                          type: string
+                        phase:
+                          type: string
+                        promptSummary:
+                          type: string
+                        status:
+                          type: string
+                        resultSummary:
+                          type: string
+                        inputTokens:
+                          type: number
+                        outputTokens:
+                          type: number
+                        createdAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                      required:
+                        - seq
+                        - kind
+                        - status
+                        - createdAt
+                      additionalProperties: false
+                required:
+                  - runId
+                  - leaves
+                additionalProperties: false
+        "404":
+          description: Run not found
   /v1/workflows/runs/{id}/resume:
     post:
       operationId: workflows_runs_by_id_resume_post

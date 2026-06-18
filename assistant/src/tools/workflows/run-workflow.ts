@@ -68,6 +68,7 @@ export async function executeRunWorkflow(
       args,
       manifest,
       conversationId: context.conversationId,
+      ...(context.toolUseId ? { toolUseId: context.toolUseId } : {}),
       ...(label ? { label } : {}),
       trustContext,
     });

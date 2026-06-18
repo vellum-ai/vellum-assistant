@@ -61,6 +61,8 @@ const ClassifyRiskSchema = z.object({
       deprecatedDir: z.string(),
       hooksDir: z.string(),
       pluginsDir: z.string().optional(),
+      toolsDir: z.string().optional(),
+      routesDir: z.string().optional(),
       actorTokenSigningKeyPath: z.string(),
       skillSourceDirs: z.array(z.string()),
     })
@@ -80,6 +82,17 @@ const ClassifyRiskSchema = z.object({
   registryDefaultRisk: z.string().optional(),
   /** Number of credential references attached to this tool invocation. */
   credentialRefCount: z.number().int().nonnegative().optional(),
+  /**
+   * For host_file_transfer to_sandbox: the workspace-side destination path
+   * and the sandbox working directory it resolves against. Lets the classifier
+   * escalate writes that land an executable file in a code-injection sink
+   * (tools/routes/hooks/plugins/skills) even though `path` carries the
+   * host-side source.
+   */
+  transferSandboxDestPath: z.string().optional(),
+  transferSandboxWorkingDir: z.string().optional(),
+  // Symlink-resolved to_sandbox destination, canonicalized by the daemon.
+  resolvedTransferDestPath: z.string().optional(),
 });
 
 type ClassifyRiskParams = z.infer<typeof ClassifyRiskSchema>;
@@ -433,6 +446,8 @@ export async function handleClassifyRisk(
         deprecatedDir: fileCtx?.deprecatedDir ?? SENTINEL,
         hooksDir: fileCtx?.hooksDir ?? SENTINEL,
         pluginsDir: fileCtx?.pluginsDir ?? SENTINEL,
+        toolsDir: fileCtx?.toolsDir ?? SENTINEL,
+        routesDir: fileCtx?.routesDir ?? SENTINEL,
         skillSourceDirs: fileCtx?.skillSourceDirs ?? [],
       };
 
@@ -442,6 +457,9 @@ export async function handleClassifyRisk(
           filePath,
           workingDir,
           resolvedPath: params.resolvedPath,
+          transferSandboxDestPath: params.transferSandboxDestPath,
+          transferSandboxWorkingDir: params.transferSandboxWorkingDir,
+          resolvedTransferDestPath: params.resolvedTransferDestPath,
         },
         context,
       );

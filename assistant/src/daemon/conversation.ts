@@ -395,6 +395,13 @@ export class Conversation {
   ) => Pick<WorkspaceGitService, "ensureInitialized">;
   /** @internal */ commitTurnChanges?: typeof commitTurnChanges;
   /**
+   * Abort-watchdog timeout (ms) for the agent loop's bounded-unwind backstop.
+   * Overridable in tests to fire the watchdog quickly; defaults to the
+   * production constant in the agent loop when unset.
+   * @internal
+   */
+  abortWatchdogMs?: number;
+  /**
    * The conversation's immutable creation type (`interactive`, `background`,
    * `scheduled`, …) as stored on the DB row. Cached on load (and set directly
    * for subagent conversations) so the runtime-assembly path can derive the

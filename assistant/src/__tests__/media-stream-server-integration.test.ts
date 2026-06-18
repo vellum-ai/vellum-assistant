@@ -159,6 +159,23 @@ mock.module("../calls/relay-setup-router.js", () => ({
   routeSetup: jest.fn(() => mockRouteSetupResult),
 }));
 
+// Mock the channel admission reader. handleStart awaits this before routing;
+// tests override mockAdmissionPolicy to exercise floor enforcement. Returning
+// a resolved promise introduces a microtask hop, so tests await
+// session.whenSetupSettled() after sending the start frame.
+let mockAdmissionPolicy: unknown = null;
+// Optional gate: when set, getChannelAdmissionPolicy awaits this promise before
+// resolving, letting a test dispose the session mid-read (simulating a WS close
+// while the admission IPC read is pending).
+let mockAdmissionGate: Promise<void> | null = null;
+const mockGetChannelAdmissionPolicy = jest.fn(async () => {
+  if (mockAdmissionGate) await mockAdmissionGate;
+  return mockAdmissionPolicy;
+});
+mock.module("../calls/channel-admission-reader.js", () => ({
+  getChannelAdmissionPolicy: mockGetChannelAdmissionPolicy,
+}));
+
 // Mock the actor trust resolver (used by handleStart to derive trust context)
 mock.module("../runtime/actor-trust-resolver.js", () => ({
   toTrustContext: jest.fn(() => ({
@@ -204,6 +221,7 @@ import {
   activeMediaStreamSessions,
   MediaStreamCallSession,
 } from "../calls/media-stream-server.js";
+import { routeSetup } from "../calls/relay-setup-router.js";
 
 // ---------------------------------------------------------------------------
 // Mock WebSocket factory
@@ -304,6 +322,15 @@ function makeMarkMessage(name: string): string {
   });
 }
 
+function makeDtmfMessage(digit: string): string {
+  return JSON.stringify({
+    event: "dtmf",
+    sequenceNumber: "60",
+    streamSid: "MZ00000000000000000000000000000000",
+    dtmf: { digit },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Setup / teardown
 // ---------------------------------------------------------------------------
@@ -325,6 +352,10 @@ beforeEach(() => {
   (updateCallSession as jest.Mock).mockClear();
   (finalizeCall as jest.Mock).mockClear();
   (speakSystemPrompt as jest.Mock).mockClear();
+  (routeSetup as jest.Mock).mockClear();
+  mockGetChannelAdmissionPolicy.mockClear();
+  mockAdmissionPolicy = null;
+  mockAdmissionGate = null;
   // Reset routeSetup to default normal_call
   mockRouteSetupResult = {
     outcome: { action: "normal_call" as const, isInbound: true },
@@ -359,7 +390,7 @@ describe("MediaStreamCallSession", () => {
   });
 
   describe("start event handling", () => {
-    test("start event registers a controller and records call_connected", () => {
+    test("start event registers a controller and records call_connected", async () => {
       const mock = createMockWs();
       // Set up a call session in the mock store
       mockSessions.set("call-1", {
@@ -373,6 +404,7 @@ describe("MediaStreamCallSession", () => {
 
       const session = new MediaStreamCallSession(mock.ws, "call-1");
       session.handleMessage(makeStartMessage());
+      await session.whenSetupSettled();
 
       // Controller should have been registered
       expect(registerCallController).toHaveBeenCalledWith(
@@ -484,7 +516,7 @@ describe("MediaStreamCallSession", () => {
   });
 
   describe("destroy", () => {
-    test("destroys the controller and marks output as closed", () => {
+    test("destroys the controller and marks output as closed", async () => {
       const mock = createMockWs();
       mockSessions.set("call-1", {
         id: "call-1",
@@ -498,6 +530,7 @@ describe("MediaStreamCallSession", () => {
       const session = new MediaStreamCallSession(mock.ws, "call-1");
       // Trigger start to create a controller
       session.handleMessage(makeStartMessage());
+      await session.whenSetupSettled();
 
       session.destroy();
       expect(mockDestroy).toHaveBeenCalled();
@@ -715,7 +748,7 @@ describe("media-stream output egress", () => {
     expect(clearMessages.length).toBeGreaterThanOrEqual(1);
   });
 
-  test("barge-in via speech start clears audio and interrupts controller", () => {
+  test("barge-in via speech start clears audio and interrupts controller", async () => {
     const mockWs = createMockWs();
     mockSessions.set("call-interrupt-1", {
       id: "call-interrupt-1",
@@ -728,6 +761,7 @@ describe("media-stream output egress", () => {
 
     const session = new MediaStreamCallSession(mockWs.ws, "call-interrupt-1");
     session.handleMessage(makeStartMessage());
+    await session.whenSetupSettled();
 
     // Verify the controller is created
     expect(session.getController()).not.toBeNull();
@@ -770,7 +804,7 @@ describe("activeMediaStreamSessions registry", () => {
 
 describe("media-stream setup outcome scenarios", () => {
   describe("deny outcome", () => {
-    test("deny outcome records inbound_acl_denied event and sets status to failed", () => {
+    test("deny outcome records inbound_acl_denied event and sets status to failed", async () => {
       mockRouteSetupResult = {
         outcome: {
           action: "deny",
@@ -798,6 +832,7 @@ describe("media-stream setup outcome scenarios", () => {
 
       const session = new MediaStreamCallSession(mockWs.ws, "call-deny-1");
       session.handleMessage(makeStartMessage());
+      await session.whenSetupSettled();
 
       // Should record an inbound_acl_denied event
       expect(recordCallEvent).toHaveBeenCalledWith(
@@ -821,7 +856,7 @@ describe("media-stream setup outcome scenarios", () => {
       expect(registerCallController).not.toHaveBeenCalled();
     });
 
-    test("deny outcome speaks the denial message", () => {
+    test("deny outcome speaks the denial message", async () => {
       mockRouteSetupResult = {
         outcome: {
           action: "deny",
@@ -852,6 +887,7 @@ describe("media-stream setup outcome scenarios", () => {
         "call-deny-speak-1",
       );
       session.handleMessage(makeStartMessage());
+      await session.whenSetupSettled();
 
       // speakSystemPrompt should be called with the denial message
       expect(speakSystemPrompt).toHaveBeenCalledWith(
@@ -860,7 +896,7 @@ describe("media-stream setup outcome scenarios", () => {
       );
     });
 
-    test("deny outcome runs finalization", () => {
+    test("deny outcome runs finalization", async () => {
       mockRouteSetupResult = {
         outcome: {
           action: "deny",
@@ -891,6 +927,7 @@ describe("media-stream setup outcome scenarios", () => {
         "call-deny-finalize-1",
       );
       session.handleMessage(makeStartMessage());
+      await session.whenSetupSettled();
 
       // finalizeCall should be called because early teardown runs it inline
       expect(finalizeCall).toHaveBeenCalledWith(
@@ -901,7 +938,7 @@ describe("media-stream setup outcome scenarios", () => {
   });
 
   describe("unsupported interactive setup flow", () => {
-    test("verification outcome records call_failed with preflight-bypass reason", () => {
+    test("verification outcome records call_failed with preflight-bypass reason", async () => {
       mockRouteSetupResult = {
         outcome: {
           action: "verification",
@@ -932,6 +969,7 @@ describe("media-stream setup outcome scenarios", () => {
         "call-unsup-verify-1",
       );
       session.handleMessage(makeStartMessage());
+      await session.whenSetupSettled();
 
       // Should record call_failed event with preflight-bypass note
       expect(recordCallEvent).toHaveBeenCalledWith(
@@ -956,7 +994,7 @@ describe("media-stream setup outcome scenarios", () => {
       expect(registerCallController).not.toHaveBeenCalled();
     });
 
-    test("name_capture outcome speaks generic apology and tears down", () => {
+    test("name_capture outcome speaks generic apology and tears down", async () => {
       mockRouteSetupResult = {
         outcome: {
           action: "name_capture",
@@ -987,6 +1025,7 @@ describe("media-stream setup outcome scenarios", () => {
         "call-unsup-name-1",
       );
       session.handleMessage(makeStartMessage());
+      await session.whenSetupSettled();
 
       // speakSystemPrompt should be called with the generic apology
       expect(speakSystemPrompt).toHaveBeenCalledWith(
@@ -1001,7 +1040,7 @@ describe("media-stream setup outcome scenarios", () => {
       );
     });
 
-    test("callee_verification outcome fails with explicit reason", () => {
+    test("callee_verification outcome fails with explicit reason", async () => {
       mockRouteSetupResult = {
         outcome: {
           action: "callee_verification",
@@ -1031,6 +1070,7 @@ describe("media-stream setup outcome scenarios", () => {
         "call-unsup-callee-1",
       );
       session.handleMessage(makeStartMessage());
+      await session.whenSetupSettled();
 
       // Should record the failure with the specific action
       expect(recordCallEvent).toHaveBeenCalledWith(
@@ -1048,7 +1088,7 @@ describe("media-stream setup outcome scenarios", () => {
       );
     });
 
-    test("normal_call after deny scenario still creates controller", () => {
+    test("normal_call after deny scenario still creates controller", async () => {
       // Verify that after a deny-scenario test, resetting to normal_call
       // properly creates a controller (no cross-test pollution).
       mockRouteSetupResult = {
@@ -1073,6 +1113,7 @@ describe("media-stream setup outcome scenarios", () => {
 
       const session = new MediaStreamCallSession(mockWs.ws, "call-reset-1");
       session.handleMessage(makeStartMessage());
+      await session.whenSetupSettled();
 
       // Controller should be registered for normal calls
       expect(registerCallController).toHaveBeenCalledWith(
@@ -1088,7 +1129,7 @@ describe("media-stream setup outcome scenarios", () => {
   // ── Barge-in regression ──────────────────────────────────────────
 
   describe("barge-in gating", () => {
-    test("immediate inbound audio after stream start does not trigger handleInterrupt", () => {
+    test("immediate inbound audio after stream start does not trigger handleInterrupt", async () => {
       const mockWs = createMockWs();
       mockSessions.set("call-bargein-1", {
         id: "call-bargein-1",
@@ -1103,6 +1144,7 @@ describe("media-stream setup outcome scenarios", () => {
 
       // Stream start bootstraps the controller
       session.handleMessage(makeStartMessage());
+      await session.whenSetupSettled();
       expect(mockStartInitialGreeting).toHaveBeenCalled();
 
       // Immediate inbound audio (speech-like payloads) — before the
@@ -1130,7 +1172,7 @@ describe("media-stream setup outcome scenarios", () => {
       session.destroy();
     });
 
-    test("barge-in is accepted when controller is speaking", () => {
+    test("barge-in is accepted when controller is speaking", async () => {
       // Configure mock to indicate the controller is speaking
       mockHandleBargeIn.mockReturnValue(true);
 
@@ -1146,6 +1188,7 @@ describe("media-stream setup outcome scenarios", () => {
 
       const session = new MediaStreamCallSession(mockWs.ws, "call-bargein-2");
       session.handleMessage(makeStartMessage());
+      await session.whenSetupSettled();
 
       // Simulate inbound speech audio while assistant is speaking.
       // Use a high-amplitude mu-law payload so speech detection triggers.
@@ -1162,7 +1205,7 @@ describe("media-stream setup outcome scenarios", () => {
   // ── E2E regression scenario ──────────────────────────────────────
 
   describe("end-to-end regression: connected call that stays active", () => {
-    test("stream connects, inbound audio starts, call remains active for a turn, controller only destroyed at stop/hangup", () => {
+    test("stream connects, inbound audio starts, call remains active for a turn, controller only destroyed at stop/hangup", async () => {
       const mockWs = createMockWs();
       mockSessions.set("call-e2e-1", {
         id: "call-e2e-1",
@@ -1177,6 +1220,7 @@ describe("media-stream setup outcome scenarios", () => {
 
       // 1. Stream connects — start event arrives
       session.handleMessage(makeStartMessage());
+      await session.whenSetupSettled();
       expect(registerCallController).toHaveBeenCalledWith(
         "call-e2e-1",
         expect.anything(),
@@ -1229,6 +1273,266 @@ describe("media-stream setup outcome scenarios", () => {
       // Now destroy
       session.destroy();
       expect(mockDestroy).toHaveBeenCalled();
+    });
+  });
+
+  // ── Admission floor enforcement on the media-stream transport ────────
+  // The phone channel is no longer exempt from per-channel admission, so the
+  // trust floor must be enforced on this transport too — not just the
+  // gateway's no_one kill switch. handleStart resolves the phone admission
+  // policy and threads it into routeSetup; a floor-denied caller (e.g.
+  // guardian_only vs a trusted_contact) produces a `deny` outcome here, which
+  // speaks a denial + tears down and never starts a normal call.
+
+  describe("admission floor enforcement", () => {
+    test("resolves the phone admission policy and threads it into routeSetup", async () => {
+      mockAdmissionPolicy = "guardian_only";
+
+      const mockWs = createMockWs();
+      mockSessions.set("call-floor-thread-1", {
+        id: "call-floor-thread-1",
+        conversationId: "conv-floor-thread-1",
+        status: "initiated",
+        task: null,
+        startedAt: null,
+        fromNumber: "+14155550000",
+        toNumber: "+15550001111",
+      });
+
+      const session = new MediaStreamCallSession(
+        mockWs.ws,
+        "call-floor-thread-1",
+      );
+      session.handleMessage(makeStartMessage());
+      await session.whenSetupSettled();
+
+      expect(mockGetChannelAdmissionPolicy).toHaveBeenCalledWith("phone");
+      expect(routeSetup).toHaveBeenCalledWith(
+        expect.objectContaining({
+          callSessionId: "call-floor-thread-1",
+          admissionPolicy: "guardian_only",
+        }),
+      );
+    });
+
+    test("guardian_only floor denies a trusted-contact caller — speaks denial, tears down, no controller", async () => {
+      mockAdmissionPolicy = "guardian_only";
+      // With the floor wired, the real router would return `deny` for a
+      // below-floor (trusted_contact) caller; the mock reflects that outcome.
+      mockRouteSetupResult = {
+        outcome: {
+          action: "deny",
+          message:
+            "This number is not authorized to reach the assistant right now.",
+          logReason: "Inbound voice admission floor: guardian_only",
+        },
+        resolved: {
+          assistantId: "self",
+          isInbound: true,
+          otherPartyNumber: "+14155550000",
+          actorTrust: { trustClass: "trusted_contact", memberRecord: null },
+        },
+      };
+
+      const mockWs = createMockWs();
+      mockSessions.set("call-floor-deny-1", {
+        id: "call-floor-deny-1",
+        conversationId: "conv-floor-deny-1",
+        status: "initiated",
+        task: null,
+        startedAt: null,
+        fromNumber: "+14155550000",
+        toNumber: "+15550001111",
+      });
+
+      const session = new MediaStreamCallSession(
+        mockWs.ws,
+        "call-floor-deny-1",
+      );
+      session.handleMessage(makeStartMessage());
+      await session.whenSetupSettled();
+
+      // Policy was passed into routeSetup.
+      expect(routeSetup).toHaveBeenCalledWith(
+        expect.objectContaining({ admissionPolicy: "guardian_only" }),
+      );
+
+      // Denial spoken, session failed, no controller, finalization ran.
+      expect(speakSystemPrompt).toHaveBeenCalledWith(
+        expect.anything(),
+        "This number is not authorized to reach the assistant right now.",
+      );
+      expect(updateCallSession).toHaveBeenCalledWith(
+        "call-floor-deny-1",
+        expect.objectContaining({
+          status: "failed",
+          lastError: "Inbound voice admission floor: guardian_only",
+        }),
+      );
+      expect(registerCallController).not.toHaveBeenCalled();
+      expect(mockStartInitialGreeting).not.toHaveBeenCalled();
+      expect(finalizeCall).toHaveBeenCalledWith(
+        "call-floor-deny-1",
+        "conv-floor-deny-1",
+      );
+    });
+
+    test("null policy (no enforcement) leaves behavior unchanged — normal call proceeds", async () => {
+      mockAdmissionPolicy = null;
+      // routeSetup default is normal_call.
+
+      const mockWs = createMockWs();
+      mockSessions.set("call-floor-null-1", {
+        id: "call-floor-null-1",
+        conversationId: "conv-floor-null-1",
+        status: "initiated",
+        task: null,
+        startedAt: null,
+        fromNumber: "+14155550000",
+        toNumber: "+15550001111",
+      });
+
+      const session = new MediaStreamCallSession(
+        mockWs.ws,
+        "call-floor-null-1",
+      );
+      session.handleMessage(makeStartMessage());
+      await session.whenSetupSettled();
+
+      // Null policy is still threaded through (router skips the floor).
+      expect(routeSetup).toHaveBeenCalledWith(
+        expect.objectContaining({ admissionPolicy: null }),
+      );
+
+      // Normal call proceeds: controller registered + greeting fired.
+      expect(registerCallController).toHaveBeenCalledWith(
+        "call-floor-null-1",
+        expect.anything(),
+      );
+      expect(mockStartInitialGreeting).toHaveBeenCalled();
+    });
+
+    test("a floor-denied caller's transcript is dropped during setup routing", async () => {
+      mockAdmissionPolicy = "guardian_only";
+      mockRouteSetupResult = {
+        outcome: {
+          action: "deny",
+          message:
+            "This number is not authorized to reach the assistant right now.",
+          logReason: "Inbound voice admission floor: guardian_only",
+        },
+        resolved: {
+          assistantId: "self",
+          isInbound: true,
+          otherPartyNumber: "+14155550000",
+          actorTrust: { trustClass: "trusted_contact", memberRecord: null },
+        },
+      };
+
+      const mockWs = createMockWs();
+      mockSessions.set("call-floor-drop-1", {
+        id: "call-floor-drop-1",
+        conversationId: "conv-floor-drop-1",
+        status: "initiated",
+        task: null,
+        startedAt: null,
+        fromNumber: "+14155550000",
+        toNumber: "+15550001111",
+      });
+
+      const session = new MediaStreamCallSession(
+        mockWs.ws,
+        "call-floor-drop-1",
+      );
+      session.handleMessage(makeStartMessage());
+      await session.whenSetupSettled();
+
+      // No controller exists for a denied caller, so even if a transcript
+      // arrived it could never reach handleCallerUtterance / be persisted.
+      expect(registerCallController).not.toHaveBeenCalled();
+      expect(mockHandleCallerUtterance).not.toHaveBeenCalled();
+      // No caller_spoke event recorded for the denied caller.
+      const callerSpoke = mockEvents.filter(
+        (e) =>
+          e.callSessionId === "call-floor-drop-1" &&
+          e.eventType === "caller_spoke",
+      );
+      expect(callerSpoke.length).toBe(0);
+    });
+
+    test("a DTMF digit received during setup routing is dropped", async () => {
+      // Gate the admission read so setupRouting is still true when the DTMF
+      // frame arrives (simulating a digit during the admission IPC read).
+      let releaseGate!: () => void;
+      mockAdmissionGate = new Promise<void>((resolve) => {
+        releaseGate = resolve;
+      });
+
+      const mockWs = createMockWs();
+      mockSessions.set("call-dtmf-drop-1", {
+        id: "call-dtmf-drop-1",
+        conversationId: "conv-dtmf-drop-1",
+        status: "initiated",
+        task: null,
+        startedAt: null,
+        fromNumber: "+14155550000",
+        toNumber: "+15550001111",
+      });
+
+      const session = new MediaStreamCallSession(mockWs.ws, "call-dtmf-drop-1");
+      session.handleMessage(makeStartMessage());
+
+      // DTMF arrives while the admission read is still pending.
+      session.handleMessage(makeDtmfMessage("5"));
+
+      releaseGate();
+      await session.whenSetupSettled();
+
+      // The digit was dropped during setup: no caller_spoke event, no
+      // controller interaction.
+      const callerSpoke = mockEvents.filter(
+        (e) =>
+          e.callSessionId === "call-dtmf-drop-1" &&
+          e.eventType === "caller_spoke",
+      );
+      expect(callerSpoke.length).toBe(0);
+      expect(mockHandleCallerUtterance).not.toHaveBeenCalled();
+    });
+
+    test("session disposed during the admission read aborts setup — no controller, no greeting", async () => {
+      // Gate the admission read so the session can be disposed (as the WS
+      // close handler does) while handleStart is awaiting it.
+      let releaseGate!: () => void;
+      mockAdmissionGate = new Promise<void>((resolve) => {
+        releaseGate = resolve;
+      });
+
+      const mockWs = createMockWs();
+      mockSessions.set("call-disposed-1", {
+        id: "call-disposed-1",
+        conversationId: "conv-disposed-1",
+        status: "initiated",
+        task: null,
+        startedAt: null,
+        fromNumber: "+14155550000",
+        toNumber: "+15550001111",
+      });
+
+      const session = new MediaStreamCallSession(mockWs.ws, "call-disposed-1");
+      session.handleMessage(makeStartMessage());
+
+      // Twilio closes the WebSocket mid-read: the server disposes the session.
+      session.destroy();
+
+      // Now let the admission read resolve and setup routing resume.
+      releaseGate();
+      await session.whenSetupSettled();
+
+      // Setup must have aborted: routeSetup never ran, no controller, no greeting.
+      expect(routeSetup).not.toHaveBeenCalled();
+      expect(registerCallController).not.toHaveBeenCalled();
+      expect(mockStartInitialGreeting).not.toHaveBeenCalled();
+      expect(speakSystemPrompt).not.toHaveBeenCalled();
     });
   });
 });
