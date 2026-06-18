@@ -368,6 +368,15 @@ export function useStreamEventHandler(
         case "subagent_event":
           handleSubagentEvent(event, ctx);
           break;
+        // Workflow run lifecycle (run_workflow orchestration). These carry a
+        // `conversationId` for routing to an inline workflow card; the web
+        // client does not surface workflow runs, so they are no-ops here.
+        case "workflow_started":
+        case "workflow_progress":
+        case "workflow_leaf_started":
+        case "workflow_leaf_finished":
+        case "workflow_completed":
+          break;
         // Cross-domain events handled by bus subscribers mounted in
         // RootLayout (useAssistantResourceSync, useConversationSync,
         // useNotificationIntentSync, useDocumentEditorSync) or
