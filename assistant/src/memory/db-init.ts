@@ -40,6 +40,7 @@ import {
   createSkillLoadedEventsTable,
   createTasksAndWorkItemsTables,
   createWatchersAndLogsTables,
+  dropApprovalPromptTsTrackerTable,
   migrate230AcpSessionHistory,
   migrate231RepairMemoryGraphEventDates,
   migrateA2ATasks,
@@ -527,6 +528,7 @@ export function initializeDb(): void {
     migrateScheduleDefaultNoReuseConversation,
     migrateWorkflowJournalLeafTokens,
     migrateDropExternalUserId,
+    dropApprovalPromptTsTrackerTable,
   ];
 
   // Run each migration step, catching and logging individual failures so one

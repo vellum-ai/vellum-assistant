@@ -937,32 +937,39 @@ export async function handleChannelInbound({
           ? sourceMetadata.messageId
           : undefined;
 
-      const reactionApprovalResult = await handleApprovalInterception({
-        conversationId: result.conversationId,
+      // Route the reaction through the canonical guardian decision pipeline,
+      // exactly like button presses and text replies. The router maps the
+      // emoji to an action and recovers the target request from the reacted
+      // card's delivery record (`reactedMessageTs`), so it disambiguates
+      // precisely even when several cards are pending in the chat.
+      const reactionIntercept = await handleGuardianReplyIntercept({
+        isDuplicate: result.duplicate,
+        trimmedContent: "",
+        hasCallbackData: true,
         callbackData: body.callbackData,
-        content: trimmedContent,
-        conversationExternalId,
+        reactedMessageTs: approvalMessageTs,
+        rawSenderId,
+        canonicalSenderId,
+        canonicalAssistantId,
         sourceChannel,
-        actorExternalId: canonicalSenderId ?? rawSenderId,
+        conversationExternalId,
+        conversationId: result.conversationId,
+        eventId: result.eventId,
         replyCallbackUrl,
-        trustCtx: trustCtxForReaction,
-        assistantId: canonicalAssistantId,
-        approvalCopyGenerator,
+        trustClass: trustCtxForReaction.trustClass,
+        guardianPrincipalId: trustCtxForReaction.guardianPrincipalId,
         approvalConversationGenerator,
-        approvalMessageTs,
       });
 
-      // A real guardian decision was applied — short-circuit and skip the
-      // reaction-persistence path so we do not double-record it as a
-      // transcript line. All other interception outcomes (stale_ignored,
-      // non-guardian, no pending approval) fall through to persistence.
-      if (reactionApprovalResult.type === "guardian_decision_applied") {
-        return {
-          accepted: true,
-          duplicate: false,
-          eventId: result.eventId,
-          approval: reactionApprovalResult.type,
-        };
+      // The reaction was consumed as a guardian decision (applied, or a
+      // surfaced failure such as already-resolved / no-permission delivered as
+      // an ephemeral reply). Short-circuit so we do not also persist it as a
+      // transcript line. Reactions that are NOT approval decisions (unknown
+      // emoji, a non-approval message, or a non-guardian actor) return no
+      // response and fall through to persistence — they must never trigger an
+      // agent turn (JARVIS-734).
+      if (reactionIntercept.response) {
+        return reactionIntercept.response;
       }
     }
 
