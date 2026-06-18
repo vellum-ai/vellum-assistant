@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { ChannelPolicyCard } from "@/components/channel-policy/channel-policy-card";
 import { DetailCard } from "@/components/detail-card";
+import { SettingRow } from "@/components/setting-row";
 import { SystemPermissionsCard } from "@/components/system-permissions-card";
 import { AccessConsentSetting } from "@/domains/settings/components/access-consent-setting";
 import { BiometricSettingsCard } from "@/domains/settings/components/biometric-settings-card";
@@ -17,7 +18,6 @@ import {
 } from "@/utils/device-settings";
 import { savePreferenceToggle } from "@/utils/onboarding-cleanup";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
-import { Toggle } from "@vellumai/design-library/components/toggle";
 
 const RETENTION_OPTIONS: { value: string; label: string }[] = [
   { value: "dontRetain", label: "Don't retain" },
@@ -30,32 +30,6 @@ const RETENTION_OPTIONS: { value: string; label: string }[] = [
 ];
 
 const DEFAULT_RETENTION_ID = "thirtyDays";
-
-function SettingRow({
-  label,
-  helperText,
-  checked,
-  onChange,
-}: {
-  label: string;
-  helperText: string;
-  checked: boolean;
-  onChange: () => void;
-}) {
-  return (
-    <div className="flex items-start justify-between gap-4">
-      <div className="flex-1">
-        <div className="text-body-medium-default text-[var(--content-default)]">
-          {label}
-        </div>
-        <p className="mt-1 text-body-small-default text-[var(--content-tertiary)]">
-          {helperText}
-        </p>
-      </div>
-      <Toggle checked={checked} onChange={onChange} label={label} />
-    </div>
-  );
-}
 
 function Divider() {
   return (
@@ -111,6 +85,7 @@ export function PrivacyPage() {
             helperText="Send anonymous product usage data. Your conversations and personal data are never included."
             checked={shareAnalytics}
             onChange={handleAnalyticsToggle}
+            variant="toggle-trailing"
           />
           <Divider />
           <SettingRow
@@ -118,6 +93,7 @@ export function PrivacyPage() {
             helperText="Send crash reports and performance metrics. Your conversations and personal data are never included."
             checked={shareDiagnostics}
             onChange={handleDiagnosticsToggle}
+            variant="toggle-trailing"
           />
           <Divider />
           <AccessConsentSetting />
