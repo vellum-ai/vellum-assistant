@@ -18,6 +18,7 @@ import {
 } from "bun:test";
 
 import { installMemoryStorage } from "@/utils/memory-storage.test-helper";
+import type { ConsentPatch } from "@/domains/account/profile";
 
 installMemoryStorage({ beforeAll, afterAll, beforeEach, afterEach });
 
@@ -40,7 +41,7 @@ mock.module("@/stores/auth-store", () => ({
 
 // `onboarding-cleanup` only needs `patchConsent`; the real `profile` module
 // pulls in the generated API client (unavailable in unit tests), so stub it.
-const patchConsentMock = mock(async () => {});
+const patchConsentMock = mock(async (_consent: ConsentPatch) => {});
 mock.module("@/domains/account/profile", () => ({
   patchConsent: patchConsentMock,
 }));
