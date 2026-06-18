@@ -1,7 +1,10 @@
+import { isAdmissionPolicyExemptChannel } from "@vellumai/gateway-client";
 import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { GatewayConfig } from "../../config.js";
 import { credentialKey } from "../../credential-key.js";
+import { isFeatureFlagEnabled } from "../../feature-flag-resolver.js";
 import { getLogger } from "../../logger.js";
+import { getAdmissionPolicyCache } from "../../risk/admission-policy-cache.js";
 import {
   CircuitBreakerOpenError,
   forwardTwilioVoiceWebhook,
@@ -59,6 +62,25 @@ export function createTwilioVoiceWebhookHandler(
     let assistantId: string | undefined;
 
     if (!hasCallSessionId) {
+      // `no_one` kill switch — mirrors handle-inbound.ts. Only inbound is
+      // gated; outbound assistant-initiated calls are never kill-switched.
+      // No-op while `phone` stays in the admission exempt set (removed in PR 6).
+      const phonePolicy =
+        !isFeatureFlagEnabled("channel-trust-floors") ||
+        isAdmissionPolicyExemptChannel("phone")
+          ? null
+          : getAdmissionPolicyCache().get("phone");
+      if (phonePolicy === "no_one") {
+        log.info(
+          { callSid: params.CallSid, from: params.From, to: params.To },
+          "Inbound voice call hard-denied by admission policy 'no_one'",
+        );
+        return new Response(REJECT_TWIML, {
+          status: 200,
+          headers: TWIML_HEADERS,
+        });
+      }
+
       const phoneRouting = params.To
         ? resolveAssistantByPhoneNumber(config, params.To, caches?.configFile)
         : undefined;
