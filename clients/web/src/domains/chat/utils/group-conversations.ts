@@ -82,22 +82,42 @@ function parseLastMessageAt(conversation: Conversation): number {
 }
 
 /**
+ * Stable fallback order for pinned / custom-group rows that have no
+ * server-assigned `displayOrder`, and the tie-breaker when two rows share a
+ * `displayOrder`.
+ *
+ * Keyed on the immutable `createdAt` (newest-created first) — deliberately NOT
+ * `lastMessageAt`. Pinning sends no `displayOrder` (the daemon stores it as
+ * NULL until the user drag-reorders), so without this every pinned row would
+ * sort by recency and jump to the top whenever a new message landed in it.
+ * Pinned rows should hold their position regardless of activity, so we sort by
+ * creation time, which never changes. `conversationId` is the final
+ * tie-breaker so the order stays fully deterministic when `createdAt` is equal
+ * or missing.
+ */
+function compareByCreatedAt(a: Conversation, b: Conversation): number {
+  const byCreated = (b.createdAt ?? 0) - (a.createdAt ?? 0);
+  if (byCreated !== 0) return byCreated;
+  return a.conversationId.localeCompare(b.conversationId);
+}
+
+/**
  * Comparator for buckets where the user can manually drag-reorder rows
  * (pinned, custom groups). Conversations with a server-provided
  * `displayOrder` come first in ascending order; ties and rows without
- * `displayOrder` fall back to `lastMessageAt` newest-first so freshly-pinned
- * conversations land near the top until the server assigns them an order.
+ * `displayOrder` fall back to a stable creation-time order so pinned rows
+ * never reshuffle when activity arrives (see {@link compareByCreatedAt}).
  */
 function compareByDisplayOrder(a: Conversation, b: Conversation): number {
   const aOrder = a.displayOrder;
   const bOrder = b.displayOrder;
   if (aOrder != null && bOrder != null) {
     if (aOrder !== bOrder) return aOrder - bOrder;
-    return parseLastMessageAt(b) - parseLastMessageAt(a);
+    return compareByCreatedAt(a, b);
   }
   if (aOrder != null) return -1;
   if (bOrder != null) return 1;
-  return parseLastMessageAt(b) - parseLastMessageAt(a);
+  return compareByCreatedAt(a, b);
 }
 
 /**
