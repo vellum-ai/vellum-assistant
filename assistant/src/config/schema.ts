@@ -146,6 +146,12 @@ export const AssistantConfigSchema = z
       .describe(
         "Fail-closed telemetry marker: set for a workspace that had an explicit local usage-data opt-out before telemetry moved to platform share_analytics consent. While set, usage telemetry stays disabled regardless of platform consent.",
       ),
+    legacyDiagnosticsOptOut: z
+      .boolean()
+      .optional()
+      .describe(
+        "Fail-closed diagnostics marker: set for a workspace that had an explicit local sendDiagnostics opt-out before crash reporting moved to platform share_diagnostics consent. While set, Sentry stays disabled regardless of platform consent.",
+      ),
     maxStepsPerSession: z
       .number({ error: "maxStepsPerSession must be a number" })
       .int("maxStepsPerSession must be an integer")
