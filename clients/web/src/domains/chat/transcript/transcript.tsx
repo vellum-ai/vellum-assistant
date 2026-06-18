@@ -88,6 +88,11 @@ export interface TranscriptProps {
   onSubagentClick?: (subagentId: string) => void;
   /** Callback to abort/stop a running subagent from an inline card. */
   onStopSubagent?: (subagentId: string) => void;
+  /** Click handler when the user opens the workflow detail panel from an
+   *  inline workflow run card. */
+  onWorkflowClick?: (runId: string) => void;
+  /** Callback to abort/stop a running workflow from an inline card. */
+  onStopWorkflow?: (runId: string) => void;
   /** Optional render-prop that produces the chat avatar element to mount
    *  at the bottom of the conversation. Rendered inside the latest-edge
    *  region so the avatar pins to the bottom of the viewport while the
