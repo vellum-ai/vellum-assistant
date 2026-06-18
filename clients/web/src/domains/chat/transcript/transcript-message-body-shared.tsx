@@ -1,4 +1,7 @@
-import { isSubagentSpawnCall } from "@/domains/chat/transcript/message-content";
+import {
+  isRunWorkflowCall,
+  isSubagentSpawnCall,
+} from "@/domains/chat/transcript/message-content";
 import {
   EMPTY_SUBAGENT_ENTRIES,
   type SubagentEntry,
@@ -62,6 +65,11 @@ export interface TranscriptMessageBodyProps {
   onSubagentClick?: (subagentId: string) => void;
   /** Callback to abort/stop a running subagent from an inline card. */
   onStopSubagent?: (subagentId: string) => void;
+  /** Click handler when the user clicks a workflow's open button on an inline
+   *  workflow progress card. */
+  onWorkflowClick?: (runId: string) => void;
+  /** Callback to abort/stop a running workflow from an inline card. */
+  onStopWorkflow?: (runId: string) => void;
   /**
    * True when this message belongs to the turn that is actively streaming.
    * Set by `LatestTurnRow` for the in-progress response cluster; history
@@ -168,6 +176,62 @@ export function resolveSpawnedSubagentIds(
     if (next) {
       ids.push(next.subagentId);
       claimed.add(next.subagentId);
+    }
+  }
+
+  return ids;
+}
+
+/**
+ * Extract the launched `runId` from a `run_workflow` tool call's result. The
+ * daemon's workflow tool returns `JSON.stringify({ runId, status, message })`.
+ * Returns `null` when the result hasn't landed yet or the payload is malformed
+ * — callers fall back to the `byToolUseId` anchor so `running` workflows still
+ * render an inline card.
+ */
+function extractRunIdFromResult(toolCall: ChatMessageToolCall): string | null {
+  if (!isRunWorkflowCall(toolCall)) return null;
+  if (typeof toolCall.result !== "string" || !toolCall.result) return null;
+  try {
+    const parsed = JSON.parse(toolCall.result) as { runId?: unknown };
+    return typeof parsed.runId === "string" ? parsed.runId : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the launched `runId` for each `run_workflow` tool call in
+ * `toolCalls`. Resolution priority per tool call:
+ *
+ *  1. `byToolUseId.get(tc.id)` — the deterministic, reconcile-proof anchor
+ *     carried on the `workflow_started` event.
+ *  2. The id encoded in `toolCall.result` — present once the workflow tool
+ *     result has landed.
+ *
+ * The caller owns the `claimed` Set so it persists across every invocation
+ * within a single message, stopping two non-consecutive launch tool-call
+ * groups from both anchoring the same run id.
+ */
+export function resolveWorkflowRunIds(
+  toolCalls: ChatMessageToolCall[],
+  byToolUseId: Map<string, string>,
+  claimed: Set<string>,
+): string[] {
+  const ids: string[] = [];
+
+  for (const tc of toolCalls) {
+    if (!isRunWorkflowCall(tc)) continue;
+    const byId = byToolUseId.get(tc.id);
+    if (byId && !claimed.has(byId)) {
+      ids.push(byId);
+      claimed.add(byId);
+      continue;
+    }
+    const fromResult = extractRunIdFromResult(tc);
+    if (fromResult && !claimed.has(fromResult)) {
+      ids.push(fromResult);
+      claimed.add(fromResult);
     }
   }
 

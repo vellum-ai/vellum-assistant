@@ -64,6 +64,11 @@ export interface TranscriptRowProps {
   onSubagentClick?: (subagentId: string) => void;
   /** Callback to abort/stop a running subagent from an inline card. */
   onStopSubagent?: (subagentId: string) => void;
+  /** Click handler when the user clicks the open button on an inline workflow
+   *  progress card. */
+  onWorkflowClick?: (runId: string) => void;
+  /** Callback to abort/stop a running workflow from an inline card. */
+  onStopWorkflow?: (runId: string) => void;
   /** True when this row belongs to the actively-streaming turn. Forwarded to
    *  `TranscriptMessageBody` so the streaming message's last tool-call group
    *  defaults open. History rows leave it `false`. */
@@ -88,6 +93,8 @@ export const TranscriptRow = memo(function TranscriptRow({
   assistantId,
   onSubagentClick,
   onStopSubagent,
+  onWorkflowClick,
+  onStopWorkflow,
   isStreaming,
 }: TranscriptRowProps) {
   switch (item.kind) {
@@ -110,6 +117,8 @@ export const TranscriptRow = memo(function TranscriptRow({
           assistantId={assistantId}
           onSubagentClick={onSubagentClick}
           onStopSubagent={onStopSubagent}
+          onWorkflowClick={onWorkflowClick}
+          onStopWorkflow={onStopWorkflow}
           isStreaming={isStreaming}
         />
       );
