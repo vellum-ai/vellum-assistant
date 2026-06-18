@@ -57,6 +57,16 @@ export function buildNavigationState(
     isGatewayAuth: isGatewayAuthMode(),
     hasAssistants: useResolvedAssistantsStore.getState().assistants.length > 0,
     sessionSettled: isSessionSettled(sessionStatus),
+    // Route admission ORs in app access, but in-app auth consumers (the
+    // QueryClient cache scope in providers.tsx, gated UI like PreferencesMenu)
+    // read `useIsAuthenticated()` directly. These never disagree: a reachable
+    // session is always `sessionStatus: "authenticated"` — the gateway is the
+    // sole authority for a local session, and a platform user without a session
+    // has `canReachSelected === false`. So `canAccessApp` implies authenticated
+    // today; the OR is a forward-looking guard. If local sessions ever stop
+    // being authenticated (the `user: null` follow-up), those in-app consumers
+    // must move onto app access too — otherwise an admitted user falls into the
+    // anonymous cache scope with gated UI hidden.
     isAuthenticated: isAuthenticated(sessionStatus) || canAccessApp,
     platformSession,
     tosAccepted: readTosAccepted(),
