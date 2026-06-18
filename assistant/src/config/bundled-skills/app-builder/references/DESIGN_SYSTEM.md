@@ -40,4 +40,4 @@ When the user wants a specific branded look, write complete CSS with hardcoded c
 
 ## Theme and dark mode
 
-The `--v-*` tokens switch between light and dark automatically, so token-based UI needs no dark-mode code. For custom (non-token) colors that must follow the theme, use `@media (prefers-color-scheme: dark)` in CSS. There is **no `window.vellum.theme` JS API** and no `vellum-theme-change` event — don't read or listen for them.
+The `--v-*` tokens switch between light and dark automatically, so token-based UI needs no dark-mode code. For custom (non-token) colors that must follow the theme, use `@media (prefers-color-scheme: dark)` in CSS.

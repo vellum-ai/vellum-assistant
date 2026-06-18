@@ -86,7 +86,7 @@ Every app works phone (~360px) to desktop (~1400px+). The `<turn_context>` block
 
 Full detail when reachable: `{baseDir}/references/RESPONSIVE.md`.
 
-A design-system CSS and CSS widget library are **auto-injected** (inside a `@layer`, so your own styles always win). Use the `--v-*` variables and `.v-*` classes below — they switch light/dark automatically, no manual dark-mode CSS needed. Charts have **no auto-injected helper** — bundle `chart.js` (an allowed package) for real charts, or hand-write inline SVG / CSS bars for tiny sparklines. Size them to the container so they can't overflow.
+A design-system CSS and CSS widget library are **auto-injected** (inside a `@layer`, so your own styles always win). Use the `--v-*` variables and `.v-*` classes below — they switch light/dark automatically, no manual dark-mode CSS needed. For charts, bundle `chart.js` (an allowed package), or hand-write inline SVG / CSS bars for tiny sparklines — sized to the container so they can't overflow.
 
 **Design tokens** (use these, don't invent hex values):
 
@@ -106,7 +106,7 @@ A design-system CSS and CSS widget library are **auto-injected** (inside a `@lay
 
 **Utility classes:** `.v-button` (`.secondary`/`.danger`/`.ghost`), `.v-card`, `.v-list`/`.v-list-item`, `.v-badge` (`.success`/`.warning`/`.danger`), `.v-input-row`, `.v-empty-state`, `.v-toggle`.
 
-**Theme:** the `--v-*` tokens switch light/dark on their own. For custom (non-token) colors that must follow the theme, use `@media (prefers-color-scheme: dark)` in CSS — there is no `window.vellum.theme` JS API.
+**Theme:** the `--v-*` tokens switch light/dark on their own. For custom (non-token) colors that must follow the theme, use `@media (prefers-color-scheme: dark)` in CSS.
 
 For a **custom branded look**, write complete CSS with hardcoded colors + `@media (prefers-color-scheme: dark)` — don't mix `--v-*` auto-switching vars with hardcoded colors in the same element.
 
@@ -118,7 +118,7 @@ Full detail when reachable: `{baseDir}/references/DESIGN_SYSTEM.md`. Note: in lo
 
 CSS classes for standard patterns: `.v-metric-card`/`.v-metric-grid` (big-number stats), `.v-data-table` (sortable, sticky header, `th[data-sortable]`), `.v-tabs`, `.v-accordion`, `.v-search-bar`, `.v-timeline`, `.v-action-list` (rows with per-item actions), `.v-card-grid`, `.v-progress-bar`, `.v-status-badge` (`.success`/`.error`/`.warning`/`.info`), `.v-stat-row`/`.v-stat`, `.v-tag-group`, `.v-avatar-row`. Landing-page components: `.v-hero`/`.v-hero-badge`/`.v-hero-subtitle`, `.v-section-header`/`.v-section-label`, `.v-feature-grid`/`.v-feature-card`, `.v-pullquote`, `.v-comparison` (`.before`/`.after`), `.v-page`, `.v-gradient-text`, `.v-animate-in`. Domain widgets: `.v-weather-card`, `.v-stock-ticker`, `.v-receipt`, `.v-invoice`, `.v-itinerary`, `.v-boarding-pass`.
 
-There is **no `window.vellum.widgets.*` JS runtime** — those chart/format/behavior helpers are not injected and throw if called. Use the web-era equivalents: charts → the bundleable `chart.js` (or inline SVG for tiny sparklines); formatting → `Intl.NumberFormat` / `Intl.DateTimeFormat`; table sort/filter, tabs, accordions, toasts, countdowns → plain JS wired to the `.v-*` markup.
+Interactive behavior is your own JS: charts → the bundleable `chart.js` (or inline SVG for tiny sparklines); formatting → `Intl.NumberFormat` / `Intl.DateTimeFormat`; table sort/filter, tabs, accordions, toasts, countdowns → plain JS wired to the `.v-*` markup.
 
 Use custom HTML for novel/creative UIs (games, art tools); the `.v-*` classes for standard patterns; mix freely. Full list: `{baseDir}/references/WIDGETS.md`.
 
@@ -289,21 +289,21 @@ export async function POST(req: Request): Promise<Response> {
 
 The optional `context` arg exposes daemon singletons — e.g. `context.assistantEventHub.publish({...})` to push real-time events to connected clients (UI updates, navigation, notifications). It's immutable. Full guide + copyable examples (Focus Timer, Habit Tracker, Expense Tracker): `{baseDir}/references/CUSTOM_ROUTES.md`, `{baseDir}/references/examples/`.
 
-**Persistence options:** `localStorage` for ephemeral UI state (filters, view modes, drafts); custom routes for persistent records and server-side logic. (`window.vellum.data.*` is deprecated — only for editing pre-existing legacy apps.)
+**Persistence options:** `localStorage` for ephemeral UI state (filters, view modes, drafts); custom routes for persistent records and server-side logic.
 
 ---
 
 ## Interaction standards
 
-- **Feedback for every action** — a toast or inline confirmation after creates, deletes, updates, errors. Build your own (e.g. toggle the `.v-toast` class with JS); there's no `vellum.widgets.toast()`.
-- **Confirm destructive actions** — render your own confirmation (an inline "Are you sure?" or a modal) before deleting or resetting; there's no `window.vellum.confirm()`.
+- **Feedback for every action** — a toast or inline confirmation after creates, deletes, updates, errors. Build your own (e.g. toggle the `.v-toast` class with JS).
+- **Confirm destructive actions** — render your own confirmation (an inline "Are you sure?" or a modal) before deleting or resetting.
 - **Validate forms** before submit, show errors inline, disable submit during async.
 - **Loading states** — skeleton or spinner, never a blank screen.
 - **Designed empty states** — `.v-empty-state` when there's no data.
 
 ### Keep the assistant aware
 
-Wire `window.vellum.sendAction()` during the build so the app can pull the assistant in. The host handles two actions: **`relay_prompt`** (`{ prompt, conversation }`) sends a message to the assistant as if the user typed it — the way to get an explanation, summary, or follow-up from inside the app (`conversation: "new"` starts a fresh chat instead of the open one); **`set_view`** (`{ view }`) arranges the app and chat (`"split"` / `"full"` / `"chat"`). Nothing else is routed from an opened app, so relay anything you want the assistant to act on as a self-contained prompt. Patterns in `{baseDir}/references/INTERACTION_HOOKS.md`.
+Wire `window.vellum.sendAction()` during the build so the app can pull the assistant in. The host handles two actions: **`relay_prompt`** (`{ prompt, conversation }`) sends a message to the assistant as if the user typed it — the way to get an explanation, summary, or follow-up from inside the app (`conversation: "new"` starts a fresh chat instead of the open one); **`set_view`** (`{ view }`) arranges the app and chat (`"split"` / `"full"` / `"chat"`). These two are the whole app→host surface — relay anything you want the assistant to act on as a self-contained prompt. Patterns in `{baseDir}/references/INTERACTION_HOOKS.md`.
 
 ### Actionable UI
 

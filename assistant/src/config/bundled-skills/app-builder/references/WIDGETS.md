@@ -1,6 +1,6 @@
 # Widget Component Library
 
-A CSS widget library is auto-injected alongside the design system — the `.v-*` classes below. Use these for standard UI patterns; skip them when custom HTML serves the user better. (The JavaScript helpers historically listed here are **not currently available** — see the section below.)
+A CSS widget library is auto-injected alongside the design system — the `.v-*` classes below. Use these for standard UI patterns; skip them when custom HTML serves the user better. The classes are styling only; wire any interactive behavior with your own JS (see below).
 
 ## Layout widgets
 
@@ -48,16 +48,17 @@ A CSS widget library is auto-injected alongside the design system — the `.v-*`
 | `.v-gradient-text`                               | Accent-colored gradient text                           |
 | `.v-animate-in`                                  | Staggered fade-in for children                         |
 
-## JavaScript utilities — NOT currently available
+## Interactive behavior — your own JS
 
-> ⚠️ **`window.vellum.widgets.*` is not injected today. Do not call it — these functions are `undefined` at runtime and will throw.** The same applies to `window.vellum.confirm`, `window.vellum.openLink`, and `window.vellum.theme`. The only `window.vellum` APIs that exist are `sendAction`, `fetch`, and `route` (see [`INTERACTION_HOOKS.md`](./INTERACTION_HOOKS.md)).
->
-> Until a JS runtime ships, build these by hand:
-> - **Charts** → the bundleable `chart.js` for real charts, or hand-written inline SVG / CSS bars for tiny sparklines, sized to the container to avoid overflow.
-> - **Notifications** → the `.v-toast` class, toggled with your own JS.
-> - **Table sort/filter, tabs, accordions, countdowns** → plain JS event handlers.
-> - **Formatting** → `Intl.NumberFormat` / `Intl.DateTimeFormat`.
-> - **Theme** → `@media (prefers-color-scheme: dark)` in CSS (don't read `window.vellum.theme`).
+The `.v-*` classes are styling only. Wire behavior with standard web tools:
+
+- **Charts** → the bundleable `chart.js`, or hand-written inline SVG / CSS bars for tiny sparklines, sized to the container to avoid overflow.
+- **Notifications** → toggle the `.v-toast` class with your own JS.
+- **Table sort/filter, tabs, accordions, countdowns** → plain JS event handlers.
+- **Formatting** → `Intl.NumberFormat` / `Intl.DateTimeFormat`.
+- **Theme** → `@media (prefers-color-scheme: dark)` in CSS.
+
+The complete in-app JS API is `window.vellum.sendAction`, `window.vellum.fetch`, and `window.vellum.route` (see [`INTERACTION_HOOKS.md`](./INTERACTION_HOOKS.md)).
 
 ## When to use the CSS widgets vs custom HTML
 

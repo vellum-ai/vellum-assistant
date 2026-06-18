@@ -1,17 +1,15 @@
 # App Interaction Hooks
 
-A sandboxed app talks to the assistant and arranges itself on screen through
-`window.vellum.sendAction(actionId, data)`. The app host handles **two**
+A sandboxed app drives the assistant and its own on-screen layout through
+`window.vellum.sendAction(actionId, data)`. The host acts on exactly two
 actions — `relay_prompt` and `set_view`. Wire them during the build so the
-app can pull the assistant in and control the layout. (Other action ids are
-not routed from an opened app — see "What is NOT delivered" below.)
+app can pull the assistant in and arrange itself.
 
 ## `relay_prompt` — send a message to the assistant
 
 Sends `prompt` into the conversation as if the user typed it; the assistant
-then responds in chat. This is **the** channel for involving the assistant
-from an app — there is no separate structured-event or silent-state channel,
-so phrase the intent as natural language.
+then responds in chat. This is the channel for involving the assistant from an
+app, so phrase the intent as natural language.
 
 ```javascript
 // A button in a dashboard: "Explain this anomaly"
@@ -76,12 +74,3 @@ Most apps never need this — the user controls the layout from the app's nav
 bar. Reach for it only when an in-app action implies a layout change (e.g. a
 "Discuss with assistant" button that opens `split` so the reply lands beside
 the app).
-
-## What is NOT delivered
-
-Only `relay_prompt` and `set_view` reach the host from an opened app. Custom
-event names (`city_selected`, `form_submitted`, …) and silent `state_update`
-pings are **dropped** — there is no background "the assistant quietly
-observes the app" channel today. If you want the assistant to know or do
-something, relay it as a prompt. Don't wire hooks that depend on a response
-that will never come.
