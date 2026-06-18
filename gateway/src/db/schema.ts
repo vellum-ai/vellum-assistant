@@ -127,7 +127,6 @@ export const contactChannels = sqliteTable(
     isPrimary: integer("is_primary", { mode: "boolean" })
       .notNull()
       .default(false),
-    externalUserId: text("external_user_id"),
     externalChatId: text("external_chat_id"),
     status: text("status").notNull().default("unverified"),
     policy: text("policy").notNull().default("allow"),
@@ -286,6 +285,27 @@ export const trustRules = sqliteTable(
   (table) => [
     uniqueIndex("idx_trust_rules_tool_pattern").on(table.tool, table.pattern),
   ],
+);
+
+// ---------------------------------------------------------------------------
+// Channel admission policy (per channel type)
+// ---------------------------------------------------------------------------
+
+export const channelAdmissionPolicy = sqliteTable(
+  "channel_admission_policy",
+  {
+    // Channel TYPE — matches `ChannelId` in gateway/src/channels/types.ts.
+    // Stored as text rather than an enum because SQLite has no enum type;
+    // the app layer validates against CHANNEL_IDS at write time.
+    channelType: text("channel_type").primaryKey(),
+    // One of: 'no_one' | 'guardian_only' | 'trusted_contacts' |
+    //         'any_contact' | 'strangers'. Read-side default lives in the
+    //         store (ADMISSION_POLICY_DEFAULT) — absent rows resolve to it.
+    policy: text("policy").notNull().default("trusted_contacts"),
+    // Optional human note (e.g. "switched to no_one because <reason>").
+    note: text("note"),
+    updatedAt: integer("updated_at").notNull(),
+  },
 );
 
 // ---------------------------------------------------------------------------

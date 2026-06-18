@@ -213,11 +213,13 @@ mock.module("@/lib/local-mode", () => ({
   hasAssistants: () => false,
   getPlatformAssistants: () => [],
   getPlatformRuntimeUrl: () => "https://platform.vellum.ai",
+  getActiveAssistant: () => null,
   getSelectedAssistant: () => undefined,
   loadLockfile: async () => ({ assistants: [], activeAssistant: null }),
   setActiveLockfileAssistant: async () => {},
   saveLockfileAssistant: async () => {},
   primeLocalGatewayConnection: async () => {},
+  primeLocalGatewayConnectionWithRepair: async () => {},
   getLocalGatewayUrl: () => localGatewayUrlValue,
 }));
 

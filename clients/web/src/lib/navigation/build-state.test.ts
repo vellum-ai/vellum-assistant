@@ -37,6 +37,8 @@ mock.module("@/lib/auth/gateway-session", () => ({
 mock.module("@/domains/onboarding/prefs", () => ({
   readTosAccepted: () => true,
   readAiDataConsent: () => true,
+  readAnalyticsConsentCurrent: () => true,
+  readDiagnosticsConsentCurrent: () => true,
 }));
 
 const { buildNavigationState } = await import("./build-state");

@@ -21,6 +21,7 @@ import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
+import { resolveCapabilities } from "./capabilities.js";
 import { getGuardianBinding } from "./channel-verification-service.js";
 
 const log = getLogger("confirmation-request-guardian-bridge");
@@ -47,7 +48,7 @@ export type BridgeConfirmationRequestResult =
   | {
       skipped: true;
       reason:
-        | "not_trusted_contact"
+        | "not_bridgeable_trust_class"
         | "no_guardian_binding"
         | "missing_guardian_identity"
         | "binding_identity_mismatch";
@@ -58,11 +59,13 @@ export type BridgeConfirmationRequestResult =
 // ---------------------------------------------------------------------------
 
 /**
- * Bridge a trusted-contact confirmation_request to a guardian.question notification.
+ * Bridge a non-guardian contact confirmation_request to a guardian.question
+ * notification.
  *
- * Only emits when the session belongs to a trusted-contact actor with a
- * resolvable guardian binding. Guardian and unknown actors are skipped — guardians
- * self-approve, and unknown actors are already fail-closed by the routing layer.
+ * Only emits when the session belongs to a trusted_contact or unverified_contact
+ * actor with a resolvable guardian binding. Guardian and unknown actors are
+ * skipped — guardians self-approve, and unknown actors are already fail-closed
+ * by the routing layer.
  *
  * Fire-and-forget safe: notification emission errors are logged but not propagated.
  */
@@ -77,10 +80,14 @@ export function bridgeConfirmationRequestToGuardian(
     assistantId = DAEMON_INTERNAL_ASSISTANT_ID,
   } = params;
 
-  // Only bridge for trusted-contact sessions. Guardians self-approve and
-  // unknown actors are fail-closed by the routing layer.
-  if (trustContext.trustClass !== "trusted_contact") {
-    return { skipped: true, reason: "not_trusted_contact" };
+  // Only bridge for actors whose sensitive tool approval escalates-and-waits.
+  // Guardians self-approve and unknown actors are fail-closed by the routing
+  // layer, so neither needs a guardian bridge.
+  if (
+    resolveCapabilities(trustContext.trustClass).sensitiveToolApproval !==
+    "escalate-and-wait"
+  ) {
+    return { skipped: true, reason: "not_bridgeable_trust_class" };
   }
 
   if (!trustContext.guardianExternalUserId) {

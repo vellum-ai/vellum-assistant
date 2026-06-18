@@ -564,7 +564,7 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
 
     expect("skipped" in result && result.skipped).toBe(true);
     if ("skipped" in result) {
-      expect(result.reason).toBe("not_trusted_contact");
+      expect(result.reason).toBe("not_bridgeable_trust_class");
     }
   });
 });

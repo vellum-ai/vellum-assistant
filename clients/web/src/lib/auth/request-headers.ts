@@ -27,6 +27,11 @@ import { isElectron } from "@/runtime/is-electron";
 import { getElectronSessionToken } from "@/runtime/session-token";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
 
+interface BuildVellumHeadersOptions {
+  includeSelfHostedActorToken?: boolean;
+  organizationId?: string;
+}
+
 /**
  * Headers for a safe (GET/HEAD) request against an assistant-scoped
  * daemon route. Adds `Vellum-Organization-Id` when an active
@@ -34,14 +39,19 @@ import { getActiveOrganizationIdForRequests } from "@/stores/organization-store"
  */
 export function buildVellumHeaders(
   extra?: Record<string, string>,
+  options: BuildVellumHeadersOptions = {},
 ): Record<string, string> {
   const headers: Record<string, string> = { ...(extra ?? {}) };
-  const selfHostedToken = getSelfHostedActorToken();
+  const selfHostedToken =
+    options.includeSelfHostedActorToken === false
+      ? null
+      : getSelfHostedActorToken();
   if (selfHostedToken) {
     headers["Authorization"] = `Bearer ${selfHostedToken}`;
     return headers;
   }
-  const organizationId = getActiveOrganizationIdForRequests();
+  const organizationId =
+    options.organizationId ?? getActiveOrganizationIdForRequests();
   if (organizationId) {
     headers["Vellum-Organization-Id"] = organizationId;
   }
@@ -60,8 +70,9 @@ export function buildVellumHeaders(
  */
 export async function buildVellumMutatingHeaders(
   extra?: Record<string, string>,
+  options: BuildVellumHeadersOptions = {},
 ): Promise<Record<string, string>> {
-  const headers = buildVellumHeaders(extra);
+  const headers = buildVellumHeaders(extra, options);
   if (headers["Authorization"]) return headers;
   // Electron authenticates via a token header - no CSRF needed.
   if (isElectron()) return headers;

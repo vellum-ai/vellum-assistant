@@ -1,7 +1,7 @@
 import { and, asc, eq, gt, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getConfig } from "../config/loader.js";
+import { getCachedShareAnalytics } from "../platform/consent-cache.js";
 import {
   ACTIVATION_AB_VARIANT,
   ACTIVATION_FUNNEL_VERSION,
@@ -58,7 +58,7 @@ function insertOnboardingEvent(event: OnboardingEvent): OnboardingEvent {
 export function recordOnboardingEvent(
   params: RecordOnboardingEventParams,
 ): OnboardingEvent | null {
-  if (!getConfig().collectUsageData) return null;
+  if (!getCachedShareAnalytics()) return null;
   return insertOnboardingEvent({
     id: uuid(),
     createdAt: Date.now(),
@@ -93,7 +93,7 @@ export function recordActivationEvent(params: {
   userId?: string | null;
   abVariant?: string;
 }): OnboardingEvent | null {
-  if (!getConfig().collectUsageData) return null;
+  if (!getCachedShareAnalytics()) return null;
   const createdAt = Date.now();
   return insertOnboardingEvent({
     id: uuid(),

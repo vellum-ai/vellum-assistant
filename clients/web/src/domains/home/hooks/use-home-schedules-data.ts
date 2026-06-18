@@ -20,6 +20,8 @@ import { toast } from "@vellumai/design-library/components/toast";
 export interface HomeSchedulesData {
   recurring: Schedule[];
   oneTime: Schedule[];
+  /** One-shot schedules that have already fired (or been cancelled). */
+  pastOneTime: Schedule[];
   usageForSchedule: (id: string) => ScheduleRowUsage;
   handleToggle: (id: string, enabled: boolean) => Promise<void>;
   isLoading: boolean;
@@ -58,11 +60,12 @@ export function useHomeSchedulesData(
     isError: isUsageSummaryError,
   } = useQuery(scheduleUsageSummaryQueryOptions(assistantId, tz, true));
 
-  const { recurring, oneTime } = useMemo(() => {
+  const { recurring, oneTime, pastOneTime } = useMemo(() => {
     const grouped = groupSchedules(schedules ?? [], now);
     return {
       recurring: grouped.recurring,
-      oneTime: [...grouped.upcomingOneTime, ...grouped.pastOneTime],
+      oneTime: grouped.upcomingOneTime,
+      pastOneTime: grouped.pastOneTime,
     };
   }, [now, schedules]);
 
@@ -108,6 +111,7 @@ export function useHomeSchedulesData(
   return {
     recurring,
     oneTime,
+    pastOneTime,
     usageForSchedule,
     handleToggle,
     isLoading,

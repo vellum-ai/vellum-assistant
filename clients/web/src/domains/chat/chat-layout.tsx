@@ -34,7 +34,7 @@ import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
 import {
     navigateToConversation,
     navigateToNewConversation,
-} from "@/domains/chat/utils/conversation-navigation";
+} from "@/utils/conversation-navigation";
 import { haptic } from "@/utils/haptics";
 
 import {
@@ -46,7 +46,6 @@ import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { openPopoutWindow } from "@/runtime/popout-window";
 import { useVellumCommands } from "@/runtime/vellum-commands";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useOnboardingFocusStore } from "@/stores/onboarding-focus-store";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -60,6 +59,7 @@ import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useCommandPaletteOrchestrator } from "@/domains/chat/hooks/use-command-palette-orchestrator";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { ResearchResultsOverlay } from "@/domains/chat/onboarding-research/research-results-overlay";
+import { OnboardingCheckinOverlay } from "@/components/onboarding-checkin-overlay";
 import { ChatConversationHeader } from "./chat-conversation-header";
 import { ChatLayoutHeader } from "./chat-layout-header";
 import { RenameDialogFromStore } from "./rename-dialog-from-store";
@@ -137,14 +137,13 @@ export function ChatLayout() {
   // chat-layout child route (home, library, contacts, identity, chat)
   // inherits a populated sidebar on direct navigation — not just /assistant.
   // TanStack Query handles dedup with any other consumer using the same key.
-  const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
   const { conversations } = useConversationListQuery(
     assistantId,
     isAssistantActive,
   );
   const { conversationGroups } = useConversationGroupsQuery(
     assistantId,
-    isAssistantActive && conversationGroupsUI,
+    isAssistantActive,
   );
 
   // Track processing/attention indicators for every conversation in
@@ -679,6 +678,10 @@ export function ChatLayout() {
           overlay; it never remounts the chat, so a suggestion click's
           navigate + `?prompt=` auto-send isn't raced by a remount. */}
       {isFocused ? <ResearchResultsOverlay /> : null}
+      {/* First step of the focused flow: the gcal "Let's chat tomorrow" page,
+          shown over the streaming research output until connect/skip. Self-gates
+          on `checkinPending`; top-level so it can compose the onboarding screen. */}
+      <OnboardingCheckinOverlay />
 
       <RenameDialogFromStore assistantId={assistantId} />
       {commandPalette.isOpen ? (

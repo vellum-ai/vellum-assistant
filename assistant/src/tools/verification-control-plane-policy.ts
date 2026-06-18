@@ -10,6 +10,8 @@
  *   /v1/channel-verification-sessions/revoke
  */
 
+import { resolveCapabilities } from "../runtime/capabilities.js";
+
 const VERIFICATION_ENDPOINT_PATHS = [
   "/v1/channel-verification-sessions",
   "/v1/channel-verification-sessions/resend",
@@ -128,7 +130,7 @@ export function enforceVerificationControlPlanePolicy(
     return { denied: false };
   }
 
-  if (trustClass === "guardian") {
+  if (resolveCapabilities(trustClass).canUseVerificationControlPlane) {
     return { denied: false };
   }
 

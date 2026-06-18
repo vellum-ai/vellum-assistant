@@ -12,6 +12,7 @@ import {
 } from "@/lib/feature-flags/feature-flag-catalog";
 import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
 import { featureFlagsClientFlagValuesRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
+import { isRemoteGatewayMode } from "@/lib/local-mode";
 
 const VALID_BOOL_KEYS = new Set(Object.keys(CLIENT_FLAG_DEFAULTS));
 const VALID_STRING_KEYS = new Set(Object.keys(CLIENT_STRING_FLAG_DEFAULTS));
@@ -45,10 +46,11 @@ function mapFlags(
 
 export function useClientFeatureFlagSync(enabled: boolean) {
   const freshness = useFlagQueryFreshness();
+  const shouldFetch = enabled && !isRemoteGatewayMode();
   const { data } = useQuery({
     queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
     queryFn: fetchClientFlagValues,
-    enabled,
+    enabled: shouldFetch,
     ...freshness,
     retry: 1,
   });

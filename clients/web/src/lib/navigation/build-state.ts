@@ -8,10 +8,17 @@ import {
 } from "@/stores/session-status";
 import { canReachAssistant } from "@/assistant/can-reach-assistant";
 import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
-import { isLocalMode, getSelectedAssistant } from "@/lib/local-mode";
+import { remoteGatewayPublicPathPrefix } from "@/lib/auth/remote-gateway-session";
+import {
+  isLocalMode,
+  isRemoteGatewayMode,
+  getSelectedAssistant,
+} from "@/lib/local-mode";
 import {
   readTosAccepted,
   readAiDataConsent,
+  readAnalyticsConsentCurrent,
+  readDiagnosticsConsentCurrent,
 } from "@/domains/onboarding/prefs";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { NavigationState } from "./navigation-resolver";
@@ -41,6 +48,7 @@ export function buildNavigationState(
   overrides?: Partial<NavigationState>,
 ): NavigationState {
   const { sessionStatus, platformSession } = useAuthStore.getState();
+  const isRemoteGateway = isRemoteGatewayMode();
   // The route guard admits on app access — a real platform identity OR a
   // reachable selected assistant — not on bare platform identity. So a
   // local-only user (no platform session, gateway-reachable assistant) is
@@ -52,6 +60,10 @@ export function buildNavigationState(
   });
   return {
     isLocalMode: isLocalMode(),
+    isRemoteGateway,
+    remoteGatewayPublicPathPrefix: isRemoteGateway
+      ? remoteGatewayPublicPathPrefix()
+      : "",
     isGatewayAuth: isGatewayAuthMode(),
     hasAssistants: useResolvedAssistantsStore.getState().assistants.length > 0,
     sessionSettled: isSessionSettled(sessionStatus),
@@ -69,6 +81,8 @@ export function buildNavigationState(
     platformSession,
     tosAccepted: readTosAccepted(),
     aiDataConsent: readAiDataConsent(),
+    analyticsConsentCurrent: readAnalyticsConsentCurrent(),
+    diagnosticsConsentCurrent: readDiagnosticsConsentCurrent(),
     ...overrides,
   };
 }

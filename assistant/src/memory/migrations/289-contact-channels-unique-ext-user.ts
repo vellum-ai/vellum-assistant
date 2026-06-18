@@ -18,6 +18,16 @@ const log = getLogger("migration-289");
 export function migrateContactChannelsUniqueExtUser(database: DrizzleDb): void {
   const raw = getSqliteFrom(database);
 
+  // A later migration drops external_user_id; once it has run this historical
+  // dedup is obsolete (Steps 2–3 below reference the column). This step re-runs
+  // on every startup, so skip when the column is absent rather than failing.
+  const cols = raw.prepare("PRAGMA table_info(contact_channels)").all() as {
+    name: string;
+  }[];
+  if (!cols.some((c) => c.name === "external_user_id")) {
+    return;
+  }
+
   // Step 1: Deduplicate historical case collisions. After this, the existing
   // case-sensitive UNIQUE(type, address) constraint remains valid because
   // only one row per case-insensitive group survives.

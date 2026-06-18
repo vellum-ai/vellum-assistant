@@ -331,7 +331,7 @@ describe("pair command", () => {
     const out = JSON.parse(logs.join("\n"));
     expect(out).toEqual({
       pairUrl:
-        "https://abc123.ngrok.app/assistant-123/assistant/pair#device_code=device-code&user_code=ABCD-EFGH",
+        "https://abc123.ngrok.app/assistant-123/assistant/pair#device_code=device-code",
       userCode: "ABCD-EFGH",
       verificationUri: "https://abc123.ngrok.app/assistant-123/assistant/pair",
       expiresAt: "2026-06-04T00:10:00.000Z",

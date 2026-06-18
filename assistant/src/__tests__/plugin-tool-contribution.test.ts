@@ -190,13 +190,16 @@ describe("plugin tool contributions", () => {
     registerPlugin(plugin);
 
     await bootstrapPlugins();
-    // No tool should have been registered.
-    expect(getAllTools()).toHaveLength(0);
+    // `bootstrapPlugins` also registers the first-party defaults (the advisor
+    // default contributes the `advisor` tool), so the global tool set is not
+    // empty. What matters here is that the no-tools plugin contributed nothing
+    // of its own — its tool refcount stays at zero.
+    expect(getPluginRefCount("no-tools")).toBe(0);
 
     // Shutdown must also be safe — `unregisterPluginTools` is idempotent for
     // plugins that never contributed any tools.
     await runShutdownHooks("test-shutdown");
-    expect(getAllTools()).toHaveLength(0);
+    expect(getPluginRefCount("no-tools")).toBe(0);
   });
 
   test("tools declared before init() runs are only visible after bootstrap", async () => {

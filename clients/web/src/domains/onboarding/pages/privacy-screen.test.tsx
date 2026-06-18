@@ -21,6 +21,8 @@ mock.module("@/domains/onboarding/prefs", () => ({
   useShareDiagnostics: () => [false, setShareDiagnostics],
   useTosAccepted: () => [true, setTosAccepted],
   useAiDataConsent: () => [true, setAiDataConsent],
+  useAnalyticsConsentCurrent: () => [true, mock(() => {})],
+  useDiagnosticsConsentCurrent: () => [true, mock(() => {})],
 }));
 
 const saveConsentMock = mock((_args: unknown) => {});

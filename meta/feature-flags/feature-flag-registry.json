@@ -179,14 +179,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "conversation-groups-ui",
-      "scope": "assistant",
-      "key": "conversation-groups-ui",
-      "label": "Conversation Groups",
-      "description": "Enable custom conversation group creation, move-to-group, and group management in the sidebar",
-      "defaultEnabled": false
-    },
-    {
       "id": "teleport",
       "scope": "client",
       "key": "teleport",
@@ -407,7 +399,23 @@
       "scope": "client",
       "key": "research-onboarding",
       "label": "Research onboarding (spike)",
-      "description": "Spike: replace pre-chat onboarding with a web-research \"here's what I know about you\" flow. Gates the /assistant/onboarding/research route and its mock harness. Off by default; enable locally via the feature-flags panel.",
+      "description": "Spike: replace pre-chat onboarding with a web-research \"here's what I know about you\" flow, including a Google Calendar \"Let's chat tomorrow\" step shown over the streaming research. Gates the /assistant/onboarding/research route and the research mock harness. Off by default; enable locally via the feature-flags panel.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "channel-trust-floors",
+      "scope": "assistant",
+      "key": "channel-trust-floors",
+      "label": "Channel Trust Floors",
+      "description": "Expose the Channel Trust Floors settings card (per-channel inbound admission policy) on the Privacy settings page. When off, the card is hidden and channels fall back to their default admission floors. Off by default while the feature is in development.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "mcp-settings",
+      "scope": "assistant",
+      "key": "mcp-settings",
+      "label": "MCP Settings",
+      "description": "Show the MCP page in Settings for managing Model Context Protocol server connections: view status, enable/disable, configure, and inspect registered tools per server.",
       "defaultEnabled": false
     }
   ]

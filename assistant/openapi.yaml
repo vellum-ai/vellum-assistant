@@ -3951,6 +3951,14 @@ paths:
                       type: boolean
                     account:
                       type: string
+                    admissionPolicy:
+                      type: string
+                      enum:
+                        - no_one
+                        - guardian_only
+                        - trusted_contacts
+                        - any_contact
+                        - strangers
                     emailSubject:
                       type: string
                     emailRecipient:
@@ -6144,6 +6152,12 @@ paths:
                   description: Only standard conversations are created by this endpoint
                   type: string
                   const: standard
+                title:
+                  description:
+                    Explicit title for the conversation. When provided on creation, it is persisted as a user-set title (never
+                    overwritten by the auto-titler). Used by flows that mint a conversation up-front and don't want an
+                    auto-generated title.
+                  type: string
       responses:
         "200":
           description: Successful response
@@ -12108,6 +12122,19 @@ paths:
                           propertyNames:
                             type: string
                           additionalProperties: {}
+                        sourceType:
+                          type: string
+                          enum:
+                            - heartbeat
+                            - memory_consolidation
+                            - schedule
+                            - auto_analysis
+                            - user
+                            - other
+                        sourceKey:
+                          type: string
+                        sourceLabel:
+                          type: string
                         createdAt:
                           type: string
                       required:
@@ -12288,6 +12315,19 @@ paths:
                     propertyNames:
                       type: string
                     additionalProperties: {}
+                  sourceType:
+                    type: string
+                    enum:
+                      - heartbeat
+                      - memory_consolidation
+                      - schedule
+                      - auto_analysis
+                      - user
+                      - other
+                  sourceKey:
+                    type: string
+                  sourceLabel:
+                    type: string
                   createdAt:
                     type: string
                 required:
@@ -12500,6 +12540,19 @@ paths:
                           propertyNames:
                             type: string
                           additionalProperties: {}
+                        sourceType:
+                          type: string
+                          enum:
+                            - heartbeat
+                            - memory_consolidation
+                            - schedule
+                            - auto_analysis
+                            - user
+                            - other
+                        sourceKey:
+                          type: string
+                        sourceLabel:
+                          type: string
                         createdAt:
                           type: string
                       required:
@@ -13792,6 +13845,11 @@ paths:
                     type: string
                   botUsername:
                     type: string
+                  threadMode:
+                    type: string
+                    enum:
+                      - mention_only
+                      - mention_then_thread
                   error:
                     type: string
                   warning:
@@ -13802,6 +13860,7 @@ paths:
                   - hasAppToken
                   - hasUserToken
                   - connected
+                  - threadMode
                 additionalProperties: false
     get:
       operationId: integrations_slack_channel_config_get
@@ -13837,6 +13896,11 @@ paths:
                     type: string
                   botUsername:
                     type: string
+                  threadMode:
+                    type: string
+                    enum:
+                      - mention_only
+                      - mention_then_thread
                   error:
                     type: string
                   warning:
@@ -13847,6 +13911,71 @@ paths:
                   - hasAppToken
                   - hasUserToken
                   - connected
+                  - threadMode
+                additionalProperties: false
+    patch:
+      operationId: integrations_slack_channel_config_patch
+      summary: Update Slack channel settings
+      description: Update Slack channel behavior settings (e.g. thread mode).
+      tags:
+        - integrations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                threadMode:
+                  type: string
+                  enum:
+                    - mention_only
+                    - mention_then_thread
+                  description: Controls whether the bot follows threads after an initial @mention
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasBotToken:
+                    type: boolean
+                  hasAppToken:
+                    type: boolean
+                  hasUserToken:
+                    type: boolean
+                  connected:
+                    type: boolean
+                  teamId:
+                    type: string
+                  teamName:
+                    type: string
+                  teamUrl:
+                    type: string
+                  botUserId:
+                    type: string
+                  botUsername:
+                    type: string
+                  threadMode:
+                    type: string
+                    enum:
+                      - mention_only
+                      - mention_then_thread
+                  error:
+                    type: string
+                  warning:
+                    type: string
+                required:
+                  - success
+                  - hasBotToken
+                  - hasAppToken
+                  - hasUserToken
+                  - connected
+                  - threadMode
                 additionalProperties: false
     post:
       operationId: integrations_slack_channel_config_post
@@ -13898,6 +14027,11 @@ paths:
                     type: string
                   botUsername:
                     type: string
+                  threadMode:
+                    type: string
+                    enum:
+                      - mention_only
+                      - mention_then_thread
                   error:
                     type: string
                   warning:
@@ -13908,6 +14042,7 @@ paths:
                   - hasAppToken
                   - hasUserToken
                   - connected
+                  - threadMode
                 additionalProperties: false
   /v1/integrations/telegram/commands:
     post:
@@ -14522,6 +14657,54 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  servers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        status:
+                          type: string
+                        transport:
+                          type: object
+                          properties:
+                            type:
+                              type: string
+                              enum:
+                                - stdio
+                                - sse
+                                - streamable-http
+                          required:
+                            - type
+                          additionalProperties: {}
+                        enabled:
+                          type: boolean
+                        defaultRiskLevel:
+                          type: string
+                        allowedTools:
+                          type: array
+                          items:
+                            type: string
+                        blockedTools:
+                          type: array
+                          items:
+                            type: string
+                      required:
+                        - id
+                        - status
+                        - transport
+                        - enabled
+                        - defaultRiskLevel
+                      additionalProperties: false
+                required:
+                  - servers
+                additionalProperties: false
   /v1/internal/mcp/reload:
     post:
       operationId: internal_mcp_reload_post
@@ -14548,6 +14731,104 @@ paths:
               properties:
                 name:
                   type: string
+              required:
+                - name
+      responses:
+        "200":
+          description: Successful response
+  /v1/internal/mcp/tools-summary:
+    get:
+      operationId: internal_mcp_toolssummary_get
+      summary: Per-server MCP tool counts and token estimates
+      description:
+        Returns registered tool counts, individual tool details, and estimated token overhead for each connected
+        MCP server.
+      tags:
+        - internal
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  servers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        serverId:
+                          type: string
+                        toolCount:
+                          type: number
+                        estimatedTokens:
+                          type: number
+                        tools:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                              description:
+                                type: string
+                              estimatedTokens:
+                                type: number
+                            required:
+                              - name
+                              - description
+                              - estimatedTokens
+                            additionalProperties: false
+                      required:
+                        - serverId
+                        - toolCount
+                        - estimatedTokens
+                        - tools
+                      additionalProperties: false
+                  totalToolCount:
+                    type: number
+                  totalEstimatedTokens:
+                    type: number
+                required:
+                  - servers
+                  - totalToolCount
+                  - totalEstimatedTokens
+                additionalProperties: false
+  /v1/internal/mcp/update:
+    post:
+      operationId: internal_mcp_update_post
+      summary: Update an MCP server configuration
+      description: Updates fields on an existing MCP server config entry and triggers a reload.
+      tags:
+        - internal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                enabled:
+                  type: boolean
+                defaultRiskLevel:
+                  type: string
+                maxTools:
+                  type: number
+                allowedTools:
+                  anyOf:
+                    - type: array
+                      items:
+                        type: string
+                    - type: "null"
+                blockedTools:
+                  anyOf:
+                    - type: array
+                      items:
+                        type: string
+                    - type: "null"
               required:
                 - name
       responses:
@@ -15202,6 +15483,81 @@ paths:
                 additionalProperties: false
         "409":
           description: Another memory item with this content already exists
+  /v1/memory/eval/run:
+    post:
+      operationId: memory_eval_run_post
+      summary: Build blinded A/B retrieval-eval packets over two concept corpora (snapshot vs staged wiki)
+      tags:
+        - memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                stagingDir:
+                  type: string
+                  minLength: 1
+                snapshotDir:
+                  type: string
+                  minLength: 1
+                outDir:
+                  type: string
+                  minLength: 1
+                turns:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                perConversationCap:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                k:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                dense:
+                  type: boolean
+                seed:
+                  type: integer
+                  minimum: -9007199254740991
+                  maximum: 9007199254740991
+              required:
+                - stagingDir
+                - snapshotDir
+                - outDir
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  turnsMined:
+                    type: number
+                  packetsWritten:
+                    type: number
+                  packetsPath:
+                    type: string
+                  keyPath:
+                    type: string
+                  snapshotPages:
+                    type: number
+                  stagingPages:
+                    type: number
+                  dense:
+                    type: boolean
+                required:
+                  - turnsMined
+                  - packetsWritten
+                  - packetsPath
+                  - keyPath
+                  - snapshotPages
+                  - stagingPages
+                  - dense
+                additionalProperties: false
   /v1/memory/v2/backfill:
     post:
       operationId: memory_v2_backfill_post
@@ -16732,6 +17088,12 @@ paths:
                       type: array
                       items:
                         type: string
+                    title:
+                      description:
+                        Explicit title for the conversation minted on this first message. Persisted as a user-set title (never
+                        overwritten by the auto-titler). Used by onboarding flows that mint a conversation behind the
+                        scenes.
+                      type: string
                   required:
                     - tools
                     - tasks
@@ -17853,6 +18215,19 @@ paths:
                         propertyNames:
                           type: string
                         additionalProperties: {}
+                      sourceType:
+                        type: string
+                        enum:
+                          - heartbeat
+                          - memory_consolidation
+                          - schedule
+                          - auto_analysis
+                          - user
+                          - other
+                      sourceKey:
+                        type: string
+                      sourceLabel:
+                        type: string
                       createdAt:
                         type: string
                     required:
@@ -27635,6 +28010,88 @@ paths:
                 required:
                   - ok
                   - runId
+                additionalProperties: false
+        "404":
+          description: Run not found
+  /v1/workflows/runs/{id}/journal:
+    get:
+      operationId: workflows_runs_by_id_journal_get
+      summary: Get workflow run journal
+      description: Return a workflow run's leaf journal as bounded per-leaf summaries (one entry per finished leaf).
+      tags:
+        - workflows
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runId:
+                    type: string
+                  status:
+                    type: string
+                    enum:
+                      - running
+                      - completed
+                      - failed
+                      - aborted
+                      - cap_exceeded
+                      - interrupted
+                  agentsSpawned:
+                    type: number
+                  inputTokens:
+                    type: number
+                  outputTokens:
+                    type: number
+                  phase:
+                    type: string
+                  leaves:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        seq:
+                          type: number
+                        kind:
+                          type: string
+                          enum:
+                            - agent
+                            - workflow
+                        label:
+                          type: string
+                        phase:
+                          type: string
+                        promptSummary:
+                          type: string
+                        status:
+                          type: string
+                        resultSummary:
+                          type: string
+                        inputTokens:
+                          type: number
+                        outputTokens:
+                          type: number
+                        createdAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                      required:
+                        - seq
+                        - kind
+                        - status
+                        - createdAt
+                      additionalProperties: false
+                required:
+                  - runId
+                  - leaves
                 additionalProperties: false
         "404":
           description: Run not found

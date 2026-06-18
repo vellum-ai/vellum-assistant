@@ -1,18 +1,26 @@
+import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
+import { getAssistantHealthz } from "@/assistant/api";
 import { PageShell } from "@/components/page-shell";
 import { CreateScheduleModal } from "@/domains/settings/components/create-schedule-modal";
+import { SystemTasksSection } from "@/domains/settings/components/system-tasks-section";
+import { useSystemTasks } from "@/domains/settings/hooks/use-system-tasks";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import { ResizablePanel, Tabs } from "@vellumai/design-library";
 import { HomeSchedulesPanel } from "./components/home-schedules-panel";
 import { ScheduleDetailPanel } from "./components/schedule-detail-panel";
+import { SystemTaskDetailPanel } from "./components/system-task-detail-panel";
 import { HomeDetailPanel } from "./detail-panel/home-detail-panel";
 import { HomeFeedList } from "./home-feed-list";
 import { HomeTopHeader } from "./home-top-header";
 import { useHomeSchedulesData } from "./hooks/use-home-schedules-data";
 import { useHomeFeedQuery } from "./hooks/use-home-feed-query";
 import { useHomeStateQuery } from "./hooks/use-home-state-query";
+
+import type { SystemTaskKind } from "@/domains/settings/types/schedules";
 
 function HomePageSkeleton() {
   return (
@@ -55,22 +63,45 @@ export function HomePage({
   onOpenConversation,
 }: HomePageProps) {
   const isMobile = useIsMobile();
+  const tz = useEffectiveTimezone();
   const feedQuery = useHomeFeedQuery(assistantId);
   useHomeStateQuery(assistantId);
   const schedules = useHomeSchedulesData(assistantId);
+  const systemTasks = useSystemTasks(assistantId, tz);
+
+  // Gates the consolidation/retrospective "Memory settings" link the same way
+  // the schedules surface always has.
+  const { data: canOpenMemorySettings = false } = useQuery({
+    queryKey: ["assistant-memory-opt-out-capability", assistantId],
+    queryFn: async () => {
+      const result = await getAssistantHealthz(assistantId);
+      return result.ok && result.data.capabilities?.memoryOptOut === true;
+    },
+    retry: false,
+    staleTime: 10_000,
+  });
 
   const [createScheduleOpen, setCreateScheduleOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"schedules" | "notifications">(
-    "schedules",
+    "notifications",
   );
   const [selectedItem, setSelectedItem] = useState<FeedItem | null>(null);
   const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(
     null,
   );
+  const [selectedSystemTaskKind, setSelectedSystemTaskKind] =
+    useState<SystemTaskKind | null>(null);
+  // Accordion open-states are lifted here so they survive the section remount
+  // that happens when the detail drawer opens (the section reparents into
+  // ResizablePanel). Otherwise opening a row collapses its own accordion.
+  const [pastSchedulesOpen, setPastSchedulesOpen] = useState(false);
+  const [archivedFeedOpen, setArchivedFeedOpen] = useState(false);
+  const [dismissedFeedOpen, setDismissedFeedOpen] = useState(false);
 
   const selectedSchedule = selectedScheduleId
     ? (schedules.recurring.find((s) => s.id === selectedScheduleId) ??
       schedules.oneTime.find((s) => s.id === selectedScheduleId) ??
+      schedules.pastOneTime.find((s) => s.id === selectedScheduleId) ??
       null)
     : null;
 
@@ -79,16 +110,41 @@ export function HomePage({
     if (selectedScheduleId && !selectedSchedule) setSelectedScheduleId(null);
   }, [selectedScheduleId, selectedSchedule]);
 
-  // The right pane shows one detail at a time — selecting a schedule closes any
-  // open feed item, and vice versa.
+  const systemTaskAvailable =
+    selectedSystemTaskKind === "heartbeat"
+      ? systemTasks.heartbeatConfig != null
+      : selectedSystemTaskKind === "consolidation"
+        ? systemTasks.consolidationConfig?.available === true
+        : selectedSystemTaskKind === "retrospective"
+          ? systemTasks.retrospectiveConfig?.available === true
+          : false;
+
+  // Drop the selection if the task becomes unavailable (e.g. memory turned
+  // off), but only once its config has loaded so we don't clear mid-fetch.
+  useEffect(() => {
+    if (selectedSystemTaskKind && !systemTasks.isLoading && !systemTaskAvailable) {
+      setSelectedSystemTaskKind(null);
+    }
+  }, [selectedSystemTaskKind, systemTaskAvailable, systemTasks.isLoading]);
+
+  // The right pane shows one detail at a time — selecting one kind (user
+  // schedule, system task, or feed item) closes the others.
   const handleSelectSchedule = useCallback((scheduleId: string) => {
     setSelectedItem(null);
+    setSelectedSystemTaskKind(null);
     setSelectedScheduleId(scheduleId);
+  }, []);
+
+  const handleSelectSystemTask = useCallback((kind: SystemTaskKind) => {
+    setSelectedItem(null);
+    setSelectedScheduleId(null);
+    setSelectedSystemTaskKind(kind);
   }, []);
 
   const handleSelectItem = useCallback(
     (item: FeedItem) => {
       setSelectedScheduleId(null);
+      setSelectedSystemTaskKind(null);
       if (item.status === "new") {
         setSelectedItem({ ...item, status: "seen" });
         feedQuery.updateStatus.mutate({ itemId: item.id, status: "seen" });
@@ -147,7 +203,8 @@ export function HomePage({
   const canViewSelectedItemSchedule =
     selectedItemScheduleId != null &&
     (schedules.recurring.some((s) => s.id === selectedItemScheduleId) ||
-      schedules.oneTime.some((s) => s.id === selectedItemScheduleId));
+      schedules.oneTime.some((s) => s.id === selectedItemScheduleId) ||
+      schedules.pastOneTime.some((s) => s.id === selectedItemScheduleId));
 
   const itemDetail = selectedItem ? (
     <HomeDetailPanel
@@ -183,12 +240,34 @@ export function HomePage({
     />
   ) : null;
 
+  const systemTaskDetail =
+    selectedSystemTaskKind && systemTaskAvailable ? (
+      <SystemTaskDetailPanel
+        kind={selectedSystemTaskKind}
+        assistantId={assistantId}
+        systemTasks={systemTasks}
+        canOpenMemorySettings={canOpenMemorySettings}
+        isMobile={isMobile}
+        onClose={() => setSelectedSystemTaskKind(null)}
+      />
+    ) : null;
+
+  // The schedules tab shows either a user-schedule or a system-task detail.
+  const scheduleAreaDetail = scheduleDetail ?? systemTaskDetail;
+
   // On mobile the detail takes over the whole screen (handled below). On
   // desktop it opens as a drawer nested under the active tab, so the Overview
   // title and the tabs stay fixed above it.
-  const mobileDetail = itemDetail ?? scheduleDetail;
+  const mobileDetail = itemDetail ?? scheduleAreaDetail;
 
-  const withDrawer = (section: ReactNode, detail: ReactNode) =>
+  // `detailKey` re-mounts the animated wrapper on each new selection so the
+  // slide-in replays when switching between schedules / system tasks / items
+  // (not just on the initial null → open transition).
+  const withDrawer = (
+    section: ReactNode,
+    detail: ReactNode,
+    detailKey?: string,
+  ) =>
     detail && !isMobile ? (
       <ResizablePanel
         className="min-h-0 flex-1"
@@ -202,7 +281,11 @@ export function HomePage({
             {section}
           </div>
         }
-        right={detail}
+        right={
+          <div key={detailKey} className="home-detail-drawer">
+            {detail}
+          </div>
+        }
       />
     ) : (
       section
@@ -212,6 +295,7 @@ export function HomePage({
     <HomeSchedulesPanel
       recurring={schedules.recurring}
       oneTime={schedules.oneTime}
+      pastOneTime={schedules.pastOneTime}
       usageForSchedule={schedules.usageForSchedule}
       isLoading={schedules.isLoading}
       isError={schedules.isError}
@@ -221,6 +305,24 @@ export function HomePage({
       selectedScheduleId={selectedScheduleId}
       onStartNewChat={onStartNewChat}
       onCreateSchedule={() => setCreateScheduleOpen(true)}
+      pastOpen={pastSchedulesOpen}
+      onPastOpenChange={setPastSchedulesOpen}
+      systemTasksSlot={
+        <SystemTasksSection
+          heartbeatConfig={systemTasks.heartbeatConfig}
+          consolidationConfig={systemTasks.consolidationConfig}
+          retrospectiveConfig={systemTasks.retrospectiveConfig}
+          heartbeatUsage={systemTasks.heartbeatUsage}
+          consolidationUsage={systemTasks.consolidationUsage}
+          retrospectiveUsage={systemTasks.retrospectiveUsage}
+          isLoading={systemTasks.isLoading}
+          hasError={systemTasks.hasError}
+          onRetry={systemTasks.refetchAll}
+          onSelectHeartbeat={() => handleSelectSystemTask("heartbeat")}
+          onSelectConsolidation={() => handleSelectSystemTask("consolidation")}
+          onSelectRetrospective={() => handleSelectSystemTask("retrospective")}
+        />
+      }
     />
   );
 
@@ -246,6 +348,10 @@ export function HomePage({
         onRestoreItem={handleRestoreItem}
         onToggleRead={handleUpdateStatus}
         onGoToThread={handleGoToThread}
+        archivedOpen={archivedFeedOpen}
+        onArchivedOpenChange={setArchivedFeedOpen}
+        dismissedOpen={dismissedFeedOpen}
+        onDismissedOpenChange={setDismissedFeedOpen}
       />
     </div>
   );
@@ -262,20 +368,24 @@ export function HomePage({
       className="flex min-h-0 flex-1 flex-col"
     >
       <Tabs.List className="shrink-0">
-        <Tabs.Trigger value="schedules">Schedules</Tabs.Trigger>
         <Tabs.Trigger value="notifications">Notifications</Tabs.Trigger>
+        <Tabs.Trigger value="schedules">Schedules</Tabs.Trigger>
       </Tabs.List>
-      <Tabs.Panel
-        value="schedules"
-        className="mt-[var(--app-spacing-lg)] flex min-h-0 flex-1 flex-col"
-      >
-        {withDrawer(schedulesSection, scheduleDetail)}
-      </Tabs.Panel>
       <Tabs.Panel
         value="notifications"
         className="mt-[var(--app-spacing-lg)] flex min-h-0 flex-1 flex-col"
       >
-        {withDrawer(notificationsSection, itemDetail)}
+        {withDrawer(notificationsSection, itemDetail, selectedItem?.id)}
+      </Tabs.Panel>
+      <Tabs.Panel
+        value="schedules"
+        className="mt-[var(--app-spacing-lg)] flex min-h-0 flex-1 flex-col"
+      >
+        {withDrawer(
+          schedulesSection,
+          scheduleAreaDetail,
+          selectedScheduleId ?? selectedSystemTaskKind ?? undefined,
+        )}
       </Tabs.Panel>
     </Tabs.Root>
   );

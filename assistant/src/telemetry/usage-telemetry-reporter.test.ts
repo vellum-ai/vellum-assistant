@@ -1,8 +1,9 @@
 /**
  * Tests for UsageTelemetryReporter.
  *
- * Covers both auth modes (authenticated / anonymous), watermark advancement,
- * error handling, batch recursion, device ID resolution, and payload shape.
+ * Covers the authenticated send path (and the skip behavior when credentials
+ * are absent or the platform is disabled), watermark advancement, error
+ * handling, batch recursion, device ID resolution, and payload shape.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -91,18 +92,10 @@ mock.module("../version.js", () => ({
   APP_VERSION: "1.2.3-test",
 }));
 
-let mockCollectUsageData = true;
+const mockGetCachedShareAnalytics = mock(() => true);
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-    collectUsageData: mockCollectUsageData,
-  }),
+mock.module("../platform/consent-cache.js", () => ({
+  getCachedShareAnalytics: mockGetCachedShareAnalytics,
 }));
 
 const mockQueryUnreportedLifecycleEvents = mock(
@@ -290,7 +283,9 @@ let mockFetch: ReturnType<typeof mock>;
 
 beforeEach(() => {
   eventIdCounter = 0;
-  mockCollectUsageData = true;
+  // Default consent ON so the happy-path send tests exercise the flush.
+  mockGetCachedShareAnalytics.mockReset();
+  mockGetCachedShareAnalytics.mockReturnValue(true);
   mockGetMemoryCheckpoint.mockReset();
   mockSetMemoryCheckpoint.mockReset();
   mockQueryUnreportedUsageEvents.mockReset();
@@ -303,7 +298,8 @@ beforeEach(() => {
   getDb().delete(authFallbackEvents).run();
   getDb().delete(toolInvocations).run();
   getDb().delete(skillLoadedEvents).run();
-  mockPlatformClient = null;
+  delete process.env.VELLUM_DISABLE_PLATFORM;
+  delete process.env.IS_PLATFORM;
   mockGetPlatformBaseUrl.mockReset();
   mockGetDeviceId.mockReset();
   mockGetDeviceId.mockReturnValue("test-device-id");
@@ -320,10 +316,23 @@ beforeEach(() => {
     Promise.resolve(new Response('{"accepted":0}', { status: 200 })),
   );
   globalThis.fetch = mockFetch as unknown as typeof fetch;
+
+  // Default to an authenticated client whose fetch delegates to the mockFetch
+  // spy, so the existing payload/body assertions keep working. The reporter
+  // sends authenticated-only; tests that exercise the no-credentials path
+  // override this with `mockPlatformClient = null`.
+  mockPlatformClient = {
+    baseUrl: "https://test.vellum.ai",
+    assistantApiKey: "test-key",
+    platformAssistantId: "asst-123",
+    fetch: (path: string, init?: RequestInit) => mockFetch(path, init),
+  };
 });
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  delete process.env.VELLUM_DISABLE_PLATFORM;
+  delete process.env.IS_PLATFORM;
 });
 
 // ---------------------------------------------------------------------------
@@ -354,26 +363,57 @@ describe("UsageTelemetryReporter", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  test("anonymous flush sends request without auth headers", async () => {
+  test("flush is skipped when no platform credentials are available", async () => {
+    // Authenticated-only: with no client, nothing is sent and the watermark is
+    // left intact so the backlog ships once credentials resolve.
     mockPlatformClient = null;
-    mockGetPlatformBaseUrl.mockReturnValue("https://platform.test.ai");
 
     const events = [makeUsageEvent()];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
-    mockFetch.mockImplementation(() =>
-      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    const watermarkCalls = mockSetMemoryCheckpoint.mock.calls.filter(
+      (c) => c[0] === "telemetry:usage:last_reported_at",
     );
+    expect(watermarkCalls.length).toBe(0);
+  });
+
+  test("flush is skipped when VELLUM_DISABLE_PLATFORM is set in local mode", async () => {
+    // The platform-disabled toggle suppresses the send. Unlike the opt-out
+    // branch, watermarks are NOT advanced, so the backlog ships once the flag
+    // is cleared.
+    process.env.VELLUM_DISABLE_PLATFORM = "true";
+
+    const events = [makeUsageEvent()];
+    mockQueryUnreportedUsageEvents.mockReturnValue(events);
+
+    const reporter = new UsageTelemetryReporter();
+    // Construction initializes the absent tool_executed watermark; clear that
+    // call so the assertion below covers only the flush.
+    mockSetMemoryCheckpoint.mockClear();
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockSetMemoryCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("VELLUM_DISABLE_PLATFORM is ignored when IS_PLATFORM is set (managed mode)", async () => {
+    // Platform-managed assistants always connect to the platform; an inherited
+    // VELLUM_DISABLE_PLATFORM must not suppress telemetry for them (matches
+    // arePlatformFeaturesEnabled / VellumPlatformClient.create()).
+    process.env.IS_PLATFORM = "true";
+    process.env.VELLUM_DISABLE_PLATFORM = "true";
+
+    const events = [makeUsageEvent()];
+    mockQueryUnreportedUsageEvents.mockReturnValue(events);
 
     const reporter = new UsageTelemetryReporter();
     await reporter.flush();
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
-    const [url, opts] = mockFetch.mock.calls[0] as [string, RequestInit];
-    expect(url).toStartWith("https://platform.test.ai");
-    expect(url).toEndWith("/telemetry/ingest/");
-    const headers = opts.headers as Record<string, string>;
-    expect(headers["Content-Type"]).toBe("application/json");
-    expect(headers["X-Telemetry-Token"]).toBeUndefined();
   });
 
   test("watermark advances on successful upload", async () => {
@@ -1001,8 +1041,8 @@ describe("UsageTelemetryReporter", () => {
     });
   });
 
-  test("flush is skipped and watermarks advanced when collectUsageData is false", async () => {
-    mockCollectUsageData = false;
+  test("flush is skipped and watermarks advanced when share_analytics consent is off", async () => {
+    mockGetCachedShareAnalytics.mockReturnValue(false);
     const events = [makeUsageEvent()];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
     mockFetch.mockImplementation(() =>
@@ -1044,16 +1084,37 @@ describe("UsageTelemetryReporter", () => {
     }
   });
 
-  test("events sent normally after re-enabling collectUsageData", async () => {
+  test("platform disabled takes precedence over consent off — watermarks NOT advanced", async () => {
+    // VELLUM_DISABLE_PLATFORM keeps the consent cache false (the consent
+    // refresh can't create a platform client), so both gates would fire. The
+    // platform-disabled gate runs first and returns without advancing
+    // watermarks, preserving the backlog until the flag is cleared — a
+    // deployment toggle must not be treated as a privacy opt-out.
+    process.env.VELLUM_DISABLE_PLATFORM = "true";
+    mockGetCachedShareAnalytics.mockReturnValue(false);
+    const events = [makeUsageEvent()];
+    mockQueryUnreportedUsageEvents.mockReturnValue(events);
+
+    const reporter = new UsageTelemetryReporter();
+    // Construction initializes the absent tool_executed watermark; clear that
+    // call so the assertion below covers only the flush.
+    mockSetMemoryCheckpoint.mockClear();
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockSetMemoryCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("events sent normally after re-granting share_analytics consent", async () => {
     // First flush with opt-out — watermarks advance, nothing sent
-    mockCollectUsageData = false;
+    mockGetCachedShareAnalytics.mockReturnValue(false);
     const reporter = new UsageTelemetryReporter();
     await reporter.flush();
     expect(mockFetch).not.toHaveBeenCalled();
     mockSetMemoryCheckpoint.mockReset();
 
-    // Re-enable and flush with new events
-    mockCollectUsageData = true;
+    // Re-grant consent and flush with new events
+    mockGetCachedShareAnalytics.mockReturnValue(true);
     const events = [makeUsageEvent({ id: "evt-after-reenable" })];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
     mockFetch.mockImplementation(() =>
@@ -1587,8 +1648,8 @@ describe("UsageTelemetryReporter", () => {
 
     // Rows accumulated before any flush ever advanced the watermark — e.g.
     // an opt-out period under an older build that gated reporter
-    // construction on collectUsageData while the always-on audit listener
-    // kept writing.
+    // construction on the usage-data opt-out while the always-on audit
+    // listener kept writing.
     seedToolInvocation({
       id: "ti-opt-out-window",
       createdAt: Date.now() - 60_000,
@@ -1667,7 +1728,7 @@ describe("UsageTelemetryReporter", () => {
     // constructs and runs the reporter; the always-on audit listener keeps
     // writing rows. Every opted-out flush (5-minute cycle plus the final
     // flush in stop()) advances the watermark past them without sending.
-    mockCollectUsageData = false;
+    mockGetCachedShareAnalytics.mockReturnValue(false);
     const optOutRowCreatedAt = Date.now() - 5_000;
     seedToolInvocation({
       id: "ti-opt-out-window",
@@ -1683,7 +1744,7 @@ describe("UsageTelemetryReporter", () => {
 
     // Session 2: the user opts back in and restarts. Only rows recorded
     // after the opt-out epoch ship — the opt-out-window row never does.
-    mockCollectUsageData = true;
+    mockGetCachedShareAnalytics.mockReturnValue(true);
     seedToolInvocation({ id: "ti-after-opt-in", createdAt: advanced + 1000 });
     const reporter = new UsageTelemetryReporter();
     await reporter.flush();
@@ -1708,7 +1769,7 @@ describe("UsageTelemetryReporter", () => {
 
     // Opted-out flush: advances the timestamp watermark to Date.now() and
     // must also pin the ID watermark to the high-sorting sentinel.
-    mockCollectUsageData = false;
+    mockGetCachedShareAnalytics.mockReturnValue(false);
     const optedOutReporter = new UsageTelemetryReporter();
     await optedOutReporter.flush();
     expect(mockFetch).not.toHaveBeenCalled();
@@ -1726,7 +1787,7 @@ describe("UsageTelemetryReporter", () => {
     });
 
     // Re-opt-in: only rows strictly after the opt-out epoch ship.
-    mockCollectUsageData = true;
+    mockGetCachedShareAnalytics.mockReturnValue(true);
     seedToolInvocation({ id: "ti-after-opt-in", createdAt: watermark + 1000 });
     const reporter = new UsageTelemetryReporter();
     await reporter.flush();

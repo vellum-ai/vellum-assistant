@@ -7,9 +7,13 @@ import {
     X,
 } from "lucide-react";
 
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState, type RefObject } from "react";
 
 import { AvatarRenderer } from "@/components/avatar-renderer";
+import {
+    AnimatedMetricCard,
+    formatNumber,
+} from "@/domains/chat/components/metric-card";
 import { StatusBadge } from "@/domains/chat/components/subagent-status-badge";
 import type { SubagentEntry } from "@/domains/chat/subagent-store";
 import { subagentTraits } from "@/utils/avatar-subagent";
@@ -18,19 +22,6 @@ import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-component
 import { Button, Typography } from "@vellumai/design-library";
 
 import { SubagentTimeline } from "@/domains/chat/components/subagent-timeline";
-
-/** Format a number compactly (e.g. 257400 -> "257.4K"). */
-function formatNumber(n: number): string {
-  if (n >= 1_000_000) {
-    const val = n / 1_000_000;
-    return `${val % 1 === 0 ? val.toFixed(0) : val.toFixed(1)}M`;
-  }
-  if (n >= 1_000) {
-    const val = n / 1_000;
-    return `${val % 1 === 0 ? val.toFixed(0) : val.toFixed(1)}K`;
-  }
-  return n.toLocaleString();
-}
 
 /** Format a cost value (e.g. 0.68 -> "0.68"). */
 function formatCost(cost: number): string {
@@ -41,83 +32,6 @@ function formatCost(cost: number): string {
     return cost.toFixed(4);
   }
   return cost.toFixed(2);
-}
-
-const ANIMATION_DURATION_MS = 300;
-
-function useAnimatedNumber(target: number): number {
-  const [displayed, setDisplayed] = useState(target);
-  const rafRef = useRef<number>(0);
-  const displayedRef = useRef(target);
-
-  useEffect(() => {
-    const from = displayedRef.current;
-    if (from === target) return;
-
-    cancelAnimationFrame(rafRef.current);
-    const start = performance.now();
-
-    const step = (now: number) => {
-      const elapsed = now - start;
-      const progress = Math.min(elapsed / ANIMATION_DURATION_MS, 1);
-      const eased = 1 - (1 - progress) ** 3;
-      const value = from + (target - from) * eased;
-      displayedRef.current = value;
-      setDisplayed(value);
-      if (progress < 1) {
-        rafRef.current = requestAnimationFrame(step);
-      }
-    };
-    rafRef.current = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [target]);
-
-  return displayed;
-}
-
-function MetricCard({
-  icon,
-  value,
-  label,
-}: {
-  icon: ReactNode;
-  value: string;
-  label: string;
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] px-3 py-3">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--surface-base)]">
-        {icon}
-      </div>
-      <div className="min-w-0">
-        <Typography
-          variant="title-small"
-          className="block text-[var(--content-default)]"
-        >
-          {value}
-        </Typography>
-        <Typography
-          variant="body-small-default"
-          className="block text-[var(--content-secondary)]"
-        >
-          {label}
-        </Typography>
-      </div>
-    </div>
-  );
-}
-
-function AnimatedMetricCard({ icon, label, target, format }: {
-  icon: ReactNode; label: string; target: number; format: (n: number) => string;
-}) {
-  const animated = useAnimatedNumber(target);
-  return (
-    <MetricCard
-      icon={icon}
-      label={label}
-      value={format(animated)}
-    />
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -143,12 +57,39 @@ export function SubagentDetailPanel({
 }: SubagentDetailPanelProps) {
   const isRunning = isActiveStatus(entry.status);
   const components = useBundledAvatarComponents();
+  // Compute the avatar traits once per subagent instead of hashing the id
+  // three separate times in the JSX below.
+  const traits = useMemo(() => subagentTraits(entry.subagentId), [entry.subagentId]);
+  // The timeline reads `entry.events` directly. Virtualization bounds each
+  // render to the visible window, so there is no expensive full-list render to
+  // defer. A `useDeferredValue` here is counterproductive: under sustained
+  // high-frequency streaming its low-priority render keeps getting preempted and
+  // never commits, freezing the timeline on a stale snapshot until the stream
+  // slows.
 
   useEffect(() => {
     if (onRequestDetail && entry.conversationId && entry.events.length === 0) {
       onRequestDetail(entry.subagentId);
     }
   }, [entry.subagentId, entry.conversationId, entry.events.length, onRequestDetail]);
+
+  // The scroll container forwarded to the virtualized timeline: the timeline
+  // virtualizes against this *external* scroll element (the panel body) rather
+  // than its own list, so the metrics/objective header scrolls with the rows.
+  //
+  // Backed by state (a callback ref) rather than a plain `useRef`: the
+  // virtualizer registers its scroll listener from a layout effect that runs
+  // child-first, *before* this parent div's ref would attach. With a plain ref
+  // it sees a null scroll element and — for a completed subagent whose events
+  // arrive in one batch, with no later re-render — never registers, leaving the
+  // timeline unscrollable past the first window. Setting state when the node
+  // attaches forces the re-render that lets the virtualizer pick up the
+  // now-mounted scroll element.
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
+  const scrollRef = useMemo<RefObject<HTMLElement | null>>(
+    () => ({ current: scrollEl }),
+    [scrollEl],
+  );
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
@@ -157,9 +98,9 @@ export function SubagentDetailPanel({
         {components ? (
           <AvatarRenderer
             components={components}
-            bodyShapeId={subagentTraits(entry.subagentId).bodyShape}
-            eyeStyleId={subagentTraits(entry.subagentId).eyeStyle}
-            colorId={subagentTraits(entry.subagentId).color}
+            bodyShapeId={traits.bodyShape}
+            eyeStyleId={traits.eyeStyle}
+            colorId={traits.color}
             size={32}
           />
         ) : (
@@ -198,7 +139,7 @@ export function SubagentDetailPanel({
       </div>
 
       {/* Scrollable body */}
-      <div className="flex-1 overflow-y-auto px-5 py-5">
+      <div ref={setScrollEl} className="flex-1 overflow-y-auto px-5 py-5">
         {/* Metrics row */}
         <div className="mb-5 grid grid-cols-3 gap-3">
           <AnimatedMetricCard
@@ -250,7 +191,19 @@ export function SubagentDetailPanel({
           >
             Timeline
           </Typography>
-          <SubagentTimeline events={entry.events} />
+          {/*
+           * Key by subagent id so the timeline remounts on subagent switch,
+           * resetting the expand/collapse state it holds. Fetched detail event
+           * ids are renumbered per subagent (detail-1, detail-2, …) and the
+           * drawer keeps this component mounted across switches, so without a
+           * per-subagent reset an expanded `detail-N` would leak its expanded
+           * state onto the next subagent's `detail-N`.
+           */}
+          <SubagentTimeline
+            key={entry.subagentId}
+            scrollRef={scrollRef}
+            events={entry.events}
+          />
         </div>
       </div>
     </div>

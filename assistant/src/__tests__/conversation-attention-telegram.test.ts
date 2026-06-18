@@ -76,7 +76,6 @@ function ensureTestContact(): void {
       {
         type: "telegram",
         address: "telegram-user-default",
-        externalUserId: "telegram-user-default",
         status: "active",
         policy: "allow",
       },

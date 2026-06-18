@@ -1,16 +1,13 @@
 /**
  * One-time migration: deduplicate historical case collisions in the
- * gateway's contact_channels table and restore original platform-provided
- * casing.
+ * gateway's contact_channels table and enforce a UNIQUE(type, address) index.
  *
  * Historical writes lowercased addresses inconsistently — some paths stored
  * 'U12345' and others stored 'u12345' for the same identity. This migration
  * resolves collisions by keeping the best row per (type, address) group
- * (case-insensitive match for dedup only), then restores original casing
- * from external_user_id into address.
+ * (case-insensitive match for dedup only).
  *
- * Idempotent: on a DB with no case collisions, the DELETE and UPDATE are
- * no-ops.
+ * Idempotent: on a DB with no case collisions, the DELETE is a no-op.
  */
 
 import { Database } from "bun:sqlite";
@@ -54,77 +51,6 @@ export function up(): MigrationResult {
   `);
 
   log.info("Deduplicated contact_channels by (type, address) case-insensitive");
-
-  // Deduplicate by (type, external_user_id) so that a future
-  // normalization (SET address = external_user_id) cannot produce collisions.
-  db.exec(/*sql*/ `
-    DELETE FROM contact_channels
-    WHERE external_user_id IS NOT NULL
-      AND id NOT IN (
-        SELECT id FROM (
-          SELECT id,
-                 ROW_NUMBER() OVER (
-                   PARTITION BY type, external_user_id COLLATE NOCASE
-                   ORDER BY
-                     CASE status
-                       WHEN 'blocked' THEN 0
-                       WHEN 'revoked' THEN 1
-                       WHEN 'active' THEN 2
-                       WHEN 'unverified' THEN 3
-                       ELSE 4
-                     END,
-                     updated_at DESC
-                 ) AS rn
-          FROM contact_channels
-          WHERE external_user_id IS NOT NULL
-        )
-        WHERE rn = 1
-      )
-  `);
-
-  log.info(
-    "Deduplicated contact_channels by (type, external_user_id) case-insensitive",
-  );
-
-  // Remove rows that would block future normalization due to cross-column
-  // collisions.
-  db.exec(/*sql*/ `
-    DELETE FROM contact_channels
-    WHERE external_user_id IS NULL
-      AND id IN (
-        SELECT blocker.id
-        FROM contact_channels AS blocker
-        INNER JOIN contact_channels AS normalizer
-          ON normalizer.type = blocker.type
-          AND normalizer.external_user_id = blocker.address COLLATE NOCASE
-          AND normalizer.address != normalizer.external_user_id
-          AND normalizer.external_user_id IS NOT NULL
-          AND normalizer.id != blocker.id
-      )
-  `);
-
-  log.info("Removed cross-column collision blockers");
-
-  // Restore original platform-provided casing from external_user_id for
-  // channels where the raw platform ID is the canonical identity (Slack,
-  // Telegram, etc.). Phone/WhatsApp are excluded because their canonical
-  // form (E.164 with '+' prefix) may differ from the raw external_user_id.
-  db.exec(/*sql*/ `
-    UPDATE OR IGNORE contact_channels
-    SET address = external_user_id
-    WHERE external_user_id IS NOT NULL
-      AND address != external_user_id
-      AND type NOT IN ('email', 'phone', 'whatsapp')
-  `);
-  db.exec(/*sql*/ `
-    UPDATE OR IGNORE contact_channels
-    SET address = LOWER(external_user_id)
-    WHERE type = 'email'
-      AND external_user_id IS NOT NULL
-      AND address != LOWER(external_user_id)
-  `);
-
-  log.info("Restored original casing from external_user_id into address");
 
   // Enforce uniqueness at the DB level (defense-in-depth).
   db.exec(/*sql*/ `

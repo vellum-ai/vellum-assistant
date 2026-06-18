@@ -53,7 +53,7 @@ function handleRecordAuthFallback({ body }: RouteHandlerArgs) {
 
   const recorded = recordAuthFallbackCounts(window_start, window_end, mapped);
   if (recorded === 0) {
-    // collectUsageData disabled — counts dropped to honor the opt-out.
+    // share_analytics consent off — counts dropped to honor the opt-out.
     return { skipped: true };
   }
   log.debug({ recorded }, "Recorded auth-fallback counts");

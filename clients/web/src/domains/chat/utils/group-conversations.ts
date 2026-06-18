@@ -82,22 +82,42 @@ function parseLastMessageAt(conversation: Conversation): number {
 }
 
 /**
+ * Stable fallback order for pinned / custom-group rows that have no
+ * server-assigned `displayOrder`, and the tie-breaker when two rows share a
+ * `displayOrder`.
+ *
+ * Keyed on the immutable `createdAt` (newest-created first) — deliberately NOT
+ * `lastMessageAt`. Pinning sends no `displayOrder` (the daemon stores it as
+ * NULL until the user drag-reorders), so without this every pinned row would
+ * sort by recency and jump to the top whenever a new message landed in it.
+ * Pinned rows should hold their position regardless of activity, so we sort by
+ * creation time, which never changes. `conversationId` is the final
+ * tie-breaker so the order stays fully deterministic when `createdAt` is equal
+ * or missing.
+ */
+function compareByCreatedAt(a: Conversation, b: Conversation): number {
+  const byCreated = (b.createdAt ?? 0) - (a.createdAt ?? 0);
+  if (byCreated !== 0) return byCreated;
+  return a.conversationId.localeCompare(b.conversationId);
+}
+
+/**
  * Comparator for buckets where the user can manually drag-reorder rows
  * (pinned, custom groups). Conversations with a server-provided
  * `displayOrder` come first in ascending order; ties and rows without
- * `displayOrder` fall back to `lastMessageAt` newest-first so freshly-pinned
- * conversations land near the top until the server assigns them an order.
+ * `displayOrder` fall back to a stable creation-time order so pinned rows
+ * never reshuffle when activity arrives (see {@link compareByCreatedAt}).
  */
 function compareByDisplayOrder(a: Conversation, b: Conversation): number {
   const aOrder = a.displayOrder;
   const bOrder = b.displayOrder;
   if (aOrder != null && bOrder != null) {
     if (aOrder !== bOrder) return aOrder - bOrder;
-    return parseLastMessageAt(b) - parseLastMessageAt(a);
+    return compareByCreatedAt(a, b);
   }
   if (aOrder != null) return -1;
   if (bOrder != null) return 1;
-  return parseLastMessageAt(b) - parseLastMessageAt(a);
+  return compareByCreatedAt(a, b);
 }
 
 /**
@@ -112,7 +132,6 @@ export function groupConversations(
   conversations: Conversation[],
   options?: {
     groups?: ConversationGroup[];
-    customGroupsEnabled?: boolean;
   },
 ): GroupedConversations {
   const pinned: Conversation[] = [];
@@ -121,12 +140,10 @@ export function groupConversations(
   const slack: Conversation[] = [];
   const recents: Conversation[] = [];
 
-  // Build a lookup from group id → CustomGroup bucket when custom groups
-  // are enabled.
-  const customGroupsEnabled = options?.customGroupsEnabled === true;
+  // Build a lookup from group id → CustomGroup bucket.
   const groupLookup = new Map<string, CustomGroup>();
   const customGroupsList: CustomGroup[] = [];
-  if (customGroupsEnabled && options?.groups) {
+  if (options?.groups) {
     for (const g of options.groups) {
       if (g.isSystemGroup) continue;
       const bucket: CustomGroup = { id: g.id, name: g.name, conversations: [] };
@@ -147,9 +164,9 @@ export function groupConversations(
 
     // Explicit custom group assignment wins over system-type routing —
     // a scheduled conversation moved to a custom group should stay
-    // there, matching macOS where the server-provided groupId takes
-    // precedence over deriveGroupId() heuristics.
-    if (customGroupsEnabled && isCustomGroupId(c.groupId)) {
+    // there because the server-provided groupId takes precedence over
+    // deriveGroupId() heuristics.
+    if (isCustomGroupId(c.groupId)) {
       const bucket = groupLookup.get(c.groupId);
       if (bucket) {
         bucket.conversations.push(c);

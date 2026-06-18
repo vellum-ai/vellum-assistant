@@ -10,7 +10,7 @@ import {
     TriangleAlert,
 } from "lucide-react";
 import { useCallback, useState } from "react";
-import { Link, Navigate, useParams } from "react-router";
+import { Link, Navigate, useNavigate, useParams } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { FileMarkdown } from "@/components/file-markdown";
@@ -59,6 +59,7 @@ export function PluginDetailPage() {
   const externalPlugins = useAssistantFeatureFlagStore.use.externalPlugins();
   const assistantId = useActiveAssistantId();
   const { name } = useParams<{ name: string }>();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [confirmingUpgrade, setConfirmingUpgrade] = useState(false);
@@ -109,7 +110,13 @@ export function PluginDetailPage() {
   });
 
   const removeMutation = usePluginsByNameDeleteMutation({
-    onSuccess: invalidate,
+    onSuccess: () => {
+      invalidate();
+      // The detail page has nothing left to show once the plugin is gone,
+      // so return to the plugins list rather than stranding the user on a
+      // "We couldn't load this plugin" error.
+      void navigate(routes.plugins);
+    },
   });
 
   const upgradeMutation = usePluginsByNameUpgradePostMutation({

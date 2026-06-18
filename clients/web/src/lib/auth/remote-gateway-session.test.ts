@@ -3,6 +3,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { clearGatewayToken, getGatewayToken } from "@/lib/auth/gateway-session";
 import {
   activateRemoteGatewaySession,
+  createRemoteWebPairingChallenge,
   exchangeRemoteWebPairingToken,
   parseRemoteWebPairingParams,
   refreshRemoteGatewaySession,
@@ -75,6 +76,42 @@ describe("remote gateway public prefix", () => {
 });
 
 describe("remote gateway token exchange", () => {
+  test("creates browser pairing challenges against the remote gateway", async () => {
+    setLocation("/assistant-123/assistant");
+    const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    globalThis.fetch = mock(async (input, init) => {
+      calls.push({ input, init });
+      return Response.json({
+        deviceCode: "device-code",
+        userCode: "B8C2-S2J3",
+        verificationUri: "http://localhost:3000/assistant-123/assistant/pair",
+        expiresAt: "2026-06-16T12:00:00.000Z",
+        expiresInSeconds: 600,
+        intervalSeconds: 5,
+      });
+    }) as unknown as typeof fetch;
+
+    await expect(createRemoteWebPairingChallenge()).resolves.toEqual({
+      deviceCode: "device-code",
+      userCode: "B8C2-S2J3",
+      verificationUri: "http://localhost:3000/assistant-123/assistant/pair",
+      expiresAt: "2026-06-16T12:00:00.000Z",
+      expiresInSeconds: 600,
+      intervalSeconds: 5,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].input).toBe(
+      "/assistant-123/v1/remote-web/pairing-challenge",
+    );
+    expect(calls[0].init?.credentials).toBe("include");
+    expect(calls[0].init?.body).toBe(
+      JSON.stringify({
+        publicBaseUrl: "http://localhost:3000/assistant-123",
+      }),
+    );
+  });
+
   test("posts the device code with cookie credentials", async () => {
     setLocation("/assistant-123/assistant/pair");
     const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];

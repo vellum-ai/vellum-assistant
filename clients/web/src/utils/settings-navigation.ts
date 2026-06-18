@@ -13,6 +13,7 @@ import {
   Bell,
   Bookmark,
   Bug,
+  Cable,
   Code,
   Cpu,
   CreditCard,
@@ -49,6 +50,7 @@ export const PANEL_IDS = [
   "community",
   "assistant-status",
   "assistant-debug",
+  "mcp",
   "advanced",
   "developer",
 ] as const;
@@ -89,6 +91,7 @@ export const SETTINGS_SIDEBAR: SidebarItem[] = [
   { id: "bookmarks", label: "Bookmarks", href: routes.settings.bookmarks, icon: Bookmark },
   { id: "billing", label: "Billing", href: routes.settings.billing, icon: CreditCard },
   { id: "community", label: "Community", href: routes.settings.community, icon: Users },
+  { id: "mcp", label: "MCP", href: routes.settings.mcp, icon: Cable },
   { id: "assistant-debug", label: "Debug", href: routes.settings.debug, icon: Bug },
   { id: "advanced", label: "Advanced", href: routes.settings.advanced, icon: Settings },
   { id: "developer", label: "Developer", href: routes.settings.developer, icon: Code },

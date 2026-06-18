@@ -231,8 +231,6 @@ export function useArchivedConversationListQuery(
 
 /**
  * Subscribe to the conversation groups (folders) for the given assistant.
- * Mounted with `enabled: false` when the `conversationGroupsUI` flag is
- * disabled so it does not fire a network request.
  */
 export function useConversationGroupsQuery(
   assistantId: string | null,

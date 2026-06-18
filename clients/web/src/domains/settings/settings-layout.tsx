@@ -22,6 +22,7 @@ import { SidebarTree, type SidebarItem } from "@/components/sidebar-tree";
  */
 export function SettingsLayout() {
   const settingsDeveloperNav = useAssistantFeatureFlagStore.use.settingsDeveloperNav();
+  const mcpSettingsEnabled = useAssistantFeatureFlagStore.use.mcpSettings();
   const platformNotifications = useClientFeatureFlagStore.use.platformNotifications();
   const bookmarksEnabled = useClientFeatureFlagStore.use.bookmarks();
   const platformGate = usePlatformGate({ platformHostedOnly: true });
@@ -56,12 +57,15 @@ export function SettingsLayout() {
         if (item.id === "keyboard-shortcuts" && !isElectron()) {
           return false;
         }
+        if (item.id === "mcp" && !mcpSettingsEnabled) {
+          return false;
+        }
         if (item.id === "developer") {
           return false;
         }
         return true;
       }),
-    [platformNotifications, platformGate, billingGate, bookmarksEnabled],
+    [platformNotifications, platformGate, billingGate, bookmarksEnabled, mcpSettingsEnabled],
   );
 
   const bottomItems = useMemo<SidebarItem[]>(() => {

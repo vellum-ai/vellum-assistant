@@ -56,6 +56,25 @@ export const FeedItemCategorySchema = z.enum([
 export type FeedItemCategory = z.infer<typeof FeedItemCategorySchema>;
 
 /**
+ * Producer of a feed item's source conversation — lets clients filter the
+ * activity feed by what generated each notification: the periodic
+ * heartbeat, a memory-consolidation pass, a recurring schedule, an
+ * auto-analysis run, etc. Derived at read time from the source
+ * conversation's `source` column (see `home/feed-source-enrichment.ts`).
+ * Individual schedules are distinguished by `sourceKey`/`sourceLabel`, not
+ * this coarse type.
+ */
+export const FeedItemSourceTypeSchema = z.enum([
+  "heartbeat",
+  "memory_consolidation",
+  "schedule",
+  "auto_analysis",
+  "user",
+  "other",
+]);
+export type FeedItemSourceType = z.infer<typeof FeedItemSourceTypeSchema>;
+
+/**
  * A single action button attached to a feed item.
  *
  * `prompt` is the pre-seeded user message the action sends to the
@@ -120,6 +139,13 @@ export const FeedItemSchema = z.object({
   noteworthy: z.boolean().optional(),
   fromAssistant: z.boolean().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+  // Source-conversation classification, enriched at read time. `sourceKey`
+  // is the stable filter id — `schedule:<id>` for schedules so each filters
+  // separately, otherwise the `sourceType`. `sourceLabel` is the display
+  // string (a schedule's name, or a static label like "Heartbeat").
+  sourceType: FeedItemSourceTypeSchema.optional(),
+  sourceKey: z.string().optional(),
+  sourceLabel: z.string().optional(),
   createdAt: z.string(),
 });
 export type FeedItem = z.infer<typeof FeedItemSchema>;

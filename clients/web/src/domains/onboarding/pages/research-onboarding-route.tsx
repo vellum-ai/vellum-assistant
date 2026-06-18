@@ -4,14 +4,17 @@
  * SPIKE — research-onboarding flow.
  *
  * Collects first/last/occupation, stages a pre-chat context whose
- * `initialMessage` is the "research me" prompt, flips on the focused
- * presentation flag, and hands off to the existing
- * `/assistant?onboarding=1` pipeline. From there the standard machinery
- * hatches the assistant, mints a conversation, auto-sends the research
- * prompt, and streams the reply — rendered chrome-less by `ChatLayout`
- * because the focus flag is set. The user reads the output, then clicks
- * "Continue" (in `ChatLayout`) to drop into the full workspace on the
- * very same conversation.
+ * `initialMessage` is the "research me" prompt, then hands off immediately to
+ * the existing `/assistant?onboarding=1` pipeline, where the standard machinery
+ * hatches the assistant, mints a conversation, auto-sends the research prompt,
+ * and streams the reply — rendered chrome-less by `ChatLayout` because the
+ * focus flag is set.
+ *
+ * `beginCheckin` flips the focused overlay to its first step — the "Let's chat
+ * tomorrow" Google Calendar page — which is shown WHILE the research streams in
+ * behind it. So the research pass starts the instant the form is submitted; the
+ * gcal step just gates when the results are revealed. The user reads the output,
+ * then clicks "Continue" to drop into the full workspace on the same conversation.
  */
 
 import { useEffect } from "react";
@@ -38,9 +41,11 @@ export function ResearchOnboardingRoute() {
   const user = useAuthStore.use.user();
   const enterFocus = useOnboardingFocusStore.use.enterFocus();
   const exitFocus = useOnboardingFocusStore.use.exitFocus();
+  const beginCheckin = useOnboardingFocusStore.use.beginCheckin();
   // Belt-and-suspenders gate: the spike lives at a dedicated path AND behind
   // this flag (off by default; enable locally via the feature-flags panel).
   const enabled = useClientFeatureFlagStore.use.researchOnboarding();
+  const flagsHydrated = useClientFeatureFlagStore.use.hydrated();
 
   // Landing on the form means a fresh run — clear any stale focus state left
   // behind by an abandoned previous attempt so the form itself never renders
@@ -58,6 +63,8 @@ export function ResearchOnboardingRoute() {
       .filter(Boolean)
       .join(" ");
 
+    const trimmedFirstName = firstName.trim();
+
     const context: PreChatOnboardingContext = {
       // Required handoff fields — no tool/task/tone collection in this flow.
       tools: [],
@@ -67,16 +74,20 @@ export function ResearchOnboardingRoute() {
       ...(occupation.trim() ? { occupation: occupation.trim() } : {}),
       // The auto-sent first message: kick off the research pass.
       initialMessage: buildResearchPrompt({ firstName, lastName, occupation }),
+      // Set an explicit, friendly title on the behind-the-scenes research
+      // conversation so it isn't left with an auto-generated one.
+      title: trimmedFirstName
+        ? `Getting to know ${trimmedFirstName}`
+        : "Getting to know you",
     };
 
     setPendingPreChatContext(context);
 
-    // Render the handoff chat chrome-less until the user continues out.
+    // Show the gcal check-in as the focused overlay's first step (research
+    // streams behind it), then hand off to the chat pipeline NOW so the research
+    // pass starts immediately rather than after the gcal step.
+    beginCheckin(fullName || undefined);
     enterFocus();
-
-    // Mirror `PreChatFlow.completeFlow`: tell the lifecycle service to expect a
-    // first message (drives the auto-greet gate), refresh the assistant, then
-    // hand off to the onboarding chat pipeline.
     lifecycleService.markExpectingFirstMessage();
     void lifecycleService.checkAssistant().finally(() => {
       void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
@@ -84,6 +95,10 @@ export function ResearchOnboardingRoute() {
   }
 
   if (!enabled) {
+    // A cold load starts with the default-off value while the LD flag is still
+    // being fetched; wait for that response before bouncing so a flag that's
+    // actually `true` isn't redirected away on first render.
+    if (!flagsHydrated) return null;
     return <Navigate to={routes.assistant} replace />;
   }
 

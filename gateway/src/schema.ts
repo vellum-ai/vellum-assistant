@@ -2625,7 +2625,7 @@ export function buildSchema(): Record<string, unknown> {
         get: {
           summary: "Get privacy config",
           description:
-            "Scope-protected gateway endpoint that returns the current privacy configuration (collectUsageData, sendDiagnostics, llmRequestLogRetentionMs). Missing or malformed values fall back to the daemon schema defaults. Requires a bearer token with `settings.read` scope.",
+            "Scope-protected gateway endpoint that returns the current privacy configuration (sendDiagnostics, llmRequestLogRetentionMs). Missing or malformed values fall back to the daemon schema defaults. Requires a bearer token with `settings.read` scope.",
           operationId: "privacyConfigGet",
           security: [{ BearerAuth: [] }],
           responses: {
@@ -2636,7 +2636,6 @@ export function buildSchema(): Record<string, unknown> {
                   schema: {
                     type: "object",
                     properties: {
-                      collectUsageData: { type: "boolean" },
                       sendDiagnostics: { type: "boolean" },
                       llmRequestLogRetentionMs: {
                         type: ["integer", "null"],
@@ -2646,11 +2645,7 @@ export function buildSchema(): Record<string, unknown> {
                           "Retention period for LLM request/response logs in milliseconds. null keeps forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms); server-side clamping enforces this cap on reads.",
                       },
                     },
-                    required: [
-                      "collectUsageData",
-                      "sendDiagnostics",
-                      "llmRequestLogRetentionMs",
-                    ],
+                    required: ["sendDiagnostics", "llmRequestLogRetentionMs"],
                   },
                 },
               },
@@ -2665,7 +2660,7 @@ export function buildSchema(): Record<string, unknown> {
         patch: {
           summary: "Update privacy config",
           description:
-            "Scope-protected gateway endpoint that updates privacy configuration (collectUsageData, sendDiagnostics, llmRequestLogRetentionMs). Requires a bearer token with `settings.write` scope.",
+            "Scope-protected gateway endpoint that updates privacy configuration (sendDiagnostics, llmRequestLogRetentionMs). Requires a bearer token with `settings.write` scope.",
           operationId: "privacyConfigPatch",
           security: [{ BearerAuth: [] }],
           requestBody: {
@@ -2675,7 +2670,6 @@ export function buildSchema(): Record<string, unknown> {
                 schema: {
                   type: "object",
                   properties: {
-                    collectUsageData: { type: "boolean" },
                     sendDiagnostics: { type: "boolean" },
                     llmRequestLogRetentionMs: {
                       type: ["integer", "null"],
@@ -2686,7 +2680,6 @@ export function buildSchema(): Record<string, unknown> {
                     },
                   },
                   anyOf: [
-                    { required: ["collectUsageData"] },
                     { required: ["sendDiagnostics"] },
                     { required: ["llmRequestLogRetentionMs"] },
                   ],
@@ -2702,7 +2695,6 @@ export function buildSchema(): Record<string, unknown> {
                   schema: {
                     type: "object",
                     properties: {
-                      collectUsageData: { type: "boolean" },
                       sendDiagnostics: { type: "boolean" },
                       llmRequestLogRetentionMs: {
                         type: ["integer", "null"],
@@ -2712,11 +2704,7 @@ export function buildSchema(): Record<string, unknown> {
                           "Retention window for LLM request logs, in milliseconds. null keeps logs forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms).",
                       },
                     },
-                    required: [
-                      "collectUsageData",
-                      "sendDiagnostics",
-                      "llmRequestLogRetentionMs",
-                    ],
+                    required: ["sendDiagnostics", "llmRequestLogRetentionMs"],
                   },
                 },
               },
@@ -2800,7 +2788,7 @@ export function buildSchema(): Record<string, unknown> {
         get: {
           summary: "Get privacy config (assistant-scoped)",
           description:
-            "Assistant-scoped variant of the privacy config read endpoint. Returns the current privacy configuration (collectUsageData, sendDiagnostics, llmRequestLogRetentionMs). Missing or malformed values fall back to the daemon schema defaults. Requires a bearer token with `settings.read` scope.",
+            "Assistant-scoped variant of the privacy config read endpoint. Returns the current privacy configuration (sendDiagnostics, llmRequestLogRetentionMs). Missing or malformed values fall back to the daemon schema defaults. Requires a bearer token with `settings.read` scope.",
           operationId: "assistantPrivacyConfigGet",
           security: [{ BearerAuth: [] }],
           parameters: [
@@ -2820,7 +2808,6 @@ export function buildSchema(): Record<string, unknown> {
                   schema: {
                     type: "object",
                     properties: {
-                      collectUsageData: { type: "boolean" },
                       sendDiagnostics: { type: "boolean" },
                       llmRequestLogRetentionMs: {
                         type: ["integer", "null"],
@@ -2830,11 +2817,7 @@ export function buildSchema(): Record<string, unknown> {
                           "Retention period for LLM request/response logs in milliseconds. null keeps forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms); server-side clamping enforces this cap on reads.",
                       },
                     },
-                    required: [
-                      "collectUsageData",
-                      "sendDiagnostics",
-                      "llmRequestLogRetentionMs",
-                    ],
+                    required: ["sendDiagnostics", "llmRequestLogRetentionMs"],
                   },
                 },
               },
@@ -2868,7 +2851,6 @@ export function buildSchema(): Record<string, unknown> {
                 schema: {
                   type: "object",
                   properties: {
-                    collectUsageData: { type: "boolean" },
                     sendDiagnostics: { type: "boolean" },
                     llmRequestLogRetentionMs: {
                       type: ["integer", "null"],
@@ -2879,7 +2861,6 @@ export function buildSchema(): Record<string, unknown> {
                     },
                   },
                   anyOf: [
-                    { required: ["collectUsageData"] },
                     { required: ["sendDiagnostics"] },
                     { required: ["llmRequestLogRetentionMs"] },
                   ],
@@ -2895,7 +2876,6 @@ export function buildSchema(): Record<string, unknown> {
                   schema: {
                     type: "object",
                     properties: {
-                      collectUsageData: { type: "boolean" },
                       sendDiagnostics: { type: "boolean" },
                       llmRequestLogRetentionMs: {
                         type: ["integer", "null"],
@@ -2905,11 +2885,7 @@ export function buildSchema(): Record<string, unknown> {
                           "Retention window for LLM request logs, in milliseconds. null keeps logs forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms).",
                       },
                     },
-                    required: [
-                      "collectUsageData",
-                      "sendDiagnostics",
-                      "llmRequestLogRetentionMs",
-                    ],
+                    required: ["sendDiagnostics", "llmRequestLogRetentionMs"],
                   },
                 },
               },
@@ -3572,6 +3548,113 @@ export function buildSchema(): Record<string, unknown> {
             },
             "403": { description: "Feature not enabled" },
             "404": { description: "Trust rule not found" },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
+      "/v1/channel-admission-policy": {
+        get: {
+          summary: "List channel admission policies",
+          description:
+            "Authenticated gateway endpoint that lists the admission policy for every channel from the SQLite-backed store. Channels without a persisted row are returned with the default policy.",
+          operationId: "channelAdmissionPolicyGet",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Channel admission policies returned" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
+      "/v1/channel-admission-policy/{channelType}": {
+        put: {
+          summary: "Set a channel admission policy",
+          description:
+            "Authenticated gateway endpoint that upserts the admission policy for a single channel in the SQLite-backed store and invalidates the in-memory admission-policy cache.",
+          operationId: "channelAdmissionPolicyPut",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "channelType",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Channel admission policy upserted" },
+            "400": { description: "Invalid request payload or channelType" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+        post: {
+          summary: "Set a channel admission policy",
+          description:
+            "Alias for the PUT upsert. Accepts the same payload so clients that issue POST upserts match the same handler.",
+          operationId: "channelAdmissionPolicyPost",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "channelType",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Channel admission policy upserted" },
+            "400": { description: "Invalid request payload or channelType" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+        delete: {
+          summary: "Delete a channel admission policy",
+          description:
+            "Authenticated gateway endpoint that removes the admission policy for a single channel from the SQLite-backed store and invalidates the in-memory admission-policy cache. Internal channels (vellum/platform, vellum/a2a) are exempt from deletion per §8.1.",
+          operationId: "channelAdmissionPolicyDelete",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "channelType",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Channel admission policy deleted" },
+            "400": { description: "Invalid channelType" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": {
+              description:
+                "Internal channel — exempt from admission policy (§8.1)",
+            },
             "500": { description: "Internal server error" },
           },
         },

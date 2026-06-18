@@ -17,6 +17,7 @@ import { IntegrationIcon } from "@/components/integrations/integration-icon";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { useOAuthConnect } from "@/hooks/use-oauth-connect";
 import type { PlatformGateState } from "@/hooks/use-platform-gate";
+import { useActiveAssistantIsPlatformHosted } from "@/hooks/use-platform-gate";
 import { extractErrorMessage } from "@/utils/api-errors";
 
 import { ManagedTab } from "@/domains/settings/components/managed-oauth-tab";
@@ -27,6 +28,7 @@ type ModalTab = "managed" | "your-own";
 
 interface IntegrationDetailModalProps {
   assistantId: string;
+  platformAssistantId: string;
   providerKey: string;
   displayName: string;
   description: string | null;
@@ -42,6 +44,7 @@ interface IntegrationDetailModalProps {
  */
 export function IntegrationDetailModal({
   assistantId,
+  platformAssistantId,
   providerKey,
   displayName,
   description,
@@ -51,9 +54,18 @@ export function IntegrationDetailModal({
 }: IntegrationDetailModalProps) {
   const queryClient = useQueryClient();
   const managedAvailable = platformGate === "full";
+  const isPlatformHosted = useActiveAssistantIsPlatformHosted();
+  const yourOwnAvailable = !isPlatformHosted;
   const [activeTab, setActiveTab] = useState<ModalTab>(
-    platformGate === "gated" ? "your-own" : "managed",
+    platformGate === "gated" && yourOwnAvailable ? "your-own" : "managed",
   );
+
+  useEffect(() => {
+    if (!yourOwnAvailable && activeTab === "your-own") {
+      setActiveTab("managed");
+    }
+  }, [yourOwnAvailable, activeTab]);
+
   const [pendingDisconnectId, setPendingDisconnectId] = useState<string | null>(
     null,
   );
@@ -61,12 +73,12 @@ export function IntegrationDetailModal({
     useState<OAuthConnection | null>(null);
 
   const connectionsQueryKey = assistantsOauthConnectionsListQueryKey({
-    path: { assistant_id: assistantId },
+    path: { assistant_id: platformAssistantId },
   });
 
   const { data: allConnections, isLoading: connectionsLoading } = useQuery({
     ...assistantsOauthConnectionsListOptions({
-      path: { assistant_id: assistantId },
+      path: { assistant_id: platformAssistantId },
     }),
     enabled: managedAvailable,
   });
@@ -84,7 +96,7 @@ export function IntegrationDetailModal({
     allConnections,
   });
 
-  const connectionsOpts = { path: { assistant_id: assistantId } };
+  const connectionsOpts = { path: { assistant_id: platformAssistantId } };
 
   const disconnectOAuth = useAssistantsOauthDisconnectByConnectionCreateMutation({
     onSuccess(_data, variables) {
@@ -137,7 +149,7 @@ export function IntegrationDetailModal({
     }
     setPendingDisconnectId(connection.id);
     disconnectOAuth.mutate({
-      path: { assistant_id: assistantId, connection_id: connection.id },
+      path: { assistant_id: platformAssistantId, connection_id: connection.id },
     });
   };
 
@@ -183,7 +195,7 @@ export function IntegrationDetailModal({
         </div>
 
         <div className="space-y-4 px-5 py-4">
-          {platformGate !== "gated" && (
+          {platformGate !== "gated" && yourOwnAvailable && (
             <div
               role="tablist"
               aria-label="OAuth mode"
@@ -226,14 +238,14 @@ export function IntegrationDetailModal({
                 connectPresets={getConnectPresets(providerKey)}
               />
             )
-          ) : (
+          ) : yourOwnAvailable ? (
             <YourOwnTab
               assistantId={assistantId}
               providerKey={providerKey}
               displayName={displayName}
               logoUrl={logoUrl}
             />
-          )}
+          ) : null}
         </div>
 
         <div className="flex justify-end border-t border-[var(--border-base)] px-5 py-3 dark:border-[var(--border-base)]">

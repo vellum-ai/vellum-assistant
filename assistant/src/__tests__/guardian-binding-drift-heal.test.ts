@@ -44,7 +44,7 @@ describe("healGuardianBindingDrift", () => {
     const guardian = findGuardianForChannel("vellum");
     expect(guardian).not.toBeNull();
     expect(guardian!.contact.principalId).toBe("vellum-principal-old-uuid");
-    expect(guardian!.channel.externalUserId).toBe("vellum-principal-old-uuid");
+    expect(guardian!.channel.address).toBe("vellum-principal-old-uuid");
   });
 
   test("no-op when principals already match", () => {

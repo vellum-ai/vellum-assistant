@@ -139,6 +139,12 @@ import {
   createTrustRulesSuggestHandler,
 } from "./http/routes/trust-rules.js";
 import { initTrustRuleCache } from "./risk/trust-rule-cache.js";
+import { initAdmissionPolicyCache } from "./risk/admission-policy-cache.js";
+import {
+  createChannelAdmissionPolicyListHandler,
+  createChannelAdmissionPolicySetHandler,
+  createChannelAdmissionPolicyDeleteHandler,
+} from "./http/routes/channel-admission-policy.js";
 import { getLogger, initLogger } from "./logger.js";
 import { getPlatformBaseUrl } from "./platform-url.js";
 import {
@@ -186,6 +192,7 @@ import {
 import { GatewayIpcServer } from "./ipc/server.js";
 import { contactRoutes } from "./ipc/contact-handlers.js";
 import { featureFlagRoutes } from "./ipc/feature-flag-handlers.js";
+import { admissionPolicyRoutes } from "./ipc/admission-policy-handlers.js";
 import { createLogTailRoutes } from "./ipc/log-tail-handlers.js";
 import { slackThreadRoutes } from "./ipc/slack-thread-handlers.js";
 import { thresholdRoutes } from "./ipc/threshold-handlers.js";
@@ -301,6 +308,7 @@ async function main() {
 
   await initGatewayDb();
   initTrustRuleCache();
+  initAdmissionPolicyCache();
 
   // Wait for the assistant runtime to be healthy before serving traffic.
   // Data migrations (e.g. m0002 actor-token-tables-to-gateway) must
@@ -529,6 +537,12 @@ async function main() {
   const handleTrustRulesDelete = createTrustRulesDeleteHandler();
   const handleTrustRulesReset = createTrustRulesResetHandler();
   const handleTrustRulesSuggest = createTrustRulesSuggestHandler();
+  const handleChannelAdmissionPolicyList =
+    createChannelAdmissionPolicyListHandler();
+  const handleChannelAdmissionPolicySet =
+    createChannelAdmissionPolicySetHandler();
+  const handleChannelAdmissionPolicyDelete =
+    createChannelAdmissionPolicyDeleteHandler();
 
   const handleAgentCard = createAgentCardHandler(configFileCache);
 
@@ -845,8 +859,12 @@ async function main() {
       path: "/v1/remote-web/pairing-challenge",
       method: "POST",
       auth: "none",
-      handler: (req, _params, getClientIp) =>
-        handleCreateRemoteWebPairingChallenge(req, getClientIp()),
+      handler: (req, _params, getClientIp, getRawPeerIp) =>
+        handleCreateRemoteWebPairingChallenge(
+          req,
+          getClientIp(),
+          getRawPeerIp(),
+        ),
     },
     {
       path: "/v1/remote-web/pairing-verification",
@@ -1492,6 +1510,82 @@ async function main() {
       handler: (req, params) => handleTrustRulesDelete(req, params[0]),
     },
 
+    // ── Channel admission policy — flat routes ──
+    // Storage + CRUD for the per-channel admission floor. Gateway-owned: the
+    // admission-policy store and cache live here, not in the daemon. The
+    // platform's RuntimeProxyView strips the `/v1/assistants/<id>/` prefix and
+    // forwards the flat path to the gateway via `/gateway-query`, so these flat
+    // routes are what actually serve client traffic. The mutation regexes
+    // tolerate a trailing slash.
+    {
+      path: /^\/v1\/channel-admission-policy\/?$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleChannelAdmissionPolicyList(req),
+    },
+    {
+      path: /^\/v1\/channel-admission-policy\/([^/]+)\/?$/,
+      method: "PUT",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) => handleChannelAdmissionPolicySet(req, params[0]),
+    },
+    {
+      path: /^\/v1\/channel-admission-policy\/([^/]+)\/?$/,
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) => handleChannelAdmissionPolicySet(req, params[0]),
+    },
+    {
+      path: /^\/v1\/channel-admission-policy\/([^/]+)\/?$/,
+      method: "DELETE",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) =>
+        handleChannelAdmissionPolicyDelete(req, params[0]),
+    },
+
+    // ── Channel admission policy — assistant-scoped variants ──
+    // Mirror the flat routes for clients that use GatewayHTTPClient's
+    // auto-prefix, which builds URLs like
+    // /v1/assistants/<id>/channel-admission-policy/<channel>/. Without these,
+    // the request falls through to the runtime-proxy catch-all and the daemon
+    // serves 404 (the daemon does not implement this gateway storage API).
+    // Admission policy is gateway-global, so the assistant id is matched and
+    // discarded — same precedent as the assistant-scoped trust-rules routes
+    // below.
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-admission-policy\/?$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleChannelAdmissionPolicyList(req),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-admission-policy\/([^/]+)\/?$/,
+      method: "PUT",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) => handleChannelAdmissionPolicySet(req, params[0]),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-admission-policy\/([^/]+)\/?$/,
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) => handleChannelAdmissionPolicySet(req, params[0]),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-admission-policy\/([^/]+)\/?$/,
+      method: "DELETE",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) =>
+        handleChannelAdmissionPolicyDelete(req, params[0]),
+    },
+
     // ── Trust rules v3 — assistant-scoped variants ──
     // Mirror the flat /v1/trust-rules routes for clients that use
     // GatewayHTTPClient's auto-prefix (Swift TrustRuleClient and
@@ -1947,8 +2041,15 @@ async function main() {
     );
     if (!botToken || !appToken) return;
 
+    const threadModeRaw = configFileCache.getString("slack", "threadMode");
+    const threadMode =
+      threadModeRaw === "mention_only" ||
+      threadModeRaw === "mention_then_thread"
+        ? threadModeRaw
+        : "mention_then_thread";
+
     slackSocketClient = createSlackSocketModeClient(
-      { appToken, botToken, gatewayConfig: config },
+      { appToken, botToken, gatewayConfig: config, threadMode },
       (normalized) => {
         // Notify the platform of inbound activity so the idle-sleep timer
         // is reset for this assistant (fire-and-forget).
@@ -2362,6 +2463,15 @@ async function main() {
       maybeStartVelayTunnelForTwilio("twilio config changed");
     }
 
+    if (event.changedKeys.has("slack")) {
+      startSlackSocket().catch((err) => {
+        log.error(
+          { err },
+          "Failed to restart Slack Socket Mode after config change",
+        );
+      });
+    }
+
     // Side effect: re-register email callback when ingress URL changes so
     // the platform callback route points at the new self-hosted URL.
     if (
@@ -2389,6 +2499,7 @@ async function main() {
     ...contactRoutes,
     ...slackThreadRoutes,
     ...thresholdRoutes,
+    ...admissionPolicyRoutes,
     ...riskClassificationRoutes,
     ...createLogTailRoutes(config),
     ...trustRulesRoutes,

@@ -43,15 +43,38 @@ interface OnboardingFocusState {
   pendingFollowupMessage: string | null;
   requestFollowup: (message: string) => void;
   clearFollowup: () => void;
+  /**
+   * When true, the focused overlay shows the "Let's chat tomorrow" Google
+   * Calendar step INSTEAD of the research results — while the research pass
+   * streams in behind it (the pipeline auto-sends on handoff). Cleared once the
+   * user connects or skips, revealing the (by then usually ready) results.
+   * `checkinUserName` carries the collected name through to the Day-2 Check-in
+   * prompt, since the pre-chat context is consumed by the research send before
+   * the user reaches this step.
+   */
+  checkinPending: boolean;
+  checkinUserName: string | null;
+  beginCheckin: (userName?: string) => void;
+  endCheckin: () => void;
 }
 
 const useOnboardingFocusStoreBase = create<OnboardingFocusState>((set) => ({
   focused: false,
   enterFocus: () => set({ focused: true }),
-  exitFocus: () => set({ focused: false, pendingFollowupMessage: null }),
+  exitFocus: () =>
+    set({
+      focused: false,
+      pendingFollowupMessage: null,
+      checkinPending: false,
+    }),
   pendingFollowupMessage: null,
   requestFollowup: (message) => set({ pendingFollowupMessage: message }),
   clearFollowup: () => set({ pendingFollowupMessage: null }),
+  checkinPending: false,
+  checkinUserName: null,
+  beginCheckin: (userName) =>
+    set({ checkinPending: true, checkinUserName: userName ?? null }),
+  endCheckin: () => set({ checkinPending: false }),
 }));
 
 export const useOnboardingFocusStore = createSelectors(

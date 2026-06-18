@@ -100,6 +100,9 @@ export const routes = {
     privacy: r("/assistant/onboarding/privacy"),
     prechat: r("/assistant/onboarding/prechat"),
     hatching: r("/assistant/onboarding/hatching"),
+    // SPIKE — research-onboarding front door. Reachable on demand behind the
+    // default-off research-onboarding flag (see routes.tsx).
+    research: r("/assistant/onboarding/research"),
   },
 
   home: r("/assistant/home"),
@@ -126,8 +129,6 @@ export const routes = {
     general: r("/assistant/settings/general"),
     ai: r("/assistant/settings/ai"),
     integrations: r("/assistant/settings/integrations"),
-    schedules: r("/assistant/settings/schedules"),
-    schedule: (id: string) => dyn(r("/assistant/settings/schedules"), id),
     notifications: r("/assistant/settings/notifications"),
     keyboardShortcuts: r("/assistant/settings/keyboard-shortcuts"),
     sounds: r("/assistant/settings/sounds"),
@@ -140,6 +141,7 @@ export const routes = {
     community: r("/assistant/settings/community"),
     debug: r("/assistant/settings/debug"),
     developer: r("/assistant/settings/developer"),
+    mcp: r("/assistant/settings/mcp"),
     advanced: r("/assistant/settings/advanced"),
     dangerZone: r("/assistant/settings/danger-zone"),
     systemEvents: r("/assistant/settings/system-events"),

@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Sparkles, Wand2 } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { useSearchParams } from "react-router";
 
 import { Dropdown } from "@vellumai/design-library";
 
@@ -59,9 +59,8 @@ import {
     usageTotalsGetOptions,
     schedulesGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { PromptLaunchButton } from "@/components/prompt-launch-button";
 import { extractUsageProfileMetadata } from "@/utils/profile-metadata";
-import { storePendingInitialMessage } from "@/utils/initial-message-launch";
-import { routes } from "@/utils/routes";
 import { fetchSchedules, type AssistantSchedule } from "@/utils/schedules";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 
@@ -97,7 +96,6 @@ const COST_OPTIMIZATION_PROMPT = [
 ].join(" ");
 
 export function UsageTab({ assistantId }: UsageTabProps) {
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { range, groupBy, scheduleId } = useMemo(
     () => readUsageUrlState(searchParams),
@@ -130,10 +128,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
     staleTime: 10_000,
   });
 
-  const startCostConversation = (message: string) => {
-    storePendingInitialMessage(message);
-    void navigate(routes.assistant);
-  };
+
 
   const handleRangeChange = useCallback(
     (nextRange: UsageTimeRange) => {
@@ -425,10 +420,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
         groups={decoratedBreakdown}
       />
 
-      <CostAssistantSection
-        onAnalyze={() => startCostConversation(COST_ANALYSIS_PROMPT)}
-        onOptimize={() => startCostConversation(COST_OPTIMIZATION_PROMPT)}
-      />
+      <CostAssistantSection />
     </div>
   );
 }
@@ -468,13 +460,7 @@ function unknownScheduleLabel(scheduleId: string) {
   return `Unknown schedule (${scheduleId})`;
 }
 
-function CostAssistantSection({
-  onAnalyze,
-  onOptimize,
-}: {
-  onAnalyze: () => void;
-  onOptimize: () => void;
-}) {
+function CostAssistantSection() {
   return (
     <div className="flex flex-col gap-3">
       <div
@@ -488,39 +474,13 @@ function CostAssistantSection({
         title="Cost assistant"
         subtitle="Review recent spend and tune model profile choices."
       >
-        <div
-          className="flex flex-col gap-2 rounded-md px-3 py-3 sm:flex-row sm:items-center"
-          style={{
-            background:
-              "color-mix(in srgb, var(--border-base) 15%, transparent)",
-          }}
-        >
-          <button
-            type="button"
-            onClick={onAnalyze}
-            className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-body-medium-default transition-colors"
-            style={{
-              borderColor: "var(--border-element)",
-              color: "var(--content-default)",
-              background: "var(--surface-lift)",
-            }}
-          >
-            <Sparkles className="h-4 w-4" />
+        <div className="flex flex-col gap-2 rounded-md px-3 py-3 sm:flex-row sm:items-center">
+          <PromptLaunchButton prompt={COST_ANALYSIS_PROMPT}>
             Analyze costs with assistant
-          </button>
-          <button
-            type="button"
-            onClick={onOptimize}
-            className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-body-medium-default transition-colors"
-            style={{
-              borderColor: "var(--border-base)",
-              color: "var(--content-secondary)",
-              background: "transparent",
-            }}
-          >
-            <Wand2 className="h-4 w-4" />
+          </PromptLaunchButton>
+          <PromptLaunchButton prompt={COST_OPTIMIZATION_PROMPT} variant="ghost">
             Optimize settings
-          </button>
+          </PromptLaunchButton>
         </div>
       </Section>
     </div>
