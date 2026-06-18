@@ -18,6 +18,9 @@ const PLATFORM_SESSION_PROBE_TIMEOUT_MS = 5_000;
 export const authMiddleware: MiddlewareFunction = async ({ request, context }, next) => {
   const url = new URL(request.url);
 
+  // `buildNavigationState` folds app access into the admit decision, so the
+  // settle waits below remain the only identity/probe gates — they keep us from
+  // routing mid-probe.
   const state = buildNavigationState();
 
   const decision = resolveNavigation(state, {
