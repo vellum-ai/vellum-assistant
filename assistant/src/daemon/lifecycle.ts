@@ -672,12 +672,15 @@ export async function runDaemon(): Promise<void> {
       setUsageTelemetryReporter(telemetryReporter);
       telemetryReporter.start();
       log.info("Usage telemetry reporter started");
-
-      // Fire-and-forget: startConsentRefresh() runs an immediate non-blocking
-      // refresh, so the startup hot path is never blocked.
-      startConsentRefresh();
-      registerShutdownHook("consent-cache", () => stopConsentRefresh());
     }
+
+    // Refresh the consent cache regardless of dev mode so record-time telemetry
+    // writes (gated on getCachedShareAnalytics()) work in dev too. The reporter
+    // flush stays dev-gated above, so dev still never sends telemetry to the
+    // platform. Fire-and-forget: startConsentRefresh() runs an immediate
+    // non-blocking refresh, so the startup hot path is never blocked.
+    startConsentRefresh();
+    registerShutdownHook("consent-cache", () => stopConsentRefresh());
 
     // CES lifecycle — kick off early so CES handshake runs concurrently with
     // provider/tool initialization. The CES sidecar accepts exactly one
