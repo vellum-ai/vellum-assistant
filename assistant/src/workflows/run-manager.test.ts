@@ -343,7 +343,7 @@ describe("WorkflowRunManager — progress events", () => {
     });
   });
 
-  test("a run with no conversation broadcasts no progress events", () => {
+  test("a run with no conversation broadcasts progress unscoped (no conversationId)", () => {
     const h = makeHarness();
     h.manager.start({
       scriptSource: "export const meta = { name: 'x', description: 'y' }",
@@ -357,9 +357,16 @@ describe("WorkflowRunManager — progress events", () => {
     onProgress({ type: "phase", title: "Gathering" });
     onProgress({ type: "log", message: "step done" });
 
-    expect(h.broadcasts.some((b) => b.type === "workflow_progress")).toBe(
-      false,
-    );
+    // `workflow_progress` is a pre-existing event; it still broadcasts for a
+    // conversationless run, just without a `conversationId` (unscoped).
+    const progress = h.broadcasts.filter((b) => b.type === "workflow_progress");
+    expect(progress).toHaveLength(2);
+    expect(progress[0]).toMatchObject({
+      type: "workflow_progress",
+      label: "My Flow",
+      phase: "Gathering",
+    });
+    expect(progress[0]).not.toHaveProperty("conversationId");
   });
 
   test("onLeaf start/finish are republished as scoped leaf events", () => {
@@ -564,7 +571,7 @@ describe("WorkflowRunManager — completion", () => {
     expect(h.manager.status(runId)?.result).toBe(big);
   });
 
-  test("no conversationId → no workflow broadcasts and no wake", async () => {
+  test("no conversationId → pre-existing events broadcast unscoped; UI events and wake are gated", async () => {
     const h = makeHarness();
     h.manager.start({
       scriptSource: "export const meta = { name: 'x', description: 'y' }",
@@ -581,9 +588,24 @@ describe("WorkflowRunManager — completion", () => {
       outputTokens: 1,
     });
 
-    // A run with no originating conversation has no SSE stream to scope to:
-    // none of the workflow lifecycle events broadcast, and there's no wake.
-    expect(h.broadcasts).toHaveLength(0);
+    // The pre-existing terminal event still broadcasts (unscoped) so raw SSE
+    // listeners and conversationless scheduled runs are still surfaced.
+    const completed = h.broadcasts.find((b) => b.type === "workflow_completed");
+    expect(completed).toMatchObject({
+      type: "workflow_completed",
+      status: "completed",
+    });
+    expect(completed).not.toHaveProperty("conversationId");
+
+    // The conversation-only signals stay gated: no `workflow_started`, no leaf
+    // events, and no completion wake without an originating conversation.
+    expect(h.broadcasts.some((b) => b.type === "workflow_started")).toBe(false);
+    expect(h.broadcasts.some((b) => b.type === "workflow_leaf_started")).toBe(
+      false,
+    );
+    expect(h.broadcasts.some((b) => b.type === "workflow_leaf_finished")).toBe(
+      false,
+    );
     expect(h.wakes).toHaveLength(0);
   });
 });

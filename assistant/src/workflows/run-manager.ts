@@ -394,8 +394,13 @@ export class WorkflowRunManager {
     ctx: RunContext,
   ): Promise<void> {
     const config = this.deps.getConfig();
-    // A run with no originating conversation has no SSE stream to scope to, so
-    // it emits no live/terminal events at all (matching `injectCompletionSummary`).
+    // `workflow_progress` / `workflow_completed` always broadcast: a run with no
+    // originating conversation emits them unscoped (no `conversationId`) for raw
+    // SSE listeners and the DB record, preserving the pre-scoping contract that
+    // surfaces conversationless scheduled runs. The conversation-only signals —
+    // `workflow_started`, the `onLeaf` leaf events, and the completion wake —
+    // stay gated on `conversationId` since they exist solely to drive the inline
+    // workflow card in that conversation.
     const conversationId = ctx.conversationId;
     try {
       const result = await this.deps.executeWorkflow({
@@ -409,13 +414,12 @@ export class WorkflowRunManager {
         trustContext: ctx.trustContext,
         signal: controller.signal,
         onProgress: (event) => {
-          if (!conversationId) return;
           const run = this.deps.journal.getRun(runId);
           const agentsSpawned = run?.agentsSpawned ?? 0;
           this.deps.broadcast({
             type: "workflow_progress",
             runId,
-            conversationId,
+            ...(conversationId ? { conversationId } : {}),
             label,
             agentsSpawned,
             ...(event.type === "phase"
@@ -467,18 +471,16 @@ export class WorkflowRunManager {
         this.deps.journal.getRun(runId),
       );
 
-      if (conversationId) {
-        this.deps.broadcast({
-          type: "workflow_completed",
-          runId,
-          conversationId,
-          status: result.status,
-          agentsSpawned: result.agentsSpawned,
-          inputTokens: result.inputTokens,
-          outputTokens: result.outputTokens,
-          summary,
-        });
-      }
+      this.deps.broadcast({
+        type: "workflow_completed",
+        runId,
+        ...(conversationId ? { conversationId } : {}),
+        status: result.status,
+        agentsSpawned: result.agentsSpawned,
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        summary,
+      });
 
       await this.injectCompletionSummary(ctx, summary);
     } catch (err) {

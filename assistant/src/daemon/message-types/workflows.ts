@@ -19,10 +19,12 @@ export interface WorkflowProgress {
   type: "workflow_progress";
   runId: string;
   /**
-   * Originating conversation id; lets `broadcastMessage` auto-scope +
-   * seq-stamp the event to the conversation's SSE stream.
+   * Originating conversation id, when launched from one; lets `broadcastMessage`
+   * auto-scope + seq-stamp the event to that conversation's SSE stream. Omitted
+   * for a conversationless run (e.g. a scheduled workflow), which broadcasts
+   * unscoped for raw SSE listeners and the DB record.
    */
-  conversationId: string;
+  conversationId?: string;
   /** Latest phase title, when this emission came from a `phase(...)` call. */
   phase?: string;
   /** Run label (the workflow's `meta.name`), for client display. */
@@ -42,10 +44,12 @@ export interface WorkflowCompleted {
   type: "workflow_completed";
   runId: string;
   /**
-   * Originating conversation id; lets `broadcastMessage` auto-scope +
-   * seq-stamp the event to the conversation's SSE stream.
+   * Originating conversation id, when launched from one; lets `broadcastMessage`
+   * auto-scope + seq-stamp the event to that conversation's SSE stream. Omitted
+   * for a conversationless run (e.g. a scheduled workflow), which broadcasts
+   * unscoped for raw SSE listeners and the DB record.
    */
-  conversationId: string;
+  conversationId?: string;
   status: WorkflowRunStatus;
   agentsSpawned: number;
   inputTokens: number;

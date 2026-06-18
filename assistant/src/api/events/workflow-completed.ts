@@ -2,12 +2,14 @@
  * `workflow_completed` SSE event.
  *
  * Server → client notification that a `run_workflow` run has reached a
- * terminal state. Carries `runId`, the parent `conversationId`, the
- * terminal `status`, cumulative `agentsSpawned`/`inputTokens`/
- * `outputTokens` counters, and an optional human-readable `summary`.
+ * terminal state. Carries `runId`, the terminal `status`, cumulative
+ * `agentsSpawned`/`inputTokens`/`outputTokens` counters, and an optional
+ * human-readable `summary`.
  *
- * `conversationId` is present so clients can route the event to the
- * originating conversation's inline workflow card.
+ * `conversationId` is present for a run launched from a conversation, so
+ * clients can route the event to that conversation's inline workflow card. It
+ * is omitted for a conversationless run (e.g. a scheduled workflow with no
+ * wake/origin conversation), which broadcasts unscoped for raw SSE listeners.
  *
  * Canonical wire-contract source. Daemon code imports the type
  * directly from this file; external consumers import via
@@ -37,7 +39,7 @@ export const WorkflowCompletedEventSchema = z
   .object({
     type: z.literal("workflow_completed"),
     runId: z.string(),
-    conversationId: z.string(),
+    conversationId: z.string().optional(),
     status: WorkflowRunStatusSchema,
     agentsSpawned: z.number(),
     inputTokens: z.number(),
