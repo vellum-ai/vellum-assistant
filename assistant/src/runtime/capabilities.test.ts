@@ -74,6 +74,11 @@ describe("resolveCapabilities", () => {
     expect(resolveCapabilities(undefined)).toEqual(MATRIX.unknown);
   });
 
+  test("an unrecognized/legacy string fail-closes to the `unknown` capability set", () => {
+    expect(resolveCapabilities("non_guardian")).toEqual(MATRIX.unknown);
+    expect(resolveCapabilities("some_future_role")).toEqual(MATRIX.unknown);
+  });
+
   test("unverified_contact is byte-for-byte identical to trusted_contact (admission-only distinction)", () => {
     expect(resolveCapabilities("unverified_contact")).toEqual(
       resolveCapabilities("trusted_contact"),

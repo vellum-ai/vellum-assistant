@@ -157,12 +157,15 @@ const CAPABILITIES_BY_CLASS: Record<TrustClass, CapabilitySet> = {
 /**
  * Resolve the capability set for a trust class. Pure and stateless.
  *
- * `undefined` fail-closes to the `unknown` capability set, matching
- * `isUntrustedTrustClass(undefined) === true`.
+ * This is the single fail-closed trust boundary: any value that is not a
+ * recognized `TrustClass` — including `undefined` and legacy/persisted strings
+ * (e.g. `"non_guardian"`) — resolves to the `unknown` capability set. Callers
+ * pass their raw trust value directly; they never re-derive "is this a known
+ * class?" at the call site. The `(string & {})` member keeps autocomplete for
+ * the known classes while still accepting an arbitrary string.
  */
 export function resolveCapabilities(
-  trustClass: TrustClass | undefined,
+  trustClass: TrustClass | (string & {}) | undefined,
 ): CapabilitySet {
-  if (trustClass === undefined) return UNKNOWN_CAPABILITIES;
-  return CAPABILITIES_BY_CLASS[trustClass];
+  return CAPABILITIES_BY_CLASS[trustClass as TrustClass] ?? UNKNOWN_CAPABILITIES;
 }
