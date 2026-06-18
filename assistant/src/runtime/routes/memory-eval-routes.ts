@@ -81,6 +81,7 @@ export const ROUTES: RouteDefinition[] = [
     summary:
       "Build blinded A/B retrieval-eval packets over two concept corpora (snapshot vs staged wiki)",
     tags: ["memory"],
+    requestBody: MemoryEvalRunParamsSchema,
     responseBody: MemoryEvalRunResultSchema,
   },
 ];

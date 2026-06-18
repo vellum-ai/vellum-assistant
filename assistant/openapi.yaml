@@ -15208,6 +15208,44 @@ paths:
       summary: Build blinded A/B retrieval-eval packets over two concept corpora (snapshot vs staged wiki)
       tags:
         - memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                stagingDir:
+                  type: string
+                  minLength: 1
+                snapshotDir:
+                  type: string
+                  minLength: 1
+                outDir:
+                  type: string
+                  minLength: 1
+                turns:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                perConversationCap:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                k:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                dense:
+                  type: boolean
+                seed:
+                  type: integer
+                  minimum: -9007199254740991
+                  maximum: 9007199254740991
+              required:
+                - stagingDir
+                - snapshotDir
+                - outDir
       responses:
         "200":
           description: Successful response

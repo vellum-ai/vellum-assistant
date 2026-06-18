@@ -10,6 +10,7 @@ import {
   pairTurns,
   type RawMsgRow,
   renderMemorySet,
+  resolveDir,
 } from "../eval-packets.js";
 
 /** Build a stored content-block JSON string the way the DB holds it. */
@@ -227,5 +228,21 @@ describe("primitives", () => {
     const a = mulberry32(7);
     const b = mulberry32(7);
     expect([a(), a(), a()]).toEqual([b(), b(), b()]);
+  });
+});
+
+describe("resolveDir", () => {
+  test("resolves a relative path under the workspace", () => {
+    expect(resolveDir("/ws", ".mv3/staging")).toBe("/ws/.mv3/staging");
+  });
+  test("rejects an absolute path outside the workspace", () => {
+    expect(() => resolveDir("/ws", "/etc/passwd")).toThrow(
+      /within the workspace/,
+    );
+  });
+  test("rejects a relative path that escapes the workspace", () => {
+    expect(() => resolveDir("/ws", "../outside")).toThrow(
+      /within the workspace/,
+    );
   });
 });

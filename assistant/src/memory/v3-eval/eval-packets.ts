@@ -23,7 +23,7 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { join, resolve, sep } from "node:path";
 
 import { and, desc, eq, sql } from "drizzle-orm";
 
@@ -467,8 +467,19 @@ function chunkedEmbed(embed: EmbedAll, batchSize = 96): EmbedAll {
   };
 }
 
-function resolveDir(workspaceDir: string, p: string): string {
-  return isAbsolute(p) ? p : join(workspaceDir, p);
+/**
+ * Resolve a corpus/output path against the workspace, rejecting anything that
+ * escapes it. The route is in the shared table (HTTP + IPC), so an actor caller
+ * could otherwise pass an absolute path to read/write arbitrary trees — these
+ * dirs must stay under the workspace.
+ */
+export function resolveDir(workspaceDir: string, p: string): string {
+  const root = resolve(workspaceDir);
+  const resolved = resolve(root, p);
+  if (resolved !== root && !resolved.startsWith(root + sep)) {
+    throw new Error(`eval path must stay within the workspace: ${p}`);
+  }
+  return resolved;
 }
 
 /**
