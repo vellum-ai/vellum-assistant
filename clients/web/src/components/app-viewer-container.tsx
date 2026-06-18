@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 
 import { Minimize2 } from "lucide-react";
 
 import { AppNavBar } from "@/components/app-nav-bar";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useSandboxFetchProxy } from "@/hooks/use-sandbox-fetch-proxy";
+import { useViewerStore } from "@/stores/viewer-store";
 import { cn } from "@/utils/misc";
+import { routes } from "@/utils/routes";
 import { injectBridge } from "@/utils/sandbox-bridge";
 import { Button } from "@vellumai/design-library";
 
@@ -75,9 +79,40 @@ export function AppViewerContainer({
     return `app-${appId}-${hash}`;
   }, [html, appId]);
 
+  // Action bridge: sandboxed apps fire `window.vellum.sendAction(actionId,
+  // data)` to communicate with the host. Today only `relay_prompt` is
+  // supported here — the app sends a prompt that should land in the active
+  // chat conversation as a user message. We close the app viewer (so the
+  // chat panel is visible) and route via the existing `?prompt=` URL
+  // auto-send pathway (see `use-auto-send-effects.ts`). Chat-side surfaces
+  // route `relay_prompt` through the daemon's surface-action API instead;
+  // standalone app viewers don't have a surfaceId to bind against, so the
+  // URL-based path is the right escape hatch.
+  const navigate = useNavigate();
+  const handleAppAction = useCallback(
+    (actionId: string, data?: Record<string, unknown>) => {
+      if (actionId !== "relay_prompt") return;
+      const prompt = typeof data?.prompt === "string" ? data.prompt : null;
+      if (!prompt) return;
+      const activeConversationId =
+        useChatSessionStore.getState().activeConversationId;
+      if (!activeConversationId) {
+        // Standalone app launched without an active chat (e.g. from the
+        // library). Drop silently — there's no conversation to relay into.
+        return;
+      }
+      useViewerStore.getState().closeApp();
+      void navigate(
+        `${routes.conversation(activeConversationId)}?prompt=${encodeURIComponent(prompt)}`,
+      );
+    },
+    [navigate],
+  );
+
   useSandboxFetchProxy(iframeRef, {
     frameId: appId,
     assistantId,
+    onAction: handleAppAction,
   });
 
   return (
