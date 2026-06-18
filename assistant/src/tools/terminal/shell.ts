@@ -119,7 +119,7 @@ export const shellTool = {
     const config = getConfig();
     const shellLockdownActive =
       isCesShellLockdownEnabled(config) &&
-      !resolveCapabilities(context.trustClass).unsandboxedShell;
+      !resolveCapabilities(context.trustClass).canRunUnsandboxedShell;
 
     const networkMode: "off" | "proxied" =
       input.network_mode === "proxied" ? "proxied" : "off";
