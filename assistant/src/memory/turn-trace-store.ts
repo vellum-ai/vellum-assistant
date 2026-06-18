@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, lt, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, lt, lte, or, sql } from "drizzle-orm";
 
 import type {
   TurnTrace,
@@ -49,20 +49,36 @@ function parseStoredContent(raw: string): unknown {
   }
 }
 
+/** Compound `(createdAt, id)` boundary of the next real user turn. */
+interface NextTurnBoundary {
+  createdAt: number;
+  id: string;
+}
+
 /**
- * Find the `created_at` of the next real user turn strictly after the given
- * boundary in the same conversation. Returns `null` when the boundary is the
- * latest real user turn (the window then runs to the end of the conversation).
+ * Find the next real user turn strictly after the given boundary in the same
+ * conversation, by the same `(createdAt, id)` cursor the turn-event stream
+ * uses. Returns `null` when the boundary is the latest real user turn (the
+ * window then runs to the end of the conversation).
+ *
+ * Returns the next turn's `id` alongside its `createdAt` so the window upper
+ * bound is a compound `(createdAt, id)` comparison. Two real user messages can
+ * share a `created_at` (forked conversations preserve the source `created_at`
+ * with fresh ids; `monotonicNow()` only guarantees monotonicity within a single
+ * process), so a timestamp-only upper bound would equal the current turn's own
+ * `created_at` and truncate the trace.
  *
  * "Next real user turn" excludes tool-result rows persisted with role="user"
  * (same filter as the turn-event stream), so a turn that issued tool calls —
  * whose results land as role="user" rows — is not truncated at its own tool
  * results.
  */
-function nextRealUserTurnCreatedAt(boundary: TurnTraceBoundary): number | null {
+function nextRealUserTurn(
+  boundary: TurnTraceBoundary,
+): NextTurnBoundary | null {
   const db = getDb();
   const row = db
-    .select({ createdAt: messages.createdAt })
+    .select({ createdAt: messages.createdAt, id: messages.id })
     .from(messages)
     .where(
       and(
@@ -81,13 +97,13 @@ function nextRealUserTurnCreatedAt(boundary: TurnTraceBoundary): number | null {
     .orderBy(asc(messages.createdAt), asc(messages.id))
     .limit(1)
     .get();
-  return row?.createdAt ?? null;
+  return row ?? null;
 }
 
 /** Message rows belonging to the turn window, oldest-first. */
 function queryTurnMessages(
   boundary: TurnTraceBoundary,
-  nextTurnCreatedAt: number | null,
+  nextTurn: NextTurnBoundary | null,
 ): TurnTraceMessage[] {
   const db = getDb();
   // Lower bound: the user message itself (inclusive), using the same
@@ -100,10 +116,19 @@ function queryTurnMessages(
       sql`${messages.id} >= ${boundary.userMessageId}`,
     ),
   );
+  // Upper bound: strictly before the next real user turn, using the same
+  // compound `(createdAt, id)` comparison. A timestamp-only bound would empty
+  // the window when the next user turn shares this turn's `created_at`.
   const upperBound =
-    nextTurnCreatedAt == null
+    nextTurn == null
       ? undefined
-      : lt(messages.createdAt, nextTurnCreatedAt);
+      : or(
+          lt(messages.createdAt, nextTurn.createdAt),
+          and(
+            eq(messages.createdAt, nextTurn.createdAt),
+            sql`${messages.id} < ${nextTurn.id}`,
+          ),
+        );
 
   const rows = db
     .select({
@@ -152,21 +177,36 @@ function parseToolInput(raw: string): unknown {
 /**
  * Tool invocations recorded inside the turn window, oldest-first.
  *
- * Window is `[userMessageCreatedAt, nextTurnCreatedAt)` on
- * `tool_invocations.created_at`. `tool_invocations` has no message-id link, so
- * the timestamp window is the correlation. The lower bound is inclusive on the
- * timestamp (a tool can fire in the same millisecond as the user message);
- * tool rows always sort after the user message in wall-clock terms.
+ * `tool_invocations` has no message-id link and its ids are unrelated to
+ * `messages.id`, so the window is correlated purely by `created_at`:
+ * `[userMessageCreatedAt, nextTurn.createdAt)`. The lower bound is inclusive
+ * (a tool can fire in the same millisecond as the user message).
+ *
+ * Degenerate same-`created_at` case: when the next real user turn shares this
+ * turn's `created_at`, a strict `<` upper bound yields an empty `[X, X)` window
+ * and drops this turn's same-millisecond tools. In that case the upper bound is
+ * widened to `<=` so those tools are retained. Same-millisecond tools cannot be
+ * attributed to one of two colliding user turns by timestamp alone; including
+ * them in the earlier turn matches the message window (which keeps this turn's
+ * rows at that millisecond) and is the conservative choice for a diagnostic
+ * trace.
  */
 function queryTurnToolCalls(
   boundary: TurnTraceBoundary,
-  nextTurnCreatedAt: number | null,
+  nextTurn: NextTurnBoundary | null,
 ): TurnTraceToolCall[] {
   const db = getDb();
-  const upperBound =
-    nextTurnCreatedAt == null
-      ? undefined
-      : lt(toolInvocations.createdAt, nextTurnCreatedAt);
+  let upperBound;
+  if (nextTurn == null) {
+    upperBound = undefined;
+  } else if (nextTurn.createdAt <= boundary.userMessageCreatedAt) {
+    // Next turn collides on (or, defensively, predates) this turn's
+    // millisecond — keep tools at that millisecond instead of emptying the
+    // window.
+    upperBound = lte(toolInvocations.createdAt, nextTurn.createdAt);
+  } else {
+    upperBound = lt(toolInvocations.createdAt, nextTurn.createdAt);
+  }
 
   const rows = db
     .select({
@@ -212,11 +252,11 @@ function queryTurnToolCalls(
  * window.
  */
 export function assembleTurnTrace(boundary: TurnTraceBoundary): TurnTrace {
-  const nextTurnCreatedAt = nextRealUserTurnCreatedAt(boundary);
+  const nextTurn = nextRealUserTurn(boundary);
   return {
     schema_version: 1,
-    messages: queryTurnMessages(boundary, nextTurnCreatedAt),
-    tool_calls: queryTurnToolCalls(boundary, nextTurnCreatedAt),
+    messages: queryTurnMessages(boundary, nextTurn),
+    tool_calls: queryTurnToolCalls(boundary, nextTurn),
   };
 }
 

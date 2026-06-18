@@ -222,6 +222,106 @@ describe("assembleTurnTrace", () => {
     expect(trace.tool_calls.map((t) => t.id)).toEqual(["ti-late"]);
   });
 
+  test("two real user turns sharing created_at: the first turn's trace is not truncated and excludes the second turn", () => {
+    // Forked conversations preserve the source `created_at` with fresh ids, so
+    // two real user messages can share a millisecond. A timestamp-only upper
+    // bound would equal the current turn's own `created_at` and empty the
+    // window — the compound `(created_at, id)` bound must keep this turn's rows
+    // (which sort by id at the shared millisecond) while excluding the next.
+    const conv = createConversation({ conversationType: "standard" });
+
+    // Turn 1 (id "m-user-1") and turn 2 (id "m-user-2") share created_at=1000.
+    // Turn 1's assistant reply, tool-result row, and tool call also land at
+    // 1000 — the worst case for a timestamp-only bound.
+    insertMessage(conv.id, {
+      id: "m-user-1",
+      role: "user",
+      content: [{ type: "text", text: "first (same ms)" }],
+      createdAt: 1000,
+    });
+    insertMessage(conv.id, {
+      id: "m-user-1-asst",
+      role: "assistant",
+      content: [{ type: "text", text: "reply to first" }],
+      createdAt: 1000,
+    });
+    insertMessage(conv.id, {
+      id: "m-user-1-toolresult",
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: "tu-1", content: "ok" }],
+      createdAt: 1000,
+    });
+    insertTool(conv.id, {
+      id: "ti-turn1",
+      toolName: "noop",
+      input: "{}",
+      result: "r1",
+      createdAt: 1000,
+    });
+
+    // Turn 2 user message + its content, same created_at=1000 (higher id).
+    insertMessage(conv.id, {
+      id: "m-user-2",
+      role: "user",
+      content: [{ type: "text", text: "second (same ms)" }],
+      createdAt: 1000,
+    });
+    insertMessage(conv.id, {
+      id: "m-user-2-asst",
+      role: "assistant",
+      content: [{ type: "text", text: "reply to second" }],
+      createdAt: 1000,
+    });
+
+    const trace = assembleTurnTrace(boundary(conv.id, "m-user-1", 1000));
+
+    // Turn 1's rows (ids < "m-user-2" at ms 1000) are present; the trace is
+    // NOT truncated/emptied. The second user turn and its reply are excluded.
+    expect(trace.messages.map((m) => m.id)).toEqual([
+      "m-user-1",
+      "m-user-1-asst",
+      "m-user-1-toolresult",
+    ]);
+    // Turn 1's same-millisecond tool call is retained (degenerate `<=` window).
+    expect(trace.tool_calls.map((t) => t.id)).toEqual(["ti-turn1"]);
+  });
+
+  test("the SECOND of two same-created_at turns captures its own trace to end of conversation", () => {
+    // Complement of the previous test: assembling the trace for the later of
+    // two same-millisecond user turns must include only that turn's rows.
+    const conv = createConversation({ conversationType: "standard" });
+    insertMessage(conv.id, {
+      id: "m-user-1",
+      role: "user",
+      content: [{ type: "text", text: "first (same ms)" }],
+      createdAt: 1000,
+    });
+    insertMessage(conv.id, {
+      id: "m-user-1-asst",
+      role: "assistant",
+      content: [{ type: "text", text: "reply to first" }],
+      createdAt: 1000,
+    });
+    insertMessage(conv.id, {
+      id: "m-user-2",
+      role: "user",
+      content: [{ type: "text", text: "second (same ms, latest)" }],
+      createdAt: 1000,
+    });
+    insertMessage(conv.id, {
+      id: "m-user-2-asst",
+      role: "assistant",
+      content: [{ type: "text", text: "reply to second" }],
+      createdAt: 1100,
+    });
+
+    const trace = assembleTurnTrace(boundary(conv.id, "m-user-2", 1000));
+    expect(trace.messages.map((m) => m.id)).toEqual([
+      "m-user-2",
+      "m-user-2-asst",
+    ]);
+  });
+
   test("a tool-result role=user row does NOT truncate the turn it belongs to", () => {
     const conv = createConversation({ conversationType: "standard" });
     insertMessage(conv.id, {

@@ -24,8 +24,8 @@ export interface OwnerConsent {
    * per-turn transcripts). The platform folds the diagnostics LaunchDarkly
    * flag, the owner's `share_diagnostics` toggle, and a privacy-policy-version
    * check into this single boolean — the daemon never evaluates the flag
-   * itself. Fail-closed: `false` when the platform omits the field (older
-   * deployments) or sends a non-boolean.
+   * itself. Fail-closed: `false` unless the platform sends an explicit boolean
+   * `true` (an absent field or a non-boolean value yields `false`).
    */
   diagnosticsTraceCollectionEnabled: boolean;
 }
@@ -164,11 +164,11 @@ export class VellumPlatformClient {
       return {
         shareAnalytics: body.share_analytics,
         shareDiagnostics: body.share_diagnostics,
-        // Derived field added by a later platform deploy. Fail closed: absent
-        // (older platform) or non-boolean → `false`. Only an explicit boolean
-        // `true` enables trace collection. Treated independently from the
-        // `share_*` validation above so an old platform that omits this field
-        // still yields a usable consent object (with traces off).
+        // Fail closed: only an explicit boolean `true` enables trace
+        // collection; an absent field or a non-boolean value yields `false`.
+        // This field is validated independently of the `share_*` checks above,
+        // so a payload that carries the share toggles but omits this field
+        // still yields a usable consent object (with trace collection off).
         diagnosticsTraceCollectionEnabled:
           body.diagnostics_trace_collection_enabled === true,
       };
