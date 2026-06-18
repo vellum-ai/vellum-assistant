@@ -37,6 +37,7 @@ export function LanguageModelCard() {
   });
 
   const activeProfile = config?.llm?.activeProfile ?? null;
+  const advisorProfile = config?.llm?.advisorProfile ?? null;
   const callSites = config?.llm?.callSites ?? {};
   // Retain the last non-empty profile list so a transient empty config payload
   // can't blank the Default Profile dropdown until the next good fetch — managed
@@ -54,6 +55,7 @@ export function LanguageModelCard() {
   });
 
   const [effectiveActiveProfile, setDraftActiveProfile] = useDraftOverride(activeProfile);
+  const [effectiveAdvisorProfile, setDraftAdvisorProfile] = useDraftOverride(advisorProfile);
 
   // Modal toggles — ephemeral UI state, correct as useState
   const [manageProfilesOpen, setManageProfilesOpen] = useState(false);
@@ -72,12 +74,25 @@ export function LanguageModelCard() {
     [orderedProfiles, effectiveActiveProfile, queryComplexityRoutingEnabled],
   );
 
+  // Advisor Profile picker reuses the same option source as the Default
+  // Profile dropdown; the current advisor selection stays visible even if
+  // disabled so the trigger can render its label.
+  const advisorProfilePickerEntries = useMemo(
+    () =>
+      gateAutoProfile(
+        visibleProfilesForPicker(orderedProfiles, [effectiveAdvisorProfile]),
+        queryComplexityRoutingEnabled,
+      ),
+    [orderedProfiles, effectiveAdvisorProfile, queryComplexityRoutingEnabled],
+  );
+
   const overrideCount = Object.entries(callSites).filter(
     ([id, s]) => id !== "mainAgent" && (s?.profile != null || s?.provider != null || s?.model != null),
   ).length;
   const overrideLabel =
     overrideCount === 1 ? "1 Override" : overrideCount > 0 ? `${overrideCount} Overrides` : "Overrides";
   const isProfileDirty = effectiveActiveProfile !== activeProfile;
+  const isAdvisorProfileDirty = effectiveAdvisorProfile !== advisorProfile;
 
   const handleManagedProfileSave = useCallback(async () => {
     try {
@@ -91,6 +106,20 @@ export function LanguageModelCard() {
       captureError(error, { context: "settings-ai-language-model-save" });
     }
   }, [effectiveActiveProfile, configMutation, assistantId]);
+
+  const handleAdvisorProfileSave = useCallback(async () => {
+    try {
+      await configMutation.mutateAsync({
+        path: { assistant_id: assistantId },
+        // Empty selection clears the advisor profile (no dedicated advisor).
+        body: { llm: { advisorProfile: effectiveAdvisorProfile ?? "" } },
+      });
+      toast.success("Advisor profile saved.");
+    } catch (error) {
+      toast.error("Failed to switch advisor profile. Please try again.");
+      captureError(error, { context: "settings-ai-advisor-profile-save" });
+    }
+  }, [effectiveAdvisorProfile, configMutation, assistantId]);
 
   return (
     <>
@@ -133,6 +162,41 @@ export function LanguageModelCard() {
                 No profiles yet. Click Profiles below to create one.
               </Typography>
             ) : null}
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-body-small-default text-[var(--content-tertiary)]">
+              Advisor Profile
+            </label>
+            <Dropdown
+              value={effectiveAdvisorProfile ?? ""}
+              onChange={(val) => {
+                setDraftAdvisorProfile(val === "" ? null : val);
+              }}
+              placeholder="Select an advisor profile…"
+              options={advisorProfilePickerEntries.map((p) => ({
+                value: p.name,
+                label:
+                  p.name === AUTO_PROFILE_NAME
+                    ? "Automatically switch between profiles"
+                    : profilePickerLabel(p),
+              }))}
+            />
+            <Typography
+              variant="body-small-default"
+              as="p"
+              className="mt-1 text-(--content-tertiary)"
+            >
+              Which profile the advisor consults. It won&apos;t be selectable as your chat profile.
+            </Typography>
+            {isAdvisorProfileDirty && (
+              <div className="mt-2 flex items-center gap-2">
+                <SaveButton onClick={handleAdvisorProfileSave} disabled={configMutation.isPending} />
+                {configMutation.isPending && (
+                  <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />
+                )}
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
