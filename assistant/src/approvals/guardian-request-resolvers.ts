@@ -140,10 +140,11 @@ function buildRequesterChannelNotice(params: {
  * Emit the `verification_sent` lifecycle signal on guardian approve.
  *
  * Always `visibleInSourceNow: true` so the notification pipeline suppresses
- * delivery — the requester already received the code directly, so this records
- * the lifecycle transition without sending a redundant "approved" message. It
- * also stands in for `guardian_decision` on approve (which would notify), so
- * the pipeline doesn't announce approval before the requester has verified.
+ * delivery — the guardian already received the code (on-channel via the channel
+ * reply, off-channel via the inline reply text), so this records the lifecycle
+ * transition without sending a redundant "approved" message. It also stands in
+ * for `guardian_decision` on approve (which would notify), so the pipeline
+ * doesn't announce approval before verification.
  */
 function emitVerificationSentSignal(params: {
   channel: NotificationSourceChannel;
