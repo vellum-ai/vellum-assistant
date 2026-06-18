@@ -12,7 +12,11 @@ import { z } from "zod";
 import { getAutoApproveThreshold } from "../../permissions/gateway-threshold-reader.js";
 import { isFullAccessThreshold } from "../../permissions/threshold.js";
 import { manifestGrantsSideEffects } from "../../workflows/capabilities.js";
-import type { WorkflowRun } from "../../workflows/journal-store.js";
+import {
+  getJournal,
+  type WorkflowJournalEntry,
+  type WorkflowRun,
+} from "../../workflows/journal-store.js";
 import { listWorkflows } from "../../workflows/library.js";
 import {
   getWorkflowRunManager,
@@ -40,6 +44,7 @@ export interface WorkflowRoutesDeps {
   >;
   listWorkflows: typeof listWorkflows;
   getAutoApproveThreshold: typeof getAutoApproveThreshold;
+  getJournal: typeof getJournal;
 }
 
 function defaultDeps(): WorkflowRoutesDeps {
@@ -47,6 +52,7 @@ function defaultDeps(): WorkflowRoutesDeps {
     getManager: getWorkflowRunManager,
     listWorkflows,
     getAutoApproveThreshold,
+    getJournal,
   };
 }
 
@@ -93,6 +99,27 @@ const savedWorkflowSchema = z.object({
   path: z.string(),
 });
 
+const workflowLeafSchema = z.object({
+  seq: z.number(),
+  kind: z.enum(["agent", "workflow"]),
+  label: z.string().optional(),
+  phase: z.string().optional(),
+  promptSummary: z.string().optional(),
+  status: z.string(),
+  resultSummary: z.string().optional(),
+  createdAt: z.number().nullable(),
+});
+
+const workflowJournalSchema = z.object({
+  runId: z.string(),
+  status: z.enum(VALID_RUN_STATUSES).optional(),
+  agentsSpawned: z.number().optional(),
+  inputTokens: z.number().optional(),
+  outputTokens: z.number().optional(),
+  phase: z.string().optional(),
+  leaves: z.array(workflowLeafSchema),
+});
+
 // ---------------------------------------------------------------------------
 // Handlers (transport-agnostic)
 // ---------------------------------------------------------------------------
@@ -119,6 +146,58 @@ export function toWireRun(run: WorkflowRun): WorkflowRunWire {
     createdAt: run.createdAt,
     updatedAt: run.updatedAt,
     finishedAt: run.finishedAt,
+  };
+}
+
+/**
+ * Render an arbitrary journal value (prompt, result, `{ error }`) into a short
+ * single-string preview, truncating to `max` characters. Objects are
+ * JSON-stringified so a structured result still produces a readable summary.
+ */
+function summarize(value: unknown, max = 200): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  let text: string;
+  if (typeof value === "string") {
+    text = value;
+  } else {
+    try {
+      text = JSON.stringify(value);
+    } catch {
+      return undefined;
+    }
+  }
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+/**
+ * Project a journal entry into the bounded leaf wire shape, dropping the bulky
+ * raw `request`/`result` payloads in favor of short summaries. The `request`
+ * and `result` columns are `unknown`, so read their fields defensively.
+ */
+export function toWireLeaf(
+  entry: WorkflowJournalEntry,
+): z.infer<typeof workflowLeafSchema> {
+  const request =
+    entry.request && typeof entry.request === "object"
+      ? (entry.request as Record<string, unknown>)
+      : undefined;
+  const opts =
+    request?.opts && typeof request.opts === "object"
+      ? (request.opts as Record<string, unknown>)
+      : undefined;
+  const label = typeof opts?.label === "string" ? opts.label : undefined;
+  const phase = typeof opts?.phase === "string" ? opts.phase : undefined;
+  const promptSummary = summarize(request?.prompt);
+  const resultSummary = summarize(entry.result);
+  return {
+    seq: entry.seq,
+    kind: entry.kind,
+    ...(label !== undefined ? { label } : {}),
+    ...(phase !== undefined ? { phase } : {}),
+    ...(promptSummary !== undefined ? { promptSummary } : {}),
+    status: entry.status,
+    ...(resultSummary !== undefined ? { resultSummary } : {}),
+    createdAt: entry.createdAt,
   };
 }
 
@@ -154,6 +233,21 @@ function handleGetRun(id: string) {
     throw new NotFoundError(`Workflow run ${id} not found`);
   }
   return toWireRun(run);
+}
+
+function handleGetRunJournal(id: string) {
+  const run = deps.getManager().status(id);
+  if (!run) {
+    throw new NotFoundError(`Workflow run ${id} not found`);
+  }
+  return {
+    runId: run.id,
+    status: run.status,
+    agentsSpawned: run.agentsSpawned,
+    inputTokens: run.inputTokens,
+    outputTokens: run.outputTokens,
+    leaves: deps.getJournal(id).map(toWireLeaf),
+  };
 }
 
 function handleAbortRun(id: string) {
@@ -270,6 +364,23 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: workflowRunSchema,
     additionalResponses: { "404": { description: "Run not found" } },
     handler: ({ pathParams }: RouteHandlerArgs) => handleGetRun(pathParams!.id),
+  },
+  {
+    operationId: "getWorkflowRunJournal",
+    endpoint: "workflows/runs/:id/journal",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Get workflow run journal",
+    description:
+      "Return a workflow run's leaf journal as bounded per-leaf summaries (one entry per finished leaf).",
+    tags: ["workflows"],
+    responseBody: workflowJournalSchema,
+    additionalResponses: { "404": { description: "Run not found" } },
+    handler: ({ pathParams }: RouteHandlerArgs) =>
+      handleGetRunJournal(pathParams!.id),
   },
   {
     operationId: "abortWorkflowRun",
