@@ -1,3 +1,5 @@
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import type { AssistantState } from "@/assistant/types";
 import {
   isLocalAssistant,
   isLocalMode,
@@ -5,6 +7,7 @@ import {
   isRemoteGatewayMode,
   type LockfileAssistant,
 } from "@/lib/local-mode";
+import { useAuthStore } from "@/stores/auth-store";
 import {
   hasLivePlatformSession,
   type PlatformSessionStatus,
@@ -42,4 +45,49 @@ export function canReachAssistant(
   if (isLocalMode() && isLocalAssistant(a)) return s.gatewayTokenPresent;
   if (isPlatformAssistant(a)) return hasLivePlatformSession(s.platformSession);
   return false;
+}
+
+/**
+ * Per-assistant local reachability derived from the reactive lifecycle state —
+ * the `gatewayTokenPresent` signal `canReachAssistant` reasons over for the
+ * local / remote-gateway branches.
+ *
+ * Read from the lifecycle store rather than `getGatewayToken()`, which is
+ * non-reactive module/localStorage state: a hook reading it would not re-render
+ * when the connection comes or goes. Just as importantly, the token is global,
+ * so a bare `getGatewayToken() !== null` would make assistant B report reachable
+ * off a token minted for assistant A. The lifecycle store tracks the reachable
+ * connection for the *one* active assistant, so deriving from it keeps the
+ * signal per-assistant.
+ *
+ * The connection counts as resolved when the lifecycle has settled a healthy
+ * self-hosted phase, or an active local phase that has not been flagged
+ * unreachable.
+ */
+function lifecycleLocalReachable(state: AssistantState): boolean {
+  if (state.kind === "self_hosted") return state.health === "healthy";
+  if (state.kind === "active") {
+    return (
+      state.isLocal &&
+      state.reachable !== false &&
+      state.health !== "unreachable"
+    );
+  }
+  return false;
+}
+
+/**
+ * Reactive `canReachAssistant`: subscribes to the per-assistant lifecycle state
+ * and the platform identity, then delegates the hosting-branch decision to the
+ * pure predicate so the routing logic lives in exactly one place. The hook only
+ * supplies the reactive signals — the local one from the lifecycle state, not
+ * `getGatewayToken()` (see {@link lifecycleLocalReachable}).
+ */
+export function useCanReachAssistant(a: LockfileAssistant): boolean {
+  const platformSession = useAuthStore.use.platformSession();
+  const assistantState = useAssistantLifecycleStore.use.assistantState();
+  return canReachAssistant(a, {
+    gatewayTokenPresent: lifecycleLocalReachable(assistantState),
+    platformSession,
+  });
 }
