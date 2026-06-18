@@ -36,7 +36,12 @@ import {
 import { FilingService } from "../filing/filing-service.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
-import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
+import {
+  closeSentry,
+  initSentry,
+  setDiagnosticsConsented,
+  setSentryDeviceId,
+} from "../instrument.js";
 import {
   startGatewayFlagListener,
   stopGatewayFlagListener,
@@ -290,9 +295,10 @@ export async function runDaemon(): Promise<void> {
   log.info({ version: APP_VERSION }, "Daemon starting");
 
   try {
-    // Initialize crash reporting eagerly so early startup failures are
-    // captured. After config loads we check the opt-out flag and call
-    // closeSentry() if the user has disabled it.
+    // Initialize crash reporting eagerly so the Sentry client is ready before
+    // early startup failures occur. Events are dropped (beforeSend) until the
+    // consent gate below confirms share_diagnostics opt-in; dev mode and the
+    // legacy local opt-out hard-disable via closeSentry().
     initSentry();
 
     ensureDataDir();
@@ -645,23 +651,20 @@ export async function runDaemon(): Promise<void> {
     // Privacy gating: Sentry crash/error reporting follows the platform owner's
     // share_diagnostics consent; the usage telemetry reporter re-checks
     // share_analytics on every flush. Both are disabled in dev mode. Sentry was
-    // initialized early so pre-config crashes are captured; here we close it once
-    // the consent decision is known.
+    // initialized early, but beforeSend drops events until consent confirms
+    // opt-in, so pre-config crashes are held back rather than captured.
     const isDevMode = process.env.VELLUM_DEV === "1";
     if (isDevMode || config.legacyDiagnosticsOptOut === true) {
       // Dev mode and a preserved legacy local opt-out both disable Sentry
       // unconditionally, without waiting on platform consent.
       await closeSentry();
     } else {
-      // Otherwise leave Sentry in its initialized state (capturing early-startup
-      // crashes) until the first successful consent fetch; close it then if the
-      // owner has not consented to diagnostics. Evaluated once — later consent
-      // changes are not applied mid-session (matches the prior one-shot config
-      // gate). startConsentRefresh() below drives the fetch that fires this.
+      // Fail closed: Sentry events are dropped (beforeSend) until the first
+      // successful consent fetch confirms share_diagnostics opt-in. An absent
+      // session, missing identity, or failed fetch leaves crash reporting off,
+      // mirroring the share_analytics posture. Evaluated once (option 1).
       onConsentResolved((consent) => {
-        if (!consent.shareDiagnostics) {
-          void closeSentry();
-        }
+        setDiagnosticsConsented(consent.shareDiagnostics);
       });
     }
 
