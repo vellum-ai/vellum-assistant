@@ -24,6 +24,8 @@ interface MobileAppOverlayProps {
   isDeploying: boolean;
   /** Deep-link route to forward to the iframe (`window.vellum.route`). */
   route?: string;
+  /** Forwarded to `AppViewerContainer` for sandboxed app actions. */
+  onAction?: (actionId: string, data?: Record<string, unknown>) => void;
 }
 
 /**
@@ -46,6 +48,7 @@ export function MobileAppOverlay({
   onDeploy,
   isDeploying,
   route,
+  onAction,
 }: MobileAppOverlayProps) {
   if (!openedAppState) return null;
 
@@ -75,6 +78,7 @@ export function MobileAppOverlay({
         isDeploying={isDeploying}
         isEditing={isAppMinimized}
         route={route}
+        onAction={onAction}
       />
     </div>
   );

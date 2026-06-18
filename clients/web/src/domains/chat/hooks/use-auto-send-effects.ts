@@ -53,7 +53,11 @@ export function useAutoSendEffects({
   useEffect(() => {
     const prompt = searchParams.get("prompt");
     if (!prompt || !activeConversationId) return;
-    const key = `${activeConversationId}:${prompt}`;
+    // A relay token makes each dispatch unique so repeated identical prompts
+    // re-fire; one-shot callers (deep links, doc feedback) omit it and dedupe
+    // on the prompt text.
+    const relayToken = searchParams.get("relay");
+    const key = `${activeConversationId}:${relayToken ?? prompt}`;
     if (promptConsumedRef.current === key) return;
     promptConsumedRef.current = key;
     void sendMessage(prompt);
