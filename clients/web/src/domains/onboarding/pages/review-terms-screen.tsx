@@ -1,4 +1,4 @@
-import { useCallback, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
@@ -38,11 +38,14 @@ export function ReviewTermsScreen() {
   const [analyticsConsentCurrent] = useAnalyticsConsentCurrent();
   const [diagnosticsConsentCurrent] = useDiagnosticsConsentCurrent();
 
-  const tosStale = !tosAccepted;
-  const aiStale = !aiDataConsent;
-  const analyticsStale = !analyticsConsentCurrent;
-  const diagnosticsStale = !diagnosticsConsentCurrent;
-  const onlyTogglesStale = !tosStale && !aiStale;
+  // Snapshot staleness at mount: these are the sections the user was routed
+  // here to address. Gating render on live values would unmount a checkbox the
+  // instant it's checked, so the user never sees the checked state.
+  const [tosStaleAtMount] = useState(() => !tosAccepted);
+  const [aiStaleAtMount] = useState(() => !aiDataConsent);
+  const [analyticsStaleAtMount] = useState(() => !analyticsConsentCurrent);
+  const [diagnosticsStaleAtMount] = useState(() => !diagnosticsConsentCurrent);
+  const onlyTogglesStaleAtMount = !tosStaleAtMount && !aiStaleAtMount;
 
   const onContinue = useCallback(() => {
     saveConsent({ userId, tos: tosAccepted, ai: aiDataConsent, shareAnalytics, shareDiagnostics, hasPlatformSession });
@@ -102,9 +105,10 @@ export function ReviewTermsScreen() {
     </span>
   );
 
-  // Only shown legal checkboxes gate Continue. Toggles never block — off is a
-  // valid choice — so when only toggles are stale Continue is enabled.
-  const continueDisabled = (tosStale && !tosAccepted) || (aiStale && !aiDataConsent);
+  // Only the legal checkboxes shown at mount gate Continue, driven by their
+  // live checked values. Toggles never block — off is a valid choice.
+  const continueDisabled =
+    (tosStaleAtMount && !tosAccepted) || (aiStaleAtMount && !aiDataConsent);
 
   return (
     <OnboardingLayout showCreatureFooter={false}>
@@ -115,23 +119,23 @@ export function ReviewTermsScreen() {
           className={electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}
           style={{ animation: "fadeInUp 0.5s ease-out 0.1s both" }}
         >
-          {onlyTogglesStale ? "Review your privacy preferences" : "Updated Terms"}
+          {onlyTogglesStaleAtMount ? "Review your privacy preferences" : "Updated Terms"}
         </h1>
         <p
           className={`text-center text-body-medium-lighter text-[var(--content-tertiary)] ${electron ? "mt-3.5" : "mt-4"}`}
           style={{ animation: "fadeInUp 0.5s ease-out 0.3s both" }}
         >
-          {onlyTogglesStale
+          {onlyTogglesStaleAtMount
             ? "We've updated our privacy preferences. Please review them to continue."
             : "We've updated our terms. Please review and re-accept to continue."}
         </p>
 
-        {(analyticsStale || diagnosticsStale) && (
+        {(analyticsStaleAtMount || diagnosticsStaleAtMount) && (
           <div
             className="mt-8 flex w-full flex-col gap-4"
             style={{ animation: "fadeInUp 0.5s ease-out 0.4s both" }}
           >
-            {analyticsStale && (
+            {analyticsStaleAtMount && (
               <SettingRow
                 label="Share Analytics"
                 helperText="Send anonymous product usage data."
@@ -139,7 +143,7 @@ export function ReviewTermsScreen() {
                 onChange={setShareAnalytics}
               />
             )}
-            {diagnosticsStale && (
+            {diagnosticsStaleAtMount && (
               <SettingRow
                 label="Share Diagnostics"
                 helperText="Send crash reports and performance metrics."
@@ -150,7 +154,7 @@ export function ReviewTermsScreen() {
           </div>
         )}
 
-        {aiStale && (
+        {aiStaleAtMount && (
           <div
             className="mt-8 flex w-full items-start"
             style={{ animation: "fadeInUp 0.5s ease-out 0.45s both" }}
@@ -165,7 +169,7 @@ export function ReviewTermsScreen() {
           </div>
         )}
 
-        {tosStale && (
+        {tosStaleAtMount && (
           <div
             className={`flex w-full items-start ${electron ? "mt-2" : "mt-4"}`}
             style={{ animation: "fadeInUp 0.5s ease-out 0.5s both" }}
