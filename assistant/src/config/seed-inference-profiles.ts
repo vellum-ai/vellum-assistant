@@ -1,8 +1,11 @@
 import type { DrizzleDb } from "../memory/db-connection.js";
 import {
+  fetchManagedProfiles,
+  type PlatformManagedProfile,
+} from "../platform/managed-profiles.js";
+import {
   createConnection,
   getConnection,
-  MANAGED_CONNECTION_NAMES,
   PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
 } from "../providers/inference/connections.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
@@ -30,64 +33,6 @@ type ManagedProfileTemplate = Omit<
   intent: ModelIntent;
   provider: NonNullable<ProfileEntry["provider"]>;
   connectionName: string;
-};
-
-/**
- * Managed profiles. Overwritten on every daemon boot so Vellum can push
- * model/config updates to customers in new releases. Platform overlays
- * (`preserveProfileNames`) take precedence when present.
- */
-const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
-  balanced: {
-    intent: "balanced",
-    provider: "anthropic",
-    connectionName: "anthropic-managed",
-    source: "managed",
-    label: "Balanced",
-    description: "Good balance of quality, cost, and speed",
-    maxTokens: 16000,
-    effort: "high",
-    thinking: { enabled: true, streamThinking: true },
-    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-  },
-  "quality-optimized": {
-    intent: "quality-optimized",
-    provider: "anthropic",
-    connectionName: "anthropic-managed",
-    source: "managed",
-    label: "Quality",
-    description: "Best results with the most capable model",
-    maxTokens: 32000,
-    effort: "high",
-    thinking: { enabled: true, streamThinking: true },
-    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-  },
-  "cost-optimized": {
-    intent: "latency-optimized",
-    provider: "anthropic",
-    connectionName: "anthropic-managed",
-    source: "managed",
-    label: "Speed",
-    description: "Fastest responses at lower cost",
-    maxTokens: 8192,
-    effort: "low",
-    thinking: { enabled: false, streamThinking: false },
-    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-  },
-  // Open-weight economy option: MiniMax M3 served by Fireworks via managed
-  // platform inference.
-  "balanced-economy": {
-    intent: "balanced",
-    provider: "fireworks",
-    connectionName: "fireworks-managed",
-    source: "managed",
-    label: "Balanced Economy",
-    description: "Strong open model (MiniMax M3) at a lower price point",
-    maxTokens: 32000,
-    effort: "high",
-    thinking: { enabled: true, streamThinking: true },
-    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-  },
 };
 
 /**
@@ -178,12 +123,16 @@ export type SeedInferenceProfilesOptions = {
  * Runs on every daemon startup. Two responsibilities:
  *
  * 1. **Managed profiles** (`balanced`, `quality-optimized`, `cost-optimized`,
- *    `balanced-economy`): reconciled from the code templates on every boot —
- *    on-platform and off-platform alike — so Vellum can push model/config
- *    updates to customers in a release without a workspace migration. The
- *    templates own all profile content; only `label` and `status` are
- *    user-overridable and survive reseeds. Platform overlays
- *    (`preserveProfileNames`) take precedence for the boot they are supplied.
+ *    `balanced-economy`): fetched from the platform model-profiles endpoint and
+ *    reconciled against the workspace config. The platform is authoritative:
+ *      • Connected (`ok`): the fetched profiles replace the on-disk managed
+ *        profiles verbatim (model resolved from intent client-side). Any
+ *        managed key absent from the response is pruned. Only the user-owned
+ *        `label` and `status` fields survive the reconcile.
+ *      • No connection (`no-connection`): the install cannot use managed
+ *        profiles, so all managed keys are pruned from disk.
+ *      • Fetch error (`error`): managed profiles on disk are left untouched so
+ *        a transient platform blip never wipes them.
  *
  * 2. **User profiles** (`custom-balanced`, `custom-quality-optimized`,
  *    `custom-cost-optimized`): materialized once at hatch time for
@@ -210,95 +159,58 @@ export async function seedInferenceProfiles(
   const isPlatform =
     process.env.IS_PLATFORM === "true" || process.env.IS_PLATFORM === "1";
 
-  // BYOK mode = off-platform installs. The user is bringing their own provider
-  // API key; managed profile labels get a " (Managed)" suffix to disambiguate
-  // from the personal "custom-*" profiles that share base labels. Managed
-  // profile + connection status is initially "disabled" for true BYOK hatches
-  // so the picker doesn't offer an unusable platform-auth option on day one.
-  // When the hatch overlay explicitly selects a managed profile, the matching
-  // managed connection stays active so the first post-onboarding message can
-  // use the user's chosen managed route. Post-hatch user toggles survive every
-  // subsequent boot.
-  const isByokMode = !isPlatform;
-
-  // 1. Managed profiles. Reconciled from the code templates on every boot —
-  //    on-platform and off-platform alike — so Vellum can push model/config
-  //    updates in new releases just by editing `MANAGED_PROFILE_TEMPLATES` /
-  //    `model-intents.ts` and shipping a release, with no workspace migration.
-  //    The templates are the single source of truth for profile *content*
-  //    (model, maxTokens, effort, thinking, description, provider/connection).
-  //
-  //    Platform overlays (`preserveProfileNames`) still take precedence for the
-  //    boot they are supplied: a profile named in the overlay is skipped here so
-  //    the overlay fragment lands verbatim and is never polluted by template
-  //    fields it omits. The overlay is a one-time hatch input (archived after
-  //    its first merge), so on subsequent boots the templates reconcile content
-  //    as usual.
-  //
-  //    Two user-editable fields survive the reconcile: `label` (display
-  //    rename) and `status` (active/disabled toggle) — the only fields a user
-  //    may override. The PUT route `/v1/config/llm/profiles/:name` lets users
-  //    patch these on managed profiles without duplicating; we honor those
-  //    edits across reseeds or they'd silently revert on every boot. Carry by
-  //    key-presence rather than truthiness so an explicit `null` (user
-  //    cleared the label) survives too.
-  //
-  //    BYOK seed defaults (off-platform only):
-  //      • label: " (Managed)" suffix disambiguates managed profile labels
-  //        from personal "custom-*" profiles that share base labels.
-  //        Upgrade migration: existing installs that already have the bare
-  //        template label ("Balanced" / "Quality" / "Speed") on disk get
-  //        rewritten to the suffixed form. Any other previous label value
-  //        (user-set custom string, explicit null, already-suffixed) is
-  //        preserved as-is.
-  //      • status: "disabled" on fresh materialization at BYOK hatch only —
-  //        gated on (isHatch && !previous) and skipped for any managed
-  //        connection explicitly selected by the hatch overlay. Post-hatch
-  //        boots and existing installs are never auto-disabled. A user
-  //        re-enable persists across boots via the key-presence preservation
-  //        below.
-  const hatchSelectedManagedConnection = getHatchSelectedManagedConnection(
-    llm,
-    profiles,
-    options,
-  );
-
-  for (const [name, template] of Object.entries(MANAGED_PROFILE_TEMPLATES)) {
-    if (preservedProfileNames.has(name)) continue;
-
-    const previous = readObject(profiles[name]);
-    const effectiveTemplate: ManagedProfileTemplate = isByokMode
-      ? { ...template, label: `${template.label} (Managed)` }
-      : template;
-    const next = materializeProfile(
-      effectiveTemplate,
-      template.provider,
-      template.connectionName,
-    ) as Record<string, unknown>;
-    if (
-      isByokMode &&
-      options.isHatch &&
-      !previous &&
-      template.connectionName !== hatchSelectedManagedConnection
-    ) {
-      next.status = "disabled";
-    }
-    if (previous) {
-      // Preserve user overrides on these whitelisted fields. The label path
-      // also runs the BYOK upgrade migration described above: if the on-disk
-      // label exactly equals the bare template default and we're in BYOK
-      // mode, rewrite to the suffixed effective label so existing installs
-      // get the disambiguation, not just fresh hatches.
-      if ("label" in previous) {
-        next.label =
-          isByokMode && previous.label === template.label
-            ? effectiveTemplate.label
-            : previous.label;
+  // 1. Managed profiles. The platform model-profiles endpoint — not the
+  //    workspace overlay — is the source of truth, so we reconcile against the
+  //    fetch result rather than `preservedProfileNames`. Only the user-owned
+  //    `label` and `status` fields survive a reconcile; everything else is
+  //    platform-controlled and refreshed verbatim. Carry the overrides by
+  //    key-presence (not truthiness) so an explicit `null` (user cleared the
+  //    label) survives too.
+  // Whenever a managed profile is pruned we must also scrub any call-site
+  // `profile` pin that still points at it: `LLMSchema.superRefine` rejects a
+  // call site referencing an undefined profile, and `loadConfig()` only strips
+  // that in memory — the raw config on disk would stay invalid otherwise.
+  const clearCallSiteProfileRefs = (prunedKeys: Set<string>): void => {
+    if (prunedKeys.size === 0) return;
+    const callSites = readObject(llm.callSites);
+    if (!callSites) return;
+    for (const entry of Object.values(callSites)) {
+      const site = readObject(entry);
+      if (!site) continue;
+      const pinned = readString(site.profile);
+      if (pinned !== undefined && prunedKeys.has(pinned)) {
+        delete site.profile;
       }
-      if ("status" in previous) next.status = previous.status;
     }
-    profiles[name] = next as ProfileEntry;
+  };
+
+  const managed = await fetchManagedProfiles();
+  if (managed.status === "ok") {
+    const fetchedKeys = new Set(managed.profiles.map((p) => p.key));
+    for (const p of managed.profiles) {
+      const previous = readObject(profiles[p.key]);
+      const next = materializeManagedProfile(p);
+      if (previous && "label" in previous) next.label = previous.label;
+      if (previous && "status" in previous) next.status = previous.status;
+      profiles[p.key] = next as ProfileEntry;
+    }
+    const prunedKeys = new Set<string>();
+    for (const key of MANAGED_PROFILE_KEYS) {
+      if (!fetchedKeys.has(key)) {
+        delete profiles[key];
+        prunedKeys.add(key);
+      }
+    }
+    clearCallSiteProfileRefs(prunedKeys);
+  } else if (managed.status === "no-connection") {
+    const prunedKeys = new Set<string>();
+    for (const key of MANAGED_PROFILE_KEYS) {
+      delete profiles[key];
+      prunedKeys.add(key);
+    }
+    clearCallSiteProfileRefs(prunedKeys);
   }
+  // status === "error": leave on-disk managed profiles untouched.
 
   // 1b. Auto profile — a metadata-only profile with no provider/model. When
   //     the user selects "Auto", the resolver falls through to the call-site
@@ -370,12 +282,30 @@ export async function seedInferenceProfiles(
   const shouldPreserveActiveProfile =
     options.preserveActiveProfile === true && requestedActiveExists;
 
+  // Resolve a profile key to one that actually exists, falling back through
+  // `custom-balanced → balanced → auto`. `auto` is always seeded, so this
+  // always lands on a profile present in `profiles`.
+  const resolveExistingProfile = (preferred: string): string => {
+    if (preferred in profiles) return preferred;
+    if ("custom-balanced" in profiles) return "custom-balanced";
+    if ("balanced" in profiles) return "balanced";
+    return AUTO_PROFILE_KEY;
+  };
+
   if (!shouldPreserveActiveProfile) {
     if (options.isHatch) {
-      // Hatch = fresh setup. Pick the right default based on platform mode.
-      llm.activeProfile = userConnectionName ? "custom-balanced" : "balanced";
+      // Hatch = fresh setup. Pick the right default based on platform mode,
+      // then verify it survived the managed-profile prune. An off-platform
+      // hatch without a user connection (e.g. ollama / openai-compatible)
+      // would otherwise point at `balanced`, which is pruned when there is no
+      // platform connection.
+      const desired = userConnectionName ? "custom-balanced" : "balanced";
+      llm.activeProfile = resolveExistingProfile(desired);
     } else if (!requestedActiveExists) {
-      llm.activeProfile = "balanced";
+      // The requested active profile no longer exists (e.g. `balanced` was
+      // just pruned). Fall back to a profile that does exist; `auto` is always
+      // seeded, so the chosen fallback is guaranteed to resolve.
+      llm.activeProfile = resolveExistingProfile("custom-balanced");
     }
   }
 
@@ -389,8 +319,10 @@ export async function seedInferenceProfiles(
     profileOrder.unshift(AUTO_PROFILE_KEY);
     orderSet.add(AUTO_PROFILE_KEY);
   }
-  for (const name of Object.keys(MANAGED_PROFILE_TEMPLATES)) {
-    if (!orderSet.has(name)) {
+  // Only managed profiles present after the reconcile are ordered, in their
+  // canonical order; pruned keys are dropped from `profileOrder` below.
+  for (const name of MANAGED_PROFILE_KEYS) {
+    if (name in profiles && !orderSet.has(name)) {
       profileOrder.push(name);
       orderSet.add(name);
     }
@@ -403,7 +335,11 @@ export async function seedInferenceProfiles(
       }
     }
   }
-  llm.profileOrder = profileOrder;
+  // Drop any pruned profile from the order so the picker never lists a profile
+  // that no longer exists. `auto` is metadata-only and always seeded.
+  llm.profileOrder = profileOrder.filter(
+    (name) => name === AUTO_PROFILE_KEY || name in profiles,
+  );
 
   // Tag any remaining profiles without a source as user-created.
   for (const [name, profile] of Object.entries(profiles)) {
@@ -444,40 +380,32 @@ function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-function getHatchSelectedManagedConnection(
-  llm: Record<string, unknown>,
-  profiles: Record<string, Record<string, unknown>>,
-  options: SeedInferenceProfilesOptions,
-): string | undefined {
-  if (!options.isHatch || options.preserveActiveProfile !== true) {
-    return undefined;
-  }
-
-  const activeProfile = readString(llm.activeProfile);
-  if (!activeProfile) return undefined;
-
-  const activeProfileEntry = readObject(profiles[activeProfile]);
-  if (
-    activeProfileEntry &&
-    Object.prototype.hasOwnProperty.call(
-      activeProfileEntry,
-      "provider_connection",
-    )
-  ) {
-    const explicitConnection = readString(
-      activeProfileEntry.provider_connection,
-    );
-    return explicitConnection &&
-      MANAGED_CONNECTION_NAMES.has(explicitConnection)
-      ? explicitConnection
-      : undefined;
-  }
-
-  const templateConnection =
-    MANAGED_PROFILE_TEMPLATES[activeProfile]?.connectionName;
-  return templateConnection && MANAGED_CONNECTION_NAMES.has(templateConnection)
-    ? templateConnection
-    : undefined;
+/**
+ * Materialize a platform-supplied managed profile into a `ProfileEntry`,
+ * resolving the model from the profile's intent client-side so the catalog
+ * stays the single source of truth for "which model does this intent map to?".
+ */
+function materializeManagedProfile(
+  p: PlatformManagedProfile,
+): Record<string, unknown> {
+  return {
+    provider: p.provider,
+    provider_connection: p.connection_name,
+    model: resolveModelIntent(
+      p.provider as NonNullable<ProfileEntry["provider"]>,
+      p.intent as ModelIntent,
+    ),
+    source: "managed",
+    label: p.label,
+    description: p.description,
+    maxTokens: p.max_tokens,
+    effort: p.effort as ProfileEntry["effort"],
+    thinking: {
+      enabled: p.thinking.enabled,
+      streamThinking: p.thinking.stream_thinking,
+    },
+    contextWindow: { maxInputTokens: p.context_window.max_input_tokens },
+  };
 }
 
 /**

@@ -74,7 +74,7 @@ export async function fetchManagedProfiles(): Promise<FetchManagedProfilesResult
   try {
     const resp = await client.fetch(
       `/v1/assistants/${encodeURIComponent(assistantId)}/model-profiles/`,
-      { signal: AbortSignal.timeout(15_000) },
+      { signal: AbortSignal.timeout(5_000) },
     );
 
     if (!resp.ok) {
