@@ -1,7 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, statfsSync } from "node:fs";
 
-import { getMinikubeStorageSize } from "../config/env-registry.js";
+import {
+  getIsContainerized,
+  getIsPlatform,
+  getMinikubeStorageSize,
+} from "../config/env-registry.js";
 import { getWorkspaceDir } from "./platform.js";
 
 export interface DiskUsageInfo {
@@ -58,6 +62,57 @@ export function __resetDiskUsageCacheForTests(): void {
   duCachePaths = null;
 }
 
+/**
+ * How the workspace volume's capacity should be reported when statfsSync
+ * cannot see the volume directly.
+ *
+ * - `fixed-cap`: minikube hostPath PVC — the PVC request is the hard
+ *   capacity, so usage is measured with `du` and free space is whatever
+ *   remains within the quota.
+ * - `host-free`: local Docker named volume — the volume is backed by the
+ *   host (or Colima VM) filesystem and can grow into its free space, so
+ *   usage is measured with `du` and the effective capacity is current usage
+ *   plus the host's remaining headroom.
+ * - `none`: statfsSync already reports the volume accurately (bare metal, or
+ *   a platform-managed instance on a CSI-backed PVC), so use it directly.
+ */
+type WorkspaceVolumeReporting =
+  | { kind: "none" }
+  | { kind: "fixed-cap"; totalBytes: number }
+  | { kind: "host-free" };
+
+/**
+ * Decide how to report the workspace volume's capacity. Both minikube
+ * hostPath PVCs and local Docker named volumes are backed by the host
+ * filesystem, so statfsSync reports the host's entire disk rather than the
+ * workspace volume — in both cases we measure actual usage with `du` instead.
+ */
+function classifyWorkspaceVolume(
+  fsTotalBytes: number,
+): WorkspaceVolumeReporting {
+  // Minikube mode: the platform passes the PVC storage size so we can report
+  // accurate capacity. Detect the hostPath case by comparing filesystem size
+  // against the PVC size — if the filesystem is larger, statfsSync is seeing
+  // the host disk and we should measure the directory instead.
+  const storageSizeRaw = getMinikubeStorageSize();
+  if (storageSizeRaw) {
+    const pvcTotalBytes = parseK8sMemoryBytes(storageSizeRaw);
+    if (pvcTotalBytes !== null && fsTotalBytes > pvcTotalBytes * 1.1) {
+      return { kind: "fixed-cap", totalBytes: pvcTotalBytes };
+    }
+    return { kind: "none" };
+  }
+
+  // Local Docker hatch: the workspace is a Docker named volume backed by the
+  // host filesystem. Platform-managed remote instances run on CSI-backed PVCs
+  // where statfsSync already reports the volume, so they are excluded.
+  if (getIsContainerized() && !getIsPlatform()) {
+    return { kind: "host-free" };
+  }
+
+  return { kind: "none" };
+}
+
 export function getDiskUsageInfo(): DiskUsageInfo | null {
   try {
     const wsDir = getWorkspaceDir();
@@ -68,28 +123,28 @@ export function getDiskUsageInfo(): DiskUsageInfo | null {
     const bytesToMb = (b: number) =>
       Math.round((b / (1024 * 1024)) * 100) / 100;
 
-    // Minikube mode: the platform passes the PVC storage size so we can
-    // report accurate capacity. On hostPath-backed PVCs statfsSync reports
-    // the host's entire filesystem rather than the PVC. Detect this by
-    // comparing filesystem size against PVC size — if the filesystem is
-    // larger, measure actual directory usage with `du` instead.
-    const storageSizeRaw = getMinikubeStorageSize();
-    if (storageSizeRaw) {
-      const pvcTotalBytes = parseK8sMemoryBytes(storageSizeRaw);
-      if (pvcTotalBytes !== null && fsTotalBytes > pvcTotalBytes * 1.1) {
-        const volumePaths = [diskPath];
-        if (diskPath !== "/data" && existsSync("/data")) {
-          volumePaths.push("/data");
-        }
-        const usedBytes = getCachedDirectorySizeBytes(volumePaths);
-        if (usedBytes !== null) {
-          return {
-            path: diskPath,
-            totalMb: bytesToMb(pvcTotalBytes),
-            usedMb: bytesToMb(usedBytes),
-            freeMb: bytesToMb(Math.max(0, pvcTotalBytes - usedBytes)),
-          };
-        }
+    const reporting = classifyWorkspaceVolume(fsTotalBytes);
+    if (reporting.kind !== "none") {
+      const volumePaths = [diskPath];
+      if (diskPath !== "/data" && existsSync("/data")) {
+        volumePaths.push("/data");
+      }
+      const usedBytes = getCachedDirectorySizeBytes(volumePaths);
+      if (usedBytes !== null) {
+        const totalBytes =
+          reporting.kind === "fixed-cap"
+            ? reporting.totalBytes
+            : usedBytes + fsFreeBytes;
+        const freeBytes =
+          reporting.kind === "fixed-cap"
+            ? Math.max(0, reporting.totalBytes - usedBytes)
+            : fsFreeBytes;
+        return {
+          path: diskPath,
+          totalMb: bytesToMb(totalBytes),
+          usedMb: bytesToMb(usedBytes),
+          freeMb: bytesToMb(freeBytes),
+        };
       }
     }
 
