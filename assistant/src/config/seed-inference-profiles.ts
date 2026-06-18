@@ -94,7 +94,10 @@ export const AUTO_PROFILE_KEY = "auto";
 
 /** Stable keys of the platform-managed profiles. The profile *content* comes
  *  from the platform model-profiles endpoint; only the key set lives in code,
- *  so route validation and pruning can recognise managed profiles. */
+ *  so route validation and pruning can recognise managed profiles. This list
+ *  gates ordering, pruning, and write-protection recognition: a fetched profile
+ *  whose key is absent here is ignored, so adding a new platform-managed profile
+ *  requires adding its key to this array. */
 const MANAGED_PROFILE_KEYS = [
   "balanced",
   "quality-optimized",
@@ -191,6 +194,13 @@ export async function seedInferenceProfiles(
   if (managed.status === "ok") {
     const fetchedKeys = new Set(managed.profiles.map((p) => p.key));
     for (const p of managed.profiles) {
+      if (!(MANAGED_PROFILE_KEYS as readonly string[]).includes(p.key)) {
+        log.warn(
+          { key: p.key },
+          "Ignoring platform managed profile with unrecognized key; add it to MANAGED_PROFILE_KEYS to enable",
+        );
+        continue;
+      }
       const previous = readObject(profiles[p.key]);
       const next = materializeManagedProfile(p) as Record<string, unknown>;
       if (previous && "label" in previous) next.label = previous.label;

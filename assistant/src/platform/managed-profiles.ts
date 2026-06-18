@@ -17,7 +17,6 @@ import {
   classifyMissingPlatformCredential,
   VellumPlatformClient,
 } from "./client.js";
-import { arePlatformFeaturesEnabled } from "./feature-gate.js";
 
 const log = getLogger("managed-profiles");
 
@@ -56,14 +55,16 @@ export type PlatformManagedProfile = z.infer<
  * Result of {@link fetchManagedProfiles}.
  *
  * - `no-connection`: the install is GENUINELY not platform-connected — platform
- *   features are disabled, or platform credentials are confirmed absent (the
- *   credential read succeeded and returned nothing). The 4 managed profiles are
- *   truly unusable here, so callers may safely prune them.
+ *   credentials are confirmed absent (the credential read succeeded and returned
+ *   nothing). The 4 managed profiles are truly unusable here, so callers may
+ *   safely prune them.
  * - `ok`: profiles fetched and validated.
  * - `error`: any HTTP/parse/timeout/schema-version failure, OR a transient
- *   inability to read platform credentials/context (e.g. the credential
- *   backend is unreachable). Callers must preserve on-disk profiles rather
- *   than prune — a blip must never wipe user label/status overrides + pins.
+ *   inability to read platform credentials/context (e.g. the credential backend
+ *   is unreachable), OR a still-credentialed install with platform features
+ *   disabled (VELLUM_DISABLE_PLATFORM). Callers must preserve on-disk profiles
+ *   rather than prune — a temporary toggle or blip must never wipe user
+ *   label/status overrides + pins.
  */
 export type FetchManagedProfilesResult =
   | { status: "no-connection" }
@@ -133,28 +134,28 @@ export async function fetchManagedProfiles(): Promise<FetchManagedProfilesResult
  * Classify why `VellumPlatformClient.create()` returned null.
  *
  * `create()` collapses three distinct conditions into a single `null`:
- *   1. Platform features are disabled (genuinely off-platform).
- *   2. Platform credentials are genuinely absent (read succeeded, empty).
+ *   1. Platform credentials are genuinely absent (read succeeded, empty) — a
+ *      true off-platform install.
+ *   2. Platform features are disabled (VELLUM_DISABLE_PLATFORM) on an install
+ *      whose credentials are still present.
  *   3. Platform credentials could not be read (backend transiently unreachable).
  *
- * Only (1) and (2) mean the 4 managed profiles are truly unusable and should be
- * pruned (`no-connection`). (3) is a transient failure on a possibly
- * platform-connected install — pruning there would delete the user's label/
- * status overrides + call-site pins on a blip, which is exactly the data-loss
- * the `error`/`no-connection` split exists to prevent. So we map it to `error`.
+ * We classify purely on credential presence, NOT on the feature flag: only (1)
+ * means the 4 managed profiles are truly unusable, so only (1) yields
+ * `no-connection` (prune). (2) and (3) both yield `error` (preserve) — a
+ * disabled flag is a temporary "pause outbound platform calls" toggle, and an
+ * unreadable store is a transient blip; pruning in either case would delete the
+ * user's label/status overrides + call-site pins, which is exactly the
+ * data-loss the `error`/`no-connection` split exists to prevent.
  *
- * The credential-reachability check is delegated to
- * {@link classifyMissingPlatformCredential} in `client.ts` (the module
- * authorized to read secure keys). Only an explicit "credentials absent"
- * yields `no-connection`; everything else is treated as transient (`error`,
- * preserve). When in doubt we prefer preservation.
+ * Credential presence is delegated to {@link classifyMissingPlatformCredential}
+ * in `client.ts` (the module authorized to read secure keys), which reads the
+ * credential store directly and does NOT consult the feature flag — so it still
+ * reports "present" even when platform features are disabled. Only an explicit
+ * "credentials absent" yields `no-connection`; everything else is treated as
+ * transient (`error`, preserve). When in doubt we prefer preservation.
  */
 async function classifyMissingClient(): Promise<FetchManagedProfilesResult> {
-  // Platform explicitly disabled — the install is genuinely off-platform.
-  if (!arePlatformFeaturesEnabled()) {
-    return { status: "no-connection" };
-  }
-
   const avail = await classifyMissingPlatformCredential();
   return avail === "absent" ? { status: "no-connection" } : { status: "error" };
 }

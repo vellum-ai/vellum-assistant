@@ -922,6 +922,42 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles["cost-optimized"]).toBeDefined();
   });
 
+  test("connected: platform profile with an unrecognized key is ignored", async () => {
+    // A future profile key the running code doesn't yet recognize must not be
+    // half-seeded (written to `profiles` but never ordered, pruned, or
+    // write-protected). It is skipped entirely until the key is added to
+    // MANAGED_PROFILE_KEYS; the recognized keys seed normally.
+    managedFetchResult = {
+      status: "ok",
+      profiles: [
+        managedProfileFixture("balanced"),
+        managedProfileFixture("quality-optimized"),
+        managedProfileFixture("cost-optimized"),
+        managedProfileFixture("balanced-economy"),
+        managedProfileFixture("balanced", { key: "economy-quality" }),
+      ],
+    };
+
+    await mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    // Unrecognized key is neither seeded nor ordered.
+    expect(raw.llm.profiles["economy-quality"]).toBeUndefined();
+    expect(raw.llm.profileOrder).not.toContain("economy-quality");
+    // Recognized keys seed normally.
+    expect(raw.llm.profiles.balanced).toBeDefined();
+    expect(raw.llm.profiles["quality-optimized"]).toBeDefined();
+    expect(raw.llm.profiles["cost-optimized"]).toBeDefined();
+    expect(raw.llm.profiles["balanced-economy"]).toBeDefined();
+    expect(raw.llm.profileOrder).toEqual([
+      "auto",
+      "balanced",
+      "quality-optimized",
+      "cost-optimized",
+      "balanced-economy",
+    ]);
+  });
+
   test("no connection: all managed profiles are pruned; auto and custom-* survive", async () => {
     const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
     writeFileSync(

@@ -8,9 +8,11 @@ interface MockPlatformClient {
 let mockClient: MockPlatformClient | null = null;
 
 // Controls for classifyMissingClient() — only consulted when `create()` returns
-// null. The credential-reachability classification now lives in `client.ts`
-// behind `classifyMissingPlatformCredential()`, so we mock that seam directly.
-// Defaults model a genuinely off-platform install with creds absent.
+// null. Classification is purely credential-driven (the feature flag no longer
+// participates), so we mock `classifyMissingPlatformCredential()` from
+// `client.ts` directly. `classifyMissingPlatformCredential` reads the credential
+// store independently of the feature flag, so it returns "absent" only when
+// creds are truly absent. Default models a genuinely off-platform install.
 let mockCredentialAvailability: () => Promise<
   "absent" | "unreachable"
 > = async () => "absent";
@@ -20,12 +22,6 @@ mock.module("../client.js", () => ({
     create: async () => mockClient,
   },
   classifyMissingPlatformCredential: () => mockCredentialAvailability(),
-}));
-
-let mockPlatformEnabled = false;
-
-mock.module("../feature-gate.js", () => ({
-  arePlatformFeaturesEnabled: () => mockPlatformEnabled,
 }));
 
 import { fetchManagedProfiles } from "../managed-profiles.js";
@@ -67,7 +63,6 @@ describe("fetchManagedProfiles", () => {
       platformAssistantId: "asst-123",
       fetch: mock(async () => jsonResponse(okBody())),
     };
-    mockPlatformEnabled = false;
     mockCredentialAvailability = async () => "absent";
   });
 
@@ -75,22 +70,24 @@ describe("fetchManagedProfiles", () => {
     mockClient = null;
   });
 
-  test("returns no-connection when platform features are disabled", async () => {
+  test("returns no-connection only when creds are confirmed absent", async () => {
     mockClient = null;
-    mockPlatformEnabled = false;
-    expect(await fetchManagedProfiles()).toEqual({ status: "no-connection" });
-  });
-
-  test("returns no-connection when platform enabled but creds confirmed absent", async () => {
-    mockClient = null;
-    mockPlatformEnabled = true;
     mockCredentialAvailability = async () => "absent";
     expect(await fetchManagedProfiles()).toEqual({ status: "no-connection" });
   });
 
-  test("returns error when platform enabled but credential read is unreachable", async () => {
+  test("returns error when platform disabled but creds still present", async () => {
+    // VELLUM_DISABLE_PLATFORM on a credentialed install collapses `create()` to
+    // null, but the credential read still reports present (not "absent"). The
+    // disabled flag is a temporary pause — pruning here would wipe the user's
+    // managed-profile label/status overrides + call-site pins, so we preserve.
     mockClient = null;
-    mockPlatformEnabled = true;
+    mockCredentialAvailability = async () => "unreachable";
+    expect(await fetchManagedProfiles()).toEqual({ status: "error" });
+  });
+
+  test("returns error when the credential read is unreachable", async () => {
+    mockClient = null;
     mockCredentialAvailability = async () => "unreachable";
     // A transient backend failure must preserve on-disk profiles, not prune.
     expect(await fetchManagedProfiles()).toEqual({ status: "error" });
