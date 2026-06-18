@@ -34,18 +34,11 @@ import {
 } from "../../../messaging/providers/slack/message-metadata.js";
 import { getLogger } from "../../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
-import { deliverChannelReply } from "../../gateway-client.js";
 import type { ApprovalConversationGenerator } from "../../http-types.js";
 import { resolveTrustContext } from "../../trust-context-resolver.js";
 import { handleGuardianReplyIntercept } from "./guardian-reply-intercept.js";
 
 const log = getLogger("runtime-http");
-
-// Mirrors the message-pipeline disk-pressure block reply (see
-// inbound-message-handler.ts) so a reaction blocked during cleanup gets the
-// same ephemeral notice.
-const DISK_PRESSURE_REMOTE_BLOCK_REPLY =
-  "Storage is critically low, so remote messages are ignored until the guardian frees enough space. Please try again later.";
 
 /**
  * Detect a Slack reaction event by inspecting the inbound payload's
@@ -179,12 +172,9 @@ export async function handleSlackReactionIntercept(
     },
   );
 
-  // Respect disk-pressure cleanup: a reaction that would write a row is blocked
-  // like any remote ingress, so reactions don't bypass storage protection.
-  // Guardians resolve to `allow-cleanup-mode` (not `block`), so a guardian's
-  // approval-by-reaction still flows. Mirrors the message-pipeline block —
-  // clear the stored payload, mark the event processed, and deliver the
-  // ephemeral notice — then stop before binding/persistence.
+  // Respect disk-pressure cleanup so reactions don't bypass storage
+  // protection. Guardians resolve to `allow-cleanup-mode` (not `block`), so a
+  // guardian's approval-by-reaction still flows.
   const diskPressure = classifyDiskPressureTurnPolicy(getDiskPressureStatus(), {
     sourceChannel,
     sourceInterface,
@@ -194,32 +184,13 @@ export async function handleSlackReactionIntercept(
     },
   });
   if (diskPressure.action === "block") {
+    // Block silently: a reaction is a passive signal, so the message
+    // pipeline's "storage is low, try again" notice is meaningless for an
+    // emoji — there is nothing to retry. Mark the event processed and stop
+    // before binding/persistence.
     if (!result.duplicate) {
       clearPayload(result.eventId);
       markProcessed(result.eventId);
-    }
-    if (replyCallbackUrl && !result.duplicate) {
-      const replyPayload: Parameters<typeof deliverChannelReply>[1] = {
-        chatId: conversationExternalId,
-        text: DISK_PRESSURE_REMOTE_BLOCK_REPLY,
-        assistantId: canonicalAssistantId,
-      };
-      if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
-        replyPayload.ephemeral = true;
-        replyPayload.user = (canonicalSenderId ?? rawSenderId)!;
-      }
-      try {
-        await deliverChannelReply(replyCallbackUrl, replyPayload);
-      } catch (err) {
-        log.warn(
-          {
-            err,
-            conversationId: result.conversationId,
-            eventId: result.eventId,
-          },
-          "Failed to deliver disk-pressure block reply for reaction",
-        );
-      }
     }
     return {
       accepted: true,
