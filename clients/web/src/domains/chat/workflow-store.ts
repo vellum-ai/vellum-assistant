@@ -513,13 +513,21 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
     // Already live / hydrated — don't clobber an entry built from live
     // events or a prior hydration.
     if (byId[runId]) return;
-    // Attempt at most once per run, including unknown runs that 404.
+    // Attempt at most once per run while in flight / after a genuine 404.
     if (hydratedRunIds.has(runId)) return;
     set({ hydratedRunIds: new Set(hydratedRunIds).add(runId) });
 
     const run = await fetchWorkflowRun(assistantId, runId);
-    // Genuinely unknown run — leave it marked so the null card doesn't spam.
-    if (!run) return;
+    // A genuine 404 stays marked so a missing run's card doesn't re-fetch on
+    // every render. A transient failure (null — daemon unreachable / 5xx) clears
+    // the marker so a later mount can retry instead of leaving the card blank.
+    if (run === "not_found") return;
+    if (run === null) {
+      const next = new Set(get().hydratedRunIds);
+      next.delete(runId);
+      set({ hydratedRunIds: next });
+      return;
+    }
 
     get().startRun({
       runId,

@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 import type { WorkflowJournalResponse } from "@vellumai/assistant-api";
 
-import type { WorkflowRunRow } from "@/domains/chat/fetch-workflow-run";
+import type {
+  FetchWorkflowRunResult,
+  WorkflowRunRow,
+} from "@/domains/chat/fetch-workflow-run";
 
 // Stub the journal fetch so fetchJournalIfNeeded is exercised without a
 // network boundary. The mock is reassigned per-test via `journalImpl`.
@@ -20,7 +23,7 @@ mock.module("@/domains/chat/fetch-workflow-journal", () => ({
 let runImpl: (
   assistantId: string,
   runId: string,
-) => Promise<WorkflowRunRow | null> = async () => null;
+) => Promise<FetchWorkflowRunResult> = async () => null;
 
 mock.module("@/domains/chat/fetch-workflow-run", () => ({
   fetchWorkflowRun: (assistantId: string, runId: string) =>
@@ -618,7 +621,7 @@ describe("hydrateRunIfNeeded", () => {
     let calls = 0;
     runImpl = async () => {
       calls += 1;
-      return null;
+      return "not_found";
     };
 
     await getState().hydrateRunIfNeeded("asst-1", "wf-404");
@@ -628,6 +631,26 @@ describe("hydrateRunIfNeeded", () => {
     expect(calls).toBe(1);
     expect(getState().byId["wf-404"]).toBeUndefined();
     expect(getState().hydratedRunIds.has("wf-404")).toBe(true);
+  });
+
+  it("retries after a transient failure (clears the marker)", async () => {
+    let calls = 0;
+    // First attempt fails transiently (daemon unreachable); the second succeeds.
+    runImpl = async () => {
+      calls += 1;
+      return calls === 1 ? null : makeRunRow({ id: "wf-flaky", status: "completed" });
+    };
+    journalImpl = async (_assistantId, runId) => ({ runId, leaves: [] });
+
+    await getState().hydrateRunIfNeeded("asst-1", "wf-flaky");
+    // The transient failure cleared the marker, so it is no longer suppressed.
+    expect(getState().hydratedRunIds.has("wf-flaky")).toBe(false);
+    expect(getState().byId["wf-flaky"]).toBeUndefined();
+
+    await getState().hydrateRunIfNeeded("asst-1", "wf-flaky");
+
+    expect(calls).toBe(2);
+    expect(getState().byId["wf-flaky"]!.status).toBe("completed");
   });
 });
 
