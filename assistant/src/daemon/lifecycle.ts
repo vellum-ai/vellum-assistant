@@ -61,6 +61,7 @@ import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import {
+  onConsentResolved,
   startConsentRefresh,
   stopConsentRefresh,
 } from "../platform/consent-cache.js";
@@ -641,14 +642,27 @@ export async function runDaemon(): Promise<void> {
       });
     }
 
-    // Privacy gating: Sentry crash/error reporting is gated by sendDiagnostics,
-    // while the usage telemetry reporter re-checks the platform share_analytics
-    // consent on every flush. Both are disabled in dev mode. Early-startup
-    // crashes before this point are still captured.
+    // Privacy gating: Sentry crash/error reporting follows the platform owner's
+    // share_diagnostics consent; the usage telemetry reporter re-checks
+    // share_analytics on every flush. Both are disabled in dev mode. Sentry was
+    // initialized early so pre-config crashes are captured; here we close it once
+    // the consent decision is known.
     const isDevMode = process.env.VELLUM_DEV === "1";
-    const sendDiagnostics = !isDevMode && config.sendDiagnostics;
-    if (!sendDiagnostics) {
+    if (isDevMode || config.legacyDiagnosticsOptOut === true) {
+      // Dev mode and a preserved legacy local opt-out both disable Sentry
+      // unconditionally, without waiting on platform consent.
       await closeSentry();
+    } else {
+      // Otherwise leave Sentry in its initialized state (capturing early-startup
+      // crashes) until the first successful consent fetch; close it then if the
+      // owner has not consented to diagnostics. Evaluated once — later consent
+      // changes are not applied mid-session (matches the prior one-shot config
+      // gate). startConsentRefresh() below drives the fetch that fires this.
+      onConsentResolved((consent) => {
+        if (!consent.shareDiagnostics) {
+          void closeSentry();
+        }
+      });
     }
 
     // Construct and start the reporter even when usage collection is disabled:
