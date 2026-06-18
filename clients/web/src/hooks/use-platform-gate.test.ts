@@ -66,9 +66,8 @@ describe("usePlatformGate — default (standard pattern)", () => {
 });
 
 describe("usePlatformGate — five documented user states (CONVENTIONS.md)", () => {
-  // Locks the default-branch outcomes for the five user states the platform
-  // gating contract documents, so routing the platform-reachability signal
-  // through the connection predicate stays byte-identical.
+  // Locks the default-branch outcome usePlatformGate returns for each of the
+  // five user states the platform gating contract documents (CONVENTIONS.md).
 
   test('1. platform-hosted + logged in → "full"', () => {
     isLocalModeMock.mockImplementation(() => false);
