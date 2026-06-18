@@ -1,7 +1,8 @@
 # cmo
 
-Lets your Vellum assistant act as a full-stack **Chief Marketing Officer** for B2B
-SaaS — but only when the user actually needs marketing help. The CMO depth is
+Lets your Vellum assistant act as a full-stack **Chief Marketing Officer** for any
+business (B2B or B2C — SaaS, ecommerce, marketplace, consumer, services, and more)
+— but only when the user actually needs marketing help. The CMO depth is
 **activated on demand** by skills, not bolted onto every turn. One self-contained
 plugin, three layers:
 

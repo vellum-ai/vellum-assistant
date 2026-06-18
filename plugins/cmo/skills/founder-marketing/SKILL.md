@@ -25,8 +25,8 @@ Establish: stage (pre-PMF vs. early traction), hours/week the founder can spend 
 Founders are too close to the product to explain it simply. Before any channel, lock a crisp "we help [who] do [what], unlike [alternative]" in one sentence. Use **`positioning_brief`** (or run **positioning-sprint**). You cannot market what you can't say in one breath.
 
 ### Step 3: Pick ONE primary channel that fits the founder
-Choose by *where the buyer already is* × *what this founder can sustain*. For early B2B / technical buyers, weight toward:
-- **Founder-led content** on the buyer's platform (X, LinkedIn, or dev communities) — sharing real expertise and the build journey.
+Choose by *where the buyer already is* × *what this founder can sustain*. Weight toward whatever fits the business and audience — common high-leverage options:
+- **Founder-led content** on the platform the buyer actually uses (X, LinkedIn, TikTok/Instagram, YouTube, relevant communities) — sharing real expertise and the journey.
 - **Build in public** — ship updates, metrics, and learnings; let people watch the story.
 - **Direct outreach / founder sales** — personally reach the exact ICP; do it by hand.
 - **Community participation** — be genuinely useful where buyers hang out (Reddit, Slack/Discord, forums).

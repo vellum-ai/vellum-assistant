@@ -27,7 +27,7 @@ interface LaunchInput {
 const CHANNEL_EMPHASIS: Record<string, string[]> = {
   awareness: ["PR / launch story", "founder & exec social", "thought-leadership content", "community", "paid social (reach)"],
   pipeline: ["targeted email & nurture", "paid search/social (intent)", "ABM to named accounts", "webinar / demo", "sales enablement kit"],
-  adoption: ["in-product announcement", "docs & tutorials", "lifecycle email", "changelog / blog", "developer community"],
+  adoption: ["in-product announcement", "docs & tutorials / how-to", "lifecycle email", "changelog / blog", "user community"],
   expansion: ["customer email & CSM enablement", "upsell in-product", "case studies", "customer webinar", "account-based plays"],
 };
 

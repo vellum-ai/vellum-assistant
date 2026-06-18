@@ -59,7 +59,7 @@ const tool: ToolDefinition = {
     else if (attrs.length > 0 && values.length < attrs.length) gaps.push("not every unique attribute is mapped to a value theme — close the attribute→value links.");
     if (!i.target_segment) gaps.push("target_segment missing — name the customers who care MOST about this value.");
     if (!i.market_category) gaps.push("market_category missing — what frame of reference should buyers use to understand you?");
-    if (proof.length === 0) gaps.push("proof_points missing — claims without evidence won't land with a technical buyer.");
+    if (proof.length === 0) gaps.push("proof_points missing — claims without evidence won't land with a skeptical buyer.");
 
     const canvas = {
       product: i.product ?? null,

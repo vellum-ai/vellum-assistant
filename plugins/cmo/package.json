@@ -1,7 +1,7 @@
 {
   "name": "cmo",
   "version": "0.1.0",
-  "description": "Turns the assistant into a full-stack B2B SaaS CMO: strategy, demand gen, product marketing, brand, and analytics — with deterministic funnel/positioning/GTM/competitive tools and bundled playbook skills.",
+  "description": "Turns the assistant into a full-stack CMO for any business (B2B or B2C): strategy, demand gen, product marketing, brand, content, and analytics — with deterministic funnel/positioning/GTM/competitive tools and bundled playbook skills.",
   "private": true,
   "license": "MIT",
   "type": "module",
