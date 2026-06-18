@@ -6,14 +6,13 @@ import type { WorkspaceMigration } from "./types.js";
 // Enable adaptive thinking on the managed "balanced" and "quality-optimized"
 // profiles for existing platform instances.
 //
-// The assistant-side seed defaults (MANAGED_PROFILE_TEMPLATES in
-// seed-inference-profiles.ts) already ship thinking: { enabled: true,
+// The managed profiles served from the platform model-profiles endpoint
+// (GET /v1/assistants/{id}/model-profiles/) ship thinking: { enabled: true,
 // streamThinking: true } for both profiles, which normalizes to
-// { type: "adaptive" } on the wire. Off-platform (BYOK) instances pick this
-// up on every boot because the seeder overwrites managed profiles. On-platform
-// instances preserve existing profiles (the platform overlay is authoritative),
-// so instances that were hatched before thinking was enabled in the templates
-// are stuck with thinking disabled or absent.
+// { type: "adaptive" } on the wire. On-platform instances preserve existing
+// profiles (the platform overlay is authoritative), so instances that were
+// hatched before thinking was enabled in the managed profiles are stuck with
+// thinking disabled or absent.
 //
 // This migration patches the on-disk config for both profiles, adding
 // thinking: { enabled: true, streamThinking: true } where it's missing or

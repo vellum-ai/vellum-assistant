@@ -15,9 +15,6 @@ import type { WorkspaceMigration } from "./types.js";
 // Anthropic from the model id. 097's frozen copy was later corrected to imply
 // the provider from the model, but workspaces that already ran 097 have it
 // checkpointed as completed, so the corrected logic never re-runs for them.
-// At the time this migration was authored a live startup repair re-ran the fix,
-// but only behind the hatch overlay, which is archived after hatch, so
-// already-hatched platform instances were not covered either.
 //
 // This migration re-applies the corrected repair once for those checkpointed
 // workspaces. It is idempotent: profiles that already have thinking enabled are

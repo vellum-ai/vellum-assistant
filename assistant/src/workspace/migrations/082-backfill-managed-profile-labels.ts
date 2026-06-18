@@ -52,12 +52,13 @@ const log = getLogger(
 );
 
 /**
- * Bare template labels for the canonical managed profile triplet. Kept in
- * sync with `MANAGED_PROFILE_TEMPLATES` in
- * `assistant/src/config/seed-inference-profiles.ts`. Duplicated here
+ * Bare template labels for the canonical managed profile triplet. Managed
+ * profiles are sourced from the platform model-profiles endpoint
+ * (`GET /v1/assistants/{id}/model-profiles/`); these labels mirror that
+ * triplet for off-platform installs that never receive them. Duplicated here
  * intentionally — migrations are forward-only and self-contained per the
- * workspace migrations AGENTS contract; future renames in the seeder
- * must NOT retroactively change the data this migration writes.
+ * workspace migrations AGENTS contract; future label changes upstream must
+ * NOT retroactively change the data this migration writes.
  */
 const CANONICAL_MANAGED_PROFILE_LABELS: Record<string, string> = {
   balanced: "Balanced",
