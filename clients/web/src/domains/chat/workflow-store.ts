@@ -386,8 +386,24 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
 
     const nextLeaves = new Map(base.leaves).set(params.seq, leaf);
 
+    // Roll this leaf's usage into the run-level totals the panel metrics read,
+    // so they tick up live instead of staying 0 until workflow_completed. Apply
+    // the DELTA against the leaf's prior contribution so a duplicate/repeated
+    // finish event for the same seq does not double-count. completeRun later
+    // overwrites these with the authoritative final totals.
+    const deltaIn = (leaf.inputTokens ?? 0) - (current?.inputTokens ?? 0);
+    const deltaOut = (leaf.outputTokens ?? 0) - (current?.outputTokens ?? 0);
+
     set({
-      byId: { ...byId, [params.runId]: { ...base, leaves: nextLeaves } },
+      byId: {
+        ...byId,
+        [params.runId]: {
+          ...base,
+          inputTokens: base.inputTokens + deltaIn,
+          outputTokens: base.outputTokens + deltaOut,
+          leaves: nextLeaves,
+        },
+      },
       orderedIds: existing ? orderedIds : [...orderedIds, params.runId],
     });
   },

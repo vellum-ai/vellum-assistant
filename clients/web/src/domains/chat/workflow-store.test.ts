@@ -198,6 +198,43 @@ describe("leaf lifecycle", () => {
     getState().leafFinished({ runId: "wf-i", seq: 0, status: "completed" });
     expect(getState().byId["wf-i"]!.leaves).toBe(before);
   });
+
+  it("aggregates leaf usage into the run-level totals (delta, no double-count)", () => {
+    getState().leafStarted({ runId: "wf-tok", seq: 0 });
+    getState().leafStarted({ runId: "wf-tok", seq: 1 });
+
+    getState().leafFinished({
+      runId: "wf-tok",
+      seq: 0,
+      status: "completed",
+      inputTokens: 100,
+      outputTokens: 40,
+    });
+    getState().leafFinished({
+      runId: "wf-tok",
+      seq: 1,
+      status: "completed",
+      inputTokens: 30,
+      outputTokens: 10,
+    });
+
+    expect(getState().byId["wf-tok"]!.inputTokens).toBe(130);
+    expect(getState().byId["wf-tok"]!.outputTokens).toBe(50);
+
+    // A repeated finish for seq 0 (same tokens, new resultSummary) writes but
+    // contributes a zero token delta, so the run totals do not double-count.
+    getState().leafFinished({
+      runId: "wf-tok",
+      seq: 0,
+      status: "completed",
+      inputTokens: 100,
+      outputTokens: 40,
+      resultSummary: "late summary",
+    });
+
+    expect(getState().byId["wf-tok"]!.inputTokens).toBe(130);
+    expect(getState().byId["wf-tok"]!.outputTokens).toBe(50);
+  });
 });
 
 // ---------------------------------------------------------------------------
