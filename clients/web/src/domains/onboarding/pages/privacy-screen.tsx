@@ -1,8 +1,9 @@
 import { EyeOff } from "lucide-react";
-import { useCallback, useEffect, useId, type ReactNode } from "react";
+import { useCallback, useEffect, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { SettingRow } from "@/domains/onboarding/components/setting-row";
 import { StepIndicatorDots } from "@/domains/onboarding/components/step-indicator-dots";
 import {
     emitOnboardingFunnelStepCompleted,
@@ -26,38 +27,6 @@ import { legalUrl, routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Checkbox } from "@vellumai/design-library/components/checkbox";
-import { Toggle } from "@vellumai/design-library/components/toggle";
-
-function SettingRow({
-  label,
-  helperText,
-  checked,
-  onChange,
-}: {
-  label: string;
-  helperText: string;
-  checked: boolean;
-  onChange: (next: boolean) => void;
-}) {
-  const toggleId = useId();
-  return (
-    <div className="flex items-start gap-4">
-      <Toggle
-        checked={checked}
-        onChange={onChange}
-        id={toggleId}
-      />
-      <label htmlFor={toggleId} className="min-w-0 flex-1 cursor-pointer">
-        <span className="block text-body-medium-default text-[var(--content-default)]">
-          {label}
-        </span>
-        <span className="mt-1 block text-body-small-default text-[var(--content-tertiary)]">
-          {helperText}
-        </span>
-      </label>
-    </div>
-  );
-}
 
 // Consent checkboxes mirror the primary button: the checked fill uses
 // --primary-base and the check uses --content-inset (the on-primary
