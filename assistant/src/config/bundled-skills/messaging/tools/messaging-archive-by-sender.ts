@@ -1,3 +1,4 @@
+import { resolveCapabilities } from "../../../../runtime/capabilities.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -9,7 +10,8 @@ export async function run(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const userApproved =
-    input.user_approved === true && context.trustClass === "guardian";
+    input.user_approved === true &&
+    resolveCapabilities(context.trustClass).canArchiveBySender;
   if (
     !context.triggeredBySurfaceAction &&
     !context.batchAuthorizedByTask &&
