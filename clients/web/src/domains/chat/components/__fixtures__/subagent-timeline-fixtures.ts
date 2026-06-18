@@ -15,7 +15,8 @@
  *    ~5% error       — an error line
  *
  * Ids mirror the store's `generateTimelineEventId` (`te-${n}`, 1-based), and
- * timestamps are monotonic. Kept general + exported for reuse by later PRs.
+ * timestamps are monotonic. Shared by `subagent-timeline.test.tsx` and
+ * `subagent-timeline.perf.test.tsx`.
  */
 
 import type { SubagentTimelineEvent } from "@/domains/chat/subagent-store";

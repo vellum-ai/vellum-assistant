@@ -6,8 +6,7 @@
  * panel's own scroll container, not the list itself), dynamic per-row
  * measurement, a header offset via `scrollMargin`, and stable item keys.
  *
- * This is scaffolding — no component consumes it yet. A later PR will mount it
- * inside `subagent-timeline.tsx`. The dependency lands in the lazily-loaded
+ * Consumed by `subagent-timeline.tsx`. The dependency lands in the lazily-loaded
  * subagent-panel chunk (see `chat-content-layout.tsx`), not the main bundle.
  */
 import {
@@ -15,17 +14,17 @@ import {
   useVirtualizer,
   type Virtualizer,
 } from "@tanstack/react-virtual";
-import type { RefObject } from "react";
+import { useLayoutEffect, useState, type RefObject } from "react";
 
 /**
  * Fallback row height (px) used before a row has been measured. A sane guess
  * for a single-line-ish timeline row; real heights are measured on mount via
  * the dynamic `measureElement` so this only affects the initial estimate.
  */
-export const DEFAULT_ROW_ESTIMATE = 96;
+const DEFAULT_ROW_ESTIMATE = 96;
 
 /** Rows to render beyond the visible window, on each side, to mask scrolling. */
-export const OVERSCAN = 6;
+const OVERSCAN = 6;
 
 /**
  * Compute the `scrollMargin` for the virtualizer: the list's top offset within
@@ -52,7 +51,7 @@ export function computeScrollMargin(
   );
 }
 
-export interface UseTimelineVirtualizerParams {
+interface UseTimelineVirtualizerParams {
   /** Number of rows in the timeline. */
   count: number;
   /** Ref to the scroll container (the element that actually scrolls). */
@@ -61,8 +60,6 @@ export interface UseTimelineVirtualizerParams {
   listRef?: RefObject<HTMLElement | null>;
   /** Stable key for a row index, so measurements survive reorders. */
   getItemKey: (index: number) => string;
-  /** Initial per-row height guess (px); defaults to {@link DEFAULT_ROW_ESTIMATE}. */
-  estimateSize?: number;
 }
 
 /**
@@ -75,15 +72,36 @@ export function useTimelineVirtualizer({
   scrollRef,
   listRef,
   getItemKey,
-  estimateSize,
 }: UseTimelineVirtualizerParams): Virtualizer<HTMLElement, HTMLElement> {
+  // Resolve `scrollMargin` in a layout effect (not during render): it reads
+  // layout via `getBoundingClientRect`, and doing that on every render would
+  // force a synchronous reflow each scroll frame in a component whose whole
+  // point is rendering performance. Captured into state on mount and whenever
+  // the scroll/list elements resize, so the first committed paint already uses
+  // the correct offset instead of 0.
+  const [scrollMargin, setScrollMargin] = useState(0);
+  useLayoutEffect(() => {
+    const recompute = () =>
+      setScrollMargin(computeScrollMargin(listRef?.current ?? null, scrollRef.current));
+    recompute();
+    const scrollEl = scrollRef.current;
+    if (!scrollEl || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(recompute);
+    observer.observe(scrollEl);
+    const listEl = listRef?.current;
+    if (listEl) observer.observe(listEl);
+    return () => observer.disconnect();
+    // `count` is included so the margin recomputes when the list mounts/changes
+    // (e.g. the empty-state → populated transition mounts the list element).
+  }, [scrollRef, listRef, count]);
+
   return useVirtualizer<HTMLElement, HTMLElement>({
     count,
     getScrollElement: () => scrollRef.current,
     getItemKey,
-    estimateSize: () => estimateSize ?? DEFAULT_ROW_ESTIMATE,
+    estimateSize: () => DEFAULT_ROW_ESTIMATE,
     measureElement,
     overscan: OVERSCAN,
-    scrollMargin: computeScrollMargin(listRef?.current ?? null, scrollRef.current),
+    scrollMargin,
   });
 }

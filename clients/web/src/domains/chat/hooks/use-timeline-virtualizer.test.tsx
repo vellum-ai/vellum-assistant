@@ -3,8 +3,8 @@
  *
  * The pure `computeScrollMargin` is exercised directly (no DOM needed). The
  * hook itself gets a light smoke test: given a scroll-element ref it returns a
- * usable virtualizer object. Heavy DOM-measurement behavior is covered once a
- * consumer wires the hook in a later PR.
+ * usable virtualizer object. Heavy DOM-measurement behavior is covered by the
+ * consumer's tests (`subagent-timeline.test.tsx`).
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
@@ -12,8 +12,6 @@ import { createRef } from "react";
 
 import {
   computeScrollMargin,
-  DEFAULT_ROW_ESTIMATE,
-  OVERSCAN,
   useTimelineVirtualizer,
 } from "@/domains/chat/hooks/use-timeline-virtualizer";
 
@@ -45,13 +43,6 @@ describe("computeScrollMargin", () => {
     // Container scrolled 200px: the list box top has moved up by 200, so the
     // on-screen gap is -80, but the stable offset within content is 120.
     expect(computeScrollMargin(elAt(-80), elAt(0, 200))).toBe(120);
-  });
-});
-
-describe("module constants", () => {
-  test("expose sane defaults", () => {
-    expect(DEFAULT_ROW_ESTIMATE).toBe(96);
-    expect(OVERSCAN).toBe(6);
   });
 });
 
