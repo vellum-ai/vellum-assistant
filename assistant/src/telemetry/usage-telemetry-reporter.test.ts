@@ -1084,6 +1084,27 @@ describe("UsageTelemetryReporter", () => {
     }
   });
 
+  test("platform disabled takes precedence over consent off — watermarks NOT advanced", async () => {
+    // VELLUM_DISABLE_PLATFORM keeps the consent cache false (the consent
+    // refresh can't create a platform client), so both gates would fire. The
+    // platform-disabled gate runs first and returns without advancing
+    // watermarks, preserving the backlog until the flag is cleared — a
+    // deployment toggle must not be treated as a privacy opt-out.
+    process.env.VELLUM_DISABLE_PLATFORM = "true";
+    mockGetCachedShareAnalytics.mockReturnValue(false);
+    const events = [makeUsageEvent()];
+    mockQueryUnreportedUsageEvents.mockReturnValue(events);
+
+    const reporter = new UsageTelemetryReporter();
+    // Construction initializes the absent tool_executed watermark; clear that
+    // call so the assertion below covers only the flush.
+    mockSetMemoryCheckpoint.mockClear();
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockSetMemoryCheckpoint).not.toHaveBeenCalled();
+  });
+
   test("events sent normally after re-granting share_analytics consent", async () => {
     // First flush with opt-out — watermarks advance, nothing sent
     mockGetCachedShareAnalytics.mockReturnValue(false);

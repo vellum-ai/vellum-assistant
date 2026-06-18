@@ -207,6 +207,15 @@ export class UsageTelemetryReporter {
     try {
       if (batchCount >= MAX_CONSECUTIVE_BATCHES) return;
 
+      // Skip when platform features are disabled (VELLUM_DISABLE_PLATFORM in
+      // local mode; the flag is ignored when IS_PLATFORM is set, matching
+      // VellumPlatformClient.create()). Watermarks are NOT advanced here: this
+      // is a deployment/local-mode toggle, not a privacy opt-out, so the unsent
+      // backlog ships once the flag is cleared.
+      if (!arePlatformFeaturesEnabled()) {
+        return;
+      }
+
       // Respect opt-out: if the platform owner has not granted
       // `share_analytics` consent, skip the flush and advance watermarks so
       // events recorded during the opt-out window are never sent
@@ -237,15 +246,6 @@ export class UsageTelemetryReporter {
           setMemoryCheckpoint(timestampKey, now);
           setMemoryCheckpoint(idKey, OPT_OUT_WATERMARK_ID_SENTINEL);
         }
-        return;
-      }
-
-      // Skip when platform features are disabled (VELLUM_DISABLE_PLATFORM in
-      // local mode; the flag is ignored when IS_PLATFORM is set, matching
-      // VellumPlatformClient.create()). Unlike the opt-out branch above,
-      // watermarks are NOT advanced: this is a deployment/local-mode toggle
-      // (not a privacy opt-out), so the unsent backlog ships once it's cleared.
-      if (!arePlatformFeaturesEnabled()) {
         return;
       }
 
