@@ -89,7 +89,14 @@ export async function findOpenHostPort(): Promise<number> {
     const server = createServer();
     server.unref();
     server.on("error", reject);
-    server.listen(0, () => {
+    // Bind the probe to the IPv4 wildcard explicitly. With no host, the
+    // runtime picks the unspecified address — Bun defaults that to IPv6
+    // `::`, which fails ("Failed to listen at ::") on hosts where IPv6 is
+    // disabled (no `/proc/sys/net/ipv6`), as in container sandboxes. Docker
+    // publishes the resulting port on `0.0.0.0`, so probing the same IPv4
+    // wildcard keeps the free-port check consistent with where the port is
+    // actually bound.
+    server.listen(0, "0.0.0.0", () => {
       const address = server.address();
       if (address === null || typeof address === "string") {
         server.close();
