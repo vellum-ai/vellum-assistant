@@ -845,7 +845,7 @@ describe("Slack thinking status timing", () => {
           channel: channelId,
           threadTs,
           status: expect.any(String),
-          loadingMessages: ["Working on it..."],
+          loadingMessages: ["Thinking\u2026"],
         },
       );
       const threadStatus = deliveredChannelReplies[0]!.payload
@@ -948,13 +948,13 @@ describe("Slack thinking status timing", () => {
         channel: channelId,
         threadTs,
         status: expect.any(String),
-        loadingMessages: ["Working on it..."],
+        loadingMessages: ["Thinking\u2026"],
       },
       {
         channel: channelId,
         threadTs,
         status: expect.any(String),
-        loadingMessages: ["Working on it..."],
+        loadingMessages: ["Thinking\u2026"],
       },
       {
         channel: channelId,
