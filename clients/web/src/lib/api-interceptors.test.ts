@@ -356,6 +356,7 @@ describe("api-interceptors / self-hosted rewriting", () => {
       "release-channel",
       "domains",
       "email-addresses",
+      "oauth",
     ]) {
       const input = new Request(
         `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/${segment}/`,
