@@ -52,13 +52,15 @@ interface TextPreviewProps {
  * legible on the modal's dark backdrop across light, dark, and velvet themes.
  */
 export function TextPreview({ url, filename, mimeType }: TextPreviewProps) {
-  // Content-derived cache key. The URL uniquely identifies the bytes (an inline
-  // attachment's URL is the file itself, as a base64 `data:` URI), so hashing it
-  // avoids two distinct files colliding — the attachment id falls back to
-  // `filename` for inline drafts (display-attachments.ts) and isn't unique. We
-  // hash once (memoized) rather than key by the raw URL, so React Query never
-  // re-serializes a multi-megabyte data URI on every render.
-  const contentKey = useMemo(() => hashString(url), [url]);
+  // Content-derived cache key: a memoized hash of the URL paired with its
+  // length. The URL uniquely identifies the bytes (an inline attachment's URL is
+  // the file itself, as a base64 `data:` URI), so this distinguishes two
+  // different files that share a filename — the attachment id falls back to
+  // `filename` for inline drafts (display-attachments.ts) and isn't unique.
+  // Hashing once (memoized) keeps a short key off the render path so React Query
+  // never re-serializes a multi-megabyte data URI; pairing it with the length
+  // means an accidental 32-bit hash collision would also need an equal length.
+  const contentKey = useMemo(() => `${hashString(url)}-${url.length}`, [url]);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["attachment-text-preview", contentKey],
