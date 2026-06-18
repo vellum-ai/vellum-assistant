@@ -62,6 +62,10 @@ export function getChannelActionState(
   if (verified) {
     return { kind: "verified" };
   }
+  // Don't offer to verify a blocked channel — verifying flips it to active and clears the ban.
+  if (existing?.status === "blocked") {
+    return { kind: "none" };
+  }
   if (existing && existing.status !== "revoked") {
     return { kind: "unverified" };
   }
