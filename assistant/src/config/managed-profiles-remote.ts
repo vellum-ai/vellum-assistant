@@ -16,15 +16,14 @@
 
 import { z } from "zod";
 
-import { MANAGED_CONNECTION_NAMES } from "../providers/inference/connections.js";
+import { MANAGED_CONNECTION_PROVIDERS } from "../providers/inference/connections.js";
 import { isModelIntent } from "../providers/model-intents.js";
 import { getLogger } from "../util/logger.js";
 import { getDisableRemoteModelProfiles } from "./env-registry.js";
-import { EffortEnum, LLMProvider, ProfileSource } from "./schemas/llm.js";
+import { EffortEnum, LLMProvider } from "./schemas/llm.js";
 import {
   AUTO_PROFILE_KEY,
   MANAGED_PROFILE_NAMES,
-  MANAGED_PROFILE_TEMPLATES,
   type ManagedProfileTemplate,
 } from "./seed-inference-profiles.js";
 
@@ -41,7 +40,7 @@ const RemoteProfileSchema = z.object({
   intent: z.string().refine(isModelIntent, { message: "unknown model intent" }),
   provider: LLMProvider,
   connection_name: z.string().min(1),
-  source: ProfileSource,
+  source: z.literal("managed"),
   label: z.string().min(1),
   description: z.string(),
   max_tokens: z.number().int().positive(),
@@ -88,22 +87,6 @@ export function toManagedProfileTemplate(
  */
 const ALLOWED_REMOTE_KEYS = new Set(
   [...MANAGED_PROFILE_NAMES].filter((name) => name !== AUTO_PROFILE_KEY),
-);
-
-/**
- * Canonical connection-name → provider mapping, derived from the built-in
- * `MANAGED_PROFILE_TEMPLATES` so there is a single source of truth. A remote
- * payload's `(provider, connection_name)` pairing must agree with the built-in
- * pairing for that connection — otherwise the seeded profile's provider and
- * `provider_connection` would disagree and the provider resolver would treat it
- * as a hard config error or auto-reroute, breaking the managed profile instead
- * of falling back wholesale.
- */
-const CANONICAL_CONNECTION_PROVIDER = new Map<string, string>(
-  Object.values(MANAGED_PROFILE_TEMPLATES).map((t) => [
-    t.connectionName,
-    t.provider,
-  ]),
 );
 
 /**
@@ -221,24 +204,23 @@ async function fetchManagedProfileTemplatesUnbounded(
         );
         return null;
       }
-      if (!MANAGED_CONNECTION_NAMES.has(remote.connection_name)) {
-        log.warn(
-          { key: remote.key, connectionName: remote.connection_name },
-          "Remote model-profiles payload referenced a non-canonical managed connection — using built-ins",
-        );
-        return null;
-      }
-      if (
-        CANONICAL_CONNECTION_PROVIDER.get(remote.connection_name) !==
-        remote.provider
-      ) {
+      // A single lookup against the canonical connection→provider map gates
+      // both an unknown managed connection (missing entry) and a connection
+      // paired with the wrong provider. A managed profile whose provider and
+      // `provider_connection` disagree would be treated by the provider
+      // resolver as a hard config error or auto-rerouted, so fall back
+      // wholesale rather than seed a broken profile.
+      const canonicalProvider = MANAGED_CONNECTION_PROVIDERS.get(
+        remote.connection_name,
+      );
+      if (canonicalProvider !== remote.provider) {
         log.warn(
           {
             key: remote.key,
             provider: remote.provider,
             connectionName: remote.connection_name,
           },
-          "Remote model-profiles payload paired a managed connection with the wrong provider — using built-ins",
+          "Remote model-profiles payload referenced an unknown managed connection or mismatched provider — using built-ins",
         );
         return null;
       }

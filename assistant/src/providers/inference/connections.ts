@@ -368,6 +368,15 @@ export const MANAGED_CONNECTION_NAMES: ReadonlySet<string> = new Set(
 );
 
 /**
+ * Canonical connection-name → provider lookup, derived from
+ * `CANONICAL_CONNECTIONS` so there is a single source of truth for which
+ * provider each managed connection belongs to (anthropic-managed→anthropic,
+ * openai-managed→openai, gemini-managed→gemini, fireworks-managed→fireworks).
+ */
+export const MANAGED_CONNECTION_PROVIDERS: ReadonlyMap<string, string> =
+  new Map(CANONICAL_CONNECTIONS.map((c) => [c.name, c.provider]));
+
+/**
  * Upsert the three canonical connections on every boot. Existing rows are
  * updated to the latest provider/auth values so Vellum can push connection
  * changes to customers in new releases.
@@ -415,4 +424,3 @@ export function seedCanonicalConnections(db: DrizzleDb): void {
       .run();
   }
 }
-

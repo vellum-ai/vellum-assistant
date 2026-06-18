@@ -246,6 +246,44 @@ describe("fetchManagedProfileTemplates", () => {
     expect(result).toBeNull();
   });
 
+  test("alternate canonical provider/connection pairing (gemini) → accepted", async () => {
+    // The platform may legitimately roll a managed key to another managed
+    // provider. gemini-managed + gemini is a canonical pairing and must pass.
+    const profiles = fourValidProfiles();
+    (profiles[0] as Record<string, unknown>).provider = "gemini";
+    (profiles[0] as Record<string, unknown>).connection_name = "gemini-managed";
+    mockClient = makeClient(() =>
+      jsonResponse({ schema_version: 1, profiles }),
+    );
+    const result = await fetchManagedProfileTemplates();
+    expect(result).not.toBeNull();
+    expect(result!.balanced.provider).toBe("gemini");
+    expect(result!.balanced.connectionName).toBe("gemini-managed");
+  });
+
+  test("alternate canonical provider/connection pairing (openai) → accepted", async () => {
+    const profiles = fourValidProfiles();
+    (profiles[0] as Record<string, unknown>).provider = "openai";
+    (profiles[0] as Record<string, unknown>).connection_name = "openai-managed";
+    mockClient = makeClient(() =>
+      jsonResponse({ schema_version: 1, profiles }),
+    );
+    const result = await fetchManagedProfileTemplates();
+    expect(result).not.toBeNull();
+    expect(result!.balanced.provider).toBe("openai");
+    expect(result!.balanced.connectionName).toBe("openai-managed");
+  });
+
+  test("source: 'user' → null (remote managed profiles must stay managed)", async () => {
+    const profiles = fourValidProfiles();
+    (profiles[0] as Record<string, unknown>).source = "user";
+    mockClient = makeClient(() =>
+      jsonResponse({ schema_version: 1, profiles }),
+    );
+    const result = await fetchManagedProfileTemplates();
+    expect(result).toBeNull();
+  });
+
   test("connection_name not in MANAGED_CONNECTION_NAMES → null", async () => {
     const profiles = fourValidProfiles();
     (profiles[0] as Record<string, unknown>).connection_name =
@@ -262,6 +300,17 @@ describe("fetchManagedProfileTemplates", () => {
     // anthropic-managed is a canonical connection, but it belongs to the
     // "anthropic" provider, not "openai".
     (profiles[0] as Record<string, unknown>).provider = "openai";
+    mockClient = makeClient(() =>
+      jsonResponse({ schema_version: 1, profiles }),
+    );
+    const result = await fetchManagedProfileTemplates();
+    expect(result).toBeNull();
+  });
+
+  test("genuine mismatch on alternate connection (gemini-managed + openai) → null", async () => {
+    const profiles = fourValidProfiles();
+    (profiles[0] as Record<string, unknown>).provider = "openai";
+    (profiles[0] as Record<string, unknown>).connection_name = "gemini-managed";
     mockClient = makeClient(() =>
       jsonResponse({ schema_version: 1, profiles }),
     );
