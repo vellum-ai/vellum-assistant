@@ -2,8 +2,8 @@
  * Trust capabilities — what an actor may do once admitted.
  *
  * Separates *what an actor can do* (capabilities/permissions) from *who the
- * actor is* (`TrustClass`, their role/level). Previously the ~40+ decision sites
- * re-derived permissions inline from the raw class (`trustClass === "guardian"`).
+ * actor is* (`TrustClass`, their role/level). The ~40+ decision sites
+ * read a named capability instead of re-deriving permissions inline from the
  * This resolves the class to a named capability set in one place so call sites
  * read a capability instead of re-deriving it.
  *
