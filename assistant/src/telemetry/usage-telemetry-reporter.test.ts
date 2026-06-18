@@ -305,6 +305,7 @@ beforeEach(() => {
   getDb().delete(toolInvocations).run();
   getDb().delete(skillLoadedEvents).run();
   delete process.env.VELLUM_DISABLE_PLATFORM;
+  delete process.env.IS_PLATFORM;
   mockGetPlatformBaseUrl.mockReset();
   mockGetDeviceId.mockReset();
   mockGetDeviceId.mockReturnValue("test-device-id");
@@ -337,6 +338,7 @@ beforeEach(() => {
 afterEach(() => {
   globalThis.fetch = originalFetch;
   delete process.env.VELLUM_DISABLE_PLATFORM;
+  delete process.env.IS_PLATFORM;
 });
 
 // ---------------------------------------------------------------------------
@@ -385,7 +387,7 @@ describe("UsageTelemetryReporter", () => {
     expect(watermarkCalls.length).toBe(0);
   });
 
-  test("flush is skipped when VELLUM_DISABLE_PLATFORM is set", async () => {
+  test("flush is skipped when VELLUM_DISABLE_PLATFORM is set in local mode", async () => {
     // The platform-disabled toggle suppresses the send. Unlike the opt-out
     // branch, watermarks are NOT advanced, so the backlog ships once the flag
     // is cleared.
@@ -402,6 +404,22 @@ describe("UsageTelemetryReporter", () => {
 
     expect(mockFetch).not.toHaveBeenCalled();
     expect(mockSetMemoryCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("VELLUM_DISABLE_PLATFORM is ignored when IS_PLATFORM is set (managed mode)", async () => {
+    // Platform-managed assistants always connect to the platform; an inherited
+    // VELLUM_DISABLE_PLATFORM must not suppress telemetry for them (matches
+    // arePlatformFeaturesEnabled / VellumPlatformClient.create()).
+    process.env.IS_PLATFORM = "true";
+    process.env.VELLUM_DISABLE_PLATFORM = "true";
+
+    const events = [makeUsageEvent()];
+    mockQueryUnreportedUsageEvents.mockReturnValue(events);
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   test("watermark advances on successful upload", async () => {

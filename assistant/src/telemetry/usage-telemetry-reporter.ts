@@ -6,14 +6,14 @@
  *
  * Authenticated-only: events are sent via the managed proxy context
  * (Api-Key header). When no platform credentials are available, or when
- * VELLUM_DISABLE_PLATFORM is set, the flush is skipped and retried next cycle.
+ * platform features are disabled (VELLUM_DISABLE_PLATFORM in local mode), the
+ * flush is skipped and retried next cycle.
  */
 
 import {
   getPlatformOrganizationId,
   getPlatformUserId,
 } from "../config/env.js";
-import { getDisablePlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { queryUnreportedAuthFallbackEvents } from "../memory/auth-fallback-events-store.js";
 import {
@@ -27,6 +27,7 @@ import { queryUnreportedSkillLoadedEvents } from "../memory/skill-loaded-events-
 import { queryUnreportedToolExecutedEvents } from "../memory/tool-executed-events-store.js";
 import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
 import { VellumPlatformClient } from "../platform/client.js";
+import { arePlatformFeaturesEnabled } from "../platform/feature-gate.js";
 import type { UsageAttributionProfileSource } from "../usage/types.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger } from "../util/logger.js";
@@ -238,10 +239,12 @@ export class UsageTelemetryReporter {
         return;
       }
 
-      // Skip when platform calls are disabled. Unlike the opt-out branch above,
-      // watermarks are NOT advanced: this flag is a deployment/local-mode toggle
+      // Skip when platform features are disabled (VELLUM_DISABLE_PLATFORM in
+      // local mode; the flag is ignored when IS_PLATFORM is set, matching
+      // VellumPlatformClient.create()). Unlike the opt-out branch above,
+      // watermarks are NOT advanced: this is a deployment/local-mode toggle
       // (not a privacy opt-out), so the unsent backlog ships once it's cleared.
-      if (getDisablePlatform()) {
+      if (!arePlatformFeaturesEnabled()) {
         return;
       }
 
