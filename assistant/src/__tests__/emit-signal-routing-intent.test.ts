@@ -57,6 +57,21 @@ mock.module("../notifications/decisions-store.js", () => ({
 mock.module("../notifications/deterministic-checks.js", () => ({
   runDeterministicChecks: (...args: unknown[]) =>
     runDeterministicChecksMock(...args),
+  // emit-signal also imports checkSourceActiveSuppression for the pre-decision
+  // gate. Mirror its real signal-only contract here so the gate behaves under
+  // the mock without depending on bun's export-merge semantics. The real
+  // implementation is unit-tested in
+  // notifications/__tests__/deterministic-checks.test.ts.
+  checkSourceActiveSuppression: (signal: {
+    attentionHints: { visibleInSourceNow?: boolean };
+  }) =>
+    signal.attentionHints.visibleInSourceNow
+      ? {
+          passed: false,
+          reason:
+            "Source-active suppression: user is already viewing the source context",
+        }
+      : { passed: true },
 }));
 
 mock.module("../notifications/events-store.js", () => ({
