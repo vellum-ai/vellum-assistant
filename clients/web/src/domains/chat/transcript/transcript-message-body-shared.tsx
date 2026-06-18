@@ -201,6 +201,22 @@ function extractRunIdFromResult(toolCall: ChatMessageToolCall): string | null {
 }
 
 /**
+ * The `runId` a single `run_workflow` tool call resolves to — its
+ * `byToolUseId` anchor (from the `workflow_started` event), else the id encoded
+ * in its result — or `null` when none is available, e.g. the call FAILED before
+ * returning a `runId` (bad manifest, run cap, invalid meta). The transcript
+ * suppresses the raw tool chip ONLY for calls that resolve to a card; a failed
+ * call (`null`) keeps rendering its tool result so the error stays visible.
+ */
+export function workflowRunIdForCall(
+  toolCall: ChatMessageToolCall,
+  byToolUseId: Map<string, string>,
+): string | null {
+  if (!isRunWorkflowCall(toolCall)) return null;
+  return byToolUseId.get(toolCall.id) ?? extractRunIdFromResult(toolCall);
+}
+
+/**
  * Resolve the launched `runId` for each `run_workflow` tool call in
  * `toolCalls`. Resolution priority per tool call:
  *

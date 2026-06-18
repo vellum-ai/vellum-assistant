@@ -43,6 +43,7 @@ import {
   resolveWorkflowRunIds,
   SlackMessageAttribution,
   type TranscriptMessageBodyProps,
+  workflowRunIdForCall,
 } from "@/domains/chat/transcript/transcript-message-body-shared";
 
 /**
@@ -275,7 +276,16 @@ export function TranscriptMessageBody({
       }
     }
     const renderableToolCalls = groupToolCalls.filter(
-      (tc) => !isSubagentSpawnCall(tc) && !isRunWorkflowCall(tc),
+      // Suppress the raw chip for a run_workflow call ONLY when it resolves to a
+      // card (a runId via byToolUseId or its result). A call that FAILED before
+      // returning a runId resolves to none, so it renders normally and its error
+      // stays visible instead of being hidden behind a card that never appears.
+      (tc) =>
+        !isSubagentSpawnCall(tc) &&
+        !(
+          isRunWorkflowCall(tc) &&
+          workflowRunIdForCall(tc, byToolUseIdWf) !== null
+        ),
     );
     const loneTool =
       cardItems.length === 1 &&
