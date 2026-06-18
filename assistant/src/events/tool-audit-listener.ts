@@ -1,8 +1,8 @@
-import { getConfig } from "../config/loader.js";
 import {
   recordToolInvocation,
   type ToolInvocationRecord,
 } from "../memory/tool-usage-store.js";
+import { getCachedShareAnalytics } from "../platform/consent-cache.js";
 import { redactJsonStringLeaves } from "../security/redact-json.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import {
@@ -168,7 +168,7 @@ function telemetryColumns(
   rawInput: string,
   resultBytes: number,
 ): TelemetryColumns {
-  if (!getConfig().collectUsageData) return NULL_TELEMETRY_COLUMNS;
+  if (!getCachedShareAnalytics()) return NULL_TELEMETRY_COLUMNS;
   return {
     argBytes: event.inputBytes ?? Buffer.byteLength(rawInput, "utf8"),
     resultBytes,
