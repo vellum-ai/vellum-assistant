@@ -350,7 +350,7 @@ interface WireJournal {
 }
 
 describe("getWorkflowRunJournal", () => {
-  test("projects leaves in seq order with label/phase/promptSummary/resultSummary extracted", async () => {
+  test("projects agent leaves with label/phase/promptSummary/resultSummary extracted", async () => {
     setup({
       runs: [makeRun({ id: "run-1" })],
       journal: {
@@ -365,13 +365,6 @@ describe("getWorkflowRunJournal", () => {
             result: { summary: "found the flaky test" },
             status: "completed",
           }),
-          makeJournalEntry({
-            seq: 1,
-            kind: "workflow",
-            request: { prompt: "Run the child workflow", opts: {} },
-            result: "child done",
-            status: "completed",
-          }),
         ],
       },
     });
@@ -382,7 +375,7 @@ describe("getWorkflowRunJournal", () => {
     expect(result.runId).toBe("run-1");
     expect(result.status).toBe("running");
     expect(result.agentsSpawned).toBe(2);
-    expect(result.leaves.map((l) => l.seq)).toEqual([0, 1]);
+    expect(result.leaves.map((l) => l.seq)).toEqual([0]);
 
     const first = result.leaves[0];
     expect(first.kind).toBe("agent");
@@ -393,11 +386,48 @@ describe("getWorkflowRunJournal", () => {
     // The bulky raw request/result payloads are dropped.
     expect(first).not.toHaveProperty("request");
     expect(first).not.toHaveProperty("result");
+  });
 
-    const second = result.leaves[1];
-    expect(second.kind).toBe("workflow");
-    expect(second.label).toBeUndefined();
-    expect(second.resultSummary).toContain("child done");
+  test("excludes kind:workflow entries so the backfill matches the live agent-only stream", async () => {
+    // The live `workflow_leaf_*` stream is emitted only for agent leaves; nested
+    // `workflow(name)` resolutions never reach it. The journal route must filter
+    // to agent leaves too, or a nested-workflow run renders a phantom unlabeled
+    // node on backfill and a different leaf set than live.
+    setup({
+      runs: [makeRun({ id: "run-1" })],
+      journal: {
+        "run-1": [
+          makeJournalEntry({
+            seq: 0,
+            kind: "agent",
+            request: { prompt: "first agent", opts: { label: "first" } },
+            status: "completed",
+          }),
+          makeJournalEntry({
+            seq: 1,
+            kind: "workflow",
+            request: { name: "child", args: { foo: 1 } },
+            result: "child done",
+            status: "completed",
+          }),
+          makeJournalEntry({
+            seq: 2,
+            kind: "agent",
+            request: { prompt: "second agent", opts: { label: "second" } },
+            status: "completed",
+          }),
+        ],
+      },
+    });
+    const result = (await route("getWorkflowRunJournal").handler({
+      pathParams: { id: "run-1" },
+    })) as WireJournal;
+
+    // Only the agent leaves survive, in seq order; the workflow-kind entry (seq
+    // 1) is dropped entirely.
+    expect(result.leaves.map((l) => l.seq)).toEqual([0, 2]);
+    expect(result.leaves.every((l) => l.kind === "agent")).toBe(true);
+    expect(result.leaves.map((l) => l.label)).toEqual(["first", "second"]);
   });
 
   test("surfaces a failed leaf's { error } result as resultSummary", async () => {

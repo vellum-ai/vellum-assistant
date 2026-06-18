@@ -246,7 +246,14 @@ function handleGetRunJournal(id: string) {
     agentsSpawned: run.agentsSpawned,
     inputTokens: run.inputTokens,
     outputTokens: run.outputTokens,
-    leaves: deps.getJournal(id).map(toWireLeaf),
+    // Only agent leaves; the live `workflow_leaf_*` stream is emitted solely for
+    // agent leaves (nested workflow resolutions never reach it), so the
+    // backfilled set must match. `kind: "workflow"` entries carry no label and
+    // would render as phantom unlabeled nodes.
+    leaves: deps
+      .getJournal(id)
+      .filter((entry) => entry.kind === "agent")
+      .map(toWireLeaf),
   };
 }
 
