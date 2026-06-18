@@ -11,7 +11,8 @@ interface CheckinConnectScreenProps {
   assistantName: string;
   onConnect: (scopes: string[]) => void;
   onSkip: () => void;
-  onBack: () => void;
+  /** Optional — omitted when shown as a focused-overlay step (no back target). */
+  onBack?: () => void;
 }
 
 /**
@@ -46,14 +47,18 @@ export function CheckinConnectScreen({
           className="grid w-full grid-cols-[auto_1fr_auto] items-center"
           style={{ animation: "fadeInUp 0.3s ease-out 0.1s both" }}
         >
-          <button
-            type="button"
-            onClick={onBack}
-            aria-label="Back"
-            className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-[var(--content-secondary)] transition-colors hover:bg-[var(--surface-base)]"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
+          {onBack ? (
+            <button
+              type="button"
+              onClick={onBack}
+              aria-label="Back"
+              className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-[var(--content-secondary)] transition-colors hover:bg-[var(--surface-base)]"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+          ) : (
+            <div aria-hidden="true" className="h-8 w-8" />
+          )}
           <h1
             className={`text-center ${electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}`}
           >
