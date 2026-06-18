@@ -44,8 +44,8 @@ export function buildAdvisorSystem(
 
 /**
  * The final user turn appended to the transcript for the advisor sub-call. Asks
- * for guidance and carries the soft word-limit nudge.
+ * for guidance; imposes no length limit — the advisor decides how much to say.
  */
-export function advisorRequestText(wordLimit: number): string {
-  return `Review the conversation above — the task, the tool calls, and their results — and give focused strategic guidance on how to proceed. (Advisor: keep your guidance under ~${wordLimit} words — a focused starting point, not a comprehensive plan.)`;
+export function advisorRequestText(): string {
+  return `Review the conversation above — the task, the tool calls, and their results — and give focused strategic guidance on how to proceed.`;
 }

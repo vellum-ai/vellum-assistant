@@ -77,7 +77,8 @@ describe("consultAdvisor", () => {
     expect(config.callSite).toBe("inference");
     expect(config.overrideProfile).toBe("quality-optimized");
     expect(config.tool_choice).toEqual({ type: "none" });
-    expect(config.max_tokens).toBe(2048);
+    // No advisor-specific output cap — the resolver applies the profile budget.
+    expect(config.max_tokens).toBeUndefined();
 
     const sent = sendMessageArgs?.messages as Message[];
     expect(sent[0]).toEqual(userMsg("build a worker pool"));
@@ -87,7 +88,9 @@ describe("consultAdvisor", () => {
     });
     const lastText = (sent[sent.length - 1].content[0] as { text: string })
       .text;
-    expect(lastText).toContain("80 words");
+    expect(lastText).toContain("focused strategic guidance");
+    // The request carries no word limit.
+    expect(lastText).not.toContain("words");
 
     const options = sendMessageArgs?.options as { systemPrompt: string };
     expect(options.systemPrompt).toContain("senior technical advisor");

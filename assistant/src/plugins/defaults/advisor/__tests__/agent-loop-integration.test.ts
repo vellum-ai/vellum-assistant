@@ -99,12 +99,13 @@ describe("advisor — agent-loop integration", () => {
     expect(sub.options?.config?.callSite).toBe("inference");
     expect(sub.options?.config?.overrideProfile).toBe("quality-optimized");
     expect(sub.options?.config?.tool_choice).toEqual({ type: "none" });
-    expect(sub.options?.config?.max_tokens).toBe(2048);
+    // No advisor-specific output cap — the resolver applies the profile budget.
+    expect(sub.options?.config?.max_tokens).toBeUndefined();
 
     // The advisor saw the captured transcript (task present; pending tool_use stripped).
     expect(textOf(sub.messages[0].content)).toContain("build a worker pool");
     expect(textOf(sub.messages[sub.messages.length - 1].content)).toContain(
-      "80 words",
+      "focused strategic guidance",
     );
     // It also saw the model's CURRENT turn — the text it wrote right before the
     // `advisor` tool_use — which `post-model-call` lifts out of `ctx.content`.
