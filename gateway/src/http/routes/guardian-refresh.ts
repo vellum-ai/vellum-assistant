@@ -11,6 +11,13 @@ import {
 } from "../browser-auth-cookies.js";
 
 const log = getLogger("guardian-refresh-route");
+const REQUIRED_BROWSER_REFRESH_FETCH_SITE = "same-origin";
+const BROWSER_REFRESH_FORBIDDEN_RESPONSE = {
+  error: {
+    code: "FORBIDDEN",
+    message: "Browser refresh requires a same-origin request",
+  },
+};
 
 function refreshFailureResponse(error: RefreshErrorCode): Response {
   // 403 for tokens that are valid-but-forbidden (revoked, reused, or presented
@@ -52,10 +59,51 @@ function browserRefreshResponse(
   );
 }
 
+function parseHttpUrl(value: string | null): URL | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+function sameEffectiveOrigin(req: Request, url: URL): boolean {
+  const target = new URL(req.url);
+  if (url.host !== target.host) return false;
+  if (url.protocol === target.protocol) return true;
+  return target.protocol === "http:" && url.protocol === "https:";
+}
+
+function browserRefreshOriginFallbackAllows(req: Request): boolean {
+  const origin = parseHttpUrl(req.headers.get("origin"));
+  if (origin && sameEffectiveOrigin(req, origin)) return true;
+
+  const referer = parseHttpUrl(req.headers.get("referer"));
+  return !!referer && sameEffectiveOrigin(req, referer);
+}
+
+function browserRefreshFetchMetadataGuard(req: Request): Response | null {
+  const fetchSite = req.headers.get("sec-fetch-site");
+  if (fetchSite) {
+    if (fetchSite === REQUIRED_BROWSER_REFRESH_FETCH_SITE) return null;
+    return Response.json(BROWSER_REFRESH_FORBIDDEN_RESPONSE, { status: 403 });
+  }
+
+  if (browserRefreshOriginFallbackAllows(req)) return null;
+
+  return Response.json(BROWSER_REFRESH_FORBIDDEN_RESPONSE, { status: 403 });
+}
+
 export async function handleGuardianRefresh(req: Request): Promise<Response> {
   try {
     const browserRefreshToken = getRemoteWebRefreshCookie(req);
     if (browserRefreshToken) {
+      const metadataError = browserRefreshFetchMetadataGuard(req);
+      if (metadataError) return metadataError;
+
       const result = rotateBrowserCredentialsByRefreshToken({
         refreshToken: browserRefreshToken,
       });
