@@ -102,6 +102,13 @@ export interface WorkflowState {
    * that 404 — so a perpetually-null card doesn't spam requests.
    */
   hydratedRunIds: Set<string>;
+  /**
+   * RunIds whose row genuinely no longer exists (a hydration 404 — e.g. the run
+   * outlived its retention-pruned row). The transcript un-suppresses the raw
+   * tool chip for these so a historical `run_workflow` call whose card can never
+   * hydrate stays visible (its stored result) instead of vanishing.
+   */
+  notFoundRunIds: Set<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -193,6 +200,7 @@ const INITIAL_STATE: WorkflowState = {
   byToolUseId: new Map<string, string>(),
   fetchedAt: new Map<string, number>(),
   hydratedRunIds: new Set<string>(),
+  notFoundRunIds: new Set<string>(),
 };
 
 // ---------------------------------------------------------------------------
@@ -521,7 +529,11 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
     // A genuine 404 stays marked so a missing run's card doesn't re-fetch on
     // every render. A transient failure (null — daemon unreachable / 5xx) clears
     // the marker so a later mount can retry instead of leaving the card blank.
-    if (run === "not_found") return;
+    if (run === "not_found") {
+      // Record the missing run so the transcript stops suppressing its chip.
+      set({ notFoundRunIds: new Set(get().notFoundRunIds).add(runId) });
+      return;
+    }
     if (run === null) {
       const next = new Set(get().hydratedRunIds);
       next.delete(runId);
@@ -569,6 +581,7 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
       byToolUseId: new Map<string, string>(),
       fetchedAt: new Map<string, number>(),
       hydratedRunIds: new Set<string>(),
+      notFoundRunIds: new Set<string>(),
     }),
 }));
 

@@ -631,6 +631,8 @@ describe("hydrateRunIfNeeded", () => {
     expect(calls).toBe(1);
     expect(getState().byId["wf-404"]).toBeUndefined();
     expect(getState().hydratedRunIds.has("wf-404")).toBe(true);
+    // Recorded as not-found so the transcript un-suppresses its chip.
+    expect(getState().notFoundRunIds.has("wf-404")).toBe(true);
   });
 
   it("retries after a transient failure (clears the marker)", async () => {
@@ -662,8 +664,8 @@ describe("reset", () => {
   it("clears all runs, ordering, and indexes", async () => {
     getState().startRun({ runId: "wf-r", toolUseId: "tu-r", timestamp: NOW });
     getState().leafStarted({ runId: "wf-r", seq: 0, label: "Leaf" });
-    // Mark a 404'd run so the hydrated set is non-empty before reset.
-    runImpl = async () => null;
+    // Mark a 404'd run so the hydrated + not-found sets are non-empty before reset.
+    runImpl = async () => "not_found";
     await getState().hydrateRunIfNeeded("asst-1", "wf-404");
 
     getState().reset();
@@ -674,6 +676,7 @@ describe("reset", () => {
     expect(state.byToolUseId.size).toBe(0);
     expect(state.fetchedAt.size).toBe(0);
     expect(state.hydratedRunIds.size).toBe(0);
+    expect(state.notFoundRunIds.size).toBe(0);
   });
 });
 

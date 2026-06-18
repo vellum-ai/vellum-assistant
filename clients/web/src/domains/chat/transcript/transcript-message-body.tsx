@@ -24,7 +24,6 @@ import {
 import {
   type ContentBlockActivityItem,
   groupContentBlocks,
-  isRunWorkflowCall,
   isSubagentSpawnCall,
   isSuppressedUiTool,
 } from "@/domains/chat/transcript/message-content";
@@ -143,8 +142,17 @@ export function TranscriptMessageBody({
   );
   const byToolUseId = useSubagentStore.use.byToolUseId();
   const byToolUseIdWf = useWorkflowStore.use.byToolUseId();
+  const notFoundRunIdsWf = useWorkflowStore.use.notFoundRunIds();
   const claimedSpawnIds = new Set<string>();
   const claimedWorkflowIds = new Set<string>();
+  // A run_workflow chip is suppressed only when its call is "card-backed": it
+  // resolves a runId AND that run is not a confirmed 404. A failed call (no
+  // runId) or a run whose row was retention-pruned (404) is NOT card-backed, so
+  // its tool result keeps rendering instead of vanishing behind an empty card.
+  const cardBackedWorkflowRunId = (tc: ChatMessageToolCall): string | null => {
+    const rid = workflowRunIdForCall(tc, byToolUseIdWf);
+    return rid !== null && !notFoundRunIdsWf.has(rid) ? rid : null;
+  };
 
   const renderTextWithInlineSurfaces = (text: string, key: string) => {
     const inlineSegments = parseInlineSurfaces(text);
@@ -276,16 +284,10 @@ export function TranscriptMessageBody({
       }
     }
     const renderableToolCalls = groupToolCalls.filter(
-      // Suppress the raw chip for a run_workflow call ONLY when it resolves to a
-      // card (a runId via byToolUseId or its result). A call that FAILED before
-      // returning a runId resolves to none, so it renders normally and its error
-      // stays visible instead of being hidden behind a card that never appears.
-      (tc) =>
-        !isSubagentSpawnCall(tc) &&
-        !(
-          isRunWorkflowCall(tc) &&
-          workflowRunIdForCall(tc, byToolUseIdWf) !== null
-        ),
+      // Suppress the raw chip only for a card-backed run_workflow call (see
+      // cardBackedWorkflowRunId). A failed call (no runId) or a 404/pruned run is
+      // not card-backed, so it renders its tool result instead of vanishing.
+      (tc) => !isSubagentSpawnCall(tc) && cardBackedWorkflowRunId(tc) === null,
     );
     const loneTool =
       cardItems.length === 1 &&
@@ -305,18 +307,14 @@ export function TranscriptMessageBody({
       );
     }
     if (renderableToolCalls.length > 0) {
-      // A resolved run_workflow call is shown by its dedicated inline card, so
+      // A card-backed run_workflow call is shown by its dedicated inline card, so
       // drop it from the steps MultiActivityGroup renders too (the group filters
-      // subagent_spawn internally but not run_workflow). A FAILED workflow call
-      // has no card and is kept, so its error still renders as a step; subagent
-      // spawns are left for the group to filter internally.
+      // subagent_spawn internally but not run_workflow). A failed or 404/pruned
+      // workflow call is not card-backed and is kept, so its tool result still
+      // renders as a step; subagent spawns are left for the group to filter.
       const suppressedWorkflowIds = new Set(
         groupToolCalls
-          .filter(
-            (tc) =>
-              isRunWorkflowCall(tc) &&
-              workflowRunIdForCall(tc, byToolUseIdWf) !== null,
-          )
+          .filter((tc) => cardBackedWorkflowRunId(tc) !== null)
           .map((tc) => tc.id),
       );
       const groupCardToolCalls =
