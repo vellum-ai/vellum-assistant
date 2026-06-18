@@ -103,8 +103,8 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   const handleAppAction = useCallback(
     (actionId: string, data?: Record<string, unknown>) =>
-      handleAppViewerAction({ navigate }, actionId, data),
-    [navigate],
+      handleAppViewerAction({ navigate, isMobile }, actionId, data),
+    [navigate, isMobile],
   );
 
   const handleCloseDocument = useCallback(() => {

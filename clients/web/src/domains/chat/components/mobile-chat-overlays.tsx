@@ -60,8 +60,10 @@ export function MobileChatOverlays() {
   }, []);
 
   const handleAppAction = useCallback(
+    // This portal only mounts on mobile (useMobileOverlayTarget), so
+    // side-by-side never applies — `set_view: "split"` is a no-op here.
     (actionId: string, data?: Record<string, unknown>) =>
-      handleAppViewerAction({ navigate }, actionId, data),
+      handleAppViewerAction({ navigate, isMobile: true }, actionId, data),
     [navigate],
   );
 
