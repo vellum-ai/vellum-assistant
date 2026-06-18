@@ -198,12 +198,12 @@ export function SubagentDetailPanel({
   // Compute the avatar traits once per subagent instead of hashing the id
   // three separate times in the JSX below.
   const traits = useMemo(() => subagentTraits(entry.subagentId), [entry.subagentId]);
-  // The timeline renders `entry.events` directly (no `useDeferredValue`).
-  // Virtualization already bounds each render to the visible window, so the
-  // heavy full-list render that deferral once hid no longer exists. Deferring
-  // here would only re-introduce a failure mode: under sustained high-frequency
-  // streaming the low-priority deferred render keeps getting preempted and never
-  // commits, freezing the timeline on a stale snapshot until the stream slows.
+  // The timeline reads `entry.events` directly. Virtualization bounds each
+  // render to the visible window, so there is no expensive full-list render to
+  // defer. A `useDeferredValue` here is counterproductive: under sustained
+  // high-frequency streaming its low-priority render keeps getting preempted and
+  // never commits, freezing the timeline on a stale snapshot until the stream
+  // slows.
 
   useEffect(() => {
     if (onRequestDetail && entry.conversationId && entry.events.length === 0) {
@@ -317,12 +317,12 @@ export function SubagentDetailPanel({
             Timeline
           </Typography>
           {/*
-           * Key by subagent id so the timeline (which now owns lifted
-           * expand/collapse state) remounts on subagent switch. Fetched
-           * detail event ids are renumbered per subagent (detail-1, detail-2,
-           * …) and the drawer keeps this component mounted across switches, so
-           * without a per-subagent reset an expanded `detail-N` would leak its
-           * expanded state onto the next subagent's `detail-N`.
+           * Key by subagent id so the timeline remounts on subagent switch,
+           * resetting the expand/collapse state it holds. Fetched detail event
+           * ids are renumbered per subagent (detail-1, detail-2, …) and the
+           * drawer keeps this component mounted across switches, so without a
+           * per-subagent reset an expanded `detail-N` would leak its expanded
+           * state onto the next subagent's `detail-N`.
            */}
           <SubagentTimeline
             key={entry.subagentId}
