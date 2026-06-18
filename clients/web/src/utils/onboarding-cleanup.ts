@@ -46,6 +46,14 @@ function consentKey(field: keyof typeof CONSENT_KEY_VERSION, userId: string): st
   return `device:consent:${field}:v${CONSENT_KEY_VERSION[field]}:${userId}`;
 }
 
+// The previous release stored this consent under a field named "ai" (now folded
+// into "privacy"). Read at the same version the old key was written under so an
+// existing offline user with only the old key migrates cleanly instead of
+// reading privacy=false and being re-routed through onboarding.
+function legacyPrivacyConsentKey(userId: string): string {
+  return `device:consent:ai:v${PRIVACY_CONSENT_VERSION}:${userId}`;
+}
+
 export function restoreConsentForUser(
   userId: string | null,
 ): { tos: boolean; privacy: boolean; analyticsCurrent: boolean; diagnosticsCurrent: boolean } {
@@ -56,7 +64,17 @@ export function restoreConsentForUser(
     const analyticsCurrent = getLocalBool(consentKey("share_analytics", userId), false);
     const diagnosticsCurrent = getLocalBool(consentKey("share_diagnostics", userId), false);
     const tos = getLocalBool(consentKey("tos", userId), false);
-    const privacy = getLocalBool(consentKey("privacy", userId), false);
+    let privacy = getLocalBool(consentKey("privacy", userId), false);
+
+    // Migrate the previous version's "ai"-named key into "privacy" so a renamed-
+    // key user isn't read as un-consented (which the empty-server fallback would
+    // turn into an onboarding re-route).
+    if (!privacy && getLocalBool(legacyPrivacyConsentKey(userId), false)) {
+      privacy = true;
+      setLocalBool(consentKey("privacy", userId), true);
+      removeLocalSetting(legacyPrivacyConsentKey(userId));
+    }
+
     if (tos || privacy) return { tos, privacy, analyticsCurrent, diagnosticsCurrent };
 
     // One-time migration: users who accepted before the per-user device
@@ -114,6 +132,7 @@ export function clearConsentForUser(userId: string | null): void {
   try {
     removeLocalSetting(consentKey("tos", userId));
     removeLocalSetting(consentKey("privacy", userId));
+    removeLocalSetting(legacyPrivacyConsentKey(userId));
     removeLocalSetting(consentKey("share_analytics", userId));
     removeLocalSetting(consentKey("share_diagnostics", userId));
   } catch {

@@ -284,6 +284,20 @@ describe("persistToggleConsent + restoreConsentForUser round-trip", () => {
     expect(r.analyticsCurrent).toBe(false);
     expect(r.diagnosticsCurrent).toBe(false);
   });
+
+  test("migrates the previous version's per-user 'ai' key into 'privacy'", () => {
+    // An existing offline user consented under the old field name.
+    const legacyAiKey = `device:consent:ai:v${PRIVACY_CONSENT_VERSION}:user-1`;
+    const privacyKey = `device:consent:privacy:v${PRIVACY_CONSENT_VERSION}:user-1`;
+    localStorage.setItem(legacyAiKey, "true");
+
+    const r = restoreConsentForUser("user-1");
+
+    expect(r.privacy).toBe(true);
+    // The old key is promoted to the new one and removed.
+    expect(localStorage.getItem(privacyKey)).toBe("true");
+    expect(localStorage.getItem(legacyAiKey)).toBeNull();
+  });
 });
 
 describe("saveConsent", () => {
