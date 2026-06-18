@@ -1,0 +1,83 @@
+/**
+ * Tests for the gateway-backed channel admission policy reader.
+ *
+ * The reader fails open (returns null = admit) so a gateway IPC failure can
+ * never block a live call. These tests pin that contract plus the TTL cache.
+ */
+
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+// ── Controllable IPC mock ────────────────────────────────────────────────────
+
+type IpcHandler = (params?: Record<string, unknown>) => unknown;
+
+const ipcHandlers = new Map<string, IpcHandler>();
+const ipcCallLog: Array<{ method: string; params?: Record<string, unknown> }> =
+  [];
+
+mock.module("../../ipc/gateway-client.js", () => ({
+  ipcCall: async (method: string, params?: Record<string, unknown>) => {
+    ipcCallLog.push({ method, params });
+    const handler = ipcHandlers.get(method);
+    return handler ? handler(params) : undefined;
+  },
+  ipcCallPersistent: async () => undefined,
+  resetPersistentClient: () => {},
+}));
+
+import {
+  _clearCacheForTesting,
+  getChannelAdmissionPolicy,
+} from "../channel-admission-reader.js";
+
+const METHOD = "get_channel_admission_policy";
+
+function countCalls(method: string): number {
+  return ipcCallLog.filter((c) => c.method === method).length;
+}
+
+describe("getChannelAdmissionPolicy", () => {
+  beforeEach(() => {
+    _clearCacheForTesting();
+    ipcHandlers.clear();
+    ipcCallLog.length = 0;
+  });
+
+  test("returns the gateway-resolved policy and caches it within the TTL", async () => {
+    ipcHandlers.set(METHOD, () => ({ policy: "guardian_only" }));
+
+    expect(await getChannelAdmissionPolicy("telegram")).toBe("guardian_only");
+    // Second call within TTL is served from cache — no extra IPC round-trip.
+    expect(await getChannelAdmissionPolicy("telegram")).toBe("guardian_only");
+    expect(countCalls(METHOD)).toBe(1);
+  });
+
+  test("returns null when IPC transport fails (undefined)", async () => {
+    ipcHandlers.set(METHOD, () => undefined);
+    expect(await getChannelAdmissionPolicy("telegram")).toBeNull();
+  });
+
+  test("returns null when the gateway explicitly resolves no policy", async () => {
+    ipcHandlers.set(METHOD, () => ({ policy: null }));
+    expect(await getChannelAdmissionPolicy("telegram")).toBeNull();
+  });
+
+  test("returns null when the IPC call throws", async () => {
+    ipcHandlers.set(METHOD, () => {
+      throw new Error("socket exploded");
+    });
+    expect(await getChannelAdmissionPolicy("telegram")).toBeNull();
+  });
+
+  test("returns null for an invalid policy string", async () => {
+    ipcHandlers.set(METHOD, () => ({ policy: "definitely-not-a-policy" }));
+    expect(await getChannelAdmissionPolicy("telegram")).toBeNull();
+  });
+
+  test("caches the negative (null) result within the TTL", async () => {
+    ipcHandlers.set(METHOD, () => undefined);
+    expect(await getChannelAdmissionPolicy("telegram")).toBeNull();
+    expect(await getChannelAdmissionPolicy("telegram")).toBeNull();
+    expect(countCalls(METHOD)).toBe(1);
+  });
+});
