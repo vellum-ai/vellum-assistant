@@ -254,6 +254,48 @@ export function resolveWorkflowRunIds(
   return ids;
 }
 
+/**
+ * The slice of workflow-store state that decides whether a `run_workflow`
+ * tool call's raw chip is suppressed in favor of its inline card. Only
+ * membership / key-presence is read, so the value types are intentionally
+ * opaque — the full store satisfies this structurally.
+ */
+export interface WorkflowCardBackingState {
+  byId: Record<string, unknown>;
+  byToolUseId: Map<string, string>;
+  notFoundRunIds: Set<string>;
+  hydrationFailedRunIds: Set<string>;
+}
+
+/**
+ * The set of `run_workflow` runIds in `toolCalls` whose inline card is
+ * "card-backed" — i.e. the raw tool chip should be suppressed because the card
+ * will render something. A runId is card-backed when an entry already exists
+ * (`byId`) OR hydration is still pending. It is NOT card-backed once hydration
+ * has definitively failed — a confirmed 404 (`notFoundRunIds`) or a transient
+ * failure (`hydrationFailedRunIds`) leaves no entry, so the raw result must stay
+ * visible instead of a blank card. `byId` is checked first so a later-arriving
+ * entry (a live event after a transient failure) overrides a stale failure mark.
+ */
+export function computeCardBackedWorkflowRunIds(
+  toolCalls: ChatMessageToolCall[],
+  state: WorkflowCardBackingState,
+): Set<string> {
+  const backed = new Set<string>();
+  for (const tc of toolCalls) {
+    const rid = workflowRunIdForCall(tc, state.byToolUseId);
+    if (rid === null) continue;
+    if (state.byId[rid] !== undefined) {
+      backed.add(rid);
+      continue;
+    }
+    if (state.notFoundRunIds.has(rid)) continue;
+    if (state.hydrationFailedRunIds.has(rid)) continue;
+    backed.add(rid);
+  }
+  return backed;
+}
+
 function fallbackRoleLabel(
   role: DisplayMessage["role"],
   assistantDisplayName?: string | null,

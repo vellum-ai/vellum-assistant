@@ -830,6 +830,21 @@ describe("hydrateRunIfNeeded", () => {
     expect(getState().hydratedRunIds.has("wf-404")).toBe(true);
     // Recorded as not-found so the transcript un-suppresses its chip.
     expect(getState().notFoundRunIds.has("wf-404")).toBe(true);
+    // A 404 is not a transient failure — the retryable marker stays empty.
+    expect(getState().hydrationFailedRunIds.has("wf-404")).toBe(false);
+  });
+
+  it("records a transient failure so the transcript un-suppresses the chip", async () => {
+    runImpl = async () => null;
+
+    await getState().hydrateRunIfNeeded("asst-1", "wf-transient");
+
+    expect(getState().byId["wf-transient"]).toBeUndefined();
+    // Retryable: the in-flight marker is cleared so a later mount can re-fetch.
+    expect(getState().hydratedRunIds.has("wf-transient")).toBe(false);
+    // Recorded as a transient failure so the chip stays visible (not a 404).
+    expect(getState().hydrationFailedRunIds.has("wf-transient")).toBe(true);
+    expect(getState().notFoundRunIds.has("wf-transient")).toBe(false);
   });
 
   it("retries after a transient failure (clears the marker)", async () => {
@@ -844,11 +859,14 @@ describe("hydrateRunIfNeeded", () => {
     await getState().hydrateRunIfNeeded("asst-1", "wf-flaky");
     // The transient failure cleared the marker, so it is no longer suppressed.
     expect(getState().hydratedRunIds.has("wf-flaky")).toBe(false);
+    expect(getState().hydrationFailedRunIds.has("wf-flaky")).toBe(true);
     expect(getState().byId["wf-flaky"]).toBeUndefined();
 
     await getState().hydrateRunIfNeeded("asst-1", "wf-flaky");
 
     expect(calls).toBe(2);
+    // The successful retry creates the entry; the transcript checks `byId`
+    // first, so the lingering failure mark no longer suppresses the card.
     expect(getState().byId["wf-flaky"]!.status).toBe("completed");
   });
 
@@ -880,6 +898,9 @@ describe("reset", () => {
     // Mark a 404'd run so the hydrated + not-found sets are non-empty before reset.
     runImpl = async () => "not_found";
     await getState().hydrateRunIfNeeded("asst-1", "wf-404");
+    // Mark a transiently-failed run so the failure set is non-empty too.
+    runImpl = async () => null;
+    await getState().hydrateRunIfNeeded("asst-1", "wf-transient");
 
     const generationBefore = getState().generation;
     getState().reset();
@@ -891,6 +912,7 @@ describe("reset", () => {
     expect(state.fetchedAt.size).toBe(0);
     expect(state.hydratedRunIds.size).toBe(0);
     expect(state.notFoundRunIds.size).toBe(0);
+    expect(state.hydrationFailedRunIds.size).toBe(0);
     // The generation counter advances (never resets) so in-flight async
     // actions captured before this reset bail instead of repopulating.
     expect(state.generation).toBe(generationBefore + 1);

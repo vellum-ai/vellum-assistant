@@ -4,6 +4,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -36,6 +37,7 @@ import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ConversationMessageSurface } from "@vellumai/assistant-api";
 import {
+  computeCardBackedWorkflowRunIds,
   isInteractiveClickTarget,
   lookupSubagentEntriesForMessage,
   resolveSpawnedSubagentIds,
@@ -142,16 +144,32 @@ export function TranscriptMessageBody({
   );
   const byToolUseId = useSubagentStore.use.byToolUseId();
   const byToolUseIdWf = useWorkflowStore.use.byToolUseId();
-  const notFoundRunIdsWf = useWorkflowStore.use.notFoundRunIds();
+  // The runIds in THIS message whose `run_workflow` chip is suppressed in favor
+  // of an inline card ("card-backed"). Subscribed via a narrowed selector that
+  // returns a stable key, so the message re-renders only when a card's
+  // backed-state flips — an entry appears, or hydration definitively fails —
+  // never on every leaf event, honoring the store's reference-stability
+  // discipline. A failed call (no runId), a retention-pruned run (404), or a
+  // transient hydration failure is NOT card-backed: its tool result keeps
+  // rendering instead of vanishing behind a card with no entry to show.
+  const cardBackedKey = useWorkflowStore(
+    useCallback(
+      (s) =>
+        [...computeCardBackedWorkflowRunIds(message.toolCalls ?? [], s)].join(
+          "|",
+        ),
+      [message.toolCalls],
+    ),
+  );
+  const cardBackedWorkflowRunIds = useMemo(
+    () => new Set(cardBackedKey ? cardBackedKey.split("|") : []),
+    [cardBackedKey],
+  );
   const claimedSpawnIds = new Set<string>();
   const claimedWorkflowIds = new Set<string>();
-  // A run_workflow chip is suppressed only when its call is "card-backed": it
-  // resolves a runId AND that run is not a confirmed 404. A failed call (no
-  // runId) or a run whose row was retention-pruned (404) is NOT card-backed, so
-  // its tool result keeps rendering instead of vanishing behind an empty card.
   const cardBackedWorkflowRunId = (tc: ChatMessageToolCall): string | null => {
     const rid = workflowRunIdForCall(tc, byToolUseIdWf);
-    return rid !== null && !notFoundRunIdsWf.has(rid) ? rid : null;
+    return rid !== null && cardBackedWorkflowRunIds.has(rid) ? rid : null;
   };
 
   const renderTextWithInlineSurfaces = (text: string, key: string) => {

@@ -112,6 +112,15 @@ export interface WorkflowState {
    */
   notFoundRunIds: Set<string>;
   /**
+   * RunIds whose last on-demand hydration failed transiently (daemon
+   * unreachable / 5xx — `fetchWorkflowRun` returned `null`). Unlike a 404 this
+   * is retryable, so the in-flight marker is cleared; recording it here lets the
+   * transcript keep the raw tool result visible instead of suppressing it behind
+   * a card that has no entry to render. An entry arriving later (a live event,
+   * or a successful retry) overrides this — the transcript checks `byId` first.
+   */
+  hydrationFailedRunIds: Set<string>;
+  /**
    * Monotonic counter bumped on every `reset()` (a conversation switch).
    * Async actions capture it before their network await and bail on resume if
    * it changed, so a late response from a previous conversation cannot
@@ -212,6 +221,7 @@ const INITIAL_STATE: WorkflowState = {
   fetchedAt: new Map<string, number>(),
   hydratedRunIds: new Set<string>(),
   notFoundRunIds: new Set<string>(),
+  hydrationFailedRunIds: new Set<string>(),
   generation: 0,
 };
 
@@ -627,9 +637,15 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
       return;
     }
     if (run === null) {
-      const next = new Set(get().hydratedRunIds);
-      next.delete(runId);
-      set({ hydratedRunIds: next });
+      // Clear the in-flight marker so a later mount can retry, and record the
+      // transient failure so the transcript keeps the raw tool result visible
+      // instead of suppressing it behind a card that has no entry to render.
+      const nextHydrated = new Set(get().hydratedRunIds);
+      nextHydrated.delete(runId);
+      set({
+        hydratedRunIds: nextHydrated,
+        hydrationFailedRunIds: new Set(get().hydrationFailedRunIds).add(runId),
+      });
       return;
     }
 
@@ -674,6 +690,7 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
       fetchedAt: new Map<string, number>(),
       hydratedRunIds: new Set<string>(),
       notFoundRunIds: new Set<string>(),
+      hydrationFailedRunIds: new Set<string>(),
       // Invalidate any in-flight async action so its late response can't
       // repopulate the now-cleared store. Bump, never reset to 0.
       generation: get().generation + 1,
