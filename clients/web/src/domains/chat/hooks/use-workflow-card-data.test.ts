@@ -116,6 +116,21 @@ describe("computeWorkflowCardData — leaf mapping", () => {
     if (c?.kind === "tool") expect(c.status).toBe("completed");
   });
 
+  test("cancelled leaf maps to a non-running, non-error step status", () => {
+    const data = computeWorkflowCardData(
+      makeEntry({
+        leaves: [{ seq: 0, label: "cancelled leaf", status: "cancelled" }],
+      }),
+    );
+    const step = data.steps[0]!;
+    expect(step.kind).toBe("tool");
+    if (step.kind === "tool") {
+      expect(step.status).not.toBe("running");
+      expect(step.status).not.toBe("error");
+      expect(step.status).toBe("completed");
+    }
+  });
+
   test("label falls back to Leaf <seq> and info uses promptSummary", () => {
     const data = computeWorkflowCardData(
       makeEntry({

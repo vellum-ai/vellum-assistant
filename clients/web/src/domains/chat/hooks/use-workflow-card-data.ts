@@ -37,7 +37,12 @@ export type { ToolCallCardData, ToolCallCardStep };
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/** Translate a leaf status to the unified step-status enum. */
+/**
+ * Translate a leaf status to the unified step-status enum. `cancelled`
+ * maps to the neutral `completed` terminal so an aborted run's swept
+ * leaves don't read as red errors; the `default` shares that terminal
+ * fallback so an unmapped status never renders as a perpetual spinner.
+ */
 function leafStepStatus(
   status: WorkflowLeaf["status"],
 ): Extract<ToolCallCardStep, { kind: "tool" }>["status"] {
@@ -48,8 +53,10 @@ function leafStepStatus(
       return "error";
     case "completed":
       return "completed";
+    case "cancelled":
+      return "completed";
     default:
-      return "running";
+      return "completed";
   }
 }
 

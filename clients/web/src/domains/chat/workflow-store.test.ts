@@ -220,6 +220,84 @@ describe("completeRun", () => {
     expect(entry.outputTokens).toBe(500);
     expect(entry.summary).toBe("all good");
   });
+
+  it.each(["aborted", "cap_exceeded", "interrupted"] as const)(
+    "sweeps a still-running leaf to cancelled when the run ends %s",
+    (status) => {
+      getState().leafStarted({ runId: "wf-x", seq: 0, label: "In flight" });
+      getState().leafFinished({ runId: "wf-x", seq: 1, status: "completed" });
+      getState().leafFinished({ runId: "wf-x", seq: 2, status: "failed" });
+
+      getState().completeRun({
+        runId: "wf-x",
+        status,
+        agentsSpawned: 3,
+        inputTokens: 0,
+        outputTokens: 0,
+      });
+
+      const leaves = getState().byId["wf-x"]!.leaves;
+      // The in-flight leaf flips to cancelled; the already-terminal leaves
+      // keep their status.
+      expect(leaves.get(0)!.status).toBe("cancelled");
+      expect(leaves.get(1)!.status).toBe("completed");
+      expect(leaves.get(2)!.status).toBe("failed");
+    },
+  );
+
+  it("preserves leaf fields when sweeping it to cancelled", () => {
+    getState().leafStarted({
+      runId: "wf-keepfields",
+      seq: 0,
+      label: "In flight",
+      promptSummary: "do a thing",
+    });
+
+    getState().completeRun({
+      runId: "wf-keepfields",
+      status: "aborted",
+      agentsSpawned: 1,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+
+    const leaf = getState().byId["wf-keepfields"]!.leaves.get(0)!;
+    expect(leaf.status).toBe("cancelled");
+    expect(leaf.label).toBe("In flight");
+    expect(leaf.promptSummary).toBe("do a thing");
+  });
+
+  it("keeps the leaves Map reference stable for a clean run with no running leaves", () => {
+    getState().leafStarted({ runId: "wf-clean", seq: 0, label: "Leaf" });
+    getState().leafFinished({ runId: "wf-clean", seq: 0, status: "completed" });
+    const before = getState().byId["wf-clean"]!.leaves;
+
+    getState().completeRun({
+      runId: "wf-clean",
+      status: "completed",
+      agentsSpawned: 1,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+
+    expect(getState().byId["wf-clean"]!.leaves).toBe(before);
+  });
+
+  it("does not regress a cancelled leaf back to running on a late leafStarted", () => {
+    getState().leafStarted({ runId: "wf-late", seq: 0, label: "In flight" });
+    getState().completeRun({
+      runId: "wf-late",
+      status: "aborted",
+      agentsSpawned: 1,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+    expect(getState().byId["wf-late"]!.leaves.get(0)!.status).toBe("cancelled");
+
+    // A late/duplicate start event must not resurrect a terminal leaf.
+    getState().leafStarted({ runId: "wf-late", seq: 0, label: "Stale start" });
+    expect(getState().byId["wf-late"]!.leaves.get(0)!.status).toBe("cancelled");
+  });
 });
 
 // ---------------------------------------------------------------------------

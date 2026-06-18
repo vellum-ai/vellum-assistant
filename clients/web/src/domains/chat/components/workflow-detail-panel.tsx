@@ -2,6 +2,7 @@
 import {
     ArrowDownToLine,
     ArrowUpFromLine,
+    Ban,
     CircleCheck,
     Loader2,
     TriangleAlert,
@@ -40,6 +41,15 @@ function LeafStatusIcon({ status }: { status: WorkflowLeaf["status"] }) {
         <TriangleAlert
           className={baseClass}
           style={{ color: "var(--system-negative-strong)" }}
+        />
+      );
+    case "cancelled":
+      return (
+        <Ban
+          className={baseClass}
+          style={{ color: "var(--content-secondary)" }}
+          role="img"
+          aria-label="Cancelled"
         />
       );
     default:

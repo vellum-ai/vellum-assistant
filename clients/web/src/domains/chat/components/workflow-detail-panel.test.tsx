@@ -103,6 +103,24 @@ describe("WorkflowDetailPanel", () => {
     expect(container.querySelectorAll(".animate-spin").length).toBe(1);
   });
 
+  test("renders the neutral cancelled icon for a cancelled leaf", () => {
+    const { container } = render(
+      <WorkflowDetailPanel
+        entry={makeEntry({
+          leaves: leafMap([
+            makeLeaf({ seq: 0, label: "Cancelled leaf", status: "cancelled" }),
+          ]),
+        })}
+        onClose={noop}
+      />,
+    );
+
+    // The cancelled icon carries an accessible "Cancelled" label and is
+    // neither the spinner nor the error icon.
+    expect(screen.getByLabelText("Cancelled")).toBeDefined();
+    expect(container.querySelectorAll(".animate-spin").length).toBe(0);
+  });
+
   test("requests the journal on open even when leaves are already present", () => {
     const requested: string[] = [];
     render(

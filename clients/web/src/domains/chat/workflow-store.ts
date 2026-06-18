@@ -34,7 +34,11 @@ import { fetchWorkflowRun } from "./fetch-workflow-run";
 // State
 // ---------------------------------------------------------------------------
 
-export type WorkflowLeafStatus = "running" | "completed" | "failed";
+export type WorkflowLeafStatus =
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
 
 export interface WorkflowLeaf {
   seq: number;
@@ -364,6 +368,21 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
     const existing = byId[params.runId];
     const base = existing ?? makeShellEntry(params.runId, Date.now());
 
+    // When a run ends abnormally (aborted / cap_exceeded / interrupted /
+    // failed) the engine emits no `leaf_finished` event and writes no journal
+    // row for leaves still in flight, so they would otherwise spin forever.
+    // Sweep any still-running leaf to terminal `cancelled` once the run goes
+    // terminal. Cloning only when a leaf actually changes keeps the Map
+    // reference stable for a clean `completed` run (no running leaves).
+    let nextLeaves = base.leaves;
+    if (!isActiveStatus(params.status)) {
+      for (const [seq, leaf] of base.leaves) {
+        if (leaf.status !== "running") continue;
+        if (nextLeaves === base.leaves) nextLeaves = new Map(base.leaves);
+        nextLeaves.set(seq, { ...leaf, status: "cancelled" });
+      }
+    }
+
     const updated: WorkflowEntry = {
       ...base,
       status: params.status,
@@ -371,6 +390,7 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
       inputTokens: params.inputTokens,
       outputTokens: params.outputTokens,
       summary: params.summary ?? base.summary,
+      leaves: nextLeaves,
     };
 
     set({
