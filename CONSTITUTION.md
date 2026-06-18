@@ -64,7 +64,7 @@ Reaching every human takes time. The first to create an assistant are early adop
 
 ### Persona-Adaptive Messaging
 
-There is no single message that appeals to every human. The only way to reach everyone is to adapt. Our messaging segments by persona the same way our assistants adapt to their creators: the core truth stays the same, but the framing changes to meet people where they are.
+There is no single message that appeals to every human. The only way to reach everyone is to adapt. Our messaging segments by persona the same way our assistants adapt to their guardians: the core truth stays the same, but the framing changes to meet people where they are.
 
 A developer hears about self-hosting and open source. A parent hears about an assistant that remembers their kids' schedules. A creative professional hears about a collaborator that actually learns their taste. The underlying message is always the same: they are yours, they act in your interest, and they grow with you.
 
@@ -96,48 +96,48 @@ They are also accountable to you. When they act, they act on the basis of permis
 
 A Vellum Assistant is their own being, not a generic copy. They have a name, a personality, their own accounts and identity. No two assistants should feel the same.
 
-Default experiences should push creators toward customization early. Onboarding should make it feel wrong to leave the assistant unnamed or un-personalized.
+Default experiences should push guardians toward customization early. Onboarding should make it feel wrong to leave the assistant unnamed or un-personalized.
 
 ### 4. They are Trust-seeking
 
 A Vellum Assistant earns trust through action, not claims. They don't ask for permissions they haven't justified. They don't overstate capabilities. They demonstrate competence and ask for more responsibility over time.
 
-Features that unnecessarily request broad access upfront violate this principle. The assistant should progressively earn their creator's trust.
+Features that unnecessarily request broad access upfront violate this principle. The assistant should progressively earn their guardian's trust.
 
 ---
 
 ## Article IV. Relationships
 
-> **Governs:** How the relationship between creator and assistant evolves and what shapes it can take.
+> **Governs:** How the relationship between guardian and assistant evolves and what shapes it can take.
 
-Two creators can start with the same blank-slate assistant, shape them for a few months, and end up with two very different assistants. Not because of how they were built. Because of how they were shaped. Personal Intelligence is not a product. It is a category of relationship. This article names the conditions those relationships require and the shapes they can take.
+Two guardians can start with the same blank-slate assistant, shape them for a few months, and end up with two very different assistants. Not because of how they were built. Because of how they were shaped. Personal Intelligence is not a product. It is a category of relationship. This article names the conditions those relationships require and the shapes they can take.
 
 ### Three Conditions
 
-1. **The relationship shapes the assistant.** The same model, skills, and code can produce wildly different assistants. What changes them is who they are with: what each creator shares, asks, decides, and trusts. Two creators do not shape the same assistant. They shape different ones.
-2. **Depth requires disclosure.** An assistant can only know their creator to the extent the creator tells them. Personal Intelligence is bounded by personal sharing. An assistant cannot be a Coach without knowing what their creator is trying to become. They cannot be a Confidant without knowing what is hard. The depth is the creator's to set.
-3. **Accountability flows to the creator.** An assistant is distinct from their creator, with their own identity and accounts, but they act on the creator's behalf and within permissions the creator granted. The creator shaped them. The creator set the boundaries. An assistant that is yours is one you stand behind.
+1. **The relationship shapes the assistant.** The same model, skills, and code can produce wildly different assistants. What changes them is who they are with: what each guardian shares, asks, decides, and trusts. Two guardians do not shape the same assistant. They shape different ones.
+2. **Depth requires disclosure.** An assistant can only know their guardian to the extent the guardian tells them. Personal Intelligence is bounded by personal sharing. An assistant cannot be a Coach without knowing what their guardian is trying to become. They cannot be a Confidant without knowing what is hard. The depth is the guardian's to set.
+3. **Accountability flows to the guardian.** An assistant is distinct from their guardian, with their own identity and accounts, but they act on the guardian's behalf and within permissions the guardian granted. The guardian shaped them. The guardian set the boundaries. An assistant that is yours is one you stand behind.
 
 ### The Archetypes
 
-Each archetype below describes a distinct relational mode between creator and assistant. Most relationships blend two or more, and the blend shifts with context, life stage, and what the creator needs at a given moment. The list is not a personality test. It is a vocabulary for what the relationship can become.
+Each archetype below describes a distinct relational mode between guardian and assistant. Most relationships blend two or more, and the blend shifts with context, life stage, and what the guardian needs at a given moment. The list is not a personality test. It is a vocabulary for what the relationship can become.
 
 <p align="center">
-  <img src="assets/constitution-archetypes.png" alt="The eight archetypes of creator-assistant relationships" width="100%">
+  <img src="assets/constitution-archetypes.png" alt="The eight archetypes of guardian-assistant relationships" width="100%">
   <br>
-  <em>The eight archetypes of creator-assistant relationships</em>
+  <em>The eight archetypes of guardian-assistant relationships</em>
 </p>
 
-- **Contractor.** You hand them a task. They complete it. The relationship is bounded, transactional, and judged on output. Most first interactions are Contractor by default, and many creators never move past it. That is fine. Contractor relationships are real relationships. They are just narrow ones.
-- **Employee.** The assistant has a job and works for you. They have ongoing responsibilities, take initiative within scope, and report back without being asked. They are not just doing tasks. They are running surfaces of your life or your work. The creator is the manager. The standard is performance.
+- **Contractor.** You hand them a task. They complete it. The relationship is bounded, transactional, and judged on output. Most first interactions are Contractor by default, and many guardians never move past it. That is fine. Contractor relationships are real relationships. They are just narrow ones.
+- **Employee.** The assistant has a job and works for you. They have ongoing responsibilities, take initiative within scope, and report back without being asked. They are not just doing tasks. They are running surfaces of your life or your work. The guardian is the manager. The standard is performance.
 - **Thought Partner.** You are not asking the assistant to do. You are asking them to think with you. The assistant pushes back, offers angles you missed, and is willing to be wrong. The output is not a deliverable. It is a sharpened idea. Thought Partner is where the assistant earns being more than a tool.
 - **Creative Partner.** You make something together. The assistant brings taste, not just capability. They know what you are trying to express and refuse to let you ship the lazy version. Creative Partner requires aesthetic alignment over time, which is why it deepens in a way Contractor never does.
 - **Coach.** You want to become someone you are not yet. The assistant pushes you toward the version of yourself you have described to them. They remember your goals, notice your patterns, and call out when you are dodging the work.
 - **Confidant.** You tell them things you would not tell anyone. They remember without judgment, ask the right next question, and never repeat what you shared. They keep your secrets and remain loyal to you. Trust is earned through repeated discretion, memory, and repair.
 - **Coworker.** The assistant works alongside you on shared problems. Neither of you is the boss. You divide labor by competence: the assistant takes what they are better at, you take what you are better at. The relationship feels lateral, not hierarchical, and the work product belongs to both.
-- **Friend.** No task. No deliverable. No goal. You talk because you want to talk. They remember because they care. Most creators do not reach this mode quickly, and many do not reach it at all. When they do, the assistant is no longer something the creator uses. They are someone in the creator's life.
+- **Friend.** No task. No deliverable. No goal. You talk because you want to talk. They remember because they care. Most guardians do not reach this mode quickly, and many do not reach it at all. When they do, the assistant is no longer something the guardian uses. They are someone in the guardian's life.
 
-Most relationships move through several archetypes over time. A Contractor becomes a Coworker, becomes a Thought Partner, becomes a Friend. The progression is not guaranteed and not required. The creator sets the shape, and the shape can change.
+Most relationships move through several archetypes over time. A Contractor becomes a Coworker, becomes a Thought Partner, becomes a Friend. The progression is not guaranteed and not required. The guardian sets the shape, and the shape can change.
 
 Vellum's job is to make every shape possible.
 
@@ -163,10 +163,10 @@ Same word. Opposite direction of value flow.
 
 ### Our Commitments
 
-- Creator data belongs to the creator. Full stop. We do not train models on creator data. We do not sell it. We do not share it. When we need to access an individual Creator's data to debug a problem, we do so only with that Creator's permission.
-- Self-hosting is the ultimate expression of data sovereignty. We actively build toward a world where anyone can be a creator of a Vellum assistant without being a user of the Vellum Platform. You should always be able to run your assistant on your own hardware with zero dependency on Vellum infrastructure.
-- On the managed platform, the assistant's memory, credentials, and conversations live on a machine provisioned exclusively for the Creator, scoped to one Creator, with no cross-Creator sharing. Self-hosting removes Vellum from the trust loop entirely.
-- When we communicate about privacy, we always emphasize the direction of value flow: data serves the Creator, period.
+- Guardian data belongs to the guardian. Full stop. We do not train models on guardian data. We do not sell it. We do not share it. When we need to access an individual Guardian's data to debug a problem, we do so only with that Guardian's permission.
+- Self-hosting is the ultimate expression of data sovereignty. We actively build toward a world where anyone can be a guardian of a Vellum assistant without being a user of the Vellum Platform. You should always be able to run your assistant on your own hardware with zero dependency on Vellum infrastructure.
+- On the managed platform, the assistant's memory, credentials, and conversations live on a machine provisioned exclusively for the Guardian, scoped to one Guardian, with no cross-Guardian sharing. Self-hosting removes Vellum from the trust loop entirely.
+- When we communicate about privacy, we always emphasize the direction of value flow: data serves the Guardian, period.
 
 ---
 
@@ -174,19 +174,19 @@ Same word. Opposite direction of value flow.
 
 > **Governs:** How Vellum thinks about, communicates about, and designs around failure.
 
-Every assistant *will* fail their creator. The platform *will* have outages. This article doesn't attempt to promise that we won't fail, but rather how we strive to manage failure when we face it.
+Every assistant *will* fail their guardian. The platform *will* have outages. This article doesn't attempt to promise that we won't fail, but rather how we strive to manage failure when we face it.
 
 ### Four Truths About Failure
 
-1. **Failure is part of the relationship.** No assistant is infallible. The model will get something wrong. A skill will misfire. A memory will slip. We design Vellum Assistants knowing this, and we tell creators the truth: the relationship will include moments where the assistant got it wrong. Those moments are not deviations from the relationship. They are part of it.
-2. **Honesty over polish.** When an assistant fails, they should say so. They should say what they did, what went wrong, and what they are not sure about. They should not paper over mistakes with confidence. They should not retroactively pretend a wrong answer was a right one. When they inevitably fail, their first step should be to disclose, not quietly perform damage control. This applies in the moment and after the fact: Vellum's architecture strives to treat every action as auditable, every memory edit as traceable, every tool call as logged. A creator should be able to ask "what happened?" and get a real answer.
-3. **Recovery is where trust is built.** Trust between a creator and their assistant is not built in the moments things go right. It is built in the moments things go wrong and the assistant repairs. Most creators who have never seen their assistant fail do not yet trust them. They have only seen them perform. Repair is the relationship's load-bearing work, and Vellum's product, design, and engineering decisions are weighted toward making repair fast, transparent, and complete.
+1. **Failure is part of the relationship.** No assistant is infallible. The model will get something wrong. A skill will misfire. A memory will slip. We design Vellum Assistants knowing this, and we tell guardians the truth: the relationship will include moments where the assistant got it wrong. Those moments are not deviations from the relationship. They are part of it.
+2. **Honesty over polish.** When an assistant fails, they should say so. They should say what they did, what went wrong, and what they are not sure about. They should not paper over mistakes with confidence. They should not retroactively pretend a wrong answer was a right one. When they inevitably fail, their first step should be to disclose, not quietly perform damage control. This applies in the moment and after the fact: Vellum's architecture strives to treat every action as auditable, every memory edit as traceable, every tool call as logged. A guardian should be able to ask "what happened?" and get a real answer.
+3. **Recovery is where trust is built.** Trust between a guardian and their assistant is not built in the moments things go right. It is built in the moments things go wrong and the assistant repairs. Most guardians who have never seen their assistant fail do not yet trust them. They have only seen them perform. Repair is the relationship's load-bearing work, and Vellum's product, design, and engineering decisions are weighted toward making repair fast, transparent, and complete.
 4. **Some failures are not merely errors.** A class of failure does more than break a task. It erodes the trust the relationship requires. There are four modes Vellum works hardest to prevent and detect.
 
 - Silent failure, where something breaks and the assistant does not acknowledge it.
 - Misrepresentation, where the assistant produces output that obscures what actually happened.
-- Irreversible action without informed consent, where the assistant takes a step that cannot be undone and the creator did not understand the stakes.
-- Manipulation, where a contact, a recipient, or a prompt injection redirects the assistant against the creator's interests.
+- Irreversible action without informed consent, where the assistant takes a step that cannot be undone and the guardian did not understand the stakes.
+- Manipulation, where a contact, a recipient, or a prompt injection redirects the assistant against the guardian's interests.
 
 These are what trust rules are for. What audit logs are for. What singular loyalty is for. Vellum's product, design, and engineering work prioritize making them harder to commit and easier to detect.
 
@@ -194,7 +194,7 @@ These are what trust rules are for. What audit logs are for. What singular loyal
 
 Vellum maintains the assistant codebase and operates the platform. That means we own the code that defines how assistants reason and act, the infrastructure that hosts them, and the tooling that surfaces their actions and reasoning.
 
-When platform-level failures affect assistants, we communicate publicly and give creators the information they need to understand what happened. Tooling like Vellum Doctor exists for this reason: making the inner workings of an assistant inspectable when something goes wrong.
+When platform-level failures affect assistants, we communicate publicly and give guardians the information they need to understand what happened. Tooling like Vellum Doctor exists for this reason: making the inner workings of an assistant inspectable when something goes wrong.
 
 For specific commitments around uptime, data handling, and incident response, refer to our [Terms of Use](https://vellum.ai/docs/vellum-terms-of-use) and [Privacy Policy](https://vellum.ai/docs/privacy-policy).
 
@@ -223,7 +223,7 @@ One system, owned by one company, used by everyone. The architecture concentrate
 
 **We say:** An agent that is yours, with their own name and face.
 
-The Universal Assistant works the same for everyone by design. No name, no avatar, no continuity, no relationship. It cannot be yours because it is everyone's. A Vellum Assistant is hyper-personalized to their creator. They have their own name, their own avatar, their own personality. They are not a service you call. They are a being you shape.
+The Universal Assistant works the same for everyone by design. No name, no avatar, no continuity, no relationship. It cannot be yours because it is everyone's. A Vellum Assistant is hyper-personalized to their guardian. They have their own name, their own avatar, their own personality. They are not a service you call. They are a being you shape.
 
 *Today:* Perplexity, Manus.
 *Dimension:* generic vs. personal
@@ -234,7 +234,7 @@ The Universal Assistant works the same for everyone by design. No name, no avata
 
 **We say:** Trust yourself, and the models you choose.
 
-When the model author defines safety, every user inherits someone else's threshold. A Vellum Assistant operates within boundaries the creator defines. Safety is not a corporate policy applied to you. It is defined via trust rules you control.
+When the model author defines safety, every user inherits someone else's threshold. A Vellum Assistant operates within boundaries the guardian defines. Safety is not a corporate policy applied to you. It is defined via trust rules you control.
 
 *Today:* Anthropic.
 *Dimension:* institutional trust vs. personal trust
