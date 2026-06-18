@@ -9,7 +9,6 @@ import {
 
 import {
   type ReactNode,
-  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -199,28 +198,23 @@ export function SubagentDetailPanel({
   // Compute the avatar traits once per subagent instead of hashing the id
   // three separate times in the JSX below.
   const traits = useMemo(() => subagentTraits(entry.subagentId), [entry.subagentId]);
-  // Defer the timeline's events so heavy streaming updates render at low
-  // priority (interruptible) and never block the panel-open animation or
-  // input. The memoized SubagentTimeline bails out on the urgent pass.
-  //
-  // The deferred value carries the subagent id alongside the events. The
-  // drawer stays mounted across subagent switches, so a bare deferred value
-  // can lag and render the previous subagent's timeline under the new
-  // subagent's header; when the deferred id doesn't match the current
-  // subagent, fall back to live events so the timeline is never mismatched.
-  const deferredInput = useMemo(
-    () => ({ id: entry.subagentId, events: entry.events }),
-    [entry.subagentId, entry.events],
-  );
-  const deferred = useDeferredValue(deferredInput);
-  const timelineEvents =
-    deferred.id === entry.subagentId ? deferred.events : entry.events;
+  // The timeline reads `entry.events` directly. Virtualization bounds each
+  // render to the visible window, so there is no expensive full-list render to
+  // defer. A `useDeferredValue` here is counterproductive: under sustained
+  // high-frequency streaming its low-priority render keeps getting preempted and
+  // never commits, freezing the timeline on a stale snapshot until the stream
+  // slows.
 
   useEffect(() => {
     if (onRequestDetail && entry.conversationId && entry.events.length === 0) {
       onRequestDetail(entry.subagentId);
     }
   }, [entry.subagentId, entry.conversationId, entry.events.length, onRequestDetail]);
+
+  // The scroll container forwarded to the virtualized timeline: the timeline
+  // virtualizes against this *external* scroll element (the panel body) rather
+  // than its own list, so the metrics/objective header scrolls with the rows.
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
@@ -270,7 +264,7 @@ export function SubagentDetailPanel({
       </div>
 
       {/* Scrollable body */}
-      <div className="flex-1 overflow-y-auto px-5 py-5">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-5">
         {/* Metrics row */}
         <div className="mb-5 grid grid-cols-3 gap-3">
           <AnimatedMetricCard
@@ -322,7 +316,19 @@ export function SubagentDetailPanel({
           >
             Timeline
           </Typography>
-          <SubagentTimeline events={timelineEvents} />
+          {/*
+           * Key by subagent id so the timeline remounts on subagent switch,
+           * resetting the expand/collapse state it holds. Fetched detail event
+           * ids are renumbered per subagent (detail-1, detail-2, …) and the
+           * drawer keeps this component mounted across switches, so without a
+           * per-subagent reset an expanded `detail-N` would leak its expanded
+           * state onto the next subagent's `detail-N`.
+           */}
+          <SubagentTimeline
+            key={entry.subagentId}
+            scrollRef={scrollRef}
+            events={entry.events}
+          />
         </div>
       </div>
     </div>
