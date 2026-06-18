@@ -1,9 +1,9 @@
 /**
  * Thin API layer for MCP server management.
  *
- * The daemon's internal/mcp/* routes are excluded from the generated SDK
- * (they use GATEWAY_PRINCIPALS policy), but the gateway proxies them
- * transparently when called via /v1/assistants/{id}/internal/mcp/*.
+ * The daemon's internal/mcp/* routes are not yet in the generated SDK,
+ * so this module calls them directly via the daemon client. The gateway
+ * proxies them transparently via /v1/assistants/{id}/internal/mcp/*.
  */
 
 import { client } from "@/generated/daemon/client.gen";
