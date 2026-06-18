@@ -58,6 +58,11 @@ import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
 } from "../../../memory/checkpoints.js";
+import {
+  EmbeddingBackendUnavailableError,
+  embedWithBackend,
+} from "../../../memory/embedding-backend.js";
+import { EmbeddingBillingBlockError } from "../../../memory/embedding-billing-breaker.js";
 import type { MemoryJob } from "../../../memory/jobs-store.js";
 import { getPageIndex } from "../../../memory/v2/page-index.js";
 import { readPage } from "../../../memory/v2/page-store.js";
@@ -192,6 +197,13 @@ export interface BackfillJobDeps {
   nowMs: () => number;
   /** Active assistant config (for the dense-store/embedding calls). */
   config: AssistantConfig;
+  /**
+   * Smoke-test the embedding backend before any destructive write. Throws when
+   * the backend is unavailable, so the backfill aborts BEFORE deleting any
+   * article's points (each article is processed delete-then-upsert). Injectable
+   * for tests.
+   */
+  embedProbe: () => Promise<void>;
 }
 
 /** Counts surfaced by {@link backfillAllSections}. */
@@ -350,6 +362,9 @@ function defaultBackfillDeps(config: AssistantConfig): BackfillJobDeps {
     commitEmbedHighWater,
     nowMs: () => Date.now(),
     config,
+    embedProbe: async () => {
+      await embedWithBackend(config, ["memory-v3 backfill preflight"]);
+    },
   };
 }
 
@@ -521,6 +536,13 @@ export async function backfillAllSections(
   const slugs = await deps.selectAllPages();
   await deps.ensureSectionCollection(deps.config);
 
+  // Pre-flight: smoke-test the embedding backend BEFORE any delete. Each article
+  // is processed delete-then-upsert, so starting a full backfill against a down
+  // backend would delete every article's points and re-embed none of them. A
+  // throw here aborts with nothing deleted; the high-water mark stays put, so a
+  // later run retries once the backend is healthy.
+  await deps.embedProbe();
+
   let articles = 0;
   let sections = 0;
   let failures = 0;
@@ -543,6 +565,17 @@ export async function backfillAllSections(
       sections += index.sections.length;
       return "embedded";
     } catch (err) {
+      // A down embedding backend (unconfigured, or billing breaker open) fails
+      // EVERY article — the condition is process-wide — and each article is
+      // delete-then-upsert, so continuing would delete the rest of the corpus
+      // and re-embed none of it. Abort the run; the high-water mark is never
+      // advanced, so the next pass retries from here once the backend recovers.
+      if (
+        err instanceof EmbeddingBackendUnavailableError ||
+        err instanceof EmbeddingBillingBlockError
+      ) {
+        throw err;
+      }
       failures += 1;
       log.warn(
         { slug, err: err instanceof Error ? err.message : String(err) },

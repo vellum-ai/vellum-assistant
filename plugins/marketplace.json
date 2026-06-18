@@ -70,7 +70,7 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/advisor",
-        "ref": "02e81acd298c7516d25f20f402c80003453a9fc9"
+        "ref": "fe8139fa6e14a84253d796afd3df7a1a15af851d"
       },
       "description": "Consult a stronger inference profile mid-task via an advisor tool, routed through the workspace's own inference (no API key).",
       "category": "developer",

@@ -25,7 +25,7 @@ import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
-import { resolveCapabilities } from "../../runtime/capabilities.js";
+import { isUntrustedShellLockdownActive } from "../../runtime/effective-capabilities.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
 import {
@@ -204,9 +204,10 @@ export const hostShellTool = {
     // NOTE: forcePromptSideEffects is set in executor.ts BEFORE the
     // permission check runs, not here. Setting it here would be too late
     // because execute() is called after permissions have already been evaluated.
-    const hostLockdownActive =
-      isCesShellLockdownEnabled(config) &&
-      !resolveCapabilities(context.trustClass).unsandboxedShell;
+    const hostLockdownActive = isUntrustedShellLockdownActive({
+      trustClass: context.trustClass,
+      lockdownEnabled: isCesShellLockdownEnabled(config),
+    });
 
     // Guard: non-host-proxy interfaces need an explicit target when multiple
     // capable clients are connected to avoid ambiguous untargeted broadcasts.

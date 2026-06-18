@@ -5,7 +5,7 @@ import { bridgeCesApproval } from "../credential-execution/approval-bridge.js";
 import { isCesShellLockdownEnabled } from "../credential-execution/feature-gates.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { RiskLevel } from "../permissions/types.js";
-import { resolveCapabilities } from "../runtime/capabilities.js";
+import { isUntrustedShellLockdownActive } from "../runtime/effective-capabilities.js";
 import { redactSensitiveFields } from "../security/redaction.js";
 import { getCesClient } from "../security/secure-keys.js";
 import { TokenExpiredError } from "../security/token-manager.js";
@@ -128,8 +128,10 @@ export class ToolExecutor {
       // skip this assignment entirely - defeating the lockdown.
       if (
         name === "host_bash" &&
-        isCesShellLockdownEnabled(getConfig()) &&
-        !resolveCapabilities(context.trustClass).unsandboxedShell
+        isUntrustedShellLockdownActive({
+          trustClass: context.trustClass,
+          lockdownEnabled: isCesShellLockdownEnabled(getConfig()),
+        })
       ) {
         context.forcePromptSideEffects = true;
       }

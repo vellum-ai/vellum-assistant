@@ -49,13 +49,15 @@ export const ADMISSION_FLOOR: Record<AdmissionPolicy, number> = {
 
 /**
  * Hard-exempt internal channels — never subject to PUT policy, omitted from
- * GET list, runtime admission stage short-circuits without floor check,
- * gateway kill switch skips the `no_one` check.
+ * GET list, runtime admission stage short-circuits without floor check.
  *
  * `platform` / `a2a` are peer/internal channels with no human-trust model.
  *
- * `vellum` is intentionally NOT exempt — it is client-configurable, with the
- * single restriction in {@link KILL_SWITCH_FORBIDDEN_CHANNELS}.
+ * `phone` is NOT exempt — voice ingress enforces the admission floor.
+ *
+ * `vellum` / `whatsapp` are NOT exempt — their floors are still enforced at
+ * runtime — but they are hidden from the configurable UI; see
+ * {@link ADMISSION_POLICY_HIDDEN_CHANNELS}.
  */
 export const ADMISSION_POLICY_EXEMPT_CHANNELS: ReadonlySet<string> = new Set([
   "platform",
@@ -67,18 +69,24 @@ export function isAdmissionPolicyExemptChannel(channelType: string): boolean {
 }
 
 /**
- * Channels that are configurable but may never be set to `no_one` (the kill
- * switch). `vellum` is the local desktop/web client channel; allowing `no_one`
- * there would let the guardian lock themselves out of their own client. The
- * guardian is always classified `guardian` (max rank) on vellum, so every
- * floor except `no_one` still admits them — only the kill switch is forbidden.
+ * Channels omitted from the Channel Trust Floors list (GET) and rejected on
+ * PUT/DELETE — managed automatically at their seed default, not user
+ * configurable. Unlike {@link ADMISSION_POLICY_EXEMPT_CHANNELS} they are still
+ * enforced at runtime, so hiding a real inbound channel like `whatsapp` never
+ * silently disables its admission floor check. The startup seed re-pins any
+ * drifted row so a stale floor (e.g. a legacy `no_one`) can't strand a channel
+ * the user can no longer see.
+ *
+ * `vellum` is the local desktop/web client surface; the guardian is always
+ * max-rank there, so the seed default admits them regardless of the floor.
  */
-export const KILL_SWITCH_FORBIDDEN_CHANNELS: ReadonlySet<string> = new Set([
+export const ADMISSION_POLICY_HIDDEN_CHANNELS: ReadonlySet<string> = new Set([
   "vellum",
+  "whatsapp",
 ]);
 
-export function isKillSwitchForbiddenChannel(channelType: string): boolean {
-  return KILL_SWITCH_FORBIDDEN_CHANNELS.has(channelType);
+export function isAdmissionPolicyHiddenChannel(channelType: string): boolean {
+  return ADMISSION_POLICY_HIDDEN_CHANNELS.has(channelType);
 }
 
 export function isAdmissionPolicy(value: unknown): value is AdmissionPolicy {

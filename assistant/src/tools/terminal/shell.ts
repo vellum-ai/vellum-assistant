@@ -5,7 +5,7 @@ import { getConfig } from "../../config/loader.js";
 import { isCesShellLockdownEnabled } from "../../credential-execution/feature-gates.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
-import { resolveCapabilities } from "../../runtime/capabilities.js";
+import { isUntrustedShellLockdownActive } from "../../runtime/effective-capabilities.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
 import { getDataDir } from "../../util/platform.js";
@@ -117,9 +117,10 @@ export const shellTool = {
     }
 
     const config = getConfig();
-    const shellLockdownActive =
-      isCesShellLockdownEnabled(config) &&
-      !resolveCapabilities(context.trustClass).unsandboxedShell;
+    const shellLockdownActive = isUntrustedShellLockdownActive({
+      trustClass: context.trustClass,
+      lockdownEnabled: isCesShellLockdownEnabled(config),
+    });
 
     const networkMode: "off" | "proxied" =
       input.network_mode === "proxied" ? "proxied" : "off";

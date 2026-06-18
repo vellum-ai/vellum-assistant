@@ -42,31 +42,31 @@ function inlineUsage(usage: ScheduleRowUsage) {
 }
 
 /**
- * Homepage schedule row laid out to match the Figma "Scheduled Jobs" design:
- * toggle on the far left, then name + `cadence · timestamp` meta, then inline
- * cost · runs · mode tag · chevron on the right.
+ * Presentational row shared by `HomeScheduleRow` and `HomeHeartbeatRow` so the
+ * heartbeat entry is laid out identically to user schedules: toggle on the far
+ * left, then name + `cadence · timestamp` meta, then inline cost · runs ·
+ * chevron on the right. Matches the Figma "Scheduled Jobs" design.
  */
-export function HomeScheduleRow({
-  schedule,
+export function HomeScheduleRowShell({
+  name,
+  metaParts,
   usage,
+  enabled,
   selected,
   onClick,
   onToggle,
+  toggleAriaLabel,
 }: {
-  schedule: Schedule;
+  name: string;
+  metaParts: string[];
   usage: ScheduleRowUsage;
+  enabled: boolean;
   selected?: boolean;
   onClick: () => void;
-  onToggle: (enabled: boolean) => void;
+  /** Omit to render a read-only row (e.g. a past one-shot) with no toggle. */
+  onToggle?: (enabled: boolean) => void;
+  toggleAriaLabel?: string;
 }) {
-  const cadence = schedule.isOneShot
-    ? ""
-    : schedule.cadenceDescription.trim();
-  const runAt = schedule.lastRunAt ?? schedule.nextRunAt;
-  const metaParts = [cadence, runAt ? formatTimestamp(runAt) : ""].filter(
-    Boolean,
-  );
-
   return (
     <div
       className={`flex items-center gap-3 rounded-md px-2 py-3 transition-colors [&+&]:border-t [&+&]:border-[var(--border-base)] ${
@@ -75,11 +75,13 @@ export function HomeScheduleRow({
           : "hover:bg-[var(--surface-hover)]"
       }`}
     >
-      <Toggle
-        checked={schedule.enabled}
-        onChange={onToggle}
-        aria-label={`Toggle ${schedule.name}`}
-      />
+      {onToggle ? (
+        <Toggle
+          checked={enabled}
+          onChange={onToggle}
+          aria-label={toggleAriaLabel}
+        />
+      ) : null}
       <button
         type="button"
         onClick={onClick}
@@ -87,7 +89,7 @@ export function HomeScheduleRow({
       >
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="truncate text-body-medium-default text-[var(--content-default)]">
-            {schedule.name}
+            {name}
           </span>
           {metaParts.length > 0 ? (
             <span className="flex min-w-0 items-center gap-2 text-label-small-default text-[var(--content-tertiary)]">
@@ -108,5 +110,41 @@ export function HomeScheduleRow({
         </div>
       </button>
     </div>
+  );
+}
+
+export function HomeScheduleRow({
+  schedule,
+  usage,
+  selected,
+  onClick,
+  onToggle,
+}: {
+  schedule: Schedule;
+  usage: ScheduleRowUsage;
+  selected?: boolean;
+  onClick: () => void;
+  /** Omit for read-only rows (past one-shots) — hides the enable/disable toggle. */
+  onToggle?: (enabled: boolean) => void;
+}) {
+  const cadence = schedule.isOneShot
+    ? ""
+    : schedule.cadenceDescription.trim();
+  const runAt = schedule.lastRunAt ?? schedule.nextRunAt;
+  const metaParts = [cadence, runAt ? formatTimestamp(runAt) : ""].filter(
+    Boolean,
+  );
+
+  return (
+    <HomeScheduleRowShell
+      name={schedule.name}
+      metaParts={metaParts}
+      usage={usage}
+      enabled={schedule.enabled}
+      selected={selected}
+      onClick={onClick}
+      onToggle={onToggle}
+      toggleAriaLabel={onToggle ? `Toggle ${schedule.name}` : undefined}
+    />
   );
 }

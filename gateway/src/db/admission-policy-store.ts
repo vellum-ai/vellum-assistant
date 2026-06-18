@@ -60,8 +60,10 @@ export interface AdmissionPolicyRow {
  * Internal channels exempt from admission policy. Mirrors
  * ADMISSION_POLICY_EXEMPT_CHANNELS in `packages/gateway-client`.
  *
- * `vellum` is NOT exempt — it is client-configurable (see
- * KILL_SWITCH_FORBIDDEN_CHANNELS), so it is intentionally absent here.
+ * `phone` is NOT exempt — voice ingress enforces the admission floor.
+ * `vellum` / `whatsapp` are NOT exempt — their floors are still enforced at
+ * runtime — but they are hidden from the configurable UI (see
+ * ADMISSION_POLICY_HIDDEN_CHANNELS), so they are intentionally absent here.
  */
 export const EXEMPT_CHANNEL_TYPES = new Set<string>(["platform", "a2a"]);
 
