@@ -278,13 +278,25 @@ export async function enforceIngressAcl(
           };
       }
 
-      // ── Policy-aware non-member bypass (`strangers`) ──
-      // When the effective admission policy is `strangers`, any sender
-      // (rank 1) meets the floor (rank 1). Skip the deny gate so the
-      // admission stage can emit the final verdict rather than ACL
-      // prematurely firing guardian notifications and a canned reply.
+      // ── Policy-aware non-member bypass ──
+      // Skip the ACL deny gate so the admission floor stage emits the final
+      // verdict instead of the ACL prematurely firing guardian notifications,
+      // a canned reply, and (on Slack) a verification challenge.
+      //  - `strangers` (floor 1): any sender (rank 1) clears the floor, so the
+      //    stage admits.
+      //  - `guardian_only` (floor 4): no non-guardian can clear the floor even
+      //    after verifying (a verified contact is only rank 3), so the upgrade
+      //    challenge is misleading — the stage denies with `shouldChallenge:
+      //    false`. `trusted_contacts` is intentionally NOT bypassed here: a
+      //    stranger there still can't reach the floor, but suppressing its
+      //    self-verify challenge is a default-onboarding behavior change left
+      //    for a separate §8.2 decision.
       // Runs AFTER invite intercepts so valid tokens redeem first.
-      if (denyNonMember && effectiveAdmissionPolicy === "strangers") {
+      if (
+        denyNonMember &&
+        (effectiveAdmissionPolicy === "strangers" ||
+          effectiveAdmissionPolicy === "guardian_only")
+      ) {
         denyNonMember = false;
       }
 
@@ -580,13 +592,20 @@ export async function enforceIngressAcl(
         // `any_contact` (floor 2): admit `pending` and `unverified` members
         //   (both classify as `unverified_contact` — rank 2 ≥ floor 2); deny
         //   `revoked` members (unknown rank 1 < floor 2).
-        // In both cases skip the deny gate so the admission stage decides.
+        // `guardian_only` (floor 4): route `pending`/`unverified` members to
+        //   the floor stage for a plain denial. Verifying only lifts them to
+        //   `trusted_contact` (rank 3 < floor 4), so the ACL's re-verify
+        //   challenge would be misleading. `trusted_contacts` is NOT included:
+        //   there, verifying reaches `trusted_contact` (rank 3 ≥ floor 3), so
+        //   the challenge legitimately upgrades the sender into access.
+        // In every case skip the deny gate so the admission stage decides.
         // Runs AFTER invite intercepts so valid tokens redeem first.
         if (!isBlockedMember && denyInactiveMember) {
           if (
             (effectiveAdmissionPolicy === "strangers" &&
               resolvedMember.channel.status !== "revoked") ||
-            (effectiveAdmissionPolicy === "any_contact" &&
+            ((effectiveAdmissionPolicy === "any_contact" ||
+              effectiveAdmissionPolicy === "guardian_only") &&
               (resolvedMember.channel.status === "pending" ||
                 resolvedMember.channel.status === "unverified"))
           ) {
