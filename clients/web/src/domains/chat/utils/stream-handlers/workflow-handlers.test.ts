@@ -37,7 +37,7 @@ describe("handleWorkflowStarted", () => {
 });
 
 describe("handleWorkflowProgress", () => {
-  it("applies phase and agentsSpawned to the run", () => {
+  it("applies phase, agentsSpawned, and the log message to the run", () => {
     handleWorkflowProgress(
       {
         type: "workflow_progress",
@@ -54,6 +54,7 @@ describe("handleWorkflowProgress", () => {
     const entry = useWorkflowStore.getState().byId["run-1"];
     expect(entry?.agentsSpawned).toBe(3);
     expect(entry?.phase).toBe("fan-out");
+    expect(entry?.message).toBe("spawning");
   });
 });
 

@@ -30,6 +30,7 @@ export function handleWorkflowProgress(
     phase: event.phase,
     agentsSpawned: event.agentsSpawned,
     label: event.label,
+    message: event.message,
   });
 }
 

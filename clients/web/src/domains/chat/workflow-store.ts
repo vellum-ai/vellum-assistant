@@ -55,6 +55,8 @@ export interface WorkflowEntry {
   label?: string;
   status: WorkflowRunStatus;
   phase?: string;
+  /** Latest `workflow_progress` `log(...)` line, shown as a secondary status. */
+  message?: string;
   agentsSpawned: number;
   inputTokens: number;
   outputTokens: number;
@@ -109,6 +111,14 @@ export interface WorkflowState {
    * hydrate stays visible (its stored result) instead of vanishing.
    */
   notFoundRunIds: Set<string>;
+  /**
+   * Monotonic counter bumped on every `reset()` (a conversation switch).
+   * Async actions capture it before their network await and bail on resume if
+   * it changed, so a late response from a previous conversation cannot
+   * repopulate the cleared store. Not part of the rendered state — selectors
+   * never subscribe to it.
+   */
+  generation: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -128,6 +138,7 @@ export interface WorkflowActions {
     phase?: string;
     agentsSpawned?: number;
     label?: string;
+    message?: string;
   }) => void;
 
   leafStarted: (params: {
@@ -201,6 +212,7 @@ const INITIAL_STATE: WorkflowState = {
   fetchedAt: new Map<string, number>(),
   hydratedRunIds: new Set<string>(),
   notFoundRunIds: new Set<string>(),
+  generation: 0,
 };
 
 // ---------------------------------------------------------------------------
@@ -320,6 +332,9 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
     const updated: WorkflowEntry = {
       ...base,
       phase: params.phase ?? base.phase,
+      // Keep the last log line when a phase-only event arrives; replace it
+      // when this event carries a fresh one.
+      message: params.message ?? base.message,
       agentsSpawned: params.agentsSpawned ?? base.agentsSpawned,
       label: base.label ?? params.label,
     };
@@ -571,6 +586,7 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
     nextFetchedAt.set(key, entry.startedAt);
     set({ fetchedAt: nextFetchedAt });
 
+    const generation = get().generation;
     const resp = await fetchWorkflowJournal(assistantId, runId);
 
     if (!resp) {
@@ -579,6 +595,10 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
       set({ fetchedAt: next });
       return;
     }
+
+    // A conversation switch (reset) during the await invalidates this fetch —
+    // backfilling now would leak this run into the new conversation's store.
+    if (get().generation !== generation) return;
 
     get().backfillFromJournal(runId, resp);
   },
@@ -592,7 +612,12 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
     if (hydratedRunIds.has(runId)) return;
     set({ hydratedRunIds: new Set(hydratedRunIds).add(runId) });
 
+    const generation = get().generation;
     const run = await fetchWorkflowRun(assistantId, runId);
+    // A conversation switch (reset) during the await invalidates this hydration:
+    // populating the store now would leak a previous conversation's run (and
+    // could reopen a stale detail panel) into the new conversation.
+    if (get().generation !== generation) return;
     // A genuine 404 stays marked so a missing run's card doesn't re-fetch on
     // every render. A transient failure (null — daemon unreachable / 5xx) clears
     // the marker so a later mount can retry instead of leaving the card blank.
@@ -649,6 +674,9 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
       fetchedAt: new Map<string, number>(),
       hydratedRunIds: new Set<string>(),
       notFoundRunIds: new Set<string>(),
+      // Invalidate any in-flight async action so its late response can't
+      // repopulate the now-cleared store. Bump, never reset to 0.
+      generation: get().generation + 1,
     }),
 }));
 

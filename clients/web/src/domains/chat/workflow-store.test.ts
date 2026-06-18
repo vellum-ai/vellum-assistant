@@ -129,6 +129,21 @@ describe("applyProgress", () => {
     expect(entry.agentsSpawned).toBe(3);
     expect(getState().orderedIds).toEqual(["wf-p"]);
   });
+
+  it("stores a log message and keeps it across a later phase-only event", () => {
+    getState().applyProgress({ runId: "wf-msg", message: "halfway there" });
+    expect(getState().byId["wf-msg"]!.message).toBe("halfway there");
+
+    // A phase-only event carries no message — the prior log line is retained.
+    getState().applyProgress({ runId: "wf-msg", phase: "executing" });
+    const entry = getState().byId["wf-msg"]!;
+    expect(entry.phase).toBe("executing");
+    expect(entry.message).toBe("halfway there");
+
+    // A newer message replaces the old one.
+    getState().applyProgress({ runId: "wf-msg", message: "almost done" });
+    expect(getState().byId["wf-msg"]!.message).toBe("almost done");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -701,6 +716,28 @@ describe("fetchJournalIfNeeded", () => {
     await getState().fetchJournalIfNeeded("asst-1", "missing");
     expect(calls).toBe(0);
   });
+
+  it("drops a response that resolves after reset() (conversation switch)", async () => {
+    getState().startRun({ runId: "wf-stale", timestamp: NOW });
+
+    // The user switches conversations mid-fetch: reset() runs (bumping the
+    // generation) before the journal response lands.
+    journalImpl = async (_assistantId, runId) => {
+      getState().reset();
+      return {
+        runId,
+        leaves: [
+          { seq: 0, kind: "agent", label: "Leaf 0", status: "completed", createdAt: NOW },
+        ],
+      };
+    };
+
+    await getState().fetchJournalIfNeeded("asst-1", "wf-stale");
+
+    // The late response must not backfill the now-cleared store.
+    expect(getState().byId["wf-stale"]).toBeUndefined();
+    expect(getState().orderedIds).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -814,6 +851,22 @@ describe("hydrateRunIfNeeded", () => {
     expect(calls).toBe(2);
     expect(getState().byId["wf-flaky"]!.status).toBe("completed");
   });
+
+  it("drops a row that resolves after reset() (conversation switch)", async () => {
+    // The user switches conversations mid-fetch: reset() runs (bumping the
+    // generation) before the run row lands.
+    runImpl = async () => {
+      getState().reset();
+      return makeRunRow({ id: "wf-stale-hy", status: "completed" });
+    };
+    journalImpl = async (_assistantId, runId) => ({ runId, leaves: [] });
+
+    await getState().hydrateRunIfNeeded("asst-1", "wf-stale-hy");
+
+    // The late row must not start a run in the now-cleared store.
+    expect(getState().byId["wf-stale-hy"]).toBeUndefined();
+    expect(getState().orderedIds).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -828,6 +881,7 @@ describe("reset", () => {
     runImpl = async () => "not_found";
     await getState().hydrateRunIfNeeded("asst-1", "wf-404");
 
+    const generationBefore = getState().generation;
     getState().reset();
 
     const state = getState();
@@ -837,6 +891,9 @@ describe("reset", () => {
     expect(state.fetchedAt.size).toBe(0);
     expect(state.hydratedRunIds.size).toBe(0);
     expect(state.notFoundRunIds.size).toBe(0);
+    // The generation counter advances (never resets) so in-flight async
+    // actions captured before this reset bail instead of repopulating.
+    expect(state.generation).toBe(generationBefore + 1);
   });
 });
 

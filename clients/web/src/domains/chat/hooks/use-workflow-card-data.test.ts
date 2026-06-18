@@ -184,6 +184,14 @@ describe("computeWorkflowCardData — current step title/info", () => {
     );
     expect(data.currentStepTitle).toBe("Research workflow");
   });
+
+  test("surfaces the log message as the secondary line with no phase or leaves", () => {
+    const data = computeWorkflowCardData(
+      makeEntry({ label: "Research workflow", message: "reading sources" }),
+    );
+    expect(data.currentStepTitle).toBe("Research workflow");
+    expect(data.currentStepInfo).toBe("reading sources");
+  });
 });
 
 // ---------------------------------------------------------------------------

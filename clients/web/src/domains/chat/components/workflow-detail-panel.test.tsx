@@ -193,6 +193,29 @@ describe("WorkflowDetailPanel", () => {
     expect(requested).toEqual(["run-stable"]);
   });
 
+  test("renders the latest log message near the phase banner", () => {
+    render(
+      <WorkflowDetailPanel
+        entry={makeEntry({ phase: "Executing", message: "halfway there" })}
+        onClose={noop}
+      />,
+    );
+
+    expect(screen.getByText("Executing")).toBeDefined();
+    expect(screen.getByText("halfway there")).toBeDefined();
+  });
+
+  test("renders a log message even when no phase is set", () => {
+    render(
+      <WorkflowDetailPanel
+        entry={makeEntry({ phase: undefined, message: "still working" })}
+        onClose={noop}
+      />,
+    );
+
+    expect(screen.getByText("still working")).toBeDefined();
+  });
+
   test("shows the Stop button only for an active run", () => {
     const { rerender } = render(
       <WorkflowDetailPanel

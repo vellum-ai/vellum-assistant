@@ -20,7 +20,7 @@ import {
 import { WorkflowStatusBadge } from "@/domains/chat/components/workflow-status-badge";
 import type { WorkflowEntry, WorkflowLeaf } from "@/domains/chat/workflow-store";
 import { isActiveStatus } from "@/utils/workflow-status";
-import { Button, Typography } from "@vellumai/design-library";
+import { Button, cn, Typography } from "@vellumai/design-library";
 
 // ---------------------------------------------------------------------------
 // Leaf tree
@@ -234,15 +234,29 @@ export function WorkflowDetailPanel({
           />
         </div>
 
-        {/* Phase banner */}
-        {entry.phase && (
+        {/* Phase banner, with the latest log line as a muted secondary row */}
+        {(entry.phase || entry.message) && (
           <div className="mb-5 rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] px-4 py-3">
-            <Typography
-              variant="body-medium-default"
-              className="text-[var(--content-default)]"
-            >
-              {entry.phase}
-            </Typography>
+            {entry.phase && (
+              <Typography
+                variant="body-medium-default"
+                className="text-[var(--content-default)]"
+              >
+                {entry.phase}
+              </Typography>
+            )}
+            {entry.message && (
+              <Typography
+                variant="body-small-default"
+                as="p"
+                className={cn(
+                  "whitespace-pre-wrap break-words text-[var(--content-secondary)]",
+                  entry.phase && "mt-1",
+                )}
+              >
+                {entry.message}
+              </Typography>
+            )}
           </div>
         )}
 

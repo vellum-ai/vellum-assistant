@@ -110,7 +110,9 @@ function sortedLeaves(entry: WorkflowEntry): WorkflowLeaf[] {
 /**
  * Derive the header `(title, info)` tuple. When the run carries a `phase`
  * we surface it; otherwise we fall back to the latest leaf (the deepest
- * `seq`), and finally to the run label.
+ * `seq`), and finally to the run label. The latest `log(...)` `message`
+ * fills the secondary line when there is no more-specific leaf info or
+ * phase, so a log-only update doesn't read as stale.
  */
 function deriveCurrentStep(
   entry: WorkflowEntry,
@@ -119,7 +121,7 @@ function deriveCurrentStep(
   if (entry.phase) {
     return {
       currentStepTitle: entry.phase,
-      currentStepInfo: entry.summary ?? entry.label ?? "",
+      currentStepInfo: entry.summary ?? entry.message ?? entry.label ?? "",
     };
   }
 
@@ -133,7 +135,7 @@ function deriveCurrentStep(
 
   return {
     currentStepTitle: entry.label ?? "Workflow",
-    currentStepInfo: entry.summary ?? "",
+    currentStepInfo: entry.message ?? entry.summary ?? "",
   };
 }
 
