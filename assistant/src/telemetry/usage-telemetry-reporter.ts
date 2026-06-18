@@ -10,10 +10,7 @@
  * flush is skipped and retried next cycle.
  */
 
-import {
-  getPlatformOrganizationId,
-  getPlatformUserId,
-} from "../config/env.js";
+import { getPlatformOrganizationId, getPlatformUserId } from "../config/env.js";
 import { queryUnreportedAuthFallbackEvents } from "../memory/auth-fallback-events-store.js";
 import {
   getMemoryCheckpoint,
@@ -25,8 +22,12 @@ import { queryUnreportedOnboardingEvents } from "../memory/onboarding-events-sto
 import { queryUnreportedSkillLoadedEvents } from "../memory/skill-loaded-events-store.js";
 import { queryUnreportedToolExecutedEvents } from "../memory/tool-executed-events-store.js";
 import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
+import { assembleBoundedTurnTrace } from "../memory/turn-trace-store.js";
 import { VellumPlatformClient } from "../platform/client.js";
-import { getCachedShareAnalytics } from "../platform/consent-cache.js";
+import {
+  getCachedDiagnosticsTraceCollectionEnabled,
+  getCachedShareAnalytics,
+} from "../platform/consent-cache.js";
 import { arePlatformFeaturesEnabled } from "../platform/feature-gate.js";
 import type { UsageAttributionProfileSource } from "../usage/types.js";
 import { getDeviceId } from "../util/device-id.js";
@@ -416,6 +417,23 @@ export class UsageTelemetryReporter {
           }),
         ),
         ...turnEvents.map((e): TelemetryEvent => {
+          // Owner-consent gate for per-turn trace collection. The boolean is
+          // server-derived (LD flag + `share_diagnostics` + privacy-policy
+          // version, folded by the platform into
+          // `diagnostics_trace_collection_enabled`); the daemon never evaluates
+          // the flag itself. Read from the same owner-consent cache that gates
+          // analytics (`startConsentRefresh` keeps it fresh at startup +
+          // every 5 min). Fail-closed: when consent is off / unknown the trace
+          // is omitted and the trace-free turn row flushes as before. The
+          // `share_analytics` gate above already passed, so this is an
+          // additional, independent gate specific to trace PII.
+          const trace = getCachedDiagnosticsTraceCollectionEnabled()
+            ? assembleBoundedTurnTrace({
+                conversationId: e.conversationId,
+                userMessageId: e.id,
+                userMessageCreatedAt: e.createdAt,
+              })
+            : null;
           // `messages.metadata.client` is a nested JSON object extracted
           // via `json_extract`; sqlite returns it as a text representation.
           // Parse defensively — a corrupted blob in the JSON column should
@@ -450,6 +468,11 @@ export class UsageTelemetryReporter {
             interface_id: e.interfaceId,
             channel_id: e.channelId,
             client,
+            // Only attach `trace` when consent is on AND a bounded trace was
+            // assembled. Omitting the key entirely when there's no trace keeps
+            // the wire shape byte-identical to pre-trace turn events for the
+            // common (no-consent) path.
+            ...(trace ? { trace } : {}),
             // Turn events derive from `messages` + `conversations`
             // rather than a dedicated table. Adding `assistant_version`
             // to `messages` is a separate (larger) migration; until

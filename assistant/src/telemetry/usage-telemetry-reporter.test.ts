@@ -93,9 +93,48 @@ mock.module("../version.js", () => ({
 }));
 
 const mockGetCachedShareAnalytics = mock(() => true);
+const mockGetCachedDiagnosticsTraceCollectionEnabled = mock(() => false);
 
 mock.module("../platform/consent-cache.js", () => ({
   getCachedShareAnalytics: mockGetCachedShareAnalytics,
+  getCachedDiagnosticsTraceCollectionEnabled:
+    mockGetCachedDiagnosticsTraceCollectionEnabled,
+}));
+
+interface MockTurnTrace {
+  schema_version: 1;
+  messages: {
+    id: string;
+    role: string;
+    created_at: number;
+    content: unknown;
+  }[];
+  tool_calls: unknown[];
+}
+
+// Returns a non-null bounded trace by default; individual tests override the
+// return value (including null, for the over-cap / assembly-failure path).
+const mockAssembleBoundedTurnTrace = mock(
+  (boundary: {
+    conversationId: string;
+    userMessageId: string;
+    userMessageCreatedAt: number;
+  }): MockTurnTrace | null => ({
+    schema_version: 1,
+    messages: [
+      {
+        id: boundary.userMessageId,
+        role: "user",
+        created_at: boundary.userMessageCreatedAt,
+        content: [{ type: "text", text: "hello" }],
+      },
+    ],
+    tool_calls: [],
+  }),
+);
+
+mock.module("../memory/turn-trace-store.js", () => ({
+  assembleBoundedTurnTrace: mockAssembleBoundedTurnTrace,
 }));
 
 const mockQueryUnreportedLifecycleEvents = mock(
@@ -286,6 +325,11 @@ beforeEach(() => {
   // Default consent ON so the happy-path send tests exercise the flush.
   mockGetCachedShareAnalytics.mockReset();
   mockGetCachedShareAnalytics.mockReturnValue(true);
+  // Default trace-collection consent OFF — most tests don't expect a trace;
+  // the trace-specific tests opt in explicitly.
+  mockGetCachedDiagnosticsTraceCollectionEnabled.mockReset();
+  mockGetCachedDiagnosticsTraceCollectionEnabled.mockReturnValue(false);
+  mockAssembleBoundedTurnTrace.mockClear();
   mockGetMemoryCheckpoint.mockReset();
   mockSetMemoryCheckpoint.mockReset();
   mockQueryUnreportedUsageEvents.mockReset();
@@ -959,6 +1003,121 @@ describe("UsageTelemetryReporter", () => {
       channel_id: null,
       client: null,
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // Per-turn trace collection (owner-consent gated)
+  // -------------------------------------------------------------------------
+
+  function singleTurnEvent() {
+    return [
+      {
+        id: "evt-turn-trace",
+        createdAt: 1700000050000,
+        conversationId: "conv-trace",
+        conversationType: "standard",
+        turnIndex: 2,
+        interfaceId: "macos",
+        channelId: "vellum",
+        clientMetadata: null,
+      },
+    ];
+  }
+
+  test("attaches the assembled trace to the turn event when trace consent is enabled", async () => {
+    mockGetCachedDiagnosticsTraceCollectionEnabled.mockReturnValue(true);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    mockQueryUnreportedTurnEvents.mockReturnValue(singleTurnEvent());
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    // The assembler is called with the turn's (conversationId, id, createdAt)
+    // boundary so the window lines up with the turn event.
+    expect(mockAssembleBoundedTurnTrace).toHaveBeenCalledTimes(1);
+    expect(mockAssembleBoundedTurnTrace.mock.calls[0][0]).toEqual({
+      conversationId: "conv-trace",
+      userMessageId: "evt-turn-trace",
+      userMessageCreatedAt: 1700000050000,
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    // Still exactly one event — the single turn event, now carrying `trace`.
+    expect(body.events.length).toBe(1);
+    const turn = body.events[0];
+    expect(turn.type).toBe("turn");
+    expect(turn.daemon_event_id).toBe("evt-turn-trace");
+    expect(turn.trace).toBeDefined();
+    expect(turn.trace.schema_version).toBe(1);
+    expect(turn.trace.messages[0].id).toBe("evt-turn-trace");
+    expect(Array.isArray(turn.trace.tool_calls)).toBe(true);
+  });
+
+  test("omits the trace when trace consent is disabled (and still emits the turn event)", async () => {
+    mockGetCachedDiagnosticsTraceCollectionEnabled.mockReturnValue(false);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    mockQueryUnreportedTurnEvents.mockReturnValue(singleTurnEvent());
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    // Consent off → no assembly at all (no PII touched).
+    expect(mockAssembleBoundedTurnTrace).not.toHaveBeenCalled();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    // The single turn event still flushes — just without a trace.
+    expect(body.events.length).toBe(1);
+    const turn = body.events[0];
+    expect(turn.type).toBe("turn");
+    expect(turn.daemon_event_id).toBe("evt-turn-trace");
+    expect("trace" in turn).toBe(false);
+  });
+
+  test("omits the trace (key absent) when the assembler returns null (over-cap / failure) but still emits the turn event", async () => {
+    mockGetCachedDiagnosticsTraceCollectionEnabled.mockReturnValue(true);
+    // Over-cap / assembly-failure path: the bounded assembler returns null.
+    mockAssembleBoundedTurnTrace.mockReturnValueOnce(null);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    mockQueryUnreportedTurnEvents.mockReturnValue(singleTurnEvent());
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockAssembleBoundedTurnTrace).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(1);
+    expect("trace" in body.events[0]).toBe(false);
+  });
+
+  test("no trace is assembled or attached when the whole flush is gated off by share_analytics", async () => {
+    // The analytics gate short-circuits the entire flush; trace assembly must
+    // never run (and nothing is sent) even if trace consent is on.
+    mockGetCachedShareAnalytics.mockReturnValue(false);
+    mockGetCachedDiagnosticsTraceCollectionEnabled.mockReturnValue(true);
+    mockQueryUnreportedTurnEvents.mockReturnValue(singleTurnEvent());
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockAssembleBoundedTurnTrace).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   test("llm_usage events carry conversation_id, conversation_type, and turn_index", async () => {

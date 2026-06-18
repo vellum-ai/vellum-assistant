@@ -1,11 +1,17 @@
 /**
- * In-memory cache of the platform owner's `share_analytics` consent.
+ * In-memory cache of the platform owner's telemetry consent.
+ *
+ * Two values are cached, both refreshed from the same owner-consent fetch:
+ *  - `share_analytics`: gates usage telemetry collection.
+ *  - `diagnostics_trace_collection_enabled`: gates attaching per-turn PII
+ *    traces to telemetry. Server-derived (LD flag + `share_diagnostics` +
+ *    privacy-policy version, folded by the platform).
  *
  * Record-time telemetry gates need a synchronous, I/O-free read, so this module
- * owns the consent value and refreshes it periodically in the background.
- * Default-off until the first successful fetch: an absent session, a disabled
- * platform, or a transient fetch failure all leave the value untouched (initial
- * `false`), so we never report analytics without a confirmed opt-in.
+ * owns the values and refreshes them periodically in the background. Default-off
+ * until the first successful fetch: an absent session, a disabled platform, or a
+ * transient fetch failure all leave the values untouched (initial `false`), so
+ * we never report analytics or attach a trace without a confirmed opt-in.
  */
 
 import { getConfigReadOnly } from "../config/loader.js";
@@ -17,6 +23,7 @@ const log = getLogger("consent-cache");
 const REFRESH_INTERVAL_MS = 5 * 60_000; // refresh consent every 5 min
 
 let cachedShareAnalytics = false; // default-off until first success
+let cachedDiagnosticsTraceCollectionEnabled = false; // default-off until first success
 // Fail-closed marker for a workspace that locally opted out of usage data
 // before telemetry moved to platform `share_analytics` consent (migration 106).
 // While set, telemetry stays off regardless of platform consent. Cleared by a
@@ -35,6 +42,17 @@ export function getCachedShareAnalytics(): boolean {
 }
 
 /**
+ * Synchronous hot-path accessor for the owner's diagnostics trace-collection
+ * eligibility. Never does I/O; `false` until a successful refresh proves
+ * otherwise. Independent of the legacy analytics opt-out marker: the telemetry
+ * flush already refuses to send anything when `getCachedShareAnalytics()` is
+ * false, so this answers only "did the owner consent to trace collection."
+ */
+export function getCachedDiagnosticsTraceCollectionEnabled(): boolean {
+  return cachedDiagnosticsTraceCollectionEnabled;
+}
+
+/**
  * Refresh the cached consent from the platform.
  *
  * No platform session / features disabled (`create()` is null) → default-off.
@@ -49,18 +67,23 @@ export async function refreshConsentCache(): Promise<void> {
   const client = await VellumPlatformClient.create();
   if (!client) {
     setCachedShareAnalytics(false);
+    setCachedDiagnosticsTraceCollectionEnabled(false);
     return;
   }
 
   // No resolvable owner identity → fail closed (don't ride a stale opt-in).
   if (!client.platformAssistantId) {
     setCachedShareAnalytics(false);
+    setCachedDiagnosticsTraceCollectionEnabled(false);
     return;
   }
 
   const consent = await client.getOwnerConsent();
   if (consent) {
     setCachedShareAnalytics(consent.shareAnalytics);
+    setCachedDiagnosticsTraceCollectionEnabled(
+      consent.diagnosticsTraceCollectionEnabled,
+    );
   }
 }
 
@@ -71,6 +94,16 @@ function setCachedShareAnalytics(value: boolean): void {
       "share_analytics consent changed",
     );
     cachedShareAnalytics = value;
+  }
+}
+
+function setCachedDiagnosticsTraceCollectionEnabled(value: boolean): void {
+  if (value !== cachedDiagnosticsTraceCollectionEnabled) {
+    log.debug(
+      { from: cachedDiagnosticsTraceCollectionEnabled, to: value },
+      "diagnostics_trace_collection_enabled consent changed",
+    );
+    cachedDiagnosticsTraceCollectionEnabled = value;
   }
 }
 
@@ -104,4 +137,11 @@ export async function stopConsentRefresh(): Promise<void> {
 /** Test-only: override the cached value without going through a refresh. */
 export function __setCachedShareAnalyticsForTest(value: boolean): void {
   cachedShareAnalytics = value;
+}
+
+/** Test-only: override the cached trace-collection value without a refresh. */
+export function __setCachedDiagnosticsTraceCollectionEnabledForTest(
+  value: boolean,
+): void {
+  cachedDiagnosticsTraceCollectionEnabled = value;
 }
