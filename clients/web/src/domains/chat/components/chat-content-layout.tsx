@@ -326,10 +326,11 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     }
   }
 
-  // Workflow detail side panel. Rendered as its own ResizablePanel early-return
-  // (as introduced on main) rather than through the unified AnimatedRightDrawer
-  // below; switching between the workflow panel and the other right-hand panels
-  // remounts the chat, unlike document/subagent/tool-detail which share the drawer.
+  // Workflow detail side panel — its own ResizablePanel split, not the unified
+  // AnimatedRightDrawer below. Living in a separate return branch, the chat
+  // (`left`) remounts when switching between this panel and the other right-hand
+  // panels, whereas document/subagent/tool-detail share the drawer and keep the
+  // chat mounted across switches.
   if (mainView === "workflow-detail" && activeWorkflowRunId && !isMobile) {
     const activeEntry = workflowById[activeWorkflowRunId];
     if (activeEntry) {
