@@ -4,16 +4,16 @@
  * Periodically flushes LLM usage events and turn events (user messages) from
  * the local SQLite database and POSTs them to the platform telemetry endpoint.
  *
- * Two auth modes:
- * - Authenticated: Api-Key header via managed proxy context
- * - Anonymous: unauthenticated POST (telemetry endpoints are public)
+ * Authenticated-only: events are sent via the managed proxy context
+ * (Api-Key header). When no platform credentials are available, or when
+ * VELLUM_DISABLE_PLATFORM is set, the flush is skipped and retried next cycle.
  */
 
 import {
-  getPlatformBaseUrl,
   getPlatformOrganizationId,
   getPlatformUserId,
 } from "../config/env.js";
+import { getDisablePlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { queryUnreportedAuthFallbackEvents } from "../memory/auth-fallback-events-store.js";
 import {
@@ -162,7 +162,8 @@ export class UsageTelemetryReporter {
     // Delay the first flush to allow the credential infrastructure (CES
     // handshake) to complete. Without this delay, VellumPlatformClient.create()
     // returns null because the credential backend hasn't resolved yet, causing
-    // telemetry to fall back to anonymous mode permanently.
+    // the initial flush to be skipped (we send authenticated-only); the
+    // delay lets credentials resolve so the first flush can actually ship.
     this.initialFlushTimer = setTimeout(() => {
       this.initialFlushTimer = null;
       this.flush().catch((err) => {
@@ -234,6 +235,13 @@ export class UsageTelemetryReporter {
           setMemoryCheckpoint(timestampKey, now);
           setMemoryCheckpoint(idKey, OPT_OUT_WATERMARK_ID_SENTINEL);
         }
+        return;
+      }
+
+      // Skip when platform calls are disabled. Unlike the opt-out branch above,
+      // watermarks are NOT advanced: this flag is a deployment/local-mode toggle
+      // (not a privacy opt-out), so the unsent backlog ships once it's cleared.
+      if (getDisablePlatform()) {
         return;
       }
 
@@ -343,12 +351,19 @@ export class UsageTelemetryReporter {
       )
         return;
 
-      // Resolve auth context — authenticated path uses client, anonymous path
-      // sends unauthenticated (telemetry endpoints are public).
+      // Resolve auth context. We send authenticated-only: if no platform
+      // credentials are available yet, skip without advancing watermarks so the
+      // backlog ships on a later cycle once credentials resolve.
       const client = await VellumPlatformClient.create();
+      if (!client) {
+        log.debug(
+          { pendingEventCount: events.length + turnEvents.length },
+          "Telemetry flush: no platform credentials — skipping, will retry next cycle",
+        );
+        return;
+      }
       log.debug(
         {
-          authenticated: !!client,
           usageCount: events.length,
           turnCount: turnEvents.length,
           lifecycleCount: lifecycleEvents.length,
@@ -588,18 +603,12 @@ export class UsageTelemetryReporter {
         body: JSON.stringify(payload),
       };
 
-      let resp: Response;
-      if (client) {
-        resp = await client.fetch(TELEMETRY_PATH, fetchInit);
-      } else {
-        const url = `${getPlatformBaseUrl()}${TELEMETRY_PATH}`;
-        resp = await fetch(url, fetchInit);
-      }
+      const resp = await client.fetch(TELEMETRY_PATH, fetchInit);
 
       if (!resp.ok) {
         const body = await resp.text();
         log.warn(
-          { status: resp.status, authenticated: !!client, body },
+          { status: resp.status, body },
           "Usage telemetry POST failed — will retry next cycle",
         );
         return;
