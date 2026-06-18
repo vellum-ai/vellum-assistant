@@ -15,6 +15,7 @@ import {
   listCanonicalGuardianRequests,
   updateCanonicalGuardianDelivery,
 } from "../memory/canonical-guardian-store.js";
+import { recordCanonicalChannelDelivery } from "../notifications/canonical-delivery-recorder.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import type { NotificationDeliveryResult } from "../notifications/types.js";
 import { getLogger } from "../util/logger.js";
@@ -231,12 +232,7 @@ async function dispatchGuardianQuestionInner(
         continue;
       }
 
-      const delivery = createCanonicalGuardianDelivery({
-        requestId: request.id,
-        destinationChannel: result.channel,
-        destinationChatId:
-          result.destination.length > 0 ? result.destination : undefined,
-      });
+      const delivery = recordCanonicalChannelDelivery(request.id, result);
       applyDeliveryStatus(delivery.id, result);
     }
 

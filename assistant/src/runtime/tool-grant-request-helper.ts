@@ -17,6 +17,7 @@ import {
   createCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
 } from "../memory/canonical-guardian-store.js";
+import { recordCanonicalChannelDelivery } from "../notifications/canonical-delivery-recorder.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { getLogger } from "../util/logger.js";
 import { getGuardianBinding } from "./channel-verification-service.js";
@@ -178,12 +179,7 @@ export function createOrReuseToolGrantRequest(
   void signalPromise.then((signalResult) => {
     for (const result of signalResult.deliveryResults) {
       if (result.channel === "vellum") continue; // handled in onConversationCreated
-      createCanonicalGuardianDelivery({
-        requestId: canonicalRequest.id,
-        destinationChannel: result.channel,
-        destinationChatId:
-          result.destination.length > 0 ? result.destination : undefined,
-      });
+      recordCanonicalChannelDelivery(canonicalRequest.id, result);
     }
   });
 

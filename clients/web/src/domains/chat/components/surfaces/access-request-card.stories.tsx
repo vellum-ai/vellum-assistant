@@ -189,3 +189,57 @@ export const MinimalInfo: Story = {
     />
   ),
 };
+
+// Withdrawn state: when the request is resolved (here, from another surface
+// such as Slack), the card keeps all its information and the action buttons are
+// replaced by a completion summary. See `approvals/guardian-card-withdrawal.ts`.
+export const ResolvedApproved: Story = {
+  name: "Resolved — approved (buttons withdrawn)",
+  render: () => (
+    <SurfaceRouter
+      surface={{
+        ...accessRequestSurface("req-008", {
+          title: "Grace",
+          subtitle: "Requesting access to the assistant",
+          body: [
+            '> "Can I get access to help with the launch?"',
+            "[View message](https://slack.com/archives/C01LAUNCH/p1700000000000400)",
+          ].join("\n\n"),
+          metadata: [
+            { label: "Source", value: "Slack" },
+            { label: "Channel", value: "#launch" },
+            { label: "Username", value: "@grace" },
+          ],
+        }),
+        completed: true,
+        completionSummary: "Approved",
+      }}
+      onAction={() => {}}
+    />
+  ),
+};
+
+export const ResolvedDenied: Story = {
+  name: "Resolved — denied (buttons withdrawn)",
+  render: () => (
+    <SurfaceRouter
+      surface={{
+        ...accessRequestSurface("req-009", {
+          title: "Mallory (External)",
+          subtitle: "Requesting access to the assistant",
+          body: [
+            '> "Let me in."',
+            "⚠️ External Slack user (not in this workspace).",
+          ].join("\n\n"),
+          metadata: [
+            { label: "Source", value: "Slack" },
+            { label: "Username", value: "@mallory-ext" },
+          ],
+        }),
+        completed: true,
+        completionSummary: "Denied",
+      }}
+      onAction={() => {}}
+    />
+  ),
+};
