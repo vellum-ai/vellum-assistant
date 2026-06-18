@@ -106,6 +106,10 @@ describe("advisor — agent-loop integration", () => {
     expect(textOf(sub.messages[sub.messages.length - 1].content)).toContain(
       "80 words",
     );
+    // It also saw the model's CURRENT turn — the text it wrote right before the
+    // `advisor` tool_use — which `post-model-call` lifts out of `ctx.content`.
+    const transcript = sub.messages.map((m) => textOf(m.content)).join("\n");
+    expect(transcript).toContain("Let me consult the advisor.");
 
     // The advisor saw the executor's system prompt (via pre-model-call).
     expect(sub.options?.systemPrompt).toContain("senior technical advisor");

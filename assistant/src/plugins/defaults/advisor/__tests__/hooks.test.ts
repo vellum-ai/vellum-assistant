@@ -77,6 +77,27 @@ describe("post-model-call hook", () => {
     expect(getCapture("c1")?.messages).toEqual(messages);
   });
 
+  test("appends the model's current turn (ctx.content) to the snapshot", async () => {
+    const messages = [userMsg("task")];
+    const assistantTurn: Message = {
+      role: "assistant",
+      content: [
+        { type: "text", text: "thinking about it" },
+        { type: "tool_use", id: "t1", name: "advisor", input: {} },
+      ],
+    };
+    await postModelCall({
+      ...base,
+      content: assistantTurn.content,
+      conversationId: "c4",
+      callSite: "mainAgent",
+      messages,
+    } as unknown as PostModelCallContext);
+    const captured = getCapture("c4")?.messages;
+    expect(captured).toHaveLength(2);
+    expect(captured?.[1]).toEqual(assistantTurn);
+  });
+
   test("ignores the advisor's own inference sub-call (recursion safety) and errors", async () => {
     await postModelCall({
       ...base,

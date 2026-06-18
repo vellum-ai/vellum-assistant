@@ -16,7 +16,19 @@ import { recordMessages } from "../advisor-state-store.js";
 const postModelCall: PluginHookFn<PostModelCallContext> = async (ctx) => {
   if (ctx.callSite !== "mainAgent") return;
   if (ctx.error) return;
-  recordMessages(ctx.conversationId, ctx.messages);
+  // `ctx.messages` is the pre-reply history; the turn the model just produced —
+  // including any text/plan it wrote before the `advisor` tool_use — lives in
+  // `ctx.content` and is not yet in `messages`. Append it (cloned) so the
+  // advisor reviews the full current transcript, not just the prior history.
+  // `transcript.ts` strips the pending tool_use from this final assistant turn.
+  const messages =
+    ctx.content.length > 0
+      ? [
+          ...ctx.messages,
+          { role: "assistant" as const, content: [...ctx.content] },
+        ]
+      : ctx.messages;
+  recordMessages(ctx.conversationId, messages);
 };
 
 export default postModelCall;
