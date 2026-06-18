@@ -378,6 +378,19 @@ export class MediaStreamCallSession {
     // by contract, so a transport hiccup admits the caller.
     const admissionPolicy = await getChannelAdmissionPolicy("phone");
 
+    // The admission-policy read above yields the event loop; if Twilio closed
+    // the WebSocket meanwhile, the close handler will have called destroy().
+    // Abort setup so we don't create a controller or speak on a disposed
+    // session.
+    if (this.disposed) {
+      log.info(
+        { callSessionId: this.callSessionId },
+        "Media-stream session disposed during admission read — aborting setup",
+      );
+      this.setupRouting = false;
+      return;
+    }
+
     const { outcome, resolved } = routeSetup({
       callSessionId: this.callSessionId,
       session: session ?? null,

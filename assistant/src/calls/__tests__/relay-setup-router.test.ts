@@ -284,6 +284,50 @@ describe("routeSetup — no policy preserves current behavior", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Active permissive floor admits straight to a normal call
+// ---------------------------------------------------------------------------
+// When a policy is ACTIVELY set and admits the caller, the floor is the access
+// decision: unknown/unverified callers bypass name_capture / unverified_caller
+// and connect directly. With a null policy the legacy identity flows persist.
+
+describe("routeSetup — permissive floor admits to normal_call", () => {
+  test("any_contact admits an unverified_contact to normal_call (not unverified_caller)", () => {
+    nextTrust = makeTrust("unverified_contact", { status: "unverified" });
+    const { outcome } = route("any_contact");
+    expect(outcome.action).toBe("normal_call");
+  });
+
+  test("strangers admits an unknown caller to normal_call (not name_capture)", () => {
+    nextTrust = makeTrust("unknown");
+    const { outcome } = route("strangers");
+    expect(outcome.action).toBe("normal_call");
+  });
+
+  test("strangers admits an unverified_contact to normal_call", () => {
+    nextTrust = makeTrust("unverified_contact", { status: "unverified" });
+    const { outcome } = route("strangers");
+    expect(outcome.action).toBe("normal_call");
+  });
+
+  test("null policy preserves legacy name_capture for unknown caller", () => {
+    nextTrust = makeTrust("unknown");
+    expect(route(null).outcome.action).toBe("name_capture");
+  });
+
+  test("null policy preserves legacy unverified_caller for unverified caller", () => {
+    nextTrust = makeTrust("unverified_contact", { status: "unverified" });
+    expect(route(null).outcome.action).toBe("unverified_caller");
+  });
+
+  test("trusted_contacts (default) still denies unknown and unverified", () => {
+    nextTrust = makeTrust("unknown");
+    expect(route("trusted_contacts").outcome.action).toBe("deny");
+    nextTrust = makeTrust("unverified_contact", { status: "unverified" });
+    expect(route("trusted_contacts").outcome.action).toBe("deny");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Invites & pending challenges bypass the floor
 // ---------------------------------------------------------------------------
 

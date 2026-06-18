@@ -196,18 +196,23 @@ export function routeSetup(ctx: SetupContext): {
   // ── Inbound call ACL evaluation ─────────────────────────────────
   const pendingChallenge = getPendingSession("phone");
 
-  // Inbound admission floor. Pending verification challenges bypass it — they
-  // are an explicit in-progress grant, consistent with the `verification`
-  // branch below. Skipped entirely when no policy is supplied.
-  const floorVerdict =
-    ctx.admissionPolicy && !pendingChallenge
-      ? enforceAdmissionPolicy({
-          sourceChannel: "phone",
-          trustClass: actorTrust.trustClass,
-          memberStatus: actorTrust.memberRecord?.channel.status,
-          policy: ctx.admissionPolicy,
-        })
-      : ({ admitted: true } as const);
+  // An admission floor is "active" only when a policy applies and no pending
+  // verification challenge is in flight. While active, the floor IS the access
+  // decision: an admitted caller bypasses the legacy identity flows
+  // (unverified_caller / name_capture) and connects directly. When inactive
+  // (null policy, flag off, exempt channel, reader failed open, or a pending
+  // challenge), those legacy flows are preserved unchanged.
+  const floorActive = ctx.admissionPolicy != null && !pendingChallenge;
+
+  // Inbound admission floor verdict; defaults to admitted when inactive.
+  const floorVerdict = floorActive
+    ? enforceAdmissionPolicy({
+        sourceChannel: "phone",
+        trustClass: actorTrust.trustClass,
+        memberStatus: actorTrust.memberRecord?.channel.status,
+        policy: ctx.admissionPolicy!,
+      })
+    : ({ admitted: true } as const);
 
   // Floor-deny outcome shared by the unknown-caller and member-caller branches.
   // Live calls cannot await async re-verification, so the floor's
@@ -296,10 +301,19 @@ export function routeSetup(ctx: SetupContext): {
       };
     }
 
-    // Admission floor: deny callers below the floor. Invites (handled above)
-    // bypass the floor as an explicit grant; this runs after them.
-    if (!floorVerdict.admitted) {
-      return floorDeny(floorVerdict);
+    // When a floor is active it is the access decision: an admitted caller
+    // connects directly (skipping unverified_caller / name_capture), and a
+    // below-floor caller is denied. Invites (handled above) bypass the floor
+    // as an explicit grant. When the floor is inactive (null policy), fall
+    // through to the legacy identity flows below.
+    if (floorActive) {
+      if (!floorVerdict.admitted) {
+        return floorDeny(floorVerdict);
+      }
+      return {
+        outcome: { action: "normal_call" as const, isInbound: true },
+        resolved,
+      };
     }
 
     // Known caller whose channel hasn't passed verification yet —

@@ -164,7 +164,14 @@ mock.module("../calls/relay-setup-router.js", () => ({
 // a resolved promise introduces a microtask hop, so tests await
 // session.whenSetupSettled() after sending the start frame.
 let mockAdmissionPolicy: unknown = null;
-const mockGetChannelAdmissionPolicy = jest.fn(async () => mockAdmissionPolicy);
+// Optional gate: when set, getChannelAdmissionPolicy awaits this promise before
+// resolving, letting a test dispose the session mid-read (simulating a WS close
+// while the admission IPC read is pending).
+let mockAdmissionGate: Promise<void> | null = null;
+const mockGetChannelAdmissionPolicy = jest.fn(async () => {
+  if (mockAdmissionGate) await mockAdmissionGate;
+  return mockAdmissionPolicy;
+});
 mock.module("../calls/channel-admission-reader.js", () => ({
   getChannelAdmissionPolicy: mockGetChannelAdmissionPolicy,
 }));
@@ -339,6 +346,7 @@ beforeEach(() => {
   (routeSetup as jest.Mock).mockClear();
   mockGetChannelAdmissionPolicy.mockClear();
   mockAdmissionPolicy = null;
+  mockAdmissionGate = null;
   // Reset routeSetup to default normal_call
   mockRouteSetupResult = {
     outcome: { action: "normal_call" as const, isInbound: true },
@@ -1441,6 +1449,42 @@ describe("media-stream setup outcome scenarios", () => {
           e.eventType === "caller_spoke",
       );
       expect(callerSpoke.length).toBe(0);
+    });
+
+    test("session disposed during the admission read aborts setup — no controller, no greeting", async () => {
+      // Gate the admission read so the session can be disposed (as the WS
+      // close handler does) while handleStart is awaiting it.
+      let releaseGate!: () => void;
+      mockAdmissionGate = new Promise<void>((resolve) => {
+        releaseGate = resolve;
+      });
+
+      const mockWs = createMockWs();
+      mockSessions.set("call-disposed-1", {
+        id: "call-disposed-1",
+        conversationId: "conv-disposed-1",
+        status: "initiated",
+        task: null,
+        startedAt: null,
+        fromNumber: "+14155550000",
+        toNumber: "+15550001111",
+      });
+
+      const session = new MediaStreamCallSession(mockWs.ws, "call-disposed-1");
+      session.handleMessage(makeStartMessage());
+
+      // Twilio closes the WebSocket mid-read: the server disposes the session.
+      session.destroy();
+
+      // Now let the admission read resolve and setup routing resume.
+      releaseGate();
+      await session.whenSetupSettled();
+
+      // Setup must have aborted: routeSetup never ran, no controller, no greeting.
+      expect(routeSetup).not.toHaveBeenCalled();
+      expect(registerCallController).not.toHaveBeenCalled();
+      expect(mockStartInitialGreeting).not.toHaveBeenCalled();
+      expect(speakSystemPrompt).not.toHaveBeenCalled();
     });
   });
 });
