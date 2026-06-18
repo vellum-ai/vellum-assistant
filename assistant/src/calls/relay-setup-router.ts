@@ -16,7 +16,10 @@ import {
 } from "../runtime/actor-trust-resolver.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getPendingSession } from "../runtime/channel-verification-service.js";
-import { enforceAdmissionPolicy } from "../runtime/routes/inbound-stages/admission-policy.js";
+import {
+  type AdmissionPolicyResult,
+  enforceAdmissionPolicy,
+} from "../runtime/routes/inbound-stages/admission-policy.js";
 import { getLogger } from "../util/logger.js";
 import type { CallSession } from "./types.js";
 
@@ -209,16 +212,15 @@ export function routeSetup(ctx: SetupContext): {
   // Floor-deny outcome shared by the unknown-caller and member-caller branches.
   // Live calls cannot await async re-verification, so the floor's
   // `shouldChallenge` upgrade UX is not surfaced — same rationale as `escalate`.
-  const floorDeny = () => {
-    const effectivePolicy = floorVerdict.admitted
-      ? undefined
-      : floorVerdict.effectivePolicy;
+  const floorDeny = (
+    denyVerdict: Extract<AdmissionPolicyResult, { admitted: false }>,
+  ) => {
     log.info(
       {
         callSessionId: ctx.callSessionId,
         from: ctx.from,
         trustClass: actorTrust.trustClass,
-        effectivePolicy,
+        effectivePolicy: denyVerdict.effectivePolicy,
       },
       "Inbound voice ACL: admission floor denied caller",
     );
@@ -227,7 +229,7 @@ export function routeSetup(ctx: SetupContext): {
         action: "deny" as const,
         message:
           "This number is not authorized to reach the assistant right now.",
-        logReason: `Inbound voice admission floor: ${effectivePolicy}`,
+        logReason: `Inbound voice admission floor: ${denyVerdict.effectivePolicy}`,
       },
       resolved,
     };
@@ -297,7 +299,7 @@ export function routeSetup(ctx: SetupContext): {
     // Admission floor: deny callers below the floor. Invites (handled above)
     // bypass the floor as an explicit grant; this runs after them.
     if (!floorVerdict.admitted) {
-      return floorDeny();
+      return floorDeny(floorVerdict);
     }
 
     // Known caller whose channel hasn't passed verification yet —
@@ -407,7 +409,7 @@ export function routeSetup(ctx: SetupContext): {
   // Admission floor: deny member/guardian callers below the floor (e.g.
   // `guardian_only` denies a trusted_contact).
   if (!floorVerdict.admitted) {
-    return floorDeny();
+    return floorDeny(floorVerdict);
   }
 
   // Guardian and trusted-contact callers proceed normally

@@ -21,7 +21,6 @@
  *   server-side.
  */
 
-import type { AdmissionPolicy } from "@vellumai/gateway-client";
 import {
   buildTwilioMediaStreamUrl,
   buildTwilioRelayUrl,
@@ -481,17 +480,9 @@ async function buildVoiceWebhookTwiml(
   // Resolve the phone channel's inbound admission floor so this preflight
   // classification matches the real enforcement at stream start — a
   // floor-denied caller is recognized as `deny` here, not `normal_call`.
-  // The reader fails open to `null`; the guard keeps a reader throw from
-  // ever aborting setup (admit when in doubt).
-  let admissionPolicy: AdmissionPolicy | null = null;
-  try {
-    admissionPolicy = await getChannelAdmissionPolicy("phone");
-  } catch (err) {
-    log.warn(
-      { err, callSessionId },
-      "Failed to resolve phone admission policy for media-stream preflight — admitting (fail open)",
-    );
-  }
+  // The reader fails open to `null` by contract, so a transport hiccup
+  // admits the caller.
+  const admissionPolicy = await getChannelAdmissionPolicy("phone");
 
   const { outcome } = routeSetup({
     callSessionId,

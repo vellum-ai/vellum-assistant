@@ -567,18 +567,9 @@ export class RelayConnection {
     const session = getCallSession(this.callSessionId);
     this.recordSetupBookkeeping(session, msg);
 
-    // Resolve the phone channel's inbound admission floor. The reader already
-    // fails open to `null`; the extra guard keeps a reader throw from ever
-    // aborting setup (admit when in doubt).
-    let admissionPolicy: AdmissionPolicy | null = null;
-    try {
-      admissionPolicy = await getChannelAdmissionPolicy("phone");
-    } catch (err) {
-      log.warn(
-        { err, callSessionId: this.callSessionId },
-        "Failed to resolve phone admission policy — admitting (fail open)",
-      );
-    }
+    // Resolve the phone channel's inbound admission floor. The reader fails
+    // open to `null` by contract, so a transport hiccup admits the caller.
+    const admissionPolicy = await getChannelAdmissionPolicy("phone");
 
     try {
       await this.routeSetupOutcome(msg, session, admissionPolicy);
