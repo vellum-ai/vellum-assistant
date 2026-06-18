@@ -21,6 +21,7 @@
  *   server-side.
  */
 
+import type { AdmissionPolicy } from "@vellumai/gateway-client";
 import {
   buildTwilioMediaStreamUrl,
   buildTwilioRelayUrl,
@@ -54,6 +55,7 @@ import {
   releaseCallbackClaim,
   updateCallSession,
 } from "./call-store.js";
+import { getChannelAdmissionPolicy } from "./channel-admission-reader.js";
 import { routeSetup } from "./relay-setup-router.js";
 import { resolveCallHints } from "./stt-hints.js";
 import { resolveTelephonySttRouting } from "./telephony-stt-routing.js";
@@ -277,10 +279,10 @@ const TWIML_HEADERS = { "Content-Type": "text/xml" } as const;
  * query for outbound calls). Returns a TwiML string. Throws RouteError
  * subclasses on failure.
  */
-function processVoiceWebhook(
+async function processVoiceWebhook(
   params: Record<string, string>,
   callSessionId: string | null,
-): string {
+): Promise<string> {
   const callSid = params.CallSid ?? null;
   const callerFrom = params.From ?? "";
   const callerTo = params.To ?? "";
@@ -371,7 +373,7 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
   const params = Object.fromEntries(formBody.entries());
 
   try {
-    return twimlResponse(processVoiceWebhook(params, callSessionId));
+    return twimlResponse(await processVoiceWebhook(params, callSessionId));
   } catch (err) {
     if (err instanceof RouteError) {
       return new Response(err.message, { status: err.statusCode });
@@ -399,7 +401,7 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
  * the Twilio setup payload. The persisted call session mode is the
  * primary signal for deterministic flow selection in the relay server.
  */
-function buildVoiceWebhookTwiml(
+async function buildVoiceWebhookTwiml(
   callSessionId: string,
   sessionContext: {
     task: string | null;
@@ -410,7 +412,7 @@ function buildVoiceWebhookTwiml(
     inviteGuardianName: string | null;
   } | null,
   verificationSessionId?: string | null,
-): string {
+): Promise<string> {
   const cfg = loadConfig();
   const profile = resolveVoiceQualityProfile(cfg);
 
@@ -476,11 +478,27 @@ function buildVoiceWebhookTwiml(
   const from = sessionContext?.fromNumber ?? "";
   const to = sessionContext?.toNumber ?? "";
 
+  // Resolve the phone channel's inbound admission floor so this preflight
+  // classification matches the real enforcement at stream start — a
+  // floor-denied caller is recognized as `deny` here, not `normal_call`.
+  // The reader fails open to `null`; the guard keeps a reader throw from
+  // ever aborting setup (admit when in doubt).
+  let admissionPolicy: AdmissionPolicy | null = null;
+  try {
+    admissionPolicy = await getChannelAdmissionPolicy("phone");
+  } catch (err) {
+    log.warn(
+      { err, callSessionId },
+      "Failed to resolve phone admission policy for media-stream preflight — admitting (fail open)",
+    );
+  }
+
   const { outcome } = routeSetup({
     callSessionId,
     session: session ?? null,
     from,
     to,
+    admissionPolicy,
   });
 
   // The media-stream transport supports normal_call and deny (which speaks
@@ -780,9 +798,9 @@ const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
  * Internal voice-webhook handler for gateway→runtime forwarding.
  * Accepts JSON body `{ params, originalUrl? }` from the gateway.
  */
-export function handleInternalVoiceWebhook({
+export async function handleInternalVoiceWebhook({
   body = {},
-}: RouteHandlerArgs): RouteResponse {
+}: RouteHandlerArgs): Promise<RouteResponse> {
   const { params = {}, originalUrl } = body as {
     params?: Record<string, string>;
     originalUrl?: string;
@@ -798,7 +816,7 @@ export function handleInternalVoiceWebhook({
     }
   }
 
-  const twiml = processVoiceWebhook(params, callSessionId);
+  const twiml = await processVoiceWebhook(params, callSessionId);
   return new RouteResponse(twiml, TWIML_HEADERS);
 }
 
