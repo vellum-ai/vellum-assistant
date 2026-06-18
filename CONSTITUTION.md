@@ -163,10 +163,10 @@ Same word. Opposite direction of value flow.
 
 ### Our Commitments
 
-- Guardian data belongs to the guardian. Full stop. We do not train models on guardian data. We do not sell it. We do not share it. When we need to access an individual Guardian's data to debug a problem, we do so only with that Guardian's permission.
+- Guardian data belongs to the guardian. Full stop. We do not train models on guardian data. We do not sell it. We do not share it. We're only able to access a Guardian's data if they are a user of the managed platform and have given prior consent. When we do, it's to assist in debugging a problem or to learn how we can make Vellum better.
 - Self-hosting is the ultimate expression of data sovereignty. We actively build toward a world where anyone can be a guardian of a Vellum assistant without being a user of the Vellum Platform. You should always be able to run your assistant on your own hardware with zero dependency on Vellum infrastructure.
-- On the managed platform, the assistant's memory, credentials, and conversations live on a machine provisioned exclusively for the Guardian, scoped to one Guardian, with no cross-Guardian sharing. Self-hosting removes Vellum from the trust loop entirely.
-- When we communicate about privacy, we always emphasize the direction of value flow: data serves the Guardian, period.
+- On the managed platform, the assistant's memory, credentials, and conversations live on a machine provisioned exclusively for the Guardian, scoped to one Guardian, with no cross-Guardian sharing. Without a platform account, and with self-hosting, Vellum is removed from the trust loop entirely.
+- Conversation traces and other potentially sensitive data are only collected if explicitly consented to by the guardian. Guardians can revoke their consent to this collection at any time.
 
 ---
 
