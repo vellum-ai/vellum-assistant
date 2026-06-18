@@ -257,7 +257,11 @@ function allowSetupRoutes(
   return null;
 }
 
-function requireAssistant(state: NavigationState): NavigationDecision | null {
+function requireAssistant(
+  state: NavigationState,
+  _path: string,
+  pathnameWithSearch: string,
+): NavigationDecision | null {
   if (state.hasAssistants) return null;
 
   if (state.isLocalMode) {
@@ -270,6 +274,11 @@ function requireAssistant(state: NavigationState): NavigationDecision | null {
 
   if (!hasCompletedOnboarding(state)) {
     return { action: "redirect", to: routes.onboarding.privacy };
+  }
+  // A stale toggle must be re-reviewed before provisioning an assistant.
+  if (!consentIsCurrent(state)) {
+    const returnTo = encodeURIComponent(pathnameWithSearch);
+    return { action: "redirect", to: `${routes.reviewTerms}?returnTo=${returnTo}` };
   }
   // A consented user with no assistant goes to the standard hatching screen.
   return { action: "redirect", to: routes.onboarding.hatching };
@@ -319,6 +328,10 @@ function resolveHatchGate(state: NavigationState): NavigationDecision {
   }
   if (!hasCompletedOnboarding(state)) {
     return { action: "redirect", to: onboardingEntrypoint(state.isLocalMode) };
+  }
+  // A stale toggle must be re-reviewed before hatching, even via direct navigation.
+  if (!state.isLocalMode && !consentIsCurrent(state)) {
+    return { action: "redirect", to: routes.reviewTerms };
   }
   return { action: "allow" };
 }
