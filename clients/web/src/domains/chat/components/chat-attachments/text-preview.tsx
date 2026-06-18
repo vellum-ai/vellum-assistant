@@ -1,71 +1,33 @@
-
-import type { Highlighter } from "shiki";
-
+import { useQuery } from "@tanstack/react-query";
 import { Download, Loader2 } from "lucide-react";
-import type { FC, ReactNode } from "react";
-import { useEffect, useState } from "react";
 
 import { Button } from "@vellumai/design-library";
 
+import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
+import { captureError } from "@/lib/sentry/capture-error";
+
 /**
- * Hard cap on the number of text bytes we render inline. Anything beyond this
- * triggers the "too large" fallback — Shiki tokenizing megabytes of text on
- * the main thread will lock the UI.
+ * Largest text payload rendered inline. Larger files fall back to a download
+ * affordance so a multi-megabyte file can't block the main thread while it
+ * parses.
  */
 export const MAX_TEXT_PREVIEW_BYTES = 200 * 1024;
 
-const BUNDLED_LANGUAGES = [
-  "typescript",
-  "javascript",
-  "python",
-  "json",
-  "markdown",
-  "bash",
-  "html",
-  "css",
-  "yaml",
-] as const;
+/** Signals that a file is past {@link MAX_TEXT_PREVIEW_BYTES} — an expected
+ *  outcome shown to the user, not a fault worth reporting to telemetry. */
+class TextTooLargeError extends Error {}
 
-const FALLBACK_LANGUAGE = "text";
-
-const EXTENSION_TO_LANGUAGE: Record<string, (typeof BUNDLED_LANGUAGES)[number]> = {
-  ts: "typescript",
-  tsx: "typescript",
-  js: "javascript",
-  jsx: "javascript",
-  py: "python",
-  json: "json",
-  md: "markdown",
-  sh: "bash",
-  bash: "bash",
-  html: "html",
-  css: "css",
-  yaml: "yaml",
-  yml: "yaml",
-};
-
-const inferLanguage = (filename: string): string => {
-  const dot = filename.lastIndexOf(".");
-  if (dot === -1 || dot === filename.length - 1) return FALLBACK_LANGUAGE;
-  const ext = filename.slice(dot + 1).toLowerCase();
-  return EXTENSION_TO_LANGUAGE[ext] ?? FALLBACK_LANGUAGE;
-};
-
-// Singleton highlighter — Shiki ships ~100KB+ of WASM/grammar payload, and
-// `createHighlighter` reparses it on every call. One per page-load is plenty.
-let highlighterPromise: Promise<Highlighter> | null = null;
-
-const getHighlighter = async (): Promise<Highlighter> => {
-  if (!highlighterPromise) {
-    highlighterPromise = import("shiki").then(({ createHighlighter }) =>
-      createHighlighter({
-        langs: [...BUNDLED_LANGUAGES],
-        themes: ["github-dark", "github-light"],
-      }),
-    );
+async function loadText(url: string): Promise<string> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to load file: ${response.status}`);
   }
-  return highlighterPromise;
-};
+  const blob = await response.blob();
+  if (blob.size > MAX_TEXT_PREVIEW_BYTES) {
+    throw new TextTooLargeError();
+  }
+  return blob.text();
+}
 
 interface TextPreviewProps {
   url: string;
@@ -74,107 +36,37 @@ interface TextPreviewProps {
 }
 
 /**
- * Inline preview for text/code attachments. Fetches the file, picks a Shiki
- * language identifier from the file extension, and renders the highlighted
- * HTML inside a scrollable monospace container.
- *
- * Reads `prefers-color-scheme` once on mount to choose between the
- * `github-dark` and `github-light` Shiki themes.
- *
- * Files larger than `MAX_TEXT_PREVIEW_BYTES` short-circuit to a download
- * fallback to keep the UI thread responsive.
+ * Inline preview for a text attachment inside the full-screen preview modal.
+ * Markdown renders as formatted document content; every other text type
+ * renders as monospace source. Content sits on a themed surface so it stays
+ * legible on the modal's dark backdrop across light, dark, and velvet themes.
  */
-export const TextPreview: FC<TextPreviewProps> = ({ url, filename, mimeType: _mimeType }) => {
-  const [html, setHtml] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [tooLarge, setTooLarge] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
-      setIsLoading(true);
-      setError(null);
-      setHtml(null);
-      setTooLarge(false);
-
+export function TextPreview({ url, filename, mimeType }: TextPreviewProps) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["attachment-text-preview", url],
+    queryFn: async () => {
       try {
-        const response = await fetch(url);
-        if (!response.ok) {
-          throw new Error(`Failed to load file: ${response.statusText}`);
+        return await loadText(url);
+      } catch (err) {
+        if (!(err instanceof TextTooLargeError)) {
+          captureError(err, {
+            context: "attachment-text-preview",
+            bestEffort: true,
+          });
         }
-
-        const blob = await response.blob();
-        if (cancelled) return;
-
-        if (blob.size > MAX_TEXT_PREVIEW_BYTES) {
-          setTooLarge(true);
-          setIsLoading(false);
-          return;
-        }
-
-        const text = await blob.text();
-        if (cancelled) return;
-
-        const prefersDark =
-          typeof window !== "undefined" &&
-          typeof window.matchMedia === "function" &&
-          window.matchMedia("(prefers-color-scheme: dark)").matches;
-        const theme = prefersDark ? "github-dark" : "github-light";
-
-        const highlighter = await getHighlighter();
-        if (cancelled) return;
-
-        const lang = inferLanguage(filename);
-        const highlighted = highlighter.codeToHtml(text, { lang, theme });
-        if (cancelled) return;
-
-        setHtml(highlighted);
-      } catch {
-        if (!cancelled) {
-          setError("Failed to load preview.");
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
+        throw err;
       }
-    };
-
-    void load();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [url, filename]);
+    },
+    // Attachment bytes are immutable for a given URL, so a successful read
+    // never needs revalidating.
+    staleTime: Infinity,
+    retry: false,
+  });
 
   const handleDownload = async () => {
     const { saveFile } = await import("@/runtime/native-file");
     await saveFile(url, filename);
   };
-
-  const renderFallbackCard = (message: string): ReactNode => (
-    <div
-      className="w-full max-w-sm rounded-lg border p-8 text-center"
-      style={{
-        borderColor: "var(--border-base)",
-        backgroundColor: "var(--surface-lift)",
-      }}
-    >
-      <p className="text-body-medium-lighter text-white/80">{message}</p>
-      <Button
-        variant="ghost"
-        leftIcon={<Download />}
-        onClick={handleDownload}
-        aria-label={`Download ${filename}`}
-        className="mt-4 text-white/70 hover:bg-white/10 hover:text-white"
-        tintColor="currentColor"
-      >
-        Download
-      </Button>
-    </div>
-  );
 
   if (isLoading) {
     return (
@@ -184,15 +76,87 @@ export const TextPreview: FC<TextPreviewProps> = ({ url, filename, mimeType: _mi
     );
   }
 
-  if (tooLarge) return renderFallbackCard("File too large to preview inline.");
-  if (error) return renderFallbackCard(error);
+  if (error) {
+    return (
+      <TextPreviewFallback
+        message={
+          error instanceof TextTooLargeError
+            ? "File too large to preview inline."
+            : "Failed to load preview."
+        }
+        filename={filename}
+        onDownload={handleDownload}
+      />
+    );
+  }
+
+  if (data == null) {
+    return null;
+  }
 
   return (
     <div
-      // typography: off-scale — verbatim source code rendering
-       
-      className="max-h-[80vh] max-w-[90vw] overflow-auto rounded bg-[var(--surface-base)] p-4 font-mono text-xs"
-      dangerouslySetInnerHTML={html ? { __html: html } : undefined}
-    />
+      className="max-h-[80vh] w-[min(90vw,800px)] overflow-auto rounded-lg p-6"
+      style={{
+        backgroundColor: "var(--surface-overlay)",
+        color: "var(--content-default)",
+      }}
+    >
+      <TextPreviewBody text={data} filename={filename} mimeType={mimeType} />
+    </div>
   );
-};
+}
+
+interface TextPreviewBodyProps {
+  text: string;
+  filename: string;
+  mimeType: string;
+}
+
+/**
+ * Resolved-content renderer: formatted markdown for markdown files, monospace
+ * source for everything else. Pure and exported so the markdown-vs-source
+ * decision can be unit-tested without the surrounding data fetch.
+ */
+export function TextPreviewBody({
+  text,
+  filename,
+  mimeType,
+}: TextPreviewBodyProps) {
+  if (isMarkdown(filename, mimeType)) {
+    return <FileMarkdown content={text} />;
+  }
+  return (
+    <pre className="whitespace-pre-wrap break-words font-mono text-body-small-default">
+      {text}
+    </pre>
+  );
+}
+
+interface TextPreviewFallbackProps {
+  message: string;
+  filename: string;
+  onDownload: () => void;
+}
+
+function TextPreviewFallback({
+  message,
+  filename,
+  onDownload,
+}: TextPreviewFallbackProps) {
+  return (
+    <div className="w-full max-w-sm rounded-lg border border-white/15 bg-white/[0.08] p-8 text-center">
+      <p className="text-body-medium-lighter text-white/80">{message}</p>
+      <Button
+        variant="ghost"
+        leftIcon={<Download />}
+        onClick={onDownload}
+        aria-label={`Download ${filename}`}
+        className="mt-4 text-white/70 hover:bg-white/10 hover:text-white"
+        tintColor="currentColor"
+      >
+        Download
+      </Button>
+    </div>
+  );
+}

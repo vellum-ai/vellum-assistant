@@ -10,9 +10,8 @@ import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-previ
 import { TextPreview } from "@/domains/chat/components/chat-attachments/text-preview";
 import { formatAttachmentSize } from "@/domains/chat/components/chat-attachments/utils";
 
-// File extensions we route to the TextPreview branch even when the upstream
-// MIME type is something generic like application/octet-stream. Keep in sync
-// with the language map inside `_TextPreview.tsx`.
+// File extensions routed to the inline text preview even when the upstream
+// MIME type is generic (e.g. application/octet-stream).
 const TEXT_PREVIEW_EXTENSIONS = new Set([
   "ts",
   "tsx",
