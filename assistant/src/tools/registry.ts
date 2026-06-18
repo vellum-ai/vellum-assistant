@@ -549,6 +549,26 @@ export function getMcpToolDefinitions(): Tool[] {
 }
 
 /**
+ * Return MCP tools grouped by their owning server ID. Each entry contains
+ * the server ID and the tool definitions registered by that server.
+ */
+export function getMcpToolsByServer(): Map<string, Tool[]> {
+  const byServer = new Map<string, Tool[]>();
+  for (const [name, owner] of ownersByName) {
+    if (owner.kind !== "mcp") continue;
+    const tool = tools.get(name);
+    if (!tool) continue;
+    let list = byServer.get(owner.id);
+    if (!list) {
+      list = [];
+      byServer.set(owner.id, list);
+    }
+    list.push(tool);
+  }
+  return byServer;
+}
+
+/**
  * Return the names of all currently registered skill-origin tools.
  */
 export function getSkillToolNames(): string[] {

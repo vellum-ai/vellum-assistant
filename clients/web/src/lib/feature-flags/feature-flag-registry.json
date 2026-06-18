@@ -417,6 +417,14 @@
       "label": "Channel Trust Floors",
       "description": "Expose the Channel Trust Floors settings card (per-channel inbound admission policy) on the Privacy settings page. When off, the card is hidden and channels fall back to their default admission floors. Off by default while the feature is in development.",
       "defaultEnabled": false
+    },
+    {
+      "id": "mcp-settings",
+      "scope": "assistant",
+      "key": "mcp-settings",
+      "label": "MCP Settings",
+      "description": "Show the MCP page in Settings for managing Model Context Protocol server connections: view status, enable/disable, configure, and inspect registered tools per server.",
+      "defaultEnabled": false
     }
   ]
 }
