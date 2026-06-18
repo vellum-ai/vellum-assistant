@@ -20,6 +20,9 @@
   "src/domains/home/components/schedule-detail-panel.tsx": [
     "settings"
   ],
+  "src/domains/home/components/system-task-detail-panel.tsx": [
+    "settings"
+  ],
   "src/domains/home/home-page.tsx": [
     "settings"
   ],

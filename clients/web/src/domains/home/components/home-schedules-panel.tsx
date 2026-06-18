@@ -1,4 +1,5 @@
 import { Calendar } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { HomeEmptyState } from "@/domains/home/components/home-empty-state";
 import { HomeScheduleRow } from "@/domains/home/components/home-schedule-row";
@@ -20,6 +21,12 @@ export interface HomeSchedulesPanelProps {
   selectedScheduleId: string | null;
   onStartNewChat: () => void;
   onCreateSchedule: () => void;
+  /**
+   * Built-in system schedules (heartbeat, consolidation, memory retrospective),
+   * rendered below the user list so both share one scroll region. Self-hides
+   * when there are no system tasks to show.
+   */
+  systemTasksSlot?: ReactNode;
 }
 
 export function HomeSchedulesPanel({
@@ -34,6 +41,7 @@ export function HomeSchedulesPanel({
   selectedScheduleId,
   onStartNewChat,
   onCreateSchedule,
+  systemTasksSlot,
 }: HomeSchedulesPanelProps) {
   const renderScheduleRow = (schedule: Schedule) => (
     <HomeScheduleRow
@@ -126,6 +134,11 @@ export function HomeSchedulesPanel({
   };
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">{renderBody()}</div>
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      {renderBody()}
+      {systemTasksSlot ? (
+        <div className="mt-[var(--app-spacing-lg)]">{systemTasksSlot}</div>
+      ) : null}
+    </div>
   );
 }

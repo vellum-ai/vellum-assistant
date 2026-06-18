@@ -1,18 +1,26 @@
+import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
+import { getAssistantHealthz } from "@/assistant/api";
 import { PageShell } from "@/components/page-shell";
 import { CreateScheduleModal } from "@/domains/settings/components/create-schedule-modal";
+import { SystemTasksSection } from "@/domains/settings/components/system-tasks-section";
+import { useSystemTasks } from "@/domains/settings/hooks/use-system-tasks";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import { ResizablePanel, Tabs } from "@vellumai/design-library";
 import { HomeSchedulesPanel } from "./components/home-schedules-panel";
 import { ScheduleDetailPanel } from "./components/schedule-detail-panel";
+import { SystemTaskDetailPanel } from "./components/system-task-detail-panel";
 import { HomeDetailPanel } from "./detail-panel/home-detail-panel";
 import { HomeFeedList } from "./home-feed-list";
 import { HomeTopHeader } from "./home-top-header";
 import { useHomeSchedulesData } from "./hooks/use-home-schedules-data";
 import { useHomeFeedQuery } from "./hooks/use-home-feed-query";
 import { useHomeStateQuery } from "./hooks/use-home-state-query";
+
+import type { SystemTaskKind } from "@/domains/settings/types/schedules";
 
 function HomePageSkeleton() {
   return (
@@ -55,9 +63,23 @@ export function HomePage({
   onOpenConversation,
 }: HomePageProps) {
   const isMobile = useIsMobile();
+  const tz = useEffectiveTimezone();
   const feedQuery = useHomeFeedQuery(assistantId);
   useHomeStateQuery(assistantId);
   const schedules = useHomeSchedulesData(assistantId);
+  const systemTasks = useSystemTasks(assistantId, tz);
+
+  // Gates the consolidation/retrospective "Memory settings" link the same way
+  // the schedules surface always has.
+  const { data: canOpenMemorySettings = false } = useQuery({
+    queryKey: ["assistant-memory-opt-out-capability", assistantId],
+    queryFn: async () => {
+      const result = await getAssistantHealthz(assistantId);
+      return result.ok && result.data.capabilities?.memoryOptOut === true;
+    },
+    retry: false,
+    staleTime: 10_000,
+  });
 
   const [createScheduleOpen, setCreateScheduleOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"schedules" | "notifications">(
@@ -67,6 +89,8 @@ export function HomePage({
   const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(
     null,
   );
+  const [selectedSystemTaskKind, setSelectedSystemTaskKind] =
+    useState<SystemTaskKind | null>(null);
 
   const selectedSchedule = selectedScheduleId
     ? (schedules.recurring.find((s) => s.id === selectedScheduleId) ??
@@ -79,16 +103,41 @@ export function HomePage({
     if (selectedScheduleId && !selectedSchedule) setSelectedScheduleId(null);
   }, [selectedScheduleId, selectedSchedule]);
 
-  // The right pane shows one detail at a time — selecting a schedule closes any
-  // open feed item, and vice versa.
+  const systemTaskAvailable =
+    selectedSystemTaskKind === "heartbeat"
+      ? systemTasks.heartbeatConfig != null
+      : selectedSystemTaskKind === "consolidation"
+        ? systemTasks.consolidationConfig?.available === true
+        : selectedSystemTaskKind === "retrospective"
+          ? systemTasks.retrospectiveConfig?.available === true
+          : false;
+
+  // Drop the selection if the task becomes unavailable (e.g. memory turned
+  // off), but only once its config has loaded so we don't clear mid-fetch.
+  useEffect(() => {
+    if (selectedSystemTaskKind && !systemTasks.isLoading && !systemTaskAvailable) {
+      setSelectedSystemTaskKind(null);
+    }
+  }, [selectedSystemTaskKind, systemTaskAvailable, systemTasks.isLoading]);
+
+  // The right pane shows one detail at a time — selecting one kind (user
+  // schedule, system task, or feed item) closes the others.
   const handleSelectSchedule = useCallback((scheduleId: string) => {
     setSelectedItem(null);
+    setSelectedSystemTaskKind(null);
     setSelectedScheduleId(scheduleId);
+  }, []);
+
+  const handleSelectSystemTask = useCallback((kind: SystemTaskKind) => {
+    setSelectedItem(null);
+    setSelectedScheduleId(null);
+    setSelectedSystemTaskKind(kind);
   }, []);
 
   const handleSelectItem = useCallback(
     (item: FeedItem) => {
       setSelectedScheduleId(null);
+      setSelectedSystemTaskKind(null);
       if (item.status === "new") {
         setSelectedItem({ ...item, status: "seen" });
         feedQuery.updateStatus.mutate({ itemId: item.id, status: "seen" });
@@ -183,10 +232,25 @@ export function HomePage({
     />
   ) : null;
 
+  const systemTaskDetail =
+    selectedSystemTaskKind && systemTaskAvailable ? (
+      <SystemTaskDetailPanel
+        kind={selectedSystemTaskKind}
+        assistantId={assistantId}
+        systemTasks={systemTasks}
+        canOpenMemorySettings={canOpenMemorySettings}
+        isMobile={isMobile}
+        onClose={() => setSelectedSystemTaskKind(null)}
+      />
+    ) : null;
+
+  // The schedules tab shows either a user-schedule or a system-task detail.
+  const scheduleAreaDetail = scheduleDetail ?? systemTaskDetail;
+
   // On mobile the detail takes over the whole screen (handled below). On
   // desktop it opens as a drawer nested under the active tab, so the Overview
   // title and the tabs stay fixed above it.
-  const mobileDetail = itemDetail ?? scheduleDetail;
+  const mobileDetail = itemDetail ?? scheduleAreaDetail;
 
   const withDrawer = (section: ReactNode, detail: ReactNode) =>
     detail && !isMobile ? (
@@ -221,6 +285,22 @@ export function HomePage({
       selectedScheduleId={selectedScheduleId}
       onStartNewChat={onStartNewChat}
       onCreateSchedule={() => setCreateScheduleOpen(true)}
+      systemTasksSlot={
+        <SystemTasksSection
+          heartbeatConfig={systemTasks.heartbeatConfig}
+          consolidationConfig={systemTasks.consolidationConfig}
+          retrospectiveConfig={systemTasks.retrospectiveConfig}
+          heartbeatUsage={systemTasks.heartbeatUsage}
+          consolidationUsage={systemTasks.consolidationUsage}
+          retrospectiveUsage={systemTasks.retrospectiveUsage}
+          isLoading={systemTasks.isLoading}
+          hasError={systemTasks.hasError}
+          onRetry={systemTasks.refetchAll}
+          onSelectHeartbeat={() => handleSelectSystemTask("heartbeat")}
+          onSelectConsolidation={() => handleSelectSystemTask("consolidation")}
+          onSelectRetrospective={() => handleSelectSystemTask("retrospective")}
+        />
+      }
     />
   );
 
@@ -269,7 +349,7 @@ export function HomePage({
         value="schedules"
         className="mt-[var(--app-spacing-lg)] flex min-h-0 flex-1 flex-col"
       >
-        {withDrawer(schedulesSection, scheduleDetail)}
+        {withDrawer(schedulesSection, scheduleAreaDetail)}
       </Tabs.Panel>
       <Tabs.Panel
         value="notifications"
