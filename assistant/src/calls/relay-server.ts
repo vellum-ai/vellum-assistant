@@ -8,6 +8,7 @@
 
 import { randomInt } from "node:crypto";
 
+import type { AdmissionPolicy } from "@vellumai/gateway-client";
 import type { ServerWebSocket } from "bun";
 
 import {
@@ -47,6 +48,7 @@ import {
   updateCallSession,
 } from "./call-store.js";
 import { ConversationRelayTransport } from "./call-transport.js";
+import { getChannelAdmissionPolicy } from "./channel-admission-reader.js";
 import { finalizeCall } from "./finalize-call.js";
 import {
   classifyWaitUtterance,
@@ -553,12 +555,26 @@ export class RelayConnection {
     const session = getCallSession(this.callSessionId);
     this.recordSetupBookkeeping(session, msg);
 
+    // Resolve the phone channel's inbound admission floor. The reader already
+    // fails open to `null`; the extra guard keeps a reader throw from ever
+    // aborting setup (admit when in doubt).
+    let admissionPolicy: AdmissionPolicy | null = null;
+    try {
+      admissionPolicy = await getChannelAdmissionPolicy("phone");
+    } catch (err) {
+      log.warn(
+        { err, callSessionId: this.callSessionId },
+        "Failed to resolve phone admission policy — admitting (fail open)",
+      );
+    }
+
     const { outcome, resolved } = routeSetup({
       callSessionId: this.callSessionId,
       session,
       from: msg.from,
       to: msg.to,
       customParameters: msg.customParameters,
+      admissionPolicy,
     });
 
     const initialTrustContext = toTrustContext(

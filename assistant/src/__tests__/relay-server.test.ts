@@ -25,6 +25,10 @@ import {
   test,
 } from "bun:test";
 
+import { ADMISSION_FLOOR } from "@vellumai/gateway-client";
+
+import { TRUST_CLASS_RANK } from "../runtime/actor-trust-resolver.js";
+
 // ── Platform + logger mocks (must come before any source imports) ────
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -98,6 +102,58 @@ const mockConfig = {
 mock.module("../config/loader.js", () => ({
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
+}));
+
+// ── Channel admission policy reader mock ────────────────────────────
+//
+// handleSetup resolves the phone admission floor via this reader and forwards
+// it into routeSetup. Tests drive the floor by setting `mockAdmissionPolicy`
+// (or making the reader throw to exercise the fail-open guard).
+
+let mockAdmissionPolicy:
+  | import("@vellumai/gateway-client").AdmissionPolicy
+  | null = null;
+let mockAdmissionReaderThrows = false;
+mock.module("../calls/channel-admission-reader.js", () => ({
+  getChannelAdmissionPolicy: async () => {
+    if (mockAdmissionReaderThrows) throw new Error("reader boom");
+    return mockAdmissionPolicy;
+  },
+}));
+
+// Real floor semantics with the `phone` exemption bypassed, mirroring
+// relay-setup-router.test.ts. Until PR 6 removes `phone` from the exempt set,
+// the real enforceAdmissionPolicy short-circuits to admit for `phone`, so the
+// deny path could not be exercised end-to-end without this.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realAdmissionPolicyModule = require("../runtime/routes/inbound-stages/admission-policy.js");
+mock.module("../runtime/routes/inbound-stages/admission-policy.js", () => ({
+  ...realAdmissionPolicyModule,
+  enforceAdmissionPolicy: (input: {
+    trustClass: string;
+    memberStatus: string | undefined;
+    policy: import("@vellumai/gateway-client").AdmissionPolicy;
+  }) => {
+    if (input.memberStatus === "blocked" || input.memberStatus === "revoked") {
+      return {
+        admitted: false,
+        reason:
+          input.memberStatus === "blocked" ? "member_blocked" : "member_revoked",
+        shouldChallenge: false,
+        effectivePolicy: input.policy,
+      };
+    }
+    const rank =
+      (TRUST_CLASS_RANK as Record<string, number>)[input.trustClass] ?? 0;
+    const floor = ADMISSION_FLOOR[input.policy];
+    if (rank >= floor) return { admitted: true };
+    return {
+      admitted: false,
+      reason: `admission_policy_${input.policy}`,
+      shouldChallenge: false,
+      effectivePolicy: input.policy,
+    };
+  },
 }));
 
 // ── TTS provider mocks (for call-speech-output) ─────────────────────
@@ -404,6 +460,8 @@ describe("relay-server", () => {
     activeRelayConnections.clear();
     mockUserReference = "my human";
     mockAssistantName = "Vellum";
+    mockAdmissionPolicy = null;
+    mockAdmissionReaderThrows = false;
     mockSendMessage.mockImplementation(createMockProviderResponse(["Hello"]));
     mockConfig.calls.verification.enabled = false;
     mockConfig.calls.verification.maxAttempts = 3;
@@ -2718,6 +2776,122 @@ describe("relay-server", () => {
 
     // Let delayed endSession callback flush
     await new Promise((resolve) => setTimeout(resolve, 10));
+
+    relay.destroy();
+  });
+
+  // ── Inbound admission floor (reader → routeSetup wiring) ───────────
+
+  test("admission floor: reader floor that excludes caller denies the call end-to-end", async () => {
+    ensureConversation("conv-admission-floor-deny");
+    const session = createCallSession({
+      conversationId: "conv-admission-floor-deny",
+      provider: "twilio",
+      fromNumber: "+15557776666",
+      toNumber: "+15551111111",
+    });
+
+    // A trusted contact (rank 3) is below the `guardian_only` floor (rank 4).
+    addTrustedVoiceContact("+15557776666");
+    mockAdmissionPolicy = "guardian_only";
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_admission_floor_deny",
+        from: "+15557776666",
+        to: "+15551111111",
+      }),
+    );
+
+    // Floor-excluded caller takes the deny path.
+    expect(relay.getConnectionState()).toBe("disconnecting");
+
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe("failed");
+
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === "text");
+    expect(
+      textMessages.some((m) => (m.token ?? "").includes("not authorized")),
+    ).toBe(true);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    relay.destroy();
+  });
+
+  test("admission floor: null policy from reader leaves the call flow unchanged", async () => {
+    ensureConversation("conv-admission-floor-null");
+    const session = createCallSession({
+      conversationId: "conv-admission-floor-null",
+      provider: "twilio",
+      fromNumber: "+15557776666",
+      toNumber: "+15551111111",
+    });
+
+    addTrustedVoiceContact("+15557776666");
+    mockAdmissionPolicy = null; // no floor supplied
+
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["Hello, how can I help you?"]),
+    );
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_admission_floor_null",
+        from: "+15557776666",
+        to: "+15551111111",
+      }),
+    );
+
+    // Trusted contact proceeds normally — no deny.
+    expect(relay.getConnectionState()).toBe("connected");
+
+    const updated = getCallSession(session.id);
+    expect(updated!.status).toBe("in_progress");
+
+    relay.destroy();
+  });
+
+  test("admission floor: reader throw fails open and admits the caller", async () => {
+    ensureConversation("conv-admission-floor-throw");
+    const session = createCallSession({
+      conversationId: "conv-admission-floor-throw",
+      provider: "twilio",
+      fromNumber: "+15557776666",
+      toNumber: "+15551111111",
+    });
+
+    addTrustedVoiceContact("+15557776666");
+    mockAdmissionReaderThrows = true; // reader cannot break setup
+
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["Hello, how can I help you?"]),
+    );
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_admission_floor_throw",
+        from: "+15557776666",
+        to: "+15551111111",
+      }),
+    );
+
+    // Fail open: reader failure admits the caller; setup completes normally.
+    expect(relay.getConnectionState()).toBe("connected");
+    const updated = getCallSession(session.id);
+    expect(updated!.status).toBe("in_progress");
 
     relay.destroy();
   });
