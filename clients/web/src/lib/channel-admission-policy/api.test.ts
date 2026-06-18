@@ -59,9 +59,10 @@ describe("isInternalChannel", () => {
 });
 
 describe("fetchChannelPolicies", () => {
-  test("filters internal channels out of the gateway response", async () => {
-    // §8.1: even if the gateway forgets to omit internal channels, the
-    // client double-filters so the UI never offers a way to lock them.
+  test("filters internal and hidden channels out of the gateway response", async () => {
+    // Even if the gateway forgets to omit internal (platform/a2a) or hidden
+    // (vellum/whatsapp) channels, the client double-filters so the UI never
+    // surfaces them.
     mockGet = mock(async () =>
       ok({
         policies: [
@@ -73,6 +74,12 @@ describe("fetchChannelPolicies", () => {
           },
           {
             channelType: "vellum",
+            policy: "trusted_contacts",
+            note: null,
+            updatedAt: null,
+          },
+          {
+            channelType: "whatsapp",
             policy: "trusted_contacts",
             note: null,
             updatedAt: null,
@@ -101,11 +108,10 @@ describe("fetchChannelPolicies", () => {
 
     const policies = await fetchChannelPolicies("asst-1");
 
-    // platform/a2a are filtered; vellum is client-controllable and kept.
+    // platform/a2a (internal) and vellum/whatsapp (hidden) are filtered.
     expect(policies.map((p) => p.channelType).sort()).toEqual([
       "email",
       "slack",
-      "vellum",
     ]);
   });
 
