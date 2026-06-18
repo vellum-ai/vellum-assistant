@@ -535,7 +535,7 @@ export function ContactsPage({
     },
   });
 
-  const handleGuardianVerifyChannel = useCallback(
+  const handleVerifyChannel = useCallback(
     (type: string) => {
       if (!selectedContact) return;
       const channel = selectedContact.channels.find(
@@ -661,7 +661,7 @@ export function ContactsPage({
               onSetupChannel={
                 onStartSetupConversation ? handleGuardianEnableChannel : undefined
               }
-              onVerifyChannel={handleGuardianVerifyChannel}
+              onVerifyChannel={handleVerifyChannel}
               onRevokeChannel={handleRevokeChannel}
               onGenerateInviteLink={a2aChannel ? handleOpenInviteLink : undefined}
             />
@@ -670,6 +670,7 @@ export function ContactsPage({
               contact={optimisticContact}
               savePending={updateMutation.isPending}
               deletePending={deleteMutation.isPending}
+              verifyPending={verifyChannelMutation.isPending}
               mergePending={mergeMutation.isPending}
               canMerge={canMerge}
               availableChannels={availableChannels}
@@ -687,6 +688,7 @@ export function ContactsPage({
               onSetupChannel={
                 onStartSetupConversation ? handleContactSetupChannel : undefined
               }
+              onVerifyChannel={handleVerifyChannel}
               onRevokeChannel={handleRevokeChannel}
             />
           )
