@@ -602,12 +602,9 @@ function useAssistantBannerConfig(): BannerConfig | null {
     };
   }
 
-  // A local / self-hosted assistant can surface on a host that has no local-mode
-  // transport: the managed web build and the remote-web tunnel both expose it
-  // via the platform `is_local` flag but can't reach the local daemon from here
-  // (no `/assistant/__local/*`; see runtime/local-mode-host.ts). Waking isn't
-  // possible from this host, so the banner is informative and action-free — the
-  // daemon is started from the desktop app or the CLI.
+  // A local / self-hosted assistant can surface where local-mode operations
+  // aren't available (managed web, remote-web tunnel). There's no transport to
+  // wake it from here, so the banner is informative and action-free.
   if (!isLocalModeHostAvailable() && canWakeLocalHealth(localHealth)) {
     return {
       tone: "neutral",

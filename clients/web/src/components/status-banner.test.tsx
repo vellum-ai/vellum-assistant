@@ -468,9 +468,8 @@ describe("StatusBanner", () => {
     });
 
     test("shows an informative, action-free banner when no local-mode host is available", () => {
-      // Managed web / remote-web tunnel: a local assistant surfaces via the
-      // platform `is_local` flag, but there's no `/assistant/__local/*` to wake
-      // it through, so the banner must not offer a "Wake up" button.
+      // Where local-mode operations aren't available, the banner must not offer
+      // a "Wake up" button that can't work.
       localHealthMock = "unreachable";
       isLocalModeHostAvailableMock = false;
 

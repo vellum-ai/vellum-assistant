@@ -27,9 +27,8 @@ type WindowWithConfig = {
 };
 
 beforeEach(() => {
-  // The dev server and `vellum client` inject this config; its presence is how
-  // the seam knows a local-mode host backs the web/dev branch. Set it so the
-  // HTTP transport runs instead of short-circuiting as "unavailable".
+  // Injected config marks the web/dev branch as an available local-mode host,
+  // so the HTTP transport runs rather than short-circuiting.
   (window as WindowWithConfig).__VELLUM_CONFIG__ = {};
 });
 
@@ -436,10 +435,8 @@ describe("isLocalModeHostAvailable", () => {
 });
 
 describe("web/dev transport resilience", () => {
-  // A host without the local-mode transport answers a POST to /assistant/__local/*
-  // with a 405 and a non-JSON body, so Safari's Response.json() throws
-  // "SyntaxError: The string did not match the expected pattern." The seam folds
-  // that into its result contract rather than letting it escape as a throw.
+  // A non-JSON error body makes Response.json() throw; the seam resolves to
+  // `{ ok: false }` rather than letting it escape as a throw.
   const nonJsonResponse = () =>
     mock(async () => ({
       status: 405,

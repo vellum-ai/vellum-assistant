@@ -117,10 +117,7 @@ export function requiresGuardianReprovision(error: unknown): boolean {
 // Transport availability
 // ---------------------------------------------------------------------------
 
-/**
- * Default failure for a local-mode operation that can't run because no
- * local-mode host backs this runtime. Wake passes its own actionable variant.
- */
+/** Failure surfaced when no local-mode host backs this runtime. */
 const LOCAL_HOST_UNAVAILABLE_ERROR =
   "The local assistant host isn't available here.";
 
@@ -131,25 +128,15 @@ function readInjectedConfig(): { mode?: string } | undefined {
 }
 
 /**
- * Whether this runtime is backed by a host that can actually perform local-mode
- * host operations — i.e. one that serves `/assistant/__local/*`: the Electron
- * IPC bridge, the Vite dev server, or the `vellum client` CLI server.
+ * Whether a local-mode host (the Electron IPC bridge, the Vite dev server, or
+ * the `vellum client` CLI server) backs this runtime and can serve
+ * `/assistant/__local/*`. The managed web build and the remote-web tunnel
+ * cannot, yet both still surface local / self-hosted assistants via the platform
+ * `is_local` flag — so callers and UI MUST consult this before offering a local
+ * action (wake / hatch / retire).
  *
- * It is deliberately NOT available on:
- *   - the managed web build (a static GCS bucket — POSTs to `/assistant/__local/*`
- *     get a `405` with a non-JSON body), or
- *   - the remote-web tunnel (whose nginx ingress returns `404` for
- *     `/assistant/__local/*`; see `cli/src/lib/nginx-ingress.ts`).
- *
- * Both still surface local / self-hosted assistants through the platform
- * `is_local` flag, so callers and UI MUST consult this before offering a local
- * action (wake / hatch / retire). It is the single source of truth for whether
- * the local-mode transport is reachable from this host.
- *
- * The signal is the runtime config those capable hosts inject — the dev plugin
- * (`vite-plugin-local-mode.ts`) and `vellum client` set `window.__VELLUM_CONFIG__`,
- * while the managed build ships none — minus remote-gateway mode, where the
- * ingress strips the local routes even though config is injected.
+ * Detected from the runtime config the capable hosts inject
+ * (`window.__VELLUM_CONFIG__`), excluding remote-gateway mode.
  */
 export function isLocalModeHostAvailable(): boolean {
   if (isElectron()) return true;
@@ -160,14 +147,9 @@ export function isLocalModeHostAvailable(): boolean {
 }
 
 /**
- * POST a local-mode command to the dev / CLI host and read back its
- * `{ ok, ... }` result. Always resolves to a result; never throws.
- *
- * Two cases resolve to a structured `{ ok: false }`:
- *   1. No local-mode host backs this runtime — short-circuits without a request.
- *   2. The host answers with a non-JSON body (a static host's `405`/HTML page, a
- *      proxy `502`), so `Response.json()` rejects with a parse error — caught
- *      and returned as a failure result.
+ * POST a local-mode command and read back its `{ ok, ... }` result. Always
+ * resolves, never throws: an unavailable host (no request sent) and a non-JSON
+ * response both resolve to `{ ok: false }`.
  */
 async function postLocalCommand<T extends { ok: boolean }>(
   path: string,
