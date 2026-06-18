@@ -16,6 +16,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   afterAll,
+  beforeAll,
   beforeEach,
   describe,
   expect,
@@ -116,8 +117,29 @@ let mockAdmissionPolicy:
 // Optional gate to hold the reader open mid-setup so tests can drive the
 // race window where a prompt arrives while handleSetup is still awaiting.
 let mockAdmissionGate: Promise<void> | null = null;
+// `mock.module` is process-global in Bun and leaks into sibling files that run
+// later in the same `bun test` invocation. channel-admission-reader.test.ts
+// imports the reader for real, so an unconditional stub here would feed it this
+// stub and break its assertions. Delegate to the real implementation unless
+// this file's tests are active (`admissionMockActive`, toggled in
+// beforeAll/afterAll). Snapshot the real exports into a plain object NOW,
+// before the stub registers — a module namespace is a live view, so reading
+// the real export after the stub installs would resolve back to the stub
+// (infinite recursion).
+const realChannelAdmissionReaderModule = {
+  ...(await import("../calls/channel-admission-reader.js")),
+};
+let admissionMockActive = false;
 mock.module("../calls/channel-admission-reader.js", () => ({
-  getChannelAdmissionPolicy: async () => {
+  ...realChannelAdmissionReaderModule,
+  getChannelAdmissionPolicy: async (
+    channelType: import("../channels/types.js").ChannelId,
+  ) => {
+    if (!admissionMockActive) {
+      return realChannelAdmissionReaderModule.getChannelAdmissionPolicy(
+        channelType,
+      );
+    }
     if (mockAdmissionGate) await mockAdmissionGate;
     return mockAdmissionPolicy;
   },
@@ -297,7 +319,15 @@ import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 initializeDb();
 
+// Activate the channel-admission-reader stub only while this file's tests run,
+// so the registered (process-global) mock delegates to the real module for
+// sibling files that load later in the same worker.
+beforeAll(() => {
+  admissionMockActive = true;
+});
+
 afterAll(() => {
+  admissionMockActive = false;
   resetDbForTesting();
 });
 
