@@ -56,7 +56,7 @@ export type { IpcRequest, IpcResponse, Logger } from "./types.js";
 
 export { noopLogger } from "./types.js";
 
-// Admission policy contract (gateway → daemon) — Zod schemas + derived types + exempt channels
+// Admission policy contract (gateway → daemon) — Zod schemas + derived types + channel sets
 export {
   ADMISSION_FLOOR,
   ADMISSION_POLICY_DEFAULT,
@@ -67,8 +67,6 @@ export {
   isAdmissionPolicy,
   isAdmissionPolicyExemptChannel,
   isAdmissionPolicyHiddenChannel,
-  isKillSwitchForbiddenChannel,
-  KILL_SWITCH_FORBIDDEN_CHANNELS,
 } from "./admission-policy-contract.js";
 
 export type { AdmissionPolicy } from "./admission-policy-contract.js";

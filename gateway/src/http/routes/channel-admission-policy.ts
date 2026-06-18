@@ -14,7 +14,6 @@ import { z } from "zod";
 import {
   isAdmissionPolicyExemptChannel,
   isAdmissionPolicyHiddenChannel,
-  isKillSwitchForbiddenChannel,
 } from "@vellumai/gateway-client";
 import {
   ADMISSION_POLICY_DEFAULT,
@@ -126,6 +125,20 @@ export function createChannelAdmissionPolicySetHandler() {
       );
     }
 
+    // Hidden channels (`vellum`, `whatsapp`) are managed automatically at their
+    // default floor and not user-configurable. Reject writes so a stale row
+    // can't strand them outside the (hidden) Channel Trust Floors UI — the
+    // startup seed also resets any drift, this just blocks new drift at the door.
+    if (isAdmissionPolicyHiddenChannel(channelType)) {
+      return Response.json(
+        {
+          error: `Channel "${channelType}" is managed automatically and not user-configurable.`,
+          channelType,
+        },
+        { status: 403 },
+      );
+    }
+
     if (!isChannelId(channelType)) {
       return Response.json(
         {
@@ -153,21 +166,6 @@ export function createChannelAdmissionPolicySetHandler() {
           issues: parsed.error.issues,
         },
         { status: 400 },
-      );
-    }
-
-    // `vellum` is client-configurable but must never be the `no_one` kill
-    // switch — that would lock the guardian out of their own local client.
-    if (
-      isKillSwitchForbiddenChannel(channelType) &&
-      parsed.data.policy === "no_one"
-    ) {
-      return Response.json(
-        {
-          error: `Channel "${channelType}" cannot be set to "no_one".`,
-          channelType,
-        },
-        { status: 422 },
       );
     }
 
@@ -206,7 +204,19 @@ export function createChannelAdmissionPolicyDeleteHandler() {
     if (isExemptChannelType(channelType)) {
       return Response.json(
         {
-          error: `Channel "${channelType}" is internal (vellum/platform/a2a) and is not user-configurable.`,
+          error: `Channel "${channelType}" is internal (platform/a2a/phone) and is not user-configurable.`,
+        },
+        { status: 403 },
+      );
+    }
+
+    // Hidden channels (`vellum`, `whatsapp`) are managed automatically — a
+    // delete would just drop the row and let the next seed re-pin the default,
+    // so reject it rather than imply the user can reset the floor here.
+    if (isAdmissionPolicyHiddenChannel(channelType)) {
+      return Response.json(
+        {
+          error: `Channel "${channelType}" is managed automatically and not user-configurable.`,
         },
         { status: 403 },
       );

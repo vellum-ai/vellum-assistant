@@ -19,8 +19,8 @@ export const ADMISSION_POLICY_DEFAULT: AdmissionPolicy = "trusted_contacts";
 /**
  * Channels the user cannot configure at all. `platform` is the vembda-managed
  * control plane, `a2a` is peer-to-peer assistant traffic — neither has a
- * human-trust model. (`vellum` IS configurable; see
- * {@link KILL_SWITCH_FORBIDDEN_CHANNELS}.)
+ * human-trust model. (`vellum` is enforced at runtime but hidden from the UI;
+ * see {@link HIDDEN_CHANNELS}.)
  */
 export const INTERNAL_CHANNELS = new Set<string>(["platform", "a2a"]);
 
@@ -35,17 +35,6 @@ export const HIDDEN_CHANNELS = new Set<string>(["vellum", "whatsapp"]);
 
 export function isHiddenChannel(channelType: string): boolean {
   return HIDDEN_CHANNELS.has(channelType);
-}
-
-/**
- * Channels that are configurable but may not be set to `no_one`. `vellum` is
- * the local desktop/web client surface — a `no_one` kill switch there would
- * lock the guardian out of their own app, so the picker omits that option.
- */
-export const KILL_SWITCH_FORBIDDEN_CHANNELS = new Set<string>(["vellum"]);
-
-export function isKillSwitchForbiddenChannel(channelType: string): boolean {
-  return KILL_SWITCH_FORBIDDEN_CHANNELS.has(channelType);
 }
 
 export interface ChannelPolicyView {
