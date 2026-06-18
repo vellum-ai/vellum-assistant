@@ -1627,8 +1627,8 @@ describe("UsageTelemetryReporter", () => {
 
     // Rows accumulated before any flush ever advanced the watermark — e.g.
     // an opt-out period under an older build that gated reporter
-    // construction on collectUsageData while the always-on audit listener
-    // kept writing.
+    // construction on the usage-data opt-out while the always-on audit
+    // listener kept writing.
     seedToolInvocation({
       id: "ti-opt-out-window",
       createdAt: Date.now() - 60_000,
