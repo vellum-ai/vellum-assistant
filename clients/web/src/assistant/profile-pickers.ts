@@ -78,28 +78,17 @@ export function selectSeedProfileForOverride<T extends ProfilePickerEntry>(
  *
  * `selectedNames` accepts loose values (string | null | undefined) so
  * callers can splat the raw active-profile state without pre-filtering.
- *
- * `options.excludeProfile` removes a profile by key outright, even if it's
- * active and not in `selectedNames`. The chat (composer) picker passes the
- * `llm.advisorProfile` here: the profile the advisor itself runs on must not
- * be selectable as the assistant's chat profile. Unlike the disabled carve-
- * out, this exclusion is unconditional — the advisor profile should never
- * surface in the chat picker regardless of selection state.
  */
 export function visibleProfilesForPicker<T extends ProfilePickerEntry>(
   profiles: ReadonlyArray<T>,
   selectedNames: ReadonlyArray<string | null | undefined>,
-  options?: { excludeProfile?: string | null | undefined },
 ): T[] {
   const selected = new Set<string>();
   for (const n of selectedNames) {
     if (n) selected.add(n);
   }
-  const excludeProfile = options?.excludeProfile || undefined;
   return profiles.filter(
-    (p) =>
-      p.name !== excludeProfile &&
-      (p.status !== "disabled" || selected.has(p.name)),
+    (p) => p.status !== "disabled" || selected.has(p.name),
   );
 }
 

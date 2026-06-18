@@ -91,9 +91,6 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
     assistantId,
   );
   const globalActiveProfile = configQuery.data?.llm?.activeProfile ?? null;
-  // The profile the advisor itself runs on is excluded from the chat picker —
-  // it can't be selected as the assistant's chat profile.
-  const advisorProfile = configQuery.data?.llm?.advisorProfile ?? null;
   const conversationProfileOverride =
     conversationQuery.data?.conversation.inferenceProfile ?? null;
   const serverEffectiveProfile = conversationProfileOverride ?? globalActiveProfile;
@@ -375,17 +372,10 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
   const visibleProfileEntries = useMemo(
     () =>
       gateAutoProfile(
-        visibleProfilesForPicker(orderedProfileEntries, [profileActiveKey], {
-          excludeProfile: advisorProfile,
-        }),
+        visibleProfilesForPicker(orderedProfileEntries, [profileActiveKey]),
         queryComplexityRoutingEnabled,
       ),
-    [
-      orderedProfileEntries,
-      profileActiveKey,
-      advisorProfile,
-      queryComplexityRoutingEnabled,
-    ],
+    [orderedProfileEntries, profileActiveKey, queryComplexityRoutingEnabled],
   );
 
   // Quick-add is owned by the top-level ProfileQuickAddProvider (chat must not
