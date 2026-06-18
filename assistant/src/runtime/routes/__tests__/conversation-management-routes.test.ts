@@ -168,6 +168,15 @@ describe("POST /v1/conversations (createConversation)", () => {
     expect(row?.title).toBe("New Conversation");
     expect(row?.isAutoTitle).toBe(1);
   });
+
+  test("non-string title → BadRequestError (not a 500), no row created", () => {
+    // The shared route adapter doesn't runtime-validate the body, so the
+    // handler must reject a malformed title before `.trim()` throws.
+    expect(() =>
+      createHandler({ body: { conversationType: "standard", title: 123 } }),
+    ).toThrow(/title must be a string/);
+    expect(getDb().select().from(conversations).all()).toHaveLength(0);
+  });
 });
 
 describe("PUT /v1/conversations/:id/inference-profile", () => {

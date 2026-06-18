@@ -94,7 +94,13 @@ function cancelScheduleIfLast(conversationId: string): void {
 function handleCreateConversation({ body = {}, headers }: RouteHandlerArgs) {
   const conversationKey =
     (body.conversationKey as string | undefined) ?? crypto.randomUUID();
-  const customTitle = (body.title as string | undefined)?.trim() || undefined;
+  // The shared route adapter does not runtime-validate the body against the
+  // Zod requestBody (it's codegen-only), so guard the type before trimming —
+  // a malformed `{ title: 123 }` would otherwise throw on `.trim()` and 500.
+  if (body.title !== undefined && typeof body.title !== "string") {
+    throw new BadRequestError("title must be a string");
+  }
+  const customTitle = body.title?.trim() || undefined;
   const result = getOrCreateConversation(conversationKey, {
     conversationType: "standard",
   });
