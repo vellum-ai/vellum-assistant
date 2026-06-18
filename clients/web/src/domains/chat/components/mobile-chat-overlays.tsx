@@ -14,6 +14,7 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
 
@@ -21,6 +22,7 @@ import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay";
 import { MobileDocumentOverlay } from "@/domains/chat/components/mobile-document-overlay";
 import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-subagent-detail-overlay";
 import { MobileToolDetailOverlay } from "@/domains/chat/components/mobile-tool-detail-overlay";
+import { MobileWorkflowDetailOverlay } from "@/domains/chat/components/mobile-workflow-detail-overlay";
 import { useMobileOverlayTarget } from "@/domains/chat/hooks/use-mobile-overlay-target";
 
 export function MobileChatOverlays() {
@@ -34,7 +36,9 @@ export function MobileChatOverlays() {
   const isAppMinimized = useViewerStore.use.isAppMinimized();
   const activeSubagentId = useViewerStore.use.activeSubagentId();
   const activeToolDetail = useViewerStore.use.activeToolDetail();
+  const activeWorkflowRunId = useViewerStore.use.activeWorkflowRunId();
   const subagentById = useSubagentStore.use.byId();
+  const workflowById = useWorkflowStore.use.byId();
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
   const handleCloseApp = useCallback(() => {
@@ -82,6 +86,21 @@ export function MobileChatOverlays() {
     void useSubagentStore.getState().fetchDetailIfNeeded(aid, subagentId);
   }, []);
 
+  const handleCloseWorkflowDetail = useCallback(() => {
+    useViewerStore.getState().closeWorkflowDetail();
+  }, []);
+
+  const handleStopWorkflow = useCallback(
+    (runId: string) => void useWorkflowStore.getState().abortRun(runId),
+    [],
+  );
+
+  const handleRequestWorkflowJournal = useCallback((runId: string) => {
+    const aid = useResolvedAssistantsStore.getState().activeAssistantId;
+    if (!aid) return;
+    void useWorkflowStore.getState().fetchJournalIfNeeded(aid, runId);
+  }, []);
+
   const handleCloseToolDetail = useCallback(() => {
     useViewerStore.getState().closeToolDetail();
   }, []);
@@ -122,6 +141,16 @@ export function MobileChatOverlays() {
         onClose={handleCloseSubagentDetail}
         onStop={handleStopSubagent}
         onRequestDetail={handleRequestSubagentDetail}
+      />
+      <MobileWorkflowDetailOverlay
+        entry={
+          mainView === "workflow-detail" && activeWorkflowRunId
+            ? workflowById[activeWorkflowRunId] ?? null
+            : null
+        }
+        onClose={handleCloseWorkflowDetail}
+        onStop={handleStopWorkflow}
+        onRequestJournal={handleRequestWorkflowJournal}
       />
       <MobileToolDetailOverlay
         detail={mainView === "tool-detail" ? activeToolDetail : null}
