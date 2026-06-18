@@ -385,6 +385,8 @@ export {
   FeedItemDetailPanelKindSchema,
   FeedItemDetailPanelSchema,
   FeedItemSchema,
+  type FeedItemSourceType,
+  FeedItemSourceTypeSchema,
   type FeedItemStatus,
   FeedItemStatusSchema,
   type FeedItemType,

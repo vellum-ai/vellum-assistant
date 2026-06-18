@@ -12116,6 +12116,19 @@ paths:
                           propertyNames:
                             type: string
                           additionalProperties: {}
+                        sourceType:
+                          type: string
+                          enum:
+                            - heartbeat
+                            - memory_consolidation
+                            - schedule
+                            - auto_analysis
+                            - user
+                            - other
+                        sourceKey:
+                          type: string
+                        sourceLabel:
+                          type: string
                         createdAt:
                           type: string
                       required:
@@ -12296,6 +12309,19 @@ paths:
                     propertyNames:
                       type: string
                     additionalProperties: {}
+                  sourceType:
+                    type: string
+                    enum:
+                      - heartbeat
+                      - memory_consolidation
+                      - schedule
+                      - auto_analysis
+                      - user
+                      - other
+                  sourceKey:
+                    type: string
+                  sourceLabel:
+                    type: string
                   createdAt:
                     type: string
                 required:
@@ -12508,6 +12534,19 @@ paths:
                           propertyNames:
                             type: string
                           additionalProperties: {}
+                        sourceType:
+                          type: string
+                          enum:
+                            - heartbeat
+                            - memory_consolidation
+                            - schedule
+                            - auto_analysis
+                            - user
+                            - other
+                        sourceKey:
+                          type: string
+                        sourceLabel:
+                          type: string
                         createdAt:
                           type: string
                       required:
@@ -17936,6 +17975,19 @@ paths:
                         propertyNames:
                           type: string
                         additionalProperties: {}
+                      sourceType:
+                        type: string
+                        enum:
+                          - heartbeat
+                          - memory_consolidation
+                          - schedule
+                          - auto_analysis
+                          - user
+                          - other
+                      sourceKey:
+                        type: string
+                      sourceLabel:
+                        type: string
                       createdAt:
                         type: string
                     required:
