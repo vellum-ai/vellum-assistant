@@ -482,7 +482,7 @@ export function AssistantSideMenu({
         <SideMenu.Separator />
       </SideMenu.Header>
 
-      <SideMenu.Body className="gap-1 pt-3 max-md:pt-4">
+      <SideMenu.Body className="gap-[2px] pt-3 max-md:pt-4">
         {collapsed && variant === "rail" ? (
           <div className="flex flex-col items-center gap-1">
             {headerActions}
