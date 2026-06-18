@@ -13,11 +13,13 @@
 
 import type { ChannelId } from "../channels/types.js";
 import {
-  createCanonicalGuardianDelivery,
   createCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
 } from "../memory/canonical-guardian-store.js";
-import { recordCanonicalChannelDelivery } from "../notifications/canonical-delivery-recorder.js";
+import {
+  recordApprovalCardDelivery,
+  recordChannelDeliveryResult,
+} from "../notifications/canonical-delivery-recorder.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { getLogger } from "../util/logger.js";
 import { getGuardianBinding } from "./channel-verification-service.js";
@@ -167,10 +169,10 @@ export function createOrReuseToolGrantRequest(
     },
     dedupeKey: `tool-grant-request:${canonicalRequest.id}`,
     onConversationCreated: (info) => {
-      createCanonicalGuardianDelivery({
+      recordApprovalCardDelivery({
         requestId: canonicalRequest.id,
-        destinationChannel: "vellum",
-        destinationConversationId: info.conversationId,
+        channel: "vellum",
+        conversationId: info.conversationId,
       });
     },
   });
@@ -179,7 +181,7 @@ export function createOrReuseToolGrantRequest(
   void signalPromise.then((signalResult) => {
     for (const result of signalResult.deliveryResults) {
       if (result.channel === "vellum") continue; // handled in onConversationCreated
-      recordCanonicalChannelDelivery(canonicalRequest.id, result);
+      recordChannelDeliveryResult(canonicalRequest.id, result);
     }
   });
 

@@ -13,11 +13,11 @@
  */
 
 import type { TrustContext } from "../daemon/trust-context.js";
+import type { CanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import {
-  type CanonicalGuardianRequest,
-  createCanonicalGuardianDelivery,
-} from "../memory/canonical-guardian-store.js";
-import { recordCanonicalChannelDelivery } from "../notifications/canonical-delivery-recorder.js";
+  recordApprovalCardDelivery,
+  recordChannelDeliveryResult,
+} from "../notifications/canonical-delivery-recorder.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
@@ -180,10 +180,10 @@ export function bridgeConfirmationRequestToGuardian(
     },
     dedupeKey: `tc-confirmation-request:${canonicalRequest.id}`,
     onConversationCreated: (info) => {
-      createCanonicalGuardianDelivery({
+      recordApprovalCardDelivery({
         requestId: canonicalRequest.id,
-        destinationChannel: "vellum",
-        destinationConversationId: info.conversationId,
+        channel: "vellum",
+        conversationId: info.conversationId,
       });
     },
   });
@@ -193,7 +193,7 @@ export function bridgeConfirmationRequestToGuardian(
     .then((signalResult) => {
       for (const result of signalResult.deliveryResults) {
         if (result.channel === "vellum") continue; // handled in onConversationCreated
-        recordCanonicalChannelDelivery(canonicalRequest.id, result);
+        recordChannelDeliveryResult(canonicalRequest.id, result);
       }
     })
     .catch((err) => {
