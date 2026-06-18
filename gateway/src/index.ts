@@ -2046,7 +2046,7 @@ async function main() {
       threadModeRaw === "mention_only" ||
       threadModeRaw === "mention_then_thread"
         ? threadModeRaw
-        : "mention_only";
+        : "mention_then_thread";
 
     slackSocketClient = createSlackSocketModeClient(
       { appToken, botToken, gatewayConfig: config, threadMode },

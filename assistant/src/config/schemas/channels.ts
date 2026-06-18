@@ -141,7 +141,7 @@ export const SlackConfigSchema = z
         error:
           "slack.threadMode must be 'mention_only' or 'mention_then_thread'",
       })
-      .default("mention_only")
+      .default("mention_then_thread")
       .describe(
         "Controls whether the bot follows threads after an initial @mention. " +
           "'mention_only' requires every message to @-mention the bot. " +

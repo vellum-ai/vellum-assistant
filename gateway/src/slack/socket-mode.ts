@@ -952,7 +952,8 @@ export class SlackSocketModeClient {
               ? "reaction_added"
               : isReactionRemoved
                 ? "reaction_removed"
-                : isActiveThreadReply
+                : isActiveThreadReply &&
+                    this.config.threadMode === "mention_then_thread"
                   ? "active_thread_reply"
                   : null;
 
