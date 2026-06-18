@@ -57,6 +57,7 @@ import { fetchConsent, patchConsent } from "@/domains/account/profile";
 import {
   restoreConsentForUser,
   persistConsentForUser,
+  persistToggleConsent,
   resolveServerConsent,
   CONSENT_VERSION,
 } from "@/utils/onboarding-cleanup";
@@ -254,12 +255,20 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
         store.setShareAnalytics(resolved.shareAnalytics);
       if (resolved.shareDiagnostics !== null)
         store.setShareDiagnostics(resolved.shareDiagnostics);
+      store.setAnalyticsConsentCurrent(resolved.analyticsCurrent);
+      store.setDiagnosticsConsentCurrent(resolved.diagnosticsCurrent);
       persistConsentForUser(nextUserId, resolved.tos, resolved.ai);
+      persistToggleConsent(nextUserId, {
+        analyticsCurrent: resolved.analyticsCurrent,
+        diagnosticsCurrent: resolved.diagnosticsCurrent,
+      });
       // The endpoint always returns an object, so empty/stale versions
       // (not a null record) are the "never accepted" signal. If device
       // keys show prior acceptance, restore the flags and backfill the server.
       if (!resolved.tos && !resolved.ai) {
         const deviceConsent = restoreConsentForUser(nextUserId);
+        store.setAnalyticsConsentCurrent(deviceConsent.analyticsCurrent);
+        store.setDiagnosticsConsentCurrent(deviceConsent.diagnosticsCurrent);
         if (deviceConsent.tos && deviceConsent.ai) {
           store.setTosAccepted(true);
           store.setAiDataConsent(true);
@@ -281,6 +290,8 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
   const store = useOnboardingStore.getState();
   store.setTosAccepted(consent.tos);
   store.setAiDataConsent(consent.ai);
+  store.setAnalyticsConsentCurrent(consent.analyticsCurrent);
+  store.setDiagnosticsConsentCurrent(consent.diagnosticsCurrent);
   syncOrganizationState(nextUserId);
 }
 

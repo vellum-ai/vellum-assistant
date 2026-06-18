@@ -35,12 +35,29 @@ const primeLocalGatewayConnectionWithRepairMock = mock(async () => {
 });
 const ensureGatewayTokenMock = mock(async () => {});
 const refreshRemoteGatewaySessionMock = mock(async () => false);
-const restoreConsentForUserMock = mock((_userId: string | null) => ({
-  tos: false,
-  ai: false,
-}));
+const restoreConsentForUserMock = mock(
+  (
+    _userId: string | null,
+  ): {
+    tos: boolean;
+    ai: boolean;
+    analyticsCurrent: boolean;
+    diagnosticsCurrent: boolean;
+  } => ({
+    tos: false,
+    ai: false,
+    analyticsCurrent: false,
+    diagnosticsCurrent: false,
+  }),
+);
 const persistConsentForUserMock = mock(
   (_userId: string | null, _tos: boolean, _ai: boolean) => {},
+);
+const persistToggleConsentMock = mock(
+  (
+    _userId: string | null,
+    _acks: { analyticsCurrent?: boolean; diagnosticsCurrent?: boolean },
+  ) => {},
 );
 const resolveServerConsentMock = mock(
   (
@@ -50,11 +67,15 @@ const resolveServerConsentMock = mock(
     ai: boolean;
     shareAnalytics: boolean | null;
     shareDiagnostics: boolean | null;
+    analyticsCurrent: boolean;
+    diagnosticsCurrent: boolean;
   } => ({
     tos: false,
     ai: false,
     shareAnalytics: null,
     shareDiagnostics: null,
+    analyticsCurrent: false,
+    diagnosticsCurrent: false,
   }),
 );
 
@@ -181,9 +202,13 @@ mock.module("@/domains/account/profile", () => ({
 mock.module("@/utils/onboarding-cleanup", () => ({
   restoreConsentForUser: restoreConsentForUserMock,
   persistConsentForUser: persistConsentForUserMock,
+  persistToggleConsent: persistToggleConsentMock,
   resolveServerConsent: resolveServerConsentMock,
   CONSENT_VERSION: "2026-06-08",
 }));
+
+const setAnalyticsConsentCurrentMock = mock((_value: boolean) => {});
+const setDiagnosticsConsentCurrentMock = mock((_value: boolean) => {});
 
 mock.module("@/domains/onboarding/onboarding-store", () => ({
   useOnboardingStore: {
@@ -192,6 +217,8 @@ mock.module("@/domains/onboarding/onboarding-store", () => ({
       setAiDataConsent: () => {},
       setShareAnalytics: () => {},
       setShareDiagnostics: () => {},
+      setAnalyticsConsentCurrent: setAnalyticsConsentCurrentMock,
+      setDiagnosticsConsentCurrent: setDiagnosticsConsentCurrentMock,
     }),
   },
 }));
@@ -300,7 +327,10 @@ beforeEach(() => {
   refreshRemoteGatewaySessionMock.mockClear();
   restoreConsentForUserMock.mockClear();
   persistConsentForUserMock.mockClear();
+  persistToggleConsentMock.mockClear();
   resolveServerConsentMock.mockClear();
+  setAnalyticsConsentCurrentMock.mockClear();
+  setDiagnosticsConsentCurrentMock.mockClear();
   fetchConsentMock.mockClear();
   patchConsentMock.mockClear();
   mockFetchConsentResult = EMPTY_CONSENT;
@@ -464,6 +494,8 @@ describe("auth store onboarding flag reconciliation", () => {
       ai: true,
       shareAnalytics: true,
       shareDiagnostics: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
     });
 
     await useAuthStore.getState().initSession();
@@ -471,6 +503,13 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(fetchConsentMock).toHaveBeenCalled();
     expect(resolveServerConsentMock).toHaveBeenCalled();
     expect(restoreConsentForUserMock).not.toHaveBeenCalled();
+    // Currency flags hydrate from the resolved server consent.
+    expect(setAnalyticsConsentCurrentMock).toHaveBeenCalledWith(true);
+    expect(setDiagnosticsConsentCurrentMock).toHaveBeenCalledWith(true);
+    expect(persistToggleConsentMock).toHaveBeenCalledWith("user-1", {
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+    });
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
   });
 
@@ -487,21 +526,38 @@ describe("auth store onboarding flag reconciliation", () => {
 
   test("initSession backfills server when device keys show prior consent and server versions are empty", async () => {
     sessionUser = { id: "user-1", email: "user@example.com" };
-    restoreConsentForUserMock.mockReturnValueOnce({ tos: true, ai: true });
+    restoreConsentForUserMock.mockReturnValueOnce({
+      tos: true,
+      ai: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+    });
 
     await useAuthStore.getState().initSession();
 
     expect(patchConsentMock).toHaveBeenCalled();
+    // The backfill branch hydrates the currency flags from the device acks.
+    expect(setAnalyticsConsentCurrentMock).toHaveBeenCalledWith(true);
+    expect(setDiagnosticsConsentCurrentMock).toHaveBeenCalledWith(true);
   });
 
   test("initSession falls back to device keys when fetchConsent fails", async () => {
     sessionUser = { id: "user-1", email: "user@example.com" };
     mockFetchConsentError = new Error("Network error");
+    restoreConsentForUserMock.mockReturnValueOnce({
+      tos: true,
+      ai: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+    });
 
     await useAuthStore.getState().initSession();
 
     expect(fetchConsentMock).toHaveBeenCalled();
     expect(restoreConsentForUserMock).toHaveBeenCalledWith("user-1");
+    // A fully offline restore still reflects prior toggle acks.
+    expect(setAnalyticsConsentCurrentMock).toHaveBeenCalledWith(true);
+    expect(setDiagnosticsConsentCurrentMock).toHaveBeenCalledWith(true);
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
   });
 
