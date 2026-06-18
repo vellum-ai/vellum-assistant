@@ -29,6 +29,8 @@ async function loadText(url: string): Promise<string> {
 }
 
 interface TextPreviewProps {
+  /** Stable attachment id, used as the query cache key (never the URL). */
+  attachmentId: string;
   url: string;
   filename: string;
   mimeType: string;
@@ -40,9 +42,20 @@ interface TextPreviewProps {
  * renders as monospace source. Content sits on a themed surface so it stays
  * legible on the modal's dark backdrop across light, dark, and velvet themes.
  */
-export function TextPreview({ url, filename, mimeType }: TextPreviewProps) {
+export function TextPreview({
+  attachmentId,
+  url,
+  filename,
+  mimeType,
+}: TextPreviewProps) {
   const { data, isLoading, error } = useQuery({
-    queryKey: ["attachment-text-preview", url],
+    // Key by the stable attachment id, not the URL. For an inline attachment
+    // the URL is the entire file as a base64 `data:` URI, and React Query
+    // hashes and retains the key (with staleTime: Infinity) regardless of the
+    // byte cap enforced inside loadText — so keying by URL would serialize and
+    // cache the whole file just to then show "too large". The id maps 1:1 to
+    // immutable bytes.
+    queryKey: ["attachment-text-preview", attachmentId],
     queryFn: async () => {
       try {
         return await loadText(url);
@@ -56,8 +69,7 @@ export function TextPreview({ url, filename, mimeType }: TextPreviewProps) {
         throw err;
       }
     },
-    // Attachment bytes are immutable for a given URL, so a successful read
-    // never needs revalidating.
+    // A successful read never needs revalidating (immutable bytes).
     staleTime: Infinity,
     retry: false,
   });
