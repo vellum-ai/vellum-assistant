@@ -13,10 +13,8 @@
 // after the corresponding signal settles; `interval` and `message_count`
 // fire immediately.
 
-import {
-  isUntrustedTrustClass,
-  type TrustClass,
-} from "../runtime/actor-trust-resolver.js";
+import { type TrustClass } from "../runtime/actor-trust-resolver.js";
+import { resolveCapabilities } from "../runtime/capabilities.js";
 import { getLogger } from "../util/logger.js";
 import { getConversationSource } from "./conversation-crud.js";
 import { isMemoryEnabled, upsertMemoryRetrospectiveJob } from "./jobs-store.js";
@@ -86,7 +84,7 @@ export function enqueueMemoryRetrospectiveOnCompaction(
   conversationId: string,
   trustClass: TrustClass | undefined,
 ): void {
-  if (isUntrustedTrustClass(trustClass)) {
+  if (!resolveCapabilities(trustClass).canAccessMemory) {
     return;
   }
   try {
