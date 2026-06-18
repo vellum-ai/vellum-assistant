@@ -46,8 +46,10 @@ mock.module("../util/logger.js", () => ({
 // ---------------------------------------------------------------------------
 
 import {
+  __resetConsentResolutionForTest,
   __setCachedShareAnalyticsForTest,
   getCachedShareAnalytics,
+  onConsentResolved,
   refreshConsentCache,
   startConsentRefresh,
   stopConsentRefresh,
@@ -66,10 +68,12 @@ describe("consent-cache", () => {
     createCallCount = 0;
     mockLegacyTelemetryOptOut = false;
     __setCachedShareAnalyticsForTest(false);
+    __resetConsentResolutionForTest();
   });
 
   afterEach(async () => {
     await stopConsentRefresh();
+    __resetConsentResolutionForTest();
   });
 
   test("defaults to false before any refresh", () => {
@@ -155,5 +159,99 @@ describe("consent-cache", () => {
     startConsentRefresh();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(getCachedShareAnalytics()).toBe(true);
+  });
+});
+
+describe("onConsentResolved", () => {
+  beforeEach(() => {
+    mockClient = null;
+    createCallCount = 0;
+    mockLegacyTelemetryOptOut = false;
+    __setCachedShareAnalyticsForTest(false);
+    __resetConsentResolutionForTest();
+  });
+
+  afterEach(async () => {
+    await stopConsentRefresh();
+    __resetConsentResolutionForTest();
+  });
+
+  function setConsent(consent: OwnerConsent | null) {
+    mockClient = makeClient(consent);
+  }
+
+  test("fires once on the first successful fetch with the resolved consent", async () => {
+    const consent: OwnerConsent = {
+      shareAnalytics: true,
+      shareDiagnostics: false,
+    };
+    let received: OwnerConsent | null = null;
+    let calls = 0;
+    onConsentResolved((c) => {
+      received = c;
+      calls += 1;
+    });
+
+    setConsent(consent);
+    await refreshConsentCache();
+
+    expect(calls).toBe(1);
+    expect(received).toEqual(consent);
+  });
+
+  test("does not fire again on a second successful fetch (one-shot)", async () => {
+    let calls = 0;
+    onConsentResolved(() => {
+      calls += 1;
+    });
+
+    setConsent({ shareAnalytics: true, shareDiagnostics: false });
+    await refreshConsentCache();
+    setConsent({ shareAnalytics: false, shareDiagnostics: true });
+    await refreshConsentCache();
+
+    expect(calls).toBe(1);
+  });
+
+  test("a listener registered after resolution fires immediately with the last consent", async () => {
+    const consent: OwnerConsent = {
+      shareAnalytics: false,
+      shareDiagnostics: true,
+    };
+    setConsent(consent);
+    await refreshConsentCache();
+
+    let received: OwnerConsent | null = null;
+    let calls = 0;
+    onConsentResolved((c) => {
+      received = c;
+      calls += 1;
+    });
+
+    expect(calls).toBe(1);
+    expect(received).toEqual(consent);
+  });
+
+  test("a null fetch never fires; a later successful fetch does", async () => {
+    let received: OwnerConsent | null = null;
+    let calls = 0;
+    onConsentResolved((c) => {
+      received = c;
+      calls += 1;
+    });
+
+    setConsent(null);
+    await refreshConsentCache();
+    expect(calls).toBe(0);
+
+    const consent: OwnerConsent = {
+      shareAnalytics: true,
+      shareDiagnostics: true,
+    };
+    setConsent(consent);
+    await refreshConsentCache();
+
+    expect(calls).toBe(1);
+    expect(received).toEqual(consent);
   });
 });
