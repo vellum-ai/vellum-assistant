@@ -22,6 +22,7 @@ import {
   isSettledSessionRejection,
   hasLivePlatformSession,
   hasAppAccess,
+  isPlatformIdentity,
   type PlatformSessionStatus,
   type SessionStatus,
 } from "@/stores/session-status";
@@ -85,6 +86,13 @@ import {
 } from "@/runtime/native-biometric";
 
 export interface AuthUser {
+  /**
+   * Distinguishes a real platform account from local gateway access. Both
+   * carry a stable `id` (local's is the synthetic `"gateway-local"`, kept for
+   * storage namespacing), so consumers that mean "real platform account" must
+   * read `kind` rather than assuming any non-null user is a platform user.
+   */
+  kind: "platform" | "local";
   id: string | null;
   username: string | null;
   email: string | null;
@@ -109,6 +117,7 @@ function resolveUserId(user: RawSessionUser | null): string | null {
 function toAuthUser(raw: RawSessionUser | null): AuthUser | null {
   if (!raw) return null;
   return {
+    kind: "platform",
     id: resolveUserId(raw),
     username: raw.username ?? null,
     email: raw.email ?? null,
@@ -148,6 +157,7 @@ let broadcastChannel: BroadcastChannel | null = null;
 let suppressPlatformProbe = false;
 
 const GATEWAY_LOCAL_USER: AuthUser = {
+  kind: "local",
   id: "gateway-local",
   username: "local",
   email: null,
@@ -822,6 +832,14 @@ export const useIsSessionInitializing = (): boolean =>
 
 export const useHasPlatformSession = (): boolean =>
   hasLivePlatformSession(useAuthStore.use.platformSession());
+
+/**
+ * Is the current user a real platform account (vs. local gateway access)? Reads
+ * the `user.kind` discriminator rather than treating any non-null user as a
+ * platform identity, so the synthetic local gateway user answers `false`.
+ */
+export const useIsPlatformIdentity = (): boolean =>
+  isPlatformIdentity(useAuthStore.use.user());
 
 /**
  * Resolve the currently selected assistant reactively as a `LockfileAssistant`.

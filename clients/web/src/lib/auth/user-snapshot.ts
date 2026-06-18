@@ -32,6 +32,10 @@ export function readUserSnapshot(): AuthUser | null {
     // Field-by-field coercion so a malformed or stale-schema snapshot
     // degrades to safe defaults instead of poisoning the auth state.
     return {
+      // Only platform users are ever snapshotted, so a restored user is always
+      // a platform identity — including legacy snapshots written before `kind`
+      // existed, which default here so old snapshots keep restoring correctly.
+      kind: "platform",
       id: typeof parsed.id === "string" ? parsed.id : null,
       username: typeof parsed.username === "string" ? parsed.username : null,
       email: typeof parsed.email === "string" ? parsed.email : null,

@@ -248,8 +248,12 @@ mock.module("@/assistant/api", () => ({
   listAssistants: listAssistantsMock,
 }));
 
-const { useAuthStore, useHasAppAccess } = await import("@/stores/auth-store");
-const { hasAppAccess } = await import("@/stores/session-status");
+const { useAuthStore, useHasAppAccess, useIsPlatformIdentity } = await import(
+  "@/stores/auth-store"
+);
+const { hasAppAccess, isPlatformIdentity } = await import(
+  "@/stores/session-status"
+);
 const { useAssistantLifecycleStore } = await import(
   "@/assistant/lifecycle-store"
 );
@@ -269,6 +273,7 @@ function authenticatedLocalUserForTest() {
   return {
     sessionStatus: "authenticated" as const,
     user: {
+      kind: "local" as const,
       id: "gateway-local",
       username: "local",
       email: null,
@@ -917,6 +922,11 @@ describe("offline session restore (LUM-2412)", () => {
 
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
     expect(useAuthStore.getState().user?.id).toBe("user-cached");
+    // The legacy snapshot `seedSnapshot()` writes carries no `kind` field;
+    // the restore must default it to a platform identity (only platform users
+    // are ever snapshotted), so old snapshots keep restoring correctly.
+    expect(useAuthStore.getState().user?.kind).toBe("platform");
+    expect(isPlatformIdentity(useAuthStore.getState().user)).toBe(true);
     // The snapshot only exists for a confirmed platform session, and no
     // probe runs offline to settle an "unknown" — so the restore settles
     // "present" (believed state); reconnect revalidation corrects it.
@@ -1065,6 +1075,77 @@ describe("offline session restore (LUM-2412)", () => {
     await useAuthStore.getState().initSession();
 
     expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+  });
+});
+
+// The `kind` discriminator separates a real platform account from local
+// gateway access. Local keeps its stable `gateway-local` id (storage
+// namespacing) yet is not a platform identity; platform users are.
+describe("identity kind (platform vs local gateway access)", () => {
+  test("a local gateway session is kind 'local' and not a platform identity, but keeps its stable id", async () => {
+    mockIsLocalMode = true;
+    mockPlatformAssistants = [];
+
+    await useAuthStore.getState().initSession();
+
+    const user = useAuthStore.getState().user;
+    expect(user?.kind).toBe("local");
+    expect(user?.id).toBe("gateway-local");
+    expect(isPlatformIdentity(user)).toBe(false);
+    // A local session stays authenticated — the discriminator does not change
+    // session semantics.
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+  });
+
+  test("a platform session is kind 'platform' and is a platform identity", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+
+    await useAuthStore.getState().initSession();
+
+    const user = useAuthStore.getState().user;
+    expect(user?.kind).toBe("platform");
+    expect(user?.id).toBe("user-1");
+    expect(isPlatformIdentity(user)).toBe(true);
+  });
+
+  test("an offline-restored user is a platform identity (legacy snapshot defaults to platform)", async () => {
+    // `seedSnapshot()` writes a legacy snapshot with no `kind` field.
+    getSessionThrows = true;
+    mockElectronSessionToken = "tok-1";
+    seedSnapshot();
+
+    await useAuthStore.getState().initSession();
+
+    const user = useAuthStore.getState().user;
+    expect(user?.kind).toBe("platform");
+    expect(isPlatformIdentity(user)).toBe(true);
+  });
+
+  test("isPlatformIdentity(null) is false", () => {
+    expect(isPlatformIdentity(null)).toBe(false);
+  });
+
+  test("useIsPlatformIdentity is false for a local user, true for a platform user", () => {
+    act(() => {
+      useAuthStore.setState({ ...authenticatedLocalUserForTest() });
+    });
+    const local = renderHook(() => useIsPlatformIdentity());
+    expect(local.result.current).toBe(false);
+
+    act(() => {
+      useAuthStore.setState({
+        user: {
+          kind: "platform",
+          id: "user-1",
+          username: "test",
+          email: "user@example.com",
+          isStaff: false,
+          firstName: "",
+          lastName: "",
+        },
+      });
+    });
+    expect(local.result.current).toBe(true);
   });
 });
 
