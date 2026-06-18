@@ -11,31 +11,33 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
+import { resolveCapabilities } from "../runtime/capabilities.js";
 
 // ---------------------------------------------------------------------------
 // Trust class categorization (foundational for lockdown decisions)
 // ---------------------------------------------------------------------------
 
 describe("trust class categorization for CES lockdown", () => {
-  test("guardian is not untrusted", () => {
-    expect(isUntrustedTrustClass("guardian")).toBe(false);
+  test("guardian runs an unsandboxed shell", () => {
+    expect(resolveCapabilities("guardian").unsandboxedShell).toBe(true);
   });
 
-  test("trusted_contact is untrusted", () => {
-    expect(isUntrustedTrustClass("trusted_contact")).toBe(true);
+  test("trusted_contact shell is sandboxed", () => {
+    expect(resolveCapabilities("trusted_contact").unsandboxedShell).toBe(false);
   });
 
-  test("unverified_contact is untrusted", () => {
-    expect(isUntrustedTrustClass("unverified_contact")).toBe(true);
+  test("unverified_contact shell is sandboxed", () => {
+    expect(resolveCapabilities("unverified_contact").unsandboxedShell).toBe(
+      false,
+    );
   });
 
-  test("unknown is untrusted", () => {
-    expect(isUntrustedTrustClass("unknown")).toBe(true);
+  test("unknown shell is sandboxed", () => {
+    expect(resolveCapabilities("unknown").unsandboxedShell).toBe(false);
   });
 
-  test("undefined is untrusted", () => {
-    expect(isUntrustedTrustClass(undefined)).toBe(true);
+  test("undefined shell is sandboxed", () => {
+    expect(resolveCapabilities(undefined).unsandboxedShell).toBe(false);
   });
 });
 
@@ -95,7 +97,7 @@ describe("VELLUM_UNTRUSTED_SHELL env flag", () => {
 describe("CES shell lockdown activation", () => {
   test("lockdown is active only when both flag is enabled AND actor is untrusted", () => {
     // Simulates the condition used in shell.ts:
-    // const shellLockdownActive = isCesShellLockdownEnabled(config) && isUntrustedTrustClass(context.trustClass);
+    // const shellLockdownActive = isCesShellLockdownEnabled(config) && !resolveCapabilities(context.trustClass).unsandboxedShell;
     const cases: Array<{
       flagEnabled: boolean;
       trustClass: "guardian" | "trusted_contact" | "unknown";
@@ -110,7 +112,8 @@ describe("CES shell lockdown activation", () => {
     ];
 
     for (const { flagEnabled, trustClass, expected } of cases) {
-      const active = flagEnabled && isUntrustedTrustClass(trustClass);
+      const active =
+        flagEnabled && !resolveCapabilities(trustClass).unsandboxedShell;
       expect(active).toBe(expected);
     }
   });

@@ -3,9 +3,9 @@
  *
  * Separates *what an actor can do* (capabilities/permissions) from *who the
  * actor is* (`TrustClass`, their role/level). Today the ~40+ decision sites
- * re-derive permissions inline from the raw class (`trustClass === "guardian"`,
- * `isUntrustedTrustClass(...)`). This resolves the class to a named capability
- * set in one place so call sites read a capability instead of re-deriving it.
+ * re-derive permissions inline from the raw class (`trustClass === "guardian"`).
+ * This resolves the class to a named capability set in one place so call sites
+ * read a capability instead of re-deriving it.
  *
  * Stateless / derive-on-read: capabilities are derived from the already-resolved
  * (and already-persisted) `trustClass` at point of use. Nothing here is stored;

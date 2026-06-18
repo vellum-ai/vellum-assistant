@@ -674,7 +674,7 @@ describe("loadFromDb metadata injection rehydration", () => {
   });
 
   test("internal-channel trusted_contact view still rehydrates memoryV2StaticBlock", async () => {
-    // Regression: the prior `!isUntrustedTrustClass(trustClass)` gate
+    // Regression: the prior `resolveCapabilities(trustClass).canAccessMemory` gate
     // blocked any non-guardian view from rehydrating personal memory,
     // including legitimate internal flows (e.g. trusted_contact actors
     // arriving over the internal `"vellum"` channel). Injection time
