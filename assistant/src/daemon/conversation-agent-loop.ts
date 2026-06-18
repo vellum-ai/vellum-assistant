@@ -187,6 +187,67 @@ export interface AssistantSurface {
   activationMoment?: ActivationMomentParam;
 }
 
+// ── abort watchdog ───────────────────────────────────────────────────
+
+/**
+ * Generous backstop that drives an aborted turn to its `finally` even if some
+ * awaited operation fails to observe the abort signal.
+ *
+ * Abort is otherwise cooperative and already wired into the slow paths: the
+ * provider call forwards the signal to its HTTP/streaming fetch, and tool
+ * execution races the signal so a stuck tool can't block cancellation. This
+ * watchdog only fires when a future code path silently ignores abort — without
+ * it, such a path would hang the loop forever and latch the conversation's
+ * `processing` flag true (the wedged "Thinking…" indicator). It is
+ * defense-in-depth, not the primary mechanism, so the timeout is deliberately
+ * generous; in the common case abort settles in-flight work well before it.
+ */
+const ABORT_WATCHDOG_MS = 45_000;
+
+/**
+ * Race `work` against an abort watchdog. The watchdog stays disarmed until the
+ * signal fires; once it does, the turn has `timeoutMs` to settle before the
+ * watchdog rejects with the signal's own abort reason so the caller unwinds to
+ * its `finally` and the reason classifies as a user cancellation downstream.
+ * The abandoned `work` promise keeps running detached — its eventual rejection
+ * is swallowed so it can't surface as an unhandled rejection.
+ */
+async function withAbortWatchdog<T>(
+  work: Promise<T>,
+  signal: AbortSignal,
+  timeoutMs: number,
+  onFire: () => void,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  const watchdog = new Promise<never>((_, reject) => {
+    const arm = () => {
+      timer = setTimeout(() => {
+        onFire();
+        // Propagate the signal's own reason (an `AbortReason` for daemon-owned
+        // cancels) so the loop's catch classifies this as a user cancellation;
+        // fall back to a tagged AbortError when the signal carries no reason.
+        reject(
+          signal.reason ??
+            new DOMException("The operation was aborted", "AbortError"),
+        );
+      }, timeoutMs);
+    };
+    if (signal.aborted) arm();
+    else {
+      onAbort = arm;
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+  });
+  try {
+    return await Promise.race([work, watchdog]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+    void work.catch(() => {});
+  }
+}
+
 // ── runAgentLoop ─────────────────────────────────────────────────────
 
 export async function runAgentLoopImpl(
@@ -902,22 +963,36 @@ export async function runAgentLoopImpl(
       msgs: Message[],
       compactInPlace = false,
     ): Promise<Message[]> => {
-      const { history, exitReason, newMessages } = await ctx.agentLoop.run({
-        messages: msgs,
-        onEvent: eventHandler,
-        signal: abortController.signal,
-        requestId: reqId,
-        onCheckpoint,
-        callSite: turnCallSite,
-        trust: loopTrust,
-        overrideProfile: turnOverrideProfile,
-        ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
-        resolveOverrideProfile: resolveCurrentOverrideProfile,
-        resolveContextWindow,
-        compactInPlace,
-        isNonInteractive,
-        modelProfileKey,
-      });
+      const watchdogMs = ctx.abortWatchdogMs ?? ABORT_WATCHDOG_MS;
+      const { history, exitReason, newMessages } = await withAbortWatchdog(
+        ctx.agentLoop.run({
+          messages: msgs,
+          onEvent: eventHandler,
+          signal: abortController.signal,
+          requestId: reqId,
+          onCheckpoint,
+          callSite: turnCallSite,
+          trust: loopTrust,
+          overrideProfile: turnOverrideProfile,
+          ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
+          resolveOverrideProfile: resolveCurrentOverrideProfile,
+          resolveContextWindow,
+          compactInPlace,
+          isNonInteractive,
+          modelProfileKey,
+        }),
+        abortController.signal,
+        watchdogMs,
+        () =>
+          rlog.error(
+            {
+              conversationId: ctx.conversationId,
+              requestId: reqId,
+              timeoutMs: watchdogMs,
+            },
+            "Abort watchdog fired — agent loop did not settle after cancel; forcing turn to finally",
+          ),
+      );
       lastRunNewMessages = newMessages;
       if (exitReason === "handoff") {
         yieldedForHandoff = true;
@@ -1450,46 +1525,37 @@ export async function runAgentLoopImpl(
 
     ctx.profiler.emitSummary(ctx.traceEmitter, reqId);
 
-    // A user cancel clears `processing` immediately so the UI unblocks even
-    // when this turn is slow to unwind, which lets a new turn start and install
-    // its own AbortController, processing flag, request id, and queued work
-    // before this turn reaches here. The shared per-turn state below belongs to
-    // whichever turn currently owns the conversation, so tear it down only while
-    // this turn is still the owner. Each turn captures its AbortController at
-    // start, so a newer turn having replaced `ctx.abortController` means it has
-    // taken ownership; in that case leave the state intact so the new turn stays
-    // cancellable and visible.
-    const supersededByNewerTurn =
-      ctx.abortController !== null && ctx.abortController !== abortController;
-    if (!supersededByNewerTurn) {
-      ctx.abortController = null;
-      ctx.setProcessing(false);
-      ctx.onConfirmationOutcome = undefined;
-      ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? "");
-      ctx.approvedViaPromptThisTurn = false;
-      ctx.currentRequestId = undefined;
-      ctx.currentActiveSurfaceId = undefined;
-      ctx.allowedToolNames = undefined;
-      ctx.diskPressureCleanupModeActive = false;
-      ctx.preactivatedSkillIds = undefined;
-      ctx.currentTurnOverrideProfile = undefined;
-      // Channel command intents (e.g. Telegram /start) are single-turn metadata.
-      // Clear at turn end so they never leak into subsequent unrelated messages.
-      ctx.commandIntent = undefined;
-      // taskRunId scopes ephemeral task-run permissions to a single turn. Clear
-      // before drainQueue so queued/drained turns on a reused conversation can't
-      // inherit stale in-task-run scope from the turn that just finished.
-      ctx.taskRunId = undefined;
+    // Tear down this turn's per-turn state. Abort reliably drives the loop to
+    // this `finally` within a bounded time — cooperative signal propagation
+    // (provider fetch + tool race) backed by the abort watchdog — so a
+    // cancelled turn always unwinds before any resend can start a new one.
+    // There is therefore only ever one turn alive, and clearing the shared
+    // state below cannot clobber a concurrent turn.
+    ctx.abortController = null;
+    ctx.setProcessing(false);
+    ctx.onConfirmationOutcome = undefined;
+    ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? "");
+    ctx.approvedViaPromptThisTurn = false;
+    ctx.currentRequestId = undefined;
+    ctx.currentActiveSurfaceId = undefined;
+    ctx.allowedToolNames = undefined;
+    ctx.diskPressureCleanupModeActive = false;
+    ctx.preactivatedSkillIds = undefined;
+    ctx.currentTurnOverrideProfile = undefined;
+    // Channel command intents (e.g. Telegram /start) are single-turn metadata.
+    // Clear at turn end so they never leak into subsequent unrelated messages.
+    ctx.commandIntent = undefined;
+    // taskRunId scopes ephemeral task-run permissions to a single turn. Clear
+    // before drainQueue so queued/drained turns on a reused conversation can't
+    // inherit stale in-task-run scope from the turn that just finished.
+    ctx.taskRunId = undefined;
 
-      // Consolidation deferred to compaction: keeping assistant + tool_result
-      // messages unconsolidated preserves the exact message structure sent to
-      // the API, enabling stable prefix caching across turns.  Compaction
-      // consolidates when it summarizes old messages (cache miss is expected).
+    // Consolidation deferred to compaction: keeping assistant + tool_result
+    // messages unconsolidated preserves the exact message structure sent to
+    // the API, enabling stable prefix caching across turns.  Compaction
+    // consolidates when it summarizes old messages (cache miss is expected).
 
-      ctx.drainQueue(
-        yieldedForHandoff ? "checkpoint_handoff" : "loop_complete",
-      );
-    }
+    ctx.drainQueue(yieldedForHandoff ? "checkpoint_handoff" : "loop_complete");
 
     // Clear conversation tags so they don't leak into unrelated error captures
     // (e.g. unhandledRejection from a different async chain).
