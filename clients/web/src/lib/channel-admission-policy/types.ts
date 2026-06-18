@@ -25,6 +25,19 @@ export const ADMISSION_POLICY_DEFAULT: AdmissionPolicy = "trusted_contacts";
 export const INTERNAL_CHANNELS = new Set<string>(["platform", "a2a"]);
 
 /**
+ * Channels that are still enforced at runtime but intentionally hidden from the
+ * Channel Trust Floors list. The gateway already omits them from the GET
+ * response; we double-filter here so a future gateway regression can't leak
+ * them into the UI. Mirrors `ADMISSION_POLICY_HIDDEN_CHANNELS` in
+ * `packages/gateway-client/src/admission-policy-contract.ts`.
+ */
+export const HIDDEN_CHANNELS = new Set<string>(["vellum", "whatsapp"]);
+
+export function isHiddenChannel(channelType: string): boolean {
+  return HIDDEN_CHANNELS.has(channelType);
+}
+
+/**
  * Channels that are configurable but may not be set to `no_one`. `vellum` is
  * the local desktop/web client surface — a `no_one` kill switch there would
  * lock the guardian out of their own app, so the picker omits that option.

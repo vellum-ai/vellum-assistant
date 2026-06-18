@@ -61,10 +61,12 @@ export {
   ADMISSION_FLOOR,
   ADMISSION_POLICY_DEFAULT,
   ADMISSION_POLICY_EXEMPT_CHANNELS,
+  ADMISSION_POLICY_HIDDEN_CHANNELS,
   ADMISSION_POLICY_VALUES,
   AdmissionPolicySchema,
   isAdmissionPolicy,
   isAdmissionPolicyExemptChannel,
+  isAdmissionPolicyHiddenChannel,
   isKillSwitchForbiddenChannel,
   KILL_SWITCH_FORBIDDEN_CHANNELS,
 } from "./admission-policy-contract.js";

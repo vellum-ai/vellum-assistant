@@ -13,6 +13,7 @@
 import { z } from "zod";
 import {
   isAdmissionPolicyExemptChannel,
+  isAdmissionPolicyHiddenChannel,
   isKillSwitchForbiddenChannel,
 } from "@vellumai/gateway-client";
 import {
@@ -80,11 +81,17 @@ export function createChannelAdmissionPolicyListHandler() {
         rows.map((r) => [r.channelType, r]),
       );
 
-      // §8.1: internal channels (`vellum`, `platform`, `a2a`) are not
+      // §8.1: internal channels (`platform`, `a2a`, `phone`) are not
       // policy-configurable. Omit them from the client-facing list so the
       // UI never surfaces a control that would 403 on PUT anyway.
+      //
+      // Hidden channels (`vellum`, `whatsapp`) are still enforced at runtime
+      // but intentionally not shown in the Channel Trust Floors UI, so omit
+      // them too.
       const policies: PolicyView[] = CHANNEL_IDS.filter(
-        (channel) => !isAdmissionPolicyExemptChannel(channel),
+        (channel) =>
+          !isAdmissionPolicyExemptChannel(channel) &&
+          !isAdmissionPolicyHiddenChannel(channel),
       ).map((channel) => {
         const row = byChannel.get(channel);
         return row ? rowToView(row) : defaultView(channel);

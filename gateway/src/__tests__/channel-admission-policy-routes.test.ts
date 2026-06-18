@@ -14,11 +14,18 @@ import {
   createChannelAdmissionPolicySetHandler,
 } from "../http/routes/channel-admission-policy.js";
 import { CHANNEL_IDS } from "../channels/types.js";
-import { isAdmissionPolicyExemptChannel } from "@vellumai/gateway-client";
+import {
+  isAdmissionPolicyExemptChannel,
+  isAdmissionPolicyHiddenChannel,
+} from "@vellumai/gateway-client";
 import "./test-preload.js";
 
-const NON_EXEMPT_CHANNEL_IDS = CHANNEL_IDS.filter(
-  (channel) => !isAdmissionPolicyExemptChannel(channel),
+// Channels the GET list is expected to return: neither exempt (no runtime
+// admission model) nor hidden (`vellum`/`whatsapp`, enforced but not shown).
+const VISIBLE_CHANNEL_IDS = CHANNEL_IDS.filter(
+  (channel) =>
+    !isAdmissionPolicyExemptChannel(channel) &&
+    !isAdmissionPolicyHiddenChannel(channel),
 );
 
 // ---------------------------------------------------------------------------
@@ -64,7 +71,7 @@ function jsonRequest(url: string, method: string, body?: unknown): Request {
 // ---------------------------------------------------------------------------
 
 describe("GET /v1/channel-admission-policy", () => {
-  test("returns every non-exempt channel id, with defaults for unconfigured channels", async () => {
+  test("returns every visible channel id, with defaults for unconfigured channels", async () => {
     const handler = createChannelAdmissionPolicyListHandler();
     const res = await handler(
       jsonRequest("http://localhost/v1/channel-admission-policy", "GET"),
@@ -79,14 +86,14 @@ describe("GET /v1/channel-admission-policy", () => {
         updatedAt: number | null;
       }>;
     };
-    expect(body.policies).toHaveLength(NON_EXEMPT_CHANNEL_IDS.length);
+    expect(body.policies).toHaveLength(VISIBLE_CHANNEL_IDS.length);
     for (const p of body.policies) {
       expect(p.policy).toBe(ADMISSION_POLICY_DEFAULT);
       expect(p.note).toBeNull();
       expect(p.updatedAt).toBeNull();
     }
     const seen = new Set(body.policies.map((p) => p.channelType));
-    for (const channel of NON_EXEMPT_CHANNEL_IDS) {
+    for (const channel of VISIBLE_CHANNEL_IDS) {
       expect(seen.has(channel)).toBe(true);
     }
   });
@@ -106,7 +113,7 @@ describe("GET /v1/channel-admission-policy", () => {
         updatedAt: number | null;
       }>;
     };
-    expect(body.policies).toHaveLength(NON_EXEMPT_CHANNEL_IDS.length);
+    expect(body.policies).toHaveLength(VISIBLE_CHANNEL_IDS.length);
     const tg = body.policies.find((p) => p.channelType === "telegram");
     expect(tg?.policy).toBe("no_one");
     expect(tg?.note).toBe("off");
@@ -117,11 +124,13 @@ describe("GET /v1/channel-admission-policy", () => {
     expect(phone).toBeUndefined();
   });
 
-  test("omits exempt channels (`a2a`, `phone`) but includes the configurable `vellum`", async () => {
-    // a2a/phone stay exempt (filtered out); vellum is configurable and must
-    // surface so the client can manage it.
+  test("omits exempt channels (`a2a`, `phone`) and hidden channels (`vellum`, `whatsapp`)", async () => {
+    // a2a/phone stay exempt (no runtime admission model). vellum/whatsapp are
+    // still enforced at runtime but hidden from the Channel Trust Floors UI,
+    // so they must not surface in the list even when a row is persisted.
     store.set("a2a", "guardian_only");
     store.set("vellum", "guardian_only");
+    store.set("whatsapp", "guardian_only");
 
     const handler = createChannelAdmissionPolicyListHandler();
     const res = await handler(
@@ -133,7 +142,12 @@ describe("GET /v1/channel-admission-policy", () => {
     const seen = new Set(body.policies.map((p) => p.channelType));
     expect(seen.has("a2a")).toBe(false);
     expect(seen.has("phone")).toBe(false);
-    expect(seen.has("vellum")).toBe(true);
+    expect(seen.has("vellum")).toBe(false);
+    expect(seen.has("whatsapp")).toBe(false);
+    // Visible channels still surface.
+    expect(seen.has("telegram")).toBe(true);
+    expect(seen.has("slack")).toBe(true);
+    expect(seen.has("email")).toBe(true);
   });
 });
 

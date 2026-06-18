@@ -1,10 +1,10 @@
 /**
  * `ChannelPolicyCard` — settings card surface for the per-channel
  * admission floor (§8.1). Lists every client-controllable channel with a
- * dropdown for its floor. Internal channels (`vellum`/`platform`/`a2a`)
- * are filtered out by `fetchChannelPolicies` and never rendered here, so
- * the user can't accidentally lock themselves out of the local desktop or
- * platform connection.
+ * dropdown for its floor. Internal channels (`platform`/`a2a`) and hidden
+ * channels (`vellum`/`whatsapp`) are filtered out by `fetchChannelPolicies`
+ * and never rendered here, so the user can't accidentally lock themselves
+ * out of the local desktop or platform connection.
  */
 
 import { ShieldAlert } from "lucide-react";

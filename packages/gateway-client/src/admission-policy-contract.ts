@@ -89,6 +89,21 @@ export function isKillSwitchForbiddenChannel(channelType: string): boolean {
   return KILL_SWITCH_FORBIDDEN_CHANNELS.has(channelType);
 }
 
+/**
+ * Channels omitted from the Channel Trust Floors list (GET) but — unlike
+ * {@link ADMISSION_POLICY_EXEMPT_CHANNELS} — still enforced at runtime. Kept
+ * distinct from the exempt set so hiding a real inbound channel like
+ * `whatsapp` never silently disables its admission floor check.
+ */
+export const ADMISSION_POLICY_HIDDEN_CHANNELS: ReadonlySet<string> = new Set([
+  "vellum",
+  "whatsapp",
+]);
+
+export function isAdmissionPolicyHiddenChannel(channelType: string): boolean {
+  return ADMISSION_POLICY_HIDDEN_CHANNELS.has(channelType);
+}
+
 export function isAdmissionPolicy(value: unknown): value is AdmissionPolicy {
   return (
     typeof value === "string" &&
