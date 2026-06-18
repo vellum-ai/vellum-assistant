@@ -80,9 +80,9 @@ export function createChannelAdmissionPolicyListHandler() {
         rows.map((r) => [r.channelType, r]),
       );
 
-      // §8.1: internal channels (`platform`, `a2a`, `phone`) are not
-      // policy-configurable. Omit them from the client-facing list so the
-      // UI never surfaces a control that would 403 on PUT anyway.
+      // §8.1: exempt channels (`platform`, `a2a`) are not policy-configurable.
+      // Omit them from the client-facing list so the UI never surfaces a
+      // control that would 403 on PUT anyway.
       //
       // Hidden channels (`vellum`, `whatsapp`) are still enforced at runtime
       // but intentionally not shown in the Channel Trust Floors UI, so omit
@@ -204,7 +204,7 @@ export function createChannelAdmissionPolicyDeleteHandler() {
     if (isExemptChannelType(channelType)) {
       return Response.json(
         {
-          error: `Channel "${channelType}" is internal (platform/a2a/phone) and is not user-configurable.`,
+          error: `Channel "${channelType}" is internal (platform/a2a) and is not user-configurable.`,
         },
         { status: 403 },
       );

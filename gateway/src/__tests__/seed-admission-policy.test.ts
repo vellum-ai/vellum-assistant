@@ -29,14 +29,15 @@ describe("seedAdmissionPolicyDefaults", () => {
     expect(byChannel.get("telegram")).toBe("trusted_contacts");
     expect(byChannel.get("whatsapp")).toBe("trusted_contacts");
     expect(byChannel.get("email")).toBe("trusted_contacts");
+    // phone is enforced and seeds with the universal default.
+    expect(byChannel.get("phone")).toBe("trusted_contacts");
   });
 
-  test("skips exempt channels (a2a, phone)", () => {
+  test("skips exempt channels (a2a)", () => {
     seedAdmissionPolicyDefaults(store);
 
     const seen = new Set(store.list().map((r) => r.channelType));
     expect(seen.has("a2a")).toBe(false);
-    expect(seen.has("phone")).toBe(false);
   });
 
   test("is idempotent and never overwrites a configurable channel's row", () => {
