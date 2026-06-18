@@ -53,7 +53,7 @@ A CSS widget library is auto-injected alongside the design system — the `.v-*`
 > ⚠️ **`window.vellum.widgets.*` is not injected today. Do not call it — these functions are `undefined` at runtime and will throw.** The same applies to `window.vellum.confirm`, `window.vellum.openLink`, and `window.vellum.theme`. The only `window.vellum` APIs that exist are `sendAction`, `fetch`, and `route` (see [`INTERACTION_HOOKS.md`](./INTERACTION_HOOKS.md)).
 >
 > Until a JS runtime ships, build these by hand:
-> - **Charts** → hand-written inline SVG (or simple CSS bars), sized to the container to avoid overflow.
+> - **Charts** → the bundleable `chart.js` for real charts, or hand-written inline SVG / CSS bars for tiny sparklines, sized to the container to avoid overflow.
 > - **Notifications** → the `.v-toast` class, toggled with your own JS.
 > - **Table sort/filter, tabs, accordions, countdowns** → plain JS event handlers.
 > - **Formatting** → `Intl.NumberFormat` / `Intl.DateTimeFormat`.

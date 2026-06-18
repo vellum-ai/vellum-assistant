@@ -86,7 +86,7 @@ Every app works phone (~360px) to desktop (~1400px+). The `<turn_context>` block
 
 Full detail when reachable: `{baseDir}/references/RESPONSIVE.md`.
 
-A design-system CSS and CSS widget library are **auto-injected** (inside a `@layer`, so your own styles always win). Use the `--v-*` variables and `.v-*` classes below — they switch light/dark automatically, no manual dark-mode CSS needed. Charts have **no JS runtime** — hand-write inline SVG (or simple CSS bars) sized to the container.
+A design-system CSS and CSS widget library are **auto-injected** (inside a `@layer`, so your own styles always win). Use the `--v-*` variables and `.v-*` classes below — they switch light/dark automatically, no manual dark-mode CSS needed. Charts have **no auto-injected helper** — bundle `chart.js` (an allowed package) for real charts, or hand-write inline SVG / CSS bars for tiny sparklines. Size them to the container so they can't overflow.
 
 **Design tokens** (use these, don't invent hex values):
 
@@ -118,7 +118,7 @@ Full detail when reachable: `{baseDir}/references/DESIGN_SYSTEM.md`. Note: in lo
 
 CSS classes for standard patterns: `.v-metric-card`/`.v-metric-grid` (big-number stats), `.v-data-table` (sortable, sticky header, `th[data-sortable]`), `.v-tabs`, `.v-accordion`, `.v-search-bar`, `.v-timeline`, `.v-action-list` (rows with per-item actions), `.v-card-grid`, `.v-progress-bar`, `.v-status-badge` (`.success`/`.error`/`.warning`/`.info`), `.v-stat-row`/`.v-stat`, `.v-tag-group`, `.v-avatar-row`. Landing-page components: `.v-hero`/`.v-hero-badge`/`.v-hero-subtitle`, `.v-section-header`/`.v-section-label`, `.v-feature-grid`/`.v-feature-card`, `.v-pullquote`, `.v-comparison` (`.before`/`.after`), `.v-page`, `.v-gradient-text`, `.v-animate-in`. Domain widgets: `.v-weather-card`, `.v-stock-ticker`, `.v-receipt`, `.v-invoice`, `.v-itinerary`, `.v-boarding-pass`.
 
-There is **no `window.vellum.widgets.*` JS runtime** — those chart/format/behavior helpers are not injected and throw if called. Build them by hand: charts → inline SVG or CSS bars; formatting → `Intl.NumberFormat` / `Intl.DateTimeFormat`; table sort/filter, tabs, accordions, toasts, countdowns → plain JS wired to the `.v-*` markup.
+There is **no `window.vellum.widgets.*` JS runtime** — those chart/format/behavior helpers are not injected and throw if called. Use the web-era equivalents: charts → the bundleable `chart.js` (or inline SVG for tiny sparklines); formatting → `Intl.NumberFormat` / `Intl.DateTimeFormat`; table sort/filter, tabs, accordions, toasts, countdowns → plain JS wired to the `.v-*` markup.
 
 Use custom HTML for novel/creative UIs (games, art tools); the `.v-*` classes for standard patterns; mix freely. Full list: `{baseDir}/references/WIDGETS.md`.
 
