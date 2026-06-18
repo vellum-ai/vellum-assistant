@@ -9,7 +9,7 @@ import { RiskToleranceSettings } from "@/domains/settings/components/risk-tolera
 import { TrustRules } from "@/domains/settings/components/trust-rules/trust-rules";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import { useHasPlatformSession } from "@/stores/auth-store";
+import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
 import {
     getDeviceBool,
     getDeviceSetting,
@@ -69,6 +69,7 @@ export function PrivacyPage() {
   const platformGate = usePlatformGate({ platformHostedOnly: true });
   const channelTrustFloors = useAssistantFeatureFlagStore.use.channelTrustFloors();
   const hasPlatformSession = useHasPlatformSession();
+  const userId = useAuthStore.use.user()?.id ?? null;
   const [shareAnalytics, setShareAnalytics] = useState(
     () => getDeviceBool("shareAnalytics", true),
   );
@@ -82,13 +83,13 @@ export function PrivacyPage() {
   const handleAnalyticsToggle = () => {
     const next = !shareAnalytics;
     setShareAnalytics(next);
-    savePreferenceToggle("share_analytics", next, hasPlatformSession);
+    savePreferenceToggle("share_analytics", next, { userId, hasPlatformSession });
   };
 
   const handleDiagnosticsToggle = () => {
     const next = !shareDiagnostics;
     setShareDiagnostics(next);
-    savePreferenceToggle("share_diagnostics", next, hasPlatformSession);
+    savePreferenceToggle("share_diagnostics", next, { userId, hasPlatformSession });
   };
 
   const handleRetentionChange = (value: string) => {

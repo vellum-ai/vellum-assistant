@@ -1,7 +1,7 @@
 /**
  * Tests for the versioned share-toggle consent layer in `onboarding-cleanup`.
  *
- * Collaborators (`onboarding-store`, `auth-store`, `profile.patchConsent`,
+ * Collaborators (`onboarding-store`, `profile.patchConsent`,
  * `device-settings`) are mocked so we exercise the per-user device-key
  * read/write logic in isolation against an in-memory `localStorage`.
  */
@@ -32,11 +32,6 @@ const storeState = {
 };
 mock.module("@/domains/onboarding/onboarding-store", () => ({
   useOnboardingStore: { getState: () => storeState },
-}));
-
-let authUserId: string | null = "user-1";
-mock.module("@/stores/auth-store", () => ({
-  useAuthStore: { getState: () => ({ user: authUserId ? { id: authUserId } : null }) },
 }));
 
 // `onboarding-cleanup` only needs `patchConsent`; the real `profile` module
@@ -87,7 +82,6 @@ const diagnosticsKey = (userId: string) =>
   `device:consent:share_diagnostics:v${CONSENT_VERSION}:${userId}`;
 
 beforeEach(() => {
-  authUserId = "user-1";
   storeState.setTosAccepted.mockReset();
   storeState.setAiDataConsent.mockReset();
   storeState.setShareAnalytics.mockReset();
@@ -207,7 +201,7 @@ describe("saveConsent", () => {
 
 describe("savePreferenceToggle", () => {
   test("stamps the analytics version and sets its flag only", () => {
-    savePreferenceToggle("share_analytics", true, true);
+    savePreferenceToggle("share_analytics", true, { userId: "user-1", hasPlatformSession: true });
     expect(storeState.setAnalyticsConsentCurrent).toHaveBeenCalledWith(true);
     expect(storeState.setDiagnosticsConsentCurrent).not.toHaveBeenCalled();
     expect(localStorage.getItem(analyticsKey("user-1"))).toBe("true");
@@ -218,7 +212,7 @@ describe("savePreferenceToggle", () => {
   });
 
   test("stamps the diagnostics version and sets its flag only", () => {
-    savePreferenceToggle("share_diagnostics", false, true);
+    savePreferenceToggle("share_diagnostics", false, { userId: "user-1", hasPlatformSession: true });
     expect(storeState.setDiagnosticsConsentCurrent).toHaveBeenCalledWith(true);
     expect(storeState.setAnalyticsConsentCurrent).not.toHaveBeenCalled();
     const body = patchConsentMock.mock.calls[0][0];
