@@ -94,11 +94,20 @@ function cancelScheduleIfLast(conversationId: string): void {
 function handleCreateConversation({ body = {}, headers }: RouteHandlerArgs) {
   const conversationKey =
     (body.conversationKey as string | undefined) ?? crypto.randomUUID();
+  const customTitle = (body.title as string | undefined)?.trim() || undefined;
   const result = getOrCreateConversation(conversationKey, {
     conversationType: "standard",
   });
   if (result.created) {
-    updateConversationTitle(result.conversationId, "New Conversation");
+    // A caller-supplied title is user-set: persist it with isAutoTitle = 0 so
+    // the async LLM titler's safe-overwrite check leaves it untouched. Without
+    // one, fall back to the neutral "New Conversation" placeholder, which stays
+    // replaceable by the auto-titler once messages arrive.
+    if (customTitle) {
+      updateConversationTitle(result.conversationId, customTitle, 0);
+    } else {
+      updateConversationTitle(result.conversationId, "New Conversation");
+    }
     publishConversationListAndMetadataChanged(
       "created",
       result.conversationId,
@@ -550,6 +559,12 @@ export const ROUTES: RouteDefinition[] = [
         .literal("standard")
         .optional()
         .describe("Only standard conversations are created by this endpoint"),
+      title: z
+        .string()
+        .optional()
+        .describe(
+          "Explicit title for the conversation. When provided on creation, it is persisted as a user-set title (never overwritten by the auto-titler). Used by flows that mint a conversation up-front and don't want an auto-generated title.",
+        ),
     }),
     responseBody: z.object({
       id: z
