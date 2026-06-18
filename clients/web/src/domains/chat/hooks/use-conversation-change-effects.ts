@@ -12,7 +12,7 @@
  * switch, covering both wrapper-initiated and URL-navigation paths.
  */
 
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect } from "react";
 
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
@@ -21,11 +21,18 @@ export function useConversationChangeEffects(
   assistantId: string | null,
   activeConversationId: string | null,
 ): void {
-  // Reset subagent tracking on conversation change. The wrapper-initiated
-  // path (`switchConversation` / `startNewConversation`) also resets eagerly
-  // to prevent stale UI flashes — the double-reset is harmless (idempotent).
+  // Reset subagent + workflow tracking on conversation change. Runs as a
+  // layout effect so it completes before any freshly-mounted card's passive
+  // hydration effect: every `useLayoutEffect` in the tree fires before any
+  // `useEffect`, so this reset's `generation` bump lands before a child card
+  // calls `hydrateRunIfNeeded`. As a passive effect it would run after the
+  // child (effects fire children-first), letting a card capture the pre-reset
+  // `generation`; the reset would then bump it and the in-flight hydration
+  // would discard its own result as stale — leaving the card blank with no
+  // retry. The wrapper-initiated path (`switchConversation` /
+  // `startNewConversation`) also resets eagerly; the double-reset is idempotent.
   // This effect catches the URL-navigation path where wrappers don't run.
-  useEffect(() => {
+  useLayoutEffect(() => {
     useSubagentStore.getState().reset();
     useWorkflowStore.getState().reset();
   }, [activeConversationId]);
