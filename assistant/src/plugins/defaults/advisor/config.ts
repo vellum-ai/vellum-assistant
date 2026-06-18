@@ -12,13 +12,9 @@ export const ADVISOR_CONFIG = {
    * profile; the resolver falls back to the active profile if it's absent.
    */
   profile: "quality-optimized",
-  /**
-   * Hard cap on advisor output tokens per consult. Mirrors the advisor tool's
-   * recommended 2048 (the provider floor is 1024).
-   */
-  maxTokens: 2048,
-  /** Soft word budget requested of the advisor, biasing toward a focused start. */
-  wordLimit: 80,
+  // No advisor-specific output cap: the consult omits `max_tokens` (so the
+  // resolver applies the profile's normal output budget) and the request text
+  // carries no word limit. The advisor decides its own length.
   /** Abort the consult if the sub-call runs longer than this. */
   timeoutMs: 60_000,
   /** Inject the "call advisor before substantive work" steering. */

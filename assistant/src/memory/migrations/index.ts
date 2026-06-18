@@ -286,6 +286,7 @@ export { migrateContactChannelsRenormalizeAddresses } from "./291-contact-channe
 export { migrateScheduleDefaultNoReuseConversation } from "./292-schedule-default-no-reuse-conversation.js";
 export { migrateWorkflowJournalLeafTokens } from "./293-workflow-journal-leaf-tokens.js";
 export { migrateDropExternalUserId } from "./294-drop-external-user-id.js";
+export { dropApprovalPromptTsTrackerTable } from "./295-drop-approval-prompt-ts-tracker.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

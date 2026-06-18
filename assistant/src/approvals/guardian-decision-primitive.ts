@@ -355,6 +355,7 @@ export type CanonicalDecisionResult =
         | "not_found"
         | "already_resolved"
         | "identity_mismatch"
+        | "request_misconfigured"
         | "invalid_action"
         | "expired";
       detail?: string;
@@ -427,18 +428,22 @@ export async function applyCanonicalGuardianDecision(
   // authorization gate — principal identity must always match.
 
   if (!request.guardianPrincipalId) {
-    log.warn(
+    // A decisionable request with no bound principal can never be authorized
+    // by anyone — it is stuck. This is a data-integrity fault (creation guards
+    // against it for decisionable kinds), not an authorization denial, so it
+    // must NOT be reported to the actor as "you don't have permission".
+    log.error(
       {
         event: "canonical_decision_missing_request_principal",
         requestId,
         kind: request.kind,
         sourceType: request.sourceType,
       },
-      "Canonical request missing guardianPrincipalId; rejecting decision",
+      "Canonical request missing guardianPrincipalId; request is undecidable",
     );
     return {
       applied: false,
-      reason: "identity_mismatch",
+      reason: "request_misconfigured",
       detail: "request missing guardianPrincipalId",
     };
   }
