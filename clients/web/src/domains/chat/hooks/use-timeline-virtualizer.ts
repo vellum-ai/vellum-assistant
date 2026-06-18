@@ -29,12 +29,27 @@ export const OVERSCAN = 6;
 
 /**
  * Compute the `scrollMargin` for the virtualizer: the list's top offset within
- * the scroll container, so virtual positions account for any header/content
- * rendered above the list. Pure (no DOM API beyond reading `offsetTop`) so it
- * is unit-testable without a real layout.
+ * the scroll container's content, so virtual positions account for any header
+ * rendered above the list.
+ *
+ * Measured *relative to the scroll element* rather than via `offsetTop`:
+ * `offsetTop` is relative to the nearest positioned ancestor, which is often
+ * not the scroll container (the panel body is a static `overflow-y-auto` div),
+ * so using it would subtract the wrong margin and shift every row. The gap
+ * between the two box tops plus the container's current `scrollTop` gives the
+ * list's stable offset within the scrolled content. Returns 0 until both
+ * elements are mounted.
  */
-export function computeScrollMargin(listEl: HTMLElement | null): number {
-  return listEl?.offsetTop ?? 0;
+export function computeScrollMargin(
+  listEl: HTMLElement | null,
+  scrollEl: HTMLElement | null,
+): number {
+  if (!listEl || !scrollEl) return 0;
+  return (
+    listEl.getBoundingClientRect().top -
+    scrollEl.getBoundingClientRect().top +
+    scrollEl.scrollTop
+  );
 }
 
 export interface UseTimelineVirtualizerParams {
@@ -69,6 +84,6 @@ export function useTimelineVirtualizer({
     estimateSize: () => estimateSize ?? DEFAULT_ROW_ESTIMATE,
     measureElement,
     overscan: OVERSCAN,
-    scrollMargin: computeScrollMargin(listRef?.current ?? null),
+    scrollMargin: computeScrollMargin(listRef?.current ?? null, scrollRef.current),
   });
 }
