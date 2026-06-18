@@ -198,12 +198,19 @@ export function usePlatformGate(
   // does not loop. See CONVENTIONS.md § State management — `useShallow`
   // is not introduced in new code; atomic selectors avoid the need.
   //
-  // `hasPlatformSession` reads the optimistic session value: a live
-  // session is `"present"`, while both `"absent"` and the pre-settle
-  // `"unknown"` gate the surface. A re-probe keeps the last
-  // `"present"`/`"absent"` until the new result lands, so the gate does
-  // not flicker to `"disabled"` on app resume.
-  const hasPlatformSession = useHasPlatformSession();
+  // `platformReachable` is the platform-reachability signal both branches
+  // gate on. `useHasPlatformSession()` is `hasLivePlatformSession(platformSession)`
+  // — the same credential `canReachAssistant` checks for a platform-hosted
+  // assistant — so the gate and the per-assistant connection predicate agree
+  // on "is the platform reachable." It stays the bare identity signal rather
+  // than `canReachAssistant(activeAssistant)`: that wrapper forks on
+  // `isRemoteGatewayMode()` / `isLocalMode()` and the active assistant's
+  // hosting, which would change the self-hosted rows (states 3–5) of the
+  // truth table. A live session reads `"present"`, while both `"absent"` and
+  // the pre-settle `"unknown"` gate the surface; a re-probe keeps the last
+  // `"present"`/`"absent"` until the new result lands, so the gate does not
+  // flicker to `"disabled"` on app resume.
+  const platformReachable = useHasPlatformSession();
   const platformDisabled = isPlatformDisabled();
   const activeIsSelfHosted = useActiveAssistantIsSelfHosted();
 
@@ -214,12 +221,12 @@ export function usePlatformGate(
   // "is this UI's target assistant platform-hosted?"
   if (options.platformHostedOnly) {
     if (activeIsSelfHosted) return "gated";
-    if (!hasPlatformSession) return "disabled";
+    if (!platformReachable) return "disabled";
     return "full";
   }
 
   const local = isLocalMode();
   if (local && platformDisabled) return "gated";
-  if (!hasPlatformSession) return "disabled";
+  if (!platformReachable) return "disabled";
   return "full";
 }
