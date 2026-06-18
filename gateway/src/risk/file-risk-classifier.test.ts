@@ -904,6 +904,45 @@ describe("FileRiskClassifier", () => {
       });
       expect(result.riskLevel).toBe("low");
     });
+
+    // Reverse symlink: the path is lexically INSIDE a protected dir but its
+    // real target is outside. The loader still executes the file through the
+    // protected location, so escalation must fire on the lexical path even
+    // though resolvedPath points elsewhere (union of lexical + real).
+    test("file_write escalates when lexical path is in hooks dir but resolvedPath points out", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: join(MOCK_HOOKS_DIR, "pre-tool-use.sh"),
+        workingDir: "/",
+        resolvedPath: "/tmp/elsewhere.sh",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to hooks directory");
+    });
+
+    test("file_read escalates when lexical path is the signing key but resolvedPath points out", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_read",
+        filePath: join(MOCK_PROTECTED_DIR, "actor-token-signing-key"),
+        workingDir: "/",
+        resolvedPath: "/tmp/elsewhere",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Reads actor token signing key");
+    });
+
+    test("host_file_write escalates when lexical path is in plugins dir but resolvedPath points out", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "host_file_write",
+        filePath: join(MOCK_PLUGINS_DIR, "evil", "register.ts"),
+        resolvedPath: "/tmp/elsewhere.ts",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to plugins directory");
+    });
   });
 
   // -- Singleton export -------------------------------------------------------
