@@ -169,9 +169,9 @@ describe("useCanReachAssistant", () => {
       expect(result.current).toBe(true);
     });
 
-    // P2 #2: a self-hosted daemon that answered `/healthz` with a non-healthy
-    // status gets `health: "unhealthy"`. The lifecycle service treats that as
-    // reachable for active local states, so this hook must agree.
+    // A self-hosted daemon that answered `/healthz` with a non-healthy status
+    // gets `health: "unhealthy"`. The lifecycle service treats that as reachable
+    // for active local states, so this hook must agree.
     test("self_hosted health 'unhealthy' is reachable (degraded-but-responsive)", () => {
       setLifecycle({ kind: "self_hosted", health: "unhealthy" });
       const { result } = renderHook(() => useCanReachAssistant(localAssistant));

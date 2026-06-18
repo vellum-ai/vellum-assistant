@@ -8,11 +8,7 @@ import {
 } from "@/stores/session-status";
 import { canReachAssistant } from "@/assistant/can-reach-assistant";
 import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
-import {
-  isLocalMode,
-  getSelectedAssistant,
-  getActiveAssistant,
-} from "@/lib/local-mode";
+import { isLocalMode, getSelectedAssistant } from "@/lib/local-mode";
 import {
   readTosAccepted,
   readAiDataConsent,
@@ -31,7 +27,9 @@ import type { NavigationState } from "./navigation-resolver";
 function canReachSelectedAssistant(
   platformSession: PlatformSessionStatus,
 ): boolean {
-  const selected = getSelectedAssistant() ?? getActiveAssistant();
+  // getSelectedAssistant() already falls back to the active assistant when no
+  // valid selection is stored, so it is the single resolver here.
+  const selected = getSelectedAssistant();
   if (!selected) return false;
   return canReachAssistant(selected, {
     gatewayTokenPresent: getGatewayToken() !== null,
