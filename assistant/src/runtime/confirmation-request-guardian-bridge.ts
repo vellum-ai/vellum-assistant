@@ -197,6 +197,10 @@ export function bridgeConfirmationRequestToGuardian(
           destinationChannel: result.channel,
           destinationChatId:
             result.destination.length > 0 ? result.destination : undefined,
+          // The delivered card's channel-native message id (e.g. Slack `ts`).
+          // Recording it lets an emoji reaction on this card resolve back to
+          // this request even when multiple cards are pending in the chat.
+          destinationMessageId: result.messageId,
         });
       }
     })
