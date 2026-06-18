@@ -1,0 +1,462 @@
+/**
+ * Zustand store for workflow (`run_workflow`) run lifecycle state.
+ *
+ * Maintains a map of WorkflowEntry records keyed by runId, with an
+ * ordered list of IDs for stable rendering and a `byToolUseId` index that
+ * anchors an inline transcript card to its spawning tool call. Direct
+ * named actions call `set()` to apply pure transitions so UI components
+ * can derive display state deterministically.
+ *
+ * Per-run leaves are tracked in a seq-keyed Map. Reference-stability
+ * discipline mirrors the subagent store: `byId`, `byToolUseId`, and a
+ * run's `leaves` Map are cloned only when the specific mutation touches
+ * them, so unrelated subscribers don't re-render.
+ *
+ * @see https://zustand.docs.pmnd.rs/guides/flux-inspired-practice
+ * @see https://zustand.docs.pmnd.rs/guides/updating-state
+ */
+
+import { create } from "zustand";
+
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { workflowsRunsByIdAbortPost } from "@/generated/daemon/sdk.gen";
+import { createSelectors } from "@/utils/create-selectors";
+import type {
+  WorkflowRunStatus,
+  WorkflowJournalResponse,
+} from "@vellumai/assistant-api";
+
+import { fetchWorkflowJournal } from "./fetch-workflow-journal";
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+
+export type WorkflowLeafStatus = "running" | "completed" | "failed";
+
+export interface WorkflowLeaf {
+  seq: number;
+  label?: string;
+  phase?: string;
+  promptSummary?: string;
+  status: WorkflowLeafStatus;
+  resultSummary?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
+export interface WorkflowEntry {
+  runId: string;
+  label?: string;
+  status: WorkflowRunStatus;
+  phase?: string;
+  agentsSpawned: number;
+  inputTokens: number;
+  outputTokens: number;
+  summary?: string;
+  startedAt: number;
+  /**
+   * Tool-use block ID of the spawning tool call in the parent conversation.
+   * Lets the transcript anchor the inline card to its exact spawn tool call
+   * regardless of optimistic→reconciled message id swaps. Indexed in
+   * `byToolUseId`. Optional — older daemons omit it.
+   */
+  toolUseId?: string;
+  /** Leaf agents/workflows spawned by this run, keyed by `seq`. */
+  leaves: Map<number, WorkflowLeaf>;
+}
+
+export interface WorkflowState {
+  byId: Record<string, WorkflowEntry>;
+  orderedIds: string[];
+  /**
+   * Index of spawning tool-use block id → runId. Populated when a
+   * `workflow_started` event carries `toolUseId`, letting the transcript
+   * anchor the inline card to its exact spawn tool call even after the
+   * optimistic streaming message id is reconciled away.
+   *
+   * The map reference is only replaced when a new `toolUseId` is indexed;
+   * unrelated mutations keep it stable so subscribers don't re-render.
+   */
+  byToolUseId: Map<string, string>;
+  /**
+   * Tracks which runs have had their journal fetched, keyed by
+   * runId → startedAt at fetch time. Prevents redundant network requests
+   * while still allowing re-fetches when store rebuilds produce a new
+   * startedAt.
+   */
+  fetchedAt: Map<string, number>;
+}
+
+// ---------------------------------------------------------------------------
+// Actions
+// ---------------------------------------------------------------------------
+
+export interface WorkflowActions {
+  startRun: (params: {
+    runId: string;
+    conversationId?: string;
+    toolUseId?: string;
+    label?: string;
+    timestamp: number;
+  }) => void;
+
+  applyProgress: (params: {
+    runId: string;
+    phase?: string;
+    agentsSpawned?: number;
+    message?: string;
+    label?: string;
+  }) => void;
+
+  leafStarted: (params: {
+    runId: string;
+    seq: number;
+    label?: string;
+    phase?: string;
+    promptSummary?: string;
+  }) => void;
+
+  leafFinished: (params: {
+    runId: string;
+    seq: number;
+    status: "completed" | "failed";
+    label?: string;
+    inputTokens?: number;
+    outputTokens?: number;
+    resultSummary?: string;
+  }) => void;
+
+  completeRun: (params: {
+    runId: string;
+    status: WorkflowRunStatus;
+    agentsSpawned: number;
+    inputTokens: number;
+    outputTokens: number;
+    summary?: string;
+  }) => void;
+
+  backfillFromJournal: (runId: string, resp: WorkflowJournalResponse) => void;
+
+  /**
+   * Fetch the journal from the daemon for a single run if not already
+   * fetched (or if the entry was rebuilt with a newer startedAt).
+   * Dedup state lives in the store so it survives component lifecycle.
+   * Clears the marker on failure so callers can retry.
+   */
+  fetchJournalIfNeeded: (assistantId: string, runId: string) => Promise<void>;
+
+  /**
+   * Best-effort abort of a running workflow. Reads `assistantId` from the
+   * resolved-assistants store via `.getState()` so callers don't need to
+   * pass or close over that value.
+   */
+  abortRun: (runId: string) => Promise<void>;
+
+  reset: () => void;
+}
+
+export type WorkflowStore = WorkflowState & WorkflowActions;
+
+// ---------------------------------------------------------------------------
+// Initial state
+// ---------------------------------------------------------------------------
+
+const INITIAL_STATE: WorkflowState = {
+  byId: {},
+  orderedIds: [],
+  byToolUseId: new Map<string, string>(),
+  fetchedAt: new Map<string, number>(),
+};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Create a fresh run entry in the "running" state with no leaves. */
+function makeShellEntry(runId: string, startedAt: number): WorkflowEntry {
+  return {
+    runId,
+    status: "running",
+    agentsSpawned: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    startedAt,
+    leaves: new Map<number, WorkflowLeaf>(),
+  };
+}
+
+/** Map a journal leaf's open-string status to a live leaf status. */
+function mapJournalLeafStatus(status: string): WorkflowLeafStatus {
+  if (status === "failed") return "failed";
+  if (status === "running") return "running";
+  // The journal only records finished leaves, so an unknown status is
+  // treated as a terminal success.
+  return "completed";
+}
+
+// ---------------------------------------------------------------------------
+// Store
+// ---------------------------------------------------------------------------
+
+const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
+  ...INITIAL_STATE,
+
+  startRun: (params) => {
+    const { byId, orderedIds, byToolUseId } = get();
+    const existing = byId[params.runId];
+
+    if (existing) {
+      // Fill in label/toolUseId if a prior shell entry (e.g. from a racing
+      // progress event) lacked them.
+      const nextLabel = existing.label ?? params.label;
+      const nextToolUseId = existing.toolUseId ?? params.toolUseId;
+      const labelChanged = nextLabel !== existing.label;
+      const toolUseIdChanged = nextToolUseId !== existing.toolUseId;
+      if (!labelChanged && !toolUseIdChanged) return;
+
+      const updated: WorkflowEntry = {
+        ...existing,
+        label: nextLabel,
+        toolUseId: nextToolUseId,
+      };
+      const nextByToolUseId =
+        toolUseIdChanged && params.toolUseId
+          ? new Map(byToolUseId).set(params.toolUseId, params.runId)
+          : byToolUseId;
+      set({
+        byId: { ...byId, [params.runId]: updated },
+        byToolUseId: nextByToolUseId,
+      });
+      return;
+    }
+
+    const entry: WorkflowEntry = {
+      ...makeShellEntry(params.runId, params.timestamp),
+      label: params.label,
+      toolUseId: params.toolUseId,
+    };
+    // Only clone the tool-use index when this start carries a `toolUseId`;
+    // otherwise keep the existing reference stable.
+    const nextByToolUseId = params.toolUseId
+      ? new Map(byToolUseId).set(params.toolUseId, params.runId)
+      : byToolUseId;
+    set({
+      byId: { ...byId, [params.runId]: entry },
+      orderedIds: [...orderedIds, params.runId],
+      byToolUseId: nextByToolUseId,
+    });
+  },
+
+  applyProgress: (params) => {
+    const { byId, orderedIds } = get();
+    const existing = byId[params.runId];
+
+    const base = existing ?? makeShellEntry(params.runId, Date.now());
+    const updated: WorkflowEntry = {
+      ...base,
+      phase: params.phase ?? base.phase,
+      agentsSpawned: params.agentsSpawned ?? base.agentsSpawned,
+      label: base.label ?? params.label,
+    };
+
+    set({
+      byId: { ...byId, [params.runId]: updated },
+      orderedIds: existing ? orderedIds : [...orderedIds, params.runId],
+    });
+  },
+
+  leafStarted: (params) => {
+    const { byId, orderedIds } = get();
+    const existing = byId[params.runId];
+    const base = existing ?? makeShellEntry(params.runId, Date.now());
+
+    const current = base.leaves.get(params.seq);
+    // Never downgrade an already-terminal leaf back to running.
+    if (current && current.status !== "running") return;
+
+    const leaf: WorkflowLeaf = {
+      seq: params.seq,
+      status: "running",
+      label: params.label ?? current?.label,
+      phase: params.phase ?? current?.phase,
+      promptSummary: params.promptSummary ?? current?.promptSummary,
+    };
+    const nextLeaves = new Map(base.leaves).set(params.seq, leaf);
+
+    set({
+      byId: { ...byId, [params.runId]: { ...base, leaves: nextLeaves } },
+      orderedIds: existing ? orderedIds : [...orderedIds, params.runId],
+    });
+  },
+
+  leafFinished: (params) => {
+    const { byId, orderedIds } = get();
+    const existing = byId[params.runId];
+    const base = existing ?? makeShellEntry(params.runId, Date.now());
+
+    // A leaf only exists on an already-present run, so `current` implies
+    // `existing`.
+    const current = base.leaves.get(params.seq);
+    const leaf: WorkflowLeaf = {
+      seq: params.seq,
+      status: params.status,
+      label: params.label ?? current?.label,
+      phase: current?.phase,
+      promptSummary: current?.promptSummary,
+      inputTokens: params.inputTokens ?? current?.inputTokens,
+      outputTokens: params.outputTokens ?? current?.outputTokens,
+      resultSummary: params.resultSummary ?? current?.resultSummary,
+    };
+
+    // Idempotent: skip the write when the leaf is already at this terminal
+    // status and the event carries no new data.
+    if (
+      current &&
+      current.status === leaf.status &&
+      current.label === leaf.label &&
+      current.inputTokens === leaf.inputTokens &&
+      current.outputTokens === leaf.outputTokens &&
+      current.resultSummary === leaf.resultSummary
+    ) {
+      return;
+    }
+
+    const nextLeaves = new Map(base.leaves).set(params.seq, leaf);
+
+    set({
+      byId: { ...byId, [params.runId]: { ...base, leaves: nextLeaves } },
+      orderedIds: existing ? orderedIds : [...orderedIds, params.runId],
+    });
+  },
+
+  completeRun: (params) => {
+    const { byId, orderedIds } = get();
+    const existing = byId[params.runId];
+    const base = existing ?? makeShellEntry(params.runId, Date.now());
+
+    const updated: WorkflowEntry = {
+      ...base,
+      status: params.status,
+      agentsSpawned: params.agentsSpawned,
+      inputTokens: params.inputTokens,
+      outputTokens: params.outputTokens,
+      summary: params.summary ?? base.summary,
+    };
+
+    set({
+      byId: { ...byId, [params.runId]: updated },
+      orderedIds: existing ? orderedIds : [...orderedIds, params.runId],
+    });
+  },
+
+  backfillFromJournal: (runId, resp) => {
+    const { byId, orderedIds } = get();
+    const existing = byId[runId];
+    const base = existing ?? makeShellEntry(runId, Date.now());
+
+    let leavesChanged = false;
+    let nextLeaves = base.leaves;
+    for (const journalLeaf of resp.leaves) {
+      const current = base.leaves.get(journalLeaf.seq);
+      const journalStatus = mapJournalLeafStatus(journalLeaf.status);
+
+      if (!current) {
+        if (!leavesChanged) {
+          nextLeaves = new Map(base.leaves);
+          leavesChanged = true;
+        }
+        nextLeaves.set(journalLeaf.seq, {
+          seq: journalLeaf.seq,
+          status: journalStatus,
+          label: journalLeaf.label,
+          phase: journalLeaf.phase,
+          promptSummary: journalLeaf.promptSummary,
+          resultSummary: journalLeaf.resultSummary,
+        });
+        continue;
+      }
+
+      // Never regress an already-terminal live leaf back to running, but a
+      // terminal journal status wins over a stale live "running" leaf (a
+      // missed finish event).
+      if (current.status === "running" && journalStatus !== "running") {
+        if (!leavesChanged) {
+          nextLeaves = new Map(base.leaves);
+          leavesChanged = true;
+        }
+        nextLeaves.set(journalLeaf.seq, {
+          ...current,
+          status: journalStatus,
+          label: current.label ?? journalLeaf.label,
+          phase: current.phase ?? journalLeaf.phase,
+          promptSummary: current.promptSummary ?? journalLeaf.promptSummary,
+          resultSummary: current.resultSummary ?? journalLeaf.resultSummary,
+        });
+      }
+    }
+
+    const updated: WorkflowEntry = {
+      ...base,
+      status: resp.status ?? base.status,
+      agentsSpawned: resp.agentsSpawned ?? base.agentsSpawned,
+      inputTokens: resp.inputTokens ?? base.inputTokens,
+      outputTokens: resp.outputTokens ?? base.outputTokens,
+      phase: resp.phase ?? base.phase,
+      leaves: nextLeaves,
+    };
+
+    set({
+      byId: { ...byId, [runId]: updated },
+      orderedIds: existing ? orderedIds : [...orderedIds, runId],
+    });
+  },
+
+  fetchJournalIfNeeded: async (assistantId, runId) => {
+    const { byId, fetchedAt } = get();
+    const entry = byId[runId];
+    if (!entry) return;
+
+    const prev = fetchedAt.get(runId);
+    if (prev !== undefined && prev >= entry.startedAt) return;
+
+    // Mark as fetched before the await to prevent concurrent duplicates.
+    const nextFetchedAt = new Map(fetchedAt);
+    nextFetchedAt.set(runId, entry.startedAt);
+    set({ fetchedAt: nextFetchedAt });
+
+    const resp = await fetchWorkflowJournal(assistantId, runId);
+
+    if (!resp) {
+      const next = new Map(get().fetchedAt);
+      next.delete(runId);
+      set({ fetchedAt: next });
+      return;
+    }
+
+    get().backfillFromJournal(runId, resp);
+  },
+
+  abortRun: async (runId) => {
+    const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
+    if (!assistantId) return;
+    try {
+      await workflowsRunsByIdAbortPost({
+        path: { assistant_id: assistantId, id: runId },
+        throwOnError: true,
+      });
+    } catch {
+      // Best-effort — the workflow may have already completed.
+    }
+  },
+
+  reset: () =>
+    set({
+      byId: {},
+      orderedIds: [],
+      byToolUseId: new Map<string, string>(),
+      fetchedAt: new Map<string, number>(),
+    }),
+}));
+
+export const useWorkflowStore = createSelectors(useWorkflowStoreBase);

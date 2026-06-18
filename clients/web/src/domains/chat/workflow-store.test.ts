@@ -1,0 +1,338 @@
+import { beforeEach, describe, expect, it, mock } from "bun:test";
+import type { WorkflowJournalResponse } from "@vellumai/assistant-api";
+
+// Stub the journal fetch so fetchJournalIfNeeded is exercised without a
+// network boundary. The mock is reassigned per-test via `journalImpl`.
+let journalImpl: (
+  assistantId: string,
+  runId: string,
+) => Promise<WorkflowJournalResponse | null> = async () => null;
+
+mock.module("@/domains/chat/fetch-workflow-journal", () => ({
+  fetchWorkflowJournal: (assistantId: string, runId: string) =>
+    journalImpl(assistantId, runId),
+}));
+
+const { useWorkflowStore } = await import("@/domains/chat/workflow-store");
+
+function getState() {
+  return useWorkflowStore.getState();
+}
+
+const NOW = 1700000000000;
+
+beforeEach(() => {
+  getState().reset();
+  journalImpl = async () => null;
+});
+
+// ---------------------------------------------------------------------------
+// startRun
+// ---------------------------------------------------------------------------
+
+describe("startRun", () => {
+  it("creates a running entry and indexes byToolUseId", () => {
+    getState().startRun({
+      runId: "wf-1",
+      toolUseId: "tu-1",
+      label: "Build report",
+      timestamp: NOW,
+    });
+
+    const state = getState();
+    expect(state.orderedIds).toEqual(["wf-1"]);
+    const entry = state.byId["wf-1"]!;
+    expect(entry.status).toBe("running");
+    expect(entry.label).toBe("Build report");
+    expect(entry.toolUseId).toBe("tu-1");
+    expect(entry.startedAt).toBe(NOW);
+    expect(entry.leaves.size).toBe(0);
+    expect(state.byToolUseId.get("tu-1")).toBe("wf-1");
+  });
+
+  it("does not clone byToolUseId when no toolUseId is supplied", () => {
+    const before = getState().byToolUseId;
+    getState().startRun({ runId: "wf-2", timestamp: NOW });
+    expect(getState().byToolUseId).toBe(before);
+  });
+
+  it("fills missing label/toolUseId on a pre-existing shell entry", () => {
+    getState().applyProgress({ runId: "wf-3", phase: "planning" });
+    getState().startRun({
+      runId: "wf-3",
+      toolUseId: "tu-3",
+      label: "Late label",
+      timestamp: NOW,
+    });
+
+    const entry = getState().byId["wf-3"]!;
+    expect(entry.label).toBe("Late label");
+    expect(entry.toolUseId).toBe("tu-3");
+    expect(entry.phase).toBe("planning");
+    expect(getState().byToolUseId.get("tu-3")).toBe("wf-3");
+    // Not double-added to the ordered list.
+    expect(getState().orderedIds).toEqual(["wf-3"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyProgress
+// ---------------------------------------------------------------------------
+
+describe("applyProgress", () => {
+  it("upserts a shell entry when the run is unknown", () => {
+    getState().applyProgress({
+      runId: "wf-p",
+      phase: "spawning",
+      agentsSpawned: 3,
+    });
+
+    const entry = getState().byId["wf-p"]!;
+    expect(entry.status).toBe("running");
+    expect(entry.phase).toBe("spawning");
+    expect(entry.agentsSpawned).toBe(3);
+    expect(getState().orderedIds).toEqual(["wf-p"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Leaf lifecycle
+// ---------------------------------------------------------------------------
+
+describe("leaf lifecycle", () => {
+  it("upserts a seq-keyed running leaf", () => {
+    getState().startRun({ runId: "wf-l", timestamp: NOW });
+    getState().leafStarted({
+      runId: "wf-l",
+      seq: 0,
+      label: "Leaf A",
+      promptSummary: "do a thing",
+    });
+
+    const leaf = getState().byId["wf-l"]!.leaves.get(0)!;
+    expect(leaf.status).toBe("running");
+    expect(leaf.label).toBe("Leaf A");
+    expect(leaf.promptSummary).toBe("do a thing");
+  });
+
+  it("creates a shell run when leafStarted races ahead of startRun", () => {
+    getState().leafStarted({ runId: "wf-race", seq: 2, label: "Early leaf" });
+
+    const entry = getState().byId["wf-race"];
+    expect(entry).toBeDefined();
+    expect(entry!.status).toBe("running");
+    expect(entry!.leaves.get(2)!.status).toBe("running");
+    expect(getState().orderedIds).toEqual(["wf-race"]);
+  });
+
+  it("transitions a leaf to terminal and merges tokens, keeping the prior label", () => {
+    getState().leafStarted({ runId: "wf-f", seq: 0, label: "Leaf A" });
+    getState().leafFinished({
+      runId: "wf-f",
+      seq: 0,
+      status: "completed",
+      inputTokens: 100,
+      outputTokens: 50,
+      resultSummary: "done",
+    });
+
+    const leaf = getState().byId["wf-f"]!.leaves.get(0)!;
+    expect(leaf.status).toBe("completed");
+    expect(leaf.label).toBe("Leaf A");
+    expect(leaf.inputTokens).toBe(100);
+    expect(leaf.outputTokens).toBe(50);
+    expect(leaf.resultSummary).toBe("done");
+  });
+
+  it("never downgrades an already-terminal leaf back to running", () => {
+    getState().leafFinished({ runId: "wf-d", seq: 0, status: "completed" });
+    getState().leafStarted({ runId: "wf-d", seq: 0, label: "Stale start" });
+
+    expect(getState().byId["wf-d"]!.leaves.get(0)!.status).toBe("completed");
+  });
+
+  it("is idempotent when leafFinished repeats the same terminal status with no new data", () => {
+    getState().leafFinished({
+      runId: "wf-i",
+      seq: 0,
+      status: "completed",
+      inputTokens: 10,
+    });
+    const before = getState().byId["wf-i"]!.leaves;
+    getState().leafFinished({ runId: "wf-i", seq: 0, status: "completed" });
+    expect(getState().byId["wf-i"]!.leaves).toBe(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// completeRun
+// ---------------------------------------------------------------------------
+
+describe("completeRun", () => {
+  it("sets terminal run fields", () => {
+    getState().startRun({ runId: "wf-c", timestamp: NOW });
+    getState().completeRun({
+      runId: "wf-c",
+      status: "completed",
+      agentsSpawned: 4,
+      inputTokens: 1000,
+      outputTokens: 500,
+      summary: "all good",
+    });
+
+    const entry = getState().byId["wf-c"]!;
+    expect(entry.status).toBe("completed");
+    expect(entry.agentsSpawned).toBe(4);
+    expect(entry.inputTokens).toBe(1000);
+    expect(entry.outputTokens).toBe(500);
+    expect(entry.summary).toBe("all good");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// backfillFromJournal
+// ---------------------------------------------------------------------------
+
+describe("backfillFromJournal", () => {
+  it("inserts missing leaves and sets run counters", () => {
+    getState().startRun({ runId: "wf-bf", timestamp: NOW });
+    getState().backfillFromJournal("wf-bf", {
+      runId: "wf-bf",
+      status: "running",
+      agentsSpawned: 2,
+      inputTokens: 200,
+      outputTokens: 100,
+      phase: "executing",
+      leaves: [
+        {
+          seq: 0,
+          kind: "agent",
+          label: "Leaf 0",
+          status: "completed",
+          createdAt: NOW,
+        },
+        {
+          seq: 1,
+          kind: "agent",
+          label: "Leaf 1",
+          status: "failed",
+          createdAt: NOW,
+        },
+      ],
+    });
+
+    const entry = getState().byId["wf-bf"]!;
+    expect(entry.agentsSpawned).toBe(2);
+    expect(entry.inputTokens).toBe(200);
+    expect(entry.phase).toBe("executing");
+    expect(entry.leaves.get(0)!.status).toBe("completed");
+    expect(entry.leaves.get(1)!.status).toBe("failed");
+  });
+
+  it("does not regress a live terminal leaf when the journal reports it", () => {
+    getState().leafStarted({ runId: "wf-keep", seq: 0, label: "Live leaf" });
+    getState().leafFinished({
+      runId: "wf-keep",
+      seq: 0,
+      status: "completed",
+      resultSummary: "live result",
+    });
+
+    getState().backfillFromJournal("wf-keep", {
+      runId: "wf-keep",
+      leaves: [
+        {
+          seq: 0,
+          kind: "agent",
+          status: "failed",
+          resultSummary: "journal result",
+          createdAt: NOW,
+        },
+      ],
+    });
+
+    const leaf = getState().byId["wf-keep"]!.leaves.get(0)!;
+    // Live terminal wins: status and result are preserved.
+    expect(leaf.status).toBe("completed");
+    expect(leaf.resultSummary).toBe("live result");
+  });
+
+  it("lets a journal terminal status override a stale live running leaf", () => {
+    getState().leafStarted({ runId: "wf-win", seq: 0, label: "Running leaf" });
+
+    getState().backfillFromJournal("wf-win", {
+      runId: "wf-win",
+      leaves: [
+        {
+          seq: 0,
+          kind: "agent",
+          status: "completed",
+          resultSummary: "journal result",
+          createdAt: NOW,
+        },
+      ],
+    });
+
+    const leaf = getState().byId["wf-win"]!.leaves.get(0)!;
+    expect(leaf.status).toBe("completed");
+    expect(leaf.label).toBe("Running leaf");
+    expect(leaf.resultSummary).toBe("journal result");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchJournalIfNeeded
+// ---------------------------------------------------------------------------
+
+describe("fetchJournalIfNeeded", () => {
+  it("dedups a second call within the same startedAt", async () => {
+    getState().startRun({ runId: "wf-fetch", timestamp: NOW });
+
+    let calls = 0;
+    journalImpl = async (_assistantId, runId) => {
+      calls += 1;
+      return { runId, leaves: [] };
+    };
+
+    await getState().fetchJournalIfNeeded("asst-1", "wf-fetch");
+    await getState().fetchJournalIfNeeded("asst-1", "wf-fetch");
+
+    expect(calls).toBe(1);
+    expect(getState().fetchedAt.get("wf-fetch")).toBe(NOW);
+  });
+
+  it("clears the marker on failure so callers can retry", async () => {
+    getState().startRun({ runId: "wf-fail", timestamp: NOW });
+
+    journalImpl = async () => null;
+    await getState().fetchJournalIfNeeded("asst-1", "wf-fail");
+
+    expect(getState().fetchedAt.has("wf-fail")).toBe(false);
+  });
+
+  it("no-ops when the run is unknown", async () => {
+    let calls = 0;
+    journalImpl = async (_assistantId, runId) => {
+      calls += 1;
+      return { runId, leaves: [] };
+    };
+    await getState().fetchJournalIfNeeded("asst-1", "missing");
+    expect(calls).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Reference stability
+// ---------------------------------------------------------------------------
+
+describe("reference stability", () => {
+  it("leaves another run's leaves Map reference unchanged on mutation", () => {
+    getState().startRun({ runId: "wf-a", timestamp: NOW });
+    getState().startRun({ runId: "wf-b", timestamp: NOW });
+    const bLeavesBefore = getState().byId["wf-b"]!.leaves;
+
+    getState().leafStarted({ runId: "wf-a", seq: 0, label: "A leaf" });
+
+    expect(getState().byId["wf-b"]!.leaves).toBe(bLeavesBefore);
+  });
+});
