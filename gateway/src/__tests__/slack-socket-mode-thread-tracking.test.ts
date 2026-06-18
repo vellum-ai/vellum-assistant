@@ -84,10 +84,8 @@ const { clearChannelInfoCache, clearUserInfoCache, resolveSlackUser } =
   await import("../slack/normalize.js");
 const { handleInbound } = await import("../handlers/handle-inbound.js");
 const { initGatewayDb, resetGatewayDb } = await import("../db/connection.js");
-const {
-  initAdmissionPolicyCache,
-  resetAdmissionPolicyCache,
-} = await import("../risk/admission-policy-cache.js");
+const { initAdmissionPolicyCache, resetAdmissionPolicyCache } =
+  await import("../risk/admission-policy-cache.js");
 import type { SlackSocketModeConfig } from "../slack/socket-mode.js";
 
 type SocketModeHarness = {
@@ -192,6 +190,7 @@ function createHarness(
     botUsername: "assistant",
     teamName: "Example Team",
     gatewayConfig: makeConfig(),
+    threadMode: "mention_then_thread",
   };
   harness.onEvent = onEvent;
   harness.store = store;

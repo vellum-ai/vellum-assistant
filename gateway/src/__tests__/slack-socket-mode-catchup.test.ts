@@ -130,6 +130,7 @@ function createHarness(
     botUsername: "assistant",
     teamName: "Example Team",
     gatewayConfig: makeConfig(),
+    threadMode: "mention_then_thread",
   };
   harness.onEvent = onEvent;
   harness.store = store;
