@@ -8,8 +8,12 @@
  * only returned when the gateway responds with `{ policy: <valid policy> }`.
  *
  * Caches per channelType with a short TTL, mirroring the conversation
- * threshold cache in `../permissions/gateway-threshold-reader.ts`. This sits
- * off the hot path, so a lighter cache without failure-coalescing is fine.
+ * threshold cache in `../permissions/gateway-threshold-reader.ts`. Only the
+ * result of a SUCCESSFUL gateway round-trip is cached (a valid policy, or an
+ * explicit `{ policy: null }` "no enforcement" answer); a transport failure /
+ * throw / malformed shape fails open to `null` WITHOUT caching, so a recovered
+ * gateway is re-consulted on the next call setup rather than skipping the
+ * admission floor for the rest of the TTL.
  */
 
 import {
@@ -38,8 +42,48 @@ export function _clearCacheForTesting(): void {
 }
 
 /**
+ * Outcome of a single gateway fetch. Only a SUCCESSFUL round-trip (a valid
+ * policy, or an explicit `{ policy: null }` "no enforcement" answer) is
+ * cacheable. A transport failure, thrown error, or malformed shape is NOT
+ * cached so a recovered gateway is re-consulted on the next call setup.
+ */
+type FetchResult =
+  | { ok: true; policy: AdmissionPolicy | null }
+  | { ok: false };
+
+async function fetchAdmissionPolicy(
+  channelType: ChannelId,
+): Promise<FetchResult> {
+  try {
+    // ipcCall() returns undefined on transport failure (socket not found,
+    // timeout, parse error). That, a throw, or a malformed shape is a FAILURE:
+    // fail open without caching so the next setup re-attempts the IPC.
+    const result = (await ipcCall(
+      "get_channel_admission_policy",
+      { channelType },
+      ADMISSION_IPC_TIMEOUT_MS,
+    )) as { policy?: unknown } | null | undefined;
+
+    if (result === undefined) return { ok: false };
+    if (result && isAdmissionPolicy(result.policy)) {
+      return { ok: true, policy: result.policy };
+    }
+    // Explicit "no enforcement" — the gateway successfully answered. Cacheable.
+    if (result && result.policy === null) return { ok: true, policy: null };
+    // Anything else (missing/invalid policy field) is a malformed shape.
+    return { ok: false };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/**
  * Resolve a channel's admission policy from the gateway, or `null` on any
  * failure / absence. `null` means admit with no enforcement.
+ *
+ * Always fails open to `null` on failure, but only caches the result of a
+ * SUCCESSFUL gateway round-trip — a transient hiccup must not skip the
+ * admission floor for the rest of the TTL.
  */
 export async function getChannelAdmissionPolicy(
   channelType: ChannelId,
@@ -49,24 +93,12 @@ export async function getChannelAdmissionPolicy(
     return cached.policy;
   }
 
-  let policy: AdmissionPolicy | null = null;
-  try {
-    // ipcCall() returns undefined on transport failure (socket not found,
-    // timeout, parse error). Treat anything other than a valid policy as
-    // "no enforcement" so a gateway hiccup can never block call setup.
-    const result = (await ipcCall(
-      "get_channel_admission_policy",
-      { channelType },
-      ADMISSION_IPC_TIMEOUT_MS,
-    )) as { policy?: unknown } | null | undefined;
-
-    if (result && isAdmissionPolicy(result.policy)) {
-      policy = result.policy;
-    }
-  } catch {
-    // Fail open — a thrown IPC error must never block call setup.
+  const result = await fetchAdmissionPolicy(channelType);
+  if (!result.ok) {
+    // Fail open WITHOUT caching so a recovered gateway is re-consulted next time.
+    return null;
   }
 
-  cache.set(channelType, { policy, timestamp: Date.now() });
-  return policy;
+  cache.set(channelType, { policy: result.policy, timestamp: Date.now() });
+  return result.policy;
 }

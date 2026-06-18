@@ -90,10 +90,43 @@ describe("getChannelAdmissionPolicy", () => {
     expect(await getChannelAdmissionPolicy("telegram")).toBeNull();
   });
 
-  test("caches the negative (null) result within the TTL", async () => {
-    ipcHandlers.set(METHOD, () => undefined);
+  test("caches the explicit no-enforcement (null) answer within the TTL", async () => {
+    // The gateway successfully said "no enforcement" — a real, cacheable answer.
+    ipcHandlers.set(METHOD, () => ({ policy: null }));
     expect(await getChannelAdmissionPolicy("telegram")).toBeNull();
     expect(await getChannelAdmissionPolicy("telegram")).toBeNull();
     expect(countCalls(METHOD)).toBe(1);
+  });
+
+  test("does NOT cache a transport failure (undefined) — re-consults the gateway", async () => {
+    // First setup: gateway hiccup → fail open to null, NOT cached.
+    ipcHandlers.set(METHOD, () => undefined);
+    expect(await getChannelAdmissionPolicy("telegram")).toBeNull();
+
+    // Gateway recovers with a restrictive policy: the next setup must re-attempt
+    // the IPC (not serve a stale fail-open null) and honor the now-recovered floor.
+    ipcHandlers.set(METHOD, () => ({ policy: "guardian_only" }));
+    expect(await getChannelAdmissionPolicy("telegram")).toBe("guardian_only");
+    expect(countCalls(METHOD)).toBe(2);
+  });
+
+  test("does NOT cache a thrown IPC error — re-consults the gateway", async () => {
+    ipcHandlers.set(METHOD, () => {
+      throw new Error("socket exploded");
+    });
+    expect(await getChannelAdmissionPolicy("telegram")).toBeNull();
+
+    ipcHandlers.set(METHOD, () => ({ policy: "no_one" }));
+    expect(await getChannelAdmissionPolicy("telegram")).toBe("no_one");
+    expect(countCalls(METHOD)).toBe(2);
+  });
+
+  test("does NOT cache a malformed shape — re-consults the gateway", async () => {
+    ipcHandlers.set(METHOD, () => ({ policy: "definitely-not-a-policy" }));
+    expect(await getChannelAdmissionPolicy("telegram")).toBeNull();
+
+    ipcHandlers.set(METHOD, () => ({ policy: "guardian_only" }));
+    expect(await getChannelAdmissionPolicy("telegram")).toBe("guardian_only");
+    expect(countCalls(METHOD)).toBe(2);
   });
 });
