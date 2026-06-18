@@ -136,6 +136,73 @@ describe("resolveServerConsent", () => {
     expect(r.shareAnalytics).toBe(false);
     expect(r.shareDiagnostics).toBe(true);
   });
+
+  test("hasServerRecord is false for an all-defaults response", () => {
+    const r = resolveServerConsent(
+      makeConsent({
+        tos_accepted_version: "",
+        privacy_policy_accepted_version: "",
+        ai_data_sharing_accepted_version: "",
+        share_analytics_accepted_version: "",
+        share_diagnostics_accepted_version: "",
+        share_analytics: true,
+        share_diagnostics: true,
+      }),
+    );
+    expect(r.hasServerRecord).toBe(false);
+  });
+
+  test("hasServerRecord is false for null/undefined consent", () => {
+    expect(resolveServerConsent(null).hasServerRecord).toBe(false);
+    expect(resolveServerConsent(undefined).hasServerRecord).toBe(false);
+  });
+
+  test("hasServerRecord is true when any version is non-empty", () => {
+    const allDefaults = {
+      tos_accepted_version: "",
+      privacy_policy_accepted_version: "",
+      ai_data_sharing_accepted_version: "",
+      share_analytics_accepted_version: "",
+      share_diagnostics_accepted_version: "",
+      share_analytics: true,
+      share_diagnostics: true,
+    };
+    expect(
+      resolveServerConsent(
+        makeConsent({ ...allDefaults, tos_accepted_version: CONSENT_VERSION }),
+      ).hasServerRecord,
+    ).toBe(true);
+    expect(
+      resolveServerConsent(
+        makeConsent({
+          ...allDefaults,
+          ai_data_sharing_accepted_version: CONSENT_VERSION,
+        }),
+      ).hasServerRecord,
+    ).toBe(true);
+  });
+
+  test("hasServerRecord is true when a share boolean is false", () => {
+    const allDefaults = {
+      tos_accepted_version: "",
+      privacy_policy_accepted_version: "",
+      ai_data_sharing_accepted_version: "",
+      share_analytics_accepted_version: "",
+      share_diagnostics_accepted_version: "",
+      share_analytics: true,
+      share_diagnostics: true,
+    };
+    expect(
+      resolveServerConsent(
+        makeConsent({ ...allDefaults, share_analytics: false }),
+      ).hasServerRecord,
+    ).toBe(true);
+    expect(
+      resolveServerConsent(
+        makeConsent({ ...allDefaults, share_diagnostics: false }),
+      ).hasServerRecord,
+    ).toBe(true);
+  });
 });
 
 describe("persistToggleConsent + restoreConsentForUser round-trip", () => {

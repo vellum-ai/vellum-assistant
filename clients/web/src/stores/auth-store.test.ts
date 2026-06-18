@@ -69,6 +69,7 @@ const resolveServerConsentMock = mock(
     shareDiagnostics: boolean | null;
     analyticsCurrent: boolean;
     diagnosticsCurrent: boolean;
+    hasServerRecord: boolean;
   } => ({
     tos: false,
     ai: false,
@@ -76,6 +77,7 @@ const resolveServerConsentMock = mock(
     shareDiagnostics: null,
     analyticsCurrent: false,
     diagnosticsCurrent: false,
+    hasServerRecord: false,
   }),
 );
 
@@ -211,6 +213,10 @@ const setAnalyticsConsentCurrentMock = mock((_value: boolean) => {});
 const setDiagnosticsConsentCurrentMock = mock((_value: boolean) => {});
 const setShareAnalyticsMock = mock((_value: boolean) => {});
 const setShareDiagnosticsMock = mock((_value: boolean) => {});
+// Mirror the store's device-initialized share values; the backfill reads these
+// to send the device opt-out value alongside the accepted version.
+let mockStoreShareAnalytics = true;
+let mockStoreShareDiagnostics = true;
 
 mock.module("@/domains/onboarding/onboarding-store", () => ({
   useOnboardingStore: {
@@ -221,6 +227,8 @@ mock.module("@/domains/onboarding/onboarding-store", () => ({
       setShareDiagnostics: setShareDiagnosticsMock,
       setAnalyticsConsentCurrent: setAnalyticsConsentCurrentMock,
       setDiagnosticsConsentCurrent: setDiagnosticsConsentCurrentMock,
+      shareAnalytics: mockStoreShareAnalytics,
+      shareDiagnostics: mockStoreShareDiagnostics,
     }),
   },
 }));
@@ -335,6 +343,8 @@ beforeEach(() => {
   setDiagnosticsConsentCurrentMock.mockClear();
   setShareAnalyticsMock.mockClear();
   setShareDiagnosticsMock.mockClear();
+  mockStoreShareAnalytics = true;
+  mockStoreShareDiagnostics = true;
   fetchConsentMock.mockClear();
   patchConsentMock.mockClear();
   mockFetchConsentResult = EMPTY_CONSENT;
@@ -500,6 +510,7 @@ describe("auth store onboarding flag reconciliation", () => {
       shareDiagnostics: true,
       analyticsCurrent: true,
       diagnosticsCurrent: true,
+      hasServerRecord: true,
     });
 
     await useAuthStore.getState().initSession();
@@ -568,6 +579,51 @@ describe("auth store onboarding flag reconciliation", () => {
     // device-local choices the store already holds.
     expect(setShareAnalyticsMock).not.toHaveBeenCalled();
     expect(setShareDiagnosticsMock).not.toHaveBeenCalled();
+  });
+
+  test("backfill patch carries the device share VALUE alongside the accepted version (opt-out preserved)", async () => {
+    // Truly-empty server record (hasServerRecord=false), device legal consent
+    // current, and a device analytics opt-out. The backfill must send the
+    // share value so the next fetch can't read the API default (true) and
+    // overwrite the opt-out.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockStoreShareAnalytics = false;
+    restoreConsentForUserMock.mockReturnValueOnce({
+      tos: true,
+      ai: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(patchConsentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        share_analytics_accepted_version: "2026-06-08",
+        share_analytics: false,
+      }),
+    );
+  });
+
+  test("stale-but-real record keeps server share values and skips the device fallback", async () => {
+    // hasServerRecord=true but legal consent is stale (tos=false). The server's
+    // share opt-out is authoritative and must be applied; the device fallback
+    // must NOT run (its values are not authoritative for a real record).
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: false,
+      ai: false,
+      shareAnalytics: false,
+      shareDiagnostics: true,
+      analyticsCurrent: false,
+      diagnosticsCurrent: false,
+      hasServerRecord: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(setShareAnalyticsMock).toHaveBeenCalledWith(false);
+    expect(restoreConsentForUserMock).not.toHaveBeenCalled();
   });
 
   test("initSession falls back to device keys when fetchConsent fails", async () => {

@@ -252,8 +252,10 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       // Only adopt the server's share-preference booleans when the server has a
       // real consent record. For an empty record they're just the API defaults
       // and would clobber the device-local `device:share_*` choices that the
-      // fallback below relies on (the store already holds them from init).
-      if (resolved.tos || resolved.ai) {
+      // fallback below relies on (the store already holds them from init). A
+      // real record's share values are authoritative even when its legal
+      // consent versions are stale (the nav layer routes to review-terms).
+      if (resolved.hasServerRecord) {
         if (resolved.shareAnalytics !== null)
           store.setShareAnalytics(resolved.shareAnalytics);
         if (resolved.shareDiagnostics !== null)
@@ -271,25 +273,34 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       let analyticsCurrent = resolved.analyticsCurrent;
       let diagnosticsCurrent = resolved.diagnosticsCurrent;
 
-      if (!resolved.tos && !resolved.ai) {
+      // Only fall back to device keys for a TRULY empty record. A stale-but-real
+      // record's server values are authoritative and must not be overwritten;
+      // the nav layer routes the user to review-terms for the stale legal consent.
+      if (!resolved.hasServerRecord) {
         const deviceConsent = restoreConsentForUser(nextUserId);
         analyticsCurrent = deviceConsent.analyticsCurrent;
         diagnosticsCurrent = deviceConsent.diagnosticsCurrent;
         if (deviceConsent.tos && deviceConsent.ai) {
           tos = true;
           ai = true;
-          // Backfill the server from the device acks. Include any toggle
-          // versions whose device ack is current so the next fetch doesn't
-          // re-mark them stale and bounce the user back to review-terms.
+          // Backfill the server from the device acks. Stamp any toggle version
+          // whose device ack is current AND send the device share value so the
+          // next fetch can't overwrite a device opt-out with the API default.
           void patchConsent({
             tos_accepted_version: CONSENT_VERSION,
             privacy_policy_accepted_version: CONSENT_VERSION,
             ai_data_sharing_accepted_version: CONSENT_VERSION,
             ...(analyticsCurrent
-              ? { share_analytics_accepted_version: CONSENT_VERSION }
+              ? {
+                  share_analytics_accepted_version: CONSENT_VERSION,
+                  share_analytics: store.shareAnalytics,
+                }
               : {}),
             ...(diagnosticsCurrent
-              ? { share_diagnostics_accepted_version: CONSENT_VERSION }
+              ? {
+                  share_diagnostics_accepted_version: CONSENT_VERSION,
+                  share_diagnostics: store.shareDiagnostics,
+                }
               : {}),
           }).catch(() => {});
         }

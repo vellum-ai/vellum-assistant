@@ -120,6 +120,7 @@ export function resolveServerConsent(
   shareDiagnostics: boolean | null;
   analyticsCurrent: boolean;
   diagnosticsCurrent: boolean;
+  hasServerRecord: boolean;
 } {
   if (!consent) {
     return {
@@ -129,8 +130,21 @@ export function resolveServerConsent(
       shareDiagnostics: null,
       analyticsCurrent: false,
       diagnosticsCurrent: false,
+      hasServerRecord: false,
     };
   }
+  // The endpoint always returns an object; for a user with no stored row it
+  // returns the API defaults (empty versions, share booleans true). Any
+  // non-empty version or any `false` share boolean can only have come from a
+  // real stored row, so it proves a record whose data is worth preserving.
+  const hasServerRecord =
+    consent.tos_accepted_version !== "" ||
+    consent.privacy_policy_accepted_version !== "" ||
+    consent.ai_data_sharing_accepted_version !== "" ||
+    consent.share_analytics_accepted_version !== "" ||
+    consent.share_diagnostics_accepted_version !== "" ||
+    consent.share_analytics === false ||
+    consent.share_diagnostics === false;
   return {
     tos: consent.tos_accepted_version === CONSENT_VERSION
       && consent.privacy_policy_accepted_version === CONSENT_VERSION,
@@ -139,6 +153,7 @@ export function resolveServerConsent(
     shareDiagnostics: consent.share_diagnostics,
     analyticsCurrent: consent.share_analytics_accepted_version === CONSENT_VERSION,
     diagnosticsCurrent: consent.share_diagnostics_accepted_version === CONSENT_VERSION,
+    hasServerRecord,
   };
 }
 
