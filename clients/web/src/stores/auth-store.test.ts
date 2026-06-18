@@ -545,6 +545,21 @@ describe("auth store onboarding flag reconciliation", () => {
       analyticsCurrent: true,
       diagnosticsCurrent: true,
     });
+    // Legal consent is persisted with the restored (true) values, after the
+    // fallback — never the empty server values that would erase device acks.
+    expect(persistConsentForUserMock).toHaveBeenLastCalledWith(
+      "user-1",
+      true,
+      true,
+    );
+    // The backfill patch carries the current toggle versions so the next
+    // server fetch doesn't re-mark them stale and re-route to review-terms.
+    expect(patchConsentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        share_analytics_accepted_version: expect.any(String),
+        share_diagnostics_accepted_version: expect.any(String),
+      }),
+    );
   });
 
   test("initSession falls back to device keys when fetchConsent fails", async () => {

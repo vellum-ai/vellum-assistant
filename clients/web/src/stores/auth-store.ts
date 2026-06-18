@@ -249,41 +249,51 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       const consent = await fetchConsent();
       const resolved = resolveServerConsent(consent);
       const store = useOnboardingStore.getState();
-      store.setTosAccepted(resolved.tos);
-      store.setAiDataConsent(resolved.ai);
       if (resolved.shareAnalytics !== null)
         store.setShareAnalytics(resolved.shareAnalytics);
       if (resolved.shareDiagnostics !== null)
         store.setShareDiagnostics(resolved.shareDiagnostics);
-      persistConsentForUser(nextUserId, resolved.tos, resolved.ai);
 
-      // Toggle currency comes from the server unless it has no acceptance on
-      // record, in which case device acks are authoritative. Resolve the final
-      // values BEFORE persisting so the empty-server fallback reads device ack
-      // keys that haven't yet been overwritten.
+      // Resolve the FINAL consent values before persisting or mutating the
+      // store. The endpoint always returns an object, so empty/stale versions
+      // (not a null record) are the "never accepted" signal; when the server
+      // has nothing on record the device ack keys are authoritative. Persisting
+      // first would overwrite those keys with the empty server values before the
+      // fallback below reads them.
+      let tos = resolved.tos;
+      let ai = resolved.ai;
       let analyticsCurrent = resolved.analyticsCurrent;
       let diagnosticsCurrent = resolved.diagnosticsCurrent;
 
-      // The endpoint always returns an object, so empty/stale versions
-      // (not a null record) are the "never accepted" signal. If device
-      // keys show prior acceptance, restore the flags and backfill the server.
       if (!resolved.tos && !resolved.ai) {
         const deviceConsent = restoreConsentForUser(nextUserId);
         analyticsCurrent = deviceConsent.analyticsCurrent;
         diagnosticsCurrent = deviceConsent.diagnosticsCurrent;
         if (deviceConsent.tos && deviceConsent.ai) {
-          store.setTosAccepted(true);
-          store.setAiDataConsent(true);
+          tos = true;
+          ai = true;
+          // Backfill the server from the device acks. Include any toggle
+          // versions whose device ack is current so the next fetch doesn't
+          // re-mark them stale and bounce the user back to review-terms.
           void patchConsent({
             tos_accepted_version: CONSENT_VERSION,
             privacy_policy_accepted_version: CONSENT_VERSION,
             ai_data_sharing_accepted_version: CONSENT_VERSION,
+            ...(analyticsCurrent
+              ? { share_analytics_accepted_version: CONSENT_VERSION }
+              : {}),
+            ...(diagnosticsCurrent
+              ? { share_diagnostics_accepted_version: CONSENT_VERSION }
+              : {}),
           }).catch(() => {});
         }
       }
 
+      store.setTosAccepted(tos);
+      store.setAiDataConsent(ai);
       store.setAnalyticsConsentCurrent(analyticsCurrent);
       store.setDiagnosticsConsentCurrent(diagnosticsCurrent);
+      persistConsentForUser(nextUserId, tos, ai);
       persistToggleConsent(nextUserId, { analyticsCurrent, diagnosticsCurrent });
       syncOrganizationState(nextUserId);
       return;
