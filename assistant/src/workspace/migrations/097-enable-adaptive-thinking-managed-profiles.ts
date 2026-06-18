@@ -32,8 +32,6 @@ import type { WorkspaceMigration } from "./types.js";
 //     migration 052 off the repair while still patching profiles that pin a
 //     known Claude model under a non-Anthropic default.
 //
-// Note: the live startup path re-runs the same repair after the platform
-// overlay merge — see assistant/src/workspace/adaptive-thinking-repair.ts.
 // This file keeps its own frozen copy of the logic because migration modules
 // are self-contained snapshots and must never be imported by other code.
 
