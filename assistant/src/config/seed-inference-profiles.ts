@@ -181,9 +181,9 @@ export type SeedInferenceProfilesOptions = {
  *    connection backed by the user's API key in CES. Subsequent boots
  *    leave these untouched — the user owns them.
  */
-export function seedInferenceProfiles(
+export async function seedInferenceProfiles(
   options: SeedInferenceProfilesOptions = {},
-): void {
+): Promise<void> {
   const config = loadRawConfig();
   const preservedProfileNames = new Set(options.preserveProfileNames ?? []);
 
