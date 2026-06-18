@@ -5,6 +5,8 @@ import { isLocalMode } from "@/lib/local-mode";
 import {
   readTosAccepted,
   readAiDataConsent,
+  readAnalyticsConsentCurrent,
+  readDiagnosticsConsentCurrent,
 } from "@/domains/onboarding/prefs";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { NavigationState } from "./navigation-resolver";
@@ -22,6 +24,8 @@ export function buildNavigationState(
     platformSession,
     tosAccepted: readTosAccepted(),
     aiDataConsent: readAiDataConsent(),
+    analyticsConsentCurrent: readAnalyticsConsentCurrent(),
+    diagnosticsConsentCurrent: readDiagnosticsConsentCurrent(),
     ...overrides,
   };
 }

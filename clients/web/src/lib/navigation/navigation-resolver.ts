@@ -15,6 +15,8 @@ export interface NavigationState {
   platformSession: PlatformSessionStatus;
   tosAccepted: boolean;
   aiDataConsent: boolean;
+  analyticsConsentCurrent: boolean;
+  diagnosticsConsentCurrent: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -48,6 +50,19 @@ export type NavigationDecision =
 
 function hasCompletedOnboarding(state: NavigationState): boolean {
   return state.tosAccepted && state.aiDataConsent;
+}
+
+/**
+ * Onboarding is complete AND every consent toggle is for the current version.
+ * A stale toggle means the user must re-review the terms even though they
+ * already finished onboarding.
+ */
+function consentIsCurrent(state: NavigationState): boolean {
+  return (
+    hasCompletedOnboarding(state) &&
+    state.analyticsConsentCurrent &&
+    state.diagnosticsConsentCurrent
+  );
 }
 
 const ONBOARDING_PREFIX = `${routes.assistant}/onboarding`;
@@ -265,7 +280,7 @@ function requireConsent(
   _path: string,
   pathnameWithSearch: string,
 ): NavigationDecision | null {
-  if (state.isLocalMode || hasCompletedOnboarding(state)) return null;
+  if (state.isLocalMode || consentIsCurrent(state)) return null;
 
   const returnTo = encodeURIComponent(pathnameWithSearch);
   return { action: "redirect", to: `${routes.reviewTerms}?returnTo=${returnTo}` };
