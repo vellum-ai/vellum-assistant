@@ -7,7 +7,7 @@ import {
     X,
 } from "lucide-react";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useState, type RefObject } from "react";
 
 import { AvatarRenderer } from "@/components/avatar-renderer";
 import {
@@ -76,7 +76,20 @@ export function SubagentDetailPanel({
   // The scroll container forwarded to the virtualized timeline: the timeline
   // virtualizes against this *external* scroll element (the panel body) rather
   // than its own list, so the metrics/objective header scrolls with the rows.
-  const scrollRef = useRef<HTMLDivElement>(null);
+  //
+  // Backed by state (a callback ref) rather than a plain `useRef`: the
+  // virtualizer registers its scroll listener from a layout effect that runs
+  // child-first, *before* this parent div's ref would attach. With a plain ref
+  // it sees a null scroll element and — for a completed subagent whose events
+  // arrive in one batch, with no later re-render — never registers, leaving the
+  // timeline unscrollable past the first window. Setting state when the node
+  // attaches forces the re-render that lets the virtualizer pick up the
+  // now-mounted scroll element.
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
+  const scrollRef = useMemo<RefObject<HTMLElement | null>>(
+    () => ({ current: scrollEl }),
+    [scrollEl],
+  );
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
@@ -126,7 +139,7 @@ export function SubagentDetailPanel({
       </div>
 
       {/* Scrollable body */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-5">
+      <div ref={setScrollEl} className="flex-1 overflow-y-auto px-5 py-5">
         {/* Metrics row */}
         <div className="mb-5 grid grid-cols-3 gap-3">
           <AnimatedMetricCard
