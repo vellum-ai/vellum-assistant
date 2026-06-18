@@ -177,6 +177,10 @@ function ProfileEditorModalInner({
     initialValues?.provider_connection ?? "",
   );
   const [status, setStatus] = useState<ProfileStatus>(initialValues?.status ?? "active");
+  // Per-profile advisor toggle. Absent/null means ENABLED (default on); only an
+  // explicit `false` disables — so coalesce nil to `true`.
+  const initialAdvisorEnabled = initialValues?.advisorEnabled ?? true;
+  const [advisorEnabled, setAdvisorEnabled] = useState(initialAdvisorEnabled);
   // Connections created inline this session, before the parent's `connections`
   // prop has refetched. Unioned into the available-connections set so a
   // just-created binding is treated as valid immediately — otherwise
@@ -190,7 +194,10 @@ function ProfileEditorModalInner({
   // fields that view mode permits editing (label, status). Drives the
   // view-mode Save button's enabled state and the partial-update save path.
   const hasViewModeChanges =
-    isReadOnly && (label !== initialLabel || status !== initialStatus);
+    isReadOnly &&
+    (label !== initialLabel ||
+      status !== initialStatus ||
+      advisorEnabled !== initialAdvisorEnabled);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -457,6 +464,7 @@ function ProfileEditorModalInner({
         const entry: ProfileEntry = {
           label: label.trim() || null,
           status,
+          advisorEnabled,
         };
         await onSave(keyTrimmed, entry, { mode: "merge" });
       } catch {
@@ -538,6 +546,13 @@ function ProfileEditorModalInner({
         entry.status = status;
       } else if (status !== "active") {
         entry.status = status;
+      }
+      // Advisor toggle — always include in edit mode; omit in create when
+      // enabled (absent/null already means enabled, so the default round-trips).
+      if (effectiveMode === "edit") {
+        entry.advisorEnabled = advisorEnabled;
+      } else if (!advisorEnabled) {
+        entry.advisorEnabled = advisorEnabled;
       }
       // Do NOT include source or name
       await onSave(keyTrimmed, entry);
@@ -625,6 +640,15 @@ function ProfileEditorModalInner({
       checked={status === "active"}
       onChange={(v) => setStatus(v ? "active" : "disabled")}
       label="Active"
+    />
+  );
+
+  const advisorToggle = (
+    <Toggle
+      checked={advisorEnabled}
+      onChange={setAdvisorEnabled}
+      label="Advisor"
+      helperText="Let the model consult a stronger advisor model while using this profile."
     />
   );
 
@@ -820,6 +844,7 @@ function ProfileEditorModalInner({
             {keyField}
             {descriptionField}
             {activeToggle}
+            {advisorToggle}
 
             {/* Advanced params — collapsed by default in create mode. */}
             {createAdvancedDisclosure}
@@ -835,6 +860,7 @@ function ProfileEditorModalInner({
             {descriptionField}
             {keyField}
             {activeToggle}
+            {advisorToggle}
 
             {isAutoProfile && (
               <div className="rounded-lg bg-[var(--surface-info-subtle)] p-3">

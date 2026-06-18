@@ -28745,6 +28745,10 @@ components:
               anyOf:
                 - type: string
                 - type: "null"
+            advisorProfile:
+              anyOf:
+                - type: string
+                - type: "null"
             callSites:
               type: object
               propertyNames:
@@ -28983,6 +28987,12 @@ components:
           anyOf:
             - anyOf:
                 - $ref: "#/components/schemas/ProfileStatus"
+                - type: "null"
+            - type: "null"
+        advisorEnabled:
+          anyOf:
+            - anyOf:
+                - type: boolean
                 - type: "null"
             - type: "null"
         mix:
@@ -29376,6 +29386,8 @@ components:
                 type: string
             activeProfile:
               type: string
+            advisorProfile:
+              type: string
             callSites:
               type: object
               propertyNames:
@@ -29682,6 +29694,10 @@ components:
         status:
           anyOf:
             - $ref: "#/components/schemas/ProfileStatus"
+            - type: "null"
+        advisorEnabled:
+          anyOf:
+            - type: boolean
             - type: "null"
         mix:
           minItems: 2

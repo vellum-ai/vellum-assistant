@@ -508,6 +508,8 @@ const ConfigGetResponseSchema = z
         profiles: z.record(z.string(), WireProfileEntry).optional(),
         profileOrder: z.array(z.string()).optional(),
         activeProfile: z.string().optional(),
+        // The profile the advisor consults; excluded from chat-profile pickers.
+        advisorProfile: z.string().optional(),
         callSites: z
           .record(
             z.string(),
@@ -616,6 +618,7 @@ const ConfigPatchRequestSchema = z
           .optional(),
         profileOrder: z.array(z.string()).optional(),
         activeProfile: z.string().nullable().optional(),
+        advisorProfile: z.string().nullable().optional(),
         callSites: z
           .record(z.string(), CallSiteOverrideDraftSchema.nullable())
           .optional(),

@@ -61,6 +61,9 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     effort: "high",
     thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+    // This is the advisor's own (strongest) profile: when it's also the chat
+    // profile there's nothing stronger to consult, so the advisor defaults off.
+    advisorEnabled: false,
   },
   "cost-optimized": {
     intent: "latency-optimized",
@@ -286,6 +289,12 @@ export function seedInferenceProfiles(
             : previous.label;
       }
       if ("status" in previous) next.status = previous.status;
+      // The per-profile advisor toggle is a user override — preserve it across
+      // reseeds so a user's choice survives reboots (the template value only
+      // seeds the initial default, e.g. off for quality-optimized).
+      if ("advisorEnabled" in previous) {
+        next.advisorEnabled = previous.advisorEnabled;
+      }
     }
     profiles[name] = next as ProfileEntry;
   }
@@ -367,6 +376,17 @@ export function seedInferenceProfiles(
     } else if (!requestedActiveExists) {
       llm.activeProfile = "balanced";
     }
+  }
+
+  // Advisor profile: default to the strongest managed profile when unset, so
+  // the advisor consults `quality-optimized` out of the box. Guarded on
+  // existence so it never names a missing profile (superRefine rejects that);
+  // off-platform/BYOK installs can repoint it at one of their own profiles.
+  if (
+    readString(llm.advisorProfile) === undefined &&
+    readObject(profiles["quality-optimized"]) !== null
+  ) {
+    llm.advisorProfile = "quality-optimized";
   }
 
   // Profile ordering — ensure all seeded profiles appear in the order array.
