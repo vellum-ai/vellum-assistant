@@ -221,7 +221,6 @@ export function completeA2AInvite(params: {
       {
         type: "a2a",
         address: params.acceptor.assistantId.toLowerCase(),
-        externalUserId: params.acceptor.assistantId,
         status: "active",
         policy: "allow",
       },
@@ -289,7 +288,6 @@ export function redeemA2AInvite(params: {
       {
         type: "a2a",
         address: params.sender.assistantId.toLowerCase(),
-        externalUserId: params.sender.assistantId,
         status: "active",
         policy: "allow",
       },

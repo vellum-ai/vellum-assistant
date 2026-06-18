@@ -52,7 +52,7 @@ mock.module("../memory/v2/skill-store.js", () => ({
 // ---------------------------------------------------------------------------
 
 const { registerMemoryV2Command } =
-  await import("../cli/commands/memory-v2.js");
+  await import("../cli/commands/memory/memory-v2.js");
 const { ROUTES: memoryV2Routes, MEMORY_V2_DISABLED_CODE } =
   await import("../runtime/routes/memory-v2-routes.js");
 const { RouteError } = await import("../runtime/routes/errors.js");
@@ -68,9 +68,8 @@ function buildProgram(): Command {
     writeErr: () => {},
     writeOut: () => {},
   });
-  // The registrar creates the `memory` parent itself, so callers don't
-  // need to stub one.
-  registerMemoryV2Command(program);
+  const memory = program.command("memory");
+  registerMemoryV2Command(memory);
   return program;
 }
 

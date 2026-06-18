@@ -1543,7 +1543,8 @@ async function main() {
       method: "DELETE",
       auth: "edge-scoped",
       scope: "settings.write",
-      handler: (req, params) => handleChannelAdmissionPolicyDelete(req, params[0]),
+      handler: (req, params) =>
+        handleChannelAdmissionPolicyDelete(req, params[0]),
     },
 
     // ── Channel admission policy — assistant-scoped variants ──
@@ -1581,7 +1582,8 @@ async function main() {
       method: "DELETE",
       auth: "edge-scoped",
       scope: "settings.write",
-      handler: (req, params) => handleChannelAdmissionPolicyDelete(req, params[0]),
+      handler: (req, params) =>
+        handleChannelAdmissionPolicyDelete(req, params[0]),
     },
 
     // ── Trust rules v3 — assistant-scoped variants ──
@@ -2039,8 +2041,15 @@ async function main() {
     );
     if (!botToken || !appToken) return;
 
+    const threadModeRaw = configFileCache.getString("slack", "threadMode");
+    const threadMode =
+      threadModeRaw === "mention_only" ||
+      threadModeRaw === "mention_then_thread"
+        ? threadModeRaw
+        : "mention_then_thread";
+
     slackSocketClient = createSlackSocketModeClient(
-      { appToken, botToken, gatewayConfig: config },
+      { appToken, botToken, gatewayConfig: config, threadMode },
       (normalized) => {
         // Notify the platform of inbound activity so the idle-sleep timer
         // is reset for this assistant (fire-and-forget).
@@ -2452,6 +2461,15 @@ async function main() {
 
     if (event.changedKeys.has("twilio")) {
       maybeStartVelayTunnelForTwilio("twilio config changed");
+    }
+
+    if (event.changedKeys.has("slack")) {
+      startSlackSocket().catch((err) => {
+        log.error(
+          { err },
+          "Failed to restart Slack Socket Mode after config change",
+        );
+      });
     }
 
     // Side effect: re-register email callback when ingress URL changes so

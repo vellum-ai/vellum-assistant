@@ -568,4 +568,35 @@ describe("migration 287 — dedup case collisions + drop ext_user indexes", () =
     // Original casing preserved
     expect(channels[0]!.address).toBe("U999");
   });
+
+  test("no-op when external_user_id column is absent (re-run after migration 294)", () => {
+    const db = createTestDb();
+    const raw = getSqliteFrom(db);
+    bootstrap(db);
+
+    insertContact(raw, "c1");
+    insertChannel(raw, {
+      id: "ch1",
+      contactId: "c1",
+      type: "slack",
+      address: "U999",
+      externalUserId: "U999",
+      status: "active",
+      updatedAt: 1000,
+    });
+
+    // Simulate a later startup where migration 294 has already dropped the
+    // index and column. Migration steps re-run on every startup, so this must
+    // tolerate the dropped column rather than throwing "no such column".
+    raw.run("DROP INDEX IF EXISTS idx_contact_channels_type_ext_user");
+    raw.run("ALTER TABLE contact_channels DROP COLUMN external_user_id");
+
+    expect(() => migrateContactChannelsUniqueExtUser(db)).not.toThrow();
+
+    const rows = raw
+      .prepare("SELECT id, address FROM contact_channels")
+      .all() as { id: string; address: string }[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.address).toBe("U999");
+  });
 });

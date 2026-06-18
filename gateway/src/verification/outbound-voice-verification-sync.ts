@@ -154,8 +154,7 @@ export async function createPhoneGuardianBinding(
   // `getExistingGuardianBinding` only checks active bindings, so without
   // this guard we would reactivate a revoked binding or revoke an active
   // one in favor of a stale session.
-  const lastBindingTs =
-    await getMostRecentChannelGuardianTimestamp("phone");
+  const lastBindingTs = await getMostRecentChannelGuardianTimestamp("phone");
   if (lastBindingTs != null && sessionUpdatedAt <= lastBindingTs) {
     log.warn(
       { phoneNumber, sessionUpdatedAt, lastBindingTs },
@@ -168,7 +167,7 @@ export async function createPhoneGuardianBinding(
   const existingBinding = await getExistingGuardianBinding("phone");
 
   if (existingBinding) {
-    if (existingBinding.externalUserId === phoneNumber) {
+    if (existingBinding.address === phoneNumber) {
       // Idempotent — binding already exists for this number. Can happen
       // on gateway restart when the in-memory cursor falls back to the
       // 24h lookback and re-encounters an already-processed session, or
@@ -193,7 +192,7 @@ export async function createPhoneGuardianBinding(
     // The recency check above ensures we only rebind when the consumed
     // session is newer than the current binding's last-touched timestamp.
     log.warn(
-      { phoneNumber, existingGuardian: existingBinding.externalUserId },
+      { phoneNumber, existingGuardian: existingBinding.address },
       "Outbound voice verification sync: revoking conflicting phone guardian binding",
     );
     await revokeExistingChannelGuardian("phone");

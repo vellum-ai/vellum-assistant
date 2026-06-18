@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Toggle for the collectUsageData opt-out gate the listener consults when
+// Toggle for the share_analytics opt-out gate the listener consults when
 // populating the telemetry columns.
-let collectUsageData = true;
+let shareAnalytics = true;
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ collectUsageData }),
+mock.module("../platform/consent-cache.js", () => ({
+  getCachedShareAnalytics: () => shareAnalytics,
 }));
 
 import { createToolAuditListener } from "../events/tool-audit-listener.js";
@@ -17,7 +17,7 @@ import {
 
 describe("tool audit listener", () => {
   beforeEach(() => {
-    collectUsageData = true;
+    shareAnalytics = true;
   });
 
   test("records executed events with truncated output", () => {
@@ -361,8 +361,8 @@ describe("tool audit listener", () => {
     );
   });
 
-  test("persists NULL telemetry columns when usage data collection is opted out", () => {
-    collectUsageData = false;
+  test("persists NULL telemetry columns when share_analytics is opted out", () => {
+    shareAnalytics = false;
     const records: ToolInvocationRecord[] = [];
     const listener = createToolAuditListener((record) => records.push(record));
 

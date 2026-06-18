@@ -3,8 +3,8 @@
  *
  * Validates:
  *   - Subcommand registration (reembed, reembed-skills, activation, validate,
- *     ema, simulate) under `memory v2`. The `memory` parent is created by the
- *     v2 registrar itself; v1 had its own subcommands but those were retired.
+ *     ema, simulate) under `memory v2`. v1 had its own subcommands but those
+ *     were retired.
  *   - Each mutating subcommand maps to the right `memory_v2_backfill` op.
  *   - `validate` calls `memory_v2_validate` and pretty-prints the report.
  *   - `reembed-skills` calls `memory_v2_reembed_skills` synchronously.
@@ -40,7 +40,7 @@ let logOutput: string[] = [];
 // Mocks
 // ---------------------------------------------------------------------------
 
-mock.module("../../../ipc/cli-client.js", () => ({
+mock.module("../../../../ipc/cli-client.js", () => ({
   cliIpcCall: async (method: string, params?: any) => {
     lastIpcCall = { method, params };
     return mockIpcResult;
@@ -56,7 +56,7 @@ const fakeLogger = {
   error: capture,
   debug: () => {},
 };
-mock.module("../../../util/logger.js", () => ({
+mock.module("../../../../util/logger.js", () => ({
   getLogger: () => fakeLogger,
   getCliLogger: () => fakeLogger,
 }));
@@ -72,8 +72,8 @@ const { registerMemoryV2Command } = await import("../memory-v2.js");
 // ---------------------------------------------------------------------------
 
 /**
- * Build a fresh program and register the v2 subgroup. The registrar creates
- * the `memory` parent itself, so callers don't need to stub one.
+ * Build a fresh program with a `memory` parent and register the v2 subgroup
+ * under it — mirroring how `registerMemoryCommand` wires the namespace.
  */
 function buildProgram(): Command {
   const program = new Command();
@@ -82,7 +82,8 @@ function buildProgram(): Command {
     writeErr: () => {},
     writeOut: () => {},
   });
-  registerMemoryV2Command(program);
+  const memory = program.command("memory");
+  registerMemoryV2Command(memory);
   return program;
 }
 

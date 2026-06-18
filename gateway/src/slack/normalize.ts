@@ -1,5 +1,6 @@
 import { renderSlackTextForModel } from "@vellumai/slack-text";
 import { createHash } from "node:crypto";
+import { isSlackDmChannel } from "./channel.js";
 import type { GatewayConfig } from "../config.js";
 import { fetchImpl } from "../fetch.js";
 import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
@@ -816,7 +817,7 @@ export function normalizeSlackBlockActions(
   if (
     isRejection(routing) &&
     config.defaultAssistantId &&
-    channelId.startsWith("D")
+    isSlackDmChannel(channelId)
   ) {
     routing = {
       assistantId: config.defaultAssistantId,
@@ -888,7 +889,7 @@ function normalizeSlackReaction(
   if (
     isRejection(routing) &&
     config.defaultAssistantId &&
-    channel.startsWith("D")
+    isSlackDmChannel(channel)
   ) {
     routing = {
       assistantId: config.defaultAssistantId,
@@ -999,13 +1000,9 @@ export function normalizeSlackMessageEdit(
   // user is required for routing
   if (!edited.user) return null;
 
-  // Try channel routing, fall back to default for DMs. Slack's
-  // `message_changed` payload can omit `channel_type`, but DM channel IDs
-  // always start with "D" — fall back to the ID prefix so edits in DMs still
+  // Try channel routing, fall back to default for DMs so edits in DMs still
   // take the defaultAssistantId routing branch.
-  const isDm =
-    event.channel_type === "im" ||
-    (event.channel_type === undefined && event.channel.startsWith("D"));
+  const isDm = isSlackDmChannel(event.channel, event.channel_type);
   let routing = resolveAssistant(config, event.channel, edited.user);
   if (isRejection(routing) && isDm && config.defaultAssistantId) {
     routing = {
@@ -1081,12 +1078,9 @@ export function normalizeSlackMessageDelete(
   // back to a synthetic identifier so routing/trust still has something to key on.
   const actorId = event.previous_message?.user ?? "slack-system";
 
-  // Slack's `message_deleted` payload frequently omits `channel_type`, but DM
-  // channel IDs always start with "D". Fall back to the ID prefix so deletes
-  // from DMs still take the defaultAssistantId routing branch.
-  const isDm =
-    event.channel_type === "im" ||
-    (event.channel_type === undefined && event.channel.startsWith("D"));
+  // Fall back to the default assistant for DMs so deletes from DMs still take
+  // the defaultAssistantId routing branch.
+  const isDm = isSlackDmChannel(event.channel, event.channel_type);
   let routing = resolveAssistant(config, event.channel, actorId);
   if (isRejection(routing) && isDm && config.defaultAssistantId) {
     routing = {

@@ -54,11 +54,10 @@ export async function consultAdvisor(params: ConsultParams): Promise<string> {
   }
 
   // Append the consult instruction as the final user turn, then run a
-  // tool-less, capped completion through the resolved provider.
-  const messages: Message[] = [
-    ...history,
-    userMessage(advisorRequestText(ADVISOR_CONFIG.wordLimit)),
-  ];
+  // tool-less completion through the resolved provider. No `max_tokens` is
+  // set, so the resolver applies the profile's normal output budget rather
+  // than an advisor-specific cap.
+  const messages: Message[] = [...history, userMessage(advisorRequestText())];
 
   const response = await provider.sendMessage(messages, {
     systemPrompt: buildAdvisorSystem(params.systemPrompt),
@@ -66,7 +65,6 @@ export async function consultAdvisor(params: ConsultParams): Promise<string> {
       callSite: ADVISOR_CALL_SITE,
       overrideProfile: ADVISOR_CONFIG.profile,
       tool_choice: { type: "none" },
-      max_tokens: ADVISOR_CONFIG.maxTokens,
     },
     signal: withTimeout(params.signal, ADVISOR_CONFIG.timeoutMs),
   });

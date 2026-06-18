@@ -97,7 +97,9 @@ export function AnimatedRightDrawer({
   // only once the collapse-to-0 animation completes (see onAnimationComplete).
   const [mounted, setMounted] = useState(open);
   // Retain the last non-null content so it stays visible while the width eases
-  // back to 0 — `right` typically becomes null the moment `open` flips false.
+  // back to 0 after `open` flips false and `right` becomes null. While open the
+  // live `right` renders directly (below) so a streaming panel paints
+  // immediately; this retained copy only backs the close wipe.
   const [retainedRight, setRetainedRight] = useState<ReactNode>(right);
   useEffect(() => {
     if (open) setMounted(true);
@@ -231,7 +233,10 @@ export function AnimatedRightDrawer({
       >
         {mounted && (
           <div className="absolute right-0 top-0 h-full" style={{ width }}>
-            {retainedRight}
+            {/* Render live `right` while present so a streaming panel isn't a
+                frame behind; fall back to the retained copy during the close
+                wipe once `right` has gone null. */}
+            {right ?? retainedRight}
           </div>
         )}
       </motion.div>

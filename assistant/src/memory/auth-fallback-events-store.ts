@@ -1,7 +1,7 @@
 import { and, asc, eq, gt, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getConfig } from "../config/loader.js";
+import { getCachedShareAnalytics } from "../platform/consent-cache.js";
 import { getDb } from "./db-connection.js";
 import { authFallbackEvents } from "./schema.js";
 
@@ -36,7 +36,7 @@ export function recordAuthFallbackCounts(
   windowEnd: number,
   counts: AuthFallbackCount[],
 ): number {
-  if (!getConfig().collectUsageData) return 0;
+  if (!getCachedShareAnalytics()) return 0;
   if (counts.length === 0) return 0;
   const db = getDb();
   const createdAt = Date.now();

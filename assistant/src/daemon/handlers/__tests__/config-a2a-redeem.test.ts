@@ -120,7 +120,6 @@ describe("redeemA2AInvite", () => {
 
     const contact = getContact(result.contactId!);
     expect(contact!.channels[0]!.address).toBe("upper-case-sender-id");
-    expect(contact!.channels[0]!.externalUserId).toBe("UPPER-Case-SENDER-ID");
   });
 
   test("does not make outbound fetch calls", () => {

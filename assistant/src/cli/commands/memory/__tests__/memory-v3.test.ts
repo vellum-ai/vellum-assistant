@@ -40,7 +40,7 @@ let logOutput: string[] = [];
 // Mocks
 // ---------------------------------------------------------------------------
 
-mock.module("../../../ipc/cli-client.js", () => ({
+mock.module("../../../../ipc/cli-client.js", () => ({
   cliIpcCall: async (
     method: string,
     params?: any,
@@ -60,7 +60,7 @@ const fakeLogger = {
   error: capture,
   debug: () => {},
 };
-mock.module("../../../util/logger.js", () => ({
+mock.module("../../../../util/logger.js", () => ({
   getLogger: () => fakeLogger,
   getCliLogger: () => fakeLogger,
 }));
@@ -82,7 +82,8 @@ function buildProgram(): Command {
     writeErr: () => {},
     writeOut: () => {},
   });
-  registerMemoryV3Command(program);
+  const memory = program.command("memory");
+  registerMemoryV3Command(memory);
   return program;
 }
 

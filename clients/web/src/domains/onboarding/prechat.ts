@@ -53,6 +53,13 @@ export interface PreChatOnboardingContext {
   bootstrapTemplate?: string;
   /** Skills to eagerly load. */
   skills?: string[];
+  /**
+   * Explicit title for the conversation minted on the first message. When set,
+   * the daemon persists it as a user-set title (never overwritten by the
+   * auto-titler). Used by flows like research onboarding that mint a
+   * conversation behind the scenes and don't want an auto-generated title.
+   */
+  title?: string;
 }
 
 export const DEFAULT_PRECHAT_INITIAL_MESSAGE = "Wake up, my friend!";
@@ -267,6 +274,9 @@ function isPreChatOnboardingContext(
   if (candidate.skills !== undefined) {
     if (!Array.isArray(candidate.skills)) return false;
     if (!candidate.skills.every((s) => typeof s === "string")) return false;
+  }
+  if (candidate.title !== undefined && typeof candidate.title !== "string") {
+    return false;
   }
   return true;
 }

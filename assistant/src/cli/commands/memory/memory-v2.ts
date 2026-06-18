@@ -18,8 +18,8 @@
 
 import type { Command } from "commander";
 
-import { cliIpcCall } from "../../ipc/cli-client.js";
-import type { ComparisonReport } from "../../memory/v2/harness/runner.js";
+import { cliIpcCall } from "../../../ipc/cli-client.js";
+import type { ComparisonReport } from "../../../memory/v2/harness/runner.js";
 import type {
   MemoryV2BackfillOp,
   MemoryV2BackfillResult,
@@ -27,9 +27,9 @@ import type {
   MemoryV2ReembedSkillsResult,
   MemoryV2SimulateRouterResult,
   MemoryV2ValidateResult,
-} from "../../runtime/routes/memory-v2-routes.js";
-import { registerCommand } from "../lib/register-command.js";
-import { log } from "../logger.js";
+} from "../../../runtime/routes/memory-v2-routes.js";
+import { registerCommand } from "../../lib/register-command.js";
+import { log } from "../../logger.js";
 import {
   renderComparisonReport,
   renderTurnTrace,
@@ -63,16 +63,7 @@ async function runBackfillOp(op: MemoryV2BackfillOp): Promise<void> {
 // Registration
 // ---------------------------------------------------------------------------
 
-export function registerMemoryV2Command(program: Command): void {
-  // Reuse an existing `memory` parent if some other registrar attached to it
-  // first; otherwise create one. This keeps the registration order between
-  // sibling memory registrars unconstrained.
-  const memory =
-    program.commands.find((c) => c.name() === "memory") ??
-    program
-      .command("memory")
-      .description("Manage the v2 memory subsystem (concept-page model)");
-
+export function registerMemoryV2Command(memory: Command): void {
   registerCommand(memory, {
     name: "v2",
     transport: "ipc",

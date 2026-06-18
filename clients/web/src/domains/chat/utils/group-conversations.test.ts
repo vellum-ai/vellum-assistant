@@ -461,23 +461,62 @@ describe("groupConversations · displayOrder for pinned and custom groups", () =
     ]);
   });
 
-  test("pinned conversations without displayOrder fall back to lastMessageAt desc", () => {
+  test("pinned conversations without displayOrder fall back to createdAt desc, ignoring activity", () => {
+    // lastMessageAt is the REVERSE of createdAt to prove the fallback keys on
+    // immutable creation time, not recency — pinned rows must not reorder
+    // themselves based on activity.
     const result = groupConversations([
       makeConversation({
-        conversationId: "old",
+        conversationId: "older",
         isPinned: true,
-        lastMessageAt: 1704067200000,
+        createdAt: 1704067200000,
+        lastMessageAt: 1704412800000, // most recent activity
       }),
       makeConversation({
-        conversationId: "new",
+        conversationId: "newer",
         isPinned: true,
-        lastMessageAt: 1704412800000,
+        createdAt: 1704412800000,
+        lastMessageAt: 1704067200000, // least recent activity
       }),
     ]);
     expect(result.pinned.map((c) => c.conversationId)).toEqual([
-      "new",
-      "old",
+      "newer",
+      "older",
     ]);
+  });
+
+  test("pinned order is stable when a pinned conversation receives new activity", () => {
+    const base = [
+      makeConversation({
+        conversationId: "a",
+        isPinned: true,
+        createdAt: 3000,
+        lastMessageAt: 100,
+      }),
+      makeConversation({
+        conversationId: "b",
+        isPinned: true,
+        createdAt: 2000,
+        lastMessageAt: 100,
+      }),
+      makeConversation({
+        conversationId: "c",
+        isPinned: true,
+        createdAt: 1000,
+        lastMessageAt: 100,
+      }),
+    ];
+    const before = groupConversations(base).pinned.map((c) => c.conversationId);
+    expect(before).toEqual(["a", "b", "c"]);
+
+    // "c" gets a brand-new message — its lastMessageAt jumps far ahead. The
+    // pinned order must not change.
+    const after = groupConversations(
+      base.map((c) =>
+        c.conversationId === "c" ? { ...c, lastMessageAt: 9_999_999 } : c,
+      ),
+    ).pinned.map((c) => c.conversationId);
+    expect(after).toEqual(before);
   });
 
   test("displayOrder rows come before rows without displayOrder", () => {

@@ -50,6 +50,30 @@ function withGuardianNameOverride<
   return contact;
 }
 
+/** Adds `externalUserId` (= `address`) to each channel for older macOS clients. */
+function withChannelCompat<T extends { channels: { address: string }[] }>(
+  contact: T,
+): T {
+  return {
+    ...contact,
+    channels: contact.channels.map((ch) => ({
+      ...ch,
+      externalUserId: ch.address,
+    })),
+  };
+}
+
+/** Compose both response transforms (guardian display name + channel compat). */
+function prepareContactResponse<
+  T extends {
+    role: string;
+    displayName: string;
+    channels: { address: string }[];
+  },
+>(contact: T): T {
+  return withChannelCompat(withGuardianNameOverride(contact));
+}
+
 const VALID_CONTACT_TYPES: readonly ContactType[] = ["human", "assistant"];
 
 const VALID_CHANNEL_STATUSES: readonly ChannelStatus[] = [
@@ -87,6 +111,7 @@ const contactChannelSchema = z.object({
   type: z.string(),
   address: z.string(),
   isPrimary: z.boolean(),
+  /** @deprecated Echoes `address` for backwards compatibility with older macOS clients. */
   externalUserId: z.string().nullable(),
   status: z.string(),
   policy: z.string(),
@@ -143,14 +168,14 @@ function handleListContacts(queryParams: Record<string, string>) {
     });
     return {
       ok: true,
-      contacts: contacts.map(withGuardianNameOverride),
+      contacts: contacts.map(prepareContactResponse),
     };
   }
 
   const contacts = listContacts(limit, role, contactType);
   return {
     ok: true,
-    contacts: contacts.map(withGuardianNameOverride),
+    contacts: contacts.map(prepareContactResponse),
   };
 }
 
@@ -165,7 +190,7 @@ function handleGetContact(contactId: string) {
       : undefined;
   return {
     ok: true,
-    contact: withGuardianNameOverride(contact),
+    contact: prepareContactResponse(contact),
     assistantMetadata: assistantMeta ?? undefined,
   };
 }
@@ -508,7 +533,7 @@ export const ROUTES: RouteDefinition[] = [
           limit: z.number().optional(),
         })
         .parse(body);
-      return searchContacts(parsed);
+      return searchContacts(parsed).map(prepareContactResponse);
     },
   },
 
@@ -604,7 +629,7 @@ function handleMergeContactsRoute(args: RouteHandlerArgs) {
 
   try {
     const contact = mergeContacts(keepId, mergeId);
-    return { ok: true, contact: withGuardianNameOverride(contact) };
+    return { ok: true, contact: prepareContactResponse(contact) };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new BadRequestError(message);
@@ -667,8 +692,6 @@ function handleUpdateContactChannelRoute(args: RouteHandlerArgs) {
   const parentContact = getContact(updated.contactId);
   return {
     ok: true,
-    contact: parentContact
-      ? withGuardianNameOverride(parentContact)
-      : undefined,
+    contact: parentContact ? prepareContactResponse(parentContact) : undefined,
   };
 }

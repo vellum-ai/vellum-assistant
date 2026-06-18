@@ -224,14 +224,12 @@ function ensureTestContact(): void {
       {
         type: "telegram",
         address: "telegram-user-default",
-        externalUserId: "telegram-user-default",
         status: "active",
         policy: "allow",
       },
       {
         type: "slack",
         address: "slack-user-default",
-        externalUserId: "slack-user-default",
         status: "active",
         policy: "allow",
       },
@@ -2054,7 +2052,6 @@ describe("requester cancel of guardian-gated pending request", () => {
         {
           type: "telegram",
           address: "requester-cancel-user",
-          externalUserId: "requester-cancel-user",
           status: "active",
           policy: "allow",
         },
@@ -2981,7 +2978,6 @@ describe("trusted-contact self-approval blocked before guardian approval row exi
         {
           type: "telegram",
           address: "tc-selfapproval-user",
-          externalUserId: "tc-selfapproval-user",
           status: "active",
           policy: "allow",
         },

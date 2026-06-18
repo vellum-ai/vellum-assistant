@@ -22,10 +22,12 @@ import { consultAdvisor } from "../consult.js";
 const advisorTool: ToolDefinition = {
   name: "advisor",
   description:
-    "Consult a stronger advisor model for strategic guidance. Takes NO parameters — your " +
-    "full conversation (the task, every tool call, and every result) is forwarded " +
-    "automatically. Call it before substantive work, when you're stuck, when changing " +
-    "approach, and once before declaring a task complete.",
+    "Consult a stronger advisor model to shape your plan and get strategic guidance. " +
+    "Takes NO parameters — your full conversation (the task, every tool call, and every " +
+    "result) is forwarded automatically. Call it BEFORE you start building: it can lay out " +
+    "a plan when you don't have one yet, or review and sharpen the plan you've already " +
+    "drafted. Also call it when you're stuck, when weighing a change in approach, and once " +
+    "before declaring a task complete. Give its guidance serious weight.",
   input_schema: { type: "object", properties: {}, additionalProperties: false },
   // Read-only advice; low risk so the consult isn't gated behind a prompt.
   defaultRiskLevel: RiskLevel.Low,

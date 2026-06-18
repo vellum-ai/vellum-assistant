@@ -14,7 +14,6 @@ import {
   getPlatformOrganizationId,
   getPlatformUserId,
 } from "../config/env.js";
-import { getConfig } from "../config/loader.js";
 import { queryUnreportedAuthFallbackEvents } from "../memory/auth-fallback-events-store.js";
 import {
   getMemoryCheckpoint,
@@ -27,6 +26,7 @@ import { queryUnreportedSkillLoadedEvents } from "../memory/skill-loaded-events-
 import { queryUnreportedToolExecutedEvents } from "../memory/tool-executed-events-store.js";
 import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
 import { VellumPlatformClient } from "../platform/client.js";
+import { getCachedShareAnalytics } from "../platform/consent-cache.js";
 import { arePlatformFeaturesEnabled } from "../platform/feature-gate.js";
 import type { UsageAttributionProfileSource } from "../usage/types.js";
 import { getDeviceId } from "../util/device-id.js";
@@ -129,7 +129,7 @@ export class UsageTelemetryReporter {
     // reporter shipping its rows: an absent watermark means no flush (opted
     // in or out) has ever advanced it, so rows recorded before this build —
     // including any opted-out period under older builds that gated the
-    // reporter on collectUsageData — would otherwise ship retroactively.
+    // reporter on the usage-data opt-out — would otherwise ship retroactively.
     // Initialize an absent watermark to "now" at construction. Construction
     // happens during daemon startup before any tool runs, so no legitimate
     // row falls behind the watermark — initializing at first FLUSH instead
@@ -138,8 +138,8 @@ export class UsageTelemetryReporter {
     // absent and re-initialize later. An EXISTING watermark is never touched:
     // opted-out sessions keep it advancing via the opt-out flush branch, and
     // overwriting it here would drop a legitimate unshipped backlog.
-    // `skill_loaded` needs no init: recording is gated on collectUsageData,
-    // so opt-out rows never exist and its standard 0 default is safe.
+    // `skill_loaded` needs no init: recording is gated on share_analytics
+    // consent, so opt-out rows never exist and its standard 0 default is safe.
     //
     // Best-effort: DB init failures are tolerated at daemon startup (degraded
     // mode), so this must never throw out of the constructor — matching
@@ -207,22 +207,32 @@ export class UsageTelemetryReporter {
     try {
       if (batchCount >= MAX_CONSECUTIVE_BATCHES) return;
 
-      // Respect opt-out: if the user has disabled usage data collection, skip
-      // the flush and advance watermarks so events recorded during the
-      // opt-out window are never sent retroactively. The daemon runs the
-      // reporter even when opted out specifically so this branch keeps
-      // executing — every cycle plus the final flush in stop() — which is
-      // what lets a later opt-in (runtime or via restart) resume from a
-      // watermark that already covers the opt-out window. One caveat: a
-      // RUNTIME false→true flip can still ship up to one flush interval
-      // (≤5 min) of pre-toggle rows recorded since the last opted-out flush;
+      // Skip when platform features are disabled (VELLUM_DISABLE_PLATFORM in
+      // local mode; the flag is ignored when IS_PLATFORM is set, matching
+      // VellumPlatformClient.create()). Watermarks are NOT advanced here: this
+      // is a deployment/local-mode toggle, not a privacy opt-out, so the unsent
+      // backlog ships once the flag is cleared.
+      if (!arePlatformFeaturesEnabled()) {
+        return;
+      }
+
+      // Respect opt-out: if the platform owner has not granted
+      // `share_analytics` consent, skip the flush and advance watermarks so
+      // events recorded during the opt-out window are never sent
+      // retroactively. The daemon runs the reporter even when opted out
+      // specifically so this branch keeps executing — every cycle plus the
+      // final flush in stop() — which is what lets a later opt-in (runtime or
+      // via restart) resume from a watermark that already covers the opt-out
+      // window. One caveat: a RUNTIME false→true flip can still ship up to one
+      // flush interval (≤5 min) of pre-toggle rows recorded since the last
+      // opted-out flush;
       // the restart path is fully covered by the final flush in stop(). The
       // caveat applies to the always-on tables without a write-time opt-out
       // gate (llm_usage, turn events) and to tool_invocations rows recorded
       // under builds predating the audit listener's write-time gate — new
       // opted-out tool_invocations rows persist NULL telemetry columns and
       // are unreportable by construction regardless of watermark timing.
-      if (!getConfig().collectUsageData) {
+      if (!getCachedShareAnalytics()) {
         // Advance the timestamp watermarks and pin the ID watermarks to a
         // sentinel that sorts above any real UUID. The sentinel (rather than
         // "") keeps the compound-cursor branch active — a falsy ID would
@@ -236,15 +246,6 @@ export class UsageTelemetryReporter {
           setMemoryCheckpoint(timestampKey, now);
           setMemoryCheckpoint(idKey, OPT_OUT_WATERMARK_ID_SENTINEL);
         }
-        return;
-      }
-
-      // Skip when platform features are disabled (VELLUM_DISABLE_PLATFORM in
-      // local mode; the flag is ignored when IS_PLATFORM is set, matching
-      // VellumPlatformClient.create()). Unlike the opt-out branch above,
-      // watermarks are NOT advanced: this is a deployment/local-mode toggle
-      // (not a privacy opt-out), so the unsent backlog ships once it's cleared.
-      if (!arePlatformFeaturesEnabled()) {
         return;
       }
 

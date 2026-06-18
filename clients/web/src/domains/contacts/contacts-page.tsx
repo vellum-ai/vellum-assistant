@@ -7,7 +7,10 @@ import {
     MobileSidebarDrawer,
     MobileSidebarTrigger,
 } from "@/components/mobile-sidebar-drawer";
-import { AssistantChannelsDetail } from "@/domains/contacts/components/assistant-channels-detail";
+import {
+    AssistantChannelsDetail,
+    type SlackThreadMode,
+} from "@/domains/contacts/components/assistant-channels-detail";
 import { ContactDetailView } from "@/domains/contacts/components/contact-detail-view";
 import { ContactMergeDialog } from "@/domains/contacts/components/contact-merge-dialog";
 import { ContactsList } from "@/domains/contacts/components/contacts-list";
@@ -33,6 +36,9 @@ import {
     contactsGetOptions,
     contactsGetQueryKey,
     contactsGetSetQueryData,
+    integrationsSlackChannelConfigGetOptions,
+    integrationsSlackChannelConfigGetQueryKey,
+    integrationsSlackChannelConfigPatchMutation,
     useContactchannelsByContactChannelIdPatchMutation,
     useContactsMergePostMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
@@ -47,6 +53,7 @@ import {
 } from "@/generated/daemon/sdk.gen";
 import type {
     ChannelsAvailableGetResponse,
+    IntegrationsSlackChannelConfigGetResponse,
 } from "@/generated/daemon/types.gen";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
@@ -217,6 +224,23 @@ export function ContactsPage({
     () => deriveChannelStates(readinessData),
     [readinessData],
   );
+
+  const slackConnected = channels.some(
+    (ch) => ch.key === "slack" && ch.status === "ready",
+  );
+
+  const slackConfigPathOpts = useMemo(
+    () => ({ path: { assistant_id: assistantId } }),
+    [assistantId],
+  );
+
+  const slackConfigQuery = useQuery({
+    ...integrationsSlackChannelConfigGetOptions(slackConfigPathOpts),
+    enabled: slackConnected,
+    select: (data: IntegrationsSlackChannelConfigGetResponse) => data.threadMode,
+  });
+
+  const slackThreadMode = slackConfigQuery.data as SlackThreadMode | undefined;
 
   // ---------------------------------------------------------------------------
   // Mutations
@@ -391,6 +415,15 @@ export function ContactsPage({
     onSettled: () => invalidateReadiness(),
   });
 
+  const slackThreadModeMutation = useMutation({
+    ...integrationsSlackChannelConfigPatchMutation(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: integrationsSlackChannelConfigGetQueryKey(slackConfigPathOpts),
+      });
+    },
+  });
+
   const saveTwilioMutation = useMutation({
     mutationFn: ({ accountSid, authToken }: { accountSid: string; authToken: string }) =>
       integrationsTwilioCredentialsPost({
@@ -413,6 +446,16 @@ export function ContactsPage({
       await saveSlackMutation.mutateAsync({ botToken, appToken });
     },
     [saveSlackMutation],
+  );
+
+  const handleSlackThreadModeChange = useCallback(
+    (mode: SlackThreadMode) => {
+      slackThreadModeMutation.mutate({
+        path: { assistant_id: assistantId },
+        body: { threadMode: mode },
+      });
+    },
+    [slackThreadModeMutation, assistantId],
   );
 
   const handleSaveTwilioCredentials = useCallback(
@@ -588,10 +631,13 @@ export function ContactsPage({
                 ? disconnectMutation.variables ?? null
                 : null
             }
+            slackThreadMode={slackThreadMode}
+            slackThreadModePending={slackThreadModeMutation.isPending}
             onSetup={onStartSetupConversation ? handleAssistantSetup : undefined}
             onDisconnect={handleDisconnect}
             onSaveTelegramToken={handleSaveTelegramToken}
             onSaveSlackConfig={handleSaveSlackConfig}
+            onSlackThreadModeChange={handleSlackThreadModeChange}
             onSaveTwilioCredentials={handleSaveTwilioCredentials}
             onGenerateInviteLink={a2aChannel ? handleOpenInviteLink : undefined}
           />

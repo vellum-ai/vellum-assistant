@@ -264,7 +264,7 @@ export async function createGuardianBinding(
 
       await assistantDbRun(
         `UPDATE contact_channels
-         SET contact_id = ?, address = ?, external_user_id = ?, external_chat_id = ?,
+         SET contact_id = ?, address = ?, external_chat_id = ?,
              is_primary = 1,
              status = 'active', policy = 'allow', verified_at = ?,
              verified_via = ?, revoked_reason = NULL, blocked_reason = NULL,
@@ -272,7 +272,6 @@ export async function createGuardianBinding(
          WHERE id = ?`,
         [
           contactId,
-          params.externalUserId,
           params.externalUserId,
           params.deliveryChatId,
           now,
@@ -284,14 +283,13 @@ export async function createGuardianBinding(
     } else {
       await assistantDbRun(
         `INSERT INTO contact_channels
-           (id, contact_id, type, address, external_user_id, external_chat_id,
+           (id, contact_id, type, address, external_chat_id,
             is_primary, status, policy, verified_at, verified_via, interaction_count, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, 1, 'active', 'allow', ?, ?, 0, ?)`,
+         VALUES (?, ?, ?, ?, ?, 1, 'active', 'allow', ?, ?, 0, ?)`,
         [
           channelId,
           contactId,
           params.channel,
-          params.externalUserId,
           params.externalUserId,
           params.deliveryChatId,
           now,
@@ -341,7 +339,6 @@ export async function createGuardianBinding(
           contactId,
           type: params.channel,
           address: params.externalUserId,
-          externalUserId: params.externalUserId,
           externalChatId: params.deliveryChatId,
           isPrimary: true,
           status: "active",
@@ -356,7 +353,6 @@ export async function createGuardianBinding(
           set: {
             contactId,
             address: params.externalUserId,
-            externalUserId: params.externalUserId,
             externalChatId: params.deliveryChatId,
             isPrimary: true,
             status: "active",

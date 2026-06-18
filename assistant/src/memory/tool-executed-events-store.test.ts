@@ -8,12 +8,12 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// Toggle for the collectUsageData opt-out gate the audit listener consults
+// Toggle for the share_analytics opt-out gate the audit listener consults
 // when populating the telemetry columns.
-let collectUsageData = true;
+let shareAnalytics = true;
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ collectUsageData }),
+mock.module("../platform/consent-cache.js", () => ({
+  getCachedShareAnalytics: () => shareAnalytics,
 }));
 
 import {
@@ -43,7 +43,7 @@ function insertInvocation(
 
 describe("tool-executed-events-store", () => {
   beforeEach(() => {
-    collectUsageData = true;
+    shareAnalytics = true;
     getDb().delete(toolInvocations).run();
   });
 
@@ -136,10 +136,10 @@ describe("tool-executed-events-store", () => {
 
     listener(executedEvent("t-opted-in-before"));
 
-    collectUsageData = false;
+    shareAnalytics = false;
     listener(executedEvent("t-opted-out"));
 
-    collectUsageData = true;
+    shareAnalytics = true;
     listener(executedEvent("t-opted-in-after"));
 
     // Mid-session opt-out flip: only rows recorded while opted in project.

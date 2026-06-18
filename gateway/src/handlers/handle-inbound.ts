@@ -278,7 +278,7 @@ async function touchContactChannelStats(
   // Look up channel in assistant DB (source of truth), with
   // externalChatId fallback for legacy/imported contacts.
   let result = (await ipcCallAssistant("db_proxy", {
-    sql: "SELECT id FROM contact_channels WHERE type = ? AND external_user_id = ? LIMIT 1",
+    sql: "SELECT id FROM contact_channels WHERE type = ? AND address = ? COLLATE NOCASE LIMIT 1",
     mode: "query",
     bind: [event.sourceChannel, canonicalActorId],
   })) as DbProxyResult;

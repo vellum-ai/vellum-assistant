@@ -163,7 +163,6 @@ export class ContactStore {
       type: string;
       address: string;
       is_primary: number;
-      external_user_id: string | null;
       external_chat_id: string | null;
       status: string;
       policy: string;
@@ -179,7 +178,7 @@ export class ContactStore {
       updated_at: number | null;
     };
     const channelRows = await assistantDbQuery<ChannelRow>(
-      `SELECT id, contact_id, type, address, is_primary, external_user_id,
+      `SELECT id, contact_id, type, address, is_primary,
               external_chat_id, status, policy, verified_at, verified_via,
               invite_id, revoked_reason, blocked_reason, last_seen_at,
               interaction_count, last_interaction, created_at, updated_at
@@ -236,7 +235,6 @@ export class ContactStore {
         type: channelRow.type,
         address: channelRow.address,
         isPrimary: Boolean(channelRow.is_primary),
-        externalUserId: channelRow.external_user_id,
         externalChatId: channelRow.external_chat_id,
         status: channelRow.status,
         policy: channelRow.policy,
@@ -380,7 +378,6 @@ export class ContactStore {
       type: string;
       address: string;
       isPrimary?: boolean;
-      externalUserId?: string | null;
       externalChatId?: string | null;
       status?: string;
       policy?: string;
@@ -578,8 +575,6 @@ export class ContactStore {
         const isBlocked = existing.status === "blocked";
         const updateSet: Record<string, unknown> = { updatedAt: now };
         if (ch.isPrimary !== undefined) updateSet.isPrimary = ch.isPrimary;
-        if (ch.externalUserId !== undefined)
-          updateSet.externalUserId = ch.externalUserId;
         if (ch.externalChatId !== undefined)
           updateSet.externalChatId = ch.externalChatId;
         if (!isBlocked) {
@@ -625,7 +620,6 @@ export class ContactStore {
           type: ch.type,
           address: ch.address,
           isPrimary: ch.isPrimary ?? false,
-          externalUserId: ch.externalUserId ?? null,
           externalChatId: ch.externalChatId ?? null,
           status: (ch.status as ContactChannel["status"]) ?? "unverified",
           policy: (ch.policy as ContactChannel["policy"]) ?? "allow",
@@ -745,16 +739,8 @@ export class ContactStore {
 
       if (existingCh.length) {
         const isBlocked = existingCh[0].status === "blocked";
-        const setParts: string[] = [
-          "external_user_id = ?",
-          "external_chat_id = ?",
-          "updated_at = ?",
-        ];
-        const setParams: SqliteValue[] = [
-          ch.externalUserId ?? null,
-          ch.externalChatId ?? null,
-          now,
-        ];
+        const setParts: string[] = ["external_chat_id = ?", "updated_at = ?"];
+        const setParams: SqliteValue[] = [ch.externalChatId ?? null, now];
         if (!isBlocked) {
           if (ch.status !== undefined) {
             setParts.push("status = ?");
@@ -781,16 +767,15 @@ export class ContactStore {
         await assistantDbRun(
           `INSERT INTO contact_channels
              (id, contact_id, type, address, is_primary,
-              external_user_id, external_chat_id,
+              external_chat_id,
               status, policy, interaction_count, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
           [
             crypto.randomUUID(),
             contactId,
             ch.type,
             ch.address,
             ch.isPrimary ? 1 : 0,
-            ch.externalUserId ?? null,
             ch.externalChatId ?? null,
             ch.status ?? "unverified",
             ch.policy ?? "allow",
@@ -880,7 +865,6 @@ export class ContactStore {
               cc.type             AS channelType,
               cc.address,
               cc.is_primary       AS isPrimary,
-              cc.external_user_id AS externalUserId,
               cc.external_chat_id AS externalChatId,
               cc.status           AS channelStatus,
               cc.policy           AS channelPolicy,
@@ -912,7 +896,6 @@ export class ContactStore {
         type: r.channelType!,
         address: r.address!,
         isPrimary: Boolean(r.isPrimary),
-        externalUserId: r.externalUserId,
         externalChatId: r.externalChatId,
         status: r.channelStatus,
         policy: r.channelPolicy,
@@ -963,7 +946,6 @@ export interface ContactChannelShape {
   type: string;
   address: string;
   isPrimary: boolean;
-  externalUserId: string | null;
   externalChatId: string | null;
   status: string | null;
   policy: string | null;
@@ -1008,7 +990,6 @@ interface AssistantContactRow {
   channelType: string | null;
   address: string | null;
   isPrimary: number | null;
-  externalUserId: string | null;
   externalChatId: string | null;
   channelStatus: string | null;
   channelPolicy: string | null;
