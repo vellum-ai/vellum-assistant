@@ -4,10 +4,12 @@ import { mutateConfigFile, readConfigFile } from "../../config-file-utils.js";
 const log = getLogger("privacy-config");
 
 // These defaults MUST match the daemon's Zod schema defaults. See
-// `assistant/src/config/schema.ts` (collectUsageData, sendDiagnostics) and
+// `assistant/src/config/schema.ts` (sendDiagnostics) and
 // `assistant/src/config/schemas/memory-lifecycle.ts`
 // (memory.cleanup.llmRequestLogRetentionMs). Keep them in sync.
-const DEFAULT_COLLECT_USAGE_DATA = true;
+//
+// Usage-analytics consent is NOT part of this endpoint: it lives in the
+// platform `share_analytics` consent (an in-memory cache), not config.json.
 const DEFAULT_SEND_DIAGNOSTICS = true;
 const DEFAULT_LLM_REQUEST_LOG_RETENTION_MS = 1 * 60 * 60 * 1000;
 
@@ -71,12 +73,12 @@ function parseNestedNullableNumber(
  * Resolve a privacy-config boolean field from the post-read/post-write config,
  * falling back to the daemon schema default when the on-disk value is missing
  * or not a boolean. Shared by GET and PATCH so the OpenAPI contract
- * (`collectUsageData` and `sendDiagnostics` are both `required`) is honored
- * regardless of whether config.json has the keys set.
+ * (`sendDiagnostics` is `required`) is honored regardless of whether
+ * config.json has the key set.
  */
 function resolveBoolean(
   config: Record<string, unknown>,
-  key: "collectUsageData" | "sendDiagnostics",
+  key: "sendDiagnostics",
   defaultValue: boolean,
 ): boolean {
   const raw = config[key];
@@ -102,35 +104,21 @@ export function createPrivacyConfigPatchHandler() {
       );
     }
 
-    const { collectUsageData, sendDiagnostics, llmRequestLogRetentionMs } =
-      body as {
-        collectUsageData?: unknown;
-        sendDiagnostics?: unknown;
-        llmRequestLogRetentionMs?: unknown;
-      };
+    const { sendDiagnostics, llmRequestLogRetentionMs } = body as {
+      sendDiagnostics?: unknown;
+      llmRequestLogRetentionMs?: unknown;
+    };
 
-    const hasCollectUsageData = "collectUsageData" in (body as object);
     const hasSendDiagnostics = "sendDiagnostics" in (body as object);
     const hasLlmRequestLogRetentionMs =
       "llmRequestLogRetentionMs" in (body as object);
 
-    if (
-      !hasCollectUsageData &&
-      !hasSendDiagnostics &&
-      !hasLlmRequestLogRetentionMs
-    ) {
+    if (!hasSendDiagnostics && !hasLlmRequestLogRetentionMs) {
       return Response.json(
         {
           error:
-            'At least one of "collectUsageData", "sendDiagnostics", or "llmRequestLogRetentionMs" must be provided',
+            'At least one of "sendDiagnostics" or "llmRequestLogRetentionMs" must be provided',
         },
-        { status: 400 },
-      );
-    }
-
-    if (hasCollectUsageData && typeof collectUsageData !== "boolean") {
-      return Response.json(
-        { error: '"collectUsageData" must be a boolean' },
         { status: 400 },
       );
     }
@@ -179,9 +167,6 @@ export function createPrivacyConfigPatchHandler() {
 
     try {
       const result = await mutateConfigFile((config) => {
-        if (hasCollectUsageData) {
-          config.collectUsageData = collectUsageData;
-        }
         if (hasSendDiagnostics) {
           config.sendDiagnostics = sendDiagnostics;
         }
@@ -203,19 +188,13 @@ export function createPrivacyConfigPatchHandler() {
           config.memory = memory;
         }
 
-        // Always include all three fields in the response so GET and PATCH
+        // Always include both fields in the response so GET and PATCH
         // share the same shape and match the OpenAPI schema contract
-        // (`required: [collectUsageData, sendDiagnostics,
-        // llmRequestLogRetentionMs]`). Source each value from the
-        // post-write config via the same fallback logic as the GET handler
-        // so a fresh or manually-edited config.json that lacks any of
-        // these keys still produces a well-formed response.
+        // (`required: [sendDiagnostics, llmRequestLogRetentionMs]`). Source
+        // each value from the post-write config via the same fallback logic
+        // as the GET handler so a fresh or manually-edited config.json that
+        // lacks any of these keys still produces a well-formed response.
         const responseData = {
-          collectUsageData: resolveBoolean(
-            config,
-            "collectUsageData",
-            DEFAULT_COLLECT_USAGE_DATA,
-          ),
           sendDiagnostics: resolveBoolean(
             config,
             "sendDiagnostics",
@@ -263,12 +242,6 @@ export function createPrivacyConfigGetHandler() {
 
     const config = result.data;
 
-    const collectUsageData = resolveBoolean(
-      config,
-      "collectUsageData",
-      DEFAULT_COLLECT_USAGE_DATA,
-    );
-
     const sendDiagnostics = resolveBoolean(
       config,
       "sendDiagnostics",
@@ -288,7 +261,6 @@ export function createPrivacyConfigGetHandler() {
     );
 
     return Response.json({
-      collectUsageData,
       sendDiagnostics,
       llmRequestLogRetentionMs,
     });

@@ -53,7 +53,6 @@ describe("GET /v1/config/privacy handler", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({
-      collectUsageData: true,
       sendDiagnostics: true,
       llmRequestLogRetentionMs: DEFAULT_RETENTION_MS,
     });
@@ -65,7 +64,6 @@ describe("GET /v1/config/privacy handler", () => {
     writeFileSync(
       configPath,
       JSON.stringify({
-        collectUsageData: false,
         sendDiagnostics: false,
         memory: {
           cleanup: {
@@ -83,7 +81,6 @@ describe("GET /v1/config/privacy handler", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({
-      collectUsageData: false,
       sendDiagnostics: false,
       llmRequestLogRetentionMs: 3 * 24 * 60 * 60 * 1000,
     });
@@ -93,7 +90,6 @@ describe("GET /v1/config/privacy handler", () => {
     writeFileSync(
       configPath,
       JSON.stringify({
-        collectUsageData: true,
         sendDiagnostics: true,
         memory: {
           cleanup: {
@@ -134,15 +130,13 @@ describe("GET /v1/config/privacy handler", () => {
     const body = await res.json();
     expect(body.llmRequestLogRetentionMs).toBe(0);
     // Other fields fall back to their schema defaults.
-    expect(body.collectUsageData).toBe(true);
     expect(body.sendDiagnostics).toBe(true);
   });
 
-  test("falls back to defaults when collectUsageData/sendDiagnostics are non-boolean", async () => {
+  test("falls back to defaults when sendDiagnostics is non-boolean", async () => {
     writeFileSync(
       configPath,
       JSON.stringify({
-        collectUsageData: "yes",
         sendDiagnostics: 1,
       }),
     );
@@ -154,7 +148,6 @@ describe("GET /v1/config/privacy handler", () => {
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.collectUsageData).toBe(true);
     expect(body.sendDiagnostics).toBe(true);
   });
 
@@ -206,7 +199,7 @@ describe("GET /v1/config/privacy handler", () => {
     writeFileSync(
       configPath,
       JSON.stringify({
-        collectUsageData: false,
+        sendDiagnostics: false,
       }),
     );
 
@@ -218,8 +211,7 @@ describe("GET /v1/config/privacy handler", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({
-      collectUsageData: false,
-      sendDiagnostics: true,
+      sendDiagnostics: false,
       llmRequestLogRetentionMs: DEFAULT_RETENTION_MS,
     });
   });
@@ -256,7 +248,6 @@ describe("GET /v1/config/privacy handler", () => {
     writeFileSync(
       configPath,
       JSON.stringify({
-        collectUsageData: false,
         sendDiagnostics: false,
       }),
     );
@@ -270,7 +261,6 @@ describe("GET /v1/config/privacy handler", () => {
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.collectUsageData).toBe(false);
     expect(body.sendDiagnostics).toBe(false);
     expect(body.llmRequestLogRetentionMs).toBe(DEFAULT_RETENTION_MS);
   });
@@ -294,7 +284,6 @@ describe("GET /v1/config/privacy handler", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.llmRequestLogRetentionMs).toBeNull();
-    expect(body.collectUsageData).toBe(true);
     expect(body.sendDiagnostics).toBe(true);
   });
 });
@@ -346,22 +335,22 @@ describe("PATCH /v1/config/privacy handler — llmRequestLogRetentionMs", () => 
     expect(cleanup.llmRequestLogRetentionMs).toBe(max);
   });
 
-  test("mixed payload: collectUsageData + llmRequestLogRetentionMs updates both without clobbering", async () => {
+  test("mixed payload: sendDiagnostics + llmRequestLogRetentionMs updates both without clobbering", async () => {
     const handler = createPrivacyConfigPatchHandler();
     const res = await handler(
       makePatch({
-        collectUsageData: true,
+        sendDiagnostics: true,
         llmRequestLogRetentionMs: 3_600_000,
       }),
     );
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.collectUsageData).toBe(true);
+    expect(body.sendDiagnostics).toBe(true);
     expect(body.llmRequestLogRetentionMs).toBe(3_600_000);
 
     const config = readConfig();
-    expect(config.collectUsageData).toBe(true);
+    expect(config.sendDiagnostics).toBe(true);
     const cleanup = (config.memory as Record<string, unknown>)
       .cleanup as Record<string, unknown>;
     expect(cleanup.llmRequestLogRetentionMs).toBe(3_600_000);
@@ -387,7 +376,7 @@ describe("PATCH /v1/config/privacy handler — llmRequestLogRetentionMs", () => 
   test("preserves pre-existing unrelated nested keys under memory.*", async () => {
     // Pre-seed a config with an unrelated nested key under memory
     const preExisting = {
-      collectUsageData: false,
+      sendDiagnostics: false,
       memory: {
         segmentation: {
           targetTokens: 2000,
@@ -405,7 +394,7 @@ describe("PATCH /v1/config/privacy handler — llmRequestLogRetentionMs", () => 
     const config = readConfig();
 
     // Previous top-level key preserved
-    expect(config.collectUsageData).toBe(false);
+    expect(config.sendDiagnostics).toBe(false);
 
     // Previous nested memory.segmentation preserved
     const memory = config.memory as Record<string, unknown>;
@@ -501,9 +490,8 @@ describe("PATCH /v1/config/privacy handler — llmRequestLogRetentionMs", () => 
     expect(body2.llmRequestLogRetentionMs).toBeNull();
   });
 
-  test("when only llmRequestLogRetentionMs is provided, existing collectUsageData/sendDiagnostics are unchanged", async () => {
+  test("when only llmRequestLogRetentionMs is provided, existing sendDiagnostics is unchanged", async () => {
     const preExisting = {
-      collectUsageData: true,
       sendDiagnostics: true,
     };
     writeFileSync(configPath, JSON.stringify(preExisting, null, 2));
@@ -513,7 +501,6 @@ describe("PATCH /v1/config/privacy handler — llmRequestLogRetentionMs", () => 
 
     expect(res.status).toBe(200);
     const config = readConfig();
-    expect(config.collectUsageData).toBe(true);
     expect(config.sendDiagnostics).toBe(true);
     const cleanup = (config.memory as Record<string, unknown>)
       .cleanup as Record<string, unknown>;
@@ -552,25 +539,20 @@ describe("PATCH /v1/config/privacy handler — llmRequestLogRetentionMs", () => 
 });
 
 describe("PATCH /v1/config/privacy handler — existing behavior (regression guard)", () => {
-  test("PATCH with only collectUsageData still works and response includes default llmRequestLogRetentionMs", async () => {
+  test("PATCH with only collectUsageData (now an unrecognized field) returns 400 and writes nothing", async () => {
+    // collectUsageData is no longer a recognized privacy-config field: usage
+    // telemetry is gated by the platform `share_analytics` consent. A PATCH
+    // that only contains it has no recognized fields and is rejected.
     const handler = createPrivacyConfigPatchHandler();
     const res = await handler(makePatch({ collectUsageData: true }));
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.collectUsageData).toBe(true);
-    // Gap B fix: the PATCH response shape is unified with GET — the
-    // `llmRequestLogRetentionMs` field is ALWAYS included, sourced from the
-    // post-write config with a fallback to the daemon schema default. The
-    // pre-existing config.json in this test has no retention value, so the
-    // response should return the daemon default (1 day in ms).
-    expect(body.llmRequestLogRetentionMs).toBe(DEFAULT_RETENTION_MS);
+    expect(body.error).toContain("sendDiagnostics");
+    expect(body.error).toContain("llmRequestLogRetentionMs");
 
-    const config = readConfig();
-    expect(config.collectUsageData).toBe(true);
-    // We did NOT pass llmRequestLogRetentionMs in the PATCH body, so no
-    // memory.cleanup entry should have been written.
-    expect(config.memory).toBeUndefined();
+    // Nothing was written to disk.
+    expect(existsSync(configPath)).toBe(false);
   });
 
   test("PATCH with only sendDiagnostics still works", async () => {
@@ -582,7 +564,7 @@ describe("PATCH /v1/config/privacy handler — existing behavior (regression gua
     expect(config.sendDiagnostics).toBe(false);
   });
 
-  test("PATCH with both booleans still works", async () => {
+  test("PATCH ignores an unrecognized collectUsageData key alongside sendDiagnostics", async () => {
     const handler = createPrivacyConfigPatchHandler();
     const res = await handler(
       makePatch({ collectUsageData: false, sendDiagnostics: true }),
@@ -592,19 +574,21 @@ describe("PATCH /v1/config/privacy handler — existing behavior (regression gua
     const body = await res.json();
     // Gap B: PATCH response always includes llmRequestLogRetentionMs.
     expect(body.llmRequestLogRetentionMs).toBe(DEFAULT_RETENTION_MS);
+    // collectUsageData is no longer part of the privacy-config surface.
+    expect(body).not.toHaveProperty("collectUsageData");
 
     const config = readConfig();
-    expect(config.collectUsageData).toBe(false);
+    // The unrecognized key is ignored, not written to disk.
+    expect(config.collectUsageData).toBeUndefined();
     expect(config.sendDiagnostics).toBe(true);
   });
 
-  test("PATCH with only booleans echoes pre-existing llmRequestLogRetentionMs from config.json", async () => {
+  test("PATCH with only sendDiagnostics echoes pre-existing llmRequestLogRetentionMs from config.json", async () => {
     // Pre-seed a config that already has a non-default retention value.
     const preExistingRetention = 3 * 24 * 60 * 60 * 1000; // 3 days
     writeFileSync(
       configPath,
       JSON.stringify({
-        collectUsageData: true,
         sendDiagnostics: true,
         memory: {
           cleanup: {
@@ -615,12 +599,11 @@ describe("PATCH /v1/config/privacy handler — existing behavior (regression gua
     );
 
     const handler = createPrivacyConfigPatchHandler();
-    const res = await handler(makePatch({ collectUsageData: false }));
+    const res = await handler(makePatch({ sendDiagnostics: false }));
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.collectUsageData).toBe(false);
-    expect(body.sendDiagnostics).toBe(true);
+    expect(body.sendDiagnostics).toBe(false);
     // Gap B: the response echoes the post-write retention value, even when
     // the PATCH body did not touch it.
     expect(body.llmRequestLogRetentionMs).toBe(preExistingRetention);
@@ -656,13 +639,16 @@ describe("PATCH /v1/config/privacy handler — existing behavior (regression gua
     expect(body.error).toContain("valid JSON");
   });
 
-  test("PATCH with non-boolean collectUsageData still returns 400", async () => {
+  test("PATCH containing only the removed collectUsageData field returns 400", async () => {
     const handler = createPrivacyConfigPatchHandler();
     const res = await handler(makePatch({ collectUsageData: "yes" }));
 
+    // collectUsageData is no longer recognized, so a body with no other
+    // fields fails the "at least one of" check.
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error).toContain("collectUsageData");
+    expect(body.error).toContain("sendDiagnostics");
+    expect(body.error).toContain("llmRequestLogRetentionMs");
   });
 
   test("PATCH with non-boolean sendDiagnostics still returns 400", async () => {
@@ -675,16 +661,15 @@ describe("PATCH /v1/config/privacy handler — existing behavior (regression gua
   });
 });
 
-// Gap 2a-1: the PATCH response must always include collectUsageData and
-// sendDiagnostics — even when config.json lacks the keys — because the
-// OpenAPI schema marks both as `required`. Previously the PATCH handler read
-// the booleans directly from the post-write config, producing `undefined`
-// values that Response.json() silently drops. These regression tests fix the
-// on-disk config to be "empty" before the PATCH and assert the response
-// still has both booleans populated from defaults.
+// Gap 2a-1: the PATCH response must always include sendDiagnostics — even when
+// config.json lacks the key — because the OpenAPI schema marks it `required`.
+// Previously the PATCH handler read the boolean directly from the post-write
+// config, producing an `undefined` value that Response.json() silently drops.
+// These regression tests fix the on-disk config to be "empty" before the PATCH
+// and assert the response still has sendDiagnostics populated from defaults.
 describe("PATCH /v1/config/privacy handler — Gap 2a-1 boolean defaults in response", () => {
-  test("PATCH with only llmRequestLogRetentionMs returns both booleans as defaults when config.json lacks them", async () => {
-    // Empty config.json — no collectUsageData, no sendDiagnostics.
+  test("PATCH with only llmRequestLogRetentionMs returns sendDiagnostics as default when config.json lacks it", async () => {
+    // Empty config.json — no sendDiagnostics.
     writeFileSync(configPath, JSON.stringify({}));
 
     const handler = createPrivacyConfigPatchHandler();
@@ -693,30 +678,14 @@ describe("PATCH /v1/config/privacy handler — Gap 2a-1 boolean defaults in resp
     expect(res.status).toBe(200);
     const body = await res.json();
     // The schema contract: these fields are always present in the response.
-    expect(body).toHaveProperty("collectUsageData");
     expect(body).toHaveProperty("sendDiagnostics");
     expect(body).toHaveProperty("llmRequestLogRetentionMs");
-    expect(body.collectUsageData).toBe(true);
+    expect(body).not.toHaveProperty("collectUsageData");
     expect(body.sendDiagnostics).toBe(true);
     expect(body.llmRequestLogRetentionMs).toBe(60_000);
   });
 
-  test("PATCH with only collectUsageData returns sendDiagnostics as default when config.json lacks it", async () => {
-    writeFileSync(configPath, JSON.stringify({}));
-
-    const handler = createPrivacyConfigPatchHandler();
-    const res = await handler(makePatch({ collectUsageData: false }));
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.collectUsageData).toBe(false);
-    // Default from daemon schema.
-    expect(body.sendDiagnostics).toBe(true);
-    // Default from daemon schema when memory.cleanup is missing.
-    expect(body.llmRequestLogRetentionMs).toBe(DEFAULT_RETENTION_MS);
-  });
-
-  test("PATCH with only sendDiagnostics returns collectUsageData as default when config.json lacks it", async () => {
+  test("PATCH with only sendDiagnostics returns retention default when config.json lacks it", async () => {
     writeFileSync(configPath, JSON.stringify({}));
 
     const handler = createPrivacyConfigPatchHandler();
@@ -724,19 +693,18 @@ describe("PATCH /v1/config/privacy handler — Gap 2a-1 boolean defaults in resp
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    // Default from daemon schema.
-    expect(body.collectUsageData).toBe(true);
     expect(body.sendDiagnostics).toBe(false);
+    // Default from daemon schema when memory.cleanup is missing.
+    expect(body.llmRequestLogRetentionMs).toBe(DEFAULT_RETENTION_MS);
   });
 
-  test("PATCH with only llmRequestLogRetentionMs returns default booleans when config.json has non-boolean values", async () => {
+  test("PATCH with only llmRequestLogRetentionMs returns default sendDiagnostics when config.json has a non-boolean value", async () => {
     // A user (or an older version of the code) wrote garbage into the
-    // booleans. We should still respond with valid booleans so the UI
+    // boolean. We should still respond with a valid boolean so the UI
     // doesn't choke on a missing field.
     writeFileSync(
       configPath,
       JSON.stringify({
-        collectUsageData: "yes",
         sendDiagnostics: 1,
       }),
     );
@@ -746,8 +714,7 @@ describe("PATCH /v1/config/privacy handler — Gap 2a-1 boolean defaults in resp
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    // Fall back to schema defaults.
-    expect(body.collectUsageData).toBe(true);
+    // Fall back to schema default.
     expect(body.sendDiagnostics).toBe(true);
     expect(body.llmRequestLogRetentionMs).toBe(60_000);
   });
@@ -834,7 +801,7 @@ describe("GET /v1/config/privacy handler — Gap 2a-2 out-of-range clamp", () =>
 });
 
 describe("PATCH /v1/config/privacy handler — Gap 2a-2 out-of-range clamp in response", () => {
-  test("PATCH with only collectUsageData against out-of-range config.json clamps retention in response", async () => {
+  test("PATCH with only sendDiagnostics against out-of-range config.json clamps retention in response", async () => {
     const tooBig = 365 * 24 * 60 * 60 * 1000 + 1;
     writeFileSync(
       configPath,
@@ -848,7 +815,7 @@ describe("PATCH /v1/config/privacy handler — Gap 2a-2 out-of-range clamp in re
     );
 
     const handler = createPrivacyConfigPatchHandler();
-    const res = await handler(makePatch({ collectUsageData: false }));
+    const res = await handler(makePatch({ sendDiagnostics: false }));
 
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -856,8 +823,8 @@ describe("PATCH /v1/config/privacy handler — Gap 2a-2 out-of-range clamp in re
     // (the PATCH did not touch it), the response must echo the clamped
     // default. The gateway never serves an out-of-range value to clients.
     expect(body.llmRequestLogRetentionMs).toBe(DEFAULT_RETENTION_MS);
-    // collectUsageData was updated, should echo.
-    expect(body.collectUsageData).toBe(false);
+    // sendDiagnostics was updated, should echo.
+    expect(body.sendDiagnostics).toBe(false);
 
     // Sanity: the on-disk value is untouched. We only sanitize on read;
     // we never silently rewrite user data on a PATCH that didn't ask for it.

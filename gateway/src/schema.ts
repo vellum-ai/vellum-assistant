@@ -2625,7 +2625,7 @@ export function buildSchema(): Record<string, unknown> {
         get: {
           summary: "Get privacy config",
           description:
-            "Scope-protected gateway endpoint that returns the current privacy configuration (collectUsageData, sendDiagnostics, llmRequestLogRetentionMs). Missing or malformed values fall back to the daemon schema defaults. Requires a bearer token with `settings.read` scope.",
+            "Scope-protected gateway endpoint that returns the current privacy configuration (sendDiagnostics, llmRequestLogRetentionMs). Missing or malformed values fall back to the daemon schema defaults. Requires a bearer token with `settings.read` scope.",
           operationId: "privacyConfigGet",
           security: [{ BearerAuth: [] }],
           responses: {
@@ -2636,7 +2636,6 @@ export function buildSchema(): Record<string, unknown> {
                   schema: {
                     type: "object",
                     properties: {
-                      collectUsageData: { type: "boolean" },
                       sendDiagnostics: { type: "boolean" },
                       llmRequestLogRetentionMs: {
                         type: ["integer", "null"],
@@ -2646,11 +2645,7 @@ export function buildSchema(): Record<string, unknown> {
                           "Retention period for LLM request/response logs in milliseconds. null keeps forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms); server-side clamping enforces this cap on reads.",
                       },
                     },
-                    required: [
-                      "collectUsageData",
-                      "sendDiagnostics",
-                      "llmRequestLogRetentionMs",
-                    ],
+                    required: ["sendDiagnostics", "llmRequestLogRetentionMs"],
                   },
                 },
               },
@@ -2665,7 +2660,7 @@ export function buildSchema(): Record<string, unknown> {
         patch: {
           summary: "Update privacy config",
           description:
-            "Scope-protected gateway endpoint that updates privacy configuration (collectUsageData, sendDiagnostics, llmRequestLogRetentionMs). Requires a bearer token with `settings.write` scope.",
+            "Scope-protected gateway endpoint that updates privacy configuration (sendDiagnostics, llmRequestLogRetentionMs). Requires a bearer token with `settings.write` scope.",
           operationId: "privacyConfigPatch",
           security: [{ BearerAuth: [] }],
           requestBody: {
@@ -2675,7 +2670,6 @@ export function buildSchema(): Record<string, unknown> {
                 schema: {
                   type: "object",
                   properties: {
-                    collectUsageData: { type: "boolean" },
                     sendDiagnostics: { type: "boolean" },
                     llmRequestLogRetentionMs: {
                       type: ["integer", "null"],
@@ -2686,7 +2680,6 @@ export function buildSchema(): Record<string, unknown> {
                     },
                   },
                   anyOf: [
-                    { required: ["collectUsageData"] },
                     { required: ["sendDiagnostics"] },
                     { required: ["llmRequestLogRetentionMs"] },
                   ],
@@ -2702,7 +2695,6 @@ export function buildSchema(): Record<string, unknown> {
                   schema: {
                     type: "object",
                     properties: {
-                      collectUsageData: { type: "boolean" },
                       sendDiagnostics: { type: "boolean" },
                       llmRequestLogRetentionMs: {
                         type: ["integer", "null"],
@@ -2712,11 +2704,7 @@ export function buildSchema(): Record<string, unknown> {
                           "Retention window for LLM request logs, in milliseconds. null keeps logs forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms).",
                       },
                     },
-                    required: [
-                      "collectUsageData",
-                      "sendDiagnostics",
-                      "llmRequestLogRetentionMs",
-                    ],
+                    required: ["sendDiagnostics", "llmRequestLogRetentionMs"],
                   },
                 },
               },
@@ -2800,7 +2788,7 @@ export function buildSchema(): Record<string, unknown> {
         get: {
           summary: "Get privacy config (assistant-scoped)",
           description:
-            "Assistant-scoped variant of the privacy config read endpoint. Returns the current privacy configuration (collectUsageData, sendDiagnostics, llmRequestLogRetentionMs). Missing or malformed values fall back to the daemon schema defaults. Requires a bearer token with `settings.read` scope.",
+            "Assistant-scoped variant of the privacy config read endpoint. Returns the current privacy configuration (sendDiagnostics, llmRequestLogRetentionMs). Missing or malformed values fall back to the daemon schema defaults. Requires a bearer token with `settings.read` scope.",
           operationId: "assistantPrivacyConfigGet",
           security: [{ BearerAuth: [] }],
           parameters: [
@@ -2820,7 +2808,6 @@ export function buildSchema(): Record<string, unknown> {
                   schema: {
                     type: "object",
                     properties: {
-                      collectUsageData: { type: "boolean" },
                       sendDiagnostics: { type: "boolean" },
                       llmRequestLogRetentionMs: {
                         type: ["integer", "null"],
@@ -2830,11 +2817,7 @@ export function buildSchema(): Record<string, unknown> {
                           "Retention period for LLM request/response logs in milliseconds. null keeps forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms); server-side clamping enforces this cap on reads.",
                       },
                     },
-                    required: [
-                      "collectUsageData",
-                      "sendDiagnostics",
-                      "llmRequestLogRetentionMs",
-                    ],
+                    required: ["sendDiagnostics", "llmRequestLogRetentionMs"],
                   },
                 },
               },
@@ -2868,7 +2851,6 @@ export function buildSchema(): Record<string, unknown> {
                 schema: {
                   type: "object",
                   properties: {
-                    collectUsageData: { type: "boolean" },
                     sendDiagnostics: { type: "boolean" },
                     llmRequestLogRetentionMs: {
                       type: ["integer", "null"],
@@ -2879,7 +2861,6 @@ export function buildSchema(): Record<string, unknown> {
                     },
                   },
                   anyOf: [
-                    { required: ["collectUsageData"] },
                     { required: ["sendDiagnostics"] },
                     { required: ["llmRequestLogRetentionMs"] },
                   ],
@@ -2895,7 +2876,6 @@ export function buildSchema(): Record<string, unknown> {
                   schema: {
                     type: "object",
                     properties: {
-                      collectUsageData: { type: "boolean" },
                       sendDiagnostics: { type: "boolean" },
                       llmRequestLogRetentionMs: {
                         type: ["integer", "null"],
@@ -2905,11 +2885,7 @@ export function buildSchema(): Record<string, unknown> {
                           "Retention window for LLM request logs, in milliseconds. null keeps logs forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms).",
                       },
                     },
-                    required: [
-                      "collectUsageData",
-                      "sendDiagnostics",
-                      "llmRequestLogRetentionMs",
-                    ],
+                    required: ["sendDiagnostics", "llmRequestLogRetentionMs"],
                   },
                 },
               },
