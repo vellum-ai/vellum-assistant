@@ -322,7 +322,15 @@ export function SubagentDetailPanel({
           >
             Timeline
           </Typography>
-          <SubagentTimeline events={timelineEvents} />
+          {/*
+           * Key by subagent id so the timeline (which now owns lifted
+           * expand/collapse state) remounts on subagent switch. Fetched
+           * detail event ids are renumbered per subagent (detail-1, detail-2,
+           * …) and the drawer keeps this component mounted across switches, so
+           * without a per-subagent reset an expanded `detail-N` would leak its
+           * expanded state onto the next subagent's `detail-N`.
+           */}
+          <SubagentTimeline key={entry.subagentId} events={timelineEvents} />
         </div>
       </div>
     </div>

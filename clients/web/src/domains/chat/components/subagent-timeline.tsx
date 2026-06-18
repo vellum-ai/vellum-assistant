@@ -5,7 +5,7 @@ import {
     TriangleAlert,
     Wrench,
 } from "lucide-react";
-import { memo, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 
 import type { SubagentTimelineEvent } from "@/domains/chat/subagent-store";
 import { Typography } from "@vellumai/design-library";
@@ -131,8 +131,20 @@ function eventTitle(event: SubagentTimelineEvent): string {
 // Collapsible text content
 // ---------------------------------------------------------------------------
 
-function CollapsibleContent({ content }: { content: string }) {
-  const [expanded, setExpanded] = useState(false);
+/**
+ * Controlled collapsible text. Expand state is owned by {@link SubagentTimeline}
+ * (keyed by `event.id`) rather than held locally here, so it survives this
+ * component unmounting/remounting — the precondition for virtualizing the list.
+ */
+function CollapsibleContent({
+  content,
+  expanded,
+  onToggle,
+}: {
+  content: string;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
   const hasLongContent = isContentLong(content);
   const displayContent = hasLongContent && !expanded
     ? truncateContent(content)
@@ -150,7 +162,7 @@ function CollapsibleContent({ content }: { content: string }) {
       {hasLongContent && (
         <button
           type="button"
-          onClick={() => setExpanded((prev) => !prev)}
+          onClick={onToggle}
           className="mt-1 cursor-pointer hover:underline"
         >
           <Typography variant="body-small-default" className="text-[var(--content-default)]">
@@ -169,9 +181,18 @@ function CollapsibleContent({ content }: { content: string }) {
 const TimelineEventRow = memo(function TimelineEventRow({
   event,
   isLast,
+  expanded,
+  toggleExpand,
 }: {
   event: SubagentTimelineEvent;
   isLast: boolean;
+  expanded: boolean;
+  /**
+   * Stable across renders (see {@link SubagentTimeline}), so passing it through
+   * `memo` doesn't defeat the row's bail-out. The per-row closure is bound at
+   * the call site below rather than by the parent, to keep this prop stable.
+   */
+  toggleExpand: (id: string) => void;
 }) {
   return (
     // `content-visibility: auto` lets the browser skip layout/paint for rows
@@ -235,7 +256,11 @@ const TimelineEventRow = memo(function TimelineEventRow({
                 {event.content}
               </Typography>
             ) : (
-              <CollapsibleContent content={event.content} />
+              <CollapsibleContent
+                content={event.content}
+                expanded={expanded}
+                onToggle={() => toggleExpand(event.id)}
+              />
             )}
           </div>
         )}
@@ -270,6 +295,23 @@ export const SubagentTimeline = memo(function SubagentTimeline({
 }: SubagentTimelineProps) {
   const filteredEvents = useMemo(() => filterEvents(events), [events]);
 
+  // Expand/collapse state lives here, keyed by `event.id`, so it survives a row
+  // unmounting and remounting (e.g. when the list is virtualized). `toggleExpand`
+  // is stable across renders so it can be passed through the `memo`'d row without
+  // defeating its bail-out.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  const toggleExpand = useCallback((id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
   if (filteredEvents.length === 0) {
     return (
       <Typography
@@ -288,6 +330,8 @@ export const SubagentTimeline = memo(function SubagentTimeline({
           key={event.id}
           event={event}
           isLast={index === filteredEvents.length - 1}
+          expanded={expandedIds.has(event.id)}
+          toggleExpand={toggleExpand}
         />
       ))}
     </div>
