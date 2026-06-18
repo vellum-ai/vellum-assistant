@@ -263,8 +263,8 @@ describe("search_contacts route", () => {
 
     expect(contacts.length).toBeGreaterThanOrEqual(1);
     const channel = contacts[0]!.channels[0]!;
-    // The column was dropped; the route re-derives the compat field from
-    // address so SDK/macOS clients that still read externalUserId keep working.
+    // The route re-derives the compat field from address, so SDK/macOS
+    // clients that read externalUserId keep working.
     expect(channel.externalUserId).toBe(channel.address);
   });
 });
