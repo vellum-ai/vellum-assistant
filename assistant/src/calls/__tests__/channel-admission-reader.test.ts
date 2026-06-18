@@ -12,12 +12,19 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 type IpcHandler = (params?: Record<string, unknown>) => unknown;
 
 const ipcHandlers = new Map<string, IpcHandler>();
-const ipcCallLog: Array<{ method: string; params?: Record<string, unknown> }> =
-  [];
+const ipcCallLog: Array<{
+  method: string;
+  params?: Record<string, unknown>;
+  timeoutMs?: number;
+}> = [];
 
 mock.module("../../ipc/gateway-client.js", () => ({
-  ipcCall: async (method: string, params?: Record<string, unknown>) => {
-    ipcCallLog.push({ method, params });
+  ipcCall: async (
+    method: string,
+    params?: Record<string, unknown>,
+    timeoutMs?: number,
+  ) => {
+    ipcCallLog.push({ method, params, timeoutMs });
     const handler = ipcHandlers.get(method);
     return handler ? handler(params) : undefined;
   },
@@ -50,6 +57,15 @@ describe("getChannelAdmissionPolicy", () => {
     // Second call within TTL is served from cache — no extra IPC round-trip.
     expect(await getChannelAdmissionPolicy("telegram")).toBe("guardian_only");
     expect(countCalls(METHOD)).toBe(1);
+  });
+
+  test("bounds the IPC read with a short timeout so it fails open promptly", async () => {
+    ipcHandlers.set(METHOD, () => ({ policy: "guardian_only" }));
+
+    await getChannelAdmissionPolicy("telegram");
+
+    const call = ipcCallLog.find((c) => c.method === METHOD);
+    expect(call?.timeoutMs).toBe(1_000);
   });
 
   test("returns null when IPC transport fails (undefined)", async () => {

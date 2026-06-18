@@ -22,6 +22,11 @@ import { ipcCall } from "../ipc/gateway-client.js";
 
 const CACHE_TTL_MS = 5_000;
 
+// Short IPC timeout so admission fails open PROMPTLY: a gateway that accepts
+// the socket but stalls must never delay a live call handshake. 1s is generous
+// under normal conditions yet far below ipcCall's 5s default.
+const ADMISSION_IPC_TIMEOUT_MS = 1_000;
+
 const cache = new Map<
   ChannelId,
   { policy: AdmissionPolicy | null; timestamp: number }
@@ -49,9 +54,11 @@ export async function getChannelAdmissionPolicy(
     // ipcCall() returns undefined on transport failure (socket not found,
     // timeout, parse error). Treat anything other than a valid policy as
     // "no enforcement" so a gateway hiccup can never block call setup.
-    const result = (await ipcCall("get_channel_admission_policy", {
-      channelType,
-    })) as { policy?: unknown } | null | undefined;
+    const result = (await ipcCall(
+      "get_channel_admission_policy",
+      { channelType },
+      ADMISSION_IPC_TIMEOUT_MS,
+    )) as { policy?: unknown } | null | undefined;
 
     if (result && isAdmissionPolicy(result.policy)) {
       policy = result.policy;
