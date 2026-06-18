@@ -102,9 +102,14 @@ export function HatchingScreen() {
   const electron = isElectron();
   const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
   const sessionStatus = useAuthStore.use.sessionStatus();
-  // Local hatches drive `sessionStatus` themselves (the connect handoff below
-  // flips it), so they gate on settled-ness to avoid self-restarting; platform
-  // hatches react to the raw status so a mid-hatch session loss redirects to login.
+  // Local hatches drive `sessionStatus` themselves: `connectLocalAssistant`
+  // below flips it `unauthenticated` → `authenticated` mid-handoff. Keying the
+  // hatch effect on settled-ness (true for both settled states) keeps that flip
+  // out of the effect's dependency, so it does not tear down the navigation
+  // timer and re-spawn the hatch. The route access gate admits the screen but
+  // does not stabilize this in-effect flip, so the settled-ness key is the only
+  // thing preventing the self-restart. Platform hatches react to the raw status
+  // so a mid-hatch session loss redirects to login.
   const sessionGateKey = useLocalHatch
     ? isSessionSettled(sessionStatus)
     : sessionStatus;

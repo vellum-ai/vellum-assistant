@@ -755,6 +755,14 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     // (The successful probe above still adopts the platform user, so provider
     // sign-in keeps working.) An unauthenticated session — e.g. mid cold-start
     // hatch — is left for the gateway to settle once its token mints.
+    //
+    // Holding `sessionStatus` "authenticated" here is load-bearing for in-app
+    // consumers that read `useIsAuthenticated()` directly: the QueryClient cache
+    // scope in `components/providers.tsx` and gated UI such as
+    // `domains/chat/components/preferences-menu.tsx`. Ending the session drops
+    // them into the anonymous cache scope and hides gated UI. The gateway is the
+    // sole authority for a local session, so this demotion and the route
+    // admission OR (`hasAppAccess`) agree: a local user keeps app access here.
     if (isGatewayAuthEnabled()) {
       const wasAuthenticated = isAuthenticated(get().sessionStatus);
       if (wasAuthenticated) {
