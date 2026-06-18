@@ -161,6 +161,35 @@ export const skillLoadTool = {
 
     let loaded = loadSkillBySelector(selector);
 
+    // A prefix match means no installed skill matched the selector exactly,
+    // but the catalog may carry an exact-id skill that the local prefix match
+    // shadows (e.g. selector "slack" prefix-matching an installed
+    // "slack-app-setup" while the catalog's "slack" skill is what was asked
+    // for). Prefer the exact catalog skill; keep the prefix match if the
+    // catalog has no exact id or the install fails.
+    if (loaded.skill && loaded.matchKind === "id_prefix") {
+      const exactId = selector.trim();
+      const prefixMatchedId = loaded.skill.id;
+      try {
+        const installed = await autoInstallFromCatalog(exactId);
+        if (installed) {
+          const exact = loadSkillBySelector(exactId);
+          if (exact.skill && exact.matchKind === "exact_id") {
+            log.info(
+              { skillId: exact.skill.id, prefixMatchedId },
+              "Preferred exact-id catalog skill over local prefix match",
+            );
+            loaded = exact;
+          }
+        }
+      } catch (err) {
+        log.warn(
+          { err, skillId: exactId, prefixMatchedId },
+          "Exact-id catalog install failed; keeping prefix match",
+        );
+      }
+    }
+
     // Auto-install from catalog if the skill isn't found locally
     if (
       !loaded.skill &&

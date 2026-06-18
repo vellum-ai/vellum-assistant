@@ -911,4 +911,74 @@ describe("skill_load tool", () => {
     expect(result.content).toContain("Suggested Included Skills (not loaded):");
     expect(installCount).toBeLessThanOrEqual(5);
   });
+
+  test("prefers exact-id catalog skill over local prefix match", async () => {
+    // Only "zmail-app-setup" is installed locally; the selector "zmail"
+    // prefix-matches it, but the catalog carries an exact-id "zmail" skill.
+    writeSkill(
+      "zmail-app-setup",
+      "Zmail App Setup",
+      "Connect Zmail",
+      "Setup body",
+    );
+    mockAutoInstall.mockImplementation((skillId: string) => {
+      if (skillId === "zmail") {
+        writeSkill("zmail", "Zmail", "Use Zmail", "Usage body");
+        return Promise.resolve(true);
+      }
+      return Promise.resolve(false);
+    });
+
+    const result = await executeSkillLoad({ skill: "zmail" });
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Skill: Zmail");
+    expect(result.content).toContain("Usage body");
+    expect(result.content).toContain('<loaded_skill id="zmail"');
+    expect(result.content).not.toContain("Setup body");
+    expect(mockAutoInstall).toHaveBeenCalledWith("zmail");
+  });
+
+  test("keeps prefix match when catalog has no exact-id skill", async () => {
+    writeSkill(
+      "zcal-app-setup",
+      "Zcal App Setup",
+      "Connect Zcal",
+      "Setup body",
+    );
+
+    const result = await executeSkillLoad({ skill: "zcal" });
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Skill: Zcal App Setup");
+    expect(result.content).toContain('<loaded_skill id="zcal-app-setup"');
+    expect(mockAutoInstall).toHaveBeenCalledWith("zcal");
+  });
+
+  test("keeps prefix match when exact-id catalog install fails", async () => {
+    writeSkill(
+      "zdoc-app-setup",
+      "Zdoc App Setup",
+      "Connect Zdoc",
+      "Setup body",
+    );
+    mockAutoInstall.mockImplementation((skillId: string) => {
+      if (skillId === "zdoc") {
+        return Promise.reject(new Error("Network error"));
+      }
+      return Promise.resolve(false);
+    });
+
+    const result = await executeSkillLoad({ skill: "zdoc" });
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Skill: Zdoc App Setup");
+    expect(result.content).toContain('<loaded_skill id="zdoc-app-setup"');
+  });
+
+  test("does not consult the catalog for exact-id matches", async () => {
+    writeSkill("zchat", "Zchat", "Use Zchat", "Usage body");
+
+    const result = await executeSkillLoad({ skill: "zchat" });
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Skill: Zchat");
+    expect(mockAutoInstall).not.toHaveBeenCalled();
+  });
 });
