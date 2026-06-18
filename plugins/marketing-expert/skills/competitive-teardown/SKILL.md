@@ -1,7 +1,7 @@
 ---
 name: competitive-teardown
 description: Run a structured competitor teardown — positioning, pricing, product, GTM, and recent moves — into a head-to-head comparison with recommended responses. Use for "analyze competitor X", "how do we compare to", "competitive teardown", or "battlecard".
-compatibility: "Designed for Vellum personal assistants — part of the cmo plugin"
+compatibility: "Designed for Vellum personal assistants — part of the marketing-expert plugin"
 metadata:
   emoji: "🔬"
   vellum:
@@ -9,7 +9,7 @@ metadata:
     display-name: "Competitive Teardown"
 ---
 
-Produce an evidence-based competitive teardown and a battlecard-ready output. Be rigorous and cite sources; a CMO's competitive view drives sales enablement and positioning.
+Produce an evidence-based competitive teardown and a battlecard-ready output. Be rigorous and cite sources; a Marketing Expert's competitive view drives sales enablement and positioning.
 
 ## Step graph
 

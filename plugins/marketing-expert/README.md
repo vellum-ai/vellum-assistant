@@ -1,19 +1,20 @@
-# cmo
+# marketing-expert
 
-Lets your Vellum assistant act as a full-stack **Chief Marketing Officer** for B2B
-SaaS — but only when the user actually needs marketing help. The CMO depth is
+Lets your Vellum assistant act as a full-stack **Marketing Expert** for any
+business (B2B or B2C — SaaS, ecommerce, marketplace, consumer, services, and more)
+— but only when the user actually needs marketing help. The Marketing Expert depth is
 **activated on demand** by skills, not bolted onto every turn. One self-contained
 plugin, three layers:
 
 | Layer | What it is | What it's for |
 | --- | --- | --- |
-| **Hook** (`hooks/pre-model-call.ts`) | A single-line activation pointer appended to the system prompt | Awareness — so the model knows to engage CMO mode when marketing comes up |
-| **Skills** (`skills/`) | On-demand step-graph playbooks bundled in the plugin; **trigger on marketing requests** | The CMO mindset + rigorous, repeatable workflows |
+| **Hook** (`hooks/pre-model-call.ts`) | A single-line activation pointer appended to the system prompt | Awareness — so the model knows to engage Marketing Expert mode when marketing comes up |
+| **Skills** (`skills/`) | On-demand step-graph playbooks bundled in the plugin; **trigger on marketing requests** | The Marketing Expert mindset + rigorous, repeatable workflows |
 | **Tools** (`tools/`) | Deterministic helpers the model calls inline | Math & structured scaffolds it shouldn't improvise |
 
-**Activation model:** nobody opens the assistant looking for a "CMO". So the
-system-prompt footprint is one line (`src/cmo-frame.ts`); the real persona,
-operating principles, and competency depth live in the on-demand `cmo` skill,
+**Activation model:** nobody opens the assistant looking for a "Marketing Expert". So the
+system-prompt footprint is one line (`src/marketing-expert-frame.ts`); the real persona,
+operating principles, and competency depth live in the on-demand `marketing-expert` skill,
 which fires when the user asks for marketing help and routes to the specific
 playbooks.
 
@@ -29,9 +30,9 @@ playbooks.
 
 ## Skills (bundled, plugin-owned)
 
-- **`cmo`** — the general entry point: the CMO persona + operating principles, and
+- **`marketing-expert`** — the general entry point: the Marketing Expert persona + operating principles, and
   a router to the specific playbooks. Triggers on broad marketing requests
-  ("help with marketing", "be my CMO", "marketing strategy").
+  ("help with marketing", "be my Marketing Expert", "marketing strategy").
 - **`founder-marketing`** — zero-to-one, founder-led growth for founders with
   little time/team/budget (the early-stage counterpart to `demand-plan`).
 - **`positioning-sprint`**, **`demand-plan`**, **`launch-playbook`**,
@@ -45,13 +46,13 @@ They install, version, and uninstall with this plugin.
 
 ## Install / verify
 
-1. The plugin lives at `<workspaceDir>/plugins/cmo/`. Restart the assistant so the
+1. The plugin lives at `<workspaceDir>/plugins/marketing-expert/`. Restart the assistant so the
    plugin loader picks up the hook + tools and the skill catalog discovers the
    bundled skills.
-2. Confirm load in the daemon logs (no `cmo` load error).
+2. Confirm load in the daemon logs (no `marketing-expert` load error).
 3. Ask for marketing help (e.g. "how are we doing on CAC?" with some numbers, or
-   "plan our Q3 launch") and confirm the right `cmo` skill activates, the reply
-   reads like a CMO, and `funnel_math` is called for any math.
+   "plan our Q3 launch") and confirm the right `marketing-expert` skill activates, the reply
+   reads like a Marketing Expert, and `funnel_math` is called for any math.
 
 ## Notes
 

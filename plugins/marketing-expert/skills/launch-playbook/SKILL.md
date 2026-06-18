@@ -1,7 +1,7 @@
 ---
 name: launch-playbook
 description: Plan and run an end-to-end product, feature, or campaign launch — tiering, channels, timeline, owners, budget, assets, and success metrics. Use for "plan our launch", "we're shipping X", "go-to-market for", or campaign planning.
-compatibility: "Designed for Vellum personal assistants — part of the cmo plugin"
+compatibility: "Designed for Vellum personal assistants — part of the marketing-expert plugin"
 metadata:
   emoji: "🚀"
   vellum:
@@ -9,7 +9,7 @@ metadata:
     display-name: "Launch Playbook"
 ---
 
-Run a launch like a CMO: tier it by impact, plan backward from the date, assign owners, and tie success to the funnel.
+Run a launch like a Marketing Expert: tier it by impact, plan backward from the date, assign owners, and tie success to the funnel.
 
 ## Step graph
 

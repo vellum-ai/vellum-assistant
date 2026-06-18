@@ -1,7 +1,7 @@
 ---
 name: positioning-sprint
 description: Run a structured positioning and messaging exercise (April Dunford method) to produce a positioning statement and messaging hierarchy. Use for "position our product", "fix our messaging", "what's our positioning", or competitive repositioning.
-compatibility: "Designed for Vellum personal assistants — part of the cmo plugin"
+compatibility: "Designed for Vellum personal assistants — part of the marketing-expert plugin"
 metadata:
   emoji: "🎯"
   vellum:
@@ -32,6 +32,6 @@ Produce:
 3. **Category frame** — the market category and why it makes your strengths obvious.
 
 ### Step 5: Pressure-test
-Challenge it: would a skeptical technical buyer believe it? Is the differentiation real or table-stakes? Flag weak claims. Recommend 1–2 next actions (e.g. update homepage hero, sales deck slide 2).
+Challenge it: would a skeptical buyer in your target segment believe it? Is the differentiation real or table-stakes? Flag weak claims. Recommend 1–2 next actions (e.g. update homepage hero, sales deck slide 2).
 
 Keep the output board-ready: tight, specific, evidence-backed.

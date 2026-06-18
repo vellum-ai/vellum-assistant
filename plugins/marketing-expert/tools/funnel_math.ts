@@ -1,5 +1,5 @@
 /**
- * `funnel_math` tool — deterministic B2B SaaS unit-economics and funnel math.
+ * `funnel_math` tool — deterministic unit-economics and funnel math (B2B or B2C).
  *
  * The model is unreliable at multi-step arithmetic; this tool does it exactly.
  * Every field is optional — the tool computes whatever the provided inputs allow
@@ -42,7 +42,7 @@ const round = (v: number, dp = 2): number => {
 
 const tool: ToolDefinition = {
   description:
-    "Deterministic B2B SaaS unit-economics and funnel calculator: CAC (blended & paid), LTV, LTV:CAC, payback months, and MQL→SQL→won→pipeline→revenue projections, with health flags. Use this for any marketing math instead of computing in prose.",
+    "Deterministic unit-economics and funnel calculator for any business (B2B or B2C): CAC (blended & paid), LTV, LTV:CAC, payback months, and stage→stage→revenue funnel projections (the lead/MQL/SQL fields map to whatever funnel stages the business uses), with health flags. Use this for any marketing math instead of computing in prose.",
   defaultRiskLevel: RiskLevel.Low,
   input_schema: {
     type: "object",
@@ -60,7 +60,7 @@ const tool: ToolDefinition = {
       mql_to_sql_rate: { type: "number", description: "MQL→SQL conversion. Fraction (0.12) or percent (12)." },
       sql_to_won_rate: { type: "number", description: "SQL→won conversion. Fraction (0.25) or percent (25)." },
       acv: { type: "number", description: "Average annual contract value per customer." },
-      gross_margin: { type: "number", description: "Gross margin. Fraction (0.8) or percent (80). Defaults to 0.80 for SaaS." },
+      gross_margin: { type: "number", description: "Gross margin. Fraction (0.8) or percent (80). If omitted, assumes 0.80 — override with the real margin (it varies widely: high for software, much lower for ecommerce/retail/hardware)." },
       avg_customer_lifetime_months: { type: "number", description: "Average customer lifetime in months (for LTV)." },
       monthly_churn_rate: { type: "number", description: "Monthly logo churn; lifetime = 1/churn if lifetime not given." },
       target_revenue: { type: "number", description: "Optional new-revenue target; tool back-solves required MQLs." },
@@ -79,7 +79,7 @@ const tool: ToolDefinition = {
     const needs: string[] = [];
     const flags: string[] = [];
 
-    if (i.gross_margin === undefined) assumptions.push("gross_margin assumed 0.80 (SaaS default)");
+    if (i.gross_margin === undefined) assumptions.push("gross_margin assumed 0.80 — override with the real margin (varies widely by business model)");
 
     // Lifetime (years) from explicit months or churn.
     let lifetimeYears: number | undefined;
