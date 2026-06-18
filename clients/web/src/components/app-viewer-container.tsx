@@ -6,6 +6,7 @@ import { Minimize2 } from "lucide-react";
 import { AppNavBar } from "@/components/app-nav-bar";
 import { useSandboxFetchProxy } from "@/hooks/use-sandbox-fetch-proxy";
 import { useConversationStore } from "@/stores/conversation-store";
+import { useViewerStore } from "@/stores/viewer-store";
 import { cn } from "@/utils/misc";
 import { routes } from "@/utils/routes";
 import { injectBridge } from "@/utils/sandbox-bridge";
@@ -78,11 +79,15 @@ export function AppViewerContainer({
     return `app-${appId}-${hash}`;
   }, [html, appId]);
 
-  // Routes `relay_prompt` actions from sandboxed apps into the active
-  // chat conversation via the `?prompt=` auto-send pathway (see
-  // `use-auto-send-effects.ts`). The viewer stays open so the app and
-  // conversation are visible side by side. No-op when no conversation
-  // is active.
+  // Relays a `relay_prompt` action from a sandboxed app into the active chat
+  // conversation via the `?prompt=` auto-send pathway (see
+  // `use-auto-send-effects.ts`). The app chooses what stays on screen through
+  // `data.view`:
+  //   - "split" (default): show the conversation and the app side by side
+  //   - "app": leave the app as-is — the relay is silent from the user's view
+  //   - "chat": close the app and reveal the conversation
+  // No-op when no conversation is active (e.g. an app opened from the library
+  // with no chat to relay into).
   const navigate = useNavigate();
   const handleAppAction = useCallback(
     (actionId: string, data?: Record<string, unknown>) => {
@@ -92,6 +97,19 @@ export function AppViewerContainer({
       const activeConversationId =
         useConversationStore.getState().activeConversationId;
       if (!activeConversationId) return;
+
+      const requestedView = data?.view;
+      const view =
+        requestedView === "app" || requestedView === "chat"
+          ? requestedView
+          : "split";
+      const viewer = useViewerStore.getState();
+      if (view === "chat") {
+        viewer.closeApp();
+      } else if (view === "split") {
+        viewer.revealAppSplit();
+      }
+
       void navigate(
         `${routes.conversation(activeConversationId)}?prompt=${encodeURIComponent(prompt)}`,
       );

@@ -239,6 +239,38 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   const chatContent = <ChatMainPanel {...props} />;
 
+  // Desktop app + chat side-by-side (non-editing): chat on the left, the app
+  // in a resizable right panel. Entered when a `relay_prompt` action asks to
+  // keep the conversation and the app on screen together. Mobile shows the app
+  // as a full-screen overlay (MobileChatOverlays), so this branch is
+  // desktop-only.
+  if (mainView === "app-split" && !isMobile && openedAppState) {
+    return (
+      <ResizablePanel
+        storageKey="appSplitPanelWidth"
+        hideDivider
+        defaultRightWidth={480}
+        minLeftWidth={300}
+        minRightWidth={360}
+        left={chatContent}
+        right={
+          <AppViewerContainer
+            appId={openedAppState.appId}
+            appName={openedAppState.name}
+            html={openedAppState.html}
+            assistantId={assistantId ?? ""}
+            onClose={handleCloseApp}
+            onEdit={handleEditApp}
+            onShare={handleShareApp}
+            isSharing={isSharing}
+            onDeploy={handleDeployApp}
+            isDeploying={isDeploying}
+          />
+        }
+      />
+    );
+  }
+
   // Document viewer side panel
   if (mainView === "document" && !isMobile && openedDocumentState && assistantId) {
     return (

@@ -110,6 +110,7 @@ function resolveViewBefore(
 export type MainView =
   | "chat"
   | "app"
+  | "app-split"
   | "app-editing"
   | "document"
   | "subagent-detail"
@@ -236,6 +237,12 @@ export interface ViewerActions {
   setLoadedApp: (app: OpenedAppState) => void;
   handleAppLoadFailed: () => void;
   closeApp: () => void;
+  /**
+   * Switch a full-width app view into the chat + app side-by-side split.
+   * No-op unless an app is currently open full-width (`mainView === "app"`),
+   * so it can be called unconditionally from action handlers.
+   */
+  revealAppSplit: () => void;
   toggleAppMinimized: () => void;
   handleAppUnpinned: (appId: string) => boolean;
   enterAppEditing: () => void;
@@ -382,6 +389,12 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     });
   },
 
+  revealAppSplit: () => {
+    const state = get();
+    if (!state.openedAppState) return;
+    if (state.mainView === "app") set({ mainView: "app-split" });
+  },
+
   toggleAppMinimized: () => {
     set({ isAppMinimized: !get().isAppMinimized });
   },
@@ -390,7 +403,9 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     const state = get();
     if (
       state.activeAppId !== appId ||
-      (state.mainView !== "app" && state.mainView !== "app-editing")
+      (state.mainView !== "app" &&
+        state.mainView !== "app-split" &&
+        state.mainView !== "app-editing")
     ) {
       return false;
     }

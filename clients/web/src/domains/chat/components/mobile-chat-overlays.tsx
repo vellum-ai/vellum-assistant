@@ -114,7 +114,9 @@ export function MobileChatOverlays() {
   return createPortal(
     <>
       <MobileAppOverlay
-        openedAppState={mainView === "app" ? openedAppState : null}
+        openedAppState={
+          mainView === "app" || mainView === "app-split" ? openedAppState : null
+        }
         isAppMinimized={isAppMinimized}
         assistantId={assistantId}
         onToggleMinimized={() => {
