@@ -1,39 +1,139 @@
 /**
- * Bridge from notification-pipeline delivery results to the per-request
- * `canonical_guardian_deliveries` registry.
+ * The single sink for the per-(request, surface) `canonical_guardian_deliveries`
+ * registry.
  *
  * Guardian-request producers (access requests, tool approvals, tool-grant
- * escalations, voice questions) emit a notification signal and then record one
- * canonical delivery row per surface the card reached. Capturing the
- * channel-native message id (e.g. Slack `ts`) here is what lets a delivered
- * card be addressed back to its request later: to withdraw it in place when the
- * request resolves (`approvals/guardian-card-withdrawal.ts`), and to resolve an
- * emoji reaction on the card to the right request when several are pending in
- * the same chat.
+ * escalations, voice questions, trusted-contact confirmations) emit a
+ * notification signal and then record one canonical delivery row per surface the
+ * card reached. Capturing the surface address here — the conversation id for the
+ * in-app vellum card, or the channel-native message id (e.g. Slack `ts`) for a
+ * channel card — is what lets a delivered card be addressed back to its request
+ * later:
+ *
+ *   - to withdraw it in place when the request resolves
+ *     (`approvals/guardian-card-withdrawal.ts`), and
+ *   - to resolve an emoji reaction on the card to the right request when several
+ *     are pending in the same chat
+ *     (`getPendingCanonicalRequestByDestinationMessage`).
+ *
+ * Every producer records through here so the addressing convention lives in one
+ * place and cannot drift between the path that writes the row and the paths that
+ * read it back.
  */
 
 import {
   type CanonicalGuardianDelivery,
   createCanonicalGuardianDelivery,
+  updateCanonicalGuardianDelivery,
 } from "../memory/canonical-guardian-store.js";
+import { getLogger } from "../util/logger.js";
 import type { NotificationDeliveryResult } from "./types.js";
 
+const log = getLogger("canonical-delivery-recorder");
+
 /**
- * Record a canonical guardian delivery for a non-vellum channel result.
+ * Where an approval card was delivered. Exactly one addressing modality is
+ * meaningful per channel:
  *
- * Vellum deliveries are recorded separately by their producers (via the
- * notification pipeline's `onConversationCreated` callback) because they are
- * addressed by conversation + surface id rather than a channel message id.
+ *   - vellum (in-app): addressed by `conversationId` + the card's surface id.
+ *   - channels (slack/telegram/...): addressed by `chatId` + the channel-native
+ *     `messageId` (Slack `ts`).
  */
-export function recordCanonicalChannelDelivery(
-  requestId: string,
-  result: NotificationDeliveryResult,
-): CanonicalGuardianDelivery {
-  return createCanonicalGuardianDelivery({
-    requestId,
-    destinationChannel: result.channel,
-    destinationChatId:
-      result.destination.length > 0 ? result.destination : undefined,
-    destinationMessageId: result.messageId,
-  });
+export interface ApprovalCardDeliveryAddress {
+  requestId: string;
+  channel: string;
+  /** In-app vellum addressing: the conversation the card was posted to. */
+  conversationId?: string;
+  /** Channel addressing: the chat the card was delivered to. */
+  chatId?: string;
+  /** Channel-native message id (e.g. Slack `ts`) — the reaction/withdrawal key. */
+  messageId?: string;
+  /** Initial delivery status (defaults to "pending"). */
+  status?: string;
+}
+
+/**
+ * Record where an approval card was delivered so it can be located later.
+ *
+ * Best-effort: a recording failure must never be mistaken for a delivery
+ * failure (which, in the prompt path, would trigger a fallback re-post), so
+ * errors are swallowed and logged and `null` is returned. Callers that need the
+ * row id (to apply a status afterwards) must null-check the result.
+ */
+export function recordApprovalCardDelivery(
+  address: ApprovalCardDeliveryAddress,
+): CanonicalGuardianDelivery | null {
+  try {
+    return createCanonicalGuardianDelivery({
+      requestId: address.requestId,
+      destinationChannel: address.channel,
+      destinationConversationId: address.conversationId,
+      destinationChatId: address.chatId,
+      destinationMessageId: address.messageId,
+      ...(address.status ? { status: address.status } : {}),
+    });
+  } catch (err) {
+    log.error(
+      { err, requestId: address.requestId, channel: address.channel },
+      "Failed to record approval card delivery; reaction/withdrawal on this card will not resolve",
+    );
+    return null;
+  }
+}
+
+/**
+ * Record every delivery for a guardian request from a notification signal's
+ * results, persisting each delivery's terminal status.
+ *
+ * This is the shared post-broadcast recording loop for the signal-based
+ * producers. The vellum row is normally created up front in the signal's
+ * `onConversationCreated` callback so the in-app client sees it immediately; pass
+ * that row's id as `vellumDeliveryId` and it is reused (only its status applied)
+ * — otherwise the vellum row is created here from the result.
+ *
+ * The pipeline result carries the delivered address directly: a `vellum` result
+ * carries a `conversationId`; channel results carry the chat (`destination`) and
+ * channel-native id (`messageId`). A blank `destination` is recorded as unknown
+ * rather than persisting the literal channel name as a chat id. Status is
+ * diagnostic — the read paths key off addressing, not status.
+ *
+ * Returns the vellum delivery id (passed in, or created here) so a caller can
+ * record its own "pipeline produced no vellum delivery" fallback.
+ */
+export function recordGuardianRequestDeliveries(params: {
+  requestId: string;
+  deliveryResults: NotificationDeliveryResult[];
+  vellumDeliveryId?: string;
+}): string | undefined {
+  const { requestId, deliveryResults } = params;
+  let vellumDeliveryId = params.vellumDeliveryId;
+
+  for (const result of deliveryResults) {
+    let deliveryId: string | undefined;
+    if (result.channel === "vellum") {
+      if (!vellumDeliveryId) {
+        vellumDeliveryId = recordApprovalCardDelivery({
+          requestId,
+          channel: "vellum",
+          conversationId: result.conversationId,
+        })?.id;
+      }
+      deliveryId = vellumDeliveryId;
+    } else {
+      deliveryId = recordApprovalCardDelivery({
+        requestId,
+        channel: result.channel,
+        chatId: result.destination.length > 0 ? result.destination : undefined,
+        messageId: result.messageId,
+      })?.id;
+    }
+
+    if (deliveryId) {
+      updateCanonicalGuardianDelivery(deliveryId, {
+        status: result.status === "sent" ? "sent" : "failed",
+      });
+    }
+  }
+
+  return vellumDeliveryId;
 }
