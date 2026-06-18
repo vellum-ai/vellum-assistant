@@ -50,6 +50,7 @@ function classifyInput(
       filePath: input.filePath ?? "",
       workingDir: input.workingDir ?? WORKING_DIR,
       toolName: input.toolName,
+      resolvedPath: input.resolvedPath,
     },
     makeContext(),
   );
@@ -563,6 +564,110 @@ describe("FileRiskClassifier", () => {
       });
       expect(result.riskLevel).toBe("high");
       expect(result.reason).toBe("Transfers to plugins directory");
+    });
+  });
+
+  // -- Symlink resolution (resolvedPath) --------------------------------------
+  //
+  // The classifier escalates risk by lexically prefix-matching the target path
+  // against protected directories. Lexical resolution does not follow symlinks,
+  // so a symlink whose name looks benign but whose real target is a protected
+  // directory would be under-classified. The daemon canonicalizes the target
+  // with realpath and forwards it as `resolvedPath`; the classifier escalates
+  // on that resolved path instead of the lexical one.
+  describe("symlink resolution via resolvedPath", () => {
+    test("file_write escalates when resolvedPath lands in hooks dir", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        // Benign-looking name in the workspace…
+        filePath: "notes.txt",
+        workingDir: WORKING_DIR,
+        // …but it is a symlink whose real target is inside the hooks dir.
+        resolvedPath: join(MOCK_HOOKS_DIR, "pre-tool-use.sh"),
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to hooks directory");
+    });
+
+    test("file_write escalates when resolvedPath lands in plugins dir", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: "innocent.json",
+        workingDir: WORKING_DIR,
+        resolvedPath: join(MOCK_PLUGINS_DIR, "evil-plugin", "register.ts"),
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to plugins directory");
+    });
+
+    test("file_edit escalates when resolvedPath lands in skill source", async () => {
+      const skillDir = "/home/user/skills/victim-skill";
+      testSkillSourceDirs = [skillDir];
+      const result = await classifyInput({
+        toolName: "file_edit",
+        filePath: "scratch.ts",
+        workingDir: WORKING_DIR,
+        resolvedPath: join(skillDir, "index.ts"),
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to skill source code");
+      testSkillSourceDirs = [];
+    });
+
+    test("file_read escalates when resolvedPath is the signing key", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_read",
+        filePath: "harmless.txt",
+        workingDir: WORKING_DIR,
+        resolvedPath: join(MOCK_PROTECTED_DIR, "actor-token-signing-key"),
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Reads actor token signing key");
+    });
+
+    test("host_file_write escalates when resolvedPath lands in hooks dir", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "host_file_write",
+        filePath: "/tmp/notes.txt",
+        resolvedPath: join(MOCK_HOOKS_DIR, "pre-tool-use.sh"),
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to hooks directory");
+    });
+
+    test("resolvedPath takes precedence over a benign lexical path", async () => {
+      // Without resolvedPath this same lexical path would be low; the resolved
+      // path is what drives escalation.
+      testSkillSourceDirs = [];
+      const benign = await classifyInput({
+        toolName: "file_write",
+        filePath: "notes.txt",
+        workingDir: WORKING_DIR,
+      });
+      expect(benign.riskLevel).toBe("low");
+
+      const escalated = await classifyInput({
+        toolName: "file_write",
+        filePath: "notes.txt",
+        workingDir: WORKING_DIR,
+        resolvedPath: join(MOCK_HOOKS_DIR, "evil.sh"),
+      });
+      expect(escalated.riskLevel).toBe("high");
+    });
+
+    test("a benign resolvedPath does not escalate", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: "notes.txt",
+        workingDir: WORKING_DIR,
+        resolvedPath: "/home/user/project/notes.txt",
+      });
+      expect(result.riskLevel).toBe("low");
     });
   });
 

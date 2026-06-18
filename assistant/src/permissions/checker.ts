@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
@@ -16,6 +16,7 @@ import {
   looksLikePathOnlyInput,
 } from "../tools/network/url-safety.js";
 import { getTool, getToolOwner } from "../tools/registry.js";
+import { resolveRealPath } from "../tools/shared/filesystem/path-policy.js";
 import type { Tool } from "../tools/types.js";
 import {
   getDeprecatedDir,
@@ -273,17 +274,50 @@ import type {
 
 function buildFileContext(): FileContext {
   const config = getConfig();
+  // Canonicalize the protected directories via realpath so that a symlinked
+  // component anywhere in their path still prefix-matches the canonicalized
+  // target path computed in buildClassifyRiskParams. Both sides must be
+  // symlink-resolved for the gateway's lexical prefix checks to be sound.
+  const protectedDir = resolveRealPath(getProtectedDir());
   return {
-    protectedDir: getProtectedDir(),
-    deprecatedDir: getDeprecatedDir(),
-    hooksDir: getWorkspaceHooksDir(),
-    pluginsDir: getWorkspacePluginsDir(),
-    actorTokenSigningKeyPath: join(
-      getProtectedDir(),
-      "actor-token-signing-key",
+    protectedDir,
+    deprecatedDir: resolveRealPath(getDeprecatedDir()),
+    hooksDir: resolveRealPath(getWorkspaceHooksDir()),
+    pluginsDir: resolveRealPath(getWorkspacePluginsDir()),
+    actorTokenSigningKeyPath: join(protectedDir, "actor-token-signing-key"),
+    skillSourceDirs: getSkillRoots(config.skills.load.extraDirs).map(
+      resolveRealPath,
     ),
-    skillSourceDirs: getSkillRoots(config.skills.load.extraDirs),
   };
+}
+
+/**
+ * Canonicalize the security-sensitive path of a file tool invocation by
+ * resolving symlinks before it is sent to the gateway risk classifier.
+ *
+ * The gateway classifies file risk by lexically prefix-matching the target
+ * path against protected directories (skill source, hooks, plugins, the actor
+ * token signing key). Lexical resolution alone does not follow symlinks, so a
+ * symlink whose name looks benign but whose real target is a protected
+ * directory would be under-classified and could skip the High-risk approval
+ * prompt. Resolving symlinks here — on the daemon, which owns the workspace
+ * filesystem — closes that gap while keeping the gateway free of filesystem
+ * access (it cannot see the workspace in Docker mode).
+ *
+ * `resolveRealPath` falls back to the lexical path when the target lives on a
+ * filesystem this process cannot see (e.g. host_file paths proxied to a remote
+ * client), so this never regresses below today's lexical behavior.
+ */
+function resolveClassificationPath(
+  filePath: string,
+  workingDir: string,
+  isHostTool: boolean,
+): string | undefined {
+  if (!filePath) return undefined;
+  // Mirror the gateway classifier's lexical base: host tools resolve the path
+  // as absolute/relative-to-cwd; sandbox tools resolve against workingDir.
+  const base = isHostTool ? resolve(filePath) : resolve(workingDir, filePath);
+  return resolveRealPath(base);
 }
 
 function resolveSkillMetadata(selector: string): SkillMetadata | undefined {
@@ -361,10 +395,18 @@ function buildClassifyRiskParams(
     } else {
       filePath = getStringField(input, "path", "file_path");
     }
+    const effectiveWorkingDir = isHostTool
+      ? "/"
+      : (workingDir ?? process.cwd());
     return {
       tool: toolName,
       path: filePath,
-      workingDir: isHostTool ? "/" : (workingDir ?? process.cwd()),
+      resolvedPath: resolveClassificationPath(
+        filePath,
+        effectiveWorkingDir,
+        isHostTool,
+      ),
+      workingDir: effectiveWorkingDir,
       fileContext: buildFileContext(),
     };
   }

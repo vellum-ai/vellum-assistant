@@ -42,6 +42,10 @@ const ClassifyRiskSchema = z.object({
   command: z.string().optional(),
   url: z.string().optional(),
   path: z.string().optional(),
+  // Symlink-resolved target path for file tools, canonicalized by the daemon.
+  // Used for security escalation checks so a symlink cannot mask the real
+  // target. Falls back to lexical resolution of `path` when absent.
+  resolvedPath: z.string().optional(),
   skill: z.string().optional(),
   mode: z.string().optional(),
   script: z.string().optional(),
@@ -433,7 +437,12 @@ export async function handleClassifyRisk(
       };
 
       const assessment = await fileRiskClassifier.classify(
-        { toolName: tool, filePath, workingDir },
+        {
+          toolName: tool,
+          filePath,
+          workingDir,
+          resolvedPath: params.resolvedPath,
+        },
         context,
       );
 

@@ -77,6 +77,16 @@ export interface FileClassifierInput {
     | "host_file_transfer";
   filePath: string;
   workingDir: string;
+  /**
+   * The target path with symlinks resolved, canonicalized by the caller (the
+   * daemon, which owns the workspace filesystem). When present, this is used
+   * for the security escalation prefix checks instead of a lexical
+   * resolve(workingDir, filePath) — so a symlink whose name looks benign but
+   * whose real target is a protected directory is still escalated. When absent
+   * (e.g. caller could not access the filesystem), classification falls back to
+   * lexical resolution.
+   */
+  resolvedPath?: string;
 }
 
 // -- Helpers ------------------------------------------------------------------
@@ -246,7 +256,7 @@ export class FileRiskClassifier implements RiskClassifier<
     input: FileClassifierInput,
     context: FileClassificationContext,
   ): Promise<RiskAssessment> {
-    const { toolName, filePath, workingDir } = input;
+    const { toolName, filePath, workingDir, resolvedPath } = input;
     const allowlistOptions = filePath
       ? buildFileAllowlistOptions(toolName, filePath)
       : [];
@@ -258,8 +268,8 @@ export class FileRiskClassifier implements RiskClassifier<
     switch (toolName) {
       case "file_read": {
         if (filePath) {
-          const resolvedPath = resolve(workingDir, filePath);
-          if (isActorTokenSigningKeyPath(resolvedPath, workingDir, context)) {
+          const escalationPath = resolvedPath ?? resolve(workingDir, filePath);
+          if (isActorTokenSigningKeyPath(escalationPath, workingDir, context)) {
             assessment = {
               riskLevel: "high",
               reason: "Reads actor token signing key",
@@ -283,8 +293,8 @@ export class FileRiskClassifier implements RiskClassifier<
       case "file_write":
       case "file_edit": {
         if (filePath) {
-          const resolvedPath = resolve(workingDir, filePath);
-          if (isSkillSourcePath(resolvedPath, context)) {
+          const escalationPath = resolvedPath ?? resolve(workingDir, filePath);
+          if (isSkillSourcePath(escalationPath, context)) {
             assessment = {
               riskLevel: "high",
               reason: "Writes to skill source code",
@@ -294,7 +304,7 @@ export class FileRiskClassifier implements RiskClassifier<
             };
             break;
           }
-          if (isHooksPath(resolvedPath, context)) {
+          if (isHooksPath(escalationPath, context)) {
             assessment = {
               riskLevel: "high",
               reason: "Writes to hooks directory",
@@ -304,7 +314,7 @@ export class FileRiskClassifier implements RiskClassifier<
             };
             break;
           }
-          if (isPluginsPath(resolvedPath, context)) {
+          if (isPluginsPath(escalationPath, context)) {
             assessment = {
               riskLevel: "high",
               reason: "Writes to plugins directory",
@@ -347,9 +357,10 @@ export class FileRiskClassifier implements RiskClassifier<
           toolName === "host_file_transfer" ? "Transfers" : "Writes";
         if (filePath) {
           // Host file tools resolve paths without workingDir — resolve(filePath)
-          // treats the path as absolute or relative to cwd.
-          const resolvedPath = resolve(filePath);
-          if (isSkillSourcePath(resolvedPath, context)) {
+          // treats the path as absolute or relative to cwd. Prefer the
+          // symlink-resolved path from the caller when available.
+          const escalationPath = resolvedPath ?? resolve(filePath);
+          if (isSkillSourcePath(escalationPath, context)) {
             assessment = {
               riskLevel: "high",
               reason: `${actionVerb} to skill source code`,
@@ -359,7 +370,7 @@ export class FileRiskClassifier implements RiskClassifier<
             };
             break;
           }
-          if (isHooksPath(resolvedPath, context)) {
+          if (isHooksPath(escalationPath, context)) {
             assessment = {
               riskLevel: "high",
               reason: `${actionVerb} to hooks directory`,
@@ -369,7 +380,7 @@ export class FileRiskClassifier implements RiskClassifier<
             };
             break;
           }
-          if (isPluginsPath(resolvedPath, context)) {
+          if (isPluginsPath(escalationPath, context)) {
             assessment = {
               riskLevel: "high",
               reason: `${actionVerb} to plugins directory`,
