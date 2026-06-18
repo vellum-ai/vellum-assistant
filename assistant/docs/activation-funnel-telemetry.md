@@ -50,8 +50,9 @@ Flow, end to end:
      `assistant/src/telemetry/activation-funnel.ts`;
    - emission is best-effort (wrapped in try/catch) and never blocks or alters
      the surface-action flow;
-   - `recordActivationEvent` respects the `getConfig().collectUsageData` opt-out
-     gate (returns `null` / no row when disabled).
+   - `recordActivationEvent` respects the platform `share_analytics` consent gate
+     via `getCachedShareAnalytics()` (returns `null` / no row when the platform
+     user has not consented; default-off when there is no platform session).
 2. **Reporter flushes** every ~5 min: `usage-telemetry-reporter.ts`
    (`REPORT_INTERVAL_MS = 5 * 60 * 1000`, with a one-time
    `INITIAL_FLUSH_DELAY_MS = 30_000` after startup) POSTs unreported onboarding
@@ -172,22 +173,27 @@ When the flag is ON, the web prechat context selects
 `BOOTSTRAP-ACTIVATION-RAIL.md` as the bootstrap template, and the daemon marks
 the conversation in `activation_sessions` on first build of the system prompt.
 
-### 5.2 Confirm usage-data collection is enabled — and do NOT run in dev mode
+### 5.2 Confirm share_analytics consent is on — and pick the right daemon mode
 
-Two gates must both be satisfied or no rows reach BigQuery:
+Two distinct concerns: whether record-time rows reach SQLite (consent gate), and
+whether those rows reach BigQuery (flush gate, dev-disabled).
 
-1. `recordActivationEvent` no-ops when `config.collectUsageData` is false, so the
-   dev build/config must have usage-data collection enabled, or no rows are
-   written to SQLite.
-2. **Dev mode disables the flush entirely.** `assistant/src/daemon/lifecycle.ts`
-   computes the effective setting as `collectUsageData = !isDevMode &&
-config.collectUsageData`, so when the daemon runs in dev mode (`VELLUM_DEV=1`)
-   the `UsageTelemetryReporter` is never started — rows accumulate in SQLite but
-   are never POSTed, and the "wait/restart for flush" steps below will never
-   reach BigQuery. For an end-to-end smoke test, run the daemon **outside dev
-   mode** (so the reporter starts), or explicitly invoke the reporter's
-   `flush()` via a dev hook. The SQLite rows can still be inspected directly in
-   dev mode, but the BigQuery verification (§6) requires a real flush.
+1. `recordActivationEvent` no-ops when the platform `share_analytics` consent is
+   off (it reads `getCachedShareAnalytics()`), and the consent is **default-off
+   when there is no platform session**. So the dev session must be signed in to
+   the platform with `share_analytics` consent enabled, or no rows are written to
+   SQLite. The consent cache is refreshed by `startConsentRefresh()` in
+   `assistant/src/daemon/lifecycle.ts`, which runs **regardless of dev mode** — so
+   a dev session signed in with `share_analytics` consent enabled writes
+   record-time rows to SQLite, where they can be inspected directly.
+2. **Dev mode disables the flush entirely.** When the daemon runs in dev mode
+   (`VELLUM_DEV=1`), `assistant/src/daemon/lifecycle.ts` never starts the
+   `UsageTelemetryReporter` — rows accumulate in SQLite (consent permitting) but
+   are never POSTed, and the "wait/restart for flush" steps below will never reach
+   BigQuery. For an end-to-end smoke test, run the daemon **outside dev mode** (so
+   the reporter starts), or explicitly invoke the reporter's `flush()` via a dev
+   hook. The SQLite rows can be inspected directly in dev mode, but the BigQuery
+   verification (§6) requires a real flush.
 
 ### 5.3 Start a fresh activation conversation and capture its id
 
