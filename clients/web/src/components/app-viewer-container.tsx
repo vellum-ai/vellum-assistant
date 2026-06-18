@@ -79,15 +79,10 @@ export function AppViewerContainer({
     return `app-${appId}-${hash}`;
   }, [html, appId]);
 
-  // Action bridge: sandboxed apps fire `window.vellum.sendAction(actionId,
-  // data)` to communicate with the host. Today only `relay_prompt` is
-  // supported here — the app sends a prompt that should land in the active
-  // chat conversation as a user message. We close the app viewer (so the
-  // chat panel is visible) and route via the existing `?prompt=` URL
-  // auto-send pathway (see `use-auto-send-effects.ts`). Chat-side surfaces
-  // route `relay_prompt` through the daemon's surface-action API instead;
-  // standalone app viewers don't have a surfaceId to bind against, so the
-  // URL-based path is the right escape hatch.
+  // Routes `relay_prompt` actions from sandboxed apps into the active
+  // chat conversation via the `?prompt=` auto-send pathway (see
+  // `use-auto-send-effects.ts`). Closes the viewer so the conversation is
+  // visible. No-op when no conversation is active.
   const navigate = useNavigate();
   const handleAppAction = useCallback(
     (actionId: string, data?: Record<string, unknown>) => {
@@ -96,11 +91,7 @@ export function AppViewerContainer({
       if (!prompt) return;
       const activeConversationId =
         useChatSessionStore.getState().activeConversationId;
-      if (!activeConversationId) {
-        // Standalone app launched without an active chat (e.g. from the
-        // library). Drop silently — there's no conversation to relay into.
-        return;
-      }
+      if (!activeConversationId) return;
       useViewerStore.getState().closeApp();
       void navigate(
         `${routes.conversation(activeConversationId)}?prompt=${encodeURIComponent(prompt)}`,
