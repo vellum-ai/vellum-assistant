@@ -17,14 +17,14 @@
 
 import type { Command } from "commander";
 
-import { cliIpcCall } from "../../ipc/cli-client.js";
-import type { MemoryEvalRunResult } from "../../runtime/routes/memory-eval-routes.js";
+import { cliIpcCall } from "../../../ipc/cli-client.js";
+import type { MemoryEvalRunResult } from "../../../runtime/routes/memory-eval-routes.js";
 import type {
   MemoryV3BackfillSectionsResult,
   MemoryV3RebuildIndexResult,
-} from "../../runtime/routes/memory-v3-routes.js";
-import { registerCommand } from "../lib/register-command.js";
-import { log } from "../logger.js";
+} from "../../../runtime/routes/memory-v3-routes.js";
+import { registerCommand } from "../../lib/register-command.js";
+import { log } from "../../logger.js";
 
 /**
  * IPC timeout for `backfill-sections`. The one-time full-corpus section embed
@@ -42,14 +42,7 @@ const BACKFILL_IPC_TIMEOUT_MS = 30 * 60 * 1000;
  */
 const EVAL_IPC_TIMEOUT_MS = 30 * 60 * 1000;
 
-export function registerMemoryV3Command(program: Command): void {
-  // Reuse an existing `memory` parent if some other registrar attached to it
-  // first; otherwise create one. This keeps the registration order between
-  // sibling memory registrars unconstrained.
-  const memory =
-    program.commands.find((c) => c.name() === "memory") ??
-    program.command("memory").description("Manage the memory subsystem");
-
+export function registerMemoryV3Command(memory: Command): void {
   registerCommand(memory, {
     name: "v3",
     transport: "ipc",
