@@ -425,10 +425,16 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
         continue;
       }
 
-      // Never regress an already-terminal live leaf back to running, but a
-      // terminal journal status wins over a stale live "running" leaf (a
-      // missed finish event).
-      if (current.status === "running" && journalStatus !== "running") {
+      // A terminal journal row is authoritative for a leaf that finished, so it
+      // replaces a non-authoritative live placeholder: a stale "running" leaf (a
+      // missed finish event) OR a "cancelled" leaf that completeRun swept when the
+      // run ended before that leaf's finish event arrived. A genuinely cancelled
+      // leaf has no journal row, so it stays "cancelled"; a real "completed"/
+      // "failed" leaf (from a finish event) is authoritative and never overridden.
+      if (
+        (current.status === "running" || current.status === "cancelled") &&
+        journalStatus !== "running"
+      ) {
         if (!leavesChanged) {
           nextLeaves = new Map(base.leaves);
           leavesChanged = true;

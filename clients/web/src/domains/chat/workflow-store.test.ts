@@ -389,6 +389,56 @@ describe("backfillFromJournal", () => {
     expect(leaf.label).toBe("Running leaf");
     expect(leaf.resultSummary).toBe("journal result");
   });
+
+  it("lets a journal terminal status repair a leaf swept to cancelled", () => {
+    // A run completes but one leaf's finish event was dropped, so completeRun
+    // swept the still-running leaf to "cancelled".
+    getState().leafStarted({ runId: "wf-repair", seq: 0, label: "Dropped-finish" });
+    getState().completeRun({
+      runId: "wf-repair",
+      status: "completed",
+      agentsSpawned: 1,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+    expect(getState().byId["wf-repair"]!.leaves.get(0)!.status).toBe("cancelled");
+
+    // The journal holds the authoritative completed row → it repairs the placeholder.
+    getState().backfillFromJournal("wf-repair", {
+      runId: "wf-repair",
+      leaves: [
+        {
+          seq: 0,
+          kind: "agent",
+          status: "completed",
+          resultSummary: "real result",
+          createdAt: NOW,
+        },
+      ],
+    });
+
+    const leaf = getState().byId["wf-repair"]!.leaves.get(0)!;
+    expect(leaf.status).toBe("completed");
+    expect(leaf.label).toBe("Dropped-finish");
+    expect(leaf.resultSummary).toBe("real result");
+  });
+
+  it("leaves a genuinely cancelled leaf (absent from the journal) as cancelled", () => {
+    getState().leafStarted({ runId: "wf-genuine", seq: 0, label: "Aborted leaf" });
+    getState().completeRun({
+      runId: "wf-genuine",
+      status: "aborted",
+      agentsSpawned: 1,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+    expect(getState().byId["wf-genuine"]!.leaves.get(0)!.status).toBe("cancelled");
+
+    // The journal has no row for this leaf (it never finished) → it stays cancelled.
+    getState().backfillFromJournal("wf-genuine", { runId: "wf-genuine", leaves: [] });
+
+    expect(getState().byId["wf-genuine"]!.leaves.get(0)!.status).toBe("cancelled");
+  });
 });
 
 // ---------------------------------------------------------------------------
