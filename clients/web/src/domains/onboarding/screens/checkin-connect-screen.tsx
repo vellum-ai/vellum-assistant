@@ -19,7 +19,8 @@ interface CheckinConnectScreenProps {
  * SPIKE — checkin-onboarding flow.
  *
  * "Let's chat tomorrow" page: invites the user to connect Google Calendar
- * (calendar.events only) so the assistant can schedule a Day 2 Check-in.
+ * (calendar.events plus the openid/userinfo.email identity scopes the managed
+ * flow needs — no Gmail/Drive) so the assistant can schedule a Day 2 Check-in.
  * Connect/skip are driven by the parent route, which fires the check-in prompt
  * and continues the onboarding handoff.
  */
@@ -97,7 +98,7 @@ export function CheckinConnectScreen({
           className="mt-8 text-center text-body-medium-lighter text-[var(--content-secondary)]"
           style={{ animation: "fadeInUp 0.3s ease-out 0.25s both" }}
         >
-          {`${assistantInlineName} will add a single Day 2 Check-in event. It only gets permission to manage calendar events — nothing else — and you can disconnect at any time.`}
+          {`${assistantInlineName} will add a single Day 2 Check-in event. It gets permission to manage your calendar events and see your email address — not your inbox or files — and you can disconnect at any time.`}
         </p>
 
         <div

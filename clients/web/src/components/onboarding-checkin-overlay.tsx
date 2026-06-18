@@ -16,16 +16,19 @@
  */
 
 import { fetchAssistantIdentity } from "@/assistant/identity";
-import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { scheduleCheckin } from "@/domains/onboarding/checkin-scheduler";
 import { CheckinConnectScreen } from "@/domains/onboarding/screens/checkin-connect-screen";
 import { useOnboardingFocusStore } from "@/stores/onboarding-focus-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 export function OnboardingCheckinOverlay() {
   const checkinPending = useOnboardingFocusStore.use.checkinPending();
   const checkinUserName = useOnboardingFocusStore.use.checkinUserName();
   const endCheckin = useOnboardingFocusStore.use.endCheckin();
-  const assistantId = useActiveAssistantId();
+  // Raw store (not `useActiveAssistantId`, which throws outside
+  // ActiveAssistantGate): this overlay mounts unconditionally in ChatLayout,
+  // which renders across pre-active/hatching states. Null is handled below.
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
 
   if (!checkinPending) return null;
 
