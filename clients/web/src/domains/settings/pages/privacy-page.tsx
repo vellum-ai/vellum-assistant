@@ -8,6 +8,7 @@ import { BiometricSettingsCard } from "@/domains/settings/components/biometric-s
 import { RiskToleranceSettings } from "@/domains/settings/components/risk-tolerance-settings";
 import { TrustRules } from "@/domains/settings/components/trust-rules/trust-rules";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useHasPlatformSession } from "@/stores/auth-store";
 import {
     getDeviceBool,
@@ -66,6 +67,7 @@ export function PrivacyPage() {
   // platformHostedOnly so the divider visibility matches the gate inside
   // `AccessConsentSetting` exactly.
   const platformGate = usePlatformGate({ platformHostedOnly: true });
+  const channelTrustFloors = useAssistantFeatureFlagStore.use.channelTrustFloors();
   const hasPlatformSession = useHasPlatformSession();
   const [shareAnalytics, setShareAnalytics] = useState(
     () => getDeviceBool("shareAnalytics", true),
@@ -99,7 +101,7 @@ export function PrivacyPage() {
       <BiometricSettingsCard />
       <SystemPermissionsCard />
       <TrustRules />
-      <ChannelPolicyCard />
+      {channelTrustFloors && <ChannelPolicyCard />}
       <RiskToleranceSettings />
       <DetailCard title="Privacy">
         <div className="space-y-4">

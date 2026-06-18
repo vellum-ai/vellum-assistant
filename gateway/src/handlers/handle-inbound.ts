@@ -8,6 +8,7 @@ import { ipcCallAssistant } from "../ipc/assistant-client.js";
 import { resolveIpcSocketPath } from "../ipc/socket-path.js";
 import { ContactStore } from "../db/contact-store.js";
 import { getLogger } from "../logger.js";
+import { isFeatureFlagEnabled } from "../feature-flag-resolver.js";
 import { getAdmissionPolicyCache } from "../risk/admission-policy-cache.js";
 import { canonicalizeInboundIdentity } from "../verification/identity.js";
 import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
@@ -21,6 +22,11 @@ import type { GatewayInboundEvent } from "../types.js";
 import { tryTextVerificationIntercept } from "../verification/text-verification.js";
 
 const log = getLogger("handle-inbound");
+
+// Gates all per-channel admission enforcement (kill switch + floor). When off,
+// no admission policy is resolved or attached, so inbound falls back to the
+// pre-feature ACL-only behavior.
+const CHANNEL_TRUST_FLOORS_FLAG = "channel-trust-floors" as const;
 
 export type InboundResult = {
   forwarded: boolean;
@@ -66,6 +72,40 @@ export async function handleInbound(
   event: GatewayInboundEvent,
   options?: HandleInboundOptions,
 ): Promise<InboundResult> {
+  // ── Admission policy: `no_one` kill switch ──
+  // Channel-global hard-deny, evaluated BEFORE routing so a channel set to
+  // `no_one` denies every inbound with the kill-switch reason — even an
+  // unmapped chat that would otherwise exit via the routing-rejection path
+  // and read as a setup failure. Also runs before `tryTextVerificationIntercept`
+  // because the kill switch admits nobody — verification-code redemption during
+  // a `no_one` lockout would upgrade an actor on a channel the guardian has
+  // explicitly turned off.
+  //
+  // Defense in depth: the §8.1 exempt set (vellum/platform/a2a) skips this
+  // check so a guardian can never lock themselves out of the desktop client
+  // via the admission UI. The same exemption is enforced PUT-side in
+  // channel-admission-policy.ts and at the runtime admission stage.
+  const admissionPolicy =
+    !isFeatureFlagEnabled(CHANNEL_TRUST_FLOORS_FLAG) ||
+    isAdmissionPolicyExemptChannel(event.sourceChannel)
+      ? null
+      : getAdmissionPolicyCache().get(event.sourceChannel);
+  if (admissionPolicy === "no_one") {
+    log.info(
+      {
+        sourceChannel: event.sourceChannel,
+        conversationExternalId: event.message.conversationExternalId,
+        actorExternalId: event.actor.actorExternalId,
+      },
+      "Inbound event hard-denied by admission policy 'no_one'",
+    );
+    return {
+      forwarded: false,
+      rejected: true,
+      rejectionReason: "admission_no_one",
+    };
+  }
+
   const routing =
     options?.routingOverride ??
     resolveAssistant(
@@ -90,35 +130,6 @@ export async function handleInbound(
   }
 
   const displayName = event.actor.displayName || event.actor.username;
-
-  // ── Admission policy: `no_one` kill switch ──
-  // Hard-deny pre-forward when the channel is configured `no_one`. Runs
-  // BEFORE `tryTextVerificationIntercept` because the kill switch admits
-  // nobody — verification-code redemption during a `no_one` lockout would
-  // upgrade an actor on a channel the guardian has explicitly turned off.
-  //
-  // Defense in depth: the §8.1 exempt set (vellum/platform/a2a) skips this
-  // check so a guardian can never lock themselves out of the desktop client
-  // via the admission UI. The same exemption is enforced PUT-side in
-  // channel-admission-policy.ts and at the runtime admission stage.
-  const admissionPolicy = isAdmissionPolicyExemptChannel(event.sourceChannel)
-    ? null
-    : getAdmissionPolicyCache().get(event.sourceChannel);
-  if (admissionPolicy === "no_one") {
-    log.info(
-      {
-        sourceChannel: event.sourceChannel,
-        conversationExternalId: event.message.conversationExternalId,
-        actorExternalId: event.actor.actorExternalId,
-      },
-      "Inbound event hard-denied by admission policy 'no_one'",
-    );
-    return {
-      forwarded: false,
-      rejected: true,
-      rejectionReason: "admission_no_one",
-    };
-  }
 
   // ── Text verification intercept ──
   // Must run before forwardToRuntime so the assistant never sees

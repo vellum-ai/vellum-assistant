@@ -55,6 +55,12 @@ mock.module("../verification/text-verification.js", () => ({
   tryTextVerificationIntercept: async () => ({ intercepted: false }),
 }));
 
+// Admission enforcement is gated behind `channel-trust-floors`; enable it so
+// these tests exercise the kill switch + floor-attach path.
+mock.module("../feature-flag-resolver.js", () => ({
+  isFeatureFlagEnabled: (key: string) => key === "channel-trust-floors",
+}));
+
 await import("./test-preload.js");
 const { initGatewayDb, resetGatewayDb } = await import("../db/connection.js");
 const { AdmissionPolicyStore } = await import("../db/admission-policy-store.js");

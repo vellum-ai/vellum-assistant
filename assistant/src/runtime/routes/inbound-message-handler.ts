@@ -101,6 +101,7 @@ import {
   enforceIngressAcl,
 } from "./inbound-stages/acl-enforcement.js";
 import { enforceAdmissionPolicy } from "./inbound-stages/admission-policy.js";
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { processChannelMessageInBackground } from "./inbound-stages/background-dispatch.js";
 import { handleBootstrapIntercept } from "./inbound-stages/bootstrap-intercept.js";
 import { handleEditIntercept } from "./inbound-stages/edit-intercept.js";
@@ -112,6 +113,12 @@ import { tryTranscribeAudioAttachments } from "./inbound-stages/transcribe-audio
 import type { RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("runtime-http");
+
+// Gates the per-channel admission floor stage. When off, the floor is never
+// enforced and inbound falls back to ACL-only behavior (the gateway also skips
+// attaching a floor when off, so the ACL sees the default permissive policy).
+const CHANNEL_TRUST_FLOORS_FLAG = "channel-trust-floors" as const;
+
 const DISK_PRESSURE_REMOTE_BLOCK_REPLY =
   "Storage is critically low, so remote messages are ignored until the guardian frees enough space. Please try again later.";
 
@@ -398,13 +405,24 @@ export async function handleChannelInbound({
   // ── Admission policy pre-computation ──
   // Resolve the effective policy before ACL so it can skip its hard-deny
   // paths for permissive policies (`strangers`, `any_contact`). The same
-  // value is reused by the floor stage below.
+  // value is reused by the floor stage below, which is gated on
+  // `channel-trust-floors`.
+  const channelTrustFloorsEnabled = isAssistantFeatureFlagEnabled(
+    CHANNEL_TRUST_FLOORS_FLAG,
+    getConfig(),
+  );
   const admissionPolicyFromGateway = isAdmissionPolicy(
     sourceMetadata?.admissionPolicy,
   )
     ? (sourceMetadata!.admissionPolicy as AdmissionPolicy)
     : ADMISSION_POLICY_DEFAULT;
-  const effectiveAdmissionPolicyForAcl = admissionPolicyFromGateway;
+  // Pass `undefined` to the ACL when the feature is off so it takes none of
+  // its policy-aware bypasses (the floor stage is skipped too). This keeps the
+  // flag-off path on the pre-feature ACL behavior and prevents a bypass from
+  // routing to a disabled floor stage and admitting unconditionally.
+  const effectiveAdmissionPolicyForAcl = channelTrustFloorsEnabled
+    ? admissionPolicyFromGateway
+    : undefined;
 
   // ── Ingress ACL enforcement ──
   const aclResult = await enforceIngressAcl({
@@ -697,14 +715,18 @@ export async function handleChannelInbound({
   // session, skip the floor entirely. The bootstrap intercept stage below
   // handles identity binding and emits its own reply; the sender has not
   // yet acquired a trust class and should not be denied here.
-  const admissionResult = aclResult.isValidatedBootstrap
-    ? ({ admitted: true } as const)
-    : enforceAdmissionPolicy({
-        sourceChannel,
-        trustClass: trustCtx.trustClass,
-        memberStatus: resolvedMember?.channel.status,
-        policy: admissionPolicyFromGateway,
-      });
+  // Gated by `channel-trust-floors`: when off, skip the floor entirely (admit)
+  // so inbound falls back to ACL-only behavior. The gateway also omits the
+  // floor when off, so the ACL above already saw the default permissive policy.
+  const admissionResult =
+    !channelTrustFloorsEnabled || aclResult.isValidatedBootstrap
+      ? ({ admitted: true } as const)
+      : enforceAdmissionPolicy({
+          sourceChannel,
+          trustClass: trustCtx.trustClass,
+          memberStatus: resolvedMember?.channel.status,
+          policy: admissionPolicyFromGateway,
+        });
   if (!admissionResult.admitted) {
     log.info(
       {
