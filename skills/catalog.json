@@ -1015,16 +1015,16 @@
           "user-invocable": "true",
           "activation-hints": [
             "When the user asks to migrate the memory wiki to v3 / the section-grain format",
-            "When memory-v3 retrieval is available but /workspace/memory/concepts/ is still v2-shaped (flat bullet pages, class folders, summary: frontmatter)"
+            "When memory-v3 retrieval is available but memory/concepts/ is still v2-shaped (flat bullet pages, class folders, summary: frontmatter)"
           ],
           "avoid-when": [
             "When the corpus is already in v3 article shape (leads + ## sections, no summary:) and memory.v3.live is already true",
-            "When /workspace/memory/concepts/ is empty or near-empty (run vellum-memory-v2-migration first — there is nothing to reform)"
+            "When memory/concepts/ is empty or near-empty (run vellum-memory-v2-migration first — there is nothing to reform)"
           ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-18T00:42:54.000Z"
+      "updatedAt": "2026-06-18T01:04:56.000Z"
     },
     {
       "id": "vellum-oauth-integrations",
