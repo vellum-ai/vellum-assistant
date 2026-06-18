@@ -16,7 +16,14 @@ import {
  * be called from imperative paths.
  */
 export interface ReachabilitySignals {
-  /** `getGatewayToken() !== null` — a minted gateway token is present. */
+  /**
+   * Whether the gateway token currently valid for THIS target assistant is
+   * present. Callers MUST supply a per-assistant signal: a bare
+   * `getGatewayToken() !== null` is incorrect when multiple local assistants
+   * exist, because a token minted for a different assistant would make this
+   * assistant report reachable. The reactive `useCanReachAssistant` hook
+   * derives this from the per-assistant lifecycle connection state.
+   */
   gatewayTokenPresent: boolean;
   platformSession: PlatformSessionStatus;
 }
