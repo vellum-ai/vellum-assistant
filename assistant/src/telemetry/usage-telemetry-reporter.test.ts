@@ -92,18 +92,10 @@ mock.module("../version.js", () => ({
   APP_VERSION: "1.2.3-test",
 }));
 
-let mockCollectUsageData = true;
+const mockGetCachedShareAnalytics = mock(() => true);
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-    collectUsageData: mockCollectUsageData,
-  }),
+mock.module("../platform/consent-cache.js", () => ({
+  getCachedShareAnalytics: mockGetCachedShareAnalytics,
 }));
 
 const mockQueryUnreportedLifecycleEvents = mock(
@@ -291,7 +283,9 @@ let mockFetch: ReturnType<typeof mock>;
 
 beforeEach(() => {
   eventIdCounter = 0;
-  mockCollectUsageData = true;
+  // Default consent ON so the happy-path send tests exercise the flush.
+  mockGetCachedShareAnalytics.mockReset();
+  mockGetCachedShareAnalytics.mockReturnValue(true);
   mockGetMemoryCheckpoint.mockReset();
   mockSetMemoryCheckpoint.mockReset();
   mockQueryUnreportedUsageEvents.mockReset();
@@ -1047,8 +1041,8 @@ describe("UsageTelemetryReporter", () => {
     });
   });
 
-  test("flush is skipped and watermarks advanced when collectUsageData is false", async () => {
-    mockCollectUsageData = false;
+  test("flush is skipped and watermarks advanced when share_analytics consent is off", async () => {
+    mockGetCachedShareAnalytics.mockReturnValue(false);
     const events = [makeUsageEvent()];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
     mockFetch.mockImplementation(() =>
@@ -1090,16 +1084,16 @@ describe("UsageTelemetryReporter", () => {
     }
   });
 
-  test("events sent normally after re-enabling collectUsageData", async () => {
+  test("events sent normally after re-granting share_analytics consent", async () => {
     // First flush with opt-out — watermarks advance, nothing sent
-    mockCollectUsageData = false;
+    mockGetCachedShareAnalytics.mockReturnValue(false);
     const reporter = new UsageTelemetryReporter();
     await reporter.flush();
     expect(mockFetch).not.toHaveBeenCalled();
     mockSetMemoryCheckpoint.mockReset();
 
-    // Re-enable and flush with new events
-    mockCollectUsageData = true;
+    // Re-grant consent and flush with new events
+    mockGetCachedShareAnalytics.mockReturnValue(true);
     const events = [makeUsageEvent({ id: "evt-after-reenable" })];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
     mockFetch.mockImplementation(() =>
@@ -1713,7 +1707,7 @@ describe("UsageTelemetryReporter", () => {
     // constructs and runs the reporter; the always-on audit listener keeps
     // writing rows. Every opted-out flush (5-minute cycle plus the final
     // flush in stop()) advances the watermark past them without sending.
-    mockCollectUsageData = false;
+    mockGetCachedShareAnalytics.mockReturnValue(false);
     const optOutRowCreatedAt = Date.now() - 5_000;
     seedToolInvocation({
       id: "ti-opt-out-window",
@@ -1729,7 +1723,7 @@ describe("UsageTelemetryReporter", () => {
 
     // Session 2: the user opts back in and restarts. Only rows recorded
     // after the opt-out epoch ship — the opt-out-window row never does.
-    mockCollectUsageData = true;
+    mockGetCachedShareAnalytics.mockReturnValue(true);
     seedToolInvocation({ id: "ti-after-opt-in", createdAt: advanced + 1000 });
     const reporter = new UsageTelemetryReporter();
     await reporter.flush();
@@ -1754,7 +1748,7 @@ describe("UsageTelemetryReporter", () => {
 
     // Opted-out flush: advances the timestamp watermark to Date.now() and
     // must also pin the ID watermark to the high-sorting sentinel.
-    mockCollectUsageData = false;
+    mockGetCachedShareAnalytics.mockReturnValue(false);
     const optedOutReporter = new UsageTelemetryReporter();
     await optedOutReporter.flush();
     expect(mockFetch).not.toHaveBeenCalled();
@@ -1772,7 +1766,7 @@ describe("UsageTelemetryReporter", () => {
     });
 
     // Re-opt-in: only rows strictly after the opt-out epoch ship.
-    mockCollectUsageData = true;
+    mockGetCachedShareAnalytics.mockReturnValue(true);
     seedToolInvocation({ id: "ti-after-opt-in", createdAt: watermark + 1000 });
     const reporter = new UsageTelemetryReporter();
     await reporter.flush();
