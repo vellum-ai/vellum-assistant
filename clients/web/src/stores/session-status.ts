@@ -67,6 +67,27 @@ export const hasLivePlatformSession = (
 ): boolean => status === "present";
 
 /**
+ * The two orthogonal authorities behind app access: a real platform identity
+ * and the ability to reach the currently selected assistant. Either one alone
+ * grants access — a local-only desktop user has no platform identity but is
+ * reachable through the gateway, and a platform user with a live session has
+ * access regardless of any selected assistant.
+ */
+export interface AppAccessSignals {
+  hasPlatformIdentity: boolean;
+  canReachSelected: boolean;
+}
+
+/**
+ * Does the user have access to the app? True with a real platform identity OR
+ * a reachable selected assistant. This is the gate routing/UI should ask
+ * instead of bare `isAuthenticated`, so a platform-session loss can't lock a
+ * local-only user out of an assistant they can still reach.
+ */
+export const hasAppAccess = (s: AppAccessSignals): boolean =>
+  s.hasPlatformIdentity || s.canReachSelected;
+
+/**
  * Statuses where the server itself said "no session": allauth's 401 for
  * an unauthenticated probe, a 403, or 410 Gone (session invalidated).
  */

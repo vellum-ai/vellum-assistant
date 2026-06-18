@@ -1,4 +1,14 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
+import { act, cleanup, renderHook } from "@testing-library/react";
+
+import type { PlatformSessionStatus } from "@/stores/session-status";
 
 type MockSessionUser = {
   id?: string;
@@ -22,11 +32,13 @@ let getSessionGates: Array<() => void> | null = null;
 let mockIsGatewayAuth = false;
 let mockIsLocalMode = false;
 let mockIsRemoteGatewayMode = false;
+// The selected assistant `useHasAppAccess` resolves through `getSelectedAssistant()`.
+// Drives the connection side of the access OR; `undefined` means none selected.
+let mockSelectedAssistant: { cloud?: string } | undefined;
 let mockPlatformAssistants: unknown[] = [];
 let mockPrimeError: Error | null = null;
 let mockGatewayToken: string | null = null;
 const setSelectedAssistantMock = mock(async (_id: string | null) => {});
-const setFromApiMock = mock((_assistants: unknown) => {});
 const primeLocalGatewayConnectionMock = mock(async () => {
   if (mockPrimeError) throw mockPrimeError;
 });
@@ -138,6 +150,7 @@ mock.module("@/lib/local-mode", () => ({
   isPlatformAssistant: (a: { cloud?: string }) => a.cloud === "vellum",
   getPlatformAssistants: () => mockPlatformAssistants,
   getLocalAssistants: () => [],
+  getSelectedAssistant: () => mockSelectedAssistant,
   primeLocalGatewayConnection: primeLocalGatewayConnectionMock,
   primeLocalGatewayConnectionWithRepair:
     primeLocalGatewayConnectionWithRepairMock,
@@ -188,13 +201,11 @@ mock.module("@/lib/auth/session-cleanup", () => ({
   clearUserScopedStorage: clearUserScopedStorageMock,
 }));
 
-mock.module("@/stores/resolved-assistants-store", () => ({
-  useResolvedAssistantsStore: {
-    getState: () => ({
-      setFromApi: setFromApiMock,
-    }),
-  },
-}));
+// Use the REAL resolved-assistants store: `useHasAppAccess` reads its reactive
+// `.use.selectedAssistantId()` / `.use.activeAssistantId()` selectors, which a
+// plain `getState` stub cannot provide. The store is dependency-light (its
+// local-mode deps are already mocked above), so loading it for real is cheap
+// and keeps the auth-store init path's `.getState().setFromApi(...)` working.
 
 // Auth-store writes the selection through the public wrapper, not the store
 // action — mock the wrapper module so the real one (and its local-mode deps)
@@ -237,7 +248,14 @@ mock.module("@/assistant/api", () => ({
   listAssistants: listAssistantsMock,
 }));
 
-const { useAuthStore } = await import("@/stores/auth-store");
+const { useAuthStore, useHasAppAccess } = await import("@/stores/auth-store");
+const { hasAppAccess } = await import("@/stores/session-status");
+const { useAssistantLifecycleStore } = await import(
+  "@/assistant/lifecycle-store"
+);
+const { useResolvedAssistantsStore } = await import(
+  "@/stores/resolved-assistants-store"
+);
 
 function resetAuthStore(): void {
   useAuthStore.setState({
@@ -274,6 +292,7 @@ beforeEach(() => {
   mockIsGatewayAuth = false;
   mockIsLocalMode = false;
   mockIsRemoteGatewayMode = false;
+  mockSelectedAssistant = undefined;
   mockPlatformAssistants = [];
   mockIsNativePlatform = false;
   mockIsBiometricEnabled = false;
@@ -281,7 +300,6 @@ beforeEach(() => {
   mockGatewayToken = null;
   mockPrimeError = null;
   setSelectedAssistantMock.mockClear();
-  setFromApiMock.mockClear();
   primeLocalGatewayConnectionMock.mockClear();
   primeLocalGatewayConnectionWithRepairMock.mockClear();
   ensureGatewayTokenMock.mockClear();
@@ -312,6 +330,14 @@ beforeEach(() => {
   listAssistantsMock.mockClear();
   syncPlatformAssistantsToLockfileMock.mockClear();
   resetAuthStore();
+  // Reset the reactive stores `useHasAppAccess` composes over so each hook
+  // test starts from a known connection/selection state.
+  useAssistantLifecycleStore.setState({ assistantState: { kind: "loading" } });
+  useResolvedAssistantsStore.setState({ activeAssistantId: null });
+});
+
+afterEach(() => {
+  cleanup();
 });
 
 describe("auth store onboarding flag reconciliation", () => {
@@ -1039,5 +1065,109 @@ describe("offline session restore (LUM-2412)", () => {
     await useAuthStore.getState().initSession();
 
     expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+  });
+});
+
+// The pure form route middleware will use in a later PR: identity OR connection.
+describe("hasAppAccess (pure predicate)", () => {
+  test.each([
+    [false, false, false],
+    [true, false, true],
+    [false, true, true],
+    [true, true, true],
+  ])(
+    "hasPlatformIdentity=%p canReachSelected=%p -> %p",
+    (hasPlatformIdentity, canReachSelected, expected) => {
+      expect(
+        hasAppAccess({ hasPlatformIdentity, canReachSelected }),
+      ).toBe(expected);
+    },
+  );
+});
+
+describe("useHasAppAccess", () => {
+  const LOCAL_ASSISTANT = {
+    assistantId: "local-a",
+    cloud: "local",
+    resources: { gatewayPort: 51234 },
+  };
+
+  function setPlatformSession(platformSession: PlatformSessionStatus): void {
+    act(() => {
+      useAuthStore.setState({ platformSession });
+    });
+  }
+
+  function selectLocalAssistant(): void {
+    mockSelectedAssistant = LOCAL_ASSISTANT;
+    act(() => {
+      useResolvedAssistantsStore.setState({
+        activeAssistantId: LOCAL_ASSISTANT.assistantId,
+      });
+    });
+  }
+
+  function setLifecycleReachable(): void {
+    act(() => {
+      useAssistantLifecycleStore.setState({
+        assistantState: { kind: "self_hosted", health: "healthy" },
+      });
+    });
+  }
+
+  // Local-only desktop user: no platform identity, but the gateway-reachable
+  // selected assistant grants access — a platform 401 cannot lock them out.
+  test("local-only user with a reachable selected assistant has access", () => {
+    mockIsLocalMode = true;
+    setPlatformSession("absent");
+    selectLocalAssistant();
+    setLifecycleReachable();
+
+    const { result } = renderHook(() => useHasAppAccess());
+    expect(result.current).toBe(true);
+  });
+
+  // Logged-out platform user with nothing reachable: neither side of the OR
+  // holds, so no access.
+  test("logged-out platform user with no reachable assistant has no access", () => {
+    mockIsLocalMode = true;
+    setPlatformSession("absent");
+    mockSelectedAssistant = undefined;
+    act(() => {
+      useAssistantLifecycleStore.setState({
+        assistantState: { kind: "loading" },
+      });
+    });
+
+    const { result } = renderHook(() => useHasAppAccess());
+    expect(result.current).toBe(false);
+  });
+
+  // A live platform session alone grants access regardless of any assistant.
+  test("platform user with a live session has access", () => {
+    mockIsLocalMode = false;
+    setPlatformSession("present");
+    mockSelectedAssistant = undefined;
+
+    const { result } = renderHook(() => useHasAppAccess());
+    expect(result.current).toBe(true);
+  });
+
+  // Reactive: access flips on when the lifecycle connection resolves.
+  test("re-renders to access when the local connection resolves", () => {
+    mockIsLocalMode = true;
+    setPlatformSession("absent");
+    selectLocalAssistant();
+    act(() => {
+      useAssistantLifecycleStore.setState({
+        assistantState: { kind: "initializing" },
+      });
+    });
+
+    const { result } = renderHook(() => useHasAppAccess());
+    expect(result.current).toBe(false);
+
+    setLifecycleReachable();
+    expect(result.current).toBe(true);
   });
 });
