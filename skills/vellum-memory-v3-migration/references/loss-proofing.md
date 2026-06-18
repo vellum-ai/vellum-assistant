@@ -10,7 +10,7 @@ You are rewriting memory that cannot be regenerated. Loss-proof is a property yo
 | `.mv3/snapshot/concepts/` | read-only baseline | the audit comparator + eval comparator — **never written** |
 | `.mv3/staging/`           | the work           | all authoring writes here                                  |
 
-Plus `.mv3/provenance/` (per-cluster source maps), `.mv3/audit/` (drop reports, dangling links), `.mv3/eval/` (packets, verdicts). `.mv3/` is git-tracked in `/workspace` so every milestone is a recoverable commit; the snapshot copy is belt-and-suspenders on top of git.
+Plus `.mv3/provenance/` (per-cluster source maps), `.mv3/audit/` (drop reports, dangling links), `.mv3/eval/` (packets, verdicts). `.mv3/` is git-tracked in the workspace so every milestone is a recoverable commit; the snapshot copy is belt-and-suspenders on top of git.
 
 ## Provenance is mandatory
 

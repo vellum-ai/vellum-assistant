@@ -10,10 +10,10 @@ metadata:
     user-invocable: true
     activation-hints:
       - "When the user asks to migrate the memory wiki to v3 / the section-grain format"
-      - "When memory-v3 retrieval is available but /workspace/memory/concepts/ is still v2-shaped (flat bullet pages, class folders, summary: frontmatter)"
+      - "When memory-v3 retrieval is available but memory/concepts/ is still v2-shaped (flat bullet pages, class folders, summary: frontmatter)"
     avoid-when:
       - "When the corpus is already in v3 article shape (leads + ## sections, no summary:) and memory.v3.live is already true"
-      - "When /workspace/memory/concepts/ is empty or near-empty (run vellum-memory-v2-migration first — there is nothing to reform)"
+      - "When memory/concepts/ is empty or near-empty (run vellum-memory-v2-migration first — there is nothing to reform)"
 ---
 
 # Memory v3 Migration
@@ -73,8 +73,8 @@ If `quality-optimized` isn't a profile, `assistant config get llm.profiles` and 
 **(5) Size the job + confirm.** Count the corpus and tell the user what they're signing up for:
 
 ```
-find /workspace/memory/concepts -name '*.md' | wc -l
-du -sh /workspace/memory/concepts
+find "$VELLUM_WORKSPACE_DIR/memory/concepts" -name '*.md' | wc -l
+du -sh "$VELLUM_WORKSPACE_DIR/memory/concepts"
 ```
 
 Reform of a multi-thousand-page corpus is many millions of tokens and real money. Use the CLI gate:
@@ -92,7 +92,7 @@ Consolidation is the **only** process that writes `memory/concepts/`. If it fire
 **(a) Record, then disable, both triggers.** Consolidation fires on a size trigger (`consolidation_max_buffer_lines`) and a time trigger (`consolidation_interval_hours`) — those are the only two paths. Capture the current values first so you can restore them at cutover:
 
 ```
-cd /workspace
+cd "$VELLUM_WORKSPACE_DIR"   # the workspace root — NOT /workspace on local installs
 assistant config get memory.v2.consolidation_max_buffer_lines   # record (default 100)
 assistant config get memory.v2.consolidation_interval_hours     # record (default 4)
 assistant config set memory.v2.consolidation_max_buffer_lines null     # size trigger off
@@ -102,6 +102,7 @@ assistant config set memory.v2.consolidation_interval_hours 876000     # time tr
 **(b) Wait out any in-flight run.** A run holds `memory/.v2-state/consolidation.lock` (`<pid> <ms>`) while working (hard-capped at 15 min) and removes it when done. The triggers are off now, so no new run can start — just wait for the lock to clear:
 
 ```
+cd "$VELLUM_WORKSPACE_DIR"
 LOCK=memory/.v2-state/consolidation.lock
 for _ in $(seq 1 80); do
   [ -f "$LOCK" ] || { echo "consolidation idle"; break; }
@@ -114,10 +115,11 @@ done
 **(c) Snapshot** — paper trail + read-only baseline:
 
 ```
+cd "$VELLUM_WORKSPACE_DIR"
 git add -A && git commit -m "memory-v3-migration: start" --allow-empty
 mkdir -p .mv3/snapshot .mv3/staging .mv3/provenance .mv3/audit .mv3/eval
 cp -R memory/concepts .mv3/snapshot/concepts          # read-only baseline — NEVER edit
-[ -f "$LOCK" ] && echo "WARN: a run started during the copy — re-snapshot"   # sanity
+[ -f memory/.v2-state/consolidation.lock ] && echo "WARN: a run started during the copy — re-snapshot"
 ```
 
 `.mv3/` is your scratch tree, separate from live `memory/`. All authoring writes to `.mv3/staging/`. You commit again at two milestones (mid — after authoring + audit, Step 7; complete — after cutover, Step 9). All sentinels use the exact prefix `memory-v3-migration:` so `git log --grep` finds them as one set. See `references/loss-proofing.md` for the full contract.
@@ -169,7 +171,7 @@ This is what makes loss-proof real. Two passes (see `references/loss-proofing.md
 Mid commit:
 
 ```
-cd /workspace && git add -A && git commit -m "memory-v3-migration: staged wiki + loss audit" --allow-empty
+cd "$VELLUM_WORKSPACE_DIR" && git add -A && git commit -m "memory-v3-migration: staged wiki + loss audit" --allow-empty
 ```
 
 ### Step 8 — Eval gate (prove it before cutover)
@@ -187,7 +189,7 @@ That writes `.mv3/eval/packets.json` (blinded A/B memory sets per turn) and `.mv
 Coupled, in one window — staged articles have no `summary:`, so live retrieval degrades the moment they land; deploy and go-live must not be separated.
 
 ```
-cd /workspace
+cd "$VELLUM_WORKSPACE_DIR"
 cp -R memory/concepts .mv3/backup-concepts.$(date +%Y%m%d-%H%M%S)   # rollback point
 rsync -a --delete .mv3/staging/ memory/concepts/                     # deploy the reviewed wiki (flat)
 assistant memory v3 backfill-sections                                # seed section embeddings; verify non-zero
