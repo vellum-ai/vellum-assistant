@@ -16,6 +16,7 @@ import {
   type ResolveActorTrustInput,
   toTrustContext,
 } from "./actor-trust-resolver.js";
+import { resolveCapabilities } from "./capabilities.js";
 
 /**
  * Resolve route-level trust context from canonical identity state.
@@ -71,10 +72,8 @@ export interface RoutingState {
 export function resolveRoutingState(
   ctx: Pick<TrustContext, "trustClass" | "guardianExternalUserId">,
 ): RoutingState {
+  const caps = resolveCapabilities(ctx.trustClass);
   const isGuardian = ctx.trustClass === "guardian";
-  const isIdentityKnownNonGuardian =
-    ctx.trustClass === "trusted_contact" ||
-    ctx.trustClass === "unverified_contact";
 
   // Guardians self-approve — they are always interactive and route-resolvable.
   if (isGuardian) {
@@ -91,7 +90,7 @@ export function resolveRoutingState(
   // trust resolution; its presence means there is a verified guardian
   // to route approval notifications to.
   const guardianRouteResolvable = !!ctx.guardianExternalUserId;
-  if (isIdentityKnownNonGuardian) {
+  if (caps.mayBeInteractive) {
     return {
       canBeInteractive: true,
       guardianRouteResolvable,

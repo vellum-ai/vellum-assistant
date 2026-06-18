@@ -224,9 +224,8 @@ export async function handleApprovalInterception(
   // to decide. This covers trusted contacts, unverified contacts, and
   // identity-known non-member senders in shared channels.
   const isIdentityKnownNonGuardian =
-    (!resolveCapabilities(trustCtx.trustClass).canSelfApproveTools &&
-      (trustCtx.trustClass === "trusted_contact" ||
-        trustCtx.trustClass === "unverified_contact")) ||
+    resolveCapabilities(trustCtx.trustClass).sensitiveToolApproval ===
+      "escalate-and-wait" ||
     (trustCtx.trustClass === "unknown" &&
       !!trustCtx.requesterExternalUserId &&
       !!trustCtx.guardianExternalUserId);
