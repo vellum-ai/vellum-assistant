@@ -52,6 +52,10 @@ export const WebSearchProviderIdSchema = z.enum([
 
 export type WebSearchProviderId = z.infer<typeof WebSearchProviderIdSchema>;
 
+export const WebFetchProviderIdSchema = z.enum(["default", "firecrawl"]);
+
+export type WebFetchProviderId = z.infer<typeof WebFetchProviderIdSchema>;
+
 export const WebSearchResultItemSchema = z.object({
   rank: z.number(),
   title: z.string(),
@@ -79,6 +83,7 @@ export type WebSearchMetadata = z.infer<typeof WebSearchMetadataSchema>;
 export const WebFetchMetadataSchema = z.object({
   url: z.string(),
   finalUrl: z.string(),
+  provider: WebFetchProviderIdSchema.optional(),
   status: z.number(),
   contentType: z.string().optional(),
   byteCount: z.number(),
