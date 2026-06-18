@@ -10,7 +10,6 @@
  *   /v1/channel-verification-sessions/revoke
  */
 
-import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
 
 const VERIFICATION_ENDPOINT_PATHS = [
@@ -131,15 +130,7 @@ export function enforceVerificationControlPlanePolicy(
     return { denied: false };
   }
 
-  const tc: TrustClass | undefined =
-    trustClass === "guardian" ||
-    trustClass === "trusted_contact" ||
-    trustClass === "unverified_contact" ||
-    trustClass === "unknown"
-      ? trustClass
-      : undefined;
-
-  if (resolveCapabilities(tc).canUseVerificationControlPlane) {
+  if (resolveCapabilities(trustClass).canUseVerificationControlPlane) {
     return { denied: false };
   }
 
