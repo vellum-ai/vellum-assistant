@@ -322,6 +322,25 @@ describe("fetchJournalIfNeeded", () => {
 });
 
 // ---------------------------------------------------------------------------
+// reset
+// ---------------------------------------------------------------------------
+
+describe("reset", () => {
+  it("clears all runs, ordering, and indexes", () => {
+    getState().startRun({ runId: "wf-r", toolUseId: "tu-r", timestamp: NOW });
+    getState().leafStarted({ runId: "wf-r", seq: 0, label: "Leaf" });
+
+    getState().reset();
+
+    const state = getState();
+    expect(state.byId).toEqual({});
+    expect(state.orderedIds).toEqual([]);
+    expect(state.byToolUseId.size).toBe(0);
+    expect(state.fetchedAt.size).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Reference stability
 // ---------------------------------------------------------------------------
 

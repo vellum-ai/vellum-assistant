@@ -24,6 +24,7 @@ import { toast } from "@vellumai/design-library";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
@@ -385,6 +386,7 @@ export function useConversationLoader({
   const switchConversation = useCallback(
     (key: string) => {
       useSubagentStore.getState().reset();
+      useWorkflowStore.getState().reset();
       useViewerStore.getState().setMainView("chat");
       if (key === useConversationStore.getState().activeConversationId) return;
       void navigate(routes.conversation(key));
@@ -399,6 +401,7 @@ export function useConversationLoader({
     ({ silent }: { silent?: boolean } = {}) => {
       if (!silent) haptic.light();
       useSubagentStore.getState().reset();
+      useWorkflowStore.getState().reset();
       useViewerStore.getState().setMainView("chat");
       const draftConversationId = createDraftConversationId();
       useConversationStore.getState().setActiveConversationId(draftConversationId);

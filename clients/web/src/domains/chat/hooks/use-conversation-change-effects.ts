@@ -15,6 +15,7 @@
 import { useEffect } from "react";
 
 import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useWorkflowStore } from "@/domains/chat/workflow-store";
 
 export function useConversationChangeEffects(
   assistantId: string | null,
@@ -26,6 +27,7 @@ export function useConversationChangeEffects(
   // This effect catches the URL-navigation path where wrappers don't run.
   useEffect(() => {
     useSubagentStore.getState().reset();
+    useWorkflowStore.getState().reset();
   }, [activeConversationId]);
 
   // Stable signal: changes only when the set of subagent IDs that need a

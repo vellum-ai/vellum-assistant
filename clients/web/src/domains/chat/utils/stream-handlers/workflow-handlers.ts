@@ -15,7 +15,6 @@ export function handleWorkflowStarted(
 ): void {
   useWorkflowStore.getState().startRun({
     runId: event.runId,
-    conversationId: event.conversationId,
     toolUseId: event.toolUseId,
     label: event.label,
     timestamp: Date.now(),
@@ -30,7 +29,6 @@ export function handleWorkflowProgress(
     runId: event.runId,
     phase: event.phase,
     agentsSpawned: event.agentsSpawned,
-    message: event.message,
     label: event.label,
   });
 }
@@ -43,7 +41,6 @@ export function handleWorkflowLeafStarted(
     runId: event.runId,
     seq: event.seq,
     label: event.label,
-    phase: event.phase,
     promptSummary: event.promptSummary,
   });
 }

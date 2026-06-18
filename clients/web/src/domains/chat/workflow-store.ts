@@ -37,7 +37,6 @@ export type WorkflowLeafStatus = "running" | "completed" | "failed";
 export interface WorkflowLeaf {
   seq: number;
   label?: string;
-  phase?: string;
   promptSummary?: string;
   status: WorkflowLeafStatus;
   resultSummary?: string;
@@ -95,7 +94,6 @@ export interface WorkflowState {
 export interface WorkflowActions {
   startRun: (params: {
     runId: string;
-    conversationId?: string;
     toolUseId?: string;
     label?: string;
     timestamp: number;
@@ -105,7 +103,6 @@ export interface WorkflowActions {
     runId: string;
     phase?: string;
     agentsSpawned?: number;
-    message?: string;
     label?: string;
   }) => void;
 
@@ -113,7 +110,6 @@ export interface WorkflowActions {
     runId: string;
     seq: number;
     label?: string;
-    phase?: string;
     promptSummary?: string;
   }) => void;
 
@@ -279,7 +275,6 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
       seq: params.seq,
       status: "running",
       label: params.label ?? current?.label,
-      phase: params.phase ?? current?.phase,
       promptSummary: params.promptSummary ?? current?.promptSummary,
     };
     const nextLeaves = new Map(base.leaves).set(params.seq, leaf);
@@ -302,7 +297,6 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
       seq: params.seq,
       status: params.status,
       label: params.label ?? current?.label,
-      phase: current?.phase,
       promptSummary: current?.promptSummary,
       inputTokens: params.inputTokens ?? current?.inputTokens,
       outputTokens: params.outputTokens ?? current?.outputTokens,
@@ -370,7 +364,6 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
           seq: journalLeaf.seq,
           status: journalStatus,
           label: journalLeaf.label,
-          phase: journalLeaf.phase,
           promptSummary: journalLeaf.promptSummary,
           resultSummary: journalLeaf.resultSummary,
         });
@@ -389,7 +382,6 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
           ...current,
           status: journalStatus,
           label: current.label ?? journalLeaf.label,
-          phase: current.phase ?? journalLeaf.phase,
           promptSummary: current.promptSummary ?? journalLeaf.promptSummary,
           resultSummary: current.resultSummary ?? journalLeaf.resultSummary,
         });

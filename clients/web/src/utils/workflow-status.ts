@@ -20,6 +20,7 @@ export function statusColor(status: WorkflowRunStatus): string {
     case "cap_exceeded":
       return "var(--system-negative-strong)";
     case "aborted":
+    case "interrupted":
       return "var(--content-secondary)";
     default:
       return "var(--primary-base)";
