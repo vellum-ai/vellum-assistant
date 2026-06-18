@@ -674,15 +674,13 @@ describe("loadFromDb metadata injection rehydration", () => {
   });
 
   test("internal-channel trusted_contact view still rehydrates memoryV2StaticBlock", async () => {
-    // Regression: the prior `resolveCapabilities(trustClass).canAccessMemory` gate
-    // blocked any non-guardian view from rehydrating personal memory,
-    // including legitimate internal flows (e.g. trusted_contact actors
-    // arriving over the internal `"vellum"` channel). Injection time
-    // uses `shouldExposePersonalMemory`, which keys on `sourceChannel`
-    // rather than `trustClass` and exposes personal memory for
-    // `sourceChannel === "vellum"` regardless of actor trust class. The
-    // rehydrate gate must match so a daemon-restart reload of the same
-    // conversation produces an identical prefix.
+    // Rehydration keys on `sourceChannel`, not `trustClass`: injection uses
+    // `shouldExposePersonalMemory`, which exposes personal memory whenever
+    // `sourceChannel === "vellum"` regardless of actor trust class. So a
+    // trusted_contact view arriving over the internal `"vellum"` channel
+    // rehydrates `memoryV2StaticBlock`. The rehydrate gate must match
+    // injection so a daemon-restart reload of the same conversation produces
+    // an identical prefix.
     mockConversation = defaultConv();
     mockDbMessages = [
       {
