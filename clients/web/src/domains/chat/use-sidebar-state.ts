@@ -20,7 +20,6 @@ import { groupConversations, type CustomGroup } from "@/domains/chat/utils/group
 import { groupBackgroundConversationsBySource } from "@/domains/chat/utils/background-sub-groups";
 import { groupScheduledConversationsByJobId } from "@/domains/chat/utils/scheduled-sub-groups";
 import type { SubGroup } from "@/domains/chat/utils/sub-group";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useSidebarCollapseStore } from "@/domains/chat/sidebar-collapse-store";
 import { mergeConversationLists } from "@/utils/conversation-cache";
 import {
@@ -68,8 +67,6 @@ export interface SidebarState {
   onOpenCategoriesChange: (next: string[]) => void;
   onOpenCustomGroupsChange: (next: string[]) => void;
 
-  conversationGroupsEnabled: boolean;
-
   /**
    * Reveal the Background section, enabling its lazy fetch. Wired to the
    * collapsed rail's flyout trigger, which opens without going through
@@ -105,7 +102,6 @@ export function useSidebarState({
   conversationGroups,
   attentionConversationIds,
 }: UseSidebarStateParams): SidebarState {
-  const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
   const isAssistantActive = useAssistantLifecycleStore(
     (s) => s.assistantState.kind === "active",
   );
@@ -175,9 +171,8 @@ export function useSidebarState({
     () =>
       groupConversations(allConversations, {
         groups: conversationGroups,
-        customGroupsEnabled: conversationGroupsUI,
       }),
-    [allConversations, conversationGroups, conversationGroupsUI],
+    [allConversations, conversationGroups],
   );
 
   const scheduledSubGroups = useMemo(
@@ -323,7 +318,6 @@ export function useSidebarState({
     effectiveOpenCustomGroups,
     onOpenCategoriesChange: setOpenCategories,
     onOpenCustomGroupsChange: setOpenCustomGroups,
-    conversationGroupsEnabled: conversationGroupsUI,
     activateBackground,
     backgroundLoading,
     activateScheduled,

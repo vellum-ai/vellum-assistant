@@ -62,8 +62,7 @@ interface UseConversationLoaderParams {
   // thread exists server-side; null while loading or for local-only drafts.
   activeConversation: Conversation | undefined;
 
-  // Feature flags / epochs
-  conversationGroupsUI: boolean;
+  // Epochs
   refreshEpoch: number;
   reachabilityReadyEpoch: number;
 
@@ -99,7 +98,6 @@ export function useConversationLoader({
   urlConversationId,
   searchParams,
   activeConversation,
-  conversationGroupsUI,
   refreshEpoch,
   reachabilityReadyEpoch,
   onboardingDraftConversationIdRef,
@@ -128,16 +126,14 @@ export function useConversationLoader({
     } catch (err) {
       captureError(err, { context: "refresh_conversations" });
     }
-    if (conversationGroupsUI) {
-      void queryClient
-        .invalidateQueries({
-          queryKey: groupsGetQueryKey({ path: { assistant_id: assistantId } }),
-        })
-        .catch((err) => {
-          captureError(err, { context: "refreshGroups", level: "warning" });
-        });
-    }
-  }, [assistantId, conversationGroupsUI, queryClient]);
+    void queryClient
+      .invalidateQueries({
+        queryKey: groupsGetQueryKey({ path: { assistant_id: assistantId } }),
+      })
+      .catch((err) => {
+        captureError(err, { context: "refreshGroups", level: "warning" });
+      });
+  }, [assistantId, queryClient]);
 
   // -------------------------------------------------------------------------
   // Conversation list query subscription

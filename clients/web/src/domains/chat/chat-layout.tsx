@@ -46,7 +46,6 @@ import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { openPopoutWindow } from "@/runtime/popout-window";
 import { useVellumCommands } from "@/runtime/vellum-commands";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useOnboardingFocusStore } from "@/stores/onboarding-focus-store";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -138,14 +137,13 @@ export function ChatLayout() {
   // chat-layout child route (home, library, contacts, identity, chat)
   // inherits a populated sidebar on direct navigation — not just /assistant.
   // TanStack Query handles dedup with any other consumer using the same key.
-  const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
   const { conversations } = useConversationListQuery(
     assistantId,
     isAssistantActive,
   );
   const { conversationGroups } = useConversationGroupsQuery(
     assistantId,
-    isAssistantActive && conversationGroupsUI,
+    isAssistantActive,
   );
 
   // Track processing/attention indicators for every conversation in

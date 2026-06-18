@@ -112,7 +112,6 @@ export function groupConversations(
   conversations: Conversation[],
   options?: {
     groups?: ConversationGroup[];
-    customGroupsEnabled?: boolean;
   },
 ): GroupedConversations {
   const pinned: Conversation[] = [];
@@ -121,12 +120,10 @@ export function groupConversations(
   const slack: Conversation[] = [];
   const recents: Conversation[] = [];
 
-  // Build a lookup from group id → CustomGroup bucket when custom groups
-  // are enabled.
-  const customGroupsEnabled = options?.customGroupsEnabled === true;
+  // Build a lookup from group id → CustomGroup bucket.
   const groupLookup = new Map<string, CustomGroup>();
   const customGroupsList: CustomGroup[] = [];
-  if (customGroupsEnabled && options?.groups) {
+  if (options?.groups) {
     for (const g of options.groups) {
       if (g.isSystemGroup) continue;
       const bucket: CustomGroup = { id: g.id, name: g.name, conversations: [] };
@@ -147,9 +144,9 @@ export function groupConversations(
 
     // Explicit custom group assignment wins over system-type routing —
     // a scheduled conversation moved to a custom group should stay
-    // there, matching macOS where the server-provided groupId takes
-    // precedence over deriveGroupId() heuristics.
-    if (customGroupsEnabled && isCustomGroupId(c.groupId)) {
+    // there because the server-provided groupId takes precedence over
+    // deriveGroupId() heuristics.
+    if (isCustomGroupId(c.groupId)) {
       const bucket = groupLookup.get(c.groupId);
       if (bucket) {
         bucket.conversations.push(c);

@@ -545,7 +545,7 @@ export function AssistantSideMenu({
                 ) : null}
               </CollapsibleNavSection.Root>
 
-              {sidebar.conversationGroupsEnabled && sidebar.customGroups.length > 0 ? (
+              {sidebar.customGroups.length > 0 ? (
                 <>
                   <SideMenu.Separator />
                   <SideMenu.Section title="Your Groups">

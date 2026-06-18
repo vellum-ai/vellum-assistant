@@ -133,10 +133,7 @@ describe("groupConversations · bucket routing", () => {
           originChannel: "slack",
         }),
       ],
-      {
-        groups,
-        customGroupsEnabled: true,
-      },
+      { groups },
     );
 
     expect(result.slack).toEqual([]);
@@ -340,16 +337,13 @@ describe("groupConversations · custom group routing", () => {
     makeGroup({ id: "grp-fun", name: "Fun" }),
   ];
 
-  test("routes conversations with non-system groupId into matching custom group when enabled", () => {
+  test("routes conversations with non-system groupId into matching custom group", () => {
     const conversations = [
       makeConversation({ conversationId: "w1", groupId: "grp-work" }),
       makeConversation({ conversationId: "f1", groupId: "grp-fun" }),
       makeConversation({ conversationId: "r1" }),
     ];
-    const result = groupConversations(conversations, {
-      groups,
-      customGroupsEnabled: true,
-    });
+    const result = groupConversations(conversations, { groups });
 
     expect(result.customGroups).toHaveLength(2);
     expect(
@@ -365,22 +359,7 @@ describe("groupConversations · custom group routing", () => {
     expect(result.recents.map((c) => c.conversationId)).toEqual(["r1"]);
   });
 
-  test("conversations with custom groupId fall through to recents when disabled", () => {
-    const conversations = [
-      makeConversation({ conversationId: "w1", groupId: "grp-work" }),
-      makeConversation({ conversationId: "r1" }),
-    ];
-    const result = groupConversations(conversations, {
-      groups,
-      customGroupsEnabled: false,
-    });
-
-    expect(result.customGroups).toEqual([]);
-    expect(result.recents.map((c) => c.conversationId)).toContain("w1");
-    expect(result.recents.map((c) => c.conversationId)).toContain("r1");
-  });
-
-  test("conversations with custom groupId fall through to recents when no options provided", () => {
+  test("conversations with custom groupId fall through to recents when no groups provided", () => {
     const conversations = [
       makeConversation({ conversationId: "w1", groupId: "grp-work" }),
     ];
@@ -397,10 +376,7 @@ describe("groupConversations · custom group routing", () => {
         groupId: "grp-unknown",
       }),
     ];
-    const result = groupConversations(conversations, {
-      groups,
-      customGroupsEnabled: true,
-    });
+    const result = groupConversations(conversations, { groups });
 
     expect(result.recents.map((c) => c.conversationId)).toEqual(["x1"]);
   });
@@ -417,10 +393,7 @@ describe("groupConversations · custom group routing", () => {
         groupId: "system:scheduled",
       }),
     ];
-    const result = groupConversations(conversations, {
-      groups,
-      customGroupsEnabled: true,
-    });
+    const result = groupConversations(conversations, { groups });
 
     expect(result.pinned.map((c) => c.conversationId)).toEqual(["s1"]);
     expect(result.scheduled.map((c) => c.conversationId)).toEqual(["s2"]);
@@ -437,10 +410,7 @@ describe("groupConversations · custom group routing", () => {
         groupId: "grp-work",
       }),
     ];
-    const result = groupConversations(conversations, {
-      groups,
-      customGroupsEnabled: true,
-    });
+    const result = groupConversations(conversations, { groups });
 
     expect(result.pinned.map((c) => c.conversationId)).toEqual(["pw"]);
     expect(
@@ -453,10 +423,7 @@ describe("groupConversations · custom group routing", () => {
       makeGroup({ id: "system:pinned", name: "Pinned", isSystemGroup: true }),
       makeGroup({ id: "grp-work", name: "Work" }),
     ];
-    const result = groupConversations([], {
-      groups: groupsWithSystem,
-      customGroupsEnabled: true,
-    });
+    const result = groupConversations([], { groups: groupsWithSystem });
 
     expect(result.customGroups).toHaveLength(1);
     expect(result.customGroups[0]?.id).toBe("grp-work");
@@ -563,7 +530,7 @@ describe("groupConversations · displayOrder for pinned and custom groups", () =
           lastMessageAt: 1704153600000,
         }),
       ],
-      { groups, customGroupsEnabled: true },
+      { groups },
     );
     const work = result.customGroups.find((g) => g.id === "grp-work");
     expect(work?.conversations.map((c) => c.conversationId)).toEqual([
