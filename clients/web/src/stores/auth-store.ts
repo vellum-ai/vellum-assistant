@@ -53,10 +53,11 @@ import {
 import { listAssistants } from "@/assistant/api";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
-import { fetchMe, patchConsent } from "@/domains/account/profile";
+import { fetchConsent, patchConsent } from "@/domains/account/profile";
 import {
   restoreConsentForUser,
   persistConsentForUser,
+  persistToggleConsent,
   resolveServerConsent,
   CONSENT_VERSION,
 } from "@/utils/onboarding-cleanup";
@@ -245,33 +246,72 @@ function broadcastAuthChange(): void {
 async function syncUserScopedState(nextUserId: string | null): Promise<void> {
   if (nextUserId) {
     try {
-      const me = await fetchMe();
-      if (me.consent) {
-        const resolved = resolveServerConsent(me.consent);
-        const store = useOnboardingStore.getState();
-        store.setTosAccepted(resolved.tos);
-        store.setAiDataConsent(resolved.ai);
+      const consent = await fetchConsent();
+      const resolved = resolveServerConsent(consent);
+      const store = useOnboardingStore.getState();
+      // Only adopt the server's share-preference booleans when the server has a
+      // real consent record. For an empty record they're just the API defaults
+      // and would clobber the device-local `device:share_*` choices that the
+      // fallback below relies on (the store already holds them from init). A
+      // real record's share values are authoritative even when its legal
+      // consent versions are stale (the nav layer routes to review-terms).
+      if (resolved.hasServerRecord) {
         if (resolved.shareAnalytics !== null)
           store.setShareAnalytics(resolved.shareAnalytics);
         if (resolved.shareDiagnostics !== null)
           store.setShareDiagnostics(resolved.shareDiagnostics);
-        persistConsentForUser(nextUserId, resolved.tos, resolved.ai);
-        syncOrganizationState(nextUserId);
-        return;
       }
-      // Server has no consent record — fall through to device keys.
-      // If device keys show prior acceptance, backfill the server.
-      const deviceConsent = restoreConsentForUser(nextUserId);
-      const store = useOnboardingStore.getState();
-      store.setTosAccepted(deviceConsent.tos);
-      store.setAiDataConsent(deviceConsent.ai);
-      if (deviceConsent.tos && deviceConsent.ai) {
-        void patchConsent({
-          tos_accepted_version: CONSENT_VERSION,
-          privacy_policy_accepted_version: CONSENT_VERSION,
-          ai_data_sharing_accepted_version: CONSENT_VERSION,
-        }).catch(() => {});
+
+      // Resolve the FINAL consent values before persisting or mutating the
+      // store. The endpoint always returns an object, so empty/stale versions
+      // (not a null record) are the "never accepted" signal; when the server
+      // has nothing on record the device ack keys are authoritative. Persisting
+      // first would overwrite those keys with the empty server values before the
+      // fallback below reads them.
+      let tos = resolved.tos;
+      let ai = resolved.ai;
+      let analyticsCurrent = resolved.analyticsCurrent;
+      let diagnosticsCurrent = resolved.diagnosticsCurrent;
+
+      // Only fall back to device keys for a TRULY empty record. A stale-but-real
+      // record's server values are authoritative and must not be overwritten;
+      // the nav layer routes the user to review-terms for the stale legal consent.
+      if (!resolved.hasServerRecord) {
+        const deviceConsent = restoreConsentForUser(nextUserId);
+        analyticsCurrent = deviceConsent.analyticsCurrent;
+        diagnosticsCurrent = deviceConsent.diagnosticsCurrent;
+        if (deviceConsent.tos && deviceConsent.ai) {
+          tos = true;
+          ai = true;
+          // Backfill the server from the device acks. Stamp any toggle version
+          // whose device ack is current AND send the device share value so the
+          // next fetch can't overwrite a device opt-out with the API default.
+          void patchConsent({
+            tos_accepted_version: CONSENT_VERSION,
+            privacy_policy_accepted_version: CONSENT_VERSION,
+            ai_data_sharing_accepted_version: CONSENT_VERSION,
+            ...(analyticsCurrent
+              ? {
+                  share_analytics_accepted_version: CONSENT_VERSION,
+                  share_analytics: store.shareAnalytics,
+                }
+              : {}),
+            ...(diagnosticsCurrent
+              ? {
+                  share_diagnostics_accepted_version: CONSENT_VERSION,
+                  share_diagnostics: store.shareDiagnostics,
+                }
+              : {}),
+          }).catch(() => {});
+        }
       }
+
+      store.setTosAccepted(tos);
+      store.setAiDataConsent(ai);
+      store.setAnalyticsConsentCurrent(analyticsCurrent);
+      store.setDiagnosticsConsentCurrent(diagnosticsCurrent);
+      persistConsentForUser(nextUserId, tos, ai);
+      persistToggleConsent(nextUserId, { analyticsCurrent, diagnosticsCurrent });
       syncOrganizationState(nextUserId);
       return;
     } catch {
@@ -283,6 +323,8 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
   const store = useOnboardingStore.getState();
   store.setTosAccepted(consent.tos);
   store.setAiDataConsent(consent.ai);
+  store.setAnalyticsConsentCurrent(consent.analyticsCurrent);
+  store.setDiagnosticsConsentCurrent(consent.diagnosticsCurrent);
   syncOrganizationState(nextUserId);
 }
 
@@ -730,6 +772,23 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     // "no session" answer below still ends the session normally.
     if (isInconclusiveProbe(result)) {
       return isAuthenticated(get().sessionStatus);
+    }
+    // A settled "no platform session" (401) ends the platform session, not the
+    // local gateway session. When the gateway is the auth source, demote an
+    // authenticated session to the local user and mark the platform session
+    // absent — dropping the now-stale platform user and offline snapshot so
+    // platform-gated surfaces stop treating it as signed in — while keeping
+    // `sessionStatus` "authenticated"; a 401 must not log a local-only user out.
+    // (The successful probe above still adopts the platform user, so provider
+    // sign-in keeps working.) An unauthenticated session — e.g. mid cold-start
+    // hatch — is left for the gateway to settle once its token mints.
+    if (isGatewayAuthEnabled()) {
+      const wasAuthenticated = isAuthenticated(get().sessionStatus);
+      if (wasAuthenticated) {
+        clearUserSnapshot();
+        set({ ...authenticatedLocalUser(), platformSession: "absent" });
+      }
+      return wasAuthenticated;
     }
     clearUserSnapshot();
     await syncUserScopedState(null);

@@ -14,6 +14,7 @@ import {
   parseOAuthCompletePayload,
   type OAuthCompletePayload,
 } from "@/lib/auth/oauth-popup";
+import { resolveManagedOAuthPlatformAssistantId } from "@/lib/local-managed-oauth-identity";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import type { OAuthCompleteDeepLinkPayload } from "@/runtime/native-deep-link";
@@ -67,6 +68,7 @@ export function useOAuthConnect({
   const pendingRequestRef = useRef<{
     requestId: string;
     provider: string;
+    platformAssistantId: string;
     baselineConnectionSignatures: ReadonlyMap<string, string>;
   } | null>(null);
   const popupCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -126,6 +128,7 @@ export function useOAuthConnect({
 
   const waitForProviderConnection = useCallback(
     async (
+      platformAssistantId: string,
       baselineSignatures: ReadonlyMap<string, string>,
     ): Promise<boolean> => {
       if (!managedAvailable) return false;
@@ -139,7 +142,7 @@ export function useOAuthConnect({
           queryClient.invalidateQueries({ queryKey: connectionsQueryKey });
           const connections = await queryClient.fetchQuery({
             ...assistantsOauthConnectionsListOptions({
-              path: { assistant_id: assistantId },
+              path: { assistant_id: platformAssistantId },
             }),
             staleTime: 0,
           });
@@ -160,7 +163,7 @@ export function useOAuthConnect({
 
       return false;
     },
-    [assistantId, connectionsQueryKey, managedAvailable, providerKey, queryClient],
+    [connectionsQueryKey, managedAvailable, providerKey, queryClient],
   );
 
   // Web: listen for postMessage / storage completion from popup
@@ -239,6 +242,7 @@ export function useOAuthConnect({
 
       void (async () => {
         const providerConnected = await waitForProviderConnection(
+          pendingRequest.platformAssistantId,
           pendingRequest.baselineConnectionSignatures,
         );
         if (!pendingRequestRef.current) {
@@ -273,33 +277,69 @@ export function useOAuthConnect({
     if (!managedAvailable) return;
 
     const requestId = crypto.randomUUID();
+    setOAuthInProgress(true);
 
-    if (isNative) {
-      setOAuthInProgress(true);
-      const cachedConnections =
-        queryClient.getQueryData<OAuthConnection[]>(connectionsQueryKey) ??
-        allConnections;
+    const start = async (popup: Window | null) => {
+      let platformAssistantId: string;
+      try {
+        platformAssistantId = await resolveManagedOAuthPlatformAssistantId(assistantId);
+      } catch (error) {
+        closePopupWindow();
+        clearPendingRequest();
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : `Failed to start ${displayName} authorization.`,
+        );
+        return;
+      }
+
+      const baselineConnections = await queryClient
+        .fetchQuery({
+          ...assistantsOauthConnectionsListOptions({
+            path: { assistant_id: platformAssistantId },
+          }),
+          staleTime: 0,
+        })
+        .catch(() =>
+          platformAssistantId === assistantId ? (allConnections ?? []) : [],
+        );
+      const baselineConnectionSignatures = getProviderConnectionSignatures(
+        baselineConnections,
+        providerKey,
+      );
+
       pendingRequestRef.current = {
         requestId,
         provider: providerKey,
-        baselineConnectionSignatures: getProviderConnectionSignatures(
-          cachedConnections,
-          providerKey,
-        ),
+        platformAssistantId,
+        baselineConnectionSignatures,
       };
+
       startOAuth.mutate(
         {
-          path: { assistant_id: assistantId, provider: providerKey },
+          path: { assistant_id: platformAssistantId, provider: providerKey },
           body: {
             requested_scopes: requestedScopes,
-            redirect_after_connect: `${routes.account.oauth.popupComplete}?requestId=${requestId}&native=1`,
+            redirect_after_connect: `${routes.account.oauth.popupComplete}?requestId=${requestId}${isNative ? "&native=1" : ""}`,
           },
         },
         {
           onSuccess(data) {
-            void openUrl(data.connect_url);
+            if (isNative) {
+              void openUrl(data.connect_url);
+              return;
+            }
+            if (popup && !popup.closed) {
+              popup.location.href = data.connect_url;
+            } else if (pendingRequestRef.current) {
+              closePopupWindow();
+              clearPendingRequest();
+              toast.error(`${displayName} connection failed: popup closed.`);
+            }
           },
           onError(error) {
+            closePopupWindow();
             clearPendingRequest();
             const detail = extractErrorMessage(
               error,
@@ -310,30 +350,22 @@ export function useOAuthConnect({
           },
         },
       );
+    };
+
+    if (isNative) {
+      void start(null);
       return;
     }
 
     const popup = window.open("", "_blank", "width=500,height=600");
 
     if (popup === null) {
+      clearPendingRequest();
       toast.error("Popup blocked. Please enable popups and try again.");
       return;
     }
 
     popupRef.current = popup;
-    setOAuthInProgress(true);
-    const cachedConnections =
-      queryClient.getQueryData<OAuthConnection[]>(connectionsQueryKey) ??
-      allConnections;
-    pendingRequestRef.current = {
-      requestId,
-      provider: providerKey,
-      baselineConnectionSignatures: getProviderConnectionSignatures(
-        cachedConnections,
-        providerKey,
-      ),
-    };
-
     popupCheckIntervalRef.current = setInterval(() => {
       if (
         popupRef.current &&
@@ -363,6 +395,7 @@ export function useOAuthConnect({
           }
 
           const providerConnected = await waitForProviderConnection(
+            pendingRequest.platformAssistantId,
             pendingRequest.baselineConnectionSignatures,
           );
           if (!pendingRequestRef.current) {
@@ -384,36 +417,7 @@ export function useOAuthConnect({
       }
     }, 100);
 
-    startOAuth.mutate(
-      {
-        path: { assistant_id: assistantId, provider: providerKey },
-        body: {
-          requested_scopes: requestedScopes,
-          redirect_after_connect: `${routes.account.oauth.popupComplete}?requestId=${requestId}`,
-        },
-      },
-      {
-        onSuccess(data) {
-          if (popupRef.current && !popupRef.current.closed) {
-            popupRef.current.location.href = data.connect_url;
-          } else if (pendingRequestRef.current) {
-            closePopupWindow();
-            clearPendingRequest();
-            toast.error(`${displayName} connection failed: popup closed.`);
-          }
-        },
-        onError(error) {
-          closePopupWindow();
-          clearPendingRequest();
-          const detail = extractErrorMessage(
-            error,
-            undefined,
-            `Failed to start ${displayName} authorization.`,
-          );
-          toast.error(detail);
-        },
-      }
-    );
+    void start(popup);
   };
 
   return {

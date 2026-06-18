@@ -511,6 +511,14 @@ export const MODELS_BY_PROVIDER = {
       maxOutputTokens: 1_000_000,
     },
     {
+      id: "z-ai/glm-5.2",
+      displayName: "GLM-5.2",
+      contextWindowTokens: 1_048_576,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 131_072,
+      supportsThinking: true,
+    },
+    {
       id: "mistralai/mistral-medium-3",
       displayName: "Mistral Medium 3",
       contextWindowTokens: 131_072,

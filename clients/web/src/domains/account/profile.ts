@@ -15,10 +15,21 @@ export interface UserConsent {
   ai_data_sharing_accepted_at: string | null;
   share_analytics: boolean;
   share_diagnostics: boolean;
+  share_analytics_accepted_version: string;
+  share_analytics_accepted_at: string | null;
+  share_diagnostics_accepted_version: string;
+  share_diagnostics_accepted_at: string | null;
 }
 
 export type ConsentPatch = Partial<
-  Omit<UserConsent, "tos_accepted_at" | "privacy_policy_accepted_at" | "ai_data_sharing_accepted_at">
+  Omit<
+    UserConsent,
+    | "tos_accepted_at"
+    | "privacy_policy_accepted_at"
+    | "ai_data_sharing_accepted_at"
+    | "share_analytics_accepted_at"
+    | "share_diagnostics_accepted_at"
+  >
 >;
 
 export interface UserMe {
@@ -27,7 +38,6 @@ export interface UserMe {
   email: string;
   first_name: string;
   last_name: string;
-  consent: UserConsent | null;
 }
 
 export type UsernameErrorCode =
@@ -133,10 +143,26 @@ export async function updateMe(patch: UpdateMePatch): Promise<UpdateMeResult> {
   };
 }
 
+export async function fetchConsent(): Promise<UserConsent> {
+  const { data, error, response } = await client.get<UserConsent, unknown>({
+    url: "/v1/user/consent/",
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, "Failed to load consent.");
+  if (!response.ok || !data) {
+    throw new ApiError(
+      response.status,
+      extractErrorMessage(error, response, "Failed to load consent."),
+    );
+  }
+  return data;
+}
+
+// PUTs /v1/user/consent/ — partial bodies are accepted, no writable field is required.
 export async function patchConsent(consent: ConsentPatch): Promise<void> {
-  await client.patch({
-    url: "/v1/user/me/",
-    body: { consent },
+  await client.put({
+    url: "/v1/user/consent/",
+    body: consent,
     throwOnError: true,
   });
 }

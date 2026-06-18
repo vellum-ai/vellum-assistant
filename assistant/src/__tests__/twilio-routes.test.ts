@@ -92,8 +92,21 @@ let mockRouteSetupResult: {
   },
 };
 
+// Captures the last context passed to routeSetup so preflight tests can
+// assert the resolved phone admission policy was threaded through.
+let lastRouteSetupCtx: Record<string, unknown> | null = null;
 mock.module("../calls/relay-setup-router.js", () => ({
-  routeSetup: () => mockRouteSetupResult,
+  routeSetup: (ctx: Record<string, unknown>) => {
+    lastRouteSetupCtx = ctx;
+    return mockRouteSetupResult;
+  },
+}));
+
+// Mock the phone channel admission reader used by the media-stream preflight.
+// Tests override mockAdmissionPolicy to exercise floor classification.
+let mockAdmissionPolicy: unknown = null;
+mock.module("../calls/channel-admission-reader.js", () => ({
+  getChannelAdmissionPolicy: async () => mockAdmissionPolicy,
 }));
 
 mock.module("../config/env.js", () => ({
@@ -454,6 +467,9 @@ describe("twilio webhook routes", () => {
     mockTwilioApiValidationBody = JSON.stringify({ sid: "AC_validated" });
     // Reset STT config to defaults between tests
     mockConfigObj.services.stt.provider = "deepgram" as any;
+    // Reset admission policy + captured routeSetup context between tests
+    mockAdmissionPolicy = null;
+    lastRouteSetupCtx = null;
     // Reset routeSetup mock to default normal_call
     mockRouteSetupResult = {
       outcome: { action: "normal_call", isInbound: true },
@@ -1223,6 +1239,70 @@ describe("twilio webhook routes", () => {
       const res = await handleVoiceWebhook(req);
       expect(res.status).toBe(200);
 
+      const twiml = await res.text();
+      expect(twiml).toContain("<Stream");
+      expect(twiml).not.toContain("<ConversationRelay");
+    });
+
+    test("media-stream: resolves the phone admission floor and threads it into the preflight routeSetup", async () => {
+      mockConfigObj.services.stt.provider = "openai-whisper" as any;
+      mockAdmissionPolicy = "guardian_only";
+      mockRouteSetupResult = {
+        outcome: { action: "normal_call", isInbound: true },
+        resolved: {
+          assistantId: "self",
+          isInbound: true,
+          otherPartyNumber: "+15559998888",
+          actorTrust: { trustClass: "guardian", memberRecord: null },
+        },
+      };
+
+      const session = createTestSession("conv-ms-floor-1", "CA_ms_floor_1");
+      const req = makeVoiceRequest(session.id, { CallSid: "CA_ms_floor_1" });
+
+      const res = await handleVoiceWebhook(req);
+      expect(res.status).toBe(200);
+
+      // The resolved floor was passed into the preflight routeSetup so its
+      // classification matches the real stream-start enforcement.
+      expect(lastRouteSetupCtx).not.toBeNull();
+      expect(lastRouteSetupCtx?.admissionPolicy).toBe("guardian_only");
+    });
+
+    test("media-stream: floor-denied caller classified deny still produces Stream TwiML (deny handled at stream level)", async () => {
+      mockConfigObj.services.stt.provider = "openai-whisper" as any;
+      mockAdmissionPolicy = "guardian_only";
+      // With the floor wired, the real router returns `deny` for a
+      // below-floor trusted_contact caller; the mock reflects that.
+      mockRouteSetupResult = {
+        outcome: {
+          action: "deny",
+          message:
+            "This number is not authorized to reach the assistant right now.",
+          logReason: "Inbound voice admission floor: guardian_only",
+        },
+        resolved: {
+          assistantId: "self",
+          isInbound: true,
+          otherPartyNumber: "+14155550000",
+          actorTrust: { trustClass: "trusted_contact", memberRecord: null },
+        },
+      };
+
+      const session = createTestSession(
+        "conv-ms-floor-deny-1",
+        "CA_ms_floor_deny_1",
+      );
+      const req = makeVoiceRequest(session.id, {
+        CallSid: "CA_ms_floor_deny_1",
+      });
+
+      const res = await handleVoiceWebhook(req);
+      expect(res.status).toBe(200);
+
+      // Policy was threaded; deny is supported on media-stream, so Stream
+      // TwiML is still produced (denial spoken + torn down at stream start).
+      expect(lastRouteSetupCtx?.admissionPolicy).toBe("guardian_only");
       const twiml = await res.text();
       expect(twiml).toContain("<Stream");
       expect(twiml).not.toContain("<ConversationRelay");

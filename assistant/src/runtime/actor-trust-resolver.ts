@@ -8,7 +8,12 @@
  * Trust classifications:
  * - `guardian`: sender matches the guardian contact's channel for this channel type.
  * - `trusted_contact`: sender is an active contact channel (not the guardian).
- * - `unknown`: sender has no matching contact or no identity could be established.
+ * - `unverified_contact`: sender matches a contact channel that is pending or
+ *   unverified — known to the guardian but not yet through verification.
+ *   Treated identically to `trusted_contact` downstream; the distinction only
+ *   matters at the admission floor (see channel admission policy).
+ * - `unknown`: sender has no matching contact, no identity could be
+ *   established, or the contact's channel is blocked/revoked.
  */
 
 import type { ChannelId } from "../channels/types.js";
@@ -38,22 +43,35 @@ export type { TrustContext } from "../daemon/trust-context.js";
  * - `'trusted_contact'`: The sender is an active contact with a channel
  *   (not the guardian). Trusted contacts can invoke tools but require
  *   guardian approval for sensitive operations.
+ * - `'unverified_contact'`: The sender matches a contact channel whose
+ *   status is `pending` or `unverified` — known to the guardian but not yet
+ *   verified. Treated identically to `trusted_contact` for every downstream
+ *   capability/tool/approval decision; the distinction is admission-only.
  * - `'unknown'`: The sender has no contact record, no identity could be
- *   established, or the sender is an inactive/revoked contact. Unknown
+ *   established, or the sender is a blocked/revoked contact. Unknown
  *   actors are fail-closed with no escalation path.
  */
-export type TrustClass = "guardian" | "trusted_contact" | "unknown";
+export type TrustClass =
+  | "guardian"
+  | "trusted_contact"
+  | "unverified_contact"
+  | "unknown";
 
-/** Returns `true` for actors that are not fully trusted (i.e. not the guardian). */
-export function isUntrustedTrustClass(
-  trustClass: TrustClass | undefined,
-): boolean {
-  return (
-    trustClass === "trusted_contact" ||
-    trustClass === "unknown" ||
-    trustClass === undefined
-  );
-}
+/**
+ * Trust-class ordinal used by the per-channel admission policy floor check.
+ * Higher rank = more trusted. Blocked/revoked never reach classification —
+ * their effective rank is 0 and is enforced by the inbound ACL stage's
+ * member-status short-circuit, not via this table.
+ *
+ * See `wave-b-plan.md` §2.4. Paired with `ADMISSION_FLOOR` from
+ * `@vellumai/gateway-client` — both tables move together.
+ */
+export const TRUST_CLASS_RANK: Record<TrustClass, number> = {
+  guardian: 4,
+  trusted_contact: 3,
+  unverified_contact: 2,
+  unknown: 1,
+};
 
 /**
  * Fully resolved trust context from the actor trust resolver.
@@ -249,12 +267,23 @@ export function resolveActorTrust(
   let trustClass: TrustClass;
   if (isGuardian) {
     trustClass = "guardian";
-  } else if (
-    memberMatchesSender &&
-    memberRecord &&
-    memberRecord.channel.status === "active"
-  ) {
-    trustClass = "trusted_contact";
+  } else if (memberMatchesSender && memberRecord) {
+    const status = memberRecord.channel.status;
+    if (status === "active") {
+      trustClass = "trusted_contact";
+    } else if (status === "unverified" || status === "pending") {
+      // Pre-verification / awaiting-verification contacts get their own
+      // admission tier. Treated identically to trusted_contact for ALL
+      // downstream capability/tool/approval decisions; the distinction
+      // only matters at the channel admission floor.
+      trustClass = "unverified_contact";
+    } else {
+      // status === "blocked" or "revoked" → unknown. acl-enforcement
+      // re-checks resolvedMember.channel.status and emits the appropriate
+      // member_blocked / member_revoked reasons, so hard-deny semantics
+      // for these statuses are preserved end-to-end.
+      trustClass = "unknown";
+    }
   } else {
     trustClass = "unknown";
   }

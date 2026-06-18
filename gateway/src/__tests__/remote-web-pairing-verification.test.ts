@@ -36,11 +36,29 @@ function makeRawVerificationRequest(
   headers: Record<string, string> = {},
 ): Request {
   return new Request(
+    "http://localhost:7830/v1/remote-web/pairing-verification",
+    {
+      method: "POST",
+      headers: {
+        host: "localhost:7830",
+        "content-type": "application/json",
+        ...headers,
+      },
+      body,
+    },
+  );
+}
+
+function makeRemoteVerificationRequest(body: unknown): Request {
+  return new Request(
     "https://paired.example.com/v1/remote-web/pairing-verification",
     {
       method: "POST",
-      headers: { "content-type": "application/json", ...headers },
-      body,
+      headers: {
+        host: "paired.example.com",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(body),
     },
   );
 }
@@ -96,7 +114,7 @@ describe("remote web pairing verification", () => {
       makeVerificationRequest({
         userCode: challenge.userCode.replace("-", "").toLowerCase(),
       }),
-      CLIENT_IP,
+      LOOPBACK_IP,
     );
 
     expect(res.status).toBe(200);
@@ -112,6 +130,26 @@ describe("remote web pairing verification", () => {
     expect(record?.approvedAtMs).toBe(1_000);
   });
 
+  test("rejects non-loopback approval attempts", async () => {
+    const challenge = await createChallenge();
+
+    const res = await handleVerifyRemoteWebPairingChallenge(
+      makeRemoteVerificationRequest({ userCode: challenge.userCode }),
+      CLIENT_IP,
+    );
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: {
+        code: "FORBIDDEN",
+        message: "endpoint is local-only",
+      },
+    });
+    expect(
+      getRemoteWebPairingChallengeForTests(challenge.userCode)?.status,
+    ).toBe("pending");
+  });
+
   test("expires stale challenges instead of approving them", async () => {
     setRemoteWebPairingChallengeNowForTests(() => 1_000);
     const challenge = await createChallenge();
@@ -119,7 +157,7 @@ describe("remote web pairing verification", () => {
 
     const res = await handleVerifyRemoteWebPairingChallenge(
       makeVerificationRequest({ userCode: challenge.userCode }),
-      CLIENT_IP,
+      LOOPBACK_IP,
     );
 
     expect(res.status).toBe(410);
@@ -138,14 +176,14 @@ describe("remote web pairing verification", () => {
     for (let i = 0; i < 10; i++) {
       const res = await handleVerifyRemoteWebPairingChallenge(
         makeVerificationRequest({ userCode: `BAD-${i}` }),
-        CLIENT_IP,
+        LOOPBACK_IP,
       );
       expect(res.status).toBe(404);
     }
 
     const limited = await handleVerifyRemoteWebPairingChallenge(
       makeVerificationRequest({ userCode: "BAD-10" }),
-      CLIENT_IP,
+      LOOPBACK_IP,
     );
 
     expect(limited.status).toBe(429);
@@ -154,7 +192,7 @@ describe("remote web pairing verification", () => {
     const challenge = await createChallenge();
     const blockedValidCode = await handleVerifyRemoteWebPairingChallenge(
       makeVerificationRequest({ userCode: challenge.userCode }),
-      CLIENT_IP,
+      LOOPBACK_IP,
     );
 
     expect(blockedValidCode.status).toBe(429);
@@ -165,7 +203,7 @@ describe("remote web pairing verification", () => {
     const tracked = makeTrackedBodyAccessVerificationRequest();
     const blockedUnreadBody = await handleVerifyRemoteWebPairingChallenge(
       tracked.req,
-      CLIENT_IP,
+      LOOPBACK_IP,
     );
 
     expect(blockedUnreadBody.status).toBe(429);
@@ -178,7 +216,7 @@ describe("remote web pairing verification", () => {
       makeRawVerificationRequest(body, {
         "content-length": String(body.length),
       }),
-      CLIENT_IP,
+      LOOPBACK_IP,
     );
 
     expect(res.status).toBe(413);

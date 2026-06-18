@@ -67,6 +67,13 @@ import {
   handleSubagentStatusChanged,
   handleSubagentEvent,
 } from "@/domains/chat/utils/stream-handlers/subagent-handlers";
+import {
+  handleWorkflowStarted,
+  handleWorkflowProgress,
+  handleWorkflowLeafStarted,
+  handleWorkflowLeafFinished,
+  handleWorkflowCompleted,
+} from "@/domains/chat/utils/stream-handlers/workflow-handlers";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 
 export type {
@@ -367,6 +374,22 @@ export function useStreamEventHandler(
           break;
         case "subagent_event":
           handleSubagentEvent(event, ctx);
+          break;
+
+        case "workflow_started":
+          handleWorkflowStarted(event, ctx);
+          break;
+        case "workflow_progress":
+          handleWorkflowProgress(event, ctx);
+          break;
+        case "workflow_leaf_started":
+          handleWorkflowLeafStarted(event, ctx);
+          break;
+        case "workflow_leaf_finished":
+          handleWorkflowLeafFinished(event, ctx);
+          break;
+        case "workflow_completed":
+          handleWorkflowCompleted(event, ctx);
           break;
         // Cross-domain events handled by bus subscribers mounted in
         // RootLayout (useAssistantResourceSync, useConversationSync,

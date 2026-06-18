@@ -343,6 +343,34 @@ describe("addPointerMessage", () => {
     expect(processorCalled).toBe(true);
   });
 
+  test("unverified_contact provenance round-trips through the metadata schema and is treated as trusted audience", async () => {
+    // Persisted unverified_contact metadata must survive the schema parse so
+    // downstream consumers (e.g. memory write gate, pointer audience trust)
+    // see the durable trust snapshot rather than a silently-dropped undefined.
+    const convId = "conv-ptr-uvc-provenance";
+    ensureConversation(convId);
+    await addMessage(convId, "user", "hello", {
+      metadata: { provenanceTrustClass: "unverified_contact" },
+    });
+
+    // Confirm the durable snapshot round-trips through the schema parser.
+    const { getConversationRecentProvenanceTrustClass } = await import(
+      "../memory/conversation-crud.js"
+    );
+    expect(getConversationRecentProvenanceTrustClass(convId)).toBe(
+      "unverified_contact",
+    );
+
+    // And that pointer-audience trust treats it identically to trusted_contact.
+    let processorCalled = false;
+    setPointerMessageProcessor(async () => {
+      processorCalled = true;
+    });
+
+    await addPointerMessage(convId, "completed", "+15559876543");
+    expect(processorCalled).toBe(true);
+  });
+
   test("unknown provenance trust class does not grant trusted audience", () => {
     const convId = "conv-ptr-unknown-provenance";
     ensureConversation(convId);

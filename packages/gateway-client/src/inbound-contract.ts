@@ -12,6 +12,8 @@
 
 import { z } from "zod";
 
+import { AdmissionPolicySchema } from "./admission-policy-contract.js";
+
 // ---------------------------------------------------------------------------
 // Command intent (channel-initiated commands, e.g. Telegram /start)
 // ---------------------------------------------------------------------------
@@ -66,6 +68,14 @@ export const SourceMetadataSchema = z
     slackBotMentioned: z.boolean().optional(),
     /** Slack workspace/team ID. */
     account: z.string().optional(),
+
+    /**
+     * Per-channel inbound admission policy attached by the gateway. The
+     * runtime admission-policy stage enforces the floor against the
+     * resolved trust class; when absent, the runtime falls back to
+     * `ADMISSION_POLICY_DEFAULT` (`trusted_contacts`).
+     */
+    admissionPolicy: AdmissionPolicySchema.optional(),
 
     // Email-specific fields
     /** Email subject line. */

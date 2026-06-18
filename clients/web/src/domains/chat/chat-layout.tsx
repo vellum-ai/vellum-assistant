@@ -60,6 +60,7 @@ import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useCommandPaletteOrchestrator } from "@/domains/chat/hooks/use-command-palette-orchestrator";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { ResearchResultsOverlay } from "@/domains/chat/onboarding-research/research-results-overlay";
+import { OnboardingCheckinOverlay } from "@/components/onboarding-checkin-overlay";
 import { ChatConversationHeader } from "./chat-conversation-header";
 import { ChatLayoutHeader } from "./chat-layout-header";
 import { RenameDialogFromStore } from "./rename-dialog-from-store";
@@ -679,6 +680,10 @@ export function ChatLayout() {
           overlay; it never remounts the chat, so a suggestion click's
           navigate + `?prompt=` auto-send isn't raced by a remount. */}
       {isFocused ? <ResearchResultsOverlay /> : null}
+      {/* First step of the focused flow: the gcal "Let's chat tomorrow" page,
+          shown over the streaming research output until connect/skip. Self-gates
+          on `checkinPending`; top-level so it can compose the onboarding screen. */}
+      <OnboardingCheckinOverlay />
 
       <RenameDialogFromStore assistantId={assistantId} />
       {commandPalette.isOpen ? (

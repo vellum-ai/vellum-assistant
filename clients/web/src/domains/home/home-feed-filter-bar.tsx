@@ -86,11 +86,12 @@ export function HomeFeedFilterBar({
   return (
     <SegmentControl<FilterValue>
       ariaLabel="Filter notifications"
-      iconOnly
       value={activeFilter ?? ALL_FILTER}
       onChange={(next) => onFilterChange(next === ALL_FILTER ? null : next)}
       items={items}
-      className="self-start"
+      // Labeled mode defaults to full width with flex-1 segments; keep it
+      // compact (sized to its content) by overriding both.
+      className="self-start !w-auto [&>*]:!flex-none"
     />
   );
 }
