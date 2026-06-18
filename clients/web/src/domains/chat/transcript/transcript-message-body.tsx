@@ -13,6 +13,7 @@ import { MessageAttachments } from "@/domains/chat/components/chat-attachments/m
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
 import { SubagentInlineProgressCard } from "@/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card";
+import { WorkflowInlineProgressCard } from "@/domains/chat/components/workflow-inline-progress-card/workflow-inline-progress-card";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
 import { SingleActivity } from "@/domains/chat/components/single-activity/single-activity";
 import { MultiActivityGroup } from "@/domains/chat/components/multi-activity-group/multi-activity-group";
@@ -23,6 +24,7 @@ import {
 import {
   type ContentBlockActivityItem,
   groupContentBlocks,
+  isRunWorkflowCall,
   isSubagentSpawnCall,
   isSuppressedUiTool,
 } from "@/domains/chat/transcript/message-content";
@@ -31,12 +33,14 @@ import { getSlackLinkUrl } from "@/domains/chat/types/types";
 import { wireSurfaceToDisplay } from "@/domains/chat/utils/map-runtime-message";
 import { isPointerCoarse } from "@/utils/pointer";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ConversationMessageSurface } from "@vellumai/assistant-api";
 import {
   isInteractiveClickTarget,
   lookupSubagentEntriesForMessage,
   resolveSpawnedSubagentIds,
+  resolveWorkflowRunIds,
   SlackMessageAttribution,
   type TranscriptMessageBodyProps,
 } from "@/domains/chat/transcript/transcript-message-body-shared";
@@ -69,6 +73,8 @@ export function TranscriptMessageBody({
   assistantId,
   onSubagentClick,
   onStopSubagent,
+  onWorkflowClick,
+  onStopWorkflow,
   isStreaming = false,
 }: TranscriptMessageBodyProps) {
   const isSlackMessage = Boolean(message.slackMessage);
@@ -135,7 +141,9 @@ export function TranscriptMessageBody({
     (s) => lookupSubagentEntriesForMessage(s.byParent, message),
   );
   const byToolUseId = useSubagentStore.use.byToolUseId();
+  const byToolUseIdWf = useWorkflowStore.use.byToolUseId();
   const claimedSpawnIds = new Set<string>();
+  const claimedWorkflowIds = new Set<string>();
 
   const renderTextWithInlineSurfaces = (text: string, key: string) => {
     const inlineSegments = parseInlineSurfaces(text);
@@ -196,6 +204,27 @@ export function TranscriptMessageBody({
     );
   };
 
+  const renderInlineWorkflowCards = (toolCalls: ChatMessageToolCall[]) => {
+    const runIds = resolveWorkflowRunIds(
+      toolCalls,
+      byToolUseIdWf,
+      claimedWorkflowIds,
+    );
+    if (runIds.length === 0) return null;
+    return (
+      <div className="flex w-full flex-col gap-1.5">
+        {runIds.map((runId) => (
+          <WorkflowInlineProgressCard
+            key={runId}
+            runId={runId}
+            onWorkflowClick={onWorkflowClick}
+            onStopWorkflow={onStopWorkflow}
+          />
+        ))}
+      </div>
+    );
+  };
+
   const renderSurfaceNode = (
     surface: ConversationMessageSurface,
     key: string,
@@ -246,7 +275,7 @@ export function TranscriptMessageBody({
       }
     }
     const renderableToolCalls = groupToolCalls.filter(
-      (tc) => !isSubagentSpawnCall(tc),
+      (tc) => !isSubagentSpawnCall(tc) && !isRunWorkflowCall(tc),
     );
     const loneTool =
       cardItems.length === 1 &&
@@ -261,6 +290,7 @@ export function TranscriptMessageBody({
         <Fragment key={key}>
           <SingleActivity variant="tool" toolCall={loneTool} />
           {renderInlineSubagentCards(groupToolCalls)}
+          {renderInlineWorkflowCards(groupToolCalls)}
         </Fragment>
       );
     }
@@ -281,6 +311,7 @@ export function TranscriptMessageBody({
             />
           </div>
           {renderInlineSubagentCards(groupToolCalls)}
+          {renderInlineWorkflowCards(groupToolCalls)}
         </Fragment>
       );
     }
@@ -301,6 +332,7 @@ export function TranscriptMessageBody({
           />
         )}
         {renderInlineSubagentCards(groupToolCalls)}
+        {renderInlineWorkflowCards(groupToolCalls)}
       </Fragment>
     );
   };

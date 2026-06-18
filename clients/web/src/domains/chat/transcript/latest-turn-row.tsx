@@ -58,6 +58,11 @@ export interface LatestTurnRowProps {
   onSubagentClick?: (subagentId: string) => void;
   /** Callback to abort/stop a running subagent from an inline card. */
   onStopSubagent?: (subagentId: string) => void;
+  /** Click handler when the user clicks the open button on an inline workflow
+   *  progress card. */
+  onWorkflowClick?: (runId: string) => void;
+  /** Callback to abort/stop a running workflow from an inline card. */
+  onStopWorkflow?: (runId: string) => void;
 }
 
 export const LatestTurnRow = memo(function LatestTurnRow({
@@ -79,6 +84,8 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   assistantId,
   onSubagentClick,
   onStopSubagent,
+  onWorkflowClick,
+  onStopWorkflow,
 }: LatestTurnRowProps) {
   // The response cluster is "streaming" whenever the turn is in flight. This
   // keeps each response message's last tool-call group expanded for the whole
@@ -106,6 +113,8 @@ export const LatestTurnRow = memo(function LatestTurnRow({
         assistantId={assistantId}
         onSubagentClick={onSubagentClick}
         onStopSubagent={onStopSubagent}
+        onWorkflowClick={onWorkflowClick}
+        onStopWorkflow={onStopWorkflow}
       />
       {responseItems.map((response) => (
         <Fragment key={response.key}>
@@ -127,6 +136,8 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             assistantId={assistantId}
             onSubagentClick={onSubagentClick}
             onStopSubagent={onStopSubagent}
+            onWorkflowClick={onWorkflowClick}
+            onStopWorkflow={onStopWorkflow}
             isStreaming={isStreaming}
           />
         </Fragment>

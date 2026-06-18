@@ -252,6 +252,8 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       assistantId: rest.assistantId,
       onSubagentClick: rest.onSubagentClick,
       onStopSubagent: rest.onStopSubagent,
+      onWorkflowClick: rest.onWorkflowClick,
+      onStopWorkflow: rest.onStopWorkflow,
     };
 
     return (
