@@ -6,6 +6,8 @@
  * next — without performing any side effects itself.
  */
 
+import type { AdmissionPolicy } from "@vellumai/gateway-client";
+
 import { getConfig } from "../config/loader.js";
 import { findActiveVoiceInvites } from "../memory/invite-store.js";
 import {
@@ -14,6 +16,7 @@ import {
 } from "../runtime/actor-trust-resolver.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getPendingSession } from "../runtime/channel-verification-service.js";
+import { enforceAdmissionPolicy } from "../runtime/routes/inbound-stages/admission-policy.js";
 import { getLogger } from "../util/logger.js";
 import type { CallSession } from "./types.js";
 
@@ -27,6 +30,12 @@ interface SetupContext {
   from: string;
   to: string;
   customParameters?: Record<string, string>;
+  /**
+   * Per-channel inbound admission floor for the `phone` channel, supplied by
+   * the caller. When absent/`null`, the floor check is skipped entirely —
+   * preserving all pre-admission behavior.
+   */
+  admissionPolicy?: AdmissionPolicy | null;
 }
 
 // ── Setup outcomes ───────────────────────────────────────────────────
@@ -184,6 +193,46 @@ export function routeSetup(ctx: SetupContext): {
   // ── Inbound call ACL evaluation ─────────────────────────────────
   const pendingChallenge = getPendingSession("phone");
 
+  // Inbound admission floor. Pending verification challenges bypass it — they
+  // are an explicit in-progress grant, consistent with the `verification`
+  // branch below. Skipped entirely when no policy is supplied.
+  const floorVerdict =
+    ctx.admissionPolicy && !pendingChallenge
+      ? enforceAdmissionPolicy({
+          sourceChannel: "phone",
+          trustClass: actorTrust.trustClass,
+          memberStatus: actorTrust.memberRecord?.channel.status,
+          policy: ctx.admissionPolicy,
+        })
+      : ({ admitted: true } as const);
+
+  // Floor-deny outcome shared by the unknown-caller and member-caller branches.
+  // Live calls cannot await async re-verification, so the floor's
+  // `shouldChallenge` upgrade UX is not surfaced — same rationale as `escalate`.
+  const floorDeny = () => {
+    const effectivePolicy = floorVerdict.admitted
+      ? undefined
+      : floorVerdict.effectivePolicy;
+    log.info(
+      {
+        callSessionId: ctx.callSessionId,
+        from: ctx.from,
+        trustClass: actorTrust.trustClass,
+        effectivePolicy,
+      },
+      "Inbound voice ACL: admission floor denied caller",
+    );
+    return {
+      outcome: {
+        action: "deny" as const,
+        message:
+          "This number is not authorized to reach the assistant right now.",
+        logReason: `Inbound voice admission floor: ${effectivePolicy}`,
+      },
+      resolved,
+    };
+  };
+
   if (
     (actorTrust.trustClass === "unknown" ||
       actorTrust.trustClass === "unverified_contact") &&
@@ -243,6 +292,12 @@ export function routeSetup(ctx: SetupContext): {
         },
         resolved,
       };
+    }
+
+    // Admission floor: deny callers below the floor. Invites (handled above)
+    // bypass the floor as an explicit grant; this runs after them.
+    if (!floorVerdict.admitted) {
+      return floorDeny();
     }
 
     // Known caller whose channel hasn't passed verification yet —
@@ -347,6 +402,12 @@ export function routeSetup(ctx: SetupContext): {
       },
       resolved,
     };
+  }
+
+  // Admission floor: deny member/guardian callers below the floor (e.g.
+  // `guardian_only` denies a trusted_contact).
+  if (!floorVerdict.admitted) {
+    return floorDeny();
   }
 
   // Guardian and trusted-contact callers proceed normally
