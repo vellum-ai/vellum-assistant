@@ -7,18 +7,33 @@ interface MockPlatformClient {
 
 let mockClient: MockPlatformClient | null = null;
 
+// Controls for classifyMissingClient() — only consulted when `create()` returns
+// null. The credential-reachability classification now lives in `client.ts`
+// behind `classifyMissingPlatformCredential()`, so we mock that seam directly.
+// Defaults model a genuinely off-platform install with creds absent.
+let mockCredentialAvailability: () => Promise<
+  "absent" | "unreachable"
+> = async () => "absent";
+
 mock.module("../client.js", () => ({
   VellumPlatformClient: {
     create: async () => mockClient,
   },
+  classifyMissingPlatformCredential: () => mockCredentialAvailability(),
+}));
+
+let mockPlatformEnabled = false;
+
+mock.module("../feature-gate.js", () => ({
+  arePlatformFeaturesEnabled: () => mockPlatformEnabled,
 }));
 
 import { fetchManagedProfiles } from "../managed-profiles.js";
 
-function makeProfile(key: string) {
+function makeProfile(key: string, overrides: Record<string, unknown> = {}) {
   return {
     key,
-    intent: "general",
+    intent: "balanced",
     provider: "anthropic",
     connection_name: "default",
     source: "platform",
@@ -28,6 +43,7 @@ function makeProfile(key: string) {
     effort: "medium",
     thinking: { enabled: true, stream_thinking: false },
     context_window: { max_input_tokens: 200000 },
+    ...overrides,
   };
 }
 
@@ -51,15 +67,63 @@ describe("fetchManagedProfiles", () => {
       platformAssistantId: "asst-123",
       fetch: mock(async () => jsonResponse(okBody())),
     };
+    mockPlatformEnabled = false;
+    mockCredentialAvailability = async () => "absent";
   });
 
   afterEach(() => {
     mockClient = null;
   });
 
-  test("returns no-connection when no platform client", async () => {
+  test("returns no-connection when platform features are disabled", async () => {
     mockClient = null;
+    mockPlatformEnabled = false;
     expect(await fetchManagedProfiles()).toEqual({ status: "no-connection" });
+  });
+
+  test("returns no-connection when platform enabled but creds confirmed absent", async () => {
+    mockClient = null;
+    mockPlatformEnabled = true;
+    mockCredentialAvailability = async () => "absent";
+    expect(await fetchManagedProfiles()).toEqual({ status: "no-connection" });
+  });
+
+  test("returns error when platform enabled but credential read is unreachable", async () => {
+    mockClient = null;
+    mockPlatformEnabled = true;
+    mockCredentialAvailability = async () => "unreachable";
+    // A transient backend failure must preserve on-disk profiles, not prune.
+    expect(await fetchManagedProfiles()).toEqual({ status: "error" });
+  });
+
+  test("returns error on an invalid intent (out-of-contract ModelIntent)", async () => {
+    mockClient!.fetch = mock(async () =>
+      jsonResponse({
+        schema_version: 1,
+        profiles: [makeProfile("p0", { intent: "general" })],
+      }),
+    );
+    expect(await fetchManagedProfiles()).toEqual({ status: "error" });
+  });
+
+  test("returns error on an invalid provider", async () => {
+    mockClient!.fetch = mock(async () =>
+      jsonResponse({
+        schema_version: 1,
+        profiles: [makeProfile("p0", { provider: "claude" })],
+      }),
+    );
+    expect(await fetchManagedProfiles()).toEqual({ status: "error" });
+  });
+
+  test("returns error on an invalid effort", async () => {
+    mockClient!.fetch = mock(async () =>
+      jsonResponse({
+        schema_version: 1,
+        profiles: [makeProfile("p0", { effort: "ultra" })],
+      }),
+    );
+    expect(await fetchManagedProfiles()).toEqual({ status: "error" });
   });
 
   test("returns ok with parsed profiles on a valid 200", async () => {

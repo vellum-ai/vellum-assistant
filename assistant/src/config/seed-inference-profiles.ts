@@ -22,11 +22,14 @@ import {
 const log = getLogger("seed-inference-profiles");
 
 /**
- * Template for a daemon-managed inference profile. The profile's model is
- * resolved at seed time from `PROVIDER_MODEL_INTENTS` so the catalog stays the
- * single source of truth for "which model does this intent map to?".
+ * Template for a user inference profile, materialized at hatch time for
+ * off-platform installations. The profile's model is resolved at seed time
+ * from `PROVIDER_MODEL_INTENTS` (via `resolveModelIntent`) so the catalog stays
+ * the single source of truth for "which model does this intent map to?". The
+ * `provider` and `connectionName` fields are placeholders, overridden at hatch
+ * time with the user's chosen provider and personal connection name.
  */
-type ManagedProfileTemplate = Omit<
+type UserProfileTemplate = Omit<
   ProfileEntry,
   "provider" | "model" | "provider_connection"
 > & {
@@ -42,7 +45,7 @@ type ManagedProfileTemplate = Omit<
  * fields are placeholders — they are overridden at hatch time with the
  * user's chosen provider and personal connection name.
  */
-const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
+const USER_PROFILE_TEMPLATES: Record<string, UserProfileTemplate> = {
   "custom-balanced": {
     intent: "balanced",
     provider: "anthropic",
@@ -92,7 +95,7 @@ export const AUTO_PROFILE_KEY = "auto";
 /** Stable keys of the platform-managed profiles. The profile *content* now
  *  comes from the platform model-profiles endpoint; only the key set lives
  *  in code, so route validation and pruning can recognise managed profiles. */
-export const MANAGED_PROFILE_KEYS = [
+const MANAGED_PROFILE_KEYS = [
   "balanced",
   "quality-optimized",
   "cost-optimized",
@@ -189,7 +192,7 @@ export async function seedInferenceProfiles(
     const fetchedKeys = new Set(managed.profiles.map((p) => p.key));
     for (const p of managed.profiles) {
       const previous = readObject(profiles[p.key]);
-      const next = materializeManagedProfile(p);
+      const next = materializeManagedProfile(p) as Record<string, unknown>;
       if (previous && "label" in previous) next.label = previous.label;
       if (previous && "status" in previous) next.status = previous.status;
       profiles[p.key] = next as ProfileEntry;
@@ -357,7 +360,7 @@ export async function seedInferenceProfiles(
 }
 
 function materializeProfile(
-  template: ManagedProfileTemplate,
+  template: UserProfileTemplate,
   provider: NonNullable<ProfileEntry["provider"]>,
   connectionName: string,
 ): ProfileEntry {
@@ -381,31 +384,32 @@ function readString(value: unknown): string | undefined {
 }
 
 /**
- * Materialize a platform-supplied managed profile into a `ProfileEntry`,
- * resolving the model from the profile's intent client-side so the catalog
- * stays the single source of truth for "which model does this intent map to?".
+ * Materialize a platform-supplied managed profile into a `ProfileEntry`. Maps
+ * the validated snake_case platform record into a `UserProfileTemplate` and
+ * delegates to {@link materializeProfile} so the model resolution and field
+ * layout live in one place. The record's `provider`/`effort`/`intent` are
+ * already narrowed to their contract enums by `PlatformManagedProfileSchema`.
  */
-function materializeManagedProfile(
-  p: PlatformManagedProfile,
-): Record<string, unknown> {
-  return {
-    provider: p.provider,
-    provider_connection: p.connection_name,
-    model: resolveModelIntent(
-      p.provider as NonNullable<ProfileEntry["provider"]>,
-      p.intent as ModelIntent,
-    ),
-    source: "managed",
-    label: p.label,
-    description: p.description,
-    maxTokens: p.max_tokens,
-    effort: p.effort as ProfileEntry["effort"],
-    thinking: {
-      enabled: p.thinking.enabled,
-      streamThinking: p.thinking.stream_thinking,
+function materializeManagedProfile(p: PlatformManagedProfile): ProfileEntry {
+  return materializeProfile(
+    {
+      intent: p.intent,
+      provider: p.provider,
+      connectionName: p.connection_name,
+      source: "managed",
+      label: p.label,
+      description: p.description,
+      maxTokens: p.max_tokens,
+      effort: p.effort,
+      thinking: {
+        enabled: p.thinking.enabled,
+        streamThinking: p.thinking.stream_thinking,
+      },
+      contextWindow: { maxInputTokens: p.context_window.max_input_tokens },
     },
-    contextWindow: { maxInputTokens: p.context_window.max_input_tokens },
-  };
+    p.provider,
+    p.connection_name,
+  );
 }
 
 /**
