@@ -92,7 +92,7 @@ mock.module("../runtime/channel-verification-service.js", () => ({
     return null;
   },
   createOutboundSession: () => ({
-    conversationId: "test-session",
+    sessionId: "test-session",
     secret: "123456",
   }),
   bindSessionIdentity: () => {},
@@ -108,16 +108,23 @@ mock.module("../runtime/channel-verification-service.js", () => ({
   }),
 }));
 
-// Mock gateway client — capture delivery calls
+// Mock gateway client — capture delivery calls. `failDeliveryWhen` lets a test
+// simulate a delivery failure for a specific payload (e.g. a DM that can't be
+// opened) so fallback paths can be exercised.
 const deliveredReplies: Array<{
   url: string;
   payload: Record<string, unknown>;
 }> = [];
+let failDeliveryWhen: ((payload: Record<string, unknown>) => boolean) | null =
+  null;
 mock.module("../runtime/gateway-client.js", () => ({
   deliverChannelReply: async (
     url: string,
     payload: Record<string, unknown>,
   ) => {
+    if (failDeliveryWhen?.(payload)) {
+      throw new Error("simulated delivery failure");
+    }
     deliveredReplies.push({ url, payload });
     return { ok: true };
   },
@@ -1123,6 +1130,7 @@ describe("(g) access_request resolver: requester code delivery", () => {
     resetTables();
     deliveredReplies.length = 0;
     emittedSignals.length = 0;
+    failDeliveryWhen = null;
   });
 
   test("on-channel Slack approval DMs the verification code to the requester", async () => {
@@ -1230,5 +1238,42 @@ describe("(g) access_request resolver: requester code delivery", () => {
     expect(requesterReply).toBeDefined();
     expect(requesterReply!.payload.text).toContain("receive from the guardian");
     expect(requesterReply!.payload.text).not.toContain("123456");
+  });
+
+  test("Slack shared-channel fallback posts an ephemeral notice to the channel when the DM fails", async () => {
+    const req = createAccessRequest();
+
+    // Make the direct DM (to the U... user ID) fail so the courier fallback runs.
+    failDeliveryWhen = (payload) => payload.chatId === REQUESTER_UID;
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: "approve_once",
+      actorContext: guardianActor({
+        channel: "slack",
+        actorExternalUserId: GUARDIAN_UID,
+      }),
+      channelDeliveryContext: {
+        replyCallbackUrl:
+          "http://localhost:3000/deliver/slack?threadTs=111.222",
+        guardianChatId: "C_SHARED_CHANNEL",
+        assistantId: "self",
+      },
+    });
+
+    expect(result.applied).toBe(true);
+
+    // The courier notice falls back to an ephemeral message targeting the
+    // originating channel (C...), since chat.postEphemeral needs a channel ID —
+    // not the requester's user ID.
+    const courier = deliveredReplies.find(
+      (r) =>
+        typeof r.payload.text === "string" &&
+        (r.payload.text as string).includes("receive from the guardian"),
+    );
+    expect(courier).toBeDefined();
+    expect(courier!.payload.chatId).toBe("C_SHARED_CHANNEL");
+    expect(courier!.payload.ephemeral).toBe(true);
+    expect(courier!.payload.user).toBe(REQUESTER_UID);
   });
 });

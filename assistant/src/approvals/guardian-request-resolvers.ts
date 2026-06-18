@@ -723,11 +723,15 @@ const accessRequestResolver: GuardianRequestResolver = {
                 "Please enter the 6-digit verification code you receive from the guardian.",
               assistantId,
             };
-            // On Slack shared channels, deliver as ephemeral so only the requester sees
+            // On Slack shared channels, deliver the courier notice as an
+            // ephemeral message in the originating channel. chat.postEphemeral
+            // needs the channel ID (`C…`), so target requesterChatId rather
+            // than the requester's user ID.
             if (
               shouldUseEphemeral(channel, requesterChatId) &&
               requesterExternalUserId
             ) {
+              approvalPayload.chatId = requesterChatId;
               approvalPayload.ephemeral = true;
               approvalPayload.user = requesterExternalUserId;
             }
@@ -753,6 +757,7 @@ const accessRequestResolver: GuardianRequestResolver = {
             shouldUseEphemeral(channel, requesterChatId) &&
             requesterExternalUserId
           ) {
+            failurePayload.chatId = requesterChatId;
             failurePayload.ephemeral = true;
             failurePayload.user = requesterExternalUserId;
           }
