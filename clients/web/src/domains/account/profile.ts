@@ -27,7 +27,6 @@ export interface UserMe {
   email: string;
   first_name: string;
   last_name: string;
-  consent: UserConsent | null;
 }
 
 export type UsernameErrorCode =
@@ -133,10 +132,26 @@ export async function updateMe(patch: UpdateMePatch): Promise<UpdateMeResult> {
   };
 }
 
+export async function fetchConsent(): Promise<UserConsent> {
+  const { data, error, response } = await client.get<UserConsent, unknown>({
+    url: "/v1/user/consent/",
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, "Failed to load consent.");
+  if (!response.ok || !data) {
+    throw new ApiError(
+      response.status,
+      extractErrorMessage(error, response, "Failed to load consent."),
+    );
+  }
+  return data;
+}
+
+// PUTs /v1/user/consent/ — partial bodies are accepted, no writable field is required.
 export async function patchConsent(consent: ConsentPatch): Promise<void> {
-  await client.patch({
-    url: "/v1/user/me/",
-    body: { consent },
+  await client.put({
+    url: "/v1/user/consent/",
+    body: consent,
     throwOnError: true,
   });
 }
