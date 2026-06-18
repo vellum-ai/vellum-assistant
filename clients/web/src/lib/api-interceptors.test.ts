@@ -208,8 +208,8 @@ describe("api-interceptors / Electron session-token header", () => {
 // user's gateway.
 //
 // The platform client uses the segment allowlist — only explicitly
-// listed segments (currently `conversations`) are rewritten. Platform-
-// owned routes like `maintenance-mode/`, `system-events/`, `terminal/`,
+// listed segments are rewritten. Platform-owned routes like
+// `maintenance-mode/`, `system-events/`, `terminal/`,
 // `doctor/` fall through to Django.
 //
 // These tests pin the invariants that make that handoff safe:
@@ -325,6 +325,18 @@ describe("api-interceptors / self-hosted rewriting", () => {
     const output = await requestInterceptor(input);
     expect(output.headers.get("X-Vellum-Client-Id")).toBe(getClientId());
     expect(output.headers.get("X-Vellum-Interface-Id")).toBe("vellum");
+  });
+
+  test("rewrites assistant event routes to the self-hosted gateway", async () => {
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    const input = new Request(
+      "https://platform.test/v1/assistants/self/events/",
+    );
+    const output = await requestInterceptor(input);
+    expect(new URL(output.url).origin).toBe(INGRESS);
+    expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
+    expect(output.headers.get("Vellum-Organization-Id")).toBeNull();
+    expect(output.headers.get("X-CSRFToken")).toBeNull();
   });
 
   test("omits cookie credentials on the rewritten request", async () => {
@@ -487,10 +499,9 @@ describe("api-interceptors / daemon client self-hosted rewriting", () => {
 // Remote gateway direct requests
 // ---------------------------------------------------------------------------
 //
-// Remote web serves the SPA from the same nginx edge as the gateway. Some
-// platform-generated clients still call flat same-origin `/v1/...` routes
-// directly instead of `/v1/assistants/{id}/...`; those need the paired browser
-// token too.
+// Remote web serves the SPA from the same nginx edge as the gateway. Daemon and
+// gateway generated clients can call flat same-origin `/v1/...` routes directly
+// instead of `/v1/assistants/{id}/...`; those need the paired browser token too.
 
 describe("api-interceptors / remote gateway direct requests", () => {
   beforeEach(() => {
@@ -505,17 +516,17 @@ describe("api-interceptors / remote gateway direct requests", () => {
     clearCsrfCookie();
   });
 
-  test("authorizes same-origin flat /v1 requests with the paired browser token", async () => {
+  test("authorizes daemon same-origin flat /v1 requests with the paired browser token", async () => {
     setSelfHostedConnection({
       url: window.location.origin,
       token: ACTOR_TOKEN,
     });
     const input = new Request(
-      `${window.location.origin}/v1/feature-flags/client-flag-values/`,
+      `${window.location.origin}/v1/feature-flags`,
       { headers: { "Vellum-Organization-Id": TEST_ORG_ID } },
     );
 
-    const output = await requestInterceptor(input);
+    const output = await daemonRequestInterceptor(input);
 
     expect(output.url).toBe(input.url);
     expect(output.credentials).toBe("omit");
@@ -548,7 +559,7 @@ describe("api-interceptors / remote gateway direct requests", () => {
       token: ACTOR_TOKEN,
     });
     const input = new Request(
-      `${window.location.origin}/assistant-123/v1/feature-flags/client-flag-values/`,
+      `${window.location.origin}/assistant-123/v1/feature-flags`,
     );
 
     const output = authorizeRemoteGatewayRequest(input);
@@ -563,7 +574,7 @@ describe("api-interceptors / remote gateway direct requests", () => {
       token: ACTOR_TOKEN,
     });
     const input = new Request(
-      `${window.location.origin}/v1/feature-flags/client-flag-values/`,
+      `${window.location.origin}/v1/feature-flags`,
     );
 
     expect(authorizeRemoteGatewayRequest(input)).toBeNull();
@@ -595,6 +606,7 @@ describe("api-interceptors / platform features gate", () => {
   });
 
   afterEach(() => {
+    window.__VELLUM_CONFIG__ = undefined;
     setSelfHostedConnection(null);
     isPlatformDisabledMock.mockImplementation(() => false);
   });
@@ -621,6 +633,26 @@ describe("api-interceptors / platform features gate", () => {
     const input = new Request("https://platform.test/v1/organizations/");
     const output = platformFeaturesGate(input);
     expect(output.signal.aborted).toBe(false);
+  });
+
+  test("aborts platform requests in remote-gateway mode", () => {
+    window.__VELLUM_CONFIG__ = { mode: "remote-gateway" };
+    const input = new Request(
+      `${window.location.origin}/v1/feature-flags/client-flag-values/`,
+    );
+    const output = platformFeaturesGate(input);
+    expect(output.signal.aborted).toBe(true);
+  });
+
+  test("passes bearer-authenticated gateway requests in remote-gateway mode", () => {
+    window.__VELLUM_CONFIG__ = { mode: "remote-gateway" };
+    const input = new Request(
+      `${window.location.origin}/v1/assistants/self/events/`,
+      { headers: { Authorization: `Bearer ${ACTOR_TOKEN}` } },
+    );
+    const output = platformFeaturesGate(input);
+    expect(output.signal.aborted).toBe(false);
+    expect(output.url).toBe(input.url);
   });
 });
 

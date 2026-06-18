@@ -5,15 +5,22 @@ import { useLocation, useNavigate } from "react-router";
 import { NotFound } from "@/components/not-found";
 import {
   activateRemoteGatewaySession,
+  createRemoteWebPairingChallenge,
   exchangeRemoteWebPairingToken,
   parseRemoteWebPairingParams,
   RemoteWebPairingError,
 } from "@/lib/auth/remote-gateway-session";
 import { isRemoteGatewayMode } from "@/lib/local-mode";
+import { sanitizeReturnTo } from "@/utils/return-to";
 import { routes } from "@/utils/routes";
 
+type PairingDetails = {
+  deviceCode: string;
+  userCode: string | null;
+};
+
 type PairingState =
-  | { kind: "missing" }
+  | { kind: "starting" }
   | { kind: "polling"; expiresAt: string | null }
   | { kind: "approved" }
   | { kind: "expired" }
@@ -21,10 +28,10 @@ type PairingState =
 
 function statusCopy(state: PairingState): { title: string; body: string } {
   switch (state.kind) {
-    case "missing":
+    case "starting":
       return {
-        title: "Pairing link incomplete",
-        body: "Start a new web pairing from the local assistant and open the full link.",
+        title: "Starting pairing",
+        body: "Creating a code for this browser.",
       };
     case "approved":
       return {
@@ -53,7 +60,7 @@ function StatusIcon({ state }: { state: PairingState }) {
   if (state.kind === "approved") {
     return <CheckCircle2 className="h-5 w-5 text-green-600" aria-hidden />;
   }
-  if (state.kind === "polling") {
+  if (state.kind === "starting" || state.kind === "polling") {
     return (
       <LoaderCircle
         className="h-5 w-5 animate-spin text-blue-600"
@@ -68,6 +75,10 @@ export function RemoteWebPairingPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const enabled = isRemoteGatewayMode();
+  const returnTo = useMemo(() => {
+    const value = new URLSearchParams(location.search).get("returnTo");
+    return sanitizeReturnTo(value, routes.assistant);
+  }, [location.search]);
   const params = useMemo(
     () =>
       parseRemoteWebPairingParams(
@@ -75,16 +86,54 @@ export function RemoteWebPairingPage() {
       ),
     [location.pathname, location.search, location.hash],
   );
-  const [state, setState] = useState<PairingState>(
+  const [pairing, setPairing] = useState<PairingDetails | null>(() =>
     params.deviceCode
-      ? { kind: "polling", expiresAt: null }
-      : { kind: "missing" },
+      ? {
+          deviceCode: params.deviceCode,
+          userCode: params.userCode,
+        }
+      : null,
+  );
+  const [state, setState] = useState<PairingState>(
+    pairing ? { kind: "polling", expiresAt: null } : { kind: "starting" },
   );
 
   useEffect(() => {
     if (!enabled) return;
-    if (!params.deviceCode) {
-      setState({ kind: "missing" });
+    if (pairing) return;
+
+    const controller = new AbortController();
+
+    const createChallenge = async () => {
+      try {
+        const challenge = await createRemoteWebPairingChallenge(
+          controller.signal,
+        );
+        setPairing({
+          deviceCode: challenge.deviceCode,
+          userCode: challenge.userCode,
+        });
+        setState({ kind: "polling", expiresAt: challenge.expiresAt });
+      } catch {
+        if (controller.signal.aborted) return;
+        setState({
+          kind: "error",
+          message:
+            "The assistant could not start pairing. Refresh the page to try again.",
+        });
+      }
+    };
+
+    void createChallenge();
+
+    return () => {
+      controller.abort();
+    };
+  }, [enabled, pairing]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    if (!pairing?.deviceCode) {
       return;
     }
 
@@ -94,7 +143,7 @@ export function RemoteWebPairingPage() {
     const poll = async () => {
       try {
         const result = await exchangeRemoteWebPairingToken(
-          params.deviceCode!,
+          pairing.deviceCode,
           controller.signal,
         );
         if (result.status === "pending") {
@@ -108,10 +157,7 @@ export function RemoteWebPairingPage() {
 
         activateRemoteGatewaySession(result);
         setState({ kind: "approved" });
-        timeout = setTimeout(
-          () => navigate(routes.assistant, { replace: true }),
-          250,
-        );
+        timeout = setTimeout(() => navigate(returnTo, { replace: true }), 250);
       } catch (err) {
         if (controller.signal.aborted) return;
         if (err instanceof RemoteWebPairingError && err.status === 401) {
@@ -132,7 +178,7 @@ export function RemoteWebPairingPage() {
       controller.abort();
       if (timeout) clearTimeout(timeout);
     };
-  }, [enabled, params.deviceCode, navigate]);
+  }, [enabled, pairing?.deviceCode, navigate, returnTo]);
 
   if (!enabled) {
     return <NotFound />;
@@ -148,13 +194,13 @@ export function RemoteWebPairingPage() {
           <h1 className="text-xl font-semibold">{copy.title}</h1>
         </div>
 
-        {params.userCode ? (
+        {pairing?.userCode ? (
           <div className="mb-5 rounded-md border border-[var(--border-subtle)] bg-[var(--background-muted)] p-4 text-center">
             <div className="text-xs font-medium uppercase text-[var(--content-secondary)]">
               Pairing code
             </div>
             <div className="mt-2 font-mono text-3xl font-semibold tracking-[0.18em]">
-              {params.userCode}
+              {pairing.userCode}
             </div>
           </div>
         ) : null}

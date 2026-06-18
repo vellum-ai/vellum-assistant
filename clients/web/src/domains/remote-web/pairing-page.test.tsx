@@ -15,9 +15,20 @@ const exchangeRemoteWebPairingTokenMock = mock(
     intervalSeconds: 5,
   }),
 );
+const createRemoteWebPairingChallengeMock = mock(
+  async (_signal?: AbortSignal) => ({
+    deviceCode: "created-device",
+    userCode: "B8C2-S2J3",
+    verificationUri: "http://localhost:3000/assistant/pair",
+    expiresAt: "2026-06-16T12:00:00.000Z",
+    expiresInSeconds: 600,
+    intervalSeconds: 5,
+  }),
+);
 
 mock.module("@/lib/auth/remote-gateway-session", () => ({
   activateRemoteGatewaySession: () => {},
+  createRemoteWebPairingChallenge: createRemoteWebPairingChallengeMock,
   exchangeRemoteWebPairingToken: exchangeRemoteWebPairingTokenMock,
   parseRemoteWebPairingParams: (value: string) => {
     const url = new URL(value, "http://localhost:3000");
@@ -42,6 +53,7 @@ afterEach(() => {
   cleanup();
   remoteGatewayMode = false;
   exchangeRemoteWebPairingTokenMock.mockClear();
+  createRemoteWebPairingChallengeMock.mockClear();
 });
 
 describe("RemoteWebPairingPage", () => {
@@ -55,6 +67,7 @@ describe("RemoteWebPairingPage", () => {
     );
 
     expect(screen.getByText("Not found")).not.toBeNull();
+    expect(createRemoteWebPairingChallengeMock).not.toHaveBeenCalled();
     expect(exchangeRemoteWebPairingTokenMock).not.toHaveBeenCalled();
   });
 
@@ -75,6 +88,43 @@ describe("RemoteWebPairingPage", () => {
     );
     expect(exchangeRemoteWebPairingTokenMock.mock.calls[0]?.[1]).toBeInstanceOf(
       AbortSignal,
+    );
+    expect(createRemoteWebPairingChallengeMock).not.toHaveBeenCalled();
+  });
+
+  test("shows progress state while creating a challenge", () => {
+    remoteGatewayMode = true;
+    createRemoteWebPairingChallengeMock.mockImplementationOnce(
+      async () => new Promise<never>(() => {}),
+    );
+
+    const { container } = render(
+      <MemoryRouter initialEntries={["/assistant/pair"]}>
+        <RemoteWebPairingPage />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Starting pairing")).not.toBeNull();
+    expect(container.querySelector(".animate-spin.text-blue-600")).not.toBeNull();
+    expect(container.querySelector(".text-red-600")).toBeNull();
+    expect(exchangeRemoteWebPairingTokenMock).not.toHaveBeenCalled();
+  });
+
+  test("creates a challenge when opened without a device code", async () => {
+    remoteGatewayMode = true;
+
+    render(
+      <MemoryRouter initialEntries={["/assistant/pair"]}>
+        <RemoteWebPairingPage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("B8C2-S2J3")).not.toBeNull();
+    expect(
+      createRemoteWebPairingChallengeMock.mock.calls[0]?.[0],
+    ).toBeInstanceOf(AbortSignal);
+    expect(exchangeRemoteWebPairingTokenMock.mock.calls[0]?.[0]).toBe(
+      "created-device",
     );
   });
 });

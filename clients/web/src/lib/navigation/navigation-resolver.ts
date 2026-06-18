@@ -8,6 +8,8 @@ import { routes } from "@/utils/routes";
 
 export interface NavigationState {
   isLocalMode: boolean;
+  isRemoteGateway: boolean;
+  remoteGatewayPublicPathPrefix: string;
   isGatewayAuth: boolean;
   hasAssistants: boolean;
   sessionSettled: boolean;
@@ -166,6 +168,7 @@ type RouteGuardStep = (
 const ROUTE_GUARD_PIPELINE: RouteGuardStep[] = [
   waitForSession,
   allowGatewayAuth,
+  requireRemoteGatewayPairing,
   requireAuth,
   enforceModeBoundary,
   allowSetupRoutes,
@@ -193,6 +196,33 @@ function waitForSession(state: NavigationState): NavigationDecision | null {
 
 function allowGatewayAuth(state: NavigationState): NavigationDecision | null {
   return state.isGatewayAuth ? { action: "allow" } : null;
+}
+
+function stripRemoteGatewayPublicPathPrefix(
+  state: NavigationState,
+  pathnameWithSearch: string,
+): string {
+  const prefix = state.remoteGatewayPublicPathPrefix;
+  if (!state.isRemoteGateway || !prefix) return pathnameWithSearch;
+  if (pathnameWithSearch === prefix) return routes.assistant;
+  if (pathnameWithSearch.startsWith(`${prefix}/`)) {
+    return pathnameWithSearch.slice(prefix.length);
+  }
+  return pathnameWithSearch;
+}
+
+function requireRemoteGatewayPairing(
+  state: NavigationState,
+  _path: string,
+  pathnameWithSearch: string,
+): NavigationDecision | null {
+  if (!state.isRemoteGateway || state.isAuthenticated) return null;
+
+  const returnTo = stripRemoteGatewayPublicPathPrefix(state, pathnameWithSearch);
+  return {
+    action: "redirect",
+    to: `${routes.remotePair}?returnTo=${encodeURIComponent(returnTo)}`,
+  };
 }
 
 function requireAuth(
