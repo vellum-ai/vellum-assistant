@@ -57,8 +57,15 @@ export function IntegrationDetailModal({
   const isPlatformHosted = useActiveAssistantIsPlatformHosted();
   const yourOwnAvailable = !isPlatformHosted;
   const [activeTab, setActiveTab] = useState<ModalTab>(
-    platformGate === "gated" ? "your-own" : "managed",
+    platformGate === "gated" && yourOwnAvailable ? "your-own" : "managed",
   );
+
+  useEffect(() => {
+    if (!yourOwnAvailable && activeTab === "your-own") {
+      setActiveTab("managed");
+    }
+  }, [yourOwnAvailable, activeTab]);
+
   const [pendingDisconnectId, setPendingDisconnectId] = useState<string | null>(
     null,
   );
