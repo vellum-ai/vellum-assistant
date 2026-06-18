@@ -19,25 +19,25 @@ import { resolveCapabilities } from "../runtime/capabilities.js";
 
 describe("trust class categorization for CES lockdown", () => {
   test("guardian runs an unsandboxed shell", () => {
-    expect(resolveCapabilities("guardian").unsandboxedShell).toBe(true);
+    expect(resolveCapabilities("guardian").canRunUnsandboxedShell).toBe(true);
   });
 
   test("trusted_contact shell is sandboxed", () => {
-    expect(resolveCapabilities("trusted_contact").unsandboxedShell).toBe(false);
+    expect(resolveCapabilities("trusted_contact").canRunUnsandboxedShell).toBe(false);
   });
 
   test("unverified_contact shell is sandboxed", () => {
-    expect(resolveCapabilities("unverified_contact").unsandboxedShell).toBe(
+    expect(resolveCapabilities("unverified_contact").canRunUnsandboxedShell).toBe(
       false,
     );
   });
 
   test("unknown shell is sandboxed", () => {
-    expect(resolveCapabilities("unknown").unsandboxedShell).toBe(false);
+    expect(resolveCapabilities("unknown").canRunUnsandboxedShell).toBe(false);
   });
 
   test("undefined shell is sandboxed", () => {
-    expect(resolveCapabilities(undefined).unsandboxedShell).toBe(false);
+    expect(resolveCapabilities(undefined).canRunUnsandboxedShell).toBe(false);
   });
 });
 
@@ -97,7 +97,7 @@ describe("VELLUM_UNTRUSTED_SHELL env flag", () => {
 describe("CES shell lockdown activation", () => {
   test("lockdown is active only when both flag is enabled AND actor is untrusted", () => {
     // Simulates the condition used in shell.ts:
-    // const shellLockdownActive = isCesShellLockdownEnabled(config) && !resolveCapabilities(context.trustClass).unsandboxedShell;
+    // const shellLockdownActive = isCesShellLockdownEnabled(config) && !resolveCapabilities(context.trustClass).canRunUnsandboxedShell;
     const cases: Array<{
       flagEnabled: boolean;
       trustClass: "guardian" | "trusted_contact" | "unknown";
@@ -113,7 +113,7 @@ describe("CES shell lockdown activation", () => {
 
     for (const { flagEnabled, trustClass, expected } of cases) {
       const active =
-        flagEnabled && !resolveCapabilities(trustClass).unsandboxedShell;
+        flagEnabled && !resolveCapabilities(trustClass).canRunUnsandboxedShell;
       expect(active).toBe(expected);
     }
   });

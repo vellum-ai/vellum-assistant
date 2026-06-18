@@ -2,8 +2,8 @@
  * Trust capabilities — what an actor may do once admitted.
  *
  * Separates *what an actor can do* (capabilities/permissions) from *who the
- * actor is* (`TrustClass`, their role/level). Today the ~40+ decision sites
- * re-derive permissions inline from the raw class (`trustClass === "guardian"`).
+ * actor is* (`TrustClass`, their role/level). The ~40+ decision sites
+ * read a named capability instead of re-deriving permissions inline from the
  * This resolves the class to a named capability set in one place so call sites
  * read a capability instead of re-deriving it.
  *
@@ -44,22 +44,35 @@ export type PromptTrustGuidance =
  * What an actor may do once admitted, derived purely from their trust class.
  */
 export interface CapabilitySet {
-  // --- Tool execution & approval ---
-  /** Self-approves own tool invocations. Non-guardians route to the guardian. */
+  // --- Tool approval mechanism ---
+  /**
+   * Auto-approves *ordinary* tool calls (e.g. background/platform-hosted bash)
+   * and honors the actor's own pending-confirmation callback. The
+   * sensitive/guardian-required tool path is governed separately by
+   * `sensitiveToolApproval`; the two are independent levers.
+   */
   canSelfApproveTools: boolean;
   /** Outcome when a guardian-approval-required (sensitive) tool is invoked. */
   sensitiveToolApproval: SensitiveToolApproval;
+
+  // --- Privileged tool gates ---
   /** May create/update schedules. */
   canManageSchedules: boolean;
   /** May use verification control-plane tools. */
   canUseVerificationControlPlane: boolean;
-  /** May archive messages by sender. */
-  canArchiveBySender: boolean;
+  /**
+   * May treat its own `user_approved` flag as sufficient authorization to
+   * archive-by-sender. Non-guardians can still archive by sender, but must be
+   * authorized via surface action, task, or explicit prompt approval instead.
+   */
+  canSelfAuthorizeArchiveBySender: boolean;
 
   // --- Data & memory ---
   /**
-   * May read/analyze long-term memory: the recall tool, auto-analysis,
-   * memory retrospection, and inclusion during context compaction.
+   * May access long-term / cross-conversation memory — both the memory *tools*
+   * (recall, auto-analysis, retrospection, graph extraction) and *visibility*
+   * of cross-conversation history in assembled context. Untrusted actors are
+   * walled off from both.
    */
   canAccessMemory: boolean;
   /**
@@ -70,10 +83,10 @@ export interface CapabilitySet {
 
   // --- Execution environment ---
   /**
-   * Shell runs WITHOUT the untrusted sandbox / CES lockdown (no
+   * May run the shell WITHOUT the untrusted sandbox / CES lockdown (no
    * `VELLUM_UNTRUSTED_SHELL`, no credential-secrecy confinement).
    */
-  unsandboxedShell: boolean;
+  canRunUnsandboxedShell: boolean;
 
   // --- Interactivity & resource ---
   /**
@@ -98,10 +111,10 @@ const GUARDIAN_CAPABILITIES: CapabilitySet = {
   sensitiveToolApproval: "self",
   canManageSchedules: true,
   canUseVerificationControlPlane: true,
-  canArchiveBySender: true,
+  canSelfAuthorizeArchiveBySender: true,
   canAccessMemory: true,
   canAccessPrivilegedDocuments: true,
-  unsandboxedShell: true,
+  canRunUnsandboxedShell: true,
   mayBeInteractive: true,
   canActUnderDiskPressureCleanup: true,
   promptTrustGuidance: "none",
@@ -120,10 +133,10 @@ const CONTACT_CAPABILITIES: CapabilitySet = {
   sensitiveToolApproval: "escalate-and-wait",
   canManageSchedules: false,
   canUseVerificationControlPlane: false,
-  canArchiveBySender: false,
+  canSelfAuthorizeArchiveBySender: false,
   canAccessMemory: false,
   canAccessPrivilegedDocuments: false,
-  unsandboxedShell: false,
+  canRunUnsandboxedShell: false,
   mayBeInteractive: true,
   canActUnderDiskPressureCleanup: false,
   promptTrustGuidance: "social-engineering-defense",
@@ -138,10 +151,10 @@ const UNKNOWN_CAPABILITIES: CapabilitySet = {
   sensitiveToolApproval: "deny",
   canManageSchedules: false,
   canUseVerificationControlPlane: false,
-  canArchiveBySender: false,
+  canSelfAuthorizeArchiveBySender: false,
   canAccessMemory: false,
   canAccessPrivilegedDocuments: false,
-  unsandboxedShell: false,
+  canRunUnsandboxedShell: false,
   mayBeInteractive: false,
   canActUnderDiskPressureCleanup: false,
   promptTrustGuidance: "stranger-warning",

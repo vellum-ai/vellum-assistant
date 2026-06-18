@@ -129,7 +129,7 @@ export class ToolExecutor {
       if (
         name === "host_bash" &&
         isCesShellLockdownEnabled(getConfig()) &&
-        !resolveCapabilities(context.trustClass).unsandboxedShell
+        !resolveCapabilities(context.trustClass).canRunUnsandboxedShell
       ) {
         context.forcePromptSideEffects = true;
       }

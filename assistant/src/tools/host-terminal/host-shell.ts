@@ -206,7 +206,7 @@ export const hostShellTool = {
     // because execute() is called after permissions have already been evaluated.
     const hostLockdownActive =
       isCesShellLockdownEnabled(config) &&
-      !resolveCapabilities(context.trustClass).unsandboxedShell;
+      !resolveCapabilities(context.trustClass).canRunUnsandboxedShell;
 
     // Guard: non-host-proxy interfaces need an explicit target when multiple
     // capable clients are connected to avoid ambiguous untargeted broadcasts.

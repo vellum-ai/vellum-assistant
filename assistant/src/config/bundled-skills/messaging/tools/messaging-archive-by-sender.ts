@@ -11,7 +11,7 @@ export async function run(
 ): Promise<ToolExecutionResult> {
   const userApproved =
     input.user_approved === true &&
-    resolveCapabilities(context.trustClass).canArchiveBySender;
+    resolveCapabilities(context.trustClass).canSelfAuthorizeArchiveBySender;
   if (
     !context.triggeredBySurfaceAction &&
     !context.batchAuthorizedByTask &&
