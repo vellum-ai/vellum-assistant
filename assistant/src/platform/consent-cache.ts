@@ -10,7 +10,7 @@
 
 import { getConfigReadOnly } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
-import { type OwnerConsent,VellumPlatformClient } from "./client.js";
+import { type OwnerConsent, VellumPlatformClient } from "./client.js";
 
 const log = getLogger("consent-cache");
 
