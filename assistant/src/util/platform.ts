@@ -314,7 +314,14 @@ export function getWorkspaceToolsDir(): string {
   return join(getWorkspaceDir(), "tools");
 }
 
-/** Returns $VELLUM_WORKSPACE_DIR/routes — user-defined HTTP route handlers. */
+/**
+ * Returns $VELLUM_WORKSPACE_DIR/routes — user-defined HTTP route handlers.
+ *
+ * Handler modules under this directory are dynamic-imported by the user-route
+ * dispatcher and their exported HTTP-method functions are executed on the
+ * next matching request, so the file risk classifier escalates writes under
+ * this path to High for the same reason `plugins/` and `tools/` are escalated.
+ */
 export function getWorkspaceRoutesDir(): string {
   return join(getWorkspaceDir(), "routes");
 }
