@@ -402,7 +402,7 @@ function AssistantCard({
               : "border-[var(--border-element)] group-hover:border-[var(--content-tertiary)]",
           ].join(" ")}
         >
-          {selected && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
+          {selected && <Check className="h-3 w-3 text-[var(--surface-base)]" strokeWidth={3} />}
         </div>
       )}
     </button>

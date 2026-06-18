@@ -117,6 +117,9 @@ declare global {
       featureFlags?: {
         set(flags: Record<string, boolean>): void;
       };
+      diagnostics?: {
+        setShareDiagnostics(enabled: boolean): void;
+      };
       helper?: {
         ping?(): Promise<"pong">;
         getState?(): Promise<HelperState>;

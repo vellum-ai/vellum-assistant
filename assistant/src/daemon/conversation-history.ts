@@ -23,7 +23,7 @@ const log = getLogger("conversation-history");
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function isToolResultBlock(
+export function isToolResultBlock(
   block: ContentBlock | Record<string, unknown>,
 ): boolean {
   return (

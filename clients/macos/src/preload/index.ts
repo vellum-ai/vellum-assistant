@@ -147,6 +147,11 @@ const bridge: VellumBridge = {
       ipcRenderer.send("vellum:featureFlags:set", flags);
     },
   },
+  diagnostics: {
+    setShareDiagnostics: (enabled: boolean): void => {
+      ipcRenderer.send("vellum:diagnostics:setShareDiagnostics", enabled);
+    },
+  },
   helper: {
     ping: () =>
       ipcRenderer.invoke("vellum:helper:ping") as Promise<"pong">,

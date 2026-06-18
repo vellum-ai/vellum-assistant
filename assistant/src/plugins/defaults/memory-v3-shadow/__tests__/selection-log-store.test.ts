@@ -114,7 +114,10 @@ mock.module("../../../../config/assistant-feature-flags.js", () => ({
 
 mock.module("../../../../config/loader.js", () => ({
   ...realLoader,
-  getConfig: () => (storeMockActive ? {} : realLoader.getConfig()),
+  getConfig: () =>
+    storeMockActive
+      ? { memory: { v3: { live: liveEnabled } } }
+      : realLoader.getConfig(),
 }));
 
 mock.module("../../../../memory/db-connection.js", () => ({

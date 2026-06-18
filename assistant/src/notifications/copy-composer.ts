@@ -9,10 +9,11 @@
  * values from the context payload.
  */
 
+import { buildAccessRequestContractText } from "./access-request-copy.js";
 import {
-  buildAccessRequestContractText,
   buildAccessRequestSeedContentBlocks,
-} from "./access-request-copy.js";
+  buildToolApprovalSeedContentBlocks,
+} from "./approval-card-data.js";
 import {
   buildGuardianRequestCodeInstruction,
   parseGuardianQuestionPayload,
@@ -28,7 +29,6 @@ import type {
   NotificationSignal,
   NotificationSourceEventName,
 } from "./signal.js";
-import { buildToolApprovalSeedContentBlocks } from "./tool-approval-copy.js";
 import type { NotificationChannel, RenderedChannelCopy } from "./types.js";
 
 type CopyTemplate = (payload: Record<string, unknown>) => RenderedChannelCopy;

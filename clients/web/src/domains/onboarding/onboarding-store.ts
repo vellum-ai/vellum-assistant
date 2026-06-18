@@ -15,6 +15,7 @@
 
 import { create } from "zustand";
 
+import { syncDiagnosticsToMain } from "@/runtime/diagnostics";
 import { createSelectors } from "@/utils/create-selectors";
 import {
   getLocalBool,
@@ -67,6 +68,7 @@ const useOnboardingStoreBase = create<OnboardingStore>()((set) => ({
   setShareDiagnostics: (value) => {
     set({ shareDiagnostics: value });
     setLocalBool(KEY_SHARE_DIAGNOSTICS, value);
+    syncDiagnosticsToMain(value);
   },
   setTosAccepted: (value) => {
     set({ tosAccepted: value });

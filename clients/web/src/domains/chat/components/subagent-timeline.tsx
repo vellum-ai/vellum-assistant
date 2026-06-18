@@ -200,7 +200,7 @@ function TimelineEventRow({
             {event.toolName && (
               <Typography
                 variant="body-medium-lighter"
-                className="text-[var(--content-tertiary)]"
+                className="min-w-0 break-words text-[var(--content-tertiary)]"
               >
                 {event.toolName}
               </Typography>
@@ -208,7 +208,7 @@ function TimelineEventRow({
             {event.content && (
               <Typography
                 variant="body-medium-lighter"
-                className="text-[var(--content-tertiary)]"
+                className="min-w-0 break-words text-[var(--content-tertiary)]"
               >
                 {event.content}
               </Typography>

@@ -59,6 +59,7 @@ const queryClientMock = {
   invalidateQueries: invalidateQueriesMock,
 };
 const writeSelectedVersionMock = mock(() => {});
+const connectLocalAssistantMock = mock(async (_assistantId: string) => {});
 
 type TestOnboardingRecipe = {
   cohort: string;
@@ -78,6 +79,7 @@ let isMacOSWeb = false;
 let iosAppDownloaded = true;
 let macOsAppDownloaded = true;
 let isLocalModeValue = false;
+let localGatewayUrlValue: string | undefined = undefined;
 let platformSessionValue: PlatformSessionStatus = "absent";
 let fetchOnboardingRecipeImpl: () => Promise<TestOnboardingRecipe | null> =
   async () => null;
@@ -216,7 +218,7 @@ mock.module("@/lib/local-mode", () => ({
   setActiveLockfileAssistant: async () => {},
   saveLockfileAssistant: async () => {},
   primeLocalGatewayConnection: async () => {},
-  getLocalGatewayUrl: () => undefined,
+  getLocalGatewayUrl: () => localGatewayUrlValue,
 }));
 
 mock.module("@/runtime/local-mode-host", () => ({
@@ -269,6 +271,7 @@ mock.module("@/stores/auth-store", () => ({
       sessionStatus: () => "authenticated",
       platformSession: () => platformSessionValue,
     },
+    getState: () => ({ connectLocalAssistant: connectLocalAssistantMock }),
   },
   useIsAuthenticated: () => true,
   useIsSessionInitializing: () => false,
@@ -413,12 +416,14 @@ beforeEach(() => {
   iosAppDownloaded = true;
   macOsAppDownloaded = true;
   isLocalModeValue = false;
+  localGatewayUrlValue = undefined;
   platformSessionValue = "absent";
   fetchOnboardingRecipeImpl = async () => null;
   sessionStorage.clear();
   localStorage.clear();
 
   navigateMock.mockClear();
+  connectLocalAssistantMock.mockClear();
   checkAssistantMock.mockClear();
   hatchAssistantMock.mockClear();
   getAssistantMock.mockClear();
@@ -456,6 +461,36 @@ describe("onboarding lifecycle sync", () => {
         replace: true,
       }),
     );
+  });
+
+  // Regression: a freshly hatched local assistant must establish an
+  // authenticated session before handing off to chat. Without it, a session
+  // refresh fired during the hatch window leaves `sessionStatus` stuck at
+  // "unauthenticated", hiding auth-gated UI (the Preferences menu) until a
+  // full reload. The hatch flow must drive the same `connectLocalAssistant`
+  // primitive the returning-user connect path uses.
+  test("local hatch establishes the authenticated session via connectLocalAssistant", async () => {
+    isLocalModeValue = true;
+    localGatewayUrlValue = "http://127.0.0.1:7821";
+    searchParams = new URLSearchParams("hosting=local");
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mock(async () => ({
+      ok: true,
+      json: async () => ({ status: "ok" }),
+    })) as unknown as typeof fetch;
+
+    try {
+      render(<HatchingScreen />);
+
+      await waitFor(
+        () =>
+          expect(connectLocalAssistantMock).toHaveBeenCalledWith("local-1"),
+        { timeout: 5_000 },
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   test("pre-chat completion refreshes the root assistant lifecycle before entering chat", async () => {

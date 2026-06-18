@@ -58,6 +58,7 @@ import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { Conversation } from "../daemon/conversation.js";
+import { recordUsage } from "../daemon/conversation-usage.js";
 import { getDiskPressureStatus } from "../daemon/disk-pressure-guard.js";
 import {
   classifyDiskPressureTurnPolicy,
@@ -783,6 +784,47 @@ export async function wakeAgentForOpportunity(
       }
       if (event.type === "compaction_completed") {
         recordCompactionEndBestEffort(conversationId, event);
+      }
+      // Normal user turns record usage via the `dispatchAgentEvent` event handler)
+      // Wakes run their own onEvent and bypass it, so record here.
+      if (event.type === "usage") {
+        try {
+          recordUsage(
+            {
+              conversationId,
+              providerName: event.actualProvider ?? conversation.provider.name,
+              usageStats: conversation.usageStats,
+            },
+            event.inputTokens,
+            event.outputTokens,
+            event.model,
+            () => {},
+            "main_agent",
+            `wake:${source}`,
+            event.cacheCreationInputTokens ?? 0,
+            event.cacheReadInputTokens ?? 0,
+            event.rawResponse,
+            1,
+            undefined,
+            // Mirror the profile state the request actually ran under:
+            // `forceOverrideProfile` floats the override above the call-site
+            // profile (fork retrospectives with matchConversationProfile), and
+            // the conversation-id seed resolves the same mix arm the dispatch
+            // path chose. Without these, attribution credits the call-site
+            // profile/arm instead of the one that ran.
+            {
+              callSite,
+              overrideProfile: overrideProfile ?? null,
+              forceOverrideProfile,
+              selectionSeed: conversationId,
+            },
+          );
+        } catch (err) {
+          log.warn(
+            { conversationId, source, err },
+            "agent-wake: usage recording failed (non-fatal)",
+          );
+        }
       }
       // Replicates the recordRequestLog side-effect in `handleUsage` because
       // wakes own their own onEvent and never reach `dispatchAgentEvent`.

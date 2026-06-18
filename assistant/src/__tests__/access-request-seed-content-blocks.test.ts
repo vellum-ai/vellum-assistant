@@ -1,9 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  buildAccessRequestSeedContentBlocks,
-  parseAccessRequestPayload,
-} from "../notifications/access-request-copy.js";
+import { parseAccessRequestPayload } from "../notifications/access-request-copy.js";
+import { buildAccessRequestSeedContentBlocks } from "../notifications/approval-card-data.js";
 
 describe("buildAccessRequestSeedContentBlocks", () => {
   const basePayload: Record<string, unknown> = {

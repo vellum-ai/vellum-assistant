@@ -8,6 +8,7 @@
  */
 
 import { RiskLevel } from "../../permissions/types.js";
+import { isWeakOpenModel } from "../../providers/weak-open-model.js";
 import { ACTIVATION_MOMENT_PARAMS } from "../../telemetry/activation-funnel.js";
 import type {
   ToolContext,
@@ -37,8 +38,9 @@ function proxyExecute(toolName: string) {
   ): Promise<ToolExecutionResult> => {
     if (toolName === "ui_show" && isEmptyDynamicPage(input)) {
       return {
-        content:
-          "Error: ui_show dynamic_page requires non-empty HTML in `data.html`. The surface was not displayed because no content was provided — the user would see a blank box. Resend ui_show with the full HTML markup in `data.html`.",
+        content: isWeakOpenModel(context.attribution?.resolvedModel)
+          ? EMPTY_DYNAMIC_PAGE_DECLARATIVE_REDIRECT
+          : EMPTY_DYNAMIC_PAGE_HTML_HINT,
         isError: true,
       };
     }
@@ -88,6 +90,27 @@ function proxyExecute(toolName: string) {
     return result;
   };
 }
+
+/**
+ * Rejection envelope for an empty `dynamic_page` ui_show from a capable model:
+ * the surface carried no `data.html`, so it would render as a blank box. These
+ * models reliably author HTML, so the fix is simply to resend it inline.
+ */
+const EMPTY_DYNAMIC_PAGE_HTML_HINT =
+  "Error: ui_show dynamic_page requires non-empty HTML in `data.html`. The surface was not displayed because no content was provided — the user would see a blank box. Resend ui_show with the full HTML markup in `data.html`.";
+
+/**
+ * Rejection envelope for an empty `dynamic_page` ui_show from a weak open model.
+ * Authoring full HTML inline is the generation task these models fail at (an
+ * empty `data: {}` here, or broken markup otherwise), so steering them to
+ * "resend the HTML" just repeats the failure. Most widget requests are really
+ * structured data — comparisons, results, metrics — which render reliably via a
+ * field-based surface the model populates without writing any HTML, and which
+ * cannot render blank. dynamic_page stays available for genuinely custom visual
+ * HTML.
+ */
+const EMPTY_DYNAMIC_PAGE_DECLARATIVE_REDIRECT =
+  'Error: ui_show dynamic_page was not displayed — `data.html` was empty, so the user would see a blank box. Authoring full HTML inline is error-prone; for data, comparisons, results, or metrics prefer a structured surface, which you fill with fields (no HTML) and which never renders blank. Re-show the content as one of: a `table` (ui_show { surface_type: "table", data: { columns: [{ id, label }], rows: [{ id, cells: { <columnId>: "<value>" } }] } }), a `card` ({ title, body, metadata: [{ label, value }] }), or `work_result` ({ summary, metrics: [{ label, value }] }). Only use dynamic_page when you genuinely need custom visual HTML, in which case include the complete markup in `data.html` now.';
 
 /**
  * Worked ui_update example, appended to a successful task_progress `ui_show`
