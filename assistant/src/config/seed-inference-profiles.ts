@@ -92,9 +92,9 @@ const USER_PROFILE_TEMPLATES: Record<string, UserProfileTemplate> = {
  */
 export const AUTO_PROFILE_KEY = "auto";
 
-/** Stable keys of the platform-managed profiles. The profile *content* now
- *  comes from the platform model-profiles endpoint; only the key set lives
- *  in code, so route validation and pruning can recognise managed profiles. */
+/** Stable keys of the platform-managed profiles. The profile *content* comes
+ *  from the platform model-profiles endpoint; only the key set lives in code,
+ *  so route validation and pruning can recognise managed profiles. */
 const MANAGED_PROFILE_KEYS = [
   "balanced",
   "quality-optimized",
