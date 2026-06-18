@@ -2,17 +2,18 @@
  * Session state as discriminated unions, plus the pure predicates that answer
  * each session-state question in one place.
  *
- * This module is intentionally dependency-free: it imports nothing, so any
- * module — including ones the auth store itself depends on (e.g. the assistant
- * lifecycle service) — can read session meaning without creating an import
- * cycle through the store. `import type` could not break that cycle because
- * the predicates are runtime values, not just types.
+ * This module is intentionally dependency-free at runtime: it imports no
+ * runtime values, so any module — including ones the auth store itself depends
+ * on (e.g. the assistant lifecycle service) — can read session meaning without
+ * creating an import cycle through the store. The lone `import type` of
+ * `AuthUser` is erased at compile time, so it introduces no runtime edge.
  *
  * Imperative readers (middleware, lifecycle, route resolvers) call these
  * predicates directly with a status value. Reactive components read the
  * matching hooks (`useIsAuthenticated`, `useHasPlatformSession`) from the auth
  * store, which compose these predicates over the store's atomic selectors.
  */
+import type { AuthUser } from "@/stores/auth-store";
 
 /**
  * Platform-session liveness as a single tri-state.
@@ -65,6 +66,16 @@ export const isSessionSettled = (status: SessionStatus): boolean =>
 export const hasLivePlatformSession = (
   status: PlatformSessionStatus,
 ): boolean => status === "present";
+
+/**
+ * Is this a real platform account, as opposed to local gateway access? The
+ * local gateway user is a synthetic, platform-shaped identity kept for storage
+ * namespacing; consumers that mean "real platform account" (staff/email checks,
+ * billing/account surfaces) read this instead of assuming any non-null user is
+ * a platform user. A null user is never a platform identity.
+ */
+export const isPlatformIdentity = (user: AuthUser | null): boolean =>
+  user?.kind === "platform";
 
 /**
  * The two orthogonal authorities behind app access: a real platform identity
