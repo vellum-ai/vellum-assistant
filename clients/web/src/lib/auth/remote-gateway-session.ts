@@ -264,10 +264,12 @@ export async function exchangeRemoteWebPairingToken(
     body: JSON.stringify({ deviceCode }),
     signal,
   });
-  const body = (await response.json()) as unknown;
+  // A non-JSON body (e.g. an HTML error page) resolves to null and falls
+  // through to the status / shape checks below.
+  const body = (await response.json().catch(() => null)) as unknown;
 
   if (response.status === 202) {
-    const pending = body as Partial<RemoteWebPairingPending>;
+    const pending = (body ?? {}) as Partial<RemoteWebPairingPending>;
     return {
       status: "pending",
       expiresAt: typeof pending.expiresAt === "string" ? pending.expiresAt : "",
@@ -306,7 +308,7 @@ export async function createRemoteWebPairingChallenge(
     body: JSON.stringify({ publicBaseUrl: remoteGatewayPublicBaseUrl() }),
     signal,
   });
-  const body = (await response.json()) as unknown;
+  const body = (await response.json().catch(() => null)) as unknown;
 
   if (!response.ok) {
     throw new RemoteWebPairingError(
@@ -336,7 +338,7 @@ async function refreshRemoteGatewaySessionOnce(): Promise<boolean> {
   });
 
   if (!response.ok) return false;
-  const body = (await response.json()) as unknown;
+  const body = (await response.json().catch(() => null)) as unknown;
   if (!isApprovedPayload({ ...(body as object), status: "approved" })) {
     return false;
   }
