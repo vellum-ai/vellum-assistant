@@ -1,9 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useState } from "react";
 
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
 import { PreviewMessageCard } from "@/domains/chat/components/chat-attachments/preview-message-card";
+import { dataUriToUint8Array } from "@/domains/chat/components/chat-attachments/utils";
 import { captureError } from "@/lib/sentry/capture-error";
 
 /**
@@ -17,8 +17,23 @@ export const MAX_TEXT_PREVIEW_BYTES = 200 * 1024;
  *  outcome shown to the user, not a fault worth reporting to telemetry. */
 class TextTooLargeError extends Error {}
 
-async function loadText(url: string): Promise<string> {
-  const response = await fetch(url);
+/**
+ * Read an attachment's text. By the time the preview renders, `url` is always a
+ * *local* handle, so this never touches the network: inline attachments arrive
+ * as a base64 `data:` URI (the bytes are already in memory — decode them
+ * in-process, like {@link PdfPreview}, rather than round-tripping through
+ * `fetch`), and daemon-backed attachments arrive as a `blob:` object URL the
+ * modal already fetched.
+ */
+async function loadText(url: string, signal: AbortSignal): Promise<string> {
+  if (url.startsWith("data:")) {
+    const bytes = dataUriToUint8Array(url);
+    if (!bytes) throw new Error("Malformed data URI");
+    if (bytes.length > MAX_TEXT_PREVIEW_BYTES) throw new TextTooLargeError();
+    return new TextDecoder().decode(bytes);
+  }
+
+  const response = await fetch(url, { signal });
   if (!response.ok) {
     throw new Error(`Failed to load file: ${response.status}`);
   }
@@ -29,21 +44,16 @@ async function loadText(url: string): Promise<string> {
   return blob.text();
 }
 
-/** Small djb2 string hash → non-negative int. Derives a short, stable cache
- *  key from a preview URL that may be a multi-megabyte base64 `data:` URI. */
-function hashString(str: string): number {
-  let hash = 5381;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash * 33) ^ str.charCodeAt(i);
-  }
-  return Math.abs(hash);
-}
-
 interface TextPreviewProps {
   url: string;
   filename: string;
   mimeType: string;
 }
+
+type LoadState =
+  | { status: "loading" }
+  | { status: "error"; tooLarge: boolean }
+  | { status: "ready"; text: string };
 
 /**
  * Inline preview for a text attachment inside the full-screen preview modal.
@@ -52,42 +62,42 @@ interface TextPreviewProps {
  * legible on the modal's dark backdrop across light, dark, and velvet themes.
  */
 export function TextPreview({ url, filename, mimeType }: TextPreviewProps) {
-  // Content-derived cache key: a memoized hash of the URL paired with its
-  // length. The URL uniquely identifies the bytes (an inline attachment's URL is
-  // the file itself, as a base64 `data:` URI), so this distinguishes two
-  // different files that share a filename — the attachment id falls back to
-  // `filename` for inline drafts (display-attachments.ts) and isn't unique.
-  // Hashing once (memoized) keeps a short key off the render path so React Query
-  // never re-serializes a multi-megabyte data URI; pairing it with the length
-  // means an accidental 32-bit hash collision would also need an equal length.
-  const contentKey = useMemo(() => `${hashString(url)}-${url.length}`, [url]);
+  const [state, setState] = useState<LoadState>({ status: "loading" });
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["attachment-text-preview", contentKey],
-    queryFn: async () => {
-      try {
-        return await loadText(url);
-      } catch (err) {
-        if (!(err instanceof TextTooLargeError)) {
+  // Read the local URL straight into component state. This is deliberately not
+  // a React Query fetch: the bytes are already in the browser (an inline
+  // `data:` URI, or a `blob:` URL the modal already fetched), so there is no
+  // server state to cache/revalidate — caching it only forced a content-derived
+  // query key that can't be both short and collision-free. Mirrors PdfPreview.
+  useEffect(() => {
+    const controller = new AbortController();
+    setState({ status: "loading" });
+
+    loadText(url, controller.signal)
+      .then((text) => {
+        if (!controller.signal.aborted) setState({ status: "ready", text });
+      })
+      .catch((err) => {
+        if (controller.signal.aborted) return;
+        const tooLarge = err instanceof TextTooLargeError;
+        if (!tooLarge) {
           captureError(err, {
             context: "attachment-text-preview",
             bestEffort: true,
           });
         }
-        throw err;
-      }
-    },
-    // A successful read never needs revalidating (immutable bytes).
-    staleTime: Infinity,
-    retry: false,
-  });
+        setState({ status: "error", tooLarge });
+      });
+
+    return () => controller.abort();
+  }, [url]);
 
   const handleDownload = async () => {
     const { saveFile } = await import("@/runtime/native-file");
     await saveFile(url, filename);
   };
 
-  if (isLoading) {
+  if (state.status === "loading") {
     return (
       <div className="flex items-center justify-center py-24">
         <Loader2 className="h-8 w-8 animate-spin text-white/70" />
@@ -95,11 +105,11 @@ export function TextPreview({ url, filename, mimeType }: TextPreviewProps) {
     );
   }
 
-  if (error) {
+  if (state.status === "error") {
     return (
       <PreviewMessageCard
         message={
-          error instanceof TextTooLargeError
+          state.tooLarge
             ? "File too large to preview inline."
             : "Failed to load preview."
         }
@@ -107,10 +117,6 @@ export function TextPreview({ url, filename, mimeType }: TextPreviewProps) {
         onDownload={handleDownload}
       />
     );
-  }
-
-  if (data == null) {
-    return null;
   }
 
   return (
@@ -121,7 +127,7 @@ export function TextPreview({ url, filename, mimeType }: TextPreviewProps) {
         color: "var(--content-default)",
       }}
     >
-      <TextPreviewBody text={data} filename={filename} mimeType={mimeType} />
+      <TextPreviewBody text={state.text} filename={filename} mimeType={mimeType} />
     </div>
   );
 }

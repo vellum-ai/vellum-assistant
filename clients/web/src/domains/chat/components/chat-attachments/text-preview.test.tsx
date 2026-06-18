@@ -1,7 +1,19 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, waitFor } from "@testing-library/react";
 
-import { TextPreviewBody } from "@/domains/chat/components/chat-attachments/text-preview";
+import {
+  TextPreview,
+  TextPreviewBody,
+} from "@/domains/chat/components/chat-attachments/text-preview";
+
+/** Build a base64 `data:` URI the way `toDisplayAttachments` does. */
+function dataUri(mimeType: string, text: string): string {
+  let binary = "";
+  for (const byte of new TextEncoder().encode(text)) {
+    binary += String.fromCharCode(byte);
+  }
+  return `data:${mimeType};base64,${btoa(binary)}`;
+}
 
 afterEach(() => {
   cleanup();
@@ -50,5 +62,21 @@ describe("TextPreviewBody", () => {
     expect(pre?.textContent).toBe(source);
     // Source must not be interpreted as markdown.
     expect(container.querySelector("h1")).toBeNull();
+  });
+});
+
+describe("TextPreview", () => {
+  test("decodes an inline data: URI in-process and renders it", async () => {
+    const { container } = render(
+      <TextPreview
+        url={dataUri("text/markdown", "# Decoded\n\nfrom a data URI")}
+        filename="notes.md"
+        mimeType="text/markdown"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(container.querySelector("h1")?.textContent).toBe("Decoded"),
+    );
   });
 });
