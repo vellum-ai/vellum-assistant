@@ -17,6 +17,14 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
+// Control the live-conversation lookup so `isTurnSettled` can be exercised
+// without a running agent loop. Returns `undefined` (no live conversation) by
+// default; tests set a fake with a chosen `isProcessing()`.
+let mockLiveConversation: { isProcessing: () => boolean } | undefined;
+mock.module("../daemon/conversation-registry.js", () => ({
+  findConversation: () => mockLiveConversation,
+}));
+
 import { createConversation } from "./conversation-crud.js";
 import { getDb } from "./db-connection.js";
 import { initializeDb } from "./db-init.js";
@@ -24,6 +32,7 @@ import { messages, toolInvocations } from "./schema.js";
 import {
   assembleBoundedTurnTrace,
   assembleTurnTrace,
+  isTurnSettled,
   MAX_TRACE_SERIALIZED_BYTES,
   type TurnTraceBoundary,
 } from "./turn-trace-store.js";
@@ -39,6 +48,7 @@ function purge(): void {
 
 beforeEach(() => {
   purge();
+  mockLiveConversation = undefined;
 });
 
 interface MessageSeed {
@@ -492,5 +502,86 @@ describe("assembleBoundedTurnTrace", () => {
 
     const trace = assembleBoundedTurnTrace(boundary(conv.id, "m-user-1", 1000));
     expect(trace).toBeNull();
+  });
+});
+
+describe("isTurnSettled", () => {
+  test("settled when a later real user turn exists, regardless of processing state", () => {
+    const conv = createConversation({ conversationType: "standard" });
+    insertMessage(conv.id, {
+      id: "m-user-1",
+      role: "user",
+      content: [{ type: "text", text: "first" }],
+      createdAt: 1000,
+    });
+    insertMessage(conv.id, {
+      id: "m-user-2",
+      role: "user",
+      content: [{ type: "text", text: "second" }],
+      createdAt: 2000,
+    });
+    // Even if the conversation is currently processing (the second turn), the
+    // FIRST turn is settled because a later real user turn already landed.
+    mockLiveConversation = { isProcessing: () => true };
+    expect(isTurnSettled(boundary(conv.id, "m-user-1", 1000))).toBe(true);
+  });
+
+  test("a tool-result role=user row does not count as a later turn (turn still settled via idle)", () => {
+    const conv = createConversation({ conversationType: "standard" });
+    insertMessage(conv.id, {
+      id: "m-user-1",
+      role: "user",
+      content: [{ type: "text", text: "do a thing" }],
+      createdAt: 1000,
+    });
+    // Tool-result row persisted as role="user" — excluded by the real-user-turn
+    // filter, so it is NOT a successor turn.
+    insertMessage(conv.id, {
+      id: "m-toolresult",
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: "tu-x", content: "done" }],
+      createdAt: 1100,
+    });
+    // Conversation no longer processing -> the latest real turn is settled.
+    mockLiveConversation = { isProcessing: () => false };
+    expect(isTurnSettled(boundary(conv.id, "m-user-1", 1000))).toBe(true);
+  });
+
+  test("NOT settled when this is the latest real user turn and the conversation is processing", () => {
+    const conv = createConversation({ conversationType: "standard" });
+    insertMessage(conv.id, {
+      id: "m-user-1",
+      role: "user",
+      content: [{ type: "text", text: "still generating" }],
+      createdAt: 1000,
+    });
+    // Latest real turn + live conversation actively processing -> in-flight.
+    mockLiveConversation = { isProcessing: () => true };
+    expect(isTurnSettled(boundary(conv.id, "m-user-1", 1000))).toBe(false);
+  });
+
+  test("settled when this is the latest real user turn but the conversation is idle (final turn)", () => {
+    const conv = createConversation({ conversationType: "standard" });
+    insertMessage(conv.id, {
+      id: "m-user-1",
+      role: "user",
+      content: [{ type: "text", text: "final turn" }],
+      createdAt: 1000,
+    });
+    mockLiveConversation = { isProcessing: () => false };
+    expect(isTurnSettled(boundary(conv.id, "m-user-1", 1000))).toBe(true);
+  });
+
+  test("settled when the conversation is not in the live registry (evicted / not loaded)", () => {
+    const conv = createConversation({ conversationType: "standard" });
+    insertMessage(conv.id, {
+      id: "m-user-1",
+      role: "user",
+      content: [{ type: "text", text: "from an evicted conversation" }],
+      createdAt: 1000,
+    });
+    // No live conversation -> no in-flight turn -> settled.
+    mockLiveConversation = undefined;
+    expect(isTurnSettled(boundary(conv.id, "m-user-1", 1000))).toBe(true);
   });
 });

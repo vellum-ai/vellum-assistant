@@ -114,12 +114,12 @@ interface MockTurnTrace {
 
 // Returns a non-null bounded trace by default; individual tests override the
 // return value (including null, for the over-cap / assembly-failure path).
-const mockAssembleBoundedTurnTrace = mock(
-  (boundary: {
-    conversationId: string;
-    userMessageId: string;
-    userMessageCreatedAt: number;
-  }): MockTurnTrace | null => ({
+function defaultBoundedTurnTrace(boundary: {
+  conversationId: string;
+  userMessageId: string;
+  userMessageCreatedAt: number;
+}): MockTurnTrace | null {
+  return {
     schema_version: 1,
     messages: [
       {
@@ -130,11 +130,24 @@ const mockAssembleBoundedTurnTrace = mock(
       },
     ],
     tool_calls: [],
-  }),
+  };
+}
+
+const mockAssembleBoundedTurnTrace = mock(defaultBoundedTurnTrace);
+
+// Turn-completeness gate. Default: every turn is settled (complete), so the
+// deferral barrier never fires unless a test opts a turn into "in-flight".
+const mockIsTurnSettled = mock(
+  (_boundary: {
+    conversationId: string;
+    userMessageId: string;
+    userMessageCreatedAt: number;
+  }): boolean => true,
 );
 
 mock.module("../memory/turn-trace-store.js", () => ({
   assembleBoundedTurnTrace: mockAssembleBoundedTurnTrace,
+  isTurnSettled: mockIsTurnSettled,
 }));
 
 const mockQueryUnreportedLifecycleEvents = mock(
@@ -329,7 +342,10 @@ beforeEach(() => {
   // the trace-specific tests opt in explicitly.
   mockGetCachedDiagnosticsTraceCollectionEnabled.mockReset();
   mockGetCachedDiagnosticsTraceCollectionEnabled.mockReturnValue(false);
-  mockAssembleBoundedTurnTrace.mockClear();
+  mockAssembleBoundedTurnTrace.mockReset();
+  mockAssembleBoundedTurnTrace.mockImplementation(defaultBoundedTurnTrace);
+  mockIsTurnSettled.mockReset();
+  mockIsTurnSettled.mockReturnValue(true);
   mockGetMemoryCheckpoint.mockReset();
   mockSetMemoryCheckpoint.mockReset();
   mockQueryUnreportedUsageEvents.mockReset();
@@ -1118,6 +1134,207 @@ describe("UsageTelemetryReporter", () => {
 
     expect(mockAssembleBoundedTurnTrace).not.toHaveBeenCalled();
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // Trace completeness barrier — don't emit partial traces mid-turn
+  // -------------------------------------------------------------------------
+
+  function turnEvent(id: string, createdAt: number, conversationId: string) {
+    return {
+      id,
+      createdAt,
+      conversationId,
+      conversationType: "standard",
+      turnIndex: 1,
+      interfaceId: "macos",
+      channelId: "vellum",
+      clientMetadata: null,
+    };
+  }
+
+  test("a flush during an in-progress turn defers it (no partial trace, watermark held)", async () => {
+    mockGetCachedDiagnosticsTraceCollectionEnabled.mockReturnValue(true);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    const checkpoints = useStatefulCheckpoints();
+    mockQueryUnreportedTurnEvents.mockReturnValue([
+      turnEvent("evt-inflight", 1700000050000, "conv-1"),
+    ]);
+    // The turn's response is still streaming — not settled.
+    mockIsTurnSettled.mockReturnValue(false);
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    // No trace assembled, and the turn is NOT sent (the only event was deferred).
+    expect(mockAssembleBoundedTurnTrace).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
+    // The turn watermark must NOT advance past the deferred turn.
+    expect(checkpoints.get("telemetry:turns:last_reported_at")).toBeUndefined();
+    expect(checkpoints.get("telemetry:turns:last_reported_id")).toBeUndefined();
+  });
+
+  test("a later flush emits the COMPLETE trace once the turn settles", async () => {
+    mockGetCachedDiagnosticsTraceCollectionEnabled.mockReturnValue(true);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    const checkpoints = useStatefulCheckpoints();
+    mockQueryUnreportedTurnEvents.mockReturnValue([
+      turnEvent("evt-inflight", 1700000050000, "conv-1"),
+    ]);
+
+    // Flush 1: turn in progress -> deferred, nothing sent.
+    mockIsTurnSettled.mockReturnValue(false);
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+    expect(mockFetch).not.toHaveBeenCalled();
+
+    // Flush 2: the response + tool results have landed; the turn is settled and
+    // the full trace assembles. The same (still-unreported) turn now ships.
+    mockIsTurnSettled.mockReturnValue(true);
+    mockAssembleBoundedTurnTrace.mockReturnValue({
+      schema_version: 1,
+      messages: [
+        {
+          id: "evt-inflight",
+          role: "user",
+          created_at: 1700000050000,
+          content: [{ type: "text", text: "do a thing" }],
+        },
+        {
+          id: "asst-1",
+          role: "assistant",
+          created_at: 1700000051000,
+          content: [{ type: "text", text: "done" }],
+        },
+      ],
+      tool_calls: [{ id: "ti-1" }],
+    });
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(1);
+    const turn = body.events[0];
+    expect(turn.daemon_event_id).toBe("evt-inflight");
+    // The COMPLETE transcript: user message + assistant response + tool call.
+    expect(turn.trace.messages.map((m: { id: string }) => m.id)).toEqual([
+      "evt-inflight",
+      "asst-1",
+    ]);
+    expect(turn.trace.tool_calls).toHaveLength(1);
+    // Watermark now advances to the (now-complete) turn.
+    expect(checkpoints.get("telemetry:turns:last_reported_at")).toBe(
+      String(1700000050000),
+    );
+    expect(checkpoints.get("telemetry:turns:last_reported_id")).toBe(
+      "evt-inflight",
+    );
+  });
+
+  test("the final turn of a conversation still gets its complete trace once its own response finishes", async () => {
+    // No successor turn exists; `isTurnSettled` returns true purely because the
+    // conversation is no longer processing. The trace must still be sent (not
+    // deferred forever for lack of a next user turn).
+    mockGetCachedDiagnosticsTraceCollectionEnabled.mockReturnValue(true);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    mockQueryUnreportedTurnEvents.mockReturnValue([
+      turnEvent("evt-final", 1700000060000, "conv-final"),
+    ]);
+    mockIsTurnSettled.mockReturnValue(true);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockAssembleBoundedTurnTrace).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(1);
+    expect(body.events[0].daemon_event_id).toBe("evt-final");
+    expect(body.events[0].trace).toBeDefined();
+  });
+
+  test("barrier: a complete turn ordered AFTER an in-flight turn is also deferred (no watermark skip)", async () => {
+    // The turn watermark is a single monotonic cursor, so a complete turn that
+    // sorts after a deferred in-flight turn cannot be reported without skipping
+    // the deferred one. Both wait; the earlier complete turn (before the
+    // barrier) is reported.
+    mockGetCachedDiagnosticsTraceCollectionEnabled.mockReturnValue(true);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    const checkpoints = useStatefulCheckpoints();
+    mockQueryUnreportedTurnEvents.mockReturnValue([
+      turnEvent("evt-a-complete", 1700000010000, "conv-a"),
+      turnEvent("evt-b-inflight", 1700000020000, "conv-b"),
+      turnEvent("evt-c-complete", 1700000030000, "conv-c"),
+    ]);
+    // Only the middle turn is in-flight.
+    mockIsTurnSettled.mockImplementation(
+      (b) => b.userMessageId !== "evt-b-inflight",
+    );
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    // Only the turn BEFORE the in-flight barrier is reported.
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["evt-a-complete"]);
+    // Watermark stops at the last reported turn, NOT the later complete turn —
+    // so the deferred middle turn is never skipped.
+    expect(checkpoints.get("telemetry:turns:last_reported_at")).toBe(
+      String(1700000010000),
+    );
+    expect(checkpoints.get("telemetry:turns:last_reported_id")).toBe(
+      "evt-a-complete",
+    );
+  });
+
+  test("with tracing disabled, an in-progress turn is NOT deferred (reporting timing unchanged)", async () => {
+    // The completeness barrier is trace-eligible-only. With trace collection
+    // off, turn telemetry / turn_raw behavior is unchanged: the turn ships
+    // immediately and `isTurnSettled` is never consulted.
+    mockGetCachedDiagnosticsTraceCollectionEnabled.mockReturnValue(false);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    const checkpoints = useStatefulCheckpoints();
+    mockQueryUnreportedTurnEvents.mockReturnValue([
+      turnEvent("evt-inflight", 1700000050000, "conv-1"),
+    ]);
+    // Even though the turn would be "in-flight", the gate is off so this is
+    // never consulted.
+    mockIsTurnSettled.mockReturnValue(false);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockIsTurnSettled).not.toHaveBeenCalled();
+    // The turn ships immediately, trace-free.
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(1);
+    expect(body.events[0].daemon_event_id).toBe("evt-inflight");
+    expect("trace" in body.events[0]).toBe(false);
+    // Watermark advances as usual.
+    expect(checkpoints.get("telemetry:turns:last_reported_at")).toBe(
+      String(1700000050000),
+    );
   });
 
   test("llm_usage events carry conversation_id, conversation_type, and turn_index", async () => {

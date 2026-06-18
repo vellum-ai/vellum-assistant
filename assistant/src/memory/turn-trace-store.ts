@@ -1,5 +1,6 @@
 import { and, asc, eq, gt, lt, lte, or, sql } from "drizzle-orm";
 
+import { findConversation } from "../daemon/conversation-registry.js";
 import type {
   TurnTrace,
   TurnTraceMessage,
@@ -98,6 +99,38 @@ function nextRealUserTurn(
     .limit(1)
     .get();
   return row ?? null;
+}
+
+/**
+ * Whether a turn is COMPLETE — its own assistant response has finished and the
+ * full transcript is durably persisted — so its trace can be assembled without
+ * risk of capturing a partial mid-turn snapshot.
+ *
+ * A turn is complete when EITHER:
+ *  - a later real user turn exists in the same conversation (turns are
+ *    serialized per conversation, so a successor's user message can only land
+ *    after this turn's loop has finished), OR
+ *  - this is the latest real user turn AND its live conversation is not
+ *    currently processing. `Conversation.isProcessing()` is flipped to `false`
+ *    in the agent-loop `finally` *after* the awaited turn-boundary commit, so a
+ *    non-processing conversation has no in-flight turn and this turn's rows are
+ *    settled. A conversation absent from the live registry (evicted, or never
+ *    loaded this process) has no in-flight turn either, so it reads as settled.
+ *
+ * Deliberately does NOT require a successor turn: gating purely on "a next user
+ * turn exists" would defer the final turn of every conversation forever (it
+ * never gets a successor). The idle check settles the final turn once its own
+ * response finishes.
+ *
+ * The `isProcessing()` read relies on the daemon's in-memory state, so the
+ * reporter and the agent loop share one process (they do — both live in the
+ * daemon). After a restart the registry is empty, so any turn that was mid-flight
+ * when the process died reads as settled; that is its genuinely final state
+ * (no more rows are coming), and re-tracing later could not recover more.
+ */
+export function isTurnSettled(boundary: TurnTraceBoundary): boolean {
+  if (nextRealUserTurn(boundary) !== null) return true;
+  return findConversation(boundary.conversationId)?.isProcessing() !== true;
 }
 
 /** Message rows belonging to the turn window, oldest-first. */
