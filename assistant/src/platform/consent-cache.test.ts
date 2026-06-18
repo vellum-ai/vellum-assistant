@@ -185,18 +185,13 @@ describe("onConsentResolved", () => {
       shareAnalytics: true,
       shareDiagnostics: false,
     };
-    let received: OwnerConsent | null = null;
-    let calls = 0;
-    onConsentResolved((c) => {
-      received = c;
-      calls += 1;
-    });
+    const received: OwnerConsent[] = [];
+    onConsentResolved((c) => received.push(c));
 
     setConsent(consent);
     await refreshConsentCache();
 
-    expect(calls).toBe(1);
-    expect(received).toEqual(consent);
+    expect(received).toEqual([consent]);
   });
 
   test("does not fire again on a second successful fetch (one-shot)", async () => {
@@ -221,28 +216,19 @@ describe("onConsentResolved", () => {
     setConsent(consent);
     await refreshConsentCache();
 
-    let received: OwnerConsent | null = null;
-    let calls = 0;
-    onConsentResolved((c) => {
-      received = c;
-      calls += 1;
-    });
+    const received: OwnerConsent[] = [];
+    onConsentResolved((c) => received.push(c));
 
-    expect(calls).toBe(1);
-    expect(received).toEqual(consent);
+    expect(received).toEqual([consent]);
   });
 
   test("a null fetch never fires; a later successful fetch does", async () => {
-    let received: OwnerConsent | null = null;
-    let calls = 0;
-    onConsentResolved((c) => {
-      received = c;
-      calls += 1;
-    });
+    const received: OwnerConsent[] = [];
+    onConsentResolved((c) => received.push(c));
 
     setConsent(null);
     await refreshConsentCache();
-    expect(calls).toBe(0);
+    expect(received).toEqual([]);
 
     const consent: OwnerConsent = {
       shareAnalytics: true,
@@ -251,7 +237,6 @@ describe("onConsentResolved", () => {
     setConsent(consent);
     await refreshConsentCache();
 
-    expect(calls).toBe(1);
-    expect(received).toEqual(consent);
+    expect(received).toEqual([consent]);
   });
 });
