@@ -5823,12 +5823,14 @@ components:
       - ios
       - web
       - cli
+      - electron
       type: string
       description: |-
         * `macos` - macOS
         * `ios` - iOS
         * `web` - Web
         * `cli` - CLI
+        * `electron` - Electron
     ClientFeatureFlagsResponse:
       type: object
       properties:
