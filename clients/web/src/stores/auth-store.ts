@@ -249,10 +249,16 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       const consent = await fetchConsent();
       const resolved = resolveServerConsent(consent);
       const store = useOnboardingStore.getState();
-      if (resolved.shareAnalytics !== null)
-        store.setShareAnalytics(resolved.shareAnalytics);
-      if (resolved.shareDiagnostics !== null)
-        store.setShareDiagnostics(resolved.shareDiagnostics);
+      // Only adopt the server's share-preference booleans when the server has a
+      // real consent record. For an empty record they're just the API defaults
+      // and would clobber the device-local `device:share_*` choices that the
+      // fallback below relies on (the store already holds them from init).
+      if (resolved.tos || resolved.ai) {
+        if (resolved.shareAnalytics !== null)
+          store.setShareAnalytics(resolved.shareAnalytics);
+        if (resolved.shareDiagnostics !== null)
+          store.setShareDiagnostics(resolved.shareDiagnostics);
+      }
 
       // Resolve the FINAL consent values before persisting or mutating the
       // store. The endpoint always returns an object, so empty/stale versions

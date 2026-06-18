@@ -209,14 +209,16 @@ mock.module("@/utils/onboarding-cleanup", () => ({
 
 const setAnalyticsConsentCurrentMock = mock((_value: boolean) => {});
 const setDiagnosticsConsentCurrentMock = mock((_value: boolean) => {});
+const setShareAnalyticsMock = mock((_value: boolean) => {});
+const setShareDiagnosticsMock = mock((_value: boolean) => {});
 
 mock.module("@/domains/onboarding/onboarding-store", () => ({
   useOnboardingStore: {
     getState: () => ({
       setTosAccepted: () => {},
       setAiDataConsent: () => {},
-      setShareAnalytics: () => {},
-      setShareDiagnostics: () => {},
+      setShareAnalytics: setShareAnalyticsMock,
+      setShareDiagnostics: setShareDiagnosticsMock,
       setAnalyticsConsentCurrent: setAnalyticsConsentCurrentMock,
       setDiagnosticsConsentCurrent: setDiagnosticsConsentCurrentMock,
     }),
@@ -331,6 +333,8 @@ beforeEach(() => {
   resolveServerConsentMock.mockClear();
   setAnalyticsConsentCurrentMock.mockClear();
   setDiagnosticsConsentCurrentMock.mockClear();
+  setShareAnalyticsMock.mockClear();
+  setShareDiagnosticsMock.mockClear();
   fetchConsentMock.mockClear();
   patchConsentMock.mockClear();
   mockFetchConsentResult = EMPTY_CONSENT;
@@ -560,6 +564,10 @@ describe("auth store onboarding flag reconciliation", () => {
         share_diagnostics_accepted_version: expect.any(String),
       }),
     );
+    // The empty server record's default share booleans must NOT overwrite the
+    // device-local choices the store already holds.
+    expect(setShareAnalyticsMock).not.toHaveBeenCalled();
+    expect(setShareDiagnosticsMock).not.toHaveBeenCalled();
   });
 
   test("initSession falls back to device keys when fetchConsent fails", async () => {
