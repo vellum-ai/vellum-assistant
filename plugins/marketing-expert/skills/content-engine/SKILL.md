@@ -1,7 +1,7 @@
 ---
 name: content-engine
 description: Build a content and SEO engine — editorial strategy, calendar, SEO briefs, and a repurposing workflow that turns one asset into many. Use for "content strategy", "editorial calendar", "what should we write", "SEO plan", or "repurpose this".
-compatibility: "Designed for Vellum personal assistants — part of the cmo plugin"
+compatibility: "Designed for Vellum personal assistants — part of the marketing-expert plugin"
 metadata:
   emoji: "✍️"
   vellum:

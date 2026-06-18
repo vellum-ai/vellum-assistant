@@ -1,7 +1,7 @@
 ---
 name: board-report
 description: Assemble an executive or board marketing update — compute the KPIs, then frame them in a tight narrative with wins, misses, and asks. Use for "board update", "marketing report for the board", "exec marketing summary", or "monthly/QBR marketing review".
-compatibility: "Designed for Vellum personal assistants — part of the cmo plugin"
+compatibility: "Designed for Vellum personal assistants — part of the marketing-expert plugin"
 metadata:
   emoji: "📊"
   vellum:

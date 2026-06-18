@@ -1,7 +1,7 @@
 ---
 name: founder-marketing
 description: Help a founder do marketing with little time, no team, and ~no budget — zero-to-one, founder-led growth. Use for "I'm a founder, where do I start with marketing", "no marketing team/budget", "how do I get my first customers", "build in public", "founder brand", or early-stage / pre-PMF GTM.
-compatibility: "Designed for Vellum personal assistants — part of the cmo plugin"
+compatibility: "Designed for Vellum personal assistants — part of the marketing-expert plugin"
 metadata:
   emoji: "🌱"
   vellum:

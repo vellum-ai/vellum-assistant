@@ -1,7 +1,7 @@
 ---
 name: demand-plan
 description: Build a demand-generation plan worked backward from a pipeline or revenue target through funnel math to a channel and budget allocation. Use for "build our demand plan", "how do we hit our pipeline target", "plan Q_ marketing", or budget allocation.
-compatibility: "Designed for Vellum personal assistants — part of the cmo plugin"
+compatibility: "Designed for Vellum personal assistants — part of the marketing-expert plugin"
 metadata:
   emoji: "📈"
   vellum:

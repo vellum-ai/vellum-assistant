@@ -1,7 +1,7 @@
 ---
 name: positioning-sprint
 description: Run a structured positioning and messaging exercise (April Dunford method) to produce a positioning statement and messaging hierarchy. Use for "position our product", "fix our messaging", "what's our positioning", or competitive repositioning.
-compatibility: "Designed for Vellum personal assistants — part of the cmo plugin"
+compatibility: "Designed for Vellum personal assistants — part of the marketing-expert plugin"
 metadata:
   emoji: "🎯"
   vellum:
