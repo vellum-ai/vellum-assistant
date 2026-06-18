@@ -539,6 +539,12 @@ describe("auth store onboarding flag reconciliation", () => {
     // The backfill branch hydrates the currency flags from the device acks.
     expect(setAnalyticsConsentCurrentMock).toHaveBeenCalledWith(true);
     expect(setDiagnosticsConsentCurrentMock).toHaveBeenCalledWith(true);
+    // Acks are persisted from the device-restored values, not the empty
+    // server values — otherwise the fallback would clobber its own input.
+    expect(persistToggleConsentMock).toHaveBeenLastCalledWith("user-1", {
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+    });
   });
 
   test("initSession falls back to device keys when fetchConsent fails", async () => {

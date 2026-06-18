@@ -255,20 +255,22 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
         store.setShareAnalytics(resolved.shareAnalytics);
       if (resolved.shareDiagnostics !== null)
         store.setShareDiagnostics(resolved.shareDiagnostics);
-      store.setAnalyticsConsentCurrent(resolved.analyticsCurrent);
-      store.setDiagnosticsConsentCurrent(resolved.diagnosticsCurrent);
       persistConsentForUser(nextUserId, resolved.tos, resolved.ai);
-      persistToggleConsent(nextUserId, {
-        analyticsCurrent: resolved.analyticsCurrent,
-        diagnosticsCurrent: resolved.diagnosticsCurrent,
-      });
+
+      // Toggle currency comes from the server unless it has no acceptance on
+      // record, in which case device acks are authoritative. Resolve the final
+      // values BEFORE persisting so the empty-server fallback reads device ack
+      // keys that haven't yet been overwritten.
+      let analyticsCurrent = resolved.analyticsCurrent;
+      let diagnosticsCurrent = resolved.diagnosticsCurrent;
+
       // The endpoint always returns an object, so empty/stale versions
       // (not a null record) are the "never accepted" signal. If device
       // keys show prior acceptance, restore the flags and backfill the server.
       if (!resolved.tos && !resolved.ai) {
         const deviceConsent = restoreConsentForUser(nextUserId);
-        store.setAnalyticsConsentCurrent(deviceConsent.analyticsCurrent);
-        store.setDiagnosticsConsentCurrent(deviceConsent.diagnosticsCurrent);
+        analyticsCurrent = deviceConsent.analyticsCurrent;
+        diagnosticsCurrent = deviceConsent.diagnosticsCurrent;
         if (deviceConsent.tos && deviceConsent.ai) {
           store.setTosAccepted(true);
           store.setAiDataConsent(true);
@@ -279,6 +281,10 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
           }).catch(() => {});
         }
       }
+
+      store.setAnalyticsConsentCurrent(analyticsCurrent);
+      store.setDiagnosticsConsentCurrent(diagnosticsCurrent);
+      persistToggleConsent(nextUserId, { analyticsCurrent, diagnosticsCurrent });
       syncOrganizationState(nextUserId);
       return;
     } catch {
