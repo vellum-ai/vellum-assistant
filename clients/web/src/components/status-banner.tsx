@@ -38,7 +38,10 @@ import { useConnectivityState } from "@/hooks/use-connectivity-state";
 import { useNetworkStatus } from "@/hooks/use-network-status";
 import { captureError } from "@/lib/sentry/capture-error";
 import { isElectron } from "@/runtime/is-electron";
-import { wakeLocalAssistantHost } from "@/runtime/local-mode-host";
+import {
+  isLocalModeHostAvailable,
+  wakeLocalAssistantHost,
+} from "@/runtime/local-mode-host";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { cn } from "@/utils/misc";
@@ -596,6 +599,22 @@ function useAssistantBannerConfig(): BannerConfig | null {
       tone: "error",
       title: "You're offline",
       icon: <WifiOff className="h-4 w-4" aria-hidden="true" />,
+    };
+  }
+
+  // A local / self-hosted assistant can surface on a host that has no local-mode
+  // transport — the managed web build and the remote-web tunnel both expose it
+  // via the platform `is_local` flag but can't reach the local daemon from here
+  // (no `/assistant/__local/*`; see runtime/local-mode-host.ts). Waking is
+  // impossible from this host, so show an informative, action-free banner rather
+  // than a "Wake up" button that would 405 (LUM-2501).
+  if (!isLocalModeHostAvailable() && canWakeLocalHealth(localHealth)) {
+    return {
+      tone: "neutral",
+      title: "Your assistant runs locally",
+      icon: <Moon className="h-4 w-4" aria-hidden="true" />,
+      children:
+        "Open the Vellum desktop app or run vellum wake in your terminal to start it.",
     };
   }
 

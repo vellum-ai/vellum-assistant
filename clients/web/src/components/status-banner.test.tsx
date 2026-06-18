@@ -52,6 +52,7 @@ let refetchOperationalStatusMock = mock(async () => {});
 let wakeLocalAssistantHostMock = mock(async (_assistantId: string) => ({
   ok: true,
 }));
+let isLocalModeHostAvailableMock = true;
 let StatusBanner: ComponentType<{
   className?: string;
   placement?: "web" | "electron";
@@ -118,6 +119,7 @@ mock.module("@/assistant/local-health", () => ({
 mock.module("@/runtime/local-mode-host", () => ({
   wakeLocalAssistantHost: (assistantId: string) =>
     wakeLocalAssistantHostMock(assistantId),
+  isLocalModeHostAvailable: () => isLocalModeHostAvailableMock,
 }));
 
 mock.module("@/assistant/lifecycle-store", () => ({
@@ -180,6 +182,7 @@ beforeEach(() => {
   wakeLocalAssistantHostMock = mock(async (_assistantId: string) => ({
     ok: true,
   }));
+  isLocalModeHostAvailableMock = true;
 });
 
 afterEach(() => {
@@ -462,6 +465,21 @@ describe("StatusBanner", () => {
       expect(html).toContain("Wake up");
       expect(html).toContain('data-tone="neutral"');
       expect(html).not.toContain("Your assistant is unreachable");
+    });
+
+    test("shows an informative, action-free banner when no local-mode host is available", () => {
+      // Managed web / remote-web tunnel: a local assistant surfaces via the
+      // platform `is_local` flag, but there's no `/assistant/__local/*` to wake
+      // it through, so the banner must not offer a "Wake up" button (LUM-2501).
+      localHealthMock = "unreachable";
+      isLocalModeHostAvailableMock = false;
+
+      const html = renderToStaticMarkup(<StatusBanner />);
+
+      expect(html).toContain("Your assistant runs locally");
+      expect(html).toContain("Open the Vellum desktop app");
+      expect(html).not.toContain("Wake up");
+      expect(html).toContain('data-tone="neutral"');
     });
 
     test("wakes the active local assistant from the banner action", async () => {
