@@ -9,16 +9,13 @@ mock.module("../../../../util/logger.js", () => ({
 const getSlackMessageBlocks = mock(
   async (_channel: string, _ts: string): Promise<unknown[] | null> => null,
 );
-mock.module("../api.js", () => ({ getSlackMessageBlocks }));
-
-const sendSlackReply = mock(
-  async (
-    _chatId: string,
-    _text: string,
-    _options?: Record<string, unknown>,
-  ) => ({ ts: "1.0" }),
+const callSlackApi = mock(
+  async (_method: string, _body: Record<string, unknown>) => ({
+    ok: true,
+    ts: "1.0",
+  }),
 );
-mock.module("../send.js", () => ({ sendSlackReply }));
+mock.module("../api.js", () => ({ getSlackMessageBlocks, callSlackApi }));
 
 import {
   stripApprovalActionBlocks,
@@ -79,11 +76,11 @@ describe("stripApprovalActionBlocks", () => {
 describe("withdrawSlackApprovalCard", () => {
   beforeEach(() => {
     getSlackMessageBlocks.mockReset();
-    sendSlackReply.mockReset();
-    sendSlackReply.mockImplementation(async () => ({ ts: "1.0" }));
+    callSlackApi.mockReset();
+    callSlackApi.mockImplementation(async () => ({ ok: true, ts: "1.0" }));
   });
 
-  test("preserves original content, removes buttons, appends a status line", async () => {
+  test("edits in place, preserving content, removing buttons, appending status", async () => {
     getSlackMessageBlocks.mockImplementationOnce(async () => [
       {
         type: "card",
@@ -105,12 +102,13 @@ describe("withdrawSlackApprovalCard", () => {
       decidedAtMs: 1_700_000_000_000,
     });
 
-    expect(sendSlackReply).toHaveBeenCalledTimes(1);
-    const [chatId, text, options] = sendSlackReply.mock.calls[0];
-    expect(chatId).toBe("C1");
-    expect(options?.messageTs).toBe("1700000000.0001");
+    expect(callSlackApi).toHaveBeenCalledTimes(1);
+    const [method, body] = callSlackApi.mock.calls[0];
+    expect(method).toBe("chat.update");
+    expect(body.channel).toBe("C1");
+    expect(body.ts).toBe("1700000000.0001");
 
-    const blocks = options?.blocks as Array<Record<string, unknown>>;
+    const blocks = body.blocks as Array<Record<string, unknown>>;
     // original card (no actions) + original context + appended status context
     expect(blocks).toHaveLength(3);
     expect(blocks[0].type).toBe("card");
@@ -118,12 +116,10 @@ describe("withdrawSlackApprovalCard", () => {
     expect(JSON.stringify(blocks)).not.toContain("apr:");
 
     // status line carries the outcome, decider mention, and a date token
-    const statusBlock = blocks[2];
-    const statusText = JSON.stringify(statusBlock);
+    const statusText = JSON.stringify(blocks[2]);
     expect(statusText).toContain("Approved");
     expect(statusText).toContain("<@U-guardian>");
     expect(statusText).toContain("<!date^1700000000^");
-    expect(text).toContain("Approved");
   });
 
   test("falls back to a status-only edit when the original blocks can't be read", async () => {
@@ -135,13 +131,13 @@ describe("withdrawSlackApprovalCard", () => {
       status: "denied",
     });
 
-    const [, , options] = sendSlackReply.mock.calls[0];
-    const blocks = options?.blocks as Array<Record<string, unknown>>;
+    expect(callSlackApi).toHaveBeenCalledTimes(1);
+    const [method, body] = callSlackApi.mock.calls[0];
+    expect(method).toBe("chat.update");
+    const blocks = body.blocks as Array<Record<string, unknown>>;
     expect(blocks).toHaveLength(1);
     expect(blocks[0].type).toBe("section");
     expect(JSON.stringify(blocks)).toContain("Denied");
-    // still an in-place edit (buttons removed), not a new message
-    expect(options?.messageTs).toBe("1.0");
   });
 
   test("falls back when the fetch throws (e.g. missing history scope)", async () => {
@@ -155,8 +151,50 @@ describe("withdrawSlackApprovalCard", () => {
       status: "approved",
     });
 
-    expect(sendSlackReply).toHaveBeenCalledTimes(1);
-    const [, , options] = sendSlackReply.mock.calls[0];
-    expect((options?.blocks as unknown[]).length).toBe(1);
+    expect(callSlackApi).toHaveBeenCalledTimes(1);
+    expect(callSlackApi.mock.calls[0][0]).toBe("chat.update");
+  });
+
+  test("retries with a status-only edit when preserved blocks are rejected", async () => {
+    getSlackMessageBlocks.mockImplementationOnce(async () => [
+      {
+        type: "card",
+        body: { type: "mrkdwn", text: "Alice wants in" },
+        actions: [{ type: "button", action_id: "apr:r1:approve_once" }],
+      },
+    ]);
+    // First chat.update (preserved blocks) is rejected; second must still edit.
+    callSlackApi.mockImplementationOnce(async () => {
+      throw new Error("invalid_blocks");
+    });
+
+    await withdrawSlackApprovalCard({
+      channel: "C1",
+      messageTs: "1.0",
+      status: "approved",
+    });
+
+    expect(callSlackApi).toHaveBeenCalledTimes(2);
+    // both attempts are edits — never a new message
+    expect(callSlackApi.mock.calls.every((c) => c[0] === "chat.update")).toBe(
+      true,
+    );
+    const retryBlocks = callSlackApi.mock.calls[1][1].blocks as Array<
+      Record<string, unknown>
+    >;
+    expect(retryBlocks).toHaveLength(1);
+    expect(retryBlocks[0].type).toBe("section");
+  });
+
+  test("never posts a new message (withdrawal is edit-only)", async () => {
+    getSlackMessageBlocks.mockImplementationOnce(async () => null);
+    await withdrawSlackApprovalCard({
+      channel: "C1",
+      messageTs: "1.0",
+      status: "approved",
+    });
+    expect(
+      callSlackApi.mock.calls.some((c) => c[0] === "chat.postMessage"),
+    ).toBe(false);
   });
 });

@@ -7,14 +7,16 @@
  * then the message is edited in place. This keeps an in-channel audit trail
  * rather than collapsing the card to a bare status.
  *
- * If the original blocks can't be read (missing `*:history` scope, threaded
- * reply, deleted message), it degrades to a status-only edit so the buttons are
- * still removed.
+ * This is strictly an in-place edit (`chat.update`). It never posts a new
+ * message: the whole point is to drop the buttons on the *existing* card, so a
+ * "post instead" fallback would duplicate the card and leave its buttons live.
+ * When the original blocks can't be read (missing `*:history` scope, threaded
+ * reply, deleted message) or don't round-trip through `chat.update`, it falls
+ * back to editing the message down to a status-only block — still an edit.
  */
 
 import { getLogger } from "../../../util/logger.js";
-import { getSlackMessageBlocks } from "./api.js";
-import { sendSlackReply } from "./send.js";
+import { callSlackApi, getSlackMessageBlocks } from "./api.js";
 
 const log = getLogger("slack-withdraw");
 
@@ -88,19 +90,28 @@ export function stripApprovalActionBlocks(blocks: unknown[]): unknown[] {
   return result;
 }
 
+/** Edit a message in place. Throws on Slack API failure. */
+async function editMessage(
+  channel: string,
+  ts: string,
+  text: string,
+  blocks: unknown[],
+): Promise<void> {
+  await callSlackApi("chat.update", { channel, ts, text, blocks });
+}
+
 /**
  * Edit a Slack approval message in place to its resolved state, preserving the
- * card content and dropping its buttons. Best-effort: throws only on the final
- * edit call failing, which the caller treats as non-fatal.
+ * card content and dropping its buttons. Throws only if even the status-only
+ * edit fails, which the caller treats as non-fatal.
  */
 export async function withdrawSlackApprovalCard(
   params: WithdrawSlackApprovalCardParams,
 ): Promise<void> {
   const statusText = buildStatusText(params);
-  const statusBlock = {
-    type: "context",
-    elements: [{ type: "mrkdwn", text: statusText }],
-  };
+  const statusOnlyBlocks = [
+    { type: "section", text: { type: "mrkdwn", text: statusText } },
+  ];
 
   let preserved: unknown[] | null = null;
   try {
@@ -109,7 +120,10 @@ export async function withdrawSlackApprovalCard(
       params.messageTs,
     );
     if (original && original.length > 0) {
-      preserved = [...stripApprovalActionBlocks(original), statusBlock];
+      preserved = [
+        ...stripApprovalActionBlocks(original),
+        { type: "context", elements: [{ type: "mrkdwn", text: statusText }] },
+      ];
     }
   } catch (err) {
     log.warn(
@@ -118,13 +132,30 @@ export async function withdrawSlackApprovalCard(
     );
   }
 
-  const blocks = preserved ?? [
-    { type: "section", text: { type: "mrkdwn", text: statusText } },
-  ];
+  // Try to preserve the card content; if those blocks are rejected (e.g. a
+  // block type that doesn't round-trip through chat.update), fall back to a
+  // status-only edit. Both paths are edits — never a new message.
+  if (preserved) {
+    try {
+      await editMessage(
+        params.channel,
+        params.messageTs,
+        statusText,
+        preserved,
+      );
+      return;
+    } catch (err) {
+      log.warn(
+        { err, channel: params.channel, messageTs: params.messageTs },
+        "Editing Slack card with preserved blocks failed; retrying status-only",
+      );
+    }
+  }
 
-  await sendSlackReply(params.channel, statusText, {
-    messageTs: params.messageTs,
-    blocks,
-    useBlocks: true,
-  });
+  await editMessage(
+    params.channel,
+    params.messageTs,
+    statusText,
+    statusOnlyBlocks,
+  );
 }

@@ -573,14 +573,20 @@ export async function applyCanonicalGuardianDecision(
   }
 
   // 6. Project the terminal status onto the request's approval cards on every
-  // surface it was delivered to (in-app, Slack, ...). The in-app card is
-  // skipped when the decision came from in-app — that client already completed
-  // it optimistically. Best-effort and non-throwing: the decision is already
-  // committed via CAS, so card withdrawal must never affect the result.
-  await withdrawGuardianRequestCards({
+  // surface it was delivered to (in-app, Slack, ...). Fire-and-forget: the
+  // decision is already committed via CAS and withdrawal is a best-effort
+  // cosmetic projection, so awaiting its Slack round-trips would only add
+  // latency to the decision response that interactive callers wait on. The
+  // projector never throws; the `.catch` is a defensive backstop.
+  void withdrawGuardianRequestCards({
     request: resolved,
     status: targetStatus,
     originChannel: actorContext.channel,
+  }).catch((err) => {
+    log.warn(
+      { err, requestId },
+      "Cross-surface card withdrawal failed (non-fatal)",
+    );
   });
 
   log.info(
