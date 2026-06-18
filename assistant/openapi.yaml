@@ -14569,6 +14569,54 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  servers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        status:
+                          type: string
+                        transport:
+                          type: object
+                          properties:
+                            type:
+                              type: string
+                              enum:
+                                - stdio
+                                - sse
+                                - streamable-http
+                          required:
+                            - type
+                          additionalProperties: {}
+                        enabled:
+                          type: boolean
+                        defaultRiskLevel:
+                          type: string
+                        allowedTools:
+                          type: array
+                          items:
+                            type: string
+                        blockedTools:
+                          type: array
+                          items:
+                            type: string
+                      required:
+                        - id
+                        - status
+                        - transport
+                        - enabled
+                        - defaultRiskLevel
+                      additionalProperties: false
+                required:
+                  - servers
+                additionalProperties: false
   /v1/internal/mcp/reload:
     post:
       operationId: internal_mcp_reload_post
@@ -14595,6 +14643,104 @@ paths:
               properties:
                 name:
                   type: string
+              required:
+                - name
+      responses:
+        "200":
+          description: Successful response
+  /v1/internal/mcp/tools-summary:
+    get:
+      operationId: internal_mcp_toolssummary_get
+      summary: Per-server MCP tool counts and token estimates
+      description:
+        Returns registered tool counts, individual tool details, and estimated token overhead for each connected
+        MCP server.
+      tags:
+        - internal
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  servers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        serverId:
+                          type: string
+                        toolCount:
+                          type: number
+                        estimatedTokens:
+                          type: number
+                        tools:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                              description:
+                                type: string
+                              estimatedTokens:
+                                type: number
+                            required:
+                              - name
+                              - description
+                              - estimatedTokens
+                            additionalProperties: false
+                      required:
+                        - serverId
+                        - toolCount
+                        - estimatedTokens
+                        - tools
+                      additionalProperties: false
+                  totalToolCount:
+                    type: number
+                  totalEstimatedTokens:
+                    type: number
+                required:
+                  - servers
+                  - totalToolCount
+                  - totalEstimatedTokens
+                additionalProperties: false
+  /v1/internal/mcp/update:
+    post:
+      operationId: internal_mcp_update_post
+      summary: Update an MCP server configuration
+      description: Updates fields on an existing MCP server config entry and triggers a reload.
+      tags:
+        - internal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                enabled:
+                  type: boolean
+                defaultRiskLevel:
+                  type: string
+                maxTools:
+                  type: number
+                allowedTools:
+                  anyOf:
+                    - type: array
+                      items:
+                        type: string
+                    - type: "null"
+                blockedTools:
+                  anyOf:
+                    - type: array
+                      items:
+                        type: string
+                    - type: "null"
               required:
                 - name
       responses:

@@ -6,7 +6,9 @@
  * GET  internal/mcp/auth/status/:serverId — polls current flow status
  * POST internal/mcp/reload       — trigger MCP server reload
  * GET  internal/mcp/list         — list servers with health status
+ * GET  internal/mcp/tools-summary — per-server tool counts + token estimates
  * POST internal/mcp/add          — add a new MCP server config
+ * POST internal/mcp/update       — update an existing MCP server config
  * POST internal/mcp/remove       — remove an MCP server config + credentials
  */
 
@@ -14,13 +16,15 @@ import { z } from "zod";
 
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import type { McpConfig, McpServerConfig } from "../../config/schemas/mcp.js";
+import { estimateToolDefinitionTokens } from "../../context/token-estimator.js";
 import { reloadMcpServers } from "../../daemon/mcp-reload-service.js";
 import { McpClient } from "../../mcp/client.js";
 import { orchestrateMcpOAuthConnect } from "../../mcp/mcp-auth-orchestrator.js";
 import { getMcpAuthState } from "../../mcp/mcp-auth-state.js";
 import { deleteMcpOAuthCredentials } from "../../mcp/mcp-oauth-provider.js";
+import { getMcpToolsByServer } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
-import { GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
+import { ACTOR_PRINCIPALS, GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
@@ -30,12 +34,15 @@ async function handleMcpAuthStart({
   body,
 }: {
   body?: Record<string, unknown>;
-}): Promise<{ auth_url: string; state: string; already_authenticated?: boolean }> {
+}): Promise<{
+  auth_url: string;
+  state: string;
+  already_authenticated?: boolean;
+}> {
   const { serverId } = body as { serverId: string };
 
   const raw = loadRawConfig();
-  const servers =
-    (raw.mcp as Partial<McpConfig> | undefined)?.servers ?? {};
+  const servers = (raw.mcp as Partial<McpConfig> | undefined)?.servers ?? {};
   const serverConfig = servers[serverId];
 
   if (!serverConfig) {
@@ -63,7 +70,11 @@ async function handleMcpAuthStart({
     throw new InternalError(err instanceof Error ? err.message : String(err));
   }
 
-  return { auth_url: result.auth_url, state: serverId, already_authenticated: result.already_authenticated };
+  return {
+    auth_url: result.auth_url,
+    state: serverId,
+    already_authenticated: result.already_authenticated,
+  };
 }
 
 function handleMcpAuthStatus({
@@ -81,7 +92,8 @@ function handleMcpAuthStatus({
     throw new NotFoundError(`No active OAuth flow for server "${serverId}"`);
   }
 
-  if (state.status === "pending") return { status: "pending", auth_url: state.authUrl };
+  if (state.status === "pending")
+    return { status: "pending", auth_url: state.authUrl };
   if (state.status === "complete") return { status: "complete" };
   return { status: "error", error: state.error };
 }
@@ -99,9 +111,9 @@ function triggerReload(context: string): void {
   });
 }
 
-function handleMcpReload(_args: {
-  body?: Record<string, unknown>;
-}): { ok: true } {
+function handleMcpReload(_args: { body?: Record<string, unknown> }): {
+  ok: true;
+} {
   triggerReload("internal_mcp_reload");
   return { ok: true };
 }
@@ -112,7 +124,7 @@ function handleMcpReload(_args: {
 
 const HEALTH_CHECK_TIMEOUT_MS = 10_000;
 
-async function checkServerHealth(
+async function checkMachineReadableHealth(
   serverId: string,
   config: McpServerConfig,
   timeoutMs = HEALTH_CHECK_TIMEOUT_MS,
@@ -129,30 +141,25 @@ async function checkServerHealth(
 
     if (client.isConnected) {
       await client.disconnect();
-      return "✓ Connected";
+      return "connected";
     }
 
     const err = client.lastError;
     if (err) {
-      const message = err.message;
-      if (message.includes("timeout")) {
-        return "✗ Timed out";
+      if (err.message.includes("timeout")) {
+        return "error";
       }
-      return `✗ Error: ${message}`;
+      return "error";
     }
 
-    return "! Needs authentication";
-  } catch (err) {
+    return "needs-auth";
+  } catch {
     try {
       await client.disconnect();
     } catch {
       /* ignore */
     }
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes("timeout")) {
-      return "✗ Timed out";
-    }
-    return `✗ Error: ${message}`;
+    return "error";
   }
 }
 
@@ -185,9 +192,9 @@ async function handleMcpList(_args: {
         const enabled = config.enabled !== false;
         let status: string;
         if (!enabled) {
-          status = "✗ disabled";
+          status = "disabled";
         } else {
-          status = await checkServerHealth(id, config);
+          status = await checkMachineReadableHealth(id, config);
         }
         return {
           id,
@@ -205,6 +212,128 @@ async function handleMcpList(_args: {
 }
 
 // ---------------------------------------------------------------------------
+// Tools summary
+// ---------------------------------------------------------------------------
+
+interface McpToolEntry {
+  name: string;
+  description: string;
+  estimatedTokens: number;
+}
+
+interface McpToolsSummaryServerEntry {
+  serverId: string;
+  toolCount: number;
+  estimatedTokens: number;
+  tools: McpToolEntry[];
+}
+
+function handleMcpToolsSummary(): {
+  servers: McpToolsSummaryServerEntry[];
+  totalToolCount: number;
+  totalEstimatedTokens: number;
+} {
+  const byServer = getMcpToolsByServer();
+  const servers: McpToolsSummaryServerEntry[] = [];
+  let totalToolCount = 0;
+  let totalEstimatedTokens = 0;
+
+  for (const [serverId, toolList] of byServer) {
+    const prefix = `mcp__${serverId}__`;
+    const tools: McpToolEntry[] = toolList.map((tool) => {
+      const tokens = estimateToolDefinitionTokens(tool);
+      const rawName = tool.name.startsWith(prefix)
+        ? tool.name.slice(prefix.length)
+        : tool.name;
+      return {
+        name: rawName,
+        description: tool.description,
+        estimatedTokens: tokens,
+      };
+    });
+    const serverTokens = tools.reduce((sum, t) => sum + t.estimatedTokens, 0);
+    servers.push({
+      serverId,
+      toolCount: toolList.length,
+      estimatedTokens: serverTokens,
+      tools,
+    });
+    totalToolCount += toolList.length;
+    totalEstimatedTokens += serverTokens;
+  }
+
+  return { servers, totalToolCount, totalEstimatedTokens };
+}
+
+// ---------------------------------------------------------------------------
+// Update
+// ---------------------------------------------------------------------------
+
+async function handleMcpUpdate({
+  body,
+}: {
+  body?: Record<string, unknown>;
+}): Promise<{ updated: true }> {
+  const {
+    name,
+    enabled,
+    defaultRiskLevel,
+    maxTools,
+    allowedTools,
+    blockedTools,
+  } = body as {
+    name: string;
+    enabled?: boolean;
+    defaultRiskLevel?: string;
+    maxTools?: number;
+    allowedTools?: string[] | null;
+    blockedTools?: string[] | null;
+  };
+
+  const raw = loadRawConfig();
+  const mcpConfig = raw.mcp as Record<string, unknown> | undefined;
+  const serverMap = mcpConfig?.servers as
+    | Record<string, Record<string, unknown>>
+    | undefined;
+
+  if (!serverMap || !serverMap[name]) {
+    throw new NotFoundError(`MCP server "${name}" not found.`);
+  }
+
+  const server = serverMap[name];
+
+  if (enabled !== undefined) server.enabled = enabled;
+  if (defaultRiskLevel !== undefined) {
+    if (!["low", "medium", "high"].includes(defaultRiskLevel)) {
+      throw new BadRequestError(
+        `Invalid risk level: ${defaultRiskLevel}. Must be low, medium, or high`,
+      );
+    }
+    server.defaultRiskLevel = defaultRiskLevel;
+  }
+  if (maxTools !== undefined) server.maxTools = maxTools;
+  if (allowedTools !== undefined) {
+    if (allowedTools === null) {
+      delete server.allowedTools;
+    } else {
+      server.allowedTools = allowedTools;
+    }
+  }
+  if (blockedTools !== undefined) {
+    if (blockedTools === null) {
+      delete server.blockedTools;
+    } else {
+      server.blockedTools = blockedTools;
+    }
+  }
+
+  saveRawConfig(raw);
+  triggerReload("internal_mcp_update");
+
+  return { updated: true };
+}
+
+// ---------------------------------------------------------------------------
 // Add
 // ---------------------------------------------------------------------------
 
@@ -213,15 +342,7 @@ async function handleMcpAdd({
 }: {
   body?: Record<string, unknown>;
 }): Promise<{ added: true }> {
-  const {
-    name,
-    transportType,
-    url,
-    command,
-    args,
-    risk,
-    disabled,
-  } = body as {
+  const { name, transportType, url, command, args, risk, disabled } = body as {
     name: string;
     transportType: string;
     url?: string;
@@ -367,8 +488,8 @@ export const ROUTES: RouteDefinition[] = [
     endpoint: "internal/mcp/reload",
     method: "POST",
     policy: {
-      requiredScopes: ["internal.write"],
-      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Trigger MCP server reload",
     description:
@@ -381,22 +502,93 @@ export const ROUTES: RouteDefinition[] = [
     endpoint: "internal/mcp/list",
     method: "GET",
     policy: {
-      requiredScopes: ["internal.write"],
-      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "List MCP servers with health status",
     description:
       "Returns configured MCP servers with live health-check results (connected, needs auth, error, disabled).",
     tags: ["internal"],
+    responseBody: z.object({
+      servers: z.array(
+        z.object({
+          id: z.string(),
+          status: z.string(),
+          transport: z
+            .object({
+              type: z.enum(["stdio", "sse", "streamable-http"]),
+            })
+            .passthrough(),
+          enabled: z.boolean(),
+          defaultRiskLevel: z.string(),
+          allowedTools: z.array(z.string()).optional(),
+          blockedTools: z.array(z.string()).optional(),
+        }),
+      ),
+    }),
     handler: handleMcpList,
+  },
+  {
+    operationId: "internal_mcp_tools_summary",
+    endpoint: "internal/mcp/tools-summary",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Per-server MCP tool counts and token estimates",
+    description:
+      "Returns registered tool counts, individual tool details, and estimated token overhead for each connected MCP server.",
+    tags: ["internal"],
+    responseBody: z.object({
+      servers: z.array(
+        z.object({
+          serverId: z.string(),
+          toolCount: z.number(),
+          estimatedTokens: z.number(),
+          tools: z.array(
+            z.object({
+              name: z.string(),
+              description: z.string(),
+              estimatedTokens: z.number(),
+            }),
+          ),
+        }),
+      ),
+      totalToolCount: z.number(),
+      totalEstimatedTokens: z.number(),
+    }),
+    handler: handleMcpToolsSummary,
+  },
+  {
+    operationId: "internal_mcp_update",
+    endpoint: "internal/mcp/update",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Update an MCP server configuration",
+    description:
+      "Updates fields on an existing MCP server config entry and triggers a reload.",
+    tags: ["internal"],
+    requestBody: z.object({
+      name: z.string(),
+      enabled: z.boolean().optional(),
+      defaultRiskLevel: z.string().optional(),
+      maxTools: z.number().optional(),
+      allowedTools: z.array(z.string()).nullable().optional(),
+      blockedTools: z.array(z.string()).nullable().optional(),
+    }),
+    handler: handleMcpUpdate,
   },
   {
     operationId: "internal_mcp_add",
     endpoint: "internal/mcp/add",
     method: "POST",
     policy: {
-      requiredScopes: ["internal.write"],
-      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Add an MCP server configuration",
     description:
@@ -418,8 +610,8 @@ export const ROUTES: RouteDefinition[] = [
     endpoint: "internal/mcp/remove",
     method: "POST",
     policy: {
-      requiredScopes: ["internal.write"],
-      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Remove an MCP server configuration",
     description:

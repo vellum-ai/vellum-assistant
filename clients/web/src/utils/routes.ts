@@ -141,6 +141,7 @@ export const routes = {
     community: r("/assistant/settings/community"),
     debug: r("/assistant/settings/debug"),
     developer: r("/assistant/settings/developer"),
+    mcp: r("/assistant/settings/mcp"),
     advanced: r("/assistant/settings/advanced"),
     dangerZone: r("/assistant/settings/danger-zone"),
     systemEvents: r("/assistant/settings/system-events"),
