@@ -24,7 +24,7 @@ import { getMcpAuthState } from "../../mcp/mcp-auth-state.js";
 import { deleteMcpOAuthCredentials } from "../../mcp/mcp-oauth-provider.js";
 import { getMcpToolsByServer } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
-import { GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
+import { ACTOR_PRINCIPALS, GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
@@ -124,7 +124,7 @@ function handleMcpReload(_args: { body?: Record<string, unknown> }): {
 
 const HEALTH_CHECK_TIMEOUT_MS = 10_000;
 
-async function checkServerHealth(
+async function checkMachineReadableHealth(
   serverId: string,
   config: McpServerConfig,
   timeoutMs = HEALTH_CHECK_TIMEOUT_MS,
@@ -141,30 +141,25 @@ async function checkServerHealth(
 
     if (client.isConnected) {
       await client.disconnect();
-      return "✓ Connected";
+      return "connected";
     }
 
     const err = client.lastError;
     if (err) {
-      const message = err.message;
-      if (message.includes("timeout")) {
-        return "✗ Timed out";
+      if (err.message.includes("timeout")) {
+        return "error";
       }
-      return `✗ Error: ${message}`;
+      return "error";
     }
 
-    return "! Needs authentication";
-  } catch (err) {
+    return "needs-auth";
+  } catch {
     try {
       await client.disconnect();
     } catch {
       /* ignore */
     }
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes("timeout")) {
-      return "✗ Timed out";
-    }
-    return `✗ Error: ${message}`;
+    return "error";
   }
 }
 
@@ -197,9 +192,9 @@ async function handleMcpList(_args: {
         const enabled = config.enabled !== false;
         let status: string;
         if (!enabled) {
-          status = "✗ disabled";
+          status = "disabled";
         } else {
-          status = await checkServerHealth(id, config);
+          status = await checkMachineReadableHealth(id, config);
         }
         return {
           id,
@@ -244,10 +239,14 @@ function handleMcpToolsSummary(): {
   let totalEstimatedTokens = 0;
 
   for (const [serverId, toolList] of byServer) {
+    const prefix = `mcp__${serverId}__`;
     const tools: McpToolEntry[] = toolList.map((tool) => {
       const tokens = estimateToolDefinitionTokens(tool);
+      const rawName = tool.name.startsWith(prefix)
+        ? tool.name.slice(prefix.length)
+        : tool.name;
       return {
-        name: tool.name,
+        name: rawName,
         description: tool.description,
         estimatedTokens: tokens,
       };
@@ -489,8 +488,8 @@ export const ROUTES: RouteDefinition[] = [
     endpoint: "internal/mcp/reload",
     method: "POST",
     policy: {
-      requiredScopes: ["internal.write"],
-      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Trigger MCP server reload",
     description:
@@ -503,8 +502,8 @@ export const ROUTES: RouteDefinition[] = [
     endpoint: "internal/mcp/list",
     method: "GET",
     policy: {
-      requiredScopes: ["internal.write"],
-      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "List MCP servers with health status",
     description:
@@ -534,8 +533,8 @@ export const ROUTES: RouteDefinition[] = [
     endpoint: "internal/mcp/tools-summary",
     method: "GET",
     policy: {
-      requiredScopes: ["internal.write"],
-      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Per-server MCP tool counts and token estimates",
     description:
@@ -566,8 +565,8 @@ export const ROUTES: RouteDefinition[] = [
     endpoint: "internal/mcp/update",
     method: "POST",
     policy: {
-      requiredScopes: ["internal.write"],
-      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Update an MCP server configuration",
     description:
@@ -588,8 +587,8 @@ export const ROUTES: RouteDefinition[] = [
     endpoint: "internal/mcp/add",
     method: "POST",
     policy: {
-      requiredScopes: ["internal.write"],
-      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Add an MCP server configuration",
     description:
@@ -611,8 +610,8 @@ export const ROUTES: RouteDefinition[] = [
     endpoint: "internal/mcp/remove",
     method: "POST",
     policy: {
-      requiredScopes: ["internal.write"],
-      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Remove an MCP server configuration",
     description:
