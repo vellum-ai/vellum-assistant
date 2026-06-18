@@ -57,6 +57,7 @@ import { fetchConsent, patchConsent } from "@/domains/account/profile";
 import {
   restoreConsentForUser,
   persistConsentForUser,
+  persistToggleConsent,
   resolveServerConsent,
   CONSENT_VERSION,
 } from "@/utils/onboarding-cleanup";
@@ -255,11 +256,21 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       if (resolved.shareDiagnostics !== null)
         store.setShareDiagnostics(resolved.shareDiagnostics);
       persistConsentForUser(nextUserId, resolved.tos, resolved.ai);
+
+      // Toggle currency comes from the server unless it has no acceptance on
+      // record, in which case device acks are authoritative. Resolve the final
+      // values BEFORE persisting so the empty-server fallback reads device ack
+      // keys that haven't yet been overwritten.
+      let analyticsCurrent = resolved.analyticsCurrent;
+      let diagnosticsCurrent = resolved.diagnosticsCurrent;
+
       // The endpoint always returns an object, so empty/stale versions
       // (not a null record) are the "never accepted" signal. If device
       // keys show prior acceptance, restore the flags and backfill the server.
       if (!resolved.tos && !resolved.ai) {
         const deviceConsent = restoreConsentForUser(nextUserId);
+        analyticsCurrent = deviceConsent.analyticsCurrent;
+        diagnosticsCurrent = deviceConsent.diagnosticsCurrent;
         if (deviceConsent.tos && deviceConsent.ai) {
           store.setTosAccepted(true);
           store.setAiDataConsent(true);
@@ -270,6 +281,10 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
           }).catch(() => {});
         }
       }
+
+      store.setAnalyticsConsentCurrent(analyticsCurrent);
+      store.setDiagnosticsConsentCurrent(diagnosticsCurrent);
+      persistToggleConsent(nextUserId, { analyticsCurrent, diagnosticsCurrent });
       syncOrganizationState(nextUserId);
       return;
     } catch {
@@ -281,6 +296,8 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
   const store = useOnboardingStore.getState();
   store.setTosAccepted(consent.tos);
   store.setAiDataConsent(consent.ai);
+  store.setAnalyticsConsentCurrent(consent.analyticsCurrent);
+  store.setDiagnosticsConsentCurrent(consent.diagnosticsCurrent);
   syncOrganizationState(nextUserId);
 }
 
