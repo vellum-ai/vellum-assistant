@@ -119,5 +119,8 @@ describe("streamExportVBundle — descriptor lifecycle", () => {
       // incidental descriptors (temp output file already cleaned up, jitter).
       expect(delta).toBeLessThan(8);
     },
+    // Two full exports of a multi-megabyte workspace (hash pass + tar pass each)
+    // do real disk I/O; the default 5s budget is tight under loaded CI runners.
+    30_000,
   );
 });
