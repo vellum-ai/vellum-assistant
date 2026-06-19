@@ -5,39 +5,40 @@ import { isClientDegraded } from "../client-health.js";
 const HEARTBEAT_MS = 7_000;
 
 describe("isClientDegraded", () => {
-  test("fresh connection is not degraded (first heartbeat not due yet)", () => {
-    const connectedAt = new Date(1_000_000);
-    const lastActiveAt = connectedAt; // never touched yet
-    const now = new Date(connectedAt.getTime() + 3_000); // 3s old
-    expect(isClientDegraded(connectedAt, lastActiveAt, now, HEARTBEAT_MS)).toBe(
-      false,
-    );
+  test("fresh connection is not degraded", () => {
+    const now = new Date(1_000_000);
+    const lastActiveAt = now; // just connected
+    expect(isClientDegraded(lastActiveAt, now, HEARTBEAT_MS)).toBe(false);
   });
 
-  test("mature healthy connection (lastActiveAt advancing) is not degraded", () => {
-    const connectedAt = new Date(1_000_000);
-    const now = new Date(connectedAt.getTime() + 60_000); // 60s old
+  test("actively heartbeating connection is not degraded", () => {
+    const now = new Date(1_000_000);
     const lastActiveAt = new Date(now.getTime() - 2_000); // heartbeat 2s ago
-    expect(isClientDegraded(connectedAt, lastActiveAt, now, HEARTBEAT_MS)).toBe(
-      false,
-    );
+    expect(isClientDegraded(lastActiveAt, now, HEARTBEAT_MS)).toBe(false);
   });
 
-  test("registered-but-not-heartbeating connection is degraded", () => {
-    const connectedAt = new Date(1_000_000);
-    const lastActiveAt = connectedAt; // lastActiveAt never advanced
-    const now = new Date(connectedAt.getTime() + 30_000); // 30s old (> 2 * heartbeat)
-    expect(isClientDegraded(connectedAt, lastActiveAt, now, HEARTBEAT_MS)).toBe(
-      true,
-    );
+  test("never-heartbeating connection that has gone stale is degraded", () => {
+    const now = new Date(1_000_000);
+    const lastActiveAt = new Date(now.getTime() - 30_000); // 30s since any activity
+    expect(isClientDegraded(lastActiveAt, now, HEARTBEAT_MS)).toBe(true);
   });
 
-  test("boundary: just under 2 heartbeat intervals old is not yet degraded", () => {
-    const connectedAt = new Date(1_000_000);
-    const lastActiveAt = connectedAt;
-    const now = new Date(connectedAt.getTime() + 2 * HEARTBEAT_MS - 1);
-    expect(isClientDegraded(connectedAt, lastActiveAt, now, HEARTBEAT_MS)).toBe(
-      false,
-    );
+  test("heartbeated then froze is degraded (stale relative to now, not connectedAt)", () => {
+    const now = new Date(1_000_000);
+    // Connected long ago, heartbeated for a while, then stopped an hour ago.
+    const lastActiveAt = new Date(now.getTime() - 3_600_000);
+    expect(isClientDegraded(lastActiveAt, now, HEARTBEAT_MS)).toBe(true);
+  });
+
+  test("boundary: just under 2 heartbeat intervals stale is not degraded", () => {
+    const now = new Date(1_000_000);
+    const lastActiveAt = new Date(now.getTime() - (2 * HEARTBEAT_MS - 1));
+    expect(isClientDegraded(lastActiveAt, now, HEARTBEAT_MS)).toBe(false);
+  });
+
+  test("boundary: just over 2 heartbeat intervals stale is degraded", () => {
+    const now = new Date(1_000_000);
+    const lastActiveAt = new Date(now.getTime() - (2 * HEARTBEAT_MS + 1));
+    expect(isClientDegraded(lastActiveAt, now, HEARTBEAT_MS)).toBe(true);
   });
 });

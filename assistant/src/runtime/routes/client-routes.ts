@@ -80,7 +80,6 @@ export const ROUTES: RouteDefinition[] = [
             connectedAt: c.connectedAt,
             lastActiveAt: c.lastActiveAt,
             degraded: isClientDegraded(
-              c.connectedAt,
               c.lastActiveAt,
               now,
               DEFAULT_HEARTBEAT_INTERVAL_MS,
