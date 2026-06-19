@@ -27,7 +27,10 @@ type ManagedProfileTemplate = Omit<
   ProfileEntry,
   "provider" | "model" | "provider_connection"
 > & {
-  intent: ModelIntent;
+  // Exactly one of `intent` or `model` must be set. `intent` resolves the
+  // model from the catalog at seed time; `model` pins an explicit model id.
+  intent?: ModelIntent;
+  model?: string;
   provider: NonNullable<ProfileEntry["provider"]>;
   connectionName: string;
 };
@@ -136,6 +139,34 @@ const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
  */
 export const AUTO_PROFILE_KEY = "auto";
 
+export const OS_BETA_PROFILE_KEY = "os-beta";
+export const OS_BETA_FEATURE_FLAG_KEY = "os-beta";
+
+/**
+ * Flag-gated managed profile. NOT in MANAGED_PROFILE_TEMPLATES, so the
+ * unconditional boot seed never creates it. Reconciled in/out by
+ * the flag-gated profile reconcile based on the `os-beta` feature flag.
+ * Balanced-parity defaults; GLM 5.2 pinned explicitly via `model`.
+ */
+export const OS_BETA_PROFILE_TEMPLATE: ManagedProfileTemplate = {
+  model: "accounts/fireworks/models/glm-5p2",
+  provider: "fireworks",
+  connectionName: "fireworks-managed",
+  source: "managed",
+  label: "OS Beta",
+  description: "Open-source frontier model (GLM 5.2), in beta",
+  maxTokens: 32000,
+  effort: "high",
+  thinking: { enabled: true, streamThinking: true },
+  contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+};
+
+// Membership here marks a profile as managed for the route layer, which blocks
+// model/provider edits and deletion. A key only belongs in this set when a
+// managed profile of that name exists to back it. `OS_BETA_PROFILE_KEY` is
+// flag-gated and has no unconditional managed entry, so it stays out — keeping
+// it in would let the route layer lock a user-created `os-beta` profile that
+// has no managed definition behind it.
 export const MANAGED_PROFILE_NAMES = new Set([
   ...Object.keys(MANAGED_PROFILE_TEMPLATES),
   AUTO_PROFILE_KEY,
@@ -433,17 +464,22 @@ export function seedInferenceProfiles(
   saveRawConfig(config);
 }
 
-function materializeProfile(
+export function materializeProfile(
   template: ManagedProfileTemplate,
   provider: NonNullable<ProfileEntry["provider"]>,
   connectionName: string,
 ): ProfileEntry {
-  const { intent, provider: _p, connectionName: _c, ...rest } = template;
+  const { intent, model, provider: _p, connectionName: _c, ...rest } = template;
+  const resolvedModel =
+    model ?? (intent ? resolveModelIntent(provider, intent) : undefined);
+  if (!resolvedModel) {
+    throw new Error("ManagedProfileTemplate requires `intent` or `model`");
+  }
   return {
     ...rest,
     provider,
     provider_connection: connectionName,
-    model: resolveModelIntent(provider, intent),
+    model: resolvedModel,
   };
 }
 
