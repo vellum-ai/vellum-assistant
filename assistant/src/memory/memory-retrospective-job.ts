@@ -65,6 +65,7 @@ import {
   getMessagesAfter,
   resolveOverrideProfile,
 } from "./conversation-crud.js";
+import { isBackgroundConversationType } from "./conversation-types.js";
 import {
   enqueueMemoryJob,
   type MemoryJob,
@@ -313,6 +314,14 @@ async function runForkBasedRetrospective(
       // {@link WakeToolContextPin}.
       toolGateMode: "execution" as const,
       toolContextPin,
+      // Reproduce the source's turn block for message-tier cache-prefix
+      // parity: background/scheduled sources ran non-interactive live turns
+      // (which carry `<background_turn>`), so the fork must run non-interactive
+      // too. Standard/user sources ran interactive (no `<background_turn>`), so
+      // the fork stays interactive — preserving their existing byte parity.
+      isNonInteractive: isBackgroundConversationType(
+        sourceConversation.conversationType,
+      ),
       // Profile forcing (model/thinking/effort parity) is a separate concern
       // and stays keyed on `matchConversationProfile` via `matchedProfile`.
       ...(matchedProfile !== undefined

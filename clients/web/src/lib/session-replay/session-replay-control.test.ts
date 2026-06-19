@@ -90,12 +90,18 @@ const {
   installSessionReplayControlListeners,
 } = await import("@/lib/session-replay/session-replay-control");
 
+const NETWORK = {
+  requestSanitizer: <T>(r: T) => r,
+  responseSanitizer: <T>(r: T) => r,
+  isEnabled: true,
+};
 const CONFIG = {
   appId: "app-123",
   surface: "web" as const,
   environment: "test",
   release: "1.2.3",
   base: "https://app.example.com",
+  network: NETWORK,
 };
 
 function authState(over: Partial<MockAuthState> = {}): MockAuthState {
@@ -142,6 +148,7 @@ describe("syncSessionReplay", () => {
       base: "https://app.example.com",
       // Live consent gate handed to the SDK (same ref as the exported gate).
       shouldSendData: sessionReplayConsentGranted,
+      network: NETWORK,
     });
     expect(stopMock).not.toHaveBeenCalled();
   });

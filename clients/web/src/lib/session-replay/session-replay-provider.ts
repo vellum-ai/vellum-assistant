@@ -9,6 +9,13 @@
 // (it's pattern-matched by ad-blockers — the whole reason we proxy first-party).
 import replaySdk from "logrocket";
 
+import type { SessionReplayNetworkConfig } from "@/lib/session-replay/network-sanitize";
+
+/** The SDK's `network` option type, derived from the SDK's own init signature. */
+type SdkNetworkOption = NonNullable<
+  Parameters<typeof replaySdk.init>[1]
+>["network"];
+
 export type SessionReplaySurface = "web" | "macos" | "ios";
 
 export interface SessionReplayInitOptions {
@@ -27,6 +34,8 @@ export interface SessionReplayInitOptions {
    * instant consent is revoked. Returns the current composed consent.
    */
   shouldSendData: () => boolean;
+  /** Request/response sanitizers forwarded to the SDK's `network` config. */
+  network: SessionReplayNetworkConfig;
 }
 
 /** Metadata about the authenticated platform user attached to a recording. */
@@ -82,6 +91,10 @@ const replayProvider: SessionReplayProvider = (() => {
           // Live consent gate: evaluated before every upload, so a mid-session
           // opt-out halts ingestion immediately rather than at next reload.
           shouldSendData: options.shouldSendData,
+          // SessionReplayNetworkConfig mirrors the SDK's `network` option; the
+          // sanitizers spread-preserve SDK-private fields (e.g. reqId), so this
+          // structural cast across the seam is safe.
+          network: options.network as SdkNetworkOption,
         });
         started = true;
       }

@@ -686,6 +686,40 @@ describe("memoryRetrospectiveJob", () => {
   });
 
   // -------------------------------------------------------------------------
+  // Source background-turn parity (isNonInteractive)
+  // -------------------------------------------------------------------------
+
+  test("background source → wake runs non-interactive (reproduces <background_turn>)", async () => {
+    conversationOverrides["src-conv-1"] = {
+      source: "heartbeat",
+      forkParentMessageId: null,
+      title: "Heartbeat",
+      conversationType: "background",
+    };
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    expect(wakeCalls).toHaveLength(1);
+    expect(wakeCalls[0]!.opts.isNonInteractive).toBe(true);
+  });
+
+  test("standard source → wake stays interactive (no spurious <background_turn>)", async () => {
+    conversationOverrides["src-conv-1"] = {
+      source: "user",
+      forkParentMessageId: null,
+      title: "Source conversation",
+      conversationType: "standard",
+    };
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    expect(wakeCalls).toHaveLength(1);
+    expect(wakeCalls[0]!.opts.isNonInteractive).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
   // Source-derived persona override
   // -------------------------------------------------------------------------
 

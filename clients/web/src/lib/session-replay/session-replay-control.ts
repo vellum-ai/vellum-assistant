@@ -11,6 +11,7 @@
  * effect on the next reload (see the provider's `stop` contract).
  */
 import { diagnosticsConsentGranted } from "@/lib/sentry/consent-gate";
+import type { SessionReplayNetworkConfig } from "@/lib/session-replay/network-sanitize";
 import {
   provider,
   type SessionReplaySurface,
@@ -26,6 +27,7 @@ export interface SessionReplayConfig {
   release?: string;
   /** Origin fronting the first-party session replay proxy. */
   base: string;
+  network: SessionReplayNetworkConfig;
 }
 
 /**
@@ -70,6 +72,7 @@ function tryInit(config: SessionReplayConfig): void {
     // Live gate the SDK re-checks before every upload — a mid-session revoke
     // stops ingestion even though the recorder can't be un-init'd.
     shouldSendData: sessionReplayConsentGranted,
+    network: config.network,
   });
   identifySessionReplayUser(config.surface);
 }

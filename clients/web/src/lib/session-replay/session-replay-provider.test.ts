@@ -15,6 +15,11 @@ const { provider } = await import(
 );
 
 const BASE = "https://app.example.com";
+const NETWORK = {
+  requestSanitizer: <T>(r: T) => r,
+  responseSanitizer: <T>(r: T) => r,
+  isEnabled: true,
+};
 
 beforeEach(() => {
   initMock.mockClear();
@@ -32,6 +37,7 @@ describe("replay provider (first-party proxy, singleton lifecycle)", () => {
       surface: "web",
       base: BASE,
       shouldSendData: () => consent,
+      network: NETWORK,
     });
 
     // Recorder script served first-party (set before init).
@@ -45,6 +51,8 @@ describe("replay provider (first-party proxy, singleton lifecycle)", () => {
     expect(options.release).toBe("1.2.3");
     // Defaults to the apex root hostname when VITE_ROOT_HOSTNAME is unset.
     expect(options.rootHostname).toBe(".vellum.ai");
+    // Network sanitizers are forwarded to the SDK's network config.
+    expect(options.network).toBe(NETWORK);
     expect(provider.isActive()).toBe(true);
 
     // The SDK re-checks shouldSendData before every upload, so a mid-session
@@ -64,6 +72,7 @@ describe("replay provider (first-party proxy, singleton lifecycle)", () => {
       surface: "web",
       base: BASE,
       shouldSendData: () => true,
+      network: NETWORK,
     });
 
     // Re-running init must not call the SDK again — the recorder can't be
