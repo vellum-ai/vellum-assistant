@@ -360,10 +360,7 @@ export function projectSkillTools(
     return { toolDefinitions: [], allowedToolNames: new Set() };
   }
 
-  // Tool definitions are not sent to the LLM here — tools are invoked via
-  // skill_execute dispatch (capable models), and the weak-open-model
-  // first-class exposure resolves the registered defs from the registry in
-  // createResolveToolsCallback by name.
+  // Tool definitions are no longer sent to the LLM — tools are invoked via skill_execute dispatch.
   const allToolNames = new Set<string>();
   const successfulEntries = new Map<string, string>();
   // Track skills already unregistered in the version-change branch so the

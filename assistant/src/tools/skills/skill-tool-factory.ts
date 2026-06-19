@@ -46,12 +46,7 @@ export function createSkillTool(
       context: ToolContext,
     ): Promise<ToolExecutionResult> {
       const schema = entry.input_schema as Record<string, unknown> | undefined;
-      // `activity` is a harness field (the skill_execute envelope and
-      // first-class skill-tool exposure both surface it for progress display),
-      // never an inner tool parameter. Strip it before validation so a model
-      // that includes it on a direct call isn't rejected for an unknown field.
-      const { activity: _activity, ...rest } = input;
-      const coercedInput = coerceStringBooleans(rest, schema);
+      const coercedInput = coerceStringBooleans(input, schema);
       const validation = validateInputAgainstSchema(
         entry.name,
         coercedInput,
