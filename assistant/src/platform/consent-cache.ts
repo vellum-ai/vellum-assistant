@@ -1,28 +1,31 @@
 /**
  * In-memory cache of the platform owner's telemetry consent.
  *
- * Two values are cached, both refreshed from the same owner-consent fetch:
+ * Three values are cached, all refreshed from the same owner-consent fetch:
  *  - `share_analytics`: gates usage telemetry collection.
- *  - `diagnostics_trace_collection_enabled`: gates attaching per-turn PII
- *    traces to telemetry. Server-derived (LD flag + `share_diagnostics` +
+ *  - `share_diagnostics`: gates crash diagnostics (read by Sentry `beforeSend`).
+ *  - `diagnostics_trace_collection_enabled`: gates attaching per-turn PII traces
+ *    to telemetry. Server-derived (LD flag + `share_diagnostics` +
  *    privacy-policy version, folded by the platform).
  *
- * Record-time telemetry gates need a synchronous, I/O-free read, so this module
- * owns the values and refreshes them periodically in the background. Default-off
- * until the first successful fetch: an absent session, a disabled platform, or a
- * transient fetch failure all leave the values untouched (initial `false`), so
- * we never report analytics or attach a trace without a confirmed opt-in.
+ * Hot-path gates (record-time telemetry writes, Sentry `beforeSend`) need a
+ * synchronous, I/O-free read, so this module owns the values and refreshes them
+ * periodically in the background. Default-off until the first successful fetch:
+ * an absent session, a disabled platform, or a transient fetch failure all leave
+ * the values untouched (initial `false`), so we never report analytics, send
+ * crash diagnostics, or attach a trace without a confirmed opt-in.
  */
 
 import { getConfigReadOnly } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
-import { type OwnerConsent, VellumPlatformClient } from "./client.js";
+import { VellumPlatformClient } from "./client.js";
 
 const log = getLogger("consent-cache");
 
 const REFRESH_INTERVAL_MS = 5 * 60_000; // refresh consent every 5 min
 
 let cachedShareAnalytics = false; // default-off until first success
+let cachedShareDiagnostics = false; // default-off until first success
 let cachedDiagnosticsTraceCollectionEnabled = false; // default-off until first success
 // Fail-closed marker for a workspace that locally opted out of usage data
 // before telemetry moved to platform `share_analytics` consent (migration 106).
@@ -32,12 +35,6 @@ let cachedDiagnosticsTraceCollectionEnabled = false; // default-off until first 
 let legacyOptOut = false;
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
-// One-shot consent-resolved hook state. `firstConsentResolved` flips on the
-// first successful fetch; `lastResolvedConsent` retains it for late registrants.
-let firstConsentResolved = false;
-let lastResolvedConsent: OwnerConsent | null = null;
-const consentResolvedListeners: Array<(consent: OwnerConsent) => void> = [];
-
 /**
  * Synchronous hot-path accessor for the effective `share_analytics` consent.
  * Never does I/O; returns `false` until a successful refresh proves otherwise,
@@ -45,6 +42,16 @@ const consentResolvedListeners: Array<(consent: OwnerConsent) => void> = [];
  */
 export function getCachedShareAnalytics(): boolean {
   return cachedShareAnalytics && !legacyOptOut;
+}
+
+/**
+ * Synchronous hot-path accessor for the `share_diagnostics` consent (read by
+ * Sentry `beforeSend`). Never does I/O; returns `false` until a successful
+ * refresh proves otherwise. Because every Sentry event re-reads this, a
+ * mid-session opt-out is honored within one refresh cycle.
+ */
+export function getCachedShareDiagnostics(): boolean {
+  return cachedShareDiagnostics;
 }
 
 /**
@@ -63,9 +70,9 @@ export function getCachedDiagnosticsTraceCollectionEnabled(): boolean {
  *
  * No platform session / features disabled (`create()` is null) → default-off.
  * No resolvable assistant identity (no owner whose consent we can attest to) →
- * fail closed. A successful fetch adopts the reported value. A `null` fetch
- * (transient failure / undeployed endpoint) leaves the previous value unchanged
- * so a known opt-in is not flipped off mid-session.
+ * fail closed. A successful fetch adopts the reported values. A `null` fetch
+ * (transient failure / undeployed endpoint) leaves the previous values
+ * unchanged so a known opt-in is not flipped off mid-session.
  */
 export async function refreshConsentCache(): Promise<void> {
   legacyOptOut = getConfigReadOnly().legacyTelemetryOptOut === true;
@@ -73,6 +80,7 @@ export async function refreshConsentCache(): Promise<void> {
   const client = await VellumPlatformClient.create();
   if (!client) {
     setCachedShareAnalytics(false);
+    setCachedShareDiagnostics(false);
     setCachedDiagnosticsTraceCollectionEnabled(false);
     return;
   }
@@ -80,6 +88,7 @@ export async function refreshConsentCache(): Promise<void> {
   // No resolvable owner identity → fail closed (don't ride a stale opt-in).
   if (!client.platformAssistantId) {
     setCachedShareAnalytics(false);
+    setCachedShareDiagnostics(false);
     setCachedDiagnosticsTraceCollectionEnabled(false);
     return;
   }
@@ -87,38 +96,11 @@ export async function refreshConsentCache(): Promise<void> {
   const consent = await client.getOwnerConsent();
   if (consent) {
     setCachedShareAnalytics(consent.shareAnalytics);
+    setCachedShareDiagnostics(consent.shareDiagnostics);
     setCachedDiagnosticsTraceCollectionEnabled(
       consent.diagnosticsTraceCollectionEnabled,
     );
-    lastResolvedConsent = consent;
-    if (!firstConsentResolved) {
-      firstConsentResolved = true;
-      const listeners = consentResolvedListeners.splice(0);
-      for (const l of listeners) {
-        try {
-          l(consent);
-        } catch (err) {
-          log.debug({ err }, "consent-resolved listener failed");
-        }
-      }
-    }
   }
-}
-
-/**
- * One-shot hook fired on the FIRST successful platform consent fetch. Lets
- * one-time startup decisions (e.g. Sentry) gate on consent without doing I/O on
- * the hot path. Registrants after the first resolution fire synchronously with
- * the last resolved consent; null fetches never trigger it.
- */
-export function onConsentResolved(
-  listener: (consent: OwnerConsent) => void,
-): void {
-  if (firstConsentResolved && lastResolvedConsent) {
-    listener(lastResolvedConsent);
-    return;
-  }
-  consentResolvedListeners.push(listener);
 }
 
 function setCachedShareAnalytics(value: boolean): void {
@@ -128,6 +110,16 @@ function setCachedShareAnalytics(value: boolean): void {
       "share_analytics consent changed",
     );
     cachedShareAnalytics = value;
+  }
+}
+
+function setCachedShareDiagnostics(value: boolean): void {
+  if (value !== cachedShareDiagnostics) {
+    log.debug(
+      { from: cachedShareDiagnostics, to: value },
+      "share_diagnostics consent changed",
+    );
+    cachedShareDiagnostics = value;
   }
 }
 
@@ -168,9 +160,14 @@ export async function stopConsentRefresh(): Promise<void> {
   }
 }
 
-/** Test-only: override the cached value without going through a refresh. */
+/** Test-only: override the cached analytics value without going through a refresh. */
 export function __setCachedShareAnalyticsForTest(value: boolean): void {
   cachedShareAnalytics = value;
+}
+
+/** Test-only: override the cached diagnostics value without going through a refresh. */
+export function __setCachedShareDiagnosticsForTest(value: boolean): void {
+  cachedShareDiagnostics = value;
 }
 
 /** Test-only: override the cached trace-collection value without a refresh. */
@@ -178,11 +175,4 @@ export function __setCachedDiagnosticsTraceCollectionEnabledForTest(
   value: boolean,
 ): void {
   cachedDiagnosticsTraceCollectionEnabled = value;
-}
-
-/** Test-only: clear one-shot consent-resolved hook state. */
-export function __resetConsentResolutionForTest(): void {
-  firstConsentResolved = false;
-  lastResolvedConsent = null;
-  consentResolvedListeners.length = 0;
 }

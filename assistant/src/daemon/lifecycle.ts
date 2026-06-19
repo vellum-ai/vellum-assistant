@@ -36,12 +36,7 @@ import {
 import { FilingService } from "../filing/filing-service.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
-import {
-  closeSentry,
-  initSentry,
-  setDiagnosticsConsented,
-  setSentryDeviceId,
-} from "../instrument.js";
+import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import {
   startGatewayFlagListener,
   stopGatewayFlagListener,
@@ -66,7 +61,6 @@ import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import {
-  onConsentResolved,
   startConsentRefresh,
   stopConsentRefresh,
 } from "../platform/consent-cache.js";
@@ -651,21 +645,15 @@ export async function runDaemon(): Promise<void> {
     // Privacy gating: Sentry crash/error reporting follows the platform owner's
     // share_diagnostics consent; the usage telemetry reporter re-checks
     // share_analytics on every flush. Both are disabled in dev mode. Sentry was
-    // initialized early, but beforeSend drops events until consent confirms
-    // opt-in, so pre-config crashes are held back rather than captured.
+    // initialized early, but beforeSend re-reads getCachedShareDiagnostics() on
+    // every event, so it drops events until consent confirms opt-in and honors a
+    // later revocation within one refresh cycle (the cache is refreshed by
+    // startConsentRefresh() below, mirroring the share_analytics posture).
     const isDevMode = process.env.VELLUM_DEV === "1";
     if (isDevMode || config.legacyDiagnosticsOptOut === true) {
       // Dev mode and a preserved legacy local opt-out both disable Sentry
       // unconditionally, without waiting on platform consent.
       await closeSentry();
-    } else {
-      // Fail closed: Sentry events are dropped (beforeSend) until the first
-      // successful consent fetch confirms share_diagnostics opt-in. An absent
-      // session, missing identity, or failed fetch leaves crash reporting off,
-      // mirroring the share_analytics posture. Evaluated once (option 1).
-      onConsentResolved((consent) => {
-        setDiagnosticsConsented(consent.shareDiagnostics);
-      });
     }
 
     // Construct and start the reporter even when usage collection is disabled:
