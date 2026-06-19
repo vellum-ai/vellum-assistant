@@ -204,7 +204,7 @@ describe("disk-pressure-warning injector", () => {
       .run();
   });
 
-  test("emits the exact cleanup prompt during disk pressure cleanup mode", async () => {
+  test("emits the concise cleanup skill prompt during disk pressure cleanup mode", async () => {
     seedDiskPressure(true);
     const block = await diskPressureInjector.produce(makeContext());
 
@@ -217,14 +217,19 @@ describe("disk-pressure-warning injector", () => {
       DEFAULT_INJECTOR_ORDER.diskPressureWarning,
     );
     expect(DISK_PRESSURE_WARNING_PROMPT).toBe(`<disk_pressure_warning>
-Disk usage is critically low: this assistant is in storage cleanup mode because the workspace volume is critically full.
+Storage is critically low and normal work is suspended until space is freed.
 
-In your first paragraph, warn the user that storage is critically low and that normal work is suspended until space is freed.
+Your first user-visible paragraph must warn the user that storage is critically low and normal work is suspended.
 
-Then help the user clean up storage. Prefer safe inspection steps first, such as checking available space and finding large directories. Ask before deleting files or caches unless the user has already clearly approved the specific cleanup action.
+Before taking cleanup actions, call \`skill_load\` with \`skill: "system-storage-cleanup"\` and follow the cleanup skill.
 
-Do not work on unrelated tasks until enough space is freed to clear the lock or the user explicitly overrides it. Background processes and messages from trusted contacts are blocked while this cleanup mode is active.
+Unrelated work remains blocked until disk usage drops below the critical threshold or the guardian explicitly overrides the lock. Background processes and trusted-contact messages remain blocked while this cleanup mode is active.
 </disk_pressure_warning>`);
+    expect(DISK_PRESSURE_WARNING_PROMPT).toContain("skill_load");
+    expect(DISK_PRESSURE_WARNING_PROMPT).toContain("system-storage-cleanup");
+    expect(DISK_PRESSURE_WARNING_PROMPT).not.toContain(
+      "Prefer safe inspection steps first",
+    );
   });
 
   test("omits the prompt when no cleanup context is registered or it is inactive", async () => {
