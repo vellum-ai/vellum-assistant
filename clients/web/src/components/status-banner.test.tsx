@@ -54,6 +54,7 @@ let wakeLocalAssistantHostMock = mock(async (_assistantId: string) => ({
 }));
 let isLocalModeHostAvailableMock = true;
 let isCliWakeableMock = true;
+let sseConnectedMock = false;
 let StatusBanner: ComponentType<{
   className?: string;
   placement?: "web" | "electron";
@@ -144,6 +145,14 @@ mock.module("@/stores/resolved-assistants-store", () => ({
   },
 }));
 
+mock.module("@/stores/sse-connected-store", () => ({
+  useSSEConnectedStore: {
+    use: {
+      isConnected: () => sseConnectedMock,
+    },
+  },
+}));
+
 mock.module("@vellumai/design-library/components/button", () => ({
   Button: (props: {
     children: ReactNode;
@@ -189,6 +198,7 @@ beforeEach(() => {
   }));
   isLocalModeHostAvailableMock = true;
   isCliWakeableMock = true;
+  sseConnectedMock = false;
 });
 
 afterEach(() => {
@@ -394,6 +404,37 @@ describe("StatusBanner", () => {
       expect(screen.getByText("Assistant is sleeping")).toBeTruthy();
     });
     expect(screen.queryByText("Assistant is unreachable")).toBeNull();
+  });
+
+  test("suppresses the unreachable banner while the SSE stream is live", () => {
+    // GIVEN the pod's events are still flowing into this tab
+    sseConnectedMock = true;
+    // WHEN a transient operational-status poll reports unreachable
+    operationalStatusQueryMock = {
+      data: { state: "unreachable" },
+      isError: false,
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner />);
+
+    // THEN no alarming banner surfaces — the live stream proves the pod
+    // is reachable, so the blip is treated as a false positive.
+    expect(html).not.toContain("Assistant is unreachable");
+    expect(html).not.toContain("Assistant is sleeping");
+  });
+
+  test("still surfaces the unreachable banner when the SSE stream is down", () => {
+    // GIVEN no live stream and a genuine unreachable report
+    sseConnectedMock = false;
+    operationalStatusQueryMock = {
+      data: { state: "unreachable" },
+      isError: false,
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner />);
+
+    expect(html).toContain("Assistant is unreachable");
+    expect(html).toContain('data-tone="error"');
   });
 
   test("renders maintenance mode from lifecycle state when operational status is absent", () => {

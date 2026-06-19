@@ -45,6 +45,7 @@ import {
 } from "@/runtime/local-mode-host";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { useSSEConnectedStore } from "@/stores/sse-connected-store";
 import { cn } from "@/utils/misc";
 import { routes } from "@/utils/routes";
 
@@ -415,6 +416,10 @@ function useAssistantBannerConfig(): BannerConfig | null {
     Boolean(activeAssistantId) &&
     assistantId === activeAssistantId;
   const statusQuery = useAssistantOperationalStatus(assistantId);
+  // Live SSE connection is the authoritative client-side reachability
+  // signal: if the pod's events are flowing into this tab, the assistant
+  // is reachable, whatever a single operational-status poll claims.
+  const sseConnected = useSSEConnectedStore.use.isConnected();
   // Non-null only for local / self-hosted assistants, where the
   // platform's operational status never polls and the lifecycle
   // service's healthz heartbeat is the only signal.
@@ -687,12 +692,24 @@ function useAssistantBannerConfig(): BannerConfig | null {
   // Conversely, when the status transitions from active directly to
   // unreachable, the pod is shutting down for sleep. Show "sleeping" so
   // the user sees a smooth active → sleeping progression.
+  //
+  // A live SSE stream short-circuits the remap entirely: the platform's
+  // operational-status probe can transiently report "unreachable" while
+  // the pod is alive but busy (event loop saturated by a long agentic
+  // turn, healthz slow under load, a gateway hiccup). During those blips
+  // the events stream keeps delivering, so flashing "sleeping" and then
+  // the red "unreachable" mid-turn is a false alarm. Treat "unreachable"
+  // as healthy while SSE is connected; a genuine outage drops the stream
+  // (transport error or the 45s idle watchdog), which clears
+  // `sseConnected` and lets the banner surface.
   const effectiveStatus =
-    operationalStatus?.state === "unreachable" && wasRecentlySleeping
-      ? { ...operationalStatus, state: "waking" as AssistantOperationalState }
-      : operationalStatus?.state === "unreachable" && wasRecentlyActive
-        ? { ...operationalStatus, state: "sleeping" as AssistantOperationalState }
-        : operationalStatus;
+    operationalStatus?.state === "unreachable" && sseConnected
+      ? { ...operationalStatus, state: "active" as AssistantOperationalState }
+      : operationalStatus?.state === "unreachable" && wasRecentlySleeping
+        ? { ...operationalStatus, state: "waking" as AssistantOperationalState }
+        : operationalStatus?.state === "unreachable" && wasRecentlyActive
+          ? { ...operationalStatus, state: "sleeping" as AssistantOperationalState }
+          : operationalStatus;
 
   const operationalBanner = shouldUseLifecycleMaintenanceMode
     ? maintenanceModeBannerConfig()
