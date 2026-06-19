@@ -1,16 +1,9 @@
 import type { DrizzleDb } from "../db-connection.js";
-import { getSqliteFrom } from "../db-connection.js";
 
-export function migrateLlmRequestLogMessageId(database: DrizzleDb): void {
-  const raw = getSqliteFrom(database);
-  try {
-    raw.exec(/*sql*/ `ALTER TABLE llm_request_logs ADD COLUMN message_id TEXT`);
-  } catch {
-    // Column already exists — nothing to do.
-  }
-
-  raw.exec(/*sql*/ `
-    CREATE INDEX IF NOT EXISTS idx_llm_request_logs_message_id
-    ON llm_request_logs(message_id)
-  `);
-}
+/**
+ * The `llm_request_logs.message_id` column and its index are part of the
+ * table created in the attached `logs` database by migration 297
+ * (move-llm-request-logs-to-logs-db). This step is intentionally a no-op and
+ * is retained to preserve migration ordering.
+ */
+export function migrateLlmRequestLogMessageId(_database: DrizzleDb): void {}

@@ -1,9 +1,12 @@
 import type { DrizzleDb } from "../db-connection.js";
 
 /**
- * Watchers, watcher events, LLM request logs, LLM usage events,
- * memory entities, entity relations, item entities, FTS table + triggers,
- * and conversation keys.
+ * Watchers, watcher events, LLM usage events, memory entities, entity
+ * relations, item entities, FTS table + triggers, and conversation keys.
+ *
+ * The `llm_request_logs` table lives in the attached `logs` database and is
+ * created by migration 297 (move-llm-request-logs-to-logs-db); it is
+ * intentionally not created here.
  */
 export function createWatchersAndLogsTables(database: DrizzleDb): void {
   database.run(/*sql*/ `
@@ -41,16 +44,6 @@ export function createWatchersAndLogsTables(database: DrizzleDb): void {
       processed_at INTEGER,
       created_at INTEGER NOT NULL,
       UNIQUE (watcher_id, external_id)
-    )
-  `);
-
-  database.run(/*sql*/ `
-    CREATE TABLE IF NOT EXISTS llm_request_logs (
-      id TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL,
-      request_payload TEXT NOT NULL,
-      response_payload TEXT NOT NULL,
-      created_at INTEGER NOT NULL
     )
   `);
 

@@ -58,6 +58,7 @@ import { downLlmUsageAddRawUsage } from "./261-llm-usage-add-raw-usage.js";
 import { downMemoryV3Coactivation } from "./262-memory-v3-coactivation.js";
 import { downMemoryV3AutoEdges } from "./263-memory-v3-auto-edges.js";
 import { downScheduleDescription } from "./270-schedule-description.js";
+import { downMoveLlmRequestLogsToLogsDb } from "./297-move-llm-request-logs-to-logs-db.js";
 
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */
@@ -493,6 +494,13 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Backfill authored schedule descriptions for legacy non-defer schedules from their existing names",
     down: downScheduleDescription,
+  },
+  {
+    key: "migration_move_llm_request_logs_to_logs_db_v1",
+    version: 58,
+    description:
+      "Move llm_request_logs (table + indexes) out of the main DB into the attached append-only logs database (assistant-logs.db), copying existing rows and dropping the main-DB copy",
+    down: downMoveLlmRequestLogsToLogsDb,
   },
 ];
 
