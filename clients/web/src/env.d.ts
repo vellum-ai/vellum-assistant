@@ -10,8 +10,18 @@
  * Reference: https://vite.dev/guide/env-and-mode#intellisense-for-typescript
  */
 interface ImportMetaEnv {
-  /** Sentry DSN for browser error reporting. Injected by CI/CD pipeline. */
+  /**
+   * Sentry DSN for browser error reporting. Injected by CI/CD pipeline.
+   *
+   * DSN-selection contract: the shared clients/web bundle resolves its Sentry
+   * DSN per host — web → `VITE_SENTRY_DSN`, Electron → `VITE_SENTRY_DSN_DESKTOP`,
+   * Capacitor → `VITE_SENTRY_DSN_MOBILE`.
+   */
   readonly VITE_SENTRY_DSN?: string;
+  /** Sentry DSN for the Electron (desktop) renderer. See DSN-selection contract above. */
+  readonly VITE_SENTRY_DSN_DESKTOP?: string;
+  /** Sentry DSN for the Capacitor (mobile) renderer. See DSN-selection contract above. */
+  readonly VITE_SENTRY_DSN_MOBILE?: string;
   /** Sentry environment tag (e.g. "production", "staging"). */
   readonly VITE_SENTRY_ENVIRONMENT?: string;
   /** Stripe publishable key for payment forms. Injected by CI/CD pipeline. */

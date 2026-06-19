@@ -281,6 +281,19 @@ When making changes that could affect the cloud platform, review the sibling `..
 
 Error reporting uses Sentry. The daemon/runtime (Node) project's DSN is configured via the `SENTRY_DSN_ASSISTANT` environment variable — see `.env.example`.
 
+### Sentry projects & DSNs
+
+Each surface reports to its own Sentry project via a dedicated DSN (injected at build time by CI; an empty DSN no-ops):
+
+| Surface | DSN env var | Notes |
+| --- | --- | --- |
+| Web | `VITE_SENTRY_DSN` | clients/web browser bundle |
+| Desktop | `SENTRY_DSN_DESKTOP` | Electron main process + renderer (`VITE_SENTRY_DSN_DESKTOP`) |
+| Mobile | `SENTRY_DSN_MOBILE` | Capacitor renderer (`VITE_SENTRY_DSN_MOBILE`) |
+| Assistant | `SENTRY_DSN_ASSISTANT` | daemon/runtime (Node) |
+
+The shared clients/web bundle resolves its renderer DSN per host: web → `VITE_SENTRY_DSN`, Electron → `VITE_SENTRY_DSN_DESKTOP`, Capacitor → `VITE_SENTRY_DSN_MOBILE`.
+
 **Sentry CLI**: Use the newer `sentry` CLI (not the legacy `sentry-cli`). Install from `https://cli.sentry.dev/install`. Authenticate with `sentry auth login`.
 
 ## CLI ↔ Daemon Communication
