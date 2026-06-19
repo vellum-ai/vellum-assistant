@@ -10,6 +10,7 @@ describe("isWeakOpenModel", () => {
       "moonshotai/kimi-k2.6",
       "accounts/fireworks/models/kimi-k2p6",
       "deepseek/deepseek-chat",
+      "accounts/fireworks/models/glm-5p2",
     ]) {
       expect(isWeakOpenModel(model)).toBe(true);
     }
