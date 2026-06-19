@@ -25,11 +25,10 @@ import type { NavigationState } from "./navigation-resolver";
 
 /**
  * Whether the selected assistant is reachable right now, composed imperatively
- * (no hooks) for the middleware/route-resolver context. Mirrors the reactive
- * `useCanReachAssistant`, but reads the gateway token and the selected
- * assistant directly: the route guard runs once per navigation rather than
- * across renders, so it can read the non-reactive sources. Returns false when
- * no assistant resolves.
+ * (no hooks) for the middleware/route-resolver context. The route guard runs
+ * once per navigation rather than across renders, so it reads the non-reactive
+ * gateway token and selection directly. Returns false when no assistant
+ * resolves.
  */
 function canReachSelectedAssistant(
   platformSession: PlatformSessionStatus,
@@ -38,8 +37,16 @@ function canReachSelectedAssistant(
   // valid selection is stored, so it is the single resolver here.
   const selected = getSelectedAssistant();
   if (!selected) return false;
+  // The gateway token is global; `canReachAssistant` requires it as a
+  // per-assistant signal. A token minted for the active assistant must not make
+  // a different selected local assistant report reachable, so gate it by active
+  // id. Remote-gateway mode shares one gateway (active id "self"), so its
+  // assistants always match.
+  const { activeAssistantId } = useResolvedAssistantsStore.getState();
+  const tokenBelongsToSelected =
+    isRemoteGatewayMode() || activeAssistantId === selected.assistantId;
   return canReachAssistant(selected, {
-    gatewayTokenPresent: getGatewayToken() !== null,
+    gatewayTokenPresent: tokenBelongsToSelected && getGatewayToken() !== null,
     platformSession,
   });
 }
@@ -72,11 +79,7 @@ export function buildNavigationState(
     // read `useIsAuthenticated()` directly. These never disagree: a reachable
     // session is always `sessionStatus: "authenticated"` — the gateway is the
     // sole authority for a local session, and a platform user without a session
-    // has `canReachSelected === false`. So `canAccessApp` implies authenticated
-    // today; the OR is a forward-looking guard. If local sessions ever stop
-    // being authenticated (the `user: null` follow-up), those in-app consumers
-    // must move onto app access too — otherwise an admitted user falls into the
-    // anonymous cache scope with gated UI hidden.
+    // has `canReachSelected === false`, so `canAccessApp` implies authenticated.
     isAuthenticated: isAuthenticated(sessionStatus) || canAccessApp,
     platformSession,
     tosAccepted: readTosAccepted(),

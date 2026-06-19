@@ -6,9 +6,8 @@ import {
   mock,
   test,
 } from "bun:test";
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { cleanup } from "@testing-library/react";
 
-import type { PlatformSessionStatus } from "@/stores/session-status";
 
 type MockSessionUser = {
   id?: string;
@@ -32,8 +31,7 @@ let getSessionGates: Array<() => void> | null = null;
 let mockIsGatewayAuth = false;
 let mockIsLocalMode = false;
 let mockIsRemoteGatewayMode = false;
-// The selected assistant `useHasAppAccess` resolves through `getSelectedAssistant()`.
-// Drives the connection side of the access OR; `undefined` means none selected.
+// The assistant `getSelectedAssistant()` resolves; `undefined` means none selected.
 let mockSelectedAssistant: { cloud?: string } | undefined;
 let mockPlatformAssistants: unknown[] = [];
 let mockPrimeError: Error | null = null;
@@ -250,11 +248,10 @@ mock.module("@/lib/auth/session-cleanup", () => ({
   clearUserScopedStorage: clearUserScopedStorageMock,
 }));
 
-// Use the REAL resolved-assistants store: `useHasAppAccess` reads its reactive
-// `.use.selectedAssistantId()` / `.use.activeAssistantId()` selectors, which a
-// plain `getState` stub cannot provide. The store is dependency-light (its
-// local-mode deps are already mocked above), so loading it for real is cheap
-// and keeps the auth-store init path's `.getState().setFromApi(...)` working.
+// Use the REAL resolved-assistants store: the auth-store init path calls its
+// `.getState().setFromApi(...)`, which a plain `getState` stub cannot provide.
+// The store is dependency-light (its local-mode deps are already mocked above),
+// so loading it for real is cheap.
 
 // Auth-store writes the selection through the public wrapper, not the store
 // action — mock the wrapper module so the real one (and its local-mode deps)
@@ -297,9 +294,7 @@ mock.module("@/assistant/api", () => ({
   listAssistants: listAssistantsMock,
 }));
 
-const { useAuthStore, useHasAppAccess, useIsPlatformIdentity } = await import(
-  "@/stores/auth-store"
-);
+const { useAuthStore } = await import("@/stores/auth-store");
 const { hasAppAccess, isPlatformIdentity } = await import(
   "@/stores/session-status"
 );
@@ -384,8 +379,8 @@ beforeEach(() => {
   listAssistantsMock.mockClear();
   syncPlatformAssistantsToLockfileMock.mockClear();
   resetAuthStore();
-  // Reset the reactive stores `useHasAppAccess` composes over so each hook
-  // test starts from a known connection/selection state.
+  // Reset the lifecycle and resolved-assistants stores so each test starts from
+  // a known connection/selection state.
   useAssistantLifecycleStore.setState({ assistantState: { kind: "loading" } });
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
 });
@@ -1264,29 +1259,6 @@ describe("identity kind (platform vs local gateway access)", () => {
   test("isPlatformIdentity(null) is false", () => {
     expect(isPlatformIdentity(null)).toBe(false);
   });
-
-  test("useIsPlatformIdentity is false for a local user, true for a platform user", () => {
-    act(() => {
-      useAuthStore.setState({ ...authenticatedLocalUserForTest() });
-    });
-    const local = renderHook(() => useIsPlatformIdentity());
-    expect(local.result.current).toBe(false);
-
-    act(() => {
-      useAuthStore.setState({
-        user: {
-          kind: "platform",
-          id: "user-1",
-          username: "test",
-          email: "user@example.com",
-          isStaff: false,
-          firstName: "",
-          lastName: "",
-        },
-      });
-    });
-    expect(local.result.current).toBe(true);
-  });
 });
 
 // The pure form route middleware will use in a later PR: identity OR connection.
@@ -1304,91 +1276,4 @@ describe("hasAppAccess (pure predicate)", () => {
       ).toBe(expected);
     },
   );
-});
-
-describe("useHasAppAccess", () => {
-  const LOCAL_ASSISTANT = {
-    assistantId: "local-a",
-    cloud: "local",
-    resources: { gatewayPort: 51234 },
-  };
-
-  function setPlatformSession(platformSession: PlatformSessionStatus): void {
-    act(() => {
-      useAuthStore.setState({ platformSession });
-    });
-  }
-
-  function selectLocalAssistant(): void {
-    mockSelectedAssistant = LOCAL_ASSISTANT;
-    act(() => {
-      useResolvedAssistantsStore.setState({
-        activeAssistantId: LOCAL_ASSISTANT.assistantId,
-      });
-    });
-  }
-
-  function setLifecycleReachable(): void {
-    act(() => {
-      useAssistantLifecycleStore.setState({
-        assistantState: { kind: "self_hosted", health: "healthy" },
-      });
-    });
-  }
-
-  // Local-only desktop user: no platform identity, but the gateway-reachable
-  // selected assistant grants access — a platform 401 cannot lock them out.
-  test("local-only user with a reachable selected assistant has access", () => {
-    mockIsLocalMode = true;
-    setPlatformSession("absent");
-    selectLocalAssistant();
-    setLifecycleReachable();
-
-    const { result } = renderHook(() => useHasAppAccess());
-    expect(result.current).toBe(true);
-  });
-
-  // Logged-out platform user with nothing reachable: neither side of the OR
-  // holds, so no access.
-  test("logged-out platform user with no reachable assistant has no access", () => {
-    mockIsLocalMode = true;
-    setPlatformSession("absent");
-    mockSelectedAssistant = undefined;
-    act(() => {
-      useAssistantLifecycleStore.setState({
-        assistantState: { kind: "loading" },
-      });
-    });
-
-    const { result } = renderHook(() => useHasAppAccess());
-    expect(result.current).toBe(false);
-  });
-
-  // A live platform session alone grants access regardless of any assistant.
-  test("platform user with a live session has access", () => {
-    mockIsLocalMode = false;
-    setPlatformSession("present");
-    mockSelectedAssistant = undefined;
-
-    const { result } = renderHook(() => useHasAppAccess());
-    expect(result.current).toBe(true);
-  });
-
-  // Reactive: access flips on when the lifecycle connection resolves.
-  test("re-renders to access when the local connection resolves", () => {
-    mockIsLocalMode = true;
-    setPlatformSession("absent");
-    selectLocalAssistant();
-    act(() => {
-      useAssistantLifecycleStore.setState({
-        assistantState: { kind: "initializing" },
-      });
-    });
-
-    const { result } = renderHook(() => useHasAppAccess());
-    expect(result.current).toBe(false);
-
-    setLifecycleReachable();
-    expect(result.current).toBe(true);
-  });
 });

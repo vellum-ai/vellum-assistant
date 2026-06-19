@@ -19,7 +19,7 @@ export const authMiddleware: MiddlewareFunction = async ({ request, context }, n
   const url = new URL(request.url);
 
   // `buildNavigationState` folds app access into the admit decision, so the
-  // settle waits below remain the only identity/probe gates — they keep us from
+  // settle waits below are the only identity/probe gates — they keep us from
   // routing mid-probe.
   const state = buildNavigationState();
 

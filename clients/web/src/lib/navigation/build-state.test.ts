@@ -65,7 +65,7 @@ beforeEach(() => {
   mockSelectedAssistant = undefined;
   mockGatewayTokenPresent = false;
   useAuthStore.setState(initialAuthState, true);
-  useResolvedAssistantsStore.setState({ assistants: [] });
+  useResolvedAssistantsStore.setState({ assistants: [], activeAssistantId: null });
 });
 
 afterEach(() => {
@@ -78,6 +78,9 @@ describe("buildNavigationState — app-access admit predicate", () => {
     // status is not 'authenticated'.
     mockSelectedAssistant = localAssistant;
     mockGatewayTokenPresent = true;
+    // The selected local assistant is the one the lifecycle activated, so its
+    // gateway token counts as a per-assistant reachability signal.
+    useResolvedAssistantsStore.setState({ activeAssistantId: "local-a" });
     useAuthStore.setState({
       sessionStatus: "unauthenticated",
       platformSession: "absent",
@@ -92,12 +95,29 @@ describe("buildNavigationState — app-access admit predicate", () => {
     // the selected local assistant is still live.
     mockSelectedAssistant = localAssistant;
     mockGatewayTokenPresent = true;
+    useResolvedAssistantsStore.setState({ activeAssistantId: "local-a" });
     useAuthStore.setState({
       sessionStatus: "unauthenticated",
       platformSession: "absent",
     });
 
     expect(buildNavigationState().isAuthenticated).toBe(true);
+  });
+
+  test("a non-active local assistant is not reachable off the active assistant's gateway token", () => {
+    // The gateway token is global; the selected local assistant is NOT the one
+    // the lifecycle activated, so a token minted for "local-b" must not make
+    // "local-a" report reachable. Without a real platform identity, that means
+    // no app access.
+    mockSelectedAssistant = localAssistant; // assistantId "local-a"
+    mockGatewayTokenPresent = true;
+    useResolvedAssistantsStore.setState({ activeAssistantId: "local-b" });
+    useAuthStore.setState({
+      sessionStatus: "unauthenticated",
+      platformSession: "absent",
+    });
+
+    expect(buildNavigationState().isAuthenticated).toBe(false);
   });
 
   test("a logged-out user with no reachable assistant is not admitted", () => {

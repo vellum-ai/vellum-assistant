@@ -70,9 +70,9 @@ export const hasLivePlatformSession = (
 /**
  * Is this a real platform account, as opposed to local gateway access? The
  * local gateway user is a synthetic, platform-shaped identity kept for storage
- * namespacing; consumers that mean "real platform account" (staff/email checks,
- * billing/account surfaces) read this instead of assuming any non-null user is
- * a platform user. A null user is never a platform identity.
+ * namespacing, so reading the `kind` discriminator distinguishes it from a real
+ * platform account instead of treating any non-null user as one. A null user is
+ * never a platform identity.
  */
 export const isPlatformIdentity = (user: AuthUser | null): boolean =>
   user?.kind === "platform";

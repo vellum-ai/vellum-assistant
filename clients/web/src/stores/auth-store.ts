@@ -21,8 +21,6 @@ import {
   isSessionSettled,
   isSettledSessionRejection,
   hasLivePlatformSession,
-  hasAppAccess,
-  isPlatformIdentity,
   type PlatformSessionStatus,
   type SessionStatus,
 } from "@/stores/session-status";
@@ -48,16 +46,12 @@ import {
   isRemoteGatewayMode,
   getPlatformAssistants,
   getLocalAssistants,
-  getSelectedAssistant,
   primeLocalGatewayConnection,
   primeLocalGatewayConnectionWithRepair,
   syncPlatformAssistantsToLockfile,
-  type LockfileAssistant,
 } from "@/lib/local-mode";
 import { listAssistants } from "@/assistant/api";
-import { useCanReachAssistant } from "@/assistant/can-reach-assistant";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { useLockfileStore } from "@/stores/lockfile-store";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
 import { fetchConsent, patchConsent } from "@/domains/account/profile";
 import {
@@ -882,65 +876,6 @@ export const useIsSessionInitializing = (): boolean =>
 
 export const useHasPlatformSession = (): boolean =>
   hasLivePlatformSession(useAuthStore.use.platformSession());
-
-/**
- * Is the current user a real platform account (vs. local gateway access)? Reads
- * the `user.kind` discriminator rather than treating any non-null user as a
- * platform identity, so the synthetic local gateway user answers `false`.
- */
-export const useIsPlatformIdentity = (): boolean =>
-  isPlatformIdentity(useAuthStore.use.user());
-
-/**
- * Resolve the currently selected assistant reactively as a `LockfileAssistant`.
- *
- * `getSelectedAssistant()` is the canonical selected-id → lockfile-entry
- * resolver, but it reads non-reactive module state (the selection key and the
- * lockfile mirror). Subscribing to the reactive selection slice and the
- * lockfile here makes the resolution re-run when either changes, so consumers
- * re-render on a selection change or a lockfile sync. Returns `undefined` when
- * nothing resolves (no selection and no active fallback).
- */
-function useSelectedAssistant(): LockfileAssistant | undefined {
-  useResolvedAssistantsStore.use.selectedAssistantId();
-  useResolvedAssistantsStore.use.activeAssistantId();
-  useLockfileStore.use.lockfile();
-  return getSelectedAssistant();
-}
-
-/**
- * Placeholder fed to `useCanReachAssistant` when no assistant resolves, so the
- * hook is always called (rules of hooks). Its result is discarded — see
- * `useHasAppAccess` — but the value is shaped so no hosting branch reports
- * reachable: it is neither a local assistant (no `gatewayPort`) nor a platform
- * one (`cloud !== "vellum"`).
- */
-const UNRESOLVED_ASSISTANT: LockfileAssistant = { assistantId: "" };
-
-/**
- * The access gate the app should ask instead of bare `useIsAuthenticated` when
- * deciding "show the app vs. redirect to login": do I have a real platform
- * identity, OR can I reach my currently selected assistant? A local-only user
- * has no platform identity but reaches the app through the gateway; a platform
- * user with a live session has access regardless of any selected assistant.
- *
- * Reactive: re-renders on platform-session / lifecycle / selection changes via
- * the composed selectors. The hosting-branch logic lives entirely in
- * `useCanReachAssistant`; this hook only ORs it with platform identity.
- */
-export const useHasAppAccess = (): boolean => {
-  const hasPlatformIdentity = useHasPlatformSession();
-  const selected = useSelectedAssistant();
-  // `useCanReachAssistant` requires a concrete assistant; when none resolves,
-  // the connection side of the OR is simply unreachable. Call the hook
-  // unconditionally (rules of hooks) with a non-reachable sentinel so it still
-  // subscribes to the reactive connection signals, then ignore its result.
-  const reachable = useCanReachAssistant(selected ?? UNRESOLVED_ASSISTANT);
-  return hasAppAccess({
-    hasPlatformIdentity,
-    canReachSelected: selected != null && reachable,
-  });
-};
 
 /**
  * Subscribe to app-resume signals on the layout-scoped event bus and to
