@@ -110,7 +110,9 @@ export function CallSiteOverrideRow({
               value={profileVal}
               onChange={handleProfilePickerChange}
               options={profileOptions}
-              className="w-36"
+              className="w-44"
+              menuMinWidth={280}
+              menuAlign="end"
             />
           )}
           <Toggle
