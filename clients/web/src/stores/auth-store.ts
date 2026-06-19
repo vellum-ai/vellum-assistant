@@ -63,6 +63,7 @@ import {
   PRIVACY_CONSENT_VERSION,
 } from "@/utils/onboarding-cleanup";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
+import { applyResolvedDiagnosticsConsent } from "@/lib/consent/diagnostics-consent";
 import {
   clearOrganization,
   useOrganizationStore,
@@ -250,18 +251,27 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       const consent = await fetchConsent();
       const resolved = resolveServerConsent(consent);
       const store = useOnboardingStore.getState();
-      // Only adopt the server's share-preference booleans when the server has a
-      // real consent record. For an empty record they're just the API defaults
-      // and would clobber the device-local `device:share_*` choices that the
-      // fallback below relies on (the store already holds them from init). A
-      // real record's share values are authoritative even when its legal
-      // consent versions are stale (the nav layer routes to review-terms).
-      if (resolved.hasServerRecord) {
-        if (resolved.shareAnalytics !== null)
-          store.setShareAnalytics(resolved.shareAnalytics);
-        if (resolved.shareDiagnostics !== null)
-          store.setShareDiagnostics(resolved.shareDiagnostics);
+      // Only adopt the server's share-analytics boolean when the server has a
+      // real consent record. For an empty record it's just the API default and
+      // would clobber the device-local `device:share_analytics` choice that the
+      // fallback below relies on (the store already holds it from init). A real
+      // record's share value is authoritative even when its legal consent
+      // versions are stale (the nav layer routes to review-terms).
+      if (resolved.hasServerRecord && resolved.shareAnalytics !== null) {
+        store.setShareAnalytics(resolved.shareAnalytics);
       }
+
+      // Diagnostics routes through the single version-aware, direction-
+      // asymmetric chokepoint: a stale-version acceptance never keeps
+      // diagnostics on, and an unknown grant leaves the mirror untouched.
+      applyResolvedDiagnosticsConsent(
+        {
+          shareDiagnostics: resolved.shareDiagnostics,
+          diagnosticsVersionCurrent: resolved.diagnosticsCurrent,
+          hasServerRecord: resolved.hasServerRecord,
+        },
+        store.setShareDiagnostics,
+      );
 
       // Resolve the FINAL consent values before persisting or mutating the
       // store. The endpoint always returns an object, so empty/stale versions
