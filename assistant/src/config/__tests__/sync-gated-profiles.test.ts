@@ -179,6 +179,39 @@ describe("reconcileFlagGatedProfiles", () => {
     expect(reconcileFlagGatedProfiles()).toBe(false);
   });
 
+  test("flag off scrubs os-beta from user mix arms and preserves the rest", () => {
+    process.env.IS_PLATFORM = "true";
+    seedBalancedConfig();
+    setOverridesForTesting({ "os-beta": true });
+    reconcileFlagGatedProfiles();
+
+    const raw = readConfig();
+    raw.llm.profiles["my-mix"] = {
+      source: "user",
+      label: "My Mix",
+      mix: [
+        { profile: "balanced", weight: 70 },
+        { profile: "os-beta", weight: 30 },
+      ],
+    };
+    raw.llm.profileOrder.push("my-mix");
+    writeConfig(raw);
+    invalidateConfigCache();
+
+    setOverridesForTesting({ "os-beta": false });
+    expect(reconcileFlagGatedProfiles()).toBe(true);
+
+    const after = readConfig();
+    expect(after.llm.profiles["os-beta"]).toBeUndefined();
+    const mix = after.llm.profiles["my-mix"]!;
+    expect(mix.mix).toEqual([{ profile: "balanced", weight: 70 }]);
+    expect(mix.source).toBe("user");
+    expect(mix.label).toBe("My Mix");
+
+    invalidateConfigCache();
+    expect(reconcileFlagGatedProfiles()).toBe(false);
+  });
+
   test("a user-owned os-beta profile is never touched", () => {
     process.env.IS_PLATFORM = "true";
     writeConfig({

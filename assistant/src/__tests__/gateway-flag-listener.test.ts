@@ -25,12 +25,14 @@ mock.module("../ipc/socket-path.js", () => ({
 // Track calls to refreshOverridesFromGateway
 // ---------------------------------------------------------------------------
 let refreshCallCount = 0;
+let refreshReturnsLoaded = true;
 
 mock.module("../config/assistant-feature-flags.js", () => ({
   refreshOverridesFromGateway: async () => {
     refreshCallCount++;
+    return refreshReturnsLoaded;
   },
-  initFeatureFlagOverrides: async () => {},
+  initFeatureFlagOverrides: async () => true,
   clearFeatureFlagOverridesCache: () => {},
   isAssistantFeatureFlagEnabled: () => true,
 }));
@@ -141,6 +143,7 @@ describe("gateway-flag-listener", () => {
   beforeEach(() => {
     mkdirSync(testRoot, { recursive: true });
     refreshCallCount = 0;
+    refreshReturnsLoaded = true;
     syncToolsCallCount = 0;
     publishedTagSets = [];
     reconcileCallCount = 0;
@@ -245,6 +248,45 @@ describe("gateway-flag-listener", () => {
 
     expect(reconcileCallCount).toBeGreaterThanOrEqual(2);
     expect(configChangedCount).toBe(0);
+  });
+
+  test("does not reconcile profiles when the refresh reports flags did not load", async () => {
+    reconcileReturns = true;
+    refreshReturnsLoaded = false;
+    await new Promise<void>((resolve) => {
+      testServer.server.listen(socketPath, resolve);
+    });
+
+    startGatewayFlagListener();
+    await testServer.waitForClient();
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Tool sync stays unconditional; the profile reconcile/broadcast are gated.
+    expect(syncToolsCallCount).toBe(1);
+    expect(reconcileCallCount).toBe(0);
+    expect(configChangedCount).toBe(0);
+
+    testServer.emit("feature_flags_changed");
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(syncToolsCallCount).toBe(2);
+    expect(reconcileCallCount).toBe(0);
+    expect(configChangedCount).toBe(0);
+  });
+
+  test("reconciles profiles when the refresh reports flags loaded", async () => {
+    reconcileReturns = true;
+    refreshReturnsLoaded = true;
+    await new Promise<void>((resolve) => {
+      testServer.server.listen(socketPath, resolve);
+    });
+
+    startGatewayFlagListener();
+    await testServer.waitForClient();
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(reconcileCallCount).toBe(1);
+    expect(configChangedCount).toBe(1);
   });
 
   test("ignores non-flag events", async () => {

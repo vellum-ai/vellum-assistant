@@ -381,10 +381,14 @@ export async function runDaemon(): Promise<void> {
     // reconcile is the call that mutates config (it raced ahead of the gateway
     // flag listener), publish the config invalidation so any client that already
     // fetched `GET /v1/config` refreshes its profile picker.
+    // Profiles are reconciled only when flags actually loaded from the gateway:
+    // a failed fetch leaves the cache unset and resolves `os-beta` to its
+    // registry default `false`, which would remove the user's profile and reset
+    // their selection. Tool sync tolerates the default and stays unconditional.
     void initFeatureFlagOverrides()
-      .then(() => syncFlagGatedTools())
-      .then(() => {
-        if (reconcileFlagGatedProfiles()) {
+      .then(async (loaded) => {
+        await syncFlagGatedTools();
+        if (loaded && reconcileFlagGatedProfiles()) {
           publishConfigChanged();
         }
       })

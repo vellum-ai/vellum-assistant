@@ -24,13 +24,17 @@ const log = getLogger("gateway-flag-listener");
  * never throws (it logs internally). After tools sync, `reconcileFlagGatedProfiles`
  * adds or removes the flag-gated managed profile (OS Beta); when it reports a
  * change a `config_changed` broadcast refreshes the profile picker on clients.
+ * The profile reconcile runs only when the refresh confirmed flags loaded from
+ * the gateway — a transient IPC failure leaves the cache unset and resolves
+ * `os-beta` to its registry default `false`, which would remove the user's
+ * profile and reset their selection. Tool sync tolerates the default and stays
+ * unconditional.
  */
 function refreshFlagsAndSyncTools(context: string): void {
   refreshOverridesFromGateway()
-    .then(() => syncFlagGatedTools())
-    .then(() => {
-      const changed = reconcileFlagGatedProfiles();
-      if (changed) {
+    .then(async (loaded) => {
+      await syncFlagGatedTools();
+      if (loaded && reconcileFlagGatedProfiles()) {
         // Reuse the config-changed broadcast clients already consume so the
         // profile picker reflects the added/removed managed profile.
         publishConfigChanged();
