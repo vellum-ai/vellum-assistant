@@ -281,6 +281,20 @@ When making changes that could affect the cloud platform, review the sibling `..
 
 Error reporting uses Sentry. The daemon/runtime (Node) project's DSN is configured via the `SENTRY_DSN_ASSISTANT` environment variable — see `.env.example`.
 
+### Sentry projects & DSNs
+
+Surfaces map onto Sentry projects as below. The Electron renderer moves from the web project onto the macOS project, sharing the existing `SENTRY_DSN_MACOS` secret with the main process. The per-host runtime DSN selector in the shared clients/web bundle is being wired up incrementally, so today `sentry-init.ts` still initializes every renderer host with `VITE_SENTRY_DSN`. An empty DSN no-ops.
+
+| Surface | Project | DSN source | Delivered via |
+| --- | --- | --- | --- |
+| Web SPA | `vellum-assistant-web` | `VITE_SENTRY_DSN` (vars) | web build |
+| Electron main | `vellum-assistant-macos` | `SENTRY_DSN_MACOS` (secret) → `__SENTRY_DSN_MACOS__` | macOS build define |
+| Electron renderer | `vellum-assistant-macos` | `SENTRY_DSN_MACOS` (secret) → `VITE_SENTRY_DSN_MACOS` | macOS build |
+| iOS webview + native | `vellum-assistant-ios` | `SENTRY_DSN_IOS` (secret) → `VITE_SENTRY_DSN_IOS` | web-SPA build (loaded at runtime on iOS) |
+| Assistant daemon | (unchanged) | `SENTRY_DSN_ASSISTANT` | runtime env |
+
+The iOS DSN is baked into the deployed web SPA bundle rather than the iOS build, because the iOS app runs the deployed SPA via `server.url` (see `clients/web/capacitor.config.ts`) and bundles no web assets at `cap sync`.
+
 **Sentry CLI**: Use the newer `sentry` CLI (not the legacy `sentry-cli`). Install from `https://cli.sentry.dev/install`. Authenticate with `sentry auth login`.
 
 ## CLI ↔ Daemon Communication
