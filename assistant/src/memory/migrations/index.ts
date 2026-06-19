@@ -287,6 +287,7 @@ export { migrateScheduleDefaultNoReuseConversation } from "./292-schedule-defaul
 export { migrateWorkflowJournalLeafTokens } from "./293-workflow-journal-leaf-tokens.js";
 export { migrateDropExternalUserId } from "./294-drop-external-user-id.js";
 export { dropApprovalPromptTsTrackerTable } from "./295-drop-approval-prompt-ts-tracker.js";
+export { migrateRewriteBalancedEconomyProfilePins } from "./296-rewrite-balanced-economy-profile-pins.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

@@ -38,14 +38,16 @@ type ManagedProfileTemplate = Omit<
  * (`preserveProfileNames`) take precedence when present.
  */
 const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
+  // Served by MiniMax M3 on Fireworks via managed platform inference: a strong
+  // open model at a lower price point than the managed Anthropic route.
   balanced: {
     intent: "balanced",
-    provider: "anthropic",
-    connectionName: "anthropic-managed",
+    provider: "fireworks",
+    connectionName: "fireworks-managed",
     source: "managed",
     label: "Balanced",
     description: "Good balance of quality, cost, and speed",
-    maxTokens: 16000,
+    maxTokens: 32000,
     effort: "high",
     thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
@@ -75,20 +77,6 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     maxTokens: 8192,
     effort: "low",
     thinking: { enabled: false, streamThinking: false },
-    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-  },
-  // Open-weight economy option: MiniMax M3 served by Fireworks via managed
-  // platform inference.
-  "balanced-economy": {
-    intent: "balanced",
-    provider: "fireworks",
-    connectionName: "fireworks-managed",
-    source: "managed",
-    label: "Balanced Economy",
-    description: "Strong open model (MiniMax M3) at a lower price point",
-    maxTokens: 32000,
-    effort: "high",
-    thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },
 };
@@ -170,8 +158,8 @@ export type SeedInferenceProfilesOptions = {
  *
  * Runs on every daemon startup. Two responsibilities:
  *
- * 1. **Managed profiles** (`balanced`, `quality-optimized`, `cost-optimized`,
- *    `balanced-economy`): reconciled from the code templates on every boot —
+ * 1. **Managed profiles** (`balanced`, `quality-optimized`,
+ *    `cost-optimized`): reconciled from the code templates on every boot —
  *    on-platform and off-platform alike — so Vellum can push model/config
  *    updates to customers in a release without a workspace migration. The
  *    templates own all profile content; only `label` and `status` are
