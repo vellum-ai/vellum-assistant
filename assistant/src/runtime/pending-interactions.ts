@@ -63,24 +63,6 @@ export interface QuestionDetails {
   entries: QuestionEntry[];
 }
 
-/**
- * Public prompt metadata for a pending `secret` interaction, retained so a
- * cold conversation load can rehydrate the secret prompt with its full
- * descriptive context. SECURITY: never carries the secret value — only the
- * public fields already broadcast on the `secret_request` event.
- */
-export interface SecretDetails {
-  service: string;
-  field: string;
-  label: string;
-  description?: string;
-  placeholder?: string;
-  purpose?: string;
-  allowedTools?: string[];
-  allowedDomains?: string[];
-  allowOneTimeSend?: boolean;
-}
-
 export interface PendingInteraction {
   /**
    * Owning conversation, when the interaction was raised inside one. Absent
@@ -102,8 +84,6 @@ export interface PendingInteraction {
   confirmationDetails?: ConfirmationDetails;
   /** For a pending `question`: the full batched entries, so a history-load render can rehydrate the question card. */
   questionDetails?: QuestionDetails;
-  /** For a pending `secret`: the public prompt metadata, so a cold load can rehydrate the secret prompt. */
-  secretDetails?: SecretDetails;
   /** For ACP permissions: resolves directly without a Conversation object. */
   directResolve?: (decision: UserDecision) => void;
   /** When set, the host_bash request should be routed to this specific client. */
