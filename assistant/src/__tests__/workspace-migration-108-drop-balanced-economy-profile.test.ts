@@ -121,6 +121,20 @@ describe("108-drop-balanced-economy-profile migration", () => {
     expect(readLlm().activeProfile).toBe("balanced");
   });
 
+  test("repoints advisorProfile from balanced-economy to balanced", () => {
+    writeConfig({
+      llm: {
+        profiles: {
+          balanced: { ...managedBalanced },
+          "balanced-economy": { ...managedEconomy },
+        },
+        advisorProfile: "balanced-economy",
+      },
+    });
+    dropBalancedEconomyProfileMigration.run(workspaceDir);
+    expect(readLlm().advisorProfile).toBe("balanced");
+  });
+
   test("re-enables a disabled balanced when it becomes the active selection", () => {
     // Supported state: user disabled the old balanced profile while actively
     // using balanced-economy. After consolidation the active selection lands
@@ -223,6 +237,7 @@ describe("108-drop-balanced-economy-profile migration", () => {
         profileOrder: ["auto", "balanced", "balanced-economy"],
         callSites: { memoryRouter: { profile: "balanced-economy" } },
         activeProfile: "balanced-economy",
+        advisorProfile: "balanced-economy",
       },
     };
     writeConfig(original);

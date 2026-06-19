@@ -1,3 +1,4 @@
+import { loadRawConfig } from "../../config/loader.js";
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 
 const OLD_PROFILE = "balanced-economy";
@@ -22,12 +23,21 @@ const PIN_TABLES = ["conversations", "cron_jobs"] as const;
  * MiniMax route. `balanced-economy` is a reserved managed-profile key, so every
  * persisted pin refers to the now-folded profile.
  *
+ * Ownership guard: the companion workspace migration keeps a `balanced-economy`
+ * profile the user owns (`source !== "managed"`) intact, so its pins still
+ * resolve and must not be touched. Memory migrations run before workspace
+ * migrations on boot, so the profile is still in config here either way; gate on
+ * its source rather than its presence. A reserved managed key (or no profile at
+ * all) means every pin is stale and safe to rewrite.
+ *
  * Idempotent: the WHERE clause matches nothing once rewritten. The PRAGMA guard
  * skips a table an install hasn't created the column on yet.
  */
 export function migrateRewriteBalancedEconomyProfilePins(
   database: DrizzleDb,
 ): void {
+  if (isUserOwnedEconomyProfile()) return;
+
   const raw = getSqliteFrom(database);
 
   for (const table of PIN_TABLES) {
@@ -42,4 +52,17 @@ export function migrateRewriteBalancedEconomyProfilePins(
       )
       .run(NEW_PROFILE, OLD_PROFILE);
   }
+}
+
+/** True when `balanced-economy` exists in config as a user-owned profile. */
+function isUserOwnedEconomyProfile(): boolean {
+  const llm = asObject(loadRawConfig().llm);
+  const profile = asObject(asObject(llm?.profiles)?.[OLD_PROFILE]);
+  return profile !== null && profile.source !== "managed";
+}
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }

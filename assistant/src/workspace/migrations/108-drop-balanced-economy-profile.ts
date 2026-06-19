@@ -7,10 +7,11 @@ import type { WorkspaceMigration } from "./types.js";
 // MiniMax-M3-on-Fireworks config lives on `balanced`, whose content the seeder
 // reconciles from the templates on every boot; the seeder never deletes a
 // profile, so this migration deletes the managed `balanced-economy` object and
-// repoints every reference to it — its `profileOrder` entry, an `activeProfile`
-// selection, and any call-site `profile` override — onto `balanced`, which
-// resolves to the same MiniMax M3 route. A `balanced-economy` profile that the
-// user owns (`source !== "managed"`) is left fully intact, references included.
+// repoints every reference to it — its `profileOrder` entry, the `activeProfile`
+// and `advisorProfile` selections, call-site `profile` overrides, and mix-profile
+// arms — onto `balanced`, which resolves to the same MiniMax M3 route. A
+// `balanced-economy` profile that the user owns (`source !== "managed"`) is left
+// fully intact, references included.
 
 const ECONOMY = "balanced-economy";
 const REPLACEMENT = "balanced";
@@ -100,6 +101,14 @@ export const dropBalancedEconomyProfileMigration: WorkspaceMigration = {
       if (balanced !== null && balanced.status === "disabled") {
         delete balanced.status;
       }
+    }
+
+    // The advisor selection is the other top-level profile reference
+    // `LLMSchema.superRefine` validates against `llm.profiles`; an unresolvable
+    // value invalidates the config and is stripped at load.
+    if (llm.advisorProfile === ECONOMY) {
+      llm.advisorProfile = REPLACEMENT;
+      changed = true;
     }
 
     if (!changed) return;

@@ -1,10 +1,21 @@
+import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { Database } from "bun:sqlite";
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
+import { getWorkspaceConfigPath } from "../../util/platform.js";
 import * as schema from "../schema.js";
 import { migrateRewriteBalancedEconomyProfilePins } from "./296-rewrite-balanced-economy-profile-pins.js";
+
+function writeWorkspaceConfig(config: Record<string, unknown>): void {
+  writeFileSync(getWorkspaceConfigPath(), JSON.stringify(config));
+}
+
+afterEach(() => {
+  const path = getWorkspaceConfigPath();
+  if (existsSync(path)) rmSync(path);
+});
 
 function createTestDb(withColumns = true) {
   const sqlite = new Database(":memory:");
@@ -65,5 +76,35 @@ describe("migration 296: rewrite balanced-economy profile pins", () => {
   test("skips a table that has no inference_profile column", () => {
     const { db } = createTestDb(false);
     expect(() => migrateRewriteBalancedEconomyProfilePins(db)).not.toThrow();
+  });
+
+  test("leaves pins alone when balanced-economy is a user-owned profile", () => {
+    // The workspace migration keeps a user-owned profile of this name, so its
+    // pins still resolve and must not be switched to balanced.
+    writeWorkspaceConfig({
+      llm: { profiles: { "balanced-economy": { source: "user" } } },
+    });
+    const { sqlite, db } = createTestDb();
+    sqlite.run(
+      `INSERT INTO conversations (id, inference_profile) VALUES ('c1', 'balanced-economy')`,
+    );
+
+    migrateRewriteBalancedEconomyProfilePins(db);
+
+    expect(pin(sqlite, "conversations", "c1")).toBe("balanced-economy");
+  });
+
+  test("rewrites pins when balanced-economy is the managed profile in config", () => {
+    writeWorkspaceConfig({
+      llm: { profiles: { "balanced-economy": { source: "managed" } } },
+    });
+    const { sqlite, db } = createTestDb();
+    sqlite.run(
+      `INSERT INTO conversations (id, inference_profile) VALUES ('c1', 'balanced-economy')`,
+    );
+
+    migrateRewriteBalancedEconomyProfilePins(db);
+
+    expect(pin(sqlite, "conversations", "c1")).toBe("balanced");
   });
 });
