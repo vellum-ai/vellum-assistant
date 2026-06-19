@@ -1606,8 +1606,65 @@ export class Conversation {
     }
   }
 
+  /**
+   * Token count for `messages` used to render the user-facing `/compact` and
+   * `/clean` figures. Prefers the provider's real `count_tokens` tokenizer (so
+   * the numbers match the context-window indicator's provider-reported usage)
+   * and falls back to the context-window manager's local estimate when the
+   * provider has no count endpoint or the count call fails — both measure the
+   * same system-prompt + tools composition the manager sizes against.
+   *
+   * The count is a network round-trip with its own rate limit, so this is for
+   * user-initiated actions only, never the per-turn auto-compaction gate.
+   */
+  private async calculateTokens(messages: Message[]): Promise<number> {
+    const countInputTokens = this.provider.countInputTokens;
+    if (!countInputTokens) {
+      return this.contextWindowManager.estimateInputTokens(messages);
+    }
+    try {
+      const { systemPrompt, tools } =
+        this.contextWindowManager.tokenCountInputs;
+      return await countInputTokens.call(
+        this.provider,
+        messages,
+        systemPrompt,
+        tools,
+      );
+    } catch (err) {
+      log.warn(
+        { err, conversationId: this.conversationId },
+        "Provider token count failed — falling back to local estimate",
+      );
+      return this.contextWindowManager.estimateInputTokens(messages);
+    }
+  }
+
   async forceCompact(): Promise<ContextWindowResult> {
-    return this.runCompaction(true);
+    // Report the user-facing before/after using the provider's real tokenizer
+    // (count_tokens) so the `/compact` line matches the context-window
+    // indicator, which reflects the provider's actual reported usage — rather
+    // than the local chars/4 estimate the compaction pipeline runs internally
+    // (it under-counts by ~25% on typical histories). `calculateTokens`
+    // falls back to that estimate when the provider has no count endpoint or
+    // the count call fails, so behavior degrades gracefully.
+    //
+    // Only the *displayed* numbers are overridden — the compaction log and
+    // circuit-breaker accounting inside `runCompaction` keep the estimate-based
+    // figures, leaving calibration and historical logs untouched.
+    const before = await this.calculateTokens(this.messages);
+    const result = await this.runCompaction(true);
+    // `runCompaction` applies the compacted history to `this.messages` in
+    // place, so after a successful compaction this re-counts the new history;
+    // a no-op leaves the context unchanged, so before === after.
+    const after = result.compacted
+      ? await this.calculateTokens(this.messages)
+      : before;
+    return {
+      ...result,
+      previousEstimatedInputTokens: before,
+      estimatedInputTokens: after,
+    };
   }
 
   /**
@@ -1726,15 +1783,17 @@ export class Conversation {
    * activations are no longer deduped against the prior session.
    */
   async forceClean(): Promise<CleanResult> {
-    const previousEstimatedInputTokens =
-      this.contextWindowManager.estimateInputTokens(this.messages);
+    // Use the provider's real tokenizer for the displayed before/after (see
+    // `forceCompact` for why); falls back to the local estimate when count
+    // isn't available.
+    const previousEstimatedInputTokens = await this.calculateTokens(
+      this.messages,
+    );
     const stripped = stripInjectionsForCompaction(this.messages);
     this.messages = stripped;
     await this.graphMemory.onCompacted(0);
     setConversationHistoryStrippedAt(this.conversationId, Date.now());
-    const estimatedInputTokens = this.contextWindowManager.estimateInputTokens(
-      this.messages,
-    );
+    const estimatedInputTokens = await this.calculateTokens(this.messages);
     return {
       previousEstimatedInputTokens,
       estimatedInputTokens,

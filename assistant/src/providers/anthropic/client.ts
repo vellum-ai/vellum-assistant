@@ -18,6 +18,7 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
+  ToolDefinition,
 } from "../types.js";
 import {
   ContextOverflowError,
@@ -823,181 +824,7 @@ export class AnthropicProvider implements Provider {
     // edge LB, NAT idle) — only the latter should be retried.
     let innerTimeoutSignal: AbortSignal | undefined;
     try {
-      const formatted = messages
-        .map((m) => {
-          // Track whether an unknown block was dropped during filtering
-          let droppedUnknownBlock = false;
-
-          const content = m.content
-            .map((block) => {
-              const result = this.toAnthropicBlockSafe(block);
-              if (result == null) {
-                droppedUnknownBlock = true;
-              }
-              return result;
-            })
-            .filter(
-              (block): block is Anthropic.ContentBlockParam => block != null,
-            )
-            .filter(
-              (block) =>
-                !(
-                  block.type === "text" &&
-                  !(block as { text?: string }).text?.trim()
-                ),
-            );
-
-          // Preserve assistant turns that would otherwise become empty after filtering
-          // unknown block types (e.g. ui_surface). Dropping these messages can violate
-          // Anthropic's role alternation requirement.
-          if (
-            content.length === 0 &&
-            m.role === "assistant" &&
-            droppedUnknownBlock
-          ) {
-            return {
-              role: m.role as "assistant",
-              content: [
-                { type: "text" as const, text: PLACEHOLDER_BLOCKS_OMITTED },
-              ],
-            };
-          }
-
-          return {
-            role: m.role,
-            content,
-          } as Anthropic.MessageParam;
-        })
-        .reduce<Anthropic.MessageParam[]>((acc, m) => {
-          if (m.content.length > 0) {
-            acc.push(m);
-            return acc;
-          }
-          // Dropping an empty assistant message between two user messages (or vice
-          // versa) would create consecutive same-role messages, violating
-          // Anthropic's role alternation requirement. Inject a placeholder instead.
-          const prev = acc[acc.length - 1];
-          if (m.role === "assistant" && prev && prev.role !== "assistant") {
-            acc.push({
-              role: "assistant" as const,
-              content: [
-                { type: "text" as const, text: PLACEHOLDER_EMPTY_TURN },
-              ],
-            });
-          }
-          return acc;
-        }, []);
-
-      // Post-processing: merge consecutive same-role messages that violate
-      // Anthropic's strict user/assistant alternation requirement. These can
-      // arise from:
-      //   - Dropping empty messages in the reduce above (placeholder-adjacent)
-      //   - History reconstruction artifacts that bypass repairHistory
-      //
-      // Walk backwards so splice indices stay valid. After a merge+splice
-      // the element that was at i+1 shifts to i, potentially creating a
-      // new adjacent pair — bump i back up to recheck that position.
-      {
-        let i = formatted.length - 1;
-        while (i > 0 && i < formatted.length) {
-          if (formatted[i].role !== formatted[i - 1].role) {
-            i--;
-            continue;
-          }
-
-          const iContent = (
-            Array.isArray(formatted[i].content) ? formatted[i].content : []
-          ) as Anthropic.ContentBlockParam[];
-          const prevContent = (
-            Array.isArray(formatted[i - 1].content)
-              ? formatted[i - 1].content
-              : []
-          ) as Anthropic.ContentBlockParam[];
-          const isPlaceholder = (c: Anthropic.ContentBlockParam[]): boolean => {
-            if (
-              c.length !== 1 ||
-              typeof c[0] === "string" ||
-              c[0].type !== "text"
-            )
-              return false;
-            const text = (c[0] as { text?: string }).text;
-            return typeof text === "string" && isPlaceholderSentinelText(text);
-          };
-
-          if (isPlaceholder(iContent)) {
-            formatted.splice(i, 1);
-            // Removed the later element. The new formatted[i] (formerly
-            // i+1) may now be same-role as i-1, so decrement once to
-            // recheck from the correct position.
-            i--;
-          } else if (isPlaceholder(prevContent)) {
-            formatted.splice(i - 1, 1);
-            // Removed the earlier element — everything shifted down by 1.
-            // The element that was at i is now at i-1. Decrement so the
-            // next iteration compares the new i-1 with i-2 (or exits if
-            // i-1 is 0).
-            i--;
-          } else {
-            // Neither is a placeholder — merge content blocks into the
-            // earlier message and remove the later one. Skip the merge
-            // when either message carries tool_use or tool_result blocks;
-            // those require structural alternation for ensureToolPairing
-            // to inject the correct synthetic results downstream.
-            const hasToolBlock = (c: Anthropic.ContentBlockParam[]): boolean =>
-              c.some(
-                (b) =>
-                  typeof b !== "string" &&
-                  (b.type === "tool_use" || b.type === "tool_result"),
-              );
-            if (!hasToolBlock(prevContent) && !hasToolBlock(iContent)) {
-              formatted[i - 1] = {
-                ...formatted[i - 1],
-                content: [...prevContent, ...iContent],
-              };
-              formatted.splice(i, 1);
-              // Clamp i to the new last index — the splice may have put
-              // us past the end. If there's a new element at i (formerly
-              // i+1), it will be rechecked against the merged i-1.
-              if (i >= formatted.length) {
-                i = formatted.length - 1;
-              }
-            } else {
-              // Can't merge (tool blocks present) — leave for
-              // ensureToolPairing which handles tool_use/tool_result
-              // alternation in its own forward walk.
-              i--;
-            }
-          }
-        }
-      }
-
-      // Strip thinking/redacted_thinking blocks from completed historical
-      // assistant turns. Anthropic only requires these blocks for active
-      // tool-use continuation (the tail span where assistant tool_use is
-      // followed by user tool_result). Replaying stale thinking blocks from
-      // earlier turns causes 400 errors when the signature is no longer
-      // valid (e.g. after a provider/model/profile switch).
-      const activeToolUseStart = findActiveToolUseContinuationStart(formatted);
-      for (let i = 0; i < activeToolUseStart; i++) {
-        const msg = formatted[i];
-        if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
-        const stripped = (msg.content as Anthropic.ContentBlockParam[]).filter(
-          (b) =>
-            typeof b === "string" ||
-            (b.type !== "thinking" && b.type !== "redacted_thinking"),
-        );
-        if (stripped.length === 0) {
-          stripped.push({
-            type: "text" as const,
-            text: PLACEHOLDER_BLOCKS_OMITTED,
-          });
-        }
-        formatted[i] = { ...msg, content: stripped };
-      }
-
-      sentMessages = ensureToolPairing(
-        repairOrphanedServerToolBlocks(formatted),
-      );
+      sentMessages = this.buildSentMessages(messages);
       const {
         effort,
         speed,
@@ -1679,6 +1506,234 @@ export class AnthropicProvider implements Provider {
         abortReason ? { cause: error, abortReason } : { cause: error },
       );
     }
+  }
+
+  /**
+   * Exact prompt-token count via Anthropic's `/v1/messages/count_tokens`
+   * endpoint — the real tokenizer, no inference. Serializes `messages` /
+   * `systemPrompt` / `tools` the same way {@link sendMessage} does (so the
+   * count tracks what the next call would actually send), minus the
+   * `cache_control` breakpoints, which don't affect token counts.
+   *
+   * The serialization here is intentionally simpler than `sendMessage`'s
+   * (no role-alternation merge / placeholder injection): on a pathological
+   * history `count_tokens` may reject the request, which surfaces as a thrown
+   * error the caller turns into a local-estimator fallback. The common path —
+   * a well-formed history — counts exactly.
+   */
+  async countInputTokens(
+    messages: Message[],
+    systemPrompt: string,
+    tools?: ToolDefinition[],
+  ): Promise<number> {
+    const sentMessages = this.buildSentMessages(messages);
+
+    const system = systemPrompt
+      ? systemPrompt
+          .split(SYSTEM_PROMPT_CACHE_BOUNDARY)
+          .filter((text) => text.length > 0)
+          .map((text) => ({ type: "text" as const, text }))
+      : [];
+    const toolsParam =
+      tools && tools.length > 0
+        ? tools.map((t) => ({
+            name: t.name,
+            description: t.description,
+            input_schema: t.input_schema as Anthropic.Tool["input_schema"],
+          }))
+        : undefined;
+
+    const res = await this.client.messages.countTokens({
+      model: this.model,
+      messages: sentMessages,
+      ...(system.length > 0 ? { system } : {}),
+      ...(toolsParam ? { tools: toolsParam } : {}),
+    });
+    return res.input_tokens;
+  }
+
+  /**
+   * Serialize internal `Message[]` into the Anthropic `MessageParam[]` the
+   * Messages API expects: drop unknown/empty blocks, preserve role
+   * alternation (placeholder injection + same-role merge), strip stale
+   * thinking blocks outside the active tool-use continuation, and repair
+   * tool_use/tool_result pairing. Shared by {@link sendMessage} and
+   * {@link countInputTokens} so both send the identical message payload —
+   * `cache_control` breakpoints (which don't affect token counts) are the
+   * only thing layered on top in `sendMessage`.
+   */
+  private buildSentMessages(messages: Message[]): Anthropic.MessageParam[] {
+    const formatted = messages
+      .map((m) => {
+        // Track whether an unknown block was dropped during filtering
+        let droppedUnknownBlock = false;
+
+        const content = m.content
+          .map((block) => {
+            const result = this.toAnthropicBlockSafe(block);
+            if (result == null) {
+              droppedUnknownBlock = true;
+            }
+            return result;
+          })
+          .filter(
+            (block): block is Anthropic.ContentBlockParam => block != null,
+          )
+          .filter(
+            (block) =>
+              !(
+                block.type === "text" &&
+                !(block as { text?: string }).text?.trim()
+              ),
+          );
+
+        // Preserve assistant turns that would otherwise become empty after filtering
+        // unknown block types (e.g. ui_surface). Dropping these messages can violate
+        // Anthropic's role alternation requirement.
+        if (
+          content.length === 0 &&
+          m.role === "assistant" &&
+          droppedUnknownBlock
+        ) {
+          return {
+            role: m.role as "assistant",
+            content: [
+              { type: "text" as const, text: PLACEHOLDER_BLOCKS_OMITTED },
+            ],
+          };
+        }
+
+        return {
+          role: m.role,
+          content,
+        } as Anthropic.MessageParam;
+      })
+      .reduce<Anthropic.MessageParam[]>((acc, m) => {
+        if (m.content.length > 0) {
+          acc.push(m);
+          return acc;
+        }
+        // Dropping an empty assistant message between two user messages (or vice
+        // versa) would create consecutive same-role messages, violating
+        // Anthropic's role alternation requirement. Inject a placeholder instead.
+        const prev = acc[acc.length - 1];
+        if (m.role === "assistant" && prev && prev.role !== "assistant") {
+          acc.push({
+            role: "assistant" as const,
+            content: [{ type: "text" as const, text: PLACEHOLDER_EMPTY_TURN }],
+          });
+        }
+        return acc;
+      }, []);
+
+    // Post-processing: merge consecutive same-role messages that violate
+    // Anthropic's strict user/assistant alternation requirement. These can
+    // arise from:
+    //   - Dropping empty messages in the reduce above (placeholder-adjacent)
+    //   - History reconstruction artifacts that bypass repairHistory
+    //
+    // Walk backwards so splice indices stay valid. After a merge+splice
+    // the element that was at i+1 shifts to i, potentially creating a
+    // new adjacent pair — bump i back up to recheck that position.
+    {
+      let i = formatted.length - 1;
+      while (i > 0 && i < formatted.length) {
+        if (formatted[i].role !== formatted[i - 1].role) {
+          i--;
+          continue;
+        }
+
+        const iContent = (
+          Array.isArray(formatted[i].content) ? formatted[i].content : []
+        ) as Anthropic.ContentBlockParam[];
+        const prevContent = (
+          Array.isArray(formatted[i - 1].content)
+            ? formatted[i - 1].content
+            : []
+        ) as Anthropic.ContentBlockParam[];
+        const isPlaceholder = (c: Anthropic.ContentBlockParam[]): boolean => {
+          if (
+            c.length !== 1 ||
+            typeof c[0] === "string" ||
+            c[0].type !== "text"
+          )
+            return false;
+          const text = (c[0] as { text?: string }).text;
+          return typeof text === "string" && isPlaceholderSentinelText(text);
+        };
+
+        if (isPlaceholder(iContent)) {
+          formatted.splice(i, 1);
+          // Removed the later element. The new formatted[i] (formerly
+          // i+1) may now be same-role as i-1, so decrement once to
+          // recheck from the correct position.
+          i--;
+        } else if (isPlaceholder(prevContent)) {
+          formatted.splice(i - 1, 1);
+          // Removed the earlier element — everything shifted down by 1.
+          // The element that was at i is now at i-1. Decrement so the
+          // next iteration compares the new i-1 with i-2 (or exits if
+          // i-1 is 0).
+          i--;
+        } else {
+          // Neither is a placeholder — merge content blocks into the
+          // earlier message and remove the later one. Skip the merge
+          // when either message carries tool_use or tool_result blocks;
+          // those require structural alternation for ensureToolPairing
+          // to inject the correct synthetic results downstream.
+          const hasToolBlock = (c: Anthropic.ContentBlockParam[]): boolean =>
+            c.some(
+              (b) =>
+                typeof b !== "string" &&
+                (b.type === "tool_use" || b.type === "tool_result"),
+            );
+          if (!hasToolBlock(prevContent) && !hasToolBlock(iContent)) {
+            formatted[i - 1] = {
+              ...formatted[i - 1],
+              content: [...prevContent, ...iContent],
+            };
+            formatted.splice(i, 1);
+            // Clamp i to the new last index — the splice may have put
+            // us past the end. If there's a new element at i (formerly
+            // i+1), it will be rechecked against the merged i-1.
+            if (i >= formatted.length) {
+              i = formatted.length - 1;
+            }
+          } else {
+            // Can't merge (tool blocks present) — leave for
+            // ensureToolPairing which handles tool_use/tool_result
+            // alternation in its own forward walk.
+            i--;
+          }
+        }
+      }
+    }
+
+    // Strip thinking/redacted_thinking blocks from completed historical
+    // assistant turns. Anthropic only requires these blocks for active
+    // tool-use continuation (the tail span where assistant tool_use is
+    // followed by user tool_result). Replaying stale thinking blocks from
+    // earlier turns causes 400 errors when the signature is no longer
+    // valid (e.g. after a provider/model/profile switch).
+    const activeToolUseStart = findActiveToolUseContinuationStart(formatted);
+    for (let i = 0; i < activeToolUseStart; i++) {
+      const msg = formatted[i];
+      if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
+      const stripped = (msg.content as Anthropic.ContentBlockParam[]).filter(
+        (b) =>
+          typeof b === "string" ||
+          (b.type !== "thinking" && b.type !== "redacted_thinking"),
+      );
+      if (stripped.length === 0) {
+        stripped.push({
+          type: "text" as const,
+          text: PLACEHOLDER_BLOCKS_OMITTED,
+        });
+      }
+      formatted[i] = { ...msg, content: stripped };
+    }
+
+    return ensureToolPairing(repairOrphanedServerToolBlocks(formatted));
   }
 
   /**
