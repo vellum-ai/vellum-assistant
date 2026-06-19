@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { sendMessage } from '../../lib/chrome-message.js';
-import type { GatewayUrlGetResponse } from '../../popup-state.js';
+import type {
+  GatewayUrlGetResponse,
+  GetStatusResponse,
+} from '../../popup-state.js';
 
 export interface GatewaySettingsProps {
   /** Connection is failing — auto-expand so the URL editor is visible. */
@@ -51,20 +54,27 @@ export function GatewaySettings({ failure }: GatewaySettingsProps) {
     setFeedback(null);
 
     await sendMessage({ type: 'gateway-url-set', gatewayUrl: url });
-    const response = await sendMessage<{ ok: boolean; error?: string }>({
-      type: 'connect',
-    });
+    await sendMessage({ type: 'connect' });
+
+    // `connect` resolves even when the gateway is unreachable (the worker
+    // sets health=error rather than throwing), so read the resulting
+    // health to decide whether the attempt actually failed.
+    const status = await sendMessage<GetStatusResponse>({ type: 'get_status' });
 
     setSaving(false);
+    const failed =
+      status?.health === 'error' ||
+      status?.health === 'auth_required' ||
+      status?.health === 'assistant_gone';
     setFeedback(
-      response?.ok
-        ? { kind: 'ok', text: 'Saved — reconnecting…' }
-        : {
+      failed
+        ? {
             kind: 'error',
             text:
-              response?.error ??
+              status.healthDetail?.lastErrorMessage ??
               'Could not connect. Check the URL and that your assistant is running.',
-          },
+          }
+        : { kind: 'ok', text: 'Saved — reconnecting…' },
     );
   }, [gatewayUrl]);
 
