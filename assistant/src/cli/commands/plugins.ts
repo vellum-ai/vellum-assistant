@@ -24,12 +24,20 @@ import {
 import {
   DEFAULT_PLUGIN_REF,
   installPlugin,
+  type InstallPluginOptions,
   InvalidPluginNameError,
   PluginAlreadyInstalledError,
   PluginNotFoundError,
 } from "../lib/install-from-github.js";
 import { listInstalledPlugins } from "../lib/list-installed-plugins.js";
 import type { FingerprintComparison } from "../lib/plugin-fingerprint.js";
+import {
+  DEFAULT_PIN_HISTORY_LIMIT,
+  listPinHistory,
+  type PluginPinHistoryEntry,
+  PluginPinHistoryError,
+  resolvePinToMarketplaceCommit,
+} from "../lib/plugin-pin-history.js";
 import { registerCommand } from "../lib/register-command.js";
 import {
   InvalidSearchPatternError,
@@ -65,6 +73,9 @@ Examples:
   $ assistant plugins install example
   $ assistant plugins install example --force
   $ assistant plugins install example --ref my-feature-branch
+  $ assistant plugins versions example
+  $ assistant plugins versions example --json
+  $ assistant plugins install example --pin <sha> --force
   $ assistant plugins list
   $ assistant plugins list --json
   $ assistant plugins inspect example
@@ -90,19 +101,35 @@ Examples:
         .option("--force", "Overwrite an existing install")
         .option(
           "--ref <ref>",
-          `Git ref to fetch from (default: ${DEFAULT_PLUGIN_REF})`,
+          `Marketplace manifest revision to read the pin from (default: ${DEFAULT_PLUGIN_REF})`,
+        )
+        .option(
+          "--pin <sha>",
+          "Install a specific reviewed marketplace pin (full commit SHA); run `plugins versions <name>` to list them",
+        )
+        .option(
+          "--allow-unreviewed",
+          "With --pin, install a SHA that is not in the reviewed marketplace history (advanced; the curated adapter may not match)",
         )
         .action(
-          async (name: string, opts: { force?: boolean; ref?: string }) => {
+          async (
+            name: string,
+            opts: {
+              force?: boolean;
+              ref?: string;
+              pin?: string;
+              allowUnreviewed?: boolean;
+            },
+          ) => {
             try {
-              const result = await installPlugin(
-                {
-                  name,
-                  force: opts.force ?? false,
-                  ref: opts.ref ?? DEFAULT_PLUGIN_REF,
-                },
-                { fetch: globalThis.fetch.bind(globalThis) },
-              );
+              const installOpts = await resolveInstallOptions(name, opts);
+              if (installOpts === null) {
+                process.exitCode = 1;
+                return;
+              }
+              const result = await installPlugin(installOpts, {
+                fetch: globalThis.fetch.bind(globalThis),
+              });
               log.info(
                 {
                   name: result.name,
@@ -131,8 +158,71 @@ Examples:
                 process.exitCode = 1;
                 return;
               }
+              if (
+                err instanceof InvalidPluginNameError ||
+                err instanceof PluginPinHistoryError
+              ) {
+                console.error(err.message);
+                process.exitCode = 1;
+                return;
+              }
               const message = err instanceof Error ? err.message : String(err);
               console.error(`Plugin install failed: ${message}`);
+              process.exitCode = 1;
+            }
+          },
+        );
+
+      plugins
+        .command("versions <name>")
+        .description(
+          "List the recent reviewed marketplace pins for a plugin, newest first. Install an older one with `plugins install <name> --pin <sha>`",
+        )
+        .option("--json", "Emit machine-readable JSON instead of a table")
+        .option(
+          "--limit <n>",
+          `Maximum number of pins to show (default: ${DEFAULT_PIN_HISTORY_LIMIT})`,
+        )
+        .action(
+          async (name: string, opts: { json?: boolean; limit?: string }) => {
+            let limit: number | undefined;
+            if (opts.limit !== undefined) {
+              limit = Number.parseInt(opts.limit, 10);
+              if (!Number.isInteger(limit) || limit < 1) {
+                console.error("--limit must be a positive integer.");
+                process.exitCode = 1;
+                return;
+              }
+            }
+            try {
+              const history = await listPinHistory(
+                name,
+                { fetch: globalThis.fetch.bind(globalThis) },
+                limit !== undefined ? { limit } : {},
+              );
+
+              if (opts.json) {
+                process.stdout.write(JSON.stringify(history, null, 2) + "\n");
+                return;
+              }
+
+              // Logged after the JSON early-return so the logger's stdout
+              // writes never corrupt --json output.
+              log.info({ name, count: history.length }, "plugin versions");
+              for (const line of formatVersions(name, history)) {
+                console.log(line);
+              }
+            } catch (err) {
+              if (
+                err instanceof InvalidPluginNameError ||
+                err instanceof PluginPinHistoryError
+              ) {
+                console.error(err.message);
+                process.exitCode = 1;
+                return;
+              }
+              const message = err instanceof Error ? err.message : String(err);
+              console.error(`Plugin versions failed: ${message}`);
               process.exitCode = 1;
             }
           },
@@ -483,6 +573,109 @@ Examples:
 }
 
 /** Abbreviate a commit SHA for display; passes through non-SHA / null values. */
+/** Full Git commit SHA — 40 hex (SHA-1) or 64 (SHA-256). */
+const FULL_SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
+
+/**
+ * Resolve `plugins install` flags into {@link InstallPluginOptions}, or `null`
+ * when the flag combination is invalid (a message is printed in that case, and
+ * the caller exits non-zero). Network / marketplace failures raised while
+ * resolving a `--pin` propagate to the caller's catch.
+ *
+ * `--pin <sha>` installs a specific reviewed marketplace pin: the SHA is looked
+ * up in the plugin's pin history and installed from the marketplace commit that
+ * introduced it, so the curated adapter stub of that era comes along. With
+ * `--allow-unreviewed` the SHA is materialized directly (adapter from `main`),
+ * bypassing the history check — the advanced escape hatch.
+ */
+async function resolveInstallOptions(
+  name: string,
+  opts: {
+    force?: boolean;
+    ref?: string;
+    pin?: string;
+    allowUnreviewed?: boolean;
+  },
+): Promise<InstallPluginOptions | null> {
+  const force = opts.force ?? false;
+
+  if (!opts.pin) {
+    if (opts.allowUnreviewed) {
+      console.error("--allow-unreviewed only applies together with --pin.");
+      return null;
+    }
+    return { name, force, ref: opts.ref ?? DEFAULT_PLUGIN_REF };
+  }
+
+  const pin = opts.pin.trim();
+  if (!FULL_SHA_RE.test(pin)) {
+    console.error(
+      `--pin must be a full commit SHA (40 or 64 hex chars); got ${JSON.stringify(opts.pin)}.`,
+    );
+    return null;
+  }
+  if (opts.ref) {
+    console.error(
+      "--ref and --pin cannot be combined; --pin already selects the revision.",
+    );
+    return null;
+  }
+
+  if (opts.allowUnreviewed) {
+    // Materialize the exact SHA from the plugin's current-manifest repo,
+    // bypassing the reviewed-history check. The adapter stub still comes from
+    // the default ref, so an adapted plugin may not reproduce faithfully.
+    return { name, force, ref: DEFAULT_PLUGIN_REF, commitOverride: pin };
+  }
+
+  const entry = await resolvePinToMarketplaceCommit(name, pin, {
+    fetch: globalThis.fetch.bind(globalThis),
+  });
+  if (!entry) {
+    console.error(
+      `"${pin}" is not a reviewed marketplace pin for "${name}".\n` +
+        `Run \`assistant plugins versions ${name}\` to see available pins, ` +
+        "or pass --allow-unreviewed to install it anyway.",
+    );
+    return null;
+  }
+  return { name, force, ref: entry.marketplaceCommit };
+}
+
+/**
+ * Render a plugin's marketplace-pin history as a table: the pinned commit (short
+ * SHA), when it was promoted, and a marker for the pin currently active. An
+ * empty history reports that none was found.
+ */
+function formatVersions(
+  name: string,
+  history: readonly PluginPinHistoryEntry[],
+): string[] {
+  if (history.length === 0) {
+    return [`No marketplace pin history found for "${name}".`];
+  }
+  const rows = history.map((entry) => ({
+    pin: shortSha(entry.pin),
+    promoted: formatTimestamp(entry.promotedAt),
+    marker: entry.current ? "(current)" : "",
+  }));
+  const pinW = Math.max(3, ...rows.map((r) => r.pin.length));
+  const promotedW = Math.max(8, ...rows.map((r) => r.promoted.length));
+  const pad = (s: string, w: number) => s + " ".repeat(w - s.length);
+  const lines = [
+    `${pad("PIN", pinW)}  ${pad("PROMOTED", promotedW)}  `.trimEnd(),
+  ];
+  for (const r of rows) {
+    lines.push(
+      `${pad(r.pin, pinW)}  ${pad(r.promoted, promotedW)}  ${r.marker}`.trimEnd(),
+    );
+  }
+  lines.push("");
+  lines.push("Install an older pin with:");
+  lines.push(`  assistant plugins install ${name} --pin <sha> --force`);
+  return lines;
+}
+
 function shortSha(sha: string | null): string {
   return sha ? sha.slice(0, 7) : "—";
 }

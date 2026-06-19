@@ -35,6 +35,17 @@ const MARKETPLACE_SOURCE_OWNER = "vellum-ai";
 const MARKETPLACE_SOURCE_REPO = "vellum-assistant";
 const MARKETPLACE_FILE_PATH = "plugins/marketplace.json";
 
+/**
+ * Canonical GitHub coordinates of the marketplace manifest, exported so
+ * sibling readers (e.g. {@link ./plugin-pin-history}) resolve the same
+ * `owner/repo:path` rather than re-declaring it.
+ */
+export const MARKETPLACE_MANIFEST_LOCATION = {
+  owner: MARKETPLACE_SOURCE_OWNER,
+  repo: MARKETPLACE_SOURCE_REPO,
+  path: MARKETPLACE_FILE_PATH,
+} as const;
+
 // ---------------------------------------------------------------------------
 // Manifest schema (subset of the Claude Code marketplace schema)
 // ---------------------------------------------------------------------------
