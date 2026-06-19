@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-type CallSlackApi = (
-  method: string,
-  body: Record<string, unknown>,
-) => Promise<Record<string, unknown>>;
+// Derive the mock signature from the real export so it cannot drift from the
+// production response shape (`SlackApiResponse`). A hand-rolled
+// `Promise<Record<string, unknown>>` here would let a test pass against a
+// response shape production never actually returns.
+type CallSlackApi = typeof import("./api.js").callSlackApi;
 
 const callSlackApiMock = mock<CallSlackApi>(async () => ({ ok: true }));
 

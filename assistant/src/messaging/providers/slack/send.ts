@@ -121,7 +121,6 @@ export interface SlackSendOptions {
 export interface SlackSendResult {
   ok: boolean;
   ts?: string;
-  placeholderTs?: string;
 }
 
 /**
