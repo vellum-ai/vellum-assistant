@@ -56,6 +56,28 @@ const log = getLogger("guardian-reply-router");
 // Types
 // ---------------------------------------------------------------------------
 
+/**
+ * How to scope a guardian's pending requests when resolving an inbound reply.
+ *
+ * Replaces a `string[] | undefined` tri-state whose `[]` (fail-closed) was too
+ * easy to conflate with `undefined` (identity fallback) — the conflation that
+ * would re-open the Slack cross-chat reply-hijack vector (#30377 / JARVIS-650).
+ *
+ *   - `scoped`: resolve only these request ids, and constrain request-code
+ *     routing to this set (delivery-/conversation-scoped hints).
+ *   - `blocked`: fail closed — no pending requests and no identity fallback.
+ *     The Slack cross-chat guard: a guardian's unrelated message in a chat
+ *     where no card was delivered must not resolve a request delivered
+ *     elsewhere. Explicit callbacks and request codes still work (they carry
+ *     their own request id).
+ *   - `identity-fallback`: discover pending requests by guardian identity,
+ *     conversation, or principal. The default when no scope is supplied.
+ */
+export type GuardianPendingScope =
+  | { mode: "scoped"; requestIds: string[] }
+  | { mode: "blocked" }
+  | { mode: "identity-fallback" };
+
 /** Context for an inbound message that may be a guardian reply. */
 export interface GuardianReplyContext {
   /** The raw message text (trimmed). */
@@ -74,8 +96,12 @@ export interface GuardianReplyContext {
    * attached to. Used to recover the target request from its delivery record.
    */
   reactedMessageTs?: string;
-  /** IDs of known pending canonical requests for this guardian. */
-  pendingRequestIds?: string[];
+  /**
+   * How to scope this guardian's pending requests (see {@link
+   * GuardianPendingScope}). Omitted is equivalent to
+   * `{ mode: "identity-fallback" }`.
+   */
+  pendingScope?: GuardianPendingScope;
   /** Conversation generator for NL classification (injected by daemon). */
   approvalConversationGenerator?: ApprovalConversationGenerator;
   /** Optional channel delivery context for resolver-driven side effects. */
@@ -212,30 +238,33 @@ function parseRequestCode(
 /** Find all pending canonical requests for a guardian actor. */
 function findPendingCanonicalRequests(
   actor: ActorContext,
-  pendingRequestIds?: string[],
+  scope: GuardianPendingScope,
   conversationId?: string,
 ): CanonicalGuardianRequest[] {
+  // `blocked` fails closed: no pending requests and no identity fallback — the
+  // Slack cross-chat hijack guard (#30377 / JARVIS-650).
+  if (scope.mode === "blocked") {
+    return [];
+  }
+
   let results: CanonicalGuardianRequest[];
 
-  // When explicit IDs are provided, look them up directly
-  if (pendingRequestIds) {
-    if (pendingRequestIds.length === 0) {
-      return [];
-    }
-    results = pendingRequestIds
+  if (scope.mode === "scoped") {
+    // Resolve exactly the supplied ids.
+    results = scope.requestIds
       .map(getCanonicalGuardianRequest)
       .filter((r): r is CanonicalGuardianRequest => r?.status === "pending");
   } else if (actor.actorExternalUserId) {
-    // Query by guardian identity when available
+    // identity-fallback: query by guardian identity when available
     results = listCanonicalGuardianRequests({
       status: "pending",
       guardianExternalUserId: actor.actorExternalUserId,
     });
   } else if (conversationId) {
-    // Actors without an actorExternalUserId: scope by conversationId so the NL
-    // path can discover pending requests bound to this conversation.
-    // Include guardianPrincipalId filter when available so the guardian only
-    // sees requests they are authorized to act on.
+    // identity-fallback without an actorExternalUserId: scope by conversationId
+    // so the NL path can discover pending requests bound to this conversation.
+    // Include guardianPrincipalId when available so the guardian only sees
+    // requests they are authorized to act on.
     results = listCanonicalGuardianRequests({
       status: "pending",
       conversationId,
@@ -244,9 +273,8 @@ function findPendingCanonicalRequests(
         : {}),
     });
   } else if (actor.guardianPrincipalId) {
-    // Actors with a guardianPrincipalId but no actorExternalUserId or
-    // conversationId: query by principal so desktop sessions can still
-    // discover pending guardian work via their bound principal.
+    // identity-fallback by principal: desktop sessions discover pending
+    // guardian work via their bound principal.
     results = listCanonicalGuardianRequests({
       status: "pending",
       guardianPrincipalId: actor.guardianPrincipalId,
@@ -342,15 +370,18 @@ export async function routeGuardianReply(
     );
   }
 
+  const pendingScope: GuardianPendingScope = ctx.pendingScope ?? {
+    mode: "identity-fallback",
+  };
   const pendingRequests = findPendingCanonicalRequests(
     actor,
-    ctx.pendingRequestIds,
+    pendingScope,
     conversationId,
   );
+  // Request codes carry their own id, so constrain them only under an explicit
+  // scope; under blocked/identity-fallback they still resolve cross-chat.
   const scopedPendingRequestIds =
-    ctx.pendingRequestIds && ctx.pendingRequestIds.length > 0
-      ? new Set(ctx.pendingRequestIds)
-      : null;
+    pendingScope.mode === "scoped" ? new Set(pendingScope.requestIds) : null;
 
   // ── 1. Deterministic callback parsing (button presses) ──
   // No conversationId scoping here — the guardian's reply comes from a
