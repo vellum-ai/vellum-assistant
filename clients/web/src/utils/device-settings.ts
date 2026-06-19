@@ -33,6 +33,11 @@ const DEVICE_SETTINGS = {
   theme: { key: "device:theme", legacy: "vellum_theme" },
   shareAnalytics: { key: "device:share_analytics", legacy: "vellum_share_analytics" },
   shareDiagnostics: { key: "device:share_diagnostics", legacy: "vellum_share_diagnostics" },
+  // Effective Sentry reporting gate: the saved diagnostics preference AND a
+  // current privacy-consent version. Decoupled from `shareDiagnostics` (the
+  // saved preference) so a stale-version record stops reporting without losing
+  // the user's opt-in. No legacy key — introduced after the migration cutover.
+  diagnosticsReporting: { key: "device:diagnostics_reporting", legacy: "vellum_diagnostics_reporting" },
   biometricEnabled: { key: "device:biometric_enabled", legacy: "vellum_biometric_enabled" },
   llmLogRetention: { key: "device:llm_log_retention", legacy: "vellum_llm_log_retention" },
   timezone: { key: "device:timezone", legacy: "vellum_timezone" },

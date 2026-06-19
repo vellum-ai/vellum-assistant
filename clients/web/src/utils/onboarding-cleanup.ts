@@ -26,6 +26,7 @@
  */
 import { removeLocalSetting, getLocalBool, setLocalBool } from "@/utils/local-settings";
 import { setDeviceBool } from "@/utils/device-settings";
+import { setDiagnosticsReportingGate } from "@/lib/consent/diagnostics-consent";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 import { patchConsent, type UserConsent } from "@/domains/account/profile";
 
@@ -216,6 +217,8 @@ export function saveConsent(opts: {
   store.setShareDiagnostics(opts.shareDiagnostics);
   store.setAnalyticsConsentCurrent(true);
   store.setDiagnosticsConsentCurrent(true);
+  // Version is current by construction here, so the gate equals the preference.
+  setDiagnosticsReportingGate(opts.shareDiagnostics);
 
   persistConsentForUser(opts.userId, opts.tos, opts.privacy);
   persistToggleConsent(opts.userId, { analyticsCurrent: true, diagnosticsCurrent: true });
@@ -249,6 +252,8 @@ export function savePreferenceToggle(
     store.setShareDiagnostics(value);
     setDeviceBool("shareDiagnostics", value);
     store.setDiagnosticsConsentCurrent(true);
+    // Version is current by construction here, so the gate equals the preference.
+    setDiagnosticsReportingGate(value);
     persistToggleConsent(userId, { diagnosticsCurrent: true });
   }
 
