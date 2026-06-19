@@ -30,7 +30,7 @@ import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 import { patchConsent, type UserConsent } from "@/domains/account/profile";
 
 export const TOS_CONSENT_VERSION = "2026-06-08";
-export const PRIVACY_CONSENT_VERSION = "2026-06-08";
+export const PRIVACY_CONSENT_VERSION = "2026-06-18";
 
 // Version stamp embedded in each field's device-cache key. ToS tracks its own
 // version; the privacy checkbox (privacy policy + AI data sharing) and the two
