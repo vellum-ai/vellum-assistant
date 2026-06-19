@@ -21,7 +21,8 @@ describe("CALL_SITE_DEFAULTS", () => {
   });
 
   test("resolveCallSiteConfig('visionPerception') returns a config even before the vision profile exists", () => {
-    // Empty config — no `vision` profile defined yet (seeded by a later PR).
+    // An empty/default config has no `vision` profile, so resolution falls
+    // back to the workspace default.
     const llm = LLMSchema.parse({});
     const resolved = resolveCallSiteConfig("visionPerception", llm);
 
