@@ -18,6 +18,7 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
+  ToolDefinition,
 } from "../types.js";
 import {
   ContextOverflowError,
@@ -1679,6 +1680,64 @@ export class AnthropicProvider implements Provider {
         abortReason ? { cause: error, abortReason } : { cause: error },
       );
     }
+  }
+
+  /**
+   * Exact prompt-token count via Anthropic's `/v1/messages/count_tokens`
+   * endpoint — the real tokenizer, no inference. Serializes `messages` /
+   * `systemPrompt` / `tools` the same way {@link sendMessage} does (so the
+   * count tracks what the next call would actually send), minus the
+   * `cache_control` breakpoints, which don't affect token counts.
+   *
+   * The serialization here is intentionally simpler than `sendMessage`'s
+   * (no role-alternation merge / placeholder injection): on a pathological
+   * history `count_tokens` may reject the request, which surfaces as a thrown
+   * error the caller turns into a local-estimator fallback. The common path —
+   * a well-formed history — counts exactly.
+   */
+  async countInputTokens(
+    messages: Message[],
+    systemPrompt: string,
+    tools?: ToolDefinition[],
+  ): Promise<number> {
+    const formatted = messages
+      .map((m) => {
+        const content = m.content
+          .map((block) => this.toAnthropicBlockSafe(block))
+          .filter((b): b is Anthropic.ContentBlockParam => b != null)
+          .filter(
+            (b) =>
+              !(b.type === "text" && !(b as { text?: string }).text?.trim()),
+          );
+        return { role: m.role, content } as Anthropic.MessageParam;
+      })
+      .filter((m) => Array.isArray(m.content) && m.content.length > 0);
+    const sentMessages = ensureToolPairing(
+      repairOrphanedServerToolBlocks(formatted),
+    );
+
+    const system = systemPrompt
+      ? systemPrompt
+          .split(SYSTEM_PROMPT_CACHE_BOUNDARY)
+          .filter((text) => text.length > 0)
+          .map((text) => ({ type: "text" as const, text }))
+      : [];
+    const toolsParam =
+      tools && tools.length > 0
+        ? tools.map((t) => ({
+            name: t.name,
+            description: t.description,
+            input_schema: t.input_schema as Anthropic.Tool["input_schema"],
+          }))
+        : undefined;
+
+    const res = await this.client.messages.countTokens({
+      model: this.model,
+      messages: sentMessages,
+      ...(system.length > 0 ? { system } : {}),
+      ...(toolsParam ? { tools: toolsParam } : {}),
+    });
+    return res.input_tokens;
   }
 
   /**

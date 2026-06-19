@@ -404,6 +404,38 @@ export class ContextWindowManager {
   }
 
   /**
+   * Ground-truth prompt-token count from the provider's tokenizer
+   * ({@link Provider.countInputTokens}), for the same system + tools + messages
+   * composition the real call sends. Falls back to {@link estimateInputTokens}
+   * when the provider has no token-counting endpoint or the count request
+   * fails, so callers always get a number.
+   *
+   * Unlike {@link estimateInputTokens} this is async and makes a network
+   * round-trip — reserve it for user-initiated, occasional actions (forced
+   * `/compact`, `/clean`), not the per-turn auto-compaction gate.
+   */
+  async accurateInputTokens(messages: Message[]): Promise<number> {
+    const countInputTokens = this.provider.countInputTokens;
+    if (!countInputTokens) return this.estimateInputTokens(messages);
+    try {
+      return await countInputTokens.call(
+        this.provider,
+        messages,
+        this.systemPrompt,
+        this.resolveTools?.(),
+      );
+    } catch (err) {
+      log.warn(
+        { err },
+        "Provider token count failed — falling back to local estimate",
+      );
+      return this.estimateInputTokens(messages);
+    } finally {
+      this.clearSystemPromptCache();
+    }
+  }
+
+  /**
    * Cheap pre-check — estimate the current token count and compare against
    * `compaction.autoThreshold`. Callers pass the estimate back through
    * `precomputedEstimate` on the {@link maybeCompact} call to avoid

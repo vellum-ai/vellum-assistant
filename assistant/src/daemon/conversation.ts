@@ -1557,7 +1557,32 @@ export class Conversation {
   }
 
   async forceCompact(): Promise<ContextWindowResult> {
-    return this.runCompaction(true);
+    // Report the user-facing before/after using the provider's real tokenizer
+    // (count_tokens) so the `/compact` line matches the context-window
+    // indicator, which reflects the provider's actual reported usage — rather
+    // than the local chars/4 estimate the compaction pipeline runs internally
+    // (it under-counts by ~25% on typical histories). `accurateInputTokens`
+    // falls back to that estimate when the provider has no count endpoint or
+    // the count call fails, so behavior degrades gracefully.
+    //
+    // Only the *displayed* numbers are overridden — the compaction log and
+    // circuit-breaker accounting inside `runCompaction` keep the estimate-based
+    // figures, leaving calibration and historical logs untouched.
+    const before = await this.contextWindowManager.accurateInputTokens(
+      this.messages,
+    );
+    const result = await this.runCompaction(true);
+    // `runCompaction` applies the compacted history to `this.messages` in
+    // place, so after a successful compaction this re-counts the new history;
+    // a no-op leaves the context unchanged, so before === after.
+    const after = result.compacted
+      ? await this.contextWindowManager.accurateInputTokens(this.messages)
+      : before;
+    return {
+      ...result,
+      previousEstimatedInputTokens: before,
+      estimatedInputTokens: after,
+    };
   }
 
   /**
@@ -1676,15 +1701,17 @@ export class Conversation {
    * activations are no longer deduped against the prior session.
    */
   async forceClean(): Promise<CleanResult> {
+    // Use the provider's real tokenizer for the displayed before/after (see
+    // `forceCompact` for why); falls back to the local estimate when count
+    // isn't available.
     const previousEstimatedInputTokens =
-      this.contextWindowManager.estimateInputTokens(this.messages);
+      await this.contextWindowManager.accurateInputTokens(this.messages);
     const stripped = stripInjectionsForCompaction(this.messages);
     this.messages = stripped;
     await this.graphMemory.onCompacted(0);
     setConversationHistoryStrippedAt(this.conversationId, Date.now());
-    const estimatedInputTokens = this.contextWindowManager.estimateInputTokens(
-      this.messages,
-    );
+    const estimatedInputTokens =
+      await this.contextWindowManager.accurateInputTokens(this.messages);
     return {
       previousEstimatedInputTokens,
       estimatedInputTokens,
