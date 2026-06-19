@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+
 import { getLogger } from "../util/logger.js";
 import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
 import {
@@ -12,6 +14,7 @@ import {
   OS_BETA_FEATURE_FLAG_KEY,
   OS_BETA_PROFILE_KEY,
   OS_BETA_PROFILE_TEMPLATE,
+  readObject,
 } from "./seed-inference-profiles.js";
 
 const log = getLogger("sync-gated-profiles");
@@ -113,7 +116,7 @@ function enableProfile(
   }
 
   let changed = false;
-  if (!previous || !deepEqual(previous, next)) {
+  if (!previous || !isDeepStrictEqual(previous, next)) {
     profiles[OS_BETA_PROFILE_KEY] = next as ProfileEntry;
     changed = true;
   }
@@ -155,15 +158,19 @@ function disableProfile(
     }
   }
 
+  // Removing a flag-gated profile also drops it from any user mix arms so the
+  // config stays loadable — `LLMSchema.superRefine` rejects a mix arm naming a
+  // missing profile.
+  for (const profile of Object.values(profiles)) {
+    if (!Array.isArray(profile.mix)) continue;
+    const arms = profile.mix as Array<Record<string, unknown>>;
+    const kept = arms.filter(
+      (arm) => readObject(arm)?.profile !== OS_BETA_PROFILE_KEY,
+    );
+    if (kept.length !== arms.length) {
+      profile.mix = kept;
+    }
+  }
+
   return true;
-}
-
-function readObject(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function deepEqual(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
 }
