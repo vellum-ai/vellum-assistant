@@ -433,6 +433,14 @@
       "label": "OS Beta",
       "description": "Enable the OS Beta model profile (GLM 5.2 / Fireworks) in the assistant's model profile selection.",
       "defaultEnabled": false
+    },
+    {
+      "id": "vision-perception",
+      "scope": "assistant",
+      "key": "vision-perception",
+      "label": "Vision Perception",
+      "description": "Qwen3-VL image/video perception tools",
+      "defaultEnabled": false
     }
   ]
 }
