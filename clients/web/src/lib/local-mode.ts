@@ -354,14 +354,6 @@ export function isCliWakeableAssistant(assistantId: string): boolean {
   return !!entry && isLocalAssistant(entry);
 }
 
-/**
- * True when the CLI's `wake --repair-guardian` can re-provision this assistant's
- * guardian token — the same plain-local set `vellum wake` operates on.
- */
-export function isGuardianRepairable(assistantId: string): boolean {
-  return isCliWakeableAssistant(assistantId);
-}
-
 export function getLocalAssistants(): LockfileAssistant[] {
   return getLockfile().assistants.filter(isLocalAssistant);
 }

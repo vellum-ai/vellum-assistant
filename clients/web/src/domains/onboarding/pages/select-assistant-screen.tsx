@@ -9,7 +9,7 @@ import {
   isRepairableGatewayTokenError,
 } from "@/lib/auth/gateway-session";
 import {
-  isGuardianRepairable,
+  isCliWakeableAssistant,
   UnresolvedLocalGatewayError,
 } from "@/lib/local-mode";
 import { ConnectRecoveryDialog } from "@/domains/onboarding/components/connect-recovery-dialog";
@@ -106,7 +106,7 @@ export function SelectAssistantScreen() {
         (requiresGuardianReprovision(err) ||
           isRepairableGatewayTokenError(err) ||
           err instanceof UnresolvedLocalGatewayError) &&
-        isGuardianRepairable(assistant.id)
+        isCliWakeableAssistant(assistant.id)
       ) {
         setRecoveryAssistant(assistant);
       } else {
