@@ -331,6 +331,27 @@ describe("LLM catalog parity: daemon vs client", () => {
     });
   });
 
+  test("Fireworks catalog includes Qwen 3.7 Plus with vision support", () => {
+    expect(
+      isModelInCatalog("fireworks", "accounts/fireworks/models/qwen3p7-plus"),
+    ).toBe(true);
+
+    const fireworks = PROVIDER_CATALOG.find(
+      (entry) => entry.id === "fireworks",
+    );
+    expect(
+      fireworks?.models.find(
+        (model) => model.id === "accounts/fireworks/models/qwen3p7-plus",
+      ),
+    ).toMatchObject({
+      displayName: "Qwen 3.7 Plus",
+      contextWindowTokens: 262144,
+      maxOutputTokens: 32768,
+      supportsVision: true,
+      supportsToolUse: true,
+    });
+  });
+
   test("MiniMax catalog includes MiniMax M3", () => {
     const minimax = PROVIDER_CATALOG.find((entry) => entry.id === "minimax");
     expect(

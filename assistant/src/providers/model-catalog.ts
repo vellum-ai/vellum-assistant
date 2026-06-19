@@ -695,6 +695,21 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       {
+        id: "accounts/fireworks/models/qwen3p7-plus",
+        displayName: "Qwen 3.7 Plus",
+        contextWindowTokens: 262144,
+        maxOutputTokens: 32768,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 0.4,
+          outputPer1mTokens: 1.6,
+          cacheReadPer1mTokens: 0.08,
+        },
+      },
+      {
         id: "accounts/fireworks/models/kimi-k2p5",
         displayName: "Kimi K2.5",
         contextWindowTokens: 256000,
