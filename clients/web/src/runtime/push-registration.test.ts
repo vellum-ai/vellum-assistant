@@ -246,6 +246,29 @@ describe("unregisterFromRemotePush", () => {
     });
   });
 
+  test("falls back to the persisted token after a process reload (empty module memory)", async () => {
+    // Simulate a prior session that persisted a registration followed by a
+    // reload that wiped module memory — `lastRegistered` is null but the
+    // platform still has the token, so logout must still delete it.
+    localStorage.setItem(
+      "vellum:push_registration",
+      JSON.stringify({
+        token: "persisted-token",
+        bundleId: "ai.vocify-inc.vellum-assistant-ios",
+        assistantId: "assistant-9",
+      }),
+    );
+
+    await unregisterFromRemotePush();
+
+    expect(deleteMock).toHaveBeenCalledTimes(1);
+    expect(lastDeleteArg).toEqual({
+      path: { assistant_id: "assistant-9", token: "persisted-token" },
+      query: { bundle_id: "ai.vocify-inc.vellum-assistant-ios" },
+      throwOnError: false,
+    });
+  });
+
   test("no-ops when no token was registered", async () => {
     await unregisterFromRemotePush();
     expect(deleteMock).not.toHaveBeenCalled();

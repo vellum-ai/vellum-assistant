@@ -41,6 +41,7 @@ import {
 import type { ApnsEnvironmentEnum } from "@/generated/api/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { isNativePlatform } from "@/runtime/native-auth";
+import { createStorageAccessor } from "@/utils/typed-storage";
 
 /**
  * Bundle-id suffix that maps to the development APNs entitlement. The dev Xcode
@@ -59,6 +60,40 @@ interface RegisteredToken {
   bundleId: string;
   assistantId: string;
 }
+
+function parseRegisteredToken(raw: string): RegisteredToken | null {
+  const value = JSON.parse(raw) as Partial<RegisteredToken>;
+  if (
+    typeof value.token === "string" &&
+    typeof value.bundleId === "string" &&
+    typeof value.assistantId === "string"
+  ) {
+    return { token: value.token, bundleId: value.bundleId, assistantId: value.assistantId };
+  }
+  return null;
+}
+
+/**
+ * The last successfully-upserted registration, persisted to user-scoped
+ * storage. Module memory alone is insufficient: the WebView/app process can
+ * reload (dropping `lastRegistered`) before `usePushRegistration` re-runs, and
+ * `/logout` is a standalone route outside `RootLayout` — so logout could fire
+ * with empty module state and skip the platform DELETE, leaving a signed-out
+ * device still receiving remote pushes. The `vellum:` (user) scope is cleared
+ * by the logout storage sweep, and we also remove it explicitly after delete.
+ *
+ * The stored value is a device push-routing registration (APNs destination
+ * token + bundle + assistant), not auth/session material — losing it to XSS
+ * does not grant access to anything, so JS-readable storage is appropriate
+ * here (unlike session tokens, which must stay in HttpOnly cookies).
+ */
+const persistedRegistration = createStorageAccessor<RegisteredToken | null>({
+  key: "vellum:push_registration",
+  scope: "user",
+  parse: parseRegisteredToken,
+  serialize: JSON.stringify,
+  fallback: null,
+});
 
 let listenersRegistered = false;
 let currentAssistantId: string | null = null;
@@ -114,6 +149,7 @@ async function upsertToken(token: string, assistantId: string): Promise<void> {
     }
 
     lastRegistered = { token, bundleId, assistantId };
+    persistedRegistration.save(lastRegistered);
   } catch (err) {
     captureError(err, {
       context: "push_registration_upsert",
@@ -201,8 +237,11 @@ export async function registerForRemotePush(assistantId: string): Promise<void> 
  */
 export async function unregisterFromRemotePush(): Promise<void> {
   currentAssistantId = null;
-  const registered = lastRegistered;
+  // Fall back to persisted storage: a process reload before re-registration
+  // leaves `lastRegistered` null even though a token is still registered.
+  const registered = lastRegistered ?? persistedRegistration.load();
   lastRegistered = null;
+  persistedRegistration.remove();
 
   if (!registered || !isRemotePushSupported()) return;
 
@@ -221,9 +260,10 @@ export async function unregisterFromRemotePush(): Promise<void> {
   }
 }
 
-/** Test-only: reset module state between cases. */
+/** Test-only: reset module + persisted state between cases. */
 export function __resetPushRegistrationStateForTests(): void {
   listenersRegistered = false;
   currentAssistantId = null;
   lastRegistered = null;
+  persistedRegistration.remove();
 }
