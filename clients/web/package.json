@@ -52,6 +52,7 @@
     "@radix-ui/react-tooltip": "1.2.7",
     "@sentry/browser": "10.52.0",
     "@sentry/capacitor": "4.1.0",
+    "@sentry/electron": "7.13.0",
     "@sentry/react": "10.52.0",
     "@stripe/react-stripe-js": "6.4.0",
     "@stripe/stripe-js": "9.6.0",

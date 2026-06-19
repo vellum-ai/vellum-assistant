@@ -1,6 +1,7 @@
 import type { BrowserOptions } from "@sentry/react";
 
 import { capacitorFlavor } from "@/lib/sentry/flavor-capacitor";
+import { electronFlavor } from "@/lib/sentry/flavor-electron";
 import { reactFlavor } from "@/lib/sentry/flavor-react";
 import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
@@ -22,11 +23,14 @@ export interface SentryFlavor {
 
 /**
  * Pick the Sentry flavor for the current runtime. The single place host-based
- * selection lives: the `@sentry/capacitor` flavor inside the iOS WKWebview,
- * the `@sentry/react` flavor for the remaining browser SDK surfaces (web +
- * Electron renderer).
+ * selection lives: the `@sentry/electron/renderer` flavor inside the Electron
+ * renderer, the `@sentry/capacitor` flavor inside the iOS WKWebview, the
+ * `@sentry/react` flavor for the remaining browser SDK surface (web).
+ *
+ * The Electron check comes first since the renderer also runs the web bundle.
  */
 export function selectSentryFlavor(): SentryFlavor {
-  if (isNativePlatform() && !isElectron()) return capacitorFlavor;
+  if (isElectron()) return electronFlavor;
+  if (isNativePlatform()) return capacitorFlavor;
   return reactFlavor;
 }

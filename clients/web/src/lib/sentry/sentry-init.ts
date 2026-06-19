@@ -7,15 +7,19 @@ import {
 } from "@/lib/sentry/sentry-control";
 import { syncDiagnosticsToMain } from "@/runtime/diagnostics";
 import { sanitizeUrl } from "@/lib/sentry/url-sanitize";
+import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
 
 /**
  * Resolve the Sentry DSN for the current host. The shared bundle reports to a
- * per-host project: iOS WKWebview → `VITE_SENTRY_DSN_IOS` (vellum-assistant-ios),
- * web → `VITE_SENTRY_DSN` (vellum-assistant-web). The Electron renderer's
- * `VITE_SENTRY_DSN_MACOS` branch is wired in a later PR.
+ * per-host project: Electron renderer → `VITE_SENTRY_DSN_MACOS`
+ * (vellum-assistant-macos), iOS WKWebview → `VITE_SENTRY_DSN_IOS`
+ * (vellum-assistant-ios), web → `VITE_SENTRY_DSN` (vellum-assistant-web).
+ *
+ * The Electron check comes first since the renderer also runs the web bundle.
  */
 function resolveDsn(): string | undefined {
+  if (isElectron()) return import.meta.env.VITE_SENTRY_DSN_MACOS;
   if (isNativePlatform()) return import.meta.env.VITE_SENTRY_DSN_IOS;
   return import.meta.env.VITE_SENTRY_DSN;
 }
