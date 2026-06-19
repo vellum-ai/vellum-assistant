@@ -248,6 +248,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
           url={effectiveUrl}
           filename={attachment.filename}
           mimeType={attachment.mimeType}
+          sizeBytes={attachment.sizeBytes}
         />
       );
     }
