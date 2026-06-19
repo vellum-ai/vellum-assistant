@@ -383,6 +383,17 @@ describe("savePreferenceToggle", () => {
     expect(body.share_diagnostics).toBe(false);
     expect(body.share_diagnostics_accepted_version).toBe(PRIVACY_CONSENT_VERSION);
   });
+
+  test("offline persists the on/off value but skips the currency stamp, ack key, and server patch", () => {
+    savePreferenceToggle("share_analytics", true, { userId: "user-1", hasPlatformSession: false });
+    // The chosen value is still recorded device-locally...
+    expect(storeState.setShareAnalytics).toHaveBeenCalledWith(true);
+    expect(setDeviceBoolMock).toHaveBeenCalledWith("shareAnalytics", true);
+    // ...but no version-currency is stamped without a session to record against.
+    expect(storeState.setAnalyticsConsentCurrent).not.toHaveBeenCalled();
+    expect(localStorage.getItem(analyticsKey("user-1"))).toBeNull();
+    expect(patchConsentMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("clearConsentForUser", () => {
