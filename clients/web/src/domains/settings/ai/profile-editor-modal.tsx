@@ -190,14 +190,6 @@ function ProfileEditorModalInner({
   const [locallyCreatedConnections, setLocallyCreatedConnections] = useState<
     ProviderConnection[]
   >([]);
-  // True when in view mode and the user has touched either of the two
-  // fields that view mode permits editing (label, status). Drives the
-  // view-mode Save button's enabled state and the partial-update save path.
-  const hasViewModeChanges =
-    isReadOnly &&
-    (label !== initialLabel ||
-      status !== initialStatus ||
-      advisorEnabled !== initialAdvisorEnabled);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -225,13 +217,27 @@ function ProfileEditorModalInner({
     typeof initialValues?.temperature === "number" ? initialValues.temperature : 0.7,
   );
 
-  // Advanced params — top P
-  const [topPEnabled, setTopPEnabled] = useState<boolean>(
-    typeof initialValues?.topP === "number",
-  );
-  const [topP, setTopP] = useState<number>(
-    typeof initialValues?.topP === "number" ? initialValues.topP : 0.95,
-  );
+  // Advanced params — top P. Top P is editable in view mode (managed
+  // profiles), so capture its initial enabled flag + value as the baseline
+  // `hasViewModeChanges` compares against — mirroring `initialAdvisorEnabled`.
+  const initialTopPEnabled = typeof initialValues?.topP === "number";
+  const initialTopP =
+    typeof initialValues?.topP === "number" ? initialValues.topP : 0.95;
+  const [topPEnabled, setTopPEnabled] = useState<boolean>(initialTopPEnabled);
+  const [topP, setTopP] = useState<number>(initialTopP);
+
+  // True when in view mode and the user has touched one of the fields that
+  // view mode permits editing (label, status, advisor, Top P). Drives the
+  // view-mode Save button's enabled state and the partial-update save path.
+  // Top P is compared on both the enabled flag and the value so flipping the
+  // toggle or dragging the slider both arm Save.
+  const hasViewModeChanges =
+    isReadOnly &&
+    (label !== initialLabel ||
+      status !== initialStatus ||
+      advisorEnabled !== initialAdvisorEnabled ||
+      topPEnabled !== initialTopPEnabled ||
+      (topPEnabled && topP !== initialTopP));
 
   // Advanced params — thinking
   const [thinkingEnabled, setThinkingEnabled] = useState<boolean>(
@@ -476,6 +482,14 @@ function ProfileEditorModalInner({
           status,
           advisorEnabled,
         };
+        // Top P is the one advanced param managed profiles may override.
+        // Mirror the create/edit build-entry logic: enabled → number,
+        // cleared → null. Only when the selected provider/model surfaces the
+        // control. `mode: "merge"` means sending just this changed subset
+        // leaves the seed-owned fields intact.
+        if (visibility.topP) {
+          entry.topP = topPEnabled ? topP : null;
+        }
         await onSave(keyTrimmed, entry, { mode: "merge" });
       } catch {
         setSaveError("Failed to save profile. Please try again.");
@@ -674,6 +688,9 @@ function ProfileEditorModalInner({
     <ProfileAdvancedParams
       visibility={visibility}
       isReadOnly={isReadOnly}
+      // Top P is user policy on managed profiles too, so it stays editable in
+      // view mode while the other advanced params remain locked by isReadOnly.
+      topPReadOnly={false}
       model={model}
       selectedModel={selectedModel}
       defaultMaxOutputTokens={defaultMaxOutputTokens}
