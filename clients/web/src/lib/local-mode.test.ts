@@ -29,12 +29,15 @@ import {
   getLockfile,
   getPlatformAssistants,
   getSelectedAssistant,
+  isCliWakeableAssistant,
   isLocalAssistant,
   isPlatformAssistant,
   isRemoteGatewayMode,
   loadLockfile,
+  primeLocalGatewayConnection,
   reconcileSelectedAssistant,
   syncPlatformAssistantsToLockfile,
+  UnresolvedLocalGatewayError,
 } from "@/lib/local-mode";
 import { SELECTED_ASSISTANT_STORAGE_KEY } from "@/assistant/selected-assistant-storage";
 import type { Lockfile, LockfileAssistant } from "@/runtime/local-mode-host";
@@ -67,8 +70,15 @@ function setLockfile(lockfile: Lockfile): void {
   useLockfileStore.setState({ lockfile });
 }
 
+// Tests default to platform mode (test-setup.ts pins VITE_PLATFORM_MODE).
+// Local-mode behaviour is opt-in per test; the afterEach restores the default.
+function enableLocalMode(): void {
+  process.env.VITE_PLATFORM_MODE = "";
+}
+
 afterEach(() => {
   window.__VELLUM_CONFIG__ = undefined;
+  process.env.VITE_PLATFORM_MODE = "true";
   useLockfileStore.setState({ lockfile: null, committed: false });
   localStorage.removeItem(LOCKFILE_STORAGE_KEY);
   localStorage.removeItem(SELECTED_ASSISTANT_STORAGE_KEY);
@@ -195,15 +205,96 @@ describe("assistant classification", () => {
     expect(isPlatformAssistant(localA)).toBe(false);
   });
 
-  test("a non-vellum entry without resources is not treated as local", () => {
-    const partial = { assistantId: "x", cloud: "local" } as LockfileAssistant;
-    expect(isLocalAssistant(partial)).toBe(false);
+  test("a non-vellum entry without a gateway port is still local (identity, not connectivity)", () => {
+    const portless = { assistantId: "x", cloud: "local" } as LockfileAssistant;
+    expect(isLocalAssistant(portless)).toBe(true);
+    expect(isPlatformAssistant(portless)).toBe(false);
   });
 
   test("getLocalAssistants / getPlatformAssistants partition by cloud", () => {
     setLockfile({ assistants: [localA, platform], activeAssistant: null });
     expect(getLocalAssistants()).toEqual([localA]);
     expect(getPlatformAssistants()).toEqual([platform]);
+  });
+});
+
+describe("getLocalGatewayUrl", () => {
+  test("resolves the gateway proxy URL for a local assistant with a recorded port", () => {
+    enableLocalMode();
+    expect(getLocalGatewayUrl(localA)).toBe("/assistant/__gateway/7830");
+  });
+
+  test("is undefined for a local assistant with no recorded gateway port", () => {
+    enableLocalMode();
+    const portless = { assistantId: "x", cloud: "local" } as LockfileAssistant;
+    expect(getLocalGatewayUrl(portless)).toBeUndefined();
+  });
+
+  test("is undefined for a platform assistant", () => {
+    enableLocalMode();
+    expect(getLocalGatewayUrl(platform)).toBeUndefined();
+  });
+
+  test("is undefined outside local mode even for a local assistant with a port", () => {
+    expect(getLocalGatewayUrl(localA)).toBeUndefined();
+  });
+});
+
+describe("isCliWakeableAssistant", () => {
+  test("a cloud:local entry with no recorded port is wakeable (wake establishes it)", () => {
+    setLockfile({
+      assistants: [
+        { assistantId: "legacy", cloud: "local" } as LockfileAssistant,
+      ],
+      activeAssistant: "legacy",
+    });
+    expect(isCliWakeableAssistant("legacy")).toBe(true);
+  });
+
+  test("a cloud:null (legacy) entry is wakeable", () => {
+    setLockfile({
+      assistants: [{ assistantId: "old" } as LockfileAssistant],
+      activeAssistant: "old",
+    });
+    expect(isCliWakeableAssistant("old")).toBe(true);
+  });
+
+  test("a docker-cloud entry is not CLI-wakeable", () => {
+    setLockfile({
+      assistants: [{ assistantId: "dk", cloud: "docker" } as LockfileAssistant],
+      activeAssistant: "dk",
+    });
+    expect(isCliWakeableAssistant("dk")).toBe(false);
+  });
+
+  test("a platform (vellum) entry is not CLI-wakeable", () => {
+    setLockfile({ assistants: [platform], activeAssistant: "platform-a" });
+    expect(isCliWakeableAssistant("platform-a")).toBe(false);
+  });
+
+  test("an unknown id is not wakeable", () => {
+    setLockfile({ assistants: [localA], activeAssistant: "local-a" });
+    expect(isCliWakeableAssistant("nope")).toBe(false);
+  });
+});
+
+describe("primeLocalGatewayConnection", () => {
+  test("throws UnresolvedLocalGatewayError for a local assistant with no resolved gateway", async () => {
+    enableLocalMode();
+    const portless = {
+      assistantId: "legacy",
+      cloud: "local",
+    } as LockfileAssistant;
+    await expect(primeLocalGatewayConnection(portless)).rejects.toBeInstanceOf(
+      UnresolvedLocalGatewayError,
+    );
+  });
+
+  test("is a no-op for a platform assistant even in local mode", async () => {
+    enableLocalMode();
+    await expect(
+      primeLocalGatewayConnection(platform),
+    ).resolves.toBeUndefined();
   });
 });
 

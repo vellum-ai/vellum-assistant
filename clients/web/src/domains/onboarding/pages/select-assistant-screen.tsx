@@ -8,7 +8,10 @@ import {
   clearGatewayToken,
   isRepairableGatewayTokenError,
 } from "@/lib/auth/gateway-session";
-import { isGuardianRepairable } from "@/lib/local-mode";
+import {
+  isGuardianRepairable,
+  UnresolvedLocalGatewayError,
+} from "@/lib/local-mode";
 import { ConnectRecoveryDialog } from "@/domains/onboarding/components/connect-recovery-dialog";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { formatRelativeDate } from "@/utils/format-date";
@@ -101,7 +104,8 @@ export function SelectAssistantScreen() {
       if (
         assistant.isLocal &&
         (requiresGuardianReprovision(err) ||
-          isRepairableGatewayTokenError(err)) &&
+          isRepairableGatewayTokenError(err) ||
+          err instanceof UnresolvedLocalGatewayError) &&
         isGuardianRepairable(assistant.id)
       ) {
         setRecoveryAssistant(assistant);
