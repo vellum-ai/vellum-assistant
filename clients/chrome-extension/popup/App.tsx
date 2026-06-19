@@ -173,6 +173,10 @@ export function App() {
     setMode('self-hosted');
     sendMessage({ type: 'set-mode', mode: 'self-hosted' });
     setScreen({ name: 'main' });
+    // Attempt the connection immediately (mirrors the cloud path). If the
+    // default gateway is unreachable, health flips to error and the
+    // Advanced gateway editor auto-expands so the user can fix the URL.
+    sendMessage({ type: 'connect' });
   }, []);
 
   const handleSelectAssistant = useCallback(
