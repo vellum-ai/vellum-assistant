@@ -1,5 +1,6 @@
-import * as Sentry from "@sentry/react";
+import type { BrowserOptions } from "@sentry/react";
 
+import { selectSentryFlavor } from "@/lib/sentry/flavor";
 import { getDeviceBool, watchDeviceSetting } from "@/utils/device-settings";
 
 /**
@@ -11,6 +12,9 @@ import { getDeviceBool, watchDeviceSetting } from "@/utils/device-settings";
  *   - stored "false" → Sentry OFF (explicit opt-out)
  *   - absent         → Sentry OFF (no consent on record yet)
  *
+ * SDK access is dispatched through `selectSentryFlavor()` so each surface
+ * (web/electron renderer, capacitor) can supply its own implementation.
+ *
  * Reference: https://docs.sentry.io/platforms/javascript/guides/react/configuration/options/
  */
 
@@ -18,17 +22,14 @@ function readConsent(): boolean {
   return getDeviceBool("shareDiagnostics", false);
 }
 
-function tryInit(options: Sentry.BrowserOptions): void {
-  const existing = Sentry.getClient();
-  if (existing && existing.getOptions().enabled !== false) return;
-  Sentry.init({ ...options, enabled: true });
+function tryInit(options: BrowserOptions): void {
+  const flavor = selectSentryFlavor();
+  if (flavor.getClientEnabled()) return;
+  flavor.init(options);
 }
 
 function tryClose(): void {
-  const client = Sentry.getClient();
-  if (!client) return;
-  void client.close(2000);
-  Sentry.getCurrentScope().setClient(undefined);
+  void selectSentryFlavor().close();
 }
 
 /**
@@ -36,7 +37,7 @@ function tryClose(): void {
  * and not yet running, close if not consented and currently running.
  * Idempotent when consent matches the current client state.
  */
-export function syncSentryClient(options: Sentry.BrowserOptions): void {
+export function syncSentryClient(options: BrowserOptions): void {
   if (!options.dsn) return;
   if (readConsent()) {
     tryInit(options);
@@ -54,7 +55,7 @@ export function syncSentryClient(options: Sentry.BrowserOptions): void {
  * Returns a cleanup function that removes both listeners.
  */
 export function installSentryControlListeners(
-  options: Sentry.BrowserOptions,
+  options: BrowserOptions,
 ): () => void {
   return watchDeviceSetting("shareDiagnostics", () => {
     syncSentryClient(options);
