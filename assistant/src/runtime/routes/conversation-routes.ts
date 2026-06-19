@@ -10,7 +10,10 @@ import {
   createAssistantMessage,
   createUserMessage,
 } from "../../agent/message-types.js";
-import { ConversationMessageSchema } from "../../api/responses/conversation-message.js";
+import {
+  type ConversationContentBlock,
+  ConversationMessageSchema,
+} from "../../api/responses/conversation-message.js";
 import {
   CHANNEL_IDS,
   INTERFACE_IDS,
@@ -971,7 +974,21 @@ export function handleListMessages({
       ...(alignedContentOrder.length > 0
         ? { contentOrder: alignedContentOrder }
         : {}),
-      ...(contentBlocks.length > 0 ? { contentBlocks } : {}),
+      // When the message body was entirely an attachment directive (or was
+      // otherwise stripped to empty), contentBlocks collapses to [] and the
+      // field would be omitted — leaving the client with no block to anchor
+      // the attachment chip. Synthesize an attachment block per hydrated row
+      // so the wire always carries attachment blocks when attachments exist.
+      ...((contentBlocks.length > 0
+        ? { contentBlocks }
+        : msgAttachments.length > 0
+          ? {
+              contentBlocks: msgAttachments.map((attachment) => ({
+                type: "attachment" as const,
+                attachment,
+              })),
+            }
+          : {}) as { contentBlocks: ConversationContentBlock[] }),
       ...(m.subagentNotification
         ? { subagentNotification: m.subagentNotification }
         : {}),
