@@ -103,6 +103,11 @@ describe("augmentSkillExecuteError", () => {
     expect(result.content).toContain("carried no parameters");
     expect(result.content).toContain('"tool": "subagent_spawn"');
     expect(result.content).toContain("inside `input`");
+    // The guidance must not condemn the JSON-encoded-string form: the resolver
+    // accepts it (resolveSkillExecuteInput parses string input), and it is a
+    // shape weak models successfully use. Telling them it is wrong steers them
+    // toward dropping the payload entirely.
+    expect(result.content).not.toContain("JSON-encoded string");
   });
 
   test("leaves errors untouched when parameters were resolved", () => {
