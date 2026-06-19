@@ -946,7 +946,25 @@ export function handleListMessages({
         .filter((block) => block.type !== "text" || block.text.length > 0);
     }
 
-    const alignedContentOrder = aligned.rewriteContentOrder(contentOrder);
+  // Ensure every hydrated attachment has a corresponding content block.
+  // renderHistoryContent inlines attachment blocks only when it has
+  // file-block refs with matching DB rows; directives (assistant-authored
+  // <vellum-attachment/> tags) don't leave a file block after stripping,
+  // so their attachments end up in the flat `attachments` array but not in
+  // `contentBlocks`. Append any that are missing so the canonical
+  // projection is complete.
+  const existingAttachmentIds = new Set(
+    contentBlocks
+      .filter((b): b is Extract<ConversationContentBlock, { type: "attachment" }> => b.type === "attachment")
+      .map((b) => b.attachment.id),
+  );
+  for (const att of msgAttachments) {
+    if (!existingAttachmentIds.has(att.id)) {
+      contentBlocks.push({ type: "attachment", attachment: att });
+    }
+  }
+
+  const alignedContentOrder = aligned.rewriteContentOrder(contentOrder);
 
     // Use sentAt (actual event time) for the display timestamp when available,
     // falling back to createdAt (persistence time). Clients use this display
@@ -974,21 +992,7 @@ export function handleListMessages({
       ...(alignedContentOrder.length > 0
         ? { contentOrder: alignedContentOrder }
         : {}),
-      // When the message body was entirely an attachment directive (or was
-      // otherwise stripped to empty), contentBlocks collapses to [] and the
-      // field would be omitted — leaving the client with no block to anchor
-      // the attachment chip. Synthesize an attachment block per hydrated row
-      // so the wire always carries attachment blocks when attachments exist.
-      ...((contentBlocks.length > 0
-        ? { contentBlocks }
-        : msgAttachments.length > 0
-          ? {
-              contentBlocks: msgAttachments.map((attachment) => ({
-                type: "attachment" as const,
-                attachment,
-              })),
-            }
-          : {}) as { contentBlocks: ConversationContentBlock[] }),
+      contentBlocks,
       ...(m.subagentNotification
         ? { subagentNotification: m.subagentNotification }
         : {}),
