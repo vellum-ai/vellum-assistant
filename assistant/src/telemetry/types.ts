@@ -196,8 +196,8 @@ export interface TurnTraceToolCall {
  * Full transcript of a single turn — the user message, assistant response
  * message(s), and the tool calls + results that occurred between this user
  * turn and the next real user turn. Attached to the turn telemetry event's
- * `trace` field ONLY when the owner has consented
- * (`diagnostics_trace_collection_enabled` on the owner-consent endpoint).
+ * `trace` field ONLY when trace collection is enabled — the `trace-collection`
+ * feature flag AND the owner's `share_diagnostics` consent must both be true.
  * The platform stores this verbatim as an opaque JSON column, so the daemon
  * owns the shape.
  *
@@ -278,15 +278,15 @@ export interface TurnTelemetryEvent extends TelemetryEventBase {
   client: TurnTelemetryClientInfo | null;
   /**
    * Full per-turn transcript (user message + assistant responses + tool
-   * calls/results). Present ONLY when the assistant owner has consented to
-   * diagnostics trace collection — the daemon reads the derived
-   * `diagnostics_trace_collection_enabled` boolean from the platform's
-   * owner-consent endpoint and attaches the trace fail-closed (absent field,
-   * fetch failure, or `false` → no trace). The platform dual-writes consented
-   * traces into a separate PII table and keeps the trace-free turn row;
-   * downstream consumers that don't read traces ignore this field. Null /
-   * absent when consent is off, unknown, or the serialized trace exceeded the
-   * size cap.
+   * calls/results). Present ONLY when trace collection is enabled — the daemon
+   * composes the gate itself from the `trace-collection` feature flag (delivered
+   * via the assistant-tagged flag sync, evaluated server-side for this
+   * assistant's owner) AND the owner's cached `share_diagnostics` consent, both
+   * of which must be true. Fail-closed: when either is off (or unknown) no trace
+   * is attached. The platform dual-writes consented traces into a separate PII
+   * table and keeps the trace-free turn row; downstream consumers that don't
+   * read traces ignore this field. Null / absent when the gate is off or the
+   * serialized trace exceeded the size cap.
    */
   trace?: TurnTrace | null;
 }

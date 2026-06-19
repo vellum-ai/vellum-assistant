@@ -93,12 +93,27 @@ mock.module("../version.js", () => ({
 }));
 
 const mockGetCachedShareAnalytics = mock(() => true);
-const mockGetCachedDiagnosticsTraceCollectionEnabled = mock(() => false);
+// Owner's `share_diagnostics` consent — one half of the trace-collection gate.
+const mockGetCachedShareDiagnostics = mock(() => false);
 
 mock.module("../platform/consent-cache.js", () => ({
   getCachedShareAnalytics: mockGetCachedShareAnalytics,
-  getCachedDiagnosticsTraceCollectionEnabled:
-    mockGetCachedDiagnosticsTraceCollectionEnabled,
+  getCachedShareDiagnostics: mockGetCachedShareDiagnostics,
+}));
+
+// The `trace-collection` feature flag — the other half of the trace gate.
+const mockIsAssistantFeatureFlagEnabled = mock(
+  (_key: string, _config: unknown): boolean => true,
+);
+
+mock.module("../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: mockIsAssistantFeatureFlagEnabled,
+}));
+
+// Stub config — the flag checker is mocked, so the contents don't matter; this
+// just keeps `getConfig()` from touching the real loader / filesystem.
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({}),
 }));
 
 interface MockTurnTrace {
@@ -338,10 +353,14 @@ beforeEach(() => {
   // Default consent ON so the happy-path send tests exercise the flush.
   mockGetCachedShareAnalytics.mockReset();
   mockGetCachedShareAnalytics.mockReturnValue(true);
-  // Default trace-collection consent OFF — most tests don't expect a trace;
+  // Default `share_diagnostics` consent OFF — most tests don't expect a trace;
   // the trace-specific tests opt in explicitly.
-  mockGetCachedDiagnosticsTraceCollectionEnabled.mockReset();
-  mockGetCachedDiagnosticsTraceCollectionEnabled.mockReturnValue(false);
+  mockGetCachedShareDiagnostics.mockReset();
+  mockGetCachedShareDiagnostics.mockReturnValue(false);
+  // Default the `trace-collection` flag ON so trace tests can drive eligibility
+  // via the consent knob alone; the flag-gating test flips it explicitly.
+  mockIsAssistantFeatureFlagEnabled.mockReset();
+  mockIsAssistantFeatureFlagEnabled.mockReturnValue(true);
   mockAssembleBoundedTurnTrace.mockReset();
   mockAssembleBoundedTurnTrace.mockImplementation(defaultBoundedTurnTrace);
   mockIsTurnSettled.mockReset();
@@ -1022,7 +1041,8 @@ describe("UsageTelemetryReporter", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Per-turn trace collection (owner-consent gated)
+  // Per-turn trace collection (gated on the trace-collection flag AND
+  // share_diagnostics consent)
   // -------------------------------------------------------------------------
 
   function singleTurnEvent() {
@@ -1040,8 +1060,9 @@ describe("UsageTelemetryReporter", () => {
     ];
   }
 
-  test("attaches the assembled trace to the turn event when trace consent is enabled", async () => {
-    mockGetCachedDiagnosticsTraceCollectionEnabled.mockReturnValue(true);
+  test("attaches the assembled trace when BOTH the trace-collection flag and share_diagnostics are true", async () => {
+    mockIsAssistantFeatureFlagEnabled.mockReturnValue(true);
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
     mockQueryUnreportedTurnEvents.mockReturnValue(singleTurnEvent());
     mockFetch.mockImplementation(() =>
@@ -1050,6 +1071,12 @@ describe("UsageTelemetryReporter", () => {
 
     const reporter = new UsageTelemetryReporter();
     await reporter.flush();
+
+    // The gate consults the `trace-collection` flag.
+    expect(mockIsAssistantFeatureFlagEnabled).toHaveBeenCalledWith(
+      "trace-collection",
+      expect.anything(),
+    );
 
     // The assembler is called with the turn's (conversationId, id, createdAt)
     // boundary so the window lines up with the turn event.
@@ -1075,8 +1102,9 @@ describe("UsageTelemetryReporter", () => {
     expect(Array.isArray(turn.trace.tool_calls)).toBe(true);
   });
 
-  test("omits the trace when trace consent is disabled (and still emits the turn event)", async () => {
-    mockGetCachedDiagnosticsTraceCollectionEnabled.mockReturnValue(false);
+  test("omits the trace when share_diagnostics is false even though the flag is on (and still emits the turn event)", async () => {
+    mockIsAssistantFeatureFlagEnabled.mockReturnValue(true);
+    mockGetCachedShareDiagnostics.mockReturnValue(false);
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
     mockQueryUnreportedTurnEvents.mockReturnValue(singleTurnEvent());
     mockFetch.mockImplementation(() =>
@@ -1086,7 +1114,7 @@ describe("UsageTelemetryReporter", () => {
     const reporter = new UsageTelemetryReporter();
     await reporter.flush();
 
-    // Consent off → no assembly at all (no PII touched).
+    // Gate off → no assembly at all (no PII touched).
     expect(mockAssembleBoundedTurnTrace).not.toHaveBeenCalled();
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -1101,8 +1129,32 @@ describe("UsageTelemetryReporter", () => {
     expect("trace" in turn).toBe(false);
   });
 
+  test("omits the trace when the trace-collection flag is off even though share_diagnostics is true", async () => {
+    mockIsAssistantFeatureFlagEnabled.mockReturnValue(false);
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    mockQueryUnreportedTurnEvents.mockReturnValue(singleTurnEvent());
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    // Flag off → gate closed → no assembly at all (no PII touched).
+    expect(mockAssembleBoundedTurnTrace).not.toHaveBeenCalled();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    // The single turn event still flushes — just without a trace.
+    expect(body.events.length).toBe(1);
+    expect("trace" in body.events[0]).toBe(false);
+  });
+
   test("omits the trace (key absent) when the assembler returns null (over-cap / failure) but still emits the turn event", async () => {
-    mockGetCachedDiagnosticsTraceCollectionEnabled.mockReturnValue(true);
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
     // Over-cap / assembly-failure path: the bounded assembler returns null.
     mockAssembleBoundedTurnTrace.mockReturnValueOnce(null);
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
@@ -1124,9 +1176,11 @@ describe("UsageTelemetryReporter", () => {
 
   test("no trace is assembled or attached when the whole flush is gated off by share_analytics", async () => {
     // The analytics gate short-circuits the entire flush; trace assembly must
-    // never run (and nothing is sent) even if trace consent is on.
+    // never run (and nothing is sent) even when the trace gate is fully on
+    // (flag + share_diagnostics both true).
     mockGetCachedShareAnalytics.mockReturnValue(false);
-    mockGetCachedDiagnosticsTraceCollectionEnabled.mockReturnValue(true);
+    mockIsAssistantFeatureFlagEnabled.mockReturnValue(true);
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
     mockQueryUnreportedTurnEvents.mockReturnValue(singleTurnEvent());
 
     const reporter = new UsageTelemetryReporter();
@@ -1154,7 +1208,7 @@ describe("UsageTelemetryReporter", () => {
   }
 
   test("a flush during an in-progress turn defers it (no partial trace, watermark held)", async () => {
-    mockGetCachedDiagnosticsTraceCollectionEnabled.mockReturnValue(true);
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
     const checkpoints = useStatefulCheckpoints();
     mockQueryUnreportedTurnEvents.mockReturnValue([
@@ -1175,7 +1229,7 @@ describe("UsageTelemetryReporter", () => {
   });
 
   test("a later flush emits the COMPLETE trace once the turn settles", async () => {
-    mockGetCachedDiagnosticsTraceCollectionEnabled.mockReturnValue(true);
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
     const checkpoints = useStatefulCheckpoints();
     mockQueryUnreportedTurnEvents.mockReturnValue([
@@ -1237,7 +1291,7 @@ describe("UsageTelemetryReporter", () => {
     // No successor turn exists; `isTurnSettled` returns true purely because the
     // conversation is no longer processing. The trace must still be sent (not
     // deferred forever for lack of a next user turn).
-    mockGetCachedDiagnosticsTraceCollectionEnabled.mockReturnValue(true);
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
     mockQueryUnreportedTurnEvents.mockReturnValue([
       turnEvent("evt-final", 1700000060000, "conv-final"),
@@ -1265,7 +1319,7 @@ describe("UsageTelemetryReporter", () => {
     // sorts after a deferred in-flight turn cannot be reported without skipping
     // the deferred one. Both wait; the earlier complete turn (before the
     // barrier) is reported.
-    mockGetCachedDiagnosticsTraceCollectionEnabled.mockReturnValue(true);
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
     const checkpoints = useStatefulCheckpoints();
     mockQueryUnreportedTurnEvents.mockReturnValue([
@@ -1306,7 +1360,7 @@ describe("UsageTelemetryReporter", () => {
     // The completeness barrier is trace-eligible-only. With trace collection
     // off, turn telemetry / turn_raw behavior is unchanged: the turn ships
     // immediately and `isTurnSettled` is never consulted.
-    mockGetCachedDiagnosticsTraceCollectionEnabled.mockReturnValue(false);
+    mockGetCachedShareDiagnostics.mockReturnValue(false);
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
     const checkpoints = useStatefulCheckpoints();
     mockQueryUnreportedTurnEvents.mockReturnValue([

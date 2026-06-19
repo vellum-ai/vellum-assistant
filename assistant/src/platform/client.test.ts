@@ -189,7 +189,6 @@ describe("VellumPlatformClient", () => {
           JSON.stringify({
             share_analytics: true,
             share_diagnostics: false,
-            diagnostics_trace_collection_enabled: true,
           }),
           { status: 200 },
         );
@@ -200,67 +199,7 @@ describe("VellumPlatformClient", () => {
       expect(consent).toEqual({
         shareAnalytics: true,
         shareDiagnostics: false,
-        diagnosticsTraceCollectionEnabled: true,
       });
-    });
-
-    test("diagnosticsTraceCollectionEnabled is false when the platform omits the field (older deploy)", async () => {
-      // The derived field is added by a later platform deploy. An older
-      // platform that returns only the share_* toggles must still yield a
-      // usable consent object — with trace collection off (fail-closed).
-      globalThis.fetch = mock(
-        async () =>
-          new Response(
-            JSON.stringify({ share_analytics: true, share_diagnostics: true }),
-            { status: 200 },
-          ),
-      ) as unknown as typeof globalThis.fetch;
-
-      const client = await VellumPlatformClient.create();
-      const consent = await client!.getOwnerConsent();
-      expect(consent).toEqual({
-        shareAnalytics: true,
-        shareDiagnostics: true,
-        diagnosticsTraceCollectionEnabled: false,
-      });
-    });
-
-    test("diagnosticsTraceCollectionEnabled is false for an explicit false", async () => {
-      globalThis.fetch = mock(
-        async () =>
-          new Response(
-            JSON.stringify({
-              share_analytics: true,
-              share_diagnostics: true,
-              diagnostics_trace_collection_enabled: false,
-            }),
-            { status: 200 },
-          ),
-      ) as unknown as typeof globalThis.fetch;
-
-      const client = await VellumPlatformClient.create();
-      const consent = await client!.getOwnerConsent();
-      expect(consent?.diagnosticsTraceCollectionEnabled).toBe(false);
-    });
-
-    test("diagnosticsTraceCollectionEnabled is false for a non-boolean value", async () => {
-      // Only an explicit boolean `true` enables trace collection; a truthy
-      // non-boolean (e.g. the string "true") must NOT.
-      globalThis.fetch = mock(
-        async () =>
-          new Response(
-            JSON.stringify({
-              share_analytics: true,
-              share_diagnostics: true,
-              diagnostics_trace_collection_enabled: "true",
-            }),
-            { status: 200 },
-          ),
-      ) as unknown as typeof globalThis.fetch;
-
-      const client = await VellumPlatformClient.create();
-      const consent = await client!.getOwnerConsent();
-      expect(consent?.diagnosticsTraceCollectionEnabled).toBe(false);
     });
 
     test("uses the authenticated Api-Key header", async () => {

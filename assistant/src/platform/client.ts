@@ -19,15 +19,6 @@ let _missingPrereqsWarned = false;
 export interface OwnerConsent {
   shareAnalytics: boolean;
   shareDiagnostics: boolean;
-  /**
-   * Server-derived eligibility for diagnostics *trace* collection (full
-   * per-turn transcripts). The platform folds the diagnostics LaunchDarkly
-   * flag, the owner's `share_diagnostics` toggle, and a privacy-policy-version
-   * check into this single boolean — the daemon never evaluates the flag
-   * itself. Fail-closed: `false` unless the platform sends an explicit boolean
-   * `true` (an absent field or a non-boolean value yields `false`).
-   */
-  diagnosticsTraceCollectionEnabled: boolean;
 }
 
 export class VellumPlatformClient {
@@ -151,7 +142,6 @@ export class VellumPlatformClient {
       const body = (await res.json()) as {
         share_analytics?: unknown;
         share_diagnostics?: unknown;
-        diagnostics_trace_collection_enabled?: unknown;
       };
       if (
         typeof body.share_analytics !== "boolean" ||
@@ -164,13 +154,6 @@ export class VellumPlatformClient {
       return {
         shareAnalytics: body.share_analytics,
         shareDiagnostics: body.share_diagnostics,
-        // Fail closed: only an explicit boolean `true` enables trace
-        // collection; an absent field or a non-boolean value yields `false`.
-        // This field is validated independently of the `share_*` checks above,
-        // so a payload that carries the share toggles but omits this field
-        // still yields a usable consent object (with trace collection off).
-        diagnosticsTraceCollectionEnabled:
-          body.diagnostics_trace_collection_enabled === true,
       };
     } catch (err) {
       log.debug({ err }, "owner-consent fetch failed — treating as unknown");

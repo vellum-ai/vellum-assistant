@@ -10,7 +10,9 @@
  * flush is skipped and retried next cycle.
  */
 
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getPlatformOrganizationId, getPlatformUserId } from "../config/env.js";
+import { getConfig } from "../config/loader.js";
 import { queryUnreportedAuthFallbackEvents } from "../memory/auth-fallback-events-store.js";
 import {
   getMemoryCheckpoint,
@@ -28,8 +30,8 @@ import {
 } from "../memory/turn-trace-store.js";
 import { VellumPlatformClient } from "../platform/client.js";
 import {
-  getCachedDiagnosticsTraceCollectionEnabled,
   getCachedShareAnalytics,
+  getCachedShareDiagnostics,
 } from "../platform/consent-cache.js";
 import { arePlatformFeaturesEnabled } from "../platform/feature-gate.js";
 import type { UsageAttributionProfileSource } from "../usage/types.js";
@@ -362,7 +364,15 @@ export class UsageTelemetryReporter {
       //
       // When trace collection is OFF, no turn is deferred and reporting timing
       // is unchanged for everyone else — `turn_raw` behavior is untouched.
-      const traceEligible = getCachedDiagnosticsTraceCollectionEnabled();
+      //
+      // Trace eligibility is composed daemon-side: the `trace-collection`
+      // LaunchDarkly flag (delivered via the assistant-tagged flag sync, already
+      // evaluated server-side for this assistant's owner) AND the owner's cached
+      // `share_diagnostics` consent. This mirrors the platform's owner-based
+      // ingest gate. Fail-closed: both must be true.
+      const traceEligible =
+        isAssistantFeatureFlagEnabled("trace-collection", getConfig()) &&
+        getCachedShareDiagnostics();
       let reportableTurnEvents = turnEvents;
       if (traceEligible && turnEvents.length > 0) {
         let barrier = turnEvents.length;
@@ -465,18 +475,14 @@ export class UsageTelemetryReporter {
           }),
         ),
         ...reportableTurnEvents.map((e): TelemetryEvent => {
-          // Owner-consent gate for per-turn trace collection. `traceEligible`
-          // is the server-derived boolean (LD flag + `share_diagnostics` +
-          // privacy-policy version, folded by the platform into
-          // `diagnostics_trace_collection_enabled`); the daemon never evaluates
-          // the flag itself, and reads it from the same owner-consent cache that
-          // gates analytics (`startConsentRefresh` keeps it fresh). Fail-closed:
-          // when consent is off / unknown the trace is omitted and the
-          // trace-free turn row flushes as before. The `share_analytics` gate
-          // above already passed, so this is an additional, independent gate
-          // specific to trace PII. Every turn reaching here is settled (the
-          // completeness barrier dropped any in-flight turns), so the trace is
-          // never a partial mid-turn snapshot.
+          // Per-turn trace collection gate. `traceEligible` (computed above)
+          // requires both the `trace-collection` flag AND the owner's cached
+          // `share_diagnostics` consent. Fail-closed: when either is off the
+          // trace is omitted and the trace-free turn row flushes as before. The
+          // `share_analytics` gate above already passed, so this is an
+          // additional, independent gate specific to trace PII. Every turn
+          // reaching here is settled (the completeness barrier dropped any
+          // in-flight turns), so the trace is never a partial mid-turn snapshot.
           const trace = traceEligible
             ? assembleBoundedTurnTrace({
                 conversationId: e.conversationId,
