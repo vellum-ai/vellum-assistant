@@ -7,7 +7,7 @@
  * provider replaces `noopProvider`.
  */
 
-export type SessionReplaySurface = "web" | "electron" | "ios";
+export type SessionReplaySurface = "web" | "macos" | "ios";
 
 export interface SessionReplayInitOptions {
   environment: string;

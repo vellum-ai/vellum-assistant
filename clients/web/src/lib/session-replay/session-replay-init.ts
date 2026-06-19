@@ -11,7 +11,7 @@ import { isNativePlatform } from "@/runtime/native-auth";
  * runs the web bundle (mirrors `resolveDsn()` in `sentry-init.ts`).
  */
 function sessionReplaySurface(): SessionReplayConfig["surface"] {
-  if (isElectron()) return "electron";
+  if (isElectron()) return "macos";
   if (isNativePlatform()) return "ios";
   return "web";
 }

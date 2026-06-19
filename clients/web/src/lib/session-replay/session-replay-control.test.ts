@@ -183,12 +183,12 @@ describe("identifySessionReplayUser", () => {
       firstName: "Alice",
       lastName: "Smith",
     };
-    identifySessionReplayUser("electron");
+    identifySessionReplayUser("macos");
     expect(identifyMock).toHaveBeenCalledWith("u1", {
       name: "Alice Smith",
       email: "user@example.com",
       username: "alice",
-      surface: "electron",
+      surface: "macos",
     });
   });
 
