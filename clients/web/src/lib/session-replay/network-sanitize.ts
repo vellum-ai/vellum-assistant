@@ -27,6 +27,7 @@ const SENSITIVE_HEADERS = new Set([
   "x-api-key",
   "x-auth-token",
   "x-csrf-token",
+  "x-csrftoken", // Django's spelling (sent by api-interceptors.ts)
   "x-xsrf-token",
   "x-session-token",
 ]);

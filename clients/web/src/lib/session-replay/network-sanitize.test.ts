@@ -13,12 +13,14 @@ describe("sanitizeReplayRequest", () => {
         Authorization: "Bearer x",
         "Content-Type": "application/json",
         Cookie: "s=1",
+        "X-CSRFToken": "tok", // Django's spelling
       },
     });
     expect(out.headers).toEqual({
       Authorization: "[REDACTED]",
       "Content-Type": "application/json",
       Cookie: "[REDACTED]",
+      "X-CSRFToken": "[REDACTED]",
     });
   });
 
