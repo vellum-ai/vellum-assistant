@@ -380,6 +380,21 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
     ).rejects.toThrow(BadRequestError);
   });
 
+  test("rejects PUT to os-beta when no os-beta profile exists, writing no stub", async () => {
+    savedRaw = null;
+    rawConfig = { llm: { profiles: {} } };
+    await expect(
+      replaceRoute.handler({
+        pathParams: { name: "os-beta" },
+        body: { label: "My OS Beta" },
+      }),
+    ).rejects.toThrow("not currently available");
+    expect(savedRaw).toBeNull();
+    expect(
+      (rawConfig as Record<string, any>)?.llm?.profiles?.["os-beta"],
+    ).toBeUndefined();
+  });
+
   test("PUT { label: '' } on managed profile still rejected by `.min(1)`", async () => {
     // `.nullable()` only widens the type to accept null — empty strings
     // still fail the min-length check, which is correct: an empty string

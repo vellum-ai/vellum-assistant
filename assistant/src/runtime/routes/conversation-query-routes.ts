@@ -944,6 +944,15 @@ async function handleReplaceInferenceProfile({
   const isManaged =
     MANAGED_PROFILE_NAMES.has(name) &&
     (existingProfile == null || existingProfile.source === "managed");
+  // A managed profile name with no materialized entry (e.g. a flag-gated profile
+  // whose flag is off) cannot be patched: writing label/status here would persist
+  // a source-less stub that later blocks the real managed profile from being
+  // seeded. Reject rather than create a placeholder.
+  if (MANAGED_PROFILE_NAMES.has(name) && existingProfile == null) {
+    throw new BadRequestError(
+      `Profile "${name}" is not currently available and cannot be edited.`,
+    );
+  }
   if (isManaged) {
     // Managed profiles are daemon-seeded — provider, model, and the
     // connection binding all belong to the seed contract and can't be
