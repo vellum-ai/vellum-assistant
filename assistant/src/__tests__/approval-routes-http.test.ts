@@ -689,6 +689,82 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await stopServer();
     });
 
+    test("cancels a secret request when value is omitted", async () => {
+      let secretRequestId: string | undefined;
+      let secretValue: string | undefined;
+
+      const session = makeIdleSession({
+        onSecret: (reqId, val) => {
+          secretRequestId = reqId;
+          secretValue = val;
+        },
+      });
+
+      await startServer(() => session);
+
+      pendingInteractions.register("secret-cancel-1", {
+        conversationId: "conv-1",
+        kind: "secret",
+      });
+
+      const res = await fetch(url("secret"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+        body: JSON.stringify({ requestId: "secret-cancel-1" }),
+      });
+      const body = (await res.json()) as { accepted: boolean };
+
+      expect(res.status).toBe(200);
+      expect(body.accepted).toBe(true);
+      expect(secretRequestId).toBe("secret-cancel-1");
+      expect(secretValue).toBeUndefined();
+      expect(pendingInteractions.get("secret-cancel-1")).toBeUndefined();
+
+      await stopServer();
+    });
+
+    test('legacy delivery "none" cancels the request without 400', async () => {
+      let secretRequestId: string | undefined;
+      let secretValue: string | undefined;
+      let secretDelivery: string | undefined;
+
+      const session = makeIdleSession({
+        onSecret: (reqId, val, del) => {
+          secretRequestId = reqId;
+          secretValue = val;
+          secretDelivery = del;
+        },
+      });
+
+      await startServer(() => session);
+
+      pendingInteractions.register("secret-legacy-cancel-1", {
+        conversationId: "conv-1",
+        kind: "secret",
+      });
+
+      const res = await fetch(url("secret"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+        body: JSON.stringify({
+          requestId: "secret-legacy-cancel-1",
+          value: "ignored-by-cancel",
+          delivery: "none",
+        }),
+      });
+      const body = (await res.json()) as { accepted: boolean };
+
+      expect(res.status).toBe(200);
+      expect(body.accepted).toBe(true);
+      expect(secretRequestId).toBe("secret-legacy-cancel-1");
+      // delivery "none" normalizes to the cancellation path: value/delivery dropped.
+      expect(secretValue).toBeUndefined();
+      expect(secretDelivery).toBeUndefined();
+      expect(pendingInteractions.get("secret-legacy-cancel-1")).toBeUndefined();
+
+      await stopServer();
+    });
+
     test("rejects a non-secret requestId without consuming it", async () => {
       /**
        * /v1/secret only settles secret prompts. A confirmation (or any other
@@ -785,6 +861,58 @@ describe("standalone approval endpoints — HTTP layer", () => {
       expect(confirmReceived).toHaveLength(1);
       expect(confirmReceived[0].requestId).toBe("auto-req-1");
       expect(confirmReceived[0].decision).toBe("allow");
+
+      await stopServer();
+    });
+  });
+
+  // ── GET /v1/pending-interactions ─────────────────────────────────────
+
+  describe("GET /v1/pending-interactions", () => {
+    test("returns full secret prompt metadata for a registered secret", async () => {
+      const session = makeIdleSession();
+      await startServer(() => session);
+
+      pendingInteractions.register("secret-meta-1", {
+        conversationId: "conv-meta",
+        kind: "secret",
+        secretDetails: {
+          service: "github",
+          field: "token",
+          label: "GitHub Token",
+          description: "Personal access token",
+          placeholder: "ghp_...",
+          purpose: "Push commits",
+          allowedTools: ["git_push"],
+          allowedDomains: ["github.com"],
+          allowOneTimeSend: true,
+        },
+      });
+
+      const res = await fetch(
+        url("pending-interactions?conversationId=conv-meta"),
+        {
+          method: "GET",
+          headers: { ...AUTH_HEADERS },
+        },
+      );
+      const body = (await res.json()) as {
+        pendingSecret: Record<string, unknown> | null;
+      };
+
+      expect(res.status).toBe(200);
+      expect(body.pendingSecret).toEqual({
+        requestId: "secret-meta-1",
+        service: "github",
+        field: "token",
+        label: "GitHub Token",
+        description: "Personal access token",
+        placeholder: "ghp_...",
+        purpose: "Push commits",
+        allowedTools: ["git_push"],
+        allowedDomains: ["github.com"],
+        allowOneTimeSend: true,
+      });
 
       await stopServer();
     });
