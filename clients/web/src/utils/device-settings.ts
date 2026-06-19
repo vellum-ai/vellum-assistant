@@ -26,6 +26,16 @@ import {
 export const DEVICE_PREFIX = "device:";
 
 /**
+ * One device-scoped setting: its `device:`-prefixed key and, when it predates
+ * the prefix migration, the legacy non-prefixed key it migrated from.
+ */
+interface DeviceSettingEntry {
+  key: string;
+  /** Non-prefixed key migrated from. Absent for settings born post-migration. */
+  legacy?: string;
+}
+
+/**
  * Registry of device-scoped settings. Each entry maps a logical name
  * to its localStorage key and the legacy key it was migrated from.
  */
@@ -37,7 +47,7 @@ const DEVICE_SETTINGS = {
   // current privacy-consent version. Decoupled from `shareDiagnostics` (the
   // saved preference) so a stale-version record stops reporting without losing
   // the user's opt-in. No legacy key — introduced after the migration cutover.
-  diagnosticsReporting: { key: "device:diagnostics_reporting", legacy: "vellum_diagnostics_reporting" },
+  diagnosticsReporting: { key: "device:diagnostics_reporting" },
   biometricEnabled: { key: "device:biometric_enabled", legacy: "vellum_biometric_enabled" },
   llmLogRetention: { key: "device:llm_log_retention", legacy: "vellum_llm_log_retention" },
   timezone: { key: "device:timezone", legacy: "vellum_timezone" },
@@ -45,7 +55,7 @@ const DEVICE_SETTINGS = {
   mediaEmbedDomains: { key: "device:media_embed_domains", legacy: "vellum_media_embed_domains" },
   dockBadgesEnabled: { key: "device:dock_badges_enabled", legacy: "vellum_dock_badges_enabled" },
   lastUserId: { key: "device:last_user_id", legacy: "onboarding.lastUserId" },
-} as const;
+} as const satisfies Record<string, DeviceSettingEntry>;
 
 export type DeviceSettingName = keyof typeof DEVICE_SETTINGS;
 
@@ -54,13 +64,18 @@ export function deviceKey(name: DeviceSettingName): string {
   return DEVICE_SETTINGS[name].key;
 }
 
+/** Read an entry's legacy value, or `null` when it has no legacy key. */
+function readLegacy(entry: DeviceSettingEntry): string | null {
+  return entry.legacy != null ? localStorage.getItem(entry.legacy) : null;
+}
+
 /** Read a device-scoped setting, returning `fallback` when absent or unreadable. */
 export function getDeviceSetting(name: DeviceSettingName, fallback: string): string {
   if (typeof window === "undefined") return fallback;
   const entry = DEVICE_SETTINGS[name];
   try {
     return localStorage.getItem(entry.key)
-      ?? localStorage.getItem(entry.legacy)
+      ?? readLegacy(entry)
       ?? fallback;
   } catch {
     return fallback;
@@ -78,7 +93,7 @@ export function getDeviceBool(name: DeviceSettingName, fallback: boolean): boole
   const entry = DEVICE_SETTINGS[name];
   try {
     const raw = localStorage.getItem(entry.key)
-      ?? localStorage.getItem(entry.legacy);
+      ?? readLegacy(entry);
     if (raw === "true") return true;
     if (raw === "false") return false;
   } catch {
@@ -116,7 +131,8 @@ export function watchDeviceSetting(
 export function migrateDeviceSettings(): void {
   if (typeof window === "undefined") return;
   try {
-    for (const entry of Object.values(DEVICE_SETTINGS)) {
+    for (const entry of Object.values<DeviceSettingEntry>(DEVICE_SETTINGS)) {
+      if (entry.legacy == null) continue;
       const legacyValue = localStorage.getItem(entry.legacy);
       if (legacyValue !== null) {
         // Only write if the new key doesn't already exist — avoids

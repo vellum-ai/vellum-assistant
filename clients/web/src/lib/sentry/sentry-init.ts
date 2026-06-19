@@ -1,7 +1,7 @@
 import type { BrowserOptions } from "@sentry/react";
 
+import { diagnosticsConsentGranted } from "@/lib/sentry/consent-gate";
 import {
-  diagnosticsConsentGranted,
   installSentryControlListeners,
   syncSentryClient,
 } from "@/lib/sentry/sentry-control";

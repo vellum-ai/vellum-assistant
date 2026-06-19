@@ -10,6 +10,8 @@ mock.module("@/lib/sentry/sentry-control", () => ({
     syncedOptions = options;
   },
   installSentryControlListeners: () => () => {},
+}));
+mock.module("@/lib/sentry/consent-gate", () => ({
   diagnosticsConsentGranted: () => false,
 }));
 mock.module("@/runtime/diagnostics", () => ({ syncDiagnosticsToMain: () => {} }));
