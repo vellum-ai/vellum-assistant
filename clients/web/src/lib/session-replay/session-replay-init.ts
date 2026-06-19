@@ -1,3 +1,4 @@
+import { sessionReplayNetworkConfig } from "@/lib/session-replay/network-sanitize";
 import {
   installSessionReplayControlListeners,
   syncSessionReplay,
@@ -30,6 +31,7 @@ export function initSessionReplay(): void {
     surface: sessionReplaySurface(),
     environment: import.meta.env.VITE_SENTRY_ENVIRONMENT ?? "local",
     release: import.meta.env.VITE_APP_VERSION,
+    network: sessionReplayNetworkConfig,
   };
   syncSessionReplay(config);
   installSessionReplayControlListeners(config);

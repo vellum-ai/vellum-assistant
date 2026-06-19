@@ -11,6 +11,7 @@
  * effect on the next reload (see the provider's `stop` contract).
  */
 import { diagnosticsConsentGranted } from "@/lib/sentry/consent-gate";
+import type { SessionReplayNetworkConfig } from "@/lib/session-replay/network-sanitize";
 import {
   provider,
   type SessionReplaySurface,
@@ -24,6 +25,7 @@ export interface SessionReplayConfig {
   surface: SessionReplaySurface;
   environment: string;
   release?: string;
+  network: SessionReplayNetworkConfig;
 }
 
 /**
@@ -64,6 +66,7 @@ function tryInit(config: SessionReplayConfig): void {
     environment: config.environment,
     release: config.release,
     surface: config.surface,
+    network: config.network,
   });
   identifySessionReplayUser(config.surface);
 }
