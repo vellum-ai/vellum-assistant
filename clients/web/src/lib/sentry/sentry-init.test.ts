@@ -19,21 +19,25 @@ mock.module("@/utils/device-settings", () => ({
 }));
 
 let nativePlatform = false;
+let electron = false;
 mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => nativePlatform,
 }));
+mock.module("@/runtime/is-electron", () => ({ isElectron: () => electron }));
 
 // Distinct per-host DSNs so a swapped branch is caught (readonly at the type
 // level only; the underlying object is writable at runtime).
 const env = import.meta.env as Record<string, string | undefined>;
 env.VITE_SENTRY_DSN = "https://web@example.com/web";
 env.VITE_SENTRY_DSN_IOS = "https://ios@example.com/ios";
+env.VITE_SENTRY_DSN_MACOS = "https://macos@example.com/macos";
 
 const { initSentry } = await import("@/lib/sentry/sentry-init");
 
 beforeEach(() => {
   syncedOptions = undefined;
   nativePlatform = false;
+  electron = false;
 });
 
 describe("initSentry DSN selection", () => {
@@ -47,5 +51,11 @@ describe("initSentry DSN selection", () => {
     nativePlatform = true;
     initSentry();
     expect(syncedOptions?.dsn).toBe(import.meta.env.VITE_SENTRY_DSN_IOS);
+  });
+
+  test("uses the macOS DSN in the Electron renderer", () => {
+    electron = true;
+    initSentry();
+    expect(syncedOptions?.dsn).toBe(import.meta.env.VITE_SENTRY_DSN_MACOS);
   });
 });

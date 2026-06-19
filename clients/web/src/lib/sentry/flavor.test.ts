@@ -31,4 +31,10 @@ describe("selectSentryFlavor", () => {
     electron = true;
     expect(selectSentryFlavor()).toBe(reactFlavor);
   });
+
+  test("prefers the react flavor over capacitor in the Electron renderer", () => {
+    electron = true;
+    nativePlatform = true;
+    expect(selectSentryFlavor()).toBe(reactFlavor);
+  });
 });
