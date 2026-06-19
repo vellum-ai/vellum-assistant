@@ -6,7 +6,19 @@ import {
 } from "@/lib/sentry/sentry-control";
 import { syncDiagnosticsToMain } from "@/runtime/diagnostics";
 import { sanitizeUrl } from "@/lib/sentry/url-sanitize";
+import { isNativePlatform } from "@/runtime/native-auth";
 import { getDeviceBool } from "@/utils/device-settings";
+
+/**
+ * Resolve the Sentry DSN for the current host. The shared bundle reports to a
+ * per-host project: iOS WKWebview → `VITE_SENTRY_DSN_IOS` (vellum-assistant-ios),
+ * web → `VITE_SENTRY_DSN` (vellum-assistant-web). The Electron renderer's
+ * `VITE_SENTRY_DSN_MACOS` branch is wired in a later PR.
+ */
+function resolveDsn(): string | undefined {
+  if (isNativePlatform()) return import.meta.env.VITE_SENTRY_DSN_IOS;
+  return import.meta.env.VITE_SENTRY_DSN;
+}
 
 /**
  * Browser-side Sentry initialization, gated on the user's Share Diagnostics
@@ -28,7 +40,6 @@ import { getDeviceBool } from "@/utils/device-settings";
  * Reference: https://docs.sentry.io/security-legal-pii/scrubbing/
  */
 const options: BrowserOptions = {
-  dsn: import.meta.env.VITE_SENTRY_DSN,
   environment: import.meta.env.VITE_SENTRY_ENVIRONMENT ?? "local",
   release: import.meta.env.VITE_APP_VERSION,
   tracesSampleRate: 0,
@@ -110,7 +121,9 @@ const options: BrowserOptions = {
  * (no-op on web/iOS) so the main-process Sentry client matches.
  */
 export function initSentry(): void {
-  syncSentryClient(options);
-  installSentryControlListeners(options);
+  // Resolve the DSN at init time (post host-detection), not at module load.
+  const resolved: BrowserOptions = { ...options, dsn: resolveDsn() };
+  syncSentryClient(resolved);
+  installSentryControlListeners(resolved);
   syncDiagnosticsToMain(getDeviceBool("diagnosticsReporting", false));
 }
