@@ -293,6 +293,34 @@ describe("api-interceptors / self-hosted rewriting", () => {
     expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
   });
 
+  test("rewrites daemon/gateway-owned segments reached via the platform client", async () => {
+    // config / permissions / trust-rules / artifacts / contacts /
+    // contact-channels are daemon- or gateway-owned but are called through
+    // the platform client via raw `client.*` requests (e.g. the background
+    // `TimezoneSync` PATCH to `config`). In local / self-hosted mode they
+    // must route to the gateway like conversations rather than fall through
+    // to the dead platform proxy and flood the console with 502s.
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    for (const segment of [
+      "config",
+      "permissions",
+      "trust-rules",
+      "artifacts",
+      "contacts",
+      "contact-channels",
+    ]) {
+      const path = `/v1/assistants/${SELF_HOSTED_ID}/${segment}/`;
+      const input = new Request(`https://platform.test${path}`, {
+        method: "POST",
+      });
+      const output = await requestInterceptor(input);
+      const outUrl = new URL(output.url);
+      expect(outUrl.origin).toBe(INGRESS);
+      expect(outUrl.pathname).toBe(path);
+      expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
+    }
+  });
+
   test("prepends the ingress path prefix when the ingress URL has a path", async () => {
     const prefixedIngress = "http://localhost:3000/__gateway/20100";
     setSelfHostedConnection({ url: prefixedIngress, token: ACTOR_TOKEN });
@@ -404,6 +432,10 @@ describe("api-interceptors / self-hosted rewriting", () => {
       "domains",
       "email-addresses",
       "oauth",
+      // `/a2a/invites/redeem` is a platform broker (Django) route — it sits
+      // in the same client file as the allowlisted `contacts` /
+      // `contact-channels`, so pin that it is NOT captured by the allowlist.
+      "a2a",
     ]) {
       const input = new Request(
         `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/${segment}/`,
