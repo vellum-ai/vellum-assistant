@@ -695,6 +695,20 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       {
+        id: "accounts/fireworks/models/qwen3-vl-235b-a22b-instruct",
+        displayName: "Qwen3-VL-235B (Instruct)",
+        contextWindowTokens: 262144,
+        maxOutputTokens: 32768,
+        supportsThinking: false,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: false,
+        pricing: {
+          inputPer1mTokens: 0.2,
+          outputPer1mTokens: 0.88,
+        },
+      },
+      {
         id: "accounts/fireworks/models/kimi-k2p5",
         displayName: "Kimi K2.5",
         contextWindowTokens: 256000,

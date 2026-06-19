@@ -331,6 +331,31 @@ describe("LLM catalog parity: daemon vs client", () => {
     });
   });
 
+  test("Fireworks catalog includes Qwen3-VL-235B with vision support", () => {
+    expect(
+      isModelInCatalog(
+        "fireworks",
+        "accounts/fireworks/models/qwen3-vl-235b-a22b-instruct",
+      ),
+    ).toBe(true);
+
+    const fireworks = PROVIDER_CATALOG.find(
+      (entry) => entry.id === "fireworks",
+    );
+    expect(
+      fireworks?.models.find(
+        (model) =>
+          model.id === "accounts/fireworks/models/qwen3-vl-235b-a22b-instruct",
+      ),
+    ).toMatchObject({
+      displayName: "Qwen3-VL-235B (Instruct)",
+      contextWindowTokens: 262144,
+      maxOutputTokens: 32768,
+      supportsVision: true,
+      supportsToolUse: false,
+    });
+  });
+
   test("MiniMax catalog includes MiniMax M3", () => {
     const minimax = PROVIDER_CATALOG.find((entry) => entry.id === "minimax");
     expect(
