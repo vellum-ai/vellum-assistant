@@ -117,7 +117,7 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
       }),
     ).rejects.toThrow(
       'Cannot edit managed profile "quality-optimized" fields [provider, model]. ' +
-        "Only label and status may be edited; duplicate to a custom profile to change other fields.",
+        "Only label, status, and topP may be edited; duplicate to a custom profile to change other fields.",
     );
   });
 
@@ -272,6 +272,59 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
       ?.balanced as Record<string, unknown>;
     expect("label" in profile).toBe(false);
     expect(profile.status).toBe("disabled");
+  });
+
+  test("PUT { topP } on managed profile is accepted and persisted", async () => {
+    savedRaw = null;
+    rawConfig = {
+      llm: {
+        profiles: {
+          balanced: {
+            provider: "anthropic",
+            model: "claude-sonnet",
+            source: "managed",
+          },
+        },
+      },
+    };
+    const result = await replaceRoute.handler({
+      pathParams: { name: "balanced" },
+      body: { topP: 0.9 },
+    });
+    expect(result).toEqual({ ok: true });
+    const profile = (savedRaw as unknown as Record<string, any>)?.llm?.profiles
+      ?.balanced as Record<string, unknown>;
+    // topP override persisted; seed fields preserved.
+    expect(profile.topP).toBe(0.9);
+    expect(profile.provider).toBe("anthropic");
+    expect(profile.model).toBe("claude-sonnet");
+    expect(profile.source).toBe("managed");
+  });
+
+  test("PUT { topP: null } on managed profile clears the override on disk", async () => {
+    savedRaw = null;
+    rawConfig = {
+      llm: {
+        profiles: {
+          balanced: {
+            provider: "anthropic",
+            model: "claude-sonnet",
+            topP: 0.7,
+            source: "managed",
+          },
+        },
+      },
+    };
+    const result = await replaceRoute.handler({
+      pathParams: { name: "balanced" },
+      body: { topP: null },
+    });
+    expect(result).toEqual({ ok: true });
+    const profile = (savedRaw as unknown as Record<string, any>)?.llm?.profiles
+      ?.balanced as Record<string, unknown>;
+    expect("topP" in profile).toBe(false);
+    expect(profile.provider).toBe("anthropic");
+    expect(profile.model).toBe("claude-sonnet");
   });
 
   test("PUT { label: '' } on managed profile still rejected by `.min(1)`", async () => {
