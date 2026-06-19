@@ -12,6 +12,7 @@ import type {
   SeededConversationMessage,
   TestSetupCommand,
 } from "../setup-command";
+import { extraCaBuildArgs } from "../build-extra-ca";
 import { runArtifacts } from "../metrics";
 import {
   applyDockerEgressJail,
@@ -554,6 +555,9 @@ export class HermesAgent implements BaseAgent {
           this.derivedImage,
           "--build-arg",
           `HERMES_BASE=${this.baseImage}`,
+          // Trust a host egress-proxy CA when present (Claude web / CI
+          // sandboxes); a no-op on normal machines. See build-extra-ca.ts.
+          ...extraCaBuildArgs(),
           hermesImageDockerfileDir(),
         ],
         {

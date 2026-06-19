@@ -19,6 +19,7 @@ import {
   setActiveAssistant,
 } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
+import { extraCaBuildArgs } from "./build-extra-ca";
 import { buildHatchConfigValues, writeInitialConfig } from "./config-utils";
 import { buildServiceRunArgs } from "./statefulset.js";
 import type { Species } from "./constants";
@@ -650,9 +651,12 @@ interface ServiceImageConfig {
 }
 
 async function buildImage(config: ServiceImageConfig): Promise<void> {
+  // Trust a host egress-proxy CA in the builder stage when present (Claude
+  // web / CI sandboxes); a no-op on normal machines. See build-extra-ca.ts.
+  const caArgs = extraCaBuildArgs();
   await exec(
     "docker",
-    ["build", "-f", config.dockerfile, "-t", config.tag, "."],
+    ["build", ...caArgs, "-f", config.dockerfile, "-t", config.tag, "."],
     { cwd: config.context },
   );
 }

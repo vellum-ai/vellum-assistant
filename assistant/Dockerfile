@@ -12,6 +12,21 @@ RUN apt-get update && apt-get install -y \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
+# Optionally trust an egress-proxy CA for this stage's HTTPS package fetches
+# (bun.sh, the npm registry) when building behind a TLS-intercepting proxy
+# such as Claude Code on the web or CI. The CA is supplied as base64 by the
+# build invocation (cli/src/lib/build-extra-ca.ts) and is empty on normal
+# machines, where this whole step is a no-op. Confined to this discarded
+# builder stage, so the shipped runtime image never trusts the proxy CA.
+ARG EGRESS_PROXY_CA_B64=""
+RUN if [ -n "$EGRESS_PROXY_CA_B64" ]; then \
+      command -v update-ca-certificates >/dev/null 2>&1 \
+        || (apt-get update && apt-get install -y --no-install-recommends ca-certificates); \
+      echo "$EGRESS_PROXY_CA_B64" | base64 -d \
+        | awk 'BEGIN{c=0} /-----BEGIN CERTIFICATE-----/{c++} {print > ("/usr/local/share/ca-certificates/egress-proxy-ca-" c ".crt")}'; \
+      update-ca-certificates; \
+    fi
+
 # Install bun (pinned version)
 RUN curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.11"
 ENV PATH="/root/.bun/bin:${PATH}"

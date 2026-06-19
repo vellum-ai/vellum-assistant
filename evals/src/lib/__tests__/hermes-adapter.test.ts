@@ -34,6 +34,14 @@ import type {
   SpawnedProcess,
 } from "../runtime/command-runner";
 
+// These tests assert the canonical `docker build` argv. The optional
+// egress-proxy CA build-arg (build-extra-ca.ts) is host-dependent — it
+// appears whenever the runner host has admin CAs under
+// /usr/local/share/ca-certificates (e.g. CI / Claude Code on the web) — so
+// force its no-op path here to keep the argv deterministic. The injection
+// itself is covered by build-extra-ca.test.ts.
+process.env.VELLUM_BUILD_NO_EXTRA_CA = "1";
+
 function lines(values: string[]): AsyncIterable<string> {
   return (async function* () {
     for (const value of values) yield value;
