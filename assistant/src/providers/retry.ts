@@ -576,11 +576,20 @@ export class RetryProvider implements Provider {
     return this.inner.tokenEstimationProvider;
   }
 
+  // Forward the optional token-counting endpoint so the capability survives
+  // the wrapper chain (callers gate on its presence). Bound straight to the
+  // inner provider — count_tokens is a cheap separate endpoint and its caller
+  // already falls back on error, so it needs no retry wrapping.
+  public readonly countInputTokens?: NonNullable<Provider["countInputTokens"]>;
+
   constructor(
     private readonly inner: Provider,
     private readonly options: { forwardUsageAttributionHeaders?: boolean } = {},
   ) {
     this.name = inner.name;
+    if (inner.countInputTokens) {
+      this.countInputTokens = inner.countInputTokens.bind(inner);
+    }
   }
 
   async sendMessage(

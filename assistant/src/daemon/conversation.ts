@@ -78,7 +78,11 @@ import {
   buildSystemPrompt,
   type SystemPromptPersonaOverride,
 } from "../prompts/system-prompt.js";
-import type { ContentBlock, Message } from "../providers/types.js";
+import type {
+  ContentBlock,
+  Message,
+  ToolDefinition,
+} from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import {
   isUntrustedTrustClass,
@@ -100,6 +104,7 @@ import type { AbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import type { WorkspaceGitService } from "../workspace/git-service.js";
 import type { commitTurnChanges } from "../workspace/turn-commit.js";
+import { accurateInputTokens } from "./accurate-input-tokens.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import type { AssistantSurface } from "./conversation-agent-loop.js";
 import {
@@ -545,6 +550,12 @@ export class Conversation {
     toolUseId?: string,
   ) => void;
   private cacheWarmAbort?: AbortController;
+  // System-prompt and tools resolvers used to size a `count_tokens` request the
+  // same way the context-window manager sizes its estimate (see
+  // {@link accurateInputTokens}). Captured from the same callbacks the manager
+  // is built with so the two stay in lockstep.
+  private resolveCountSystemPrompt!: () => string;
+  private resolveCountTools?: () => ToolDefinition[] | undefined;
 
   constructor(
     conversationId: string,
@@ -701,15 +712,18 @@ export class Conversation {
         );
       },
     });
+    this.resolveCountSystemPrompt = () =>
+      resolveSystemPromptCallback([]).systemPrompt;
+    this.resolveCountTools = resolveTools
+      ? () => resolveTools(this.messages)
+      : undefined;
     createContextWindowManager({
       provider,
-      systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
+      systemPrompt: this.resolveCountSystemPrompt,
       config: initialContextWindowConfig,
       toolTokenBudget: this.agentLoop.getToolTokenBudget(),
       conversationId: this.conversationId,
-      resolveTools: resolveTools
-        ? () => resolveTools(this.messages)
-        : undefined,
+      resolveTools: this.resolveCountTools,
     });
   }
 
@@ -1556,6 +1570,25 @@ export class Conversation {
     }
   }
 
+  /**
+   * Real tokenizer count for `messages` via the provider's `count_tokens`
+   * endpoint, falling back to the context-window manager's local estimate when
+   * the provider has no count endpoint or the count call fails. Sized with the
+   * same system prompt + tools the manager uses, so the count and the estimate
+   * fallback measure the same composition. Used to render the user-facing
+   * `/compact` and `/clean` token figures so they match the context-window
+   * indicator (provider-reported usage) rather than the ~25%-low estimate.
+   */
+  private accurateInputTokens(messages: Message[]): Promise<number> {
+    return accurateInputTokens(
+      this.provider,
+      messages,
+      this.resolveCountSystemPrompt(),
+      this.resolveCountTools?.(),
+      () => this.contextWindowManager.estimateInputTokens(messages),
+    );
+  }
+
   async forceCompact(): Promise<ContextWindowResult> {
     // Report the user-facing before/after using the provider's real tokenizer
     // (count_tokens) so the `/compact` line matches the context-window
@@ -1568,15 +1601,13 @@ export class Conversation {
     // Only the *displayed* numbers are overridden — the compaction log and
     // circuit-breaker accounting inside `runCompaction` keep the estimate-based
     // figures, leaving calibration and historical logs untouched.
-    const before = await this.contextWindowManager.accurateInputTokens(
-      this.messages,
-    );
+    const before = await this.accurateInputTokens(this.messages);
     const result = await this.runCompaction(true);
     // `runCompaction` applies the compacted history to `this.messages` in
     // place, so after a successful compaction this re-counts the new history;
     // a no-op leaves the context unchanged, so before === after.
     const after = result.compacted
-      ? await this.contextWindowManager.accurateInputTokens(this.messages)
+      ? await this.accurateInputTokens(this.messages)
       : before;
     return {
       ...result,
@@ -1704,14 +1735,14 @@ export class Conversation {
     // Use the provider's real tokenizer for the displayed before/after (see
     // `forceCompact` for why); falls back to the local estimate when count
     // isn't available.
-    const previousEstimatedInputTokens =
-      await this.contextWindowManager.accurateInputTokens(this.messages);
+    const previousEstimatedInputTokens = await this.accurateInputTokens(
+      this.messages,
+    );
     const stripped = stripInjectionsForCompaction(this.messages);
     this.messages = stripped;
     await this.graphMemory.onCompacted(0);
     setConversationHistoryStrippedAt(this.conversationId, Date.now());
-    const estimatedInputTokens =
-      await this.contextWindowManager.accurateInputTokens(this.messages);
+    const estimatedInputTokens = await this.accurateInputTokens(this.messages);
     return {
       previousEstimatedInputTokens,
       estimatedInputTokens,

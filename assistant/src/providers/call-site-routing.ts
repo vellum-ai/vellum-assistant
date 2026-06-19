@@ -60,6 +60,12 @@ export class CallSiteRoutingProvider implements Provider {
     return this._activeProviderContext.getStore() ?? this.defaultProvider.name;
   }
 
+  // Forward the optional token-counting endpoint from the default provider —
+  // the same one whose `tokenEstimationProvider` this wrapper surfaces, and
+  // the provider that handles the main agent turn that `/compact` sizes
+  // against. Per-call connection routing only affects `sendMessage`.
+  public readonly countInputTokens?: NonNullable<Provider["countInputTokens"]>;
+
   constructor(
     private readonly defaultProvider: Provider,
     /**
@@ -88,6 +94,10 @@ export class CallSiteRoutingProvider implements Provider {
     ) => Promise<Provider | null>,
   ) {
     this.tokenEstimationProvider = defaultProvider.tokenEstimationProvider;
+    if (defaultProvider.countInputTokens) {
+      this.countInputTokens =
+        defaultProvider.countInputTokens.bind(defaultProvider);
+    }
   }
 
   async sendMessage(
