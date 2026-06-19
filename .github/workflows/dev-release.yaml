@@ -1628,12 +1628,9 @@ jobs:
         env:
           CSC_NAME: Developer ID Application
           SENTRY_DSN_MACOS: ${{ secrets.SENTRY_DSN_MACOS }}
-          # Dedicated `vellum-desktop` Sentry project DSN: main-process define
-          # (SENTRY_DSN_DESKTOP) + renderer (VITE_SENTRY_DSN_DESKTOP).
-          SENTRY_DSN_DESKTOP: ${{ secrets.SENTRY_DSN_DESKTOP }}
           VITE_PLATFORM_MODE: "false"
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
-          VITE_SENTRY_DSN_DESKTOP: ${{ secrets.SENTRY_DSN_DESKTOP }}
+          VITE_SENTRY_DSN_MACOS: ${{ secrets.SENTRY_DSN_MACOS }}
           VITE_SENTRY_ENVIRONMENT: dev
         run: bun run pack --environment dev
 

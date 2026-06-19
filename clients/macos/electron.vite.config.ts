@@ -65,8 +65,6 @@ const BUILD_DEFINES = {
       process.env.VELLUM_ENABLE_CHROME_DEVTOOLS === "1",
   ),
   __SENTRY_DSN_MACOS__: JSON.stringify(process.env.SENTRY_DSN_MACOS || ""),
-  // Dedicated `vellum-desktop` Sentry project DSN.
-  __SENTRY_DSN_DESKTOP__: JSON.stringify(process.env.SENTRY_DSN_DESKTOP || ""),
 };
 
 export default defineConfig({
