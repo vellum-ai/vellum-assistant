@@ -21,6 +21,43 @@ describe("useInteractionStore", () => {
       expect(s.secretSaved).toBe(false);
     });
 
+    it("showSecret merges sparse rehydrate without erasing rich metadata", () => {
+      // Live SSE event arrives first with full metadata.
+      useInteractionStore.getState().showSecret({
+        requestId: "r1",
+        label: "API Key",
+        description: "Used to call the service",
+        placeholder: "sk-...",
+      });
+      // Sparse rehydrate fires for the same prompt with only the requestId.
+      useInteractionStore.getState().showSecret({ requestId: "r1" });
+      const s = useInteractionStore.getState();
+      expect(s.pendingSecret).toEqual({
+        requestId: "r1",
+        label: "API Key",
+        description: "Used to call the service",
+        placeholder: "sk-...",
+      });
+    });
+
+    it("showSecret replaces fresh when requestId differs", () => {
+      useInteractionStore.getState().showSecret({ requestId: "r1", label: "First" });
+      useInteractionStore.getState().showSecret({ requestId: "r2", label: "Second" });
+      const s = useInteractionStore.getState();
+      expect(s.pendingSecret).toEqual({ requestId: "r2", label: "Second" });
+      expect(s.isSubmittingSecret).toBe(false);
+      expect(s.secretSaved).toBe(false);
+    });
+
+    it("showSecret same-requestId merge preserves submit/saved flags", () => {
+      useInteractionStore.getState().showSecret({ requestId: "r1", label: "API Key" });
+      useInteractionStore.getState().submitSecretStart();
+      useInteractionStore.getState().showSecret({ requestId: "r1" });
+      const s = useInteractionStore.getState();
+      expect(s.isSubmittingSecret).toBe(true);
+      expect(s.pendingSecret?.label).toBe("API Key");
+    });
+
     it("submitSecretStart sets isSubmittingSecret", () => {
       useInteractionStore.getState().showSecret({ requestId: "r1" });
       useInteractionStore.getState().submitSecretStart();
