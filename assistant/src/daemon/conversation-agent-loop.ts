@@ -68,6 +68,7 @@ import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrosp
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { runHook } from "../plugins/pipeline.js";
+import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
@@ -999,6 +1000,26 @@ export async function runAgentLoopImpl(
       }
       return history;
     };
+
+    // Resolve the system prompt here (not inside the loop) and push it
+    // onto the loop + the Conversation's canonical field. When an
+    // explicit override is set, the seed from construction is still
+    // current; otherwise rebuild from the live per-turn context so
+    // workspace file changes, trust shifts, and onboarding updates land
+    // on the prompt the loop sends to the provider. The strict
+    // `=== false` check skips mock contexts that don't carry the flag.
+    if (ctx.hasSystemPromptOverride === false) {
+      const resolved = buildSystemPrompt({
+        hasNoClient: ctx.hasNoClient,
+        trustContext: ctx.currentTurnTrustContext,
+        channelCapabilities: ctx.currentTurnChannelCapabilities,
+        personaOverride: ctx.wakePersonaOverride,
+        onboardingContext: ctx.getOnboardingContext?.(),
+        conversationId: ctx.conversationId,
+      });
+      ctx.setSystemPrompt?.(resolved);
+      ctx.agentLoop?.setSystemPrompt?.(resolved);
+    }
 
     const updatedHistory = await runAgentLoop(runMessages, true);
 

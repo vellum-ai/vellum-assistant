@@ -207,14 +207,16 @@ mock.module("../agent/loop.js", () => ({
       provider?: unknown;
       systemPrompt?: string;
       config?: Record<string, unknown>;
-      resolveSystemPrompt?: (history: Message[]) => Record<string, unknown>;
+      resolveSendOptions?: () => { maxTokens?: number };
+      maxTokens?: number;
     }) {
       captured.constructorMaxTokens = options?.config?.maxTokens;
-      const resolved = options?.resolveSystemPrompt?.([]);
-      captured.resolvedMaxTokens = resolved?.maxTokens;
+      const resolved = options?.resolveSendOptions?.();
+      captured.resolvedMaxTokens = resolved?.maxTokens ?? options?.maxTokens;
       captured.resolvedHasMaxTokens =
-        resolved !== undefined &&
-        Object.prototype.hasOwnProperty.call(resolved, "maxTokens");
+        (resolved !== undefined &&
+          Object.prototype.hasOwnProperty.call(resolved, "maxTokens")) ||
+        options?.maxTokens !== undefined;
     }
     getToolTokenBudget() {
       return 0;

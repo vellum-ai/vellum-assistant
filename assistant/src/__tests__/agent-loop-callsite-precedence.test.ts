@@ -9,7 +9,7 @@
  * for these knobs is silently ignored.
  *
  * Precedence (highest wins):
- *   1. Per-turn explicit (from `resolveSystemPrompt`'s
+ *   1. Per-turn explicit (from `resolveSendOptions`'s
  *      `resolved.maxTokens` / `resolved.model`)
  *   2. Call-site resolved values (from `resolveCallSiteConfig` via the
  *      normalizer)
@@ -33,7 +33,7 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => ({ llm: mockLlmConfig }),
 }));
 
-import type { ResolvedSystemPrompt } from "../agent/loop.js";
+import type { ResolvedSystemPromptFields } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import { LLMSchema } from "../config/schemas/llm.js";
 import { RetryProvider } from "../providers/retry.js";
@@ -299,7 +299,7 @@ describe("AgentLoop — call-site precedence", () => {
     expect(config.thinking).toEqual({ type: "adaptive" });
   });
 
-  test("per-turn resolveSystemPrompt.maxTokens wins over both call-site and default", async () => {
+  test("per-turn resolveSendOptions.maxTokens wins over both call-site and default", async () => {
     setLlmConfig({
       default: {
         provider: "anthropic",
@@ -310,8 +310,7 @@ describe("AgentLoop — call-site precedence", () => {
     });
 
     const { provider, lastConfig } = makePipeline("anthropic");
-    const resolveSystemPrompt = (): ResolvedSystemPrompt => ({
-      systemPrompt: "per-turn system",
+    const resolveSendOptions = (): ResolvedSystemPromptFields => ({
       maxTokens: 8192,
     });
 
@@ -320,7 +319,7 @@ describe("AgentLoop — call-site precedence", () => {
       systemPrompt: "system",
       conversationId: "test-conversation",
       config: { maxTokens: 64000 },
-      resolveSystemPrompt: resolveSystemPrompt,
+      resolveSendOptions: resolveSendOptions,
     });
 
     await loop.run({

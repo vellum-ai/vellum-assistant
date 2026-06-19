@@ -15,7 +15,7 @@
  * - conversation-usage.ts        — recordUsage
  */
 
-import type { AgentLoopConfig, ResolvedSystemPrompt } from "../agent/loop.js";
+import type { AgentLoopConfig } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type { AssistantActivityStateEvent } from "../api/events/assistant-activity-state.js";
 import type {
@@ -683,30 +683,6 @@ export class Conversation {
     // it up from `llm.default` / `llm.callSites.<id>` on every turn.
     const resolvedModel: string | undefined = modelOverride;
 
-    const resolveSystemPromptCallback = (
-      _history: Message[],
-    ): ResolvedSystemPrompt => {
-      const resolved: ResolvedSystemPrompt = {
-        systemPrompt: this.hasSystemPromptOverride
-          ? systemPrompt
-          : buildSystemPrompt({
-              hasNoClient: this.hasNoClient,
-              trustContext: this.currentTurnTrustContext,
-              channelCapabilities: this.currentTurnChannelCapabilities,
-              personaOverride: this.wakePersonaOverride,
-              onboardingContext: this.getOnboardingContext(),
-              conversationId: this.conversationId,
-            }),
-      };
-      if (configuredMaxTokens !== undefined) {
-        resolved.maxTokens = configuredMaxTokens;
-      }
-      if (resolvedModel !== undefined) {
-        resolved.model = resolvedModel;
-      }
-      return resolved;
-    };
-
     const fastModeEnabled = isAssistantFeatureFlagEnabled("fast-mode", config);
     const resolvedSpeed = speedOverride ?? resolvedMainAgent.speed;
     const initialContextWindow = resolveEffectiveContextWindow({
@@ -738,7 +714,10 @@ export class Conversation {
       tools: toolDefs.length > 0 ? toolDefs : undefined,
       toolExecutor: toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,
-      resolveSystemPrompt: resolveSystemPromptCallback,
+      ...(configuredMaxTokens !== undefined
+        ? { maxTokens: configuredMaxTokens }
+        : {}),
+      ...(resolvedModel !== undefined ? { model: resolvedModel } : {}),
       /**
        * Receive the agent loop's post-pre-model-call-hook prompt. Wired so
        * the compactor's Anthropic prefix stays byte-aligned with the loop's

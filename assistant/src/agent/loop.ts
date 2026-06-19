@@ -482,11 +482,10 @@ export function shouldCaptureAgentLoopError(err: Error): boolean {
   return true;
 }
 
-export interface ResolvedSystemPrompt {
-  systemPrompt: string;
+export type ResolvedSystemPromptFields = {
   maxTokens?: number;
   model?: string;
-}
+};
 
 export interface AgentLoopRunOptions {
   /** Input history the run starts from; the loop appends its output onto a copy. */
@@ -528,6 +527,22 @@ export interface AgentLoopRunOptions {
    */
   forceOverrideProfile?: boolean;
   resolveOverrideProfile?: () => string | undefined;
+  /**
+   * Resolve the per-turn maxTokens / model overrides. PR B folds the dynamic
+   * `resolveSystemPrompt` resolver out of the loop ctor; this callback is
+   * the remaining per-turn resolution the orchestrator still needs. Defaults
+   * to undefined → loop uses the values supplied at construction (or none).
+   */
+  resolveSendOptions?: () => ResolvedSystemPromptFields;
+  /**
+   * Static per-conversation maxTokens / model. PR B's ctor API consolidation
+   * — the loop's ctor only takes `systemPrompt` as the lone prompt intent, so
+   * the values that used to flow through `resolved.maxTokens` /
+   * `resolved.model` arrive here instead. The dynamic per-turn override path
+   * is {@link resolveSendOptions} above.
+   */
+  maxTokens?: number;
+  model?: string;
   /**
    * Resolves the orchestrator's effective context window for this turn: the
    * provider max-input-token ceiling (read by tool-result truncation) plus the
@@ -623,7 +638,20 @@ export interface AgentLoopConstructorOptions {
   tools?: ToolDefinition[];
   toolExecutor?: LoopToolExecutor;
   resolveTools?: (history: Message[]) => ToolDefinition[];
-  resolveSystemPrompt?: (history: Message[]) => ResolvedSystemPrompt;
+  /**
+   * Resolve the per-turn maxTokens / model overrides. The remaining per-turn
+   * resolution surface after the dynamic `resolveSystemPrompt` resolver was
+   * folded out. Defaults to undefined → loop uses the values supplied at
+   * construction (or none).
+   */
+  resolveSendOptions?: () => ResolvedSystemPromptFields;
+  /**
+   * Static per-conversation maxTokens / model. The values that used to flow
+   * through `resolveSystemPrompt`'s `resolved.maxTokens` / `resolved.model`
+   * arrive here instead. Per-turn dynamism is {@link resolveSendOptions}.
+   */
+  maxTokens?: number;
+  model?: string;
   /**
    * Conversation this loop drives. Scopes the loop-held compaction circuit
    * breaker and is the source of truth the loop's pipeline contexts and
@@ -656,9 +684,18 @@ export class AgentLoop {
   private config: AgentLoopConfig;
   private tools: ToolDefinition[];
   private resolveTools: ((history: Message[]) => ToolDefinition[]) | null;
-  private resolveSystemPrompt:
-    | ((history: Message[]) => ResolvedSystemPrompt)
+  /**
+   * Per-turn resolution of `maxTokens` / `model` overrides that the caller
+   * (the orchestrator at turn start) wants to surface. PR B moved these out
+   * of the dynamic `resolveSystemPrompt` resolver so the loop's ctor simply
+   * takes `systemPrompt` plus static `maxTokens` / `model`; whatever still
+   * needs per-turn dynamism arrives through this callback.
+   */
+  private readonly resolveSendOptions:
+    | (() => ResolvedSystemPromptFields)
     | null;
+  private readonly maxTokens: number | undefined;
+  private readonly model: string | undefined;
   private toolExecutor: LoopToolExecutor | null;
 
   /**
@@ -691,7 +728,9 @@ export class AgentLoop {
       tools,
       toolExecutor,
       resolveTools,
-      resolveSystemPrompt,
+      resolveSendOptions,
+      maxTokens,
+      model,
       conversationId,
       resolveConversationDir,
       systemPromptUpdated,
@@ -701,7 +740,9 @@ export class AgentLoop {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.tools = tools ?? [];
     this.resolveTools = resolveTools ?? null;
-    this.resolveSystemPrompt = resolveSystemPrompt ?? null;
+    this.resolveSendOptions = resolveSendOptions ?? null;
+    this.maxTokens = maxTokens;
+    this.model = model;
     this.toolExecutor = toolExecutor ?? null;
     this.conversationId = conversationId;
     this.resolveConversationDir = resolveConversationDir ?? null;
@@ -721,6 +762,19 @@ export class AgentLoop {
     return history && this.resolveTools
       ? this.resolveTools(history)
       : this.tools;
+  }
+
+  /**
+   * Replace the loop's base system prompt. The owning Conversation calls
+   * this before each turn (when no explicit override is set) so the loop
+   * renders the freshly-built prompt — `buildSystemPrompt` picks up
+   * workspace file changes, trust-context shifts, and onboarding context
+   * that the static construction-time seed would miss. Idempotent on
+   * equal values.
+   */
+  setSystemPrompt(prompt: string): void {
+    if (prompt === this.systemPrompt) return;
+    this.systemPrompt = prompt;
   }
 
   /**
@@ -1219,15 +1273,18 @@ export class AgentLoop {
           ? this.resolveTools(history)
           : this.tools;
 
-        // Resolve system prompt, per-turn maxTokens, and model
-        const resolved = this.resolveSystemPrompt
-          ? this.resolveSystemPrompt(history)
-          : null;
-        const turnSystemPrompt = resolved?.systemPrompt ?? this.systemPrompt;
-        const turnModel = resolved?.model;
+        // Resolve per-turn maxTokens / model override. PR B folded the
+        // dynamic `resolveSystemPrompt` resolver out of this ctor; the
+        // remaining per-turn surface is the `maxTokens` / `model` knobs
+        // that the orchestrator might want to project through. Fall back
+        // to the static values supplied at construction time when no
+        // per-turn override is present.
+        const sendOptions = this.resolveSendOptions?.() ?? {};
+        const turnMaxTokens = sendOptions.maxTokens ?? this.maxTokens;
+        const turnModel = sendOptions.model ?? this.model;
 
         // Field precedence (highest wins):
-        //   1. Per-turn explicit (`resolved.maxTokens` / `resolved.model`)
+        //   1. Per-turn explicit (`sendOptions.maxTokens` / `sendOptions.model`)
         //   2. Call-site resolved values (filled by
         //      `RetryProvider.normalizeSendMessageOptions` from
         //      `resolveCallSiteConfig(callSite, llm)`)
@@ -1245,8 +1302,8 @@ export class AgentLoop {
         // they always come from `this.config` regardless of `callSite`.
         const providerConfig: Record<string, unknown> = {};
 
-        if (resolved?.maxTokens !== undefined) {
-          providerConfig.max_tokens = resolved.maxTokens;
+        if (turnMaxTokens !== undefined) {
+          providerConfig.max_tokens = turnMaxTokens;
         } else if (!callSite) {
           providerConfig.max_tokens = this.config.maxTokens;
         }
@@ -1346,7 +1403,7 @@ export class AgentLoop {
           currentTools.length > 0 ? estimateToolsTokens(currentTools) : 0;
         const preSendEstimatedTokens = estimatePromptTokensRaw(
           history,
-          turnSystemPrompt,
+          this.systemPrompt,
           {
             providerName: getCalibrationProviderKey(this.provider),
             toolTokenBudget,
@@ -1378,7 +1435,7 @@ export class AgentLoop {
         // type through unchanged.
         const providerOptions: SendMessageOptions = {
           tools: currentTools.length > 0 ? currentTools : undefined,
-          systemPrompt: turnSystemPrompt,
+          systemPrompt: this.systemPrompt,
           config: providerConfig,
           onEvent: (event) => {
             if (event.type === "text_delta") {
