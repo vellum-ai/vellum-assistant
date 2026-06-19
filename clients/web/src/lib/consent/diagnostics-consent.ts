@@ -1,28 +1,31 @@
 /**
- * The single, version-aware, direction-asymmetric decision point for the
- * `device:share_diagnostics` mirror.
+ * The single, version-aware, direction-asymmetric decision point for the two
+ * diagnostics-consent values:
  *
- * The mirror is the boolean that gates diagnostics reporting (Sentry). Every
- * non-onboarding path that learns a diagnostics-consent value from the server
- * must route the decision through {@link applyResolvedDiagnosticsConsent} so the
- * policy lives in exactly one place:
+ * - **Saved preference** (`device:share_diagnostics`) — the user's opt-in/out,
+ *   shown and re-submitted by the re-consent screen. It always tracks the
+ *   server's `share_diagnostics` value (direction-asymmetric writes), never the
+ *   privacy-consent version, so a stale-version record can't silently lose a
+ *   prior opt-in.
+ * - **Effective reporting gate** (`device:diagnostics_reporting`) — what
+ *   actually turns Sentry on. It is `preference && versionCurrent`, so a
+ *   stale-version acceptance stops reporting until the user re-accepts.
  *
- * - **Version invalidation** — a `share_diagnostics` acceptance recorded under a
- *   stale `PRIVACY_CONSENT_VERSION` (`diagnosticsVersionCurrent === false`) never
- *   keeps diagnostics on. It resolves to `false` regardless of the stored share
- *   boolean.
- * - **Direction asymmetry** — diagnostics only turn ON for a confident, current
- *   grant (`hasServerRecord && shareDiagnostics === true && diagnosticsVersionCurrent`).
- *   An "unknown" input (`shareDiagnostics === null`, or no server record) never
- *   flips the mirror on and leaves the existing value untouched; an explicit
- *   revoke (`shareDiagnostics === false`) eagerly writes `false`.
+ * Every non-onboarding path that learns a diagnostics-consent value from the
+ * server routes through {@link applyResolvedDiagnosticsConsent} so this policy
+ * lives in exactly one place.
  *
- * The resolved decision is applied via `setShareDiagnostics` (the single writer
- * of the `device:share_diagnostics` key and the main-process diagnostics sync);
- * an unchanged decision is skipped. The function returns the resolved boolean —
- * or `null` when the mirror was left unchanged — so callers can log/telemeter
- * the transition.
+ * - **Preference (direction-asymmetric)** — a confident grant
+ *   (`hasServerRecord && shareDiagnostics === true`) writes `true` even on a
+ *   stale version; an explicit revoke (`shareDiagnostics === false`) writes
+ *   `false`; an unknown input (`null` / no record) leaves the preference
+ *   untouched.
+ * - **Gate** — opens only for a confident, current grant
+ *   (`hasServerRecord && shareDiagnostics === true && diagnosticsVersionCurrent`).
  */
+
+import { setDeviceBool } from "@/utils/device-settings";
+import { syncDiagnosticsToMain } from "@/runtime/diagnostics";
 
 export interface ResolvedDiagnosticsConsent {
   /** The server's `share_diagnostics` value; `null` when unknown/absent. */
@@ -34,42 +37,60 @@ export interface ResolvedDiagnosticsConsent {
 }
 
 /**
- * Decide the diagnostics mirror value from a resolved server-consent input, and
- * apply it via `setShareDiagnostics` unless the input is an unknown grant.
+ * Write the effective Sentry reporting gate: the `diagnosticsReporting` device
+ * bool AND the main-process diagnostics sync, both with the same effective
+ * value. This is the single writer of the gate.
+ */
+export function setDiagnosticsReportingGate(enabled: boolean): void {
+  setDeviceBool("diagnosticsReporting", enabled);
+  syncDiagnosticsToMain(enabled);
+}
+
+/**
+ * Apply a resolved server-consent input to both diagnostics values:
  *
- * @returns `true`/`false` when the mirror was written to that value, or `null`
- * when the input is an unknown grant and the mirror was left unchanged.
+ * 1. The saved preference, via `setShareDiagnostics` — written only for a
+ *    confident grant or explicit revoke; an unknown input leaves it untouched.
+ * 2. The effective reporting gate, via {@link setDiagnosticsReportingGate} —
+ *    always set to `preference && versionCurrent`.
+ *
+ * @returns the saved-preference decision: `true`/`false` when the preference was
+ * written to that value, or `null` when the input is an unknown grant and the
+ * preference was left unchanged.
  */
 export function applyResolvedDiagnosticsConsent(
   resolved: ResolvedDiagnosticsConsent,
   setShareDiagnostics: (value: boolean) => void,
 ): boolean | null {
-  const decision = resolveDiagnosticsConsent(resolved);
-  if (decision !== null) setShareDiagnostics(decision);
-  return decision;
+  const preference = resolvePreference(resolved);
+  if (preference !== null) setShareDiagnostics(preference);
+
+  const { shareDiagnostics, diagnosticsVersionCurrent, hasServerRecord } =
+    resolved;
+  setDiagnosticsReportingGate(
+    hasServerRecord && shareDiagnostics === true && diagnosticsVersionCurrent,
+  );
+
+  return preference;
 }
 
 /**
- * Pure policy: resolve the diagnostics mirror value, or `null` for "leave the
- * existing mirror untouched". The single home of the version-invalidation +
- * direction-asymmetry rules.
+ * Pure policy: resolve the SAVED PREFERENCE value, or `null` for "leave the
+ * existing preference untouched". Direction-asymmetric and version-independent
+ * — the preference always tracks the server's share value so the re-consent UI
+ * never loses it.
  */
-function resolveDiagnosticsConsent(
+function resolvePreference(
   resolved: ResolvedDiagnosticsConsent,
 ): boolean | null {
-  const { shareDiagnostics, diagnosticsVersionCurrent, hasServerRecord } =
-    resolved;
+  const { shareDiagnostics, hasServerRecord } = resolved;
 
-  // Explicit revoke — eagerly turn diagnostics OFF (even on an unknown record).
+  // Explicit revoke — eagerly write the opt-out (even on an unknown record).
   if (shareDiagnostics === false) return false;
 
-  // Confident grant only turns diagnostics ON when its version is current;
-  // a stale-version acceptance never keeps it on.
-  if (hasServerRecord && shareDiagnostics === true) {
-    return diagnosticsVersionCurrent;
-  }
+  // Confident grant — adopt the server's opt-in, regardless of version.
+  if (hasServerRecord && shareDiagnostics === true) return true;
 
-  // Unknown grant (`null`, or no server record) — never flip ON; leave the
-  // existing mirror value untouched.
+  // Unknown grant (`null`, or no server record) — leave the preference untouched.
   return null;
 }

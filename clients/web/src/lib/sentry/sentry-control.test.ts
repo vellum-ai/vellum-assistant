@@ -20,13 +20,18 @@ mock.module("@/lib/sentry/flavor", () => ({
 }));
 
 let consent = false;
+const readNames: string[] = [];
+const watchedNames: string[] = [];
 const watchCallbacks: Array<() => void> = [];
 const unwatchMock = mock(() => {});
 
 mock.module("@/utils/device-settings", () => ({
-  getDeviceBool: (_name: string, fallback: boolean) =>
-    consent ? true : fallback,
-  watchDeviceSetting: (_name: string, callback: () => void) => {
+  getDeviceBool: (name: string, fallback: boolean) => {
+    readNames.push(name);
+    return consent ? true : fallback;
+  },
+  watchDeviceSetting: (name: string, callback: () => void) => {
+    watchedNames.push(name);
     watchCallbacks.push(callback);
     return unwatchMock;
   },
@@ -44,6 +49,8 @@ beforeEach(() => {
   selectSentryFlavorMock.mockClear();
   unwatchMock.mockClear();
   watchCallbacks.length = 0;
+  readNames.length = 0;
+  watchedNames.length = 0;
   consent = false;
   clientEnabled = false;
 });
@@ -53,6 +60,12 @@ describe("syncSentryClient", () => {
     consent = true;
     syncSentryClient(options);
     expect(selectSentryFlavorMock).toHaveBeenCalled();
+  });
+
+  test("gates off the effective diagnosticsReporting key, not the preference", () => {
+    syncSentryClient(options);
+    expect(readNames).toContain("diagnosticsReporting");
+    expect(readNames).not.toContain("shareDiagnostics");
   });
 
   test("no-ops when dsn is absent (never touches the flavor)", () => {
@@ -90,6 +103,7 @@ describe("installSentryControlListeners", () => {
   test("re-syncs through the flavor when the toggle changes", () => {
     const cleanup = installSentryControlListeners(options);
     expect(watchCallbacks).toHaveLength(1);
+    expect(watchedNames).toEqual(["diagnosticsReporting"]);
 
     consent = true;
     watchCallbacks[0]!();
