@@ -268,6 +268,16 @@ function normalizeSendMessageOptions(
     ) {
       nextConfig.temperature = resolved.temperature;
     }
+    // `topP` (schema, camelCase) maps to the provider wire field `top_p`.
+    // Defaults to `null` ("no opinion"); only forward an actual number so we
+    // never send `top_p: null`, mirroring the `temperature` handling above.
+    if (
+      nextConfig.top_p === undefined &&
+      resolved.topP !== null &&
+      resolved.topP !== undefined
+    ) {
+      nextConfig.top_p = resolved.topP;
+    }
     if (nextConfig.thinking === undefined && resolved.thinking !== undefined) {
       nextConfig.thinking = resolved.thinking;
     }
@@ -428,12 +438,16 @@ function normalizeSendMessageOptions(
   // - Other providers: not our problem here (e.g. OpenAI reasoning models
   //   strip `temperature` upstream; non-Anthropic OpenRouter reasoning
   //   models don't have this exact constraint).
-  const isThinkingTemperatureConflict = (() => {
+  //
+  // Anthropic applies the same constraint family to `top_p` (see the `top_p`
+  // guard below), so the "thinking is enabled on the Anthropic wire" predicate
+  // is shared between the two guards.
+  const isThinkingEnabledOnAnthropicWire = (() => {
     const model = typeof nextConfig.model === "string" ? nextConfig.model : "";
-    // Claude Fable always reasons in adaptive mode, so the `temperature: 1`
-    // constraint applies even when no explicit `thinking` config is present
-    // (a disabled config was already dropped above). For every other model
-    // the constraint only applies when thinking is actually enabled.
+    // Claude Fable always reasons in adaptive mode, so the constraint applies
+    // even when no explicit `thinking` config is present (a disabled config was
+    // already dropped above). For every other model the constraint only applies
+    // when thinking is actually enabled.
     if (!isAdaptiveThinkingOnlyModel(model)) {
       if (nextConfig.thinking == null) {
         return false;
@@ -442,13 +456,6 @@ function normalizeSendMessageOptions(
         return false;
       }
     }
-    const temp = nextConfig.temperature;
-    if (typeof temp !== "number") {
-      return false;
-    }
-    if (temp === 1) {
-      return false;
-    }
     if (providerName === "anthropic") {
       return true;
     }
@@ -456,6 +463,18 @@ function normalizeSendMessageOptions(
       return model.startsWith("anthropic/");
     }
     return false;
+  })();
+  const isThinkingTemperatureConflict = (() => {
+    if (!isThinkingEnabledOnAnthropicWire) {
+      return false;
+    }
+    const temp = nextConfig.temperature;
+    if (typeof temp !== "number") {
+      return false;
+    }
+    // Unlike `top_p`, `temperature: 1` is explicitly accepted alongside
+    // thinking, so it's the one value that doesn't conflict.
+    return temp !== 1;
   })();
   if (isThinkingTemperatureConflict) {
     log.warn(
@@ -470,6 +489,28 @@ function normalizeSendMessageOptions(
         "need a specific temperature.",
     );
     delete nextConfig.temperature;
+  }
+
+  // Anthropic (and OpenRouter fronting Anthropic) also rejects requests that
+  // combine extended thinking with *any* `top_p` modification. Unlike
+  // `temperature` there is no "=== 1 is fine" exception — when thinking is
+  // enabled the request must not set `top_p` at all. Drop it with a warn log
+  // so the request goes through with Anthropic's default, keeping `thinking`
+  // (the more deliberate, profile-level choice) for the same reasons as the
+  // temperature guard above.
+  if (isThinkingEnabledOnAnthropicWire && nextConfig.top_p !== undefined) {
+    log.warn(
+      {
+        providerName,
+        callSite: config.callSite,
+        droppedTopP: nextConfig.top_p,
+      },
+      "Dropping `top_p` because thinking is enabled — Anthropic does not " +
+        "accept `top_p` modifications when thinking/adaptive mode is on. Set " +
+        "`thinking: { type: 'disabled' }` on the call site if you need a " +
+        "specific top_p.",
+    );
+    delete nextConfig.top_p;
   }
 
   // effort is supported by Anthropic, OpenAI, and OpenAI-compatible providers; strip for others
