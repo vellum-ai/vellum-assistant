@@ -74,6 +74,15 @@ export function maybeSeedMemoryV2CliCommands(config: AssistantConfig): void {
  * reseed (the startup seed already succeeded) is cheap and harmless. The two
  * catalogs are independent, so they reseed in parallel. Callers invoke this
  * detached (`void`) — it must not block the credential-store response.
+ *
+ * Reseeding alone only repopulates the shared page index — v3 reads its
+ * synthetic capability rows from the v2 stores, but its memoized lanes and its
+ * `memory_v3_sections` dense store refresh only on the v3 maintain pass (6-hour
+ * backstop). So when v3 is live, enqueue a `memory_v3_maintain` job after the
+ * reseed: its capability-reconcile stage embeds the freshly-seeded rows into the
+ * dense store and its lane-invalidation stage forces a rebuild against the now-
+ * populated index, so v3 surfaces the skill/CLI pages within seconds instead of
+ * waiting out the backstop.
  */
 export async function maybeReseedCapabilitiesAfterManagedCredential(
   config: AssistantConfig,
@@ -121,6 +130,21 @@ export async function maybeReseedCapabilitiesAfterManagedCredential(
       }
     }),
   );
+
+  // The stores (and the page index) are now populated; when v3 is live, kick a
+  // maintain pass so it embeds the capability rows into `memory_v3_sections` and
+  // invalidates its lanes immediately rather than waiting out the 6h backstop.
+  const { isMemoryV3Live } = await import("../config/memory-v3-gate.js");
+  if (!isMemoryV3Live(config)) return;
+  try {
+    const { enqueueMemoryJob } = await import("../memory/jobs-store.js");
+    enqueueMemoryJob("memory_v3_maintain", {});
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to enqueue memory_v3_maintain after managed proxy credential update",
+    );
+  }
 }
 
 /**
