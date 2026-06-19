@@ -108,6 +108,45 @@ describe("HostBrowserProxy", () => {
     pendingInteractions.clear();
   });
 
+  describe("waitForExtensionClient", () => {
+    const EXTENSION: MockClient = {
+      clientId: "ext-client",
+      interfaceId: "chrome-extension",
+      capabilities: ["host_browser"],
+    };
+
+    test("returns true immediately when an extension is connected", async () => {
+      mockClients = [EXTENSION];
+      expect(await proxy.waitForExtensionClient(undefined, 1_000)).toBe(true);
+    });
+
+    test("returns false after the timeout when none connects", async () => {
+      mockClients = [DEFAULT_CLIENT]; // macos only, no extension
+      expect(await proxy.waitForExtensionClient(undefined, 100)).toBe(false);
+    });
+
+    test("returns true when an extension appears within the window", async () => {
+      mockClients = [DEFAULT_CLIENT];
+      setTimeout(() => {
+        mockClients = [DEFAULT_CLIENT, EXTENSION];
+      }, 50);
+      expect(await proxy.waitForExtensionClient(undefined, 2_000)).toBe(true);
+    });
+
+    test("respects sourceActorPrincipalId", async () => {
+      mockClients = [
+        {
+          clientId: "other-actor-ext",
+          interfaceId: "chrome-extension",
+          actorPrincipalId: "actor-b",
+          capabilities: ["host_browser"],
+        },
+      ];
+      // Caller is actor-a; the connected extension belongs to actor-b.
+      expect(await proxy.waitForExtensionClient("actor-a", 100)).toBe(false);
+    });
+  });
+
   describe("request/resolve lifecycle (happy path)", () => {
     test("sends host_browser_request and resolves with content", async () => {
       const resultPromise = proxy.request(

@@ -12,6 +12,10 @@ import { isHttpAuthDisabled } from "../../config/env.js";
 import { datesToISO } from "../../util/json.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import {
+  DEFAULT_HEARTBEAT_INTERVAL_MS,
+  isClientDegraded,
+} from "../client-health.js";
 import { NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
@@ -65,6 +69,7 @@ export const ROUTES: RouteDefinition[] = [
               c.actorPrincipalId === callerPrincipalId,
           );
 
+      const now = new Date();
       return {
         clients: filtered.map((c) =>
           datesToISO({
@@ -74,6 +79,12 @@ export const ROUTES: RouteDefinition[] = [
             machineName: c.machineName,
             connectedAt: c.connectedAt,
             lastActiveAt: c.lastActiveAt,
+            degraded: isClientDegraded(
+              c.connectedAt,
+              c.lastActiveAt,
+              now,
+              DEFAULT_HEARTBEAT_INTERVAL_MS,
+            ),
           }),
         ),
       };

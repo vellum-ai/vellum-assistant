@@ -166,4 +166,24 @@ describe("assistant clients list over IPC — same-user filter", () => {
     const ids = parsed.clients.map((c) => c.clientId).sort();
     expect(ids).toEqual(["client-other", "client-self"]);
   });
+
+  test("--json output carries the degraded flag (false for fresh clients)", async () => {
+    registerClient({
+      clientId: "client-self-1",
+      actorPrincipalId: "guardian-local",
+    });
+
+    await startServer();
+
+    const { stdout } = await runAssistantCommandFull(
+      "clients",
+      "list",
+      "--json",
+    );
+    const parsed = JSON.parse(stdout.trim()) as {
+      clients: Array<{ clientId: string; degraded?: boolean }>;
+    };
+    expect(parsed.clients).toHaveLength(1);
+    expect(parsed.clients[0].degraded).toBe(false);
+  });
 });
