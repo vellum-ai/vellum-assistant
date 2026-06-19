@@ -197,6 +197,14 @@ export interface WakeOptions {
    */
   suppressWakeSurface?: boolean;
   /**
+   * Run the wake's turn as non-interactive (no client present). Threads to the
+   * agent loop's `isNonInteractive`, which gates the `<non_interactive_context>`
+   * and `<background_turn>` injectors. Fork-based memory retrospectives set this
+   * to the source conversation's background-turn state so the fork reproduces
+   * the source's injected turn block (prompt-cache prefix parity). Default false.
+   */
+  isNonInteractive?: boolean;
+  /**
    * Optional exact tool allowlist for this wake. Used by internal maintenance
    * jobs that need the assistant's judgment but must not execute arbitrary
    * side-effect tools. Enforcement depends on `toolGateMode`: in `"wire"`
@@ -588,6 +596,7 @@ export async function wakeAgentForOpportunity(
       opts.forceOverrideProfile ??
       getConversationOverrideProfile(conversationId);
     const callSite = opts.callSite ?? "mainAgent";
+    const isNonInteractive = opts.isNonInteractive ?? false;
     const config = getConfig();
     const effectiveContextWindow = resolveEffectiveContextWindow({
       llm: config.llm,
@@ -1105,6 +1114,19 @@ export async function wakeAgentForOpportunity(
         };
       }
 
+      // Wakes bypass `runAgentLoopImpl`, which is what stamps the live turn's
+      // call site and override profile onto the conversation for the tool
+      // executor to read. Without stamping them here, `subagent_spawn` (and
+      // usage attribution) see an unstamped context and resolve children under
+      // workspace defaults instead of the profile this wake actually runs
+      // under — so a wake on a conversation pinned to another profile spawns
+      // children under the wrong one. Restored in the `finally` so a queued
+      // user turn or a later background read never inherits the wake's stamps.
+      const priorCallSite = conversation.currentCallSite;
+      const priorTurnOverrideProfile = conversation.currentTurnOverrideProfile;
+      conversation.currentCallSite = callSite;
+      conversation.currentTurnOverrideProfile = overrideProfile;
+
       let updatedHistory: Message[];
       try {
         ({ history: updatedHistory } = await conversation.agentLoop.run({
@@ -1122,6 +1144,7 @@ export async function wakeAgentForOpportunity(
           trust: wakeTrust,
           overrideProfile,
           forceOverrideProfile,
+          isNonInteractive,
           // The wake's compaction lives in the pre-run gate above
           // (`conversation.maybeCompact()`), never in the loop: the in-loop
           // budget gate and overflow-recovery ladder stay disabled because
@@ -1154,6 +1177,12 @@ export async function wakeAgentForOpportunity(
         // `processing` and drain the queue.
         runError = err instanceof Error ? err : new Error(String(err));
         return { invoked: true, producedToolCalls: false };
+      } finally {
+        // Restore the pre-wake values so a queued user turn or background read
+        // never observes the wake's stamps. (`runAgentLoopImpl` re-stamps both
+        // at the start of the next normal turn regardless.)
+        conversation.currentCallSite = priorCallSite;
+        conversation.currentTurnOverrideProfile = priorTurnOverrideProfile;
       }
 
       // The loop swallows provider rejections into a graceful no-output

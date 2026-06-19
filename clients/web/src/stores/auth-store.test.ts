@@ -516,6 +516,8 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
     expect(useAuthStore.getState().user?.id).toBe("user-1");
     expect(useAuthStore.getState().platformSession).toBe("present");
+    // A live probe confirmed it — not a believed offline restore.
+    expect(useAuthStore.getState().platformSessionRestoredOffline).toBe(false);
   });
 
   test("initSession uses server consent when server has a consent record", async () => {
@@ -630,6 +632,45 @@ describe("auth store onboarding flag reconciliation", () => {
         share_analytics: false,
       }),
     );
+  });
+
+  test("device-consent fallback reopens the diagnostics reporting gate for a device-confirmed opt-in", async () => {
+    // Empty server record, but the user has a current device-side diagnostics
+    // ack and an opted-in preference. The no-server-record chokepoint closes
+    // the gate; the fallback must reopen it so a confirmed opted-in user isn't
+    // left with Sentry disabled.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockStoreShareDiagnostics = true;
+    localStorage.setItem("device:diagnostics_reporting", "false");
+    restoreConsentForUserMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(localStorage.getItem("device:diagnostics_reporting")).toBe("true");
+  });
+
+  test("device-consent fallback keeps the gate closed for a device opt-out", async () => {
+    // Same empty-record fallback, but the device preference is opted out — the
+    // gate must stay false even though the device ack is current.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockStoreShareDiagnostics = false;
+    localStorage.setItem("device:diagnostics_reporting", "true");
+    restoreConsentForUserMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(localStorage.getItem("device:diagnostics_reporting")).toBe("false");
+    mockStoreShareDiagnostics = true;
   });
 
   test("stale-but-real record keeps server share values and skips the device fallback", async () => {
@@ -1067,6 +1108,8 @@ describe("offline session restore (LUM-2412)", () => {
     // probe runs offline to settle an "unknown" — so the restore settles
     // "present" (believed state); reconnect revalidation corrects it.
     expect(useAuthStore.getState().platformSession).toBe("present");
+    // ...but it is flagged as a believed restore, so telemetry stays fail-closed.
+    expect(useAuthStore.getState().platformSessionRestoredOffline).toBe(true);
   });
 
   test("transport-failed boot (proxy 502) with token + snapshot settles authenticated from cache", async () => {

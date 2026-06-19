@@ -404,6 +404,24 @@ export class ContextWindowManager {
   }
 
   /**
+   * The resolved system prompt and tool definitions for the current turn —
+   * the same composition {@link estimateInputTokens} sizes against. Exposed as
+   * plain data so the daemon can run an out-of-band provider `count_tokens`
+   * request without re-deriving the prompt; the count call itself lives on the
+   * daemon, not this plugin.
+   */
+  get tokenCountInputs(): {
+    systemPrompt: string;
+    tools: ToolDefinition[] | undefined;
+  } {
+    try {
+      return { systemPrompt: this.systemPrompt, tools: this.resolveTools?.() };
+    } finally {
+      this.clearSystemPromptCache();
+    }
+  }
+
+  /**
    * Cheap pre-check — estimate the current token count and compare against
    * `compaction.autoThreshold`. Callers pass the estimate back through
    * `precomputedEstimate` on the {@link maybeCompact} call to avoid

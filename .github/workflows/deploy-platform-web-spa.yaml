@@ -64,6 +64,10 @@ jobs:
       #   - VITE_SENTRY_DSN          repo-level variable (same for every env)
       #   - VITE_SENTRY_ENVIRONMENT  per-environment variable (resolves via the
       #                              job's `environment:`)
+      #   - VITE_SESSION_REPLAY_APP_ID  repo-level variable; one ID across all
+      #                              surfaces (web/Electron/iOS). Unset disables
+      #                              session replay. Public, so baking it in is
+      #                              expected.
       #   - VITE_STRIPE_PUBLISHABLE_KEY  per-environment secret; publishable keys
       #                              are public, so embedding them is expected
       #   - VITE_VELAY_HOST          per-environment variable: the live-voice
@@ -87,7 +91,11 @@ jobs:
         env:
           VITE_PLATFORM_MODE: "true"
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+          # Baked into the deployed SPA so the iOS webview (which loads this
+          # bundle via `server.url`) reports to the vellum-assistant-ios project.
+          VITE_SENTRY_DSN_IOS: ${{ secrets.SENTRY_DSN_IOS }}
           VITE_SENTRY_ENVIRONMENT: ${{ vars.VITE_SENTRY_ENVIRONMENT }}
+          VITE_SESSION_REPLAY_APP_ID: ${{ vars.VITE_SESSION_REPLAY_APP_ID }}
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
           VITE_VELAY_HOST: ${{ vars.VITE_VELAY_HOST }}
           VITE_APP_VERSION: ${{ github.sha }}

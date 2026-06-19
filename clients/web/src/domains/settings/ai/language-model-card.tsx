@@ -17,13 +17,17 @@ import { CallSiteOverridesModal } from "@/domains/settings/ai/call-site-override
 import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal";
 import { ManageProvidersModal } from "@/domains/settings/ai/manage-providers-modal";
 import {
-    AUTO_PROFILE_NAME,
-    gateAutoProfile,
-    profilePickerLabel,
-    visibleProfilesForPicker,
+  AUTO_PROFILE_NAME,
+  gateAutoProfile,
+  profilePickerLabel,
+  visibleProfilesForPicker,
 } from "@/assistant/profile-pickers";
 import { useStickyProfiles } from "@/assistant/use-sticky-profiles";
-import { configGetOptions, configGetSetQueryData, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
+import {
+  configGetOptions,
+  configGetSetQueryData,
+  useConfigPatchMutation,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
 import { useQuery } from "@tanstack/react-query";
 
@@ -42,7 +46,10 @@ export function LanguageModelCard() {
   // Retain the last non-empty profile list so a transient empty config payload
   // can't blank the Default Profile dropdown until the next good fetch — managed
   // profiles are always seeded, so an empty map is never a steady state.
-  const { profiles, profileOrder } = useStickyProfiles(config?.llm, assistantId);
+  const { profiles, profileOrder } = useStickyProfiles(
+    config?.llm,
+    assistantId,
+  );
   const orderedProfiles = useMemo(
     () => buildOrderedProfiles(profiles, profileOrder),
     [profiles, profileOrder],
@@ -50,12 +57,18 @@ export function LanguageModelCard() {
 
   const configMutation = useConfigPatchMutation({
     onSuccess: (data) => {
-      configGetSetQueryData(queryClient, { path: { assistant_id: assistantId } }, data);
+      configGetSetQueryData(
+        queryClient,
+        { path: { assistant_id: assistantId } },
+        data,
+      );
     },
   });
 
-  const [effectiveActiveProfile, setDraftActiveProfile] = useDraftOverride(activeProfile);
-  const [effectiveAdvisorProfile, setDraftAdvisorProfile] = useDraftOverride(advisorProfile);
+  const [effectiveActiveProfile, setDraftActiveProfile] =
+    useDraftOverride(activeProfile);
+  const [effectiveAdvisorProfile, setDraftAdvisorProfile] =
+    useDraftOverride(advisorProfile);
 
   // Modal toggles — ephemeral UI state, correct as useState
   const [manageProfilesOpen, setManageProfilesOpen] = useState(false);
@@ -87,39 +100,48 @@ export function LanguageModelCard() {
   );
 
   const overrideCount = Object.entries(callSites).filter(
-    ([id, s]) => id !== "mainAgent" && (s?.profile != null || s?.provider != null || s?.model != null),
+    ([id, s]) =>
+      id !== "mainAgent" &&
+      (s?.profile != null || s?.provider != null || s?.model != null),
   ).length;
   const overrideLabel =
-    overrideCount === 1 ? "1 Override" : overrideCount > 0 ? `${overrideCount} Overrides` : "Overrides";
+    overrideCount === 1
+      ? "1 Override"
+      : overrideCount > 0
+        ? `${overrideCount} Overrides`
+        : "Overrides";
   const isProfileDirty = effectiveActiveProfile !== activeProfile;
   const isAdvisorProfileDirty = effectiveAdvisorProfile !== advisorProfile;
 
-  const handleManagedProfileSave = useCallback(async () => {
+  // One save for the whole card. Only the dirty field(s) are sent so we never
+  // re-write a value the user didn't edit (the config PATCH deep-merges every
+  // provided key, so blindly re-sending a stale selector could clobber a change
+  // made elsewhere — e.g. an `/model` switch). `null` clears the advisor profile.
+  const handleSave = useCallback(async () => {
     try {
+      const llm: {
+        activeProfile?: string | null;
+        advisorProfile?: string | null;
+      } = {};
+      if (isProfileDirty) llm.activeProfile = effectiveActiveProfile;
+      if (isAdvisorProfileDirty) llm.advisorProfile = effectiveAdvisorProfile;
       await configMutation.mutateAsync({
         path: { assistant_id: assistantId },
-        body: { llm: { activeProfile: effectiveActiveProfile } },
+        body: { llm },
       });
-      toast.success("Profile saved.");
+      toast.success("Saved.");
     } catch (error) {
-      toast.error("Failed to switch profile. Please try again.");
+      toast.error("Failed to save. Please try again.");
       captureError(error, { context: "settings-ai-language-model-save" });
     }
-  }, [effectiveActiveProfile, configMutation, assistantId]);
-
-  const handleAdvisorProfileSave = useCallback(async () => {
-    try {
-      await configMutation.mutateAsync({
-        path: { assistant_id: assistantId },
-        // Empty selection clears the advisor profile (no dedicated advisor).
-        body: { llm: { advisorProfile: effectiveAdvisorProfile ?? "" } },
-      });
-      toast.success("Advisor profile saved.");
-    } catch (error) {
-      toast.error("Failed to switch advisor profile. Please try again.");
-      captureError(error, { context: "settings-ai-advisor-profile-save" });
-    }
-  }, [effectiveAdvisorProfile, configMutation, assistantId]);
+  }, [
+    isProfileDirty,
+    isAdvisorProfileDirty,
+    effectiveActiveProfile,
+    effectiveAdvisorProfile,
+    configMutation,
+    assistantId,
+  ]);
 
   return (
     <>
@@ -146,13 +168,15 @@ export function LanguageModelCard() {
                     : profilePickerLabel(p),
               }))}
             />
-            {queryComplexityRoutingEnabled && effectiveActiveProfile === AUTO_PROFILE_NAME && (
-              <div className="flex items-center gap-2 rounded-lg bg-[var(--surface-warning-subtle)] px-3 py-2">
-                <span className="text-body-small-default text-[var(--content-warning)]">
-                  Auto may use more powerful models when needed, which can increase costs.
-                </span>
-              </div>
-            )}
+            {queryComplexityRoutingEnabled &&
+              effectiveActiveProfile === AUTO_PROFILE_NAME && (
+                <div className="flex items-center gap-2 rounded-lg bg-[var(--surface-warning-subtle)] px-3 py-2">
+                  <span className="text-body-small-default text-[var(--content-warning)]">
+                    Auto may use more powerful models when needed, which can
+                    increase costs.
+                  </span>
+                </div>
+              )}
             {defaultProfilePickerEntries.length === 0 ? (
               <Typography
                 variant="body-small-default"
@@ -187,16 +211,8 @@ export function LanguageModelCard() {
               as="p"
               className="mt-1 text-(--content-tertiary)"
             >
-              Which profile the advisor consults. It won&apos;t be selectable as your chat profile.
+              Which model your assistant consults for a second opinion
             </Typography>
-            {isAdvisorProfileDirty && (
-              <div className="mt-2 flex items-center gap-2">
-                <SaveButton onClick={handleAdvisorProfileSave} disabled={configMutation.isPending} />
-                {configMutation.isPending && (
-                  <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />
-                )}
-              </div>
-            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -223,9 +239,12 @@ export function LanguageModelCard() {
             </Button>
           </div>
 
-          {isProfileDirty && (
+          {(isProfileDirty || isAdvisorProfileDirty) && (
             <div className="flex items-center gap-2">
-              <SaveButton onClick={handleManagedProfileSave} disabled={configMutation.isPending} />
+              <SaveButton
+                onClick={handleSave}
+                disabled={configMutation.isPending}
+              />
               {configMutation.isPending && (
                 <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />
               )}

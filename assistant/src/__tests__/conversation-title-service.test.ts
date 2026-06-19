@@ -69,10 +69,38 @@ import {
 describe("conversation-title-service", () => {
   beforeEach(() => {
     mockRunBtwSidechain.mockClear();
+    mockRunBtwSidechain.mockImplementation(
+      async (_params: Record<string, unknown>) => ({
+        text: "Project kickoff",
+        hadTextDeltas: true,
+        response: {
+          content: [{ type: "text", text: "Project kickoff" }],
+          model: "test-model",
+          usage: { inputTokens: 10, outputTokens: 5 },
+          stopReason: "end_turn",
+        },
+      }),
+    );
     mockGetConversation.mockClear();
+    mockGetConversation.mockImplementation(
+      (_conversationId: string) =>
+        ({
+          title: "Generating title...",
+          isAutoTitle: 1,
+        }) as {
+          title: string;
+          isAutoTitle: number;
+        },
+    );
     mockGetMessages.mockClear();
+    mockGetMessages.mockImplementation(() => [
+      { role: "user", content: "first message" },
+      { role: "assistant", content: "first reply" },
+      { role: "user", content: "follow-up" },
+    ]);
     mockUpdateConversationTitle.mockClear();
     mockGetConfiguredProvider.mockClear();
+    mockGetConfiguredProvider.mockImplementation(async () => null);
     mockPublishConversationTitleChanged.mockClear();
   });
 
@@ -230,6 +258,30 @@ describe("conversation-title-service", () => {
       "Project kickoff",
       1,
     );
+  });
+
+  test("fallback retry skips regeneration after a successful initial title", async () => {
+    mockGetConversation.mockReturnValueOnce({
+      title: "Project kickoff",
+      isAutoTitle: 1,
+    });
+
+    const provider = {
+      name: "test-provider",
+      sendMessage: mock(async () => {
+        throw new Error("should not call directly");
+      }),
+    };
+
+    const result = await regenerateConversationTitle({
+      conversationId: "conv-1",
+      provider,
+      onlyIfReplaceable: true,
+    });
+
+    expect(result).toEqual({ title: "Project kickoff", updated: false });
+    expect(mockRunBtwSidechain).not.toHaveBeenCalled();
+    expect(mockUpdateConversationTitle).not.toHaveBeenCalled();
   });
 
   test("rejects meta-failure outputs like 'Missing Context' and uses fallback", async () => {
@@ -482,6 +534,16 @@ describe("conversation-title-service", () => {
 
     // Both calls went through — failure didn't break the chain
     expect(mockRunBtwSidechain).toHaveBeenCalledTimes(2);
+    const firstUpdate = (
+      mockUpdateConversationTitle.mock.calls as unknown as Array<
+        [string, string, number?]
+      >
+    ).find((c) => c[0] === "conv-1");
+    expect(firstUpdate).toEqual([
+      "conv-1",
+      "Untitled Conversation",
+      AUTO_TITLE_DETERMINISTIC,
+    ]);
     // Second conversation got a proper title
     const secondUpdate = (
       mockUpdateConversationTitle.mock.calls as unknown as string[][]

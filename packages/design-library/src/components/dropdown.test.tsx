@@ -16,6 +16,17 @@ describe("Dropdown", () => {
     expect(html).toContain("Option A");
   });
 
+  test("sets a title on the trigger label so truncated text is recoverable on hover", () => {
+    const longOptions: DropdownOption<"a" | "b">[] = [
+      { value: "a", label: "A very long option label that truncates" },
+      { value: "b", label: "Option B" },
+    ];
+    const html = renderToStaticMarkup(
+      <Dropdown options={longOptions} value="a" onChange={() => {}} aria-label="Test" />,
+    );
+    expect(html).toContain('title="A very long option label that truncates"');
+  });
+
   test("renders placeholder when no value matches", () => {
     const html = renderToStaticMarkup(
       <Dropdown

@@ -103,6 +103,16 @@ function resolveUserFilename(
           filename = guardian.contact.userFile ?? "guardian.md";
         }
       }
+    } else if (trustContext.trustClass === "guardian") {
+      // Guardian-trust turn carrying no requester identity — background and
+      // scheduled turns (heartbeat, scheduled pulses) run under the guardian
+      // trust class but have no per-actor address to look up. Resolve the
+      // channel's guardian user file so they load the same persona as a
+      // foreground guardian turn instead of falling back to users/default.md.
+      const guardian = findGuardianForChannel(trustContext.sourceChannel);
+      if (guardian) {
+        filename = guardian.contact.userFile ?? "guardian.md";
+      }
     }
   } catch (err) {
     // Contacts table may be absent — happens during early bootstrap

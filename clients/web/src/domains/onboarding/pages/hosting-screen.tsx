@@ -1,4 +1,4 @@
-import { Cloud, Laptop, Package } from "lucide-react";
+import { Cloud, Laptop } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -57,13 +57,6 @@ function useHostingOptions(): HostingOption[] {
       subtitle:
         "Runs directly on your machine. Your data never leaves your computer.",
       icon: <Laptop className={ICON_CLASS} />,
-    },
-    {
-      mode: "docker",
-      label: "Docker",
-      subtitle:
-        "Same privacy as local, but sandboxed using Docker for added isolation.",
-      icon: <Package className={ICON_CLASS} />,
     },
   ];
 }

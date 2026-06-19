@@ -375,16 +375,17 @@ function isRestrictedChromePageProbeError(error: CdpError): boolean {
  * The returned client is wrapped so its first successful `send()`
  * writes the resolved kind back to the conversation memo.
  */
-function acquireCdpClientWithMode(
+async function acquireCdpClientWithMode(
   input: Record<string, unknown>,
   context: ToolContext,
-):
+): Promise<
   | {
       cdp: ReturnType<typeof getCdpClient>;
       browserMode: BrowserMode;
       errorResult?: never;
     }
-  | { cdp?: never; browserMode?: never; errorResult: ToolExecutionResult } {
+  | { cdp?: never; browserMode?: never; errorResult: ToolExecutionResult }
+> {
   const modeResult = parseBrowserMode(input);
   if (!modeResult.ok) {
     return {
@@ -411,6 +412,16 @@ function acquireCdpClientWithMode(
       : browserMode === "auto" && rememberedKind !== null
         ? rememberedKind
         : browserMode;
+
+  // Extension-pinned dispatch (explicit `--browser-mode extension` or a
+  // `target_client_id`) hard-fails when the extension is momentarily
+  // absent. Absorb a brief reconnect blip before selecting the backend.
+  if (effectiveMode === "extension") {
+    await HostBrowserProxy.instance.waitForExtensionClient(
+      context.sourceActorPrincipalId,
+      targetClientId,
+    );
+  }
 
   try {
     const raw = getCdpClient(context, { mode: effectiveMode, targetClientId });
@@ -655,7 +666,7 @@ export async function executeBrowserNavigate(
   }
 
   // URL validation passed — acquire the CDP client.
-  const acquired = acquireCdpClientWithMode(input, context);
+  const acquired = await acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const { cdp, browserMode } = acquired;
 
@@ -1157,7 +1168,7 @@ export async function executeBrowserSnapshot(
   _input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const acquired = acquireCdpClientWithMode(_input, context);
+  const acquired = await acquireCdpClientWithMode(_input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const { cdp, browserMode } = acquired;
 
@@ -1209,7 +1220,7 @@ export async function executeBrowserScreenshot(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const acquired = acquireCdpClientWithMode(input, context);
+  const acquired = await acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const { cdp, browserMode } = acquired;
   const fullPage = input.full_page === true;
@@ -1266,7 +1277,7 @@ export async function executeBrowserAttach(
   _input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const acquired = acquireCdpClientWithMode(_input, context);
+  const acquired = await acquireCdpClientWithMode(_input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const cdp = acquired.cdp;
   try {
@@ -1319,7 +1330,7 @@ export async function executeBrowserDetach(
   _input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const acquired = acquireCdpClientWithMode(_input, context);
+  const acquired = await acquireCdpClientWithMode(_input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const cdp = acquired.cdp;
   try {
@@ -1369,7 +1380,7 @@ export async function executeBrowserClose(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const acquired = acquireCdpClientWithMode(input, context);
+  const acquired = await acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const cdp = acquired.cdp;
   try {
@@ -1440,7 +1451,7 @@ export async function executeBrowserClick(
   const { resolved, error } = resolveElement(context.conversationId, input);
   if (error) return { content: error, isError: true };
 
-  const acquired = acquireCdpClientWithMode(input, context);
+  const acquired = await acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const cdp = acquired.cdp;
   try {
@@ -1561,7 +1572,7 @@ export async function executeBrowserType(
       ? `element_id "${resolved!.eid}"`
       : resolved!.selector;
 
-  const acquired = acquireCdpClientWithMode(input, context);
+  const acquired = await acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const cdp = acquired.cdp;
   try {
@@ -1638,7 +1649,7 @@ export async function executeBrowserPressKey(
         : resolved!.selector;
   }
 
-  const acquired = acquireCdpClientWithMode(input, context);
+  const acquired = await acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const cdp = acquired.cdp;
   try {
@@ -1715,7 +1726,7 @@ export async function executeBrowserScroll(
       break;
   }
 
-  const acquired = acquireCdpClientWithMode(input, context);
+  const acquired = await acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const cdp = acquired.cdp;
   try {
@@ -1778,7 +1789,7 @@ export async function executeBrowserSelectOption(
       ? `element_id "${resolved!.eid}"`
       : resolved!.selector;
 
-  const acquired = acquireCdpClientWithMode(input, context);
+  const acquired = await acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const cdp = acquired.cdp;
   try {
@@ -1894,7 +1905,7 @@ export async function executeBrowserHover(
   const { resolved, error } = resolveElement(context.conversationId, input);
   if (error) return { content: error, isError: true };
 
-  const acquired = acquireCdpClientWithMode(input, context);
+  const acquired = await acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const cdp = acquired.cdp;
   try {
@@ -1988,7 +1999,7 @@ export async function executeBrowserWaitFor(
     return { content: `Waited ${waitMs}ms.`, isError: false };
   }
 
-  const acquired = acquireCdpClientWithMode(input, context);
+  const acquired = await acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const cdp = acquired.cdp;
   try {
@@ -2037,7 +2048,7 @@ export async function executeBrowserExtract(
 ): Promise<ToolExecutionResult> {
   const includeLinks = input.include_links === true;
 
-  const acquired = acquireCdpClientWithMode(input, context);
+  const acquired = await acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const cdp = acquired.cdp;
   try {
@@ -2120,7 +2131,7 @@ export async function executeBrowserFillCredential(
       ? `element_id "${resolved!.eid}"`
       : resolved!.selector;
 
-  const acquired = acquireCdpClientWithMode(input, context);
+  const acquired = await acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const cdp = acquired.cdp;
   try {

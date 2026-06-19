@@ -170,6 +170,8 @@ describe("parsePendingSecretState", () => {
     const raw = {
       requestId: "req-1",
       label: "API Key",
+      service: "slack_channel",
+      field: "app_token",
       description: "Enter your key",
       placeholder: "sk-...",
       allowOneTimeSend: true,
@@ -179,6 +181,16 @@ describe("parsePendingSecretState", () => {
     };
     const result = parsePendingSecretState(raw);
     expect(result).toEqual(raw);
+  });
+
+  it("preserves service and field structured identifiers", () => {
+    const result = parsePendingSecretState({
+      requestId: "req-1",
+      service: "slack_channel",
+      field: "app_token",
+    });
+    expect(result.service).toBe("slack_channel");
+    expect(result.field).toBe("app_token");
   });
 
   it("defaults requestId to empty string when missing", () => {
@@ -195,6 +207,8 @@ describe("parsePendingSecretState", () => {
     expect(result.allowedTools).toBeUndefined();
     expect(result.allowedDomains).toBeUndefined();
     expect(result.purpose).toBeUndefined();
+    expect(result.service).toBeUndefined();
+    expect(result.field).toBeUndefined();
   });
 });
 

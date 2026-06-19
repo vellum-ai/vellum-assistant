@@ -425,6 +425,62 @@ describe("RetryProvider — callSite resolution", () => {
     expect(config.temperature).toBe(0.5);
   });
 
+  test("forwards resolved topP to wire `top_p` (non-thinking provider)", async () => {
+    // `topP` (schema, camelCase) renames to `top_p` on the wire, mirroring
+    // `maxTokens`→`max_tokens`. Fireworks has no thinking constraint, so the
+    // value passes straight through.
+    setLlmConfig({
+      default: {
+        provider: "fireworks",
+        model: "fireworks-model",
+        topP: 0.95,
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("fireworks", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.top_p).toBe(0.95);
+  });
+
+  test("does NOT forward top_p when resolved topP is null (schema default)", async () => {
+    setLlmConfig({
+      default: {
+        provider: "fireworks",
+        model: "fireworks-model",
+        // `topP` defaults to null — "let provider pick".
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("fireworks", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    // Must NOT be set — `top_p: null` would either be a wire error or override
+    // sensible provider defaults, mirroring the `temperature` handling.
+    expect(config.top_p).toBeUndefined();
+    expect("top_p" in config).toBe(false);
+  });
+
   test("strips effort/speed for providers that don't support them (e.g. fireworks)", async () => {
     setLlmConfig({
       default: {
@@ -770,6 +826,126 @@ describe("RetryProvider — thinking/temperature conflict guard", () => {
     const config = seen?.config as Record<string, unknown>;
     expect(config.thinking).toBeUndefined();
     expect(config.temperature).toBe(0.7);
+  });
+});
+
+// ── RetryProvider — Anthropic thinking + top_p conflict guard ───────────────
+//
+// Anthropic rejects *any* `top_p` modification when extended thinking is
+// enabled (same constraint family as `temperature` ≠ 1, but with no
+// "=== 1 is fine" exception). This guard drops the offending `top_p` so the
+// request goes through with Anthropic's default instead of 400ing at the wire.
+
+describe("RetryProvider — thinking/top_p conflict guard", () => {
+  test("drops top_p when thinking is enabled (Anthropic)", async () => {
+    setLlmConfig({
+      default: {
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+        thinking: { enabled: true, streamThinking: true },
+        topP: 0.95,
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.thinking).toEqual({ type: "adaptive" });
+    expect(config.top_p).toBeUndefined();
+    expect("top_p" in config).toBe(false);
+  });
+
+  test("drops top_p for OpenRouter when fronting an `anthropic/*` model", async () => {
+    setLlmConfig({
+      default: {
+        provider: "openrouter",
+        model: "anthropic/claude-opus-4-7",
+        thinking: { enabled: true, streamThinking: true },
+        topP: 0.9,
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("openrouter", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.model).toBe("anthropic/claude-opus-4-7");
+    expect(config.top_p).toBeUndefined();
+  });
+
+  test("preserves top_p when thinking is enabled on a non-Anthropic provider (fireworks)", async () => {
+    // Fireworks (and other non-Anthropic providers) don't share Anthropic's
+    // top_p-with-thinking constraint — the guard must not over-reach. Note
+    // that fireworks strips `thinking` itself, but `top_p` stays.
+    setLlmConfig({
+      default: {
+        provider: "fireworks",
+        model: "fireworks-model",
+        thinking: { enabled: true, streamThinking: true },
+        topP: 0.95,
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("fireworks", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.top_p).toBe(0.95);
+  });
+
+  test("preserves top_p when thinking is disabled (Anthropic)", async () => {
+    setLlmConfig({
+      default: {
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+        thinking: { enabled: false, streamThinking: false },
+        topP: 0.95,
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.thinking).toEqual({ type: "disabled" });
+    expect(config.top_p).toBe(0.95);
   });
 });
 

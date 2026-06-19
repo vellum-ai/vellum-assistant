@@ -20,6 +20,7 @@ import {
 import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
+import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { createCesClient } from "../credential-execution/client.js";
 import { refreshManagedConnectionCache } from "../credential-execution/managed-catalog.js";
@@ -36,12 +37,7 @@ import {
 import { FilingService } from "../filing/filing-service.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
-import {
-  closeSentry,
-  initSentry,
-  setDiagnosticsConsented,
-  setSentryDeviceId,
-} from "../instrument.js";
+import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import {
   startGatewayFlagListener,
   stopGatewayFlagListener,
@@ -66,7 +62,6 @@ import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import {
-  onConsentResolved,
   startConsentRefresh,
   stopConsentRefresh,
 } from "../platform/consent-cache.js";
@@ -81,7 +76,10 @@ import {
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
 import { registerSecretsDeps } from "../runtime/routes/secrets-deps.js";
-import { publishConversationListChanged } from "../runtime/sync/resource-sync-events.js";
+import {
+  publishConfigChanged,
+  publishConversationListChanged,
+} from "../runtime/sync/resource-sync-events.js";
 import { recoverStaleSchedules } from "../schedule/schedule-recovery.js";
 import { startScheduler } from "../schedule/scheduler.js";
 import {
@@ -377,8 +375,23 @@ export async function runDaemon(): Promise<void> {
     // this fetch completes, so without this follow-up sync a flag-enabled
     // assistant would not expose the gated tools until a restart (which can lose
     // the same race). Enable-direction only; chained so it sees the fresh cache.
+    // Then reconcile flag-gated managed profiles (OS Beta): `seedInferenceProfiles()`
+    // runs synchronously earlier in boot before flags are available, so this lands
+    // the profile on the same boot once the flag cache is populated. When this
+    // reconcile is the call that mutates config (it raced ahead of the gateway
+    // flag listener), publish the config invalidation so any client that already
+    // fetched `GET /v1/config` refreshes its profile picker.
+    // Profiles are reconciled only when flags actually loaded from the gateway:
+    // a failed fetch leaves the cache unset and resolves `os-beta` to its
+    // registry default `false`, which would remove the user's profile and reset
+    // their selection. Tool sync tolerates the default and stays unconditional.
     void initFeatureFlagOverrides()
-      .then(() => syncFlagGatedTools())
+      .then(async (loaded) => {
+        await syncFlagGatedTools();
+        if (loaded && reconcileFlagGatedProfiles()) {
+          publishConfigChanged();
+        }
+      })
       .catch((err) => log.warn({ err }, "Background feature flag init failed"));
 
     startGatewayFlagListener();
@@ -651,21 +664,15 @@ export async function runDaemon(): Promise<void> {
     // Privacy gating: Sentry crash/error reporting follows the platform owner's
     // share_diagnostics consent; the usage telemetry reporter re-checks
     // share_analytics on every flush. Both are disabled in dev mode. Sentry was
-    // initialized early, but beforeSend drops events until consent confirms
-    // opt-in, so pre-config crashes are held back rather than captured.
+    // initialized early, but beforeSend re-reads getCachedShareDiagnostics() on
+    // every event, so it drops events until consent confirms opt-in and honors a
+    // later revocation within one refresh cycle (the cache is refreshed by
+    // startConsentRefresh() below, mirroring the share_analytics posture).
     const isDevMode = process.env.VELLUM_DEV === "1";
     if (isDevMode || config.legacyDiagnosticsOptOut === true) {
       // Dev mode and a preserved legacy local opt-out both disable Sentry
       // unconditionally, without waiting on platform consent.
       await closeSentry();
-    } else {
-      // Fail closed: Sentry events are dropped (beforeSend) until the first
-      // successful consent fetch confirms share_diagnostics opt-in. An absent
-      // session, missing identity, or failed fetch leaves crash reporting off,
-      // mirroring the share_analytics posture. Evaluated once (option 1).
-      onConsentResolved((consent) => {
-        setDiagnosticsConsented(consent.shareDiagnostics);
-      });
     }
 
     // Construct and start the reporter even when usage collection is disabled:

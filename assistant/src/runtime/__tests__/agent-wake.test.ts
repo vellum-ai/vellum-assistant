@@ -1138,6 +1138,52 @@ describe("wakeAgentForOpportunity", () => {
     expect(conversation.isProcessing()).toBe(false);
   });
 
+  test("stamps the resolved call site and override profile during the run, then restores them", async () => {
+    const conversation = makeWakeConversation({
+      baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "reply" }],
+      },
+    });
+
+    // The conversation is pinned to a profile via its row.
+    mockGetConversationOverrideProfile = () => "quality-optimized";
+
+    // The tool executor reads these fields off the conversation at tool-call
+    // time, so they must reflect the wake's resolved turn while the loop runs.
+    const ctx = conversation as unknown as {
+      currentCallSite?: unknown;
+      currentTurnOverrideProfile?: unknown;
+    };
+    let observedCallSite: unknown;
+    let observedOverrideProfile: unknown;
+    const originalRun = conversation.agentLoop.run;
+    conversation.agentLoop.run = async (options: AgentLoopRunOptions) => {
+      observedCallSite = ctx.currentCallSite;
+      observedOverrideProfile = ctx.currentTurnOverrideProfile;
+      return originalRun(options);
+    };
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "x",
+        source: "unit-test",
+        callSite: "heartbeatAgent",
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    // During the run: the wake's call site and the conversation's pinned profile.
+    expect(observedCallSite).toBe("heartbeatAgent");
+    expect(observedOverrideProfile).toBe("quality-optimized");
+
+    // Restored afterwards so a queued user turn / background read can't inherit them.
+    expect(ctx.currentCallSite).toBeUndefined();
+    expect(ctx.currentTurnOverrideProfile).toBeUndefined();
+  });
+
   test("marks processing false even when the agent loop throws", async () => {
     const conversation = makeWakeConversation({
       conversationId: "conv-err-guard",

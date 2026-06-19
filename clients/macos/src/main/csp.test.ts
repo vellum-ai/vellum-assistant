@@ -40,6 +40,11 @@ describe("CSP_POLICY", () => {
     expect(scriptSrc).toContain("'unsafe-inline'");
   });
 
+  test("script-src allows the platform origin for the replay recorder script", () => {
+    const scriptSrc = directiveValue("script-src")!;
+    expect(scriptSrc).toContain("https://*.vellum.ai");
+  });
+
   test("object-src is 'none'", () => {
     expect(directiveValue("object-src")).toBe("'none'");
   });

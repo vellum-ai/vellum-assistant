@@ -46,14 +46,29 @@ mock.module("../util/logger.js", () => ({
 // ---------------------------------------------------------------------------
 
 import {
-  __resetConsentResolutionForTest,
   __setCachedShareAnalyticsForTest,
+  __setCachedShareDiagnosticsForTest,
+  __setCachedShareDiagnosticsVersionForTest,
   getCachedShareAnalytics,
-  onConsentResolved,
+  getCachedShareDiagnostics,
+  getCachedShareDiagnosticsVersion,
   refreshConsentCache,
   startConsentRefresh,
   stopConsentRefresh,
 } from "./consent-cache.js";
+
+/**
+ * Build a mock owner consent. Fields default to `false` so existing
+ * share_analytics-focused cases don't have to spell them out.
+ */
+function makeConsent(overrides: Partial<OwnerConsent> = {}): OwnerConsent {
+  return {
+    shareAnalytics: false,
+    shareDiagnostics: false,
+    shareDiagnosticsAcceptedVersion: "",
+    ...overrides,
+  };
+}
 
 function makeClient(consent: OwnerConsent | null, assistantId = "asst_1") {
   return {
@@ -68,12 +83,12 @@ describe("consent-cache", () => {
     createCallCount = 0;
     mockLegacyTelemetryOptOut = false;
     __setCachedShareAnalyticsForTest(false);
-    __resetConsentResolutionForTest();
+    __setCachedShareDiagnosticsForTest(false);
+    __setCachedShareDiagnosticsVersionForTest("");
   });
 
   afterEach(async () => {
     await stopConsentRefresh();
-    __resetConsentResolutionForTest();
   });
 
   test("defaults to false before any refresh", () => {
@@ -87,13 +102,13 @@ describe("consent-cache", () => {
   });
 
   test("becomes true after a successful fetch reporting shareAnalytics: true", async () => {
-    mockClient = makeClient({ shareAnalytics: true, shareDiagnostics: false });
+    mockClient = makeClient(makeConsent({ shareAnalytics: true }));
     await refreshConsentCache();
     expect(getCachedShareAnalytics()).toBe(true);
   });
 
   test("a null fetch keeps the last known value", async () => {
-    mockClient = makeClient({ shareAnalytics: true, shareDiagnostics: false });
+    mockClient = makeClient(makeConsent({ shareAnalytics: true }));
     await refreshConsentCache();
     expect(getCachedShareAnalytics()).toBe(true);
 
@@ -115,17 +130,14 @@ describe("consent-cache", () => {
     // Identity cleared mid-session (e.g. assistantId emptied while base URL +
     // API key persist). getOwnerConsent must not be relied upon to preserve the
     // prior opt-in here — fail closed instead.
-    mockClient = makeClient(
-      { shareAnalytics: true, shareDiagnostics: false },
-      "",
-    );
+    mockClient = makeClient(makeConsent({ shareAnalytics: true }), "");
     await refreshConsentCache();
     expect(getCachedShareAnalytics()).toBe(false);
   });
 
   test("legacy opt-out marker keeps analytics off despite platform opt-in", async () => {
     mockLegacyTelemetryOptOut = true;
-    mockClient = makeClient({ shareAnalytics: true, shareDiagnostics: false });
+    mockClient = makeClient(makeConsent({ shareAnalytics: true }));
     await refreshConsentCache();
     // Platform reports opt-in, but the fail-closed marker forces off.
     expect(getCachedShareAnalytics()).toBe(false);
@@ -133,13 +145,13 @@ describe("consent-cache", () => {
 
   test("a fetch reporting shareAnalytics: false turns the cache off", async () => {
     __setCachedShareAnalyticsForTest(true);
-    mockClient = makeClient({ shareAnalytics: false, shareDiagnostics: true });
+    mockClient = makeClient(makeConsent({ shareDiagnostics: true }));
     await refreshConsentCache();
     expect(getCachedShareAnalytics()).toBe(false);
   });
 
   test("startConsentRefresh is idempotent and runs an immediate refresh", async () => {
-    mockClient = makeClient({ shareAnalytics: true, shareDiagnostics: false });
+    mockClient = makeClient(makeConsent({ shareAnalytics: true }));
 
     startConsentRefresh();
     startConsentRefresh(); // no-op: timer already running
@@ -155,105 +167,101 @@ describe("consent-cache", () => {
     startConsentRefresh();
     await stopConsentRefresh();
     // A fresh start after stop performs another immediate refresh.
-    mockClient = makeClient({ shareAnalytics: true, shareDiagnostics: false });
+    mockClient = makeClient(makeConsent({ shareAnalytics: true }));
     startConsentRefresh();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(getCachedShareAnalytics()).toBe(true);
   });
-});
 
-describe("onConsentResolved", () => {
-  beforeEach(() => {
+  // share_diagnostics tracks the same refresh as share_analytics; Sentry's
+  // beforeSend re-reads it per event so a revocation is honored within a cycle.
+  test("diagnostics defaults to false before any refresh", () => {
+    expect(getCachedShareDiagnostics()).toBe(false);
+  });
+
+  test("diagnostics becomes true after a fetch reporting shareDiagnostics: true", async () => {
+    mockClient = makeClient(makeConsent({ shareDiagnostics: true }));
+    await refreshConsentCache();
+    expect(getCachedShareDiagnostics()).toBe(true);
+  });
+
+  test("a later fetch reporting shareDiagnostics: false honors the revocation", async () => {
+    mockClient = makeClient(makeConsent({ shareDiagnostics: true }));
+    await refreshConsentCache();
+    expect(getCachedShareDiagnostics()).toBe(true);
+
+    mockClient = makeClient(makeConsent({ shareDiagnostics: false }));
+    await refreshConsentCache();
+    expect(getCachedShareDiagnostics()).toBe(false);
+  });
+
+  test("a null diagnostics fetch keeps the last known value", async () => {
+    mockClient = makeClient(makeConsent({ shareDiagnostics: true }));
+    await refreshConsentCache();
+    expect(getCachedShareDiagnostics()).toBe(true);
+
+    mockClient = makeClient(null);
+    await refreshConsentCache();
+    expect(getCachedShareDiagnostics()).toBe(true);
+  });
+
+  test("a missing client flips a prior diagnostics opt-in back to false", async () => {
+    __setCachedShareDiagnosticsForTest(true);
     mockClient = null;
-    createCallCount = 0;
-    mockLegacyTelemetryOptOut = false;
-    __setCachedShareAnalyticsForTest(false);
-    __resetConsentResolutionForTest();
+    await refreshConsentCache();
+    expect(getCachedShareDiagnostics()).toBe(false);
   });
 
-  afterEach(async () => {
-    await stopConsentRefresh();
-    __resetConsentResolutionForTest();
+  test("a client without a resolvable assistant identity fails diagnostics closed", async () => {
+    __setCachedShareDiagnosticsForTest(true);
+    mockClient = makeClient(makeConsent({ shareDiagnostics: true }), "");
+    await refreshConsentCache();
+    expect(getCachedShareDiagnostics()).toBe(false);
   });
 
-  function setConsent(consent: OwnerConsent | null) {
-    mockClient = makeClient(consent);
-  }
-
-  test("fires once on the first successful fetch with the resolved consent", async () => {
-    const consent: OwnerConsent = {
-      shareAnalytics: true,
-      shareDiagnostics: false,
-    };
-    const received: OwnerConsent[] = [];
-    onConsentResolved((c) => received.push(c));
-
-    setConsent(consent);
+  test("caches the accepted diagnostics-consent version from a successful fetch", async () => {
+    mockClient = makeClient(
+      makeConsent({
+        shareDiagnostics: true,
+        shareDiagnosticsAcceptedVersion: "2026-06-18",
+      }),
+    );
     await refreshConsentCache();
-
-    expect(received).toEqual([consent]);
+    expect(getCachedShareDiagnosticsVersion()).toBe("2026-06-18");
   });
 
-  test("does not fire again on a second successful fetch (one-shot)", async () => {
-    let calls = 0;
-    onConsentResolved(() => {
-      calls += 1;
-    });
-
-    setConsent({ shareAnalytics: true, shareDiagnostics: false });
+  test("a missing client clears a prior cached diagnostics version", async () => {
+    __setCachedShareDiagnosticsVersionForTest("2026-06-18");
+    mockClient = null;
     await refreshConsentCache();
-    setConsent({ shareAnalytics: false, shareDiagnostics: true });
-    await refreshConsentCache();
-
-    expect(calls).toBe(1);
+    expect(getCachedShareDiagnosticsVersion()).toBe("");
   });
 
-  test("a listener registered after resolution fires immediately with the last consent", async () => {
-    const consent: OwnerConsent = {
-      shareAnalytics: false,
-      shareDiagnostics: true,
-    };
-    setConsent(consent);
+  test("a client without a resolvable assistant identity clears the diagnostics version", async () => {
+    __setCachedShareDiagnosticsVersionForTest("2026-06-18");
+    mockClient = makeClient(
+      makeConsent({
+        shareDiagnostics: true,
+        shareDiagnosticsAcceptedVersion: "2026-06-18",
+      }),
+      "",
+    );
     await refreshConsentCache();
-
-    const received: OwnerConsent[] = [];
-    onConsentResolved((c) => received.push(c));
-
-    expect(received).toEqual([consent]);
+    expect(getCachedShareDiagnosticsVersion()).toBe("");
   });
 
-  test("a throwing listener does not starve other listeners", async () => {
-    const received: OwnerConsent[] = [];
-    onConsentResolved(() => {
-      throw new Error("boom");
-    });
-    onConsentResolved((c) => received.push(c));
-
-    const consent: OwnerConsent = {
-      shareAnalytics: true,
-      shareDiagnostics: true,
-    };
-    setConsent(consent);
+  test("a null fetch keeps the last known diagnostics version", async () => {
+    mockClient = makeClient(
+      makeConsent({
+        shareDiagnostics: true,
+        shareDiagnosticsAcceptedVersion: "2026-06-18",
+      }),
+    );
     await refreshConsentCache();
+    expect(getCachedShareDiagnosticsVersion()).toBe("2026-06-18");
 
-    expect(received).toEqual([consent]);
-  });
-
-  test("a null fetch never fires; a later successful fetch does", async () => {
-    const received: OwnerConsent[] = [];
-    onConsentResolved((c) => received.push(c));
-
-    setConsent(null);
+    mockClient = makeClient(null);
     await refreshConsentCache();
-    expect(received).toEqual([]);
-
-    const consent: OwnerConsent = {
-      shareAnalytics: true,
-      shareDiagnostics: true,
-    };
-    setConsent(consent);
-    await refreshConsentCache();
-
-    expect(received).toEqual([consent]);
+    expect(getCachedShareDiagnosticsVersion()).toBe("2026-06-18");
   });
 });

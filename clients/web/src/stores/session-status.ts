@@ -99,6 +99,17 @@ export const hasAppAccess = (s: AppAccessSignals): boolean =>
   s.hasPlatformIdentity || s.canReachSelected;
 
 /**
+ * A platform session a live probe confirmed — `"present"` AND not a believed
+ * offline restore (LUM-2412). Stricter than {@link hasLivePlatformSession}:
+ * telemetry consent gates on this so it never enables on a restored-offline
+ * launch that no live probe has revalidated.
+ */
+export const isConfirmedPlatformSession = (
+  status: PlatformSessionStatus,
+  restoredOffline: boolean,
+): boolean => status === "present" && !restoredOffline;
+
+/**
  * Statuses where the server itself said "no session": allauth's 401 for
  * an unauthenticated probe, a 403, or 410 Gone (session invalidated).
  */

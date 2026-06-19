@@ -17,7 +17,6 @@
 
 import { create } from "zustand";
 
-import { syncDiagnosticsToMain } from "@/runtime/diagnostics";
 import { createSelectors } from "@/utils/create-selectors";
 import {
   getLocalBool,
@@ -75,8 +74,11 @@ const useOnboardingStoreBase = create<OnboardingStore>()((set) => ({
   },
   setShareDiagnostics: (value) => {
     set({ shareDiagnostics: value });
+    // Writes only the saved preference. The effective reporting gate
+    // (`device:diagnostics_reporting`) — which actually drives the Sentry
+    // clients via the `sentry-control.ts` watcher — is written separately by
+    // the consent chokepoint (`setDiagnosticsReportingGate`).
     setLocalBool(KEY_SHARE_DIAGNOSTICS, value);
-    syncDiagnosticsToMain(value);
   },
   setTosAccepted: (value) => {
     set({ tosAccepted: value });

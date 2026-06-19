@@ -44,6 +44,7 @@ import { useActiveAssistantIsPlatformHosted } from "@/hooks/use-platform-gate";
 import { useComposerStore } from "@/domains/chat/composer-store";
 
 import { useConversationLoader } from "@/domains/chat/hooks/use-conversation-loader";
+import { useDraftPersistence } from "@/domains/chat/hooks/use-draft-persistence";
 import { useOnboardingOrchestrator } from "@/domains/chat/hooks/use-onboarding-orchestrator";
 
 import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions";
@@ -193,6 +194,10 @@ export function ActiveChatView() {
       useComposerStore.getState().loadAssistantDrafts(assistantId, prevConvId);
     }
   }, [assistantId]);
+
+  // Persist the composer draft across reloads (debounced autosave + unload
+  // flush) and restore it on cold load.
+  useDraftPersistence();
 
   // Keyboard focus: Electron host focus relay + typing auto-focus.
   useComposerKeyboard(inputRef);

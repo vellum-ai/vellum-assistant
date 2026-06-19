@@ -186,7 +186,11 @@ describe("VellumPlatformClient", () => {
           "https://platform.example.com/v1/assistants/asst-123/owner-consent/",
         );
         return new Response(
-          JSON.stringify({ share_analytics: true, share_diagnostics: false }),
+          JSON.stringify({
+            share_analytics: true,
+            share_diagnostics: false,
+            share_diagnostics_accepted_version: "2026-06-18",
+          }),
           { status: 200 },
         );
       }) as unknown as typeof globalThis.fetch;
@@ -196,6 +200,25 @@ describe("VellumPlatformClient", () => {
       expect(consent).toEqual({
         shareAnalytics: true,
         shareDiagnostics: false,
+        shareDiagnosticsAcceptedVersion: "2026-06-18",
+      });
+    });
+
+    test("defaults shareDiagnosticsAcceptedVersion to '' when the platform omits it (back-compat)", async () => {
+      globalThis.fetch = mock(
+        async () =>
+          new Response(
+            JSON.stringify({ share_analytics: true, share_diagnostics: true }),
+            { status: 200 },
+          ),
+      ) as unknown as typeof globalThis.fetch;
+
+      const client = await VellumPlatformClient.create();
+      const consent = await client!.getOwnerConsent();
+      expect(consent).toEqual({
+        shareAnalytics: true,
+        shareDiagnostics: true,
+        shareDiagnosticsAcceptedVersion: "",
       });
     });
 

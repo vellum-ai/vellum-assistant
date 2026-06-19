@@ -16408,6 +16408,48 @@ paths:
                                 required:
                                   - requestId
                                 additionalProperties: false
+                              pendingQuestion:
+                                type: object
+                                properties:
+                                  requestId:
+                                    type: string
+                                  entries:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        id:
+                                          type: string
+                                        question:
+                                          type: string
+                                        description:
+                                          type: string
+                                        options:
+                                          type: array
+                                          items:
+                                            type: object
+                                            properties:
+                                              id:
+                                                type: string
+                                              label:
+                                                type: string
+                                              description:
+                                                type: string
+                                            required:
+                                              - id
+                                              - label
+                                            additionalProperties: false
+                                        freeTextPlaceholder:
+                                          type: string
+                                      required:
+                                        - id
+                                        - question
+                                        - options
+                                      additionalProperties: false
+                                required:
+                                  - requestId
+                                  - entries
+                                additionalProperties: false
                             required:
                               - name
                               - input
@@ -16795,6 +16837,48 @@ paths:
                                             type: boolean
                                         required:
                                           - requestId
+                                        additionalProperties: false
+                                      pendingQuestion:
+                                        type: object
+                                        properties:
+                                          requestId:
+                                            type: string
+                                          entries:
+                                            type: array
+                                            items:
+                                              type: object
+                                              properties:
+                                                id:
+                                                  type: string
+                                                question:
+                                                  type: string
+                                                description:
+                                                  type: string
+                                                options:
+                                                  type: array
+                                                  items:
+                                                    type: object
+                                                    properties:
+                                                      id:
+                                                        type: string
+                                                      label:
+                                                        type: string
+                                                      description:
+                                                        type: string
+                                                    required:
+                                                      - id
+                                                      - label
+                                                    additionalProperties: false
+                                                freeTextPlaceholder:
+                                                  type: string
+                                              required:
+                                                - id
+                                                - question
+                                                - options
+                                              additionalProperties: false
+                                        required:
+                                          - requestId
+                                          - entries
                                         additionalProperties: false
                                     required:
                                       - name
@@ -19231,9 +19315,37 @@ paths:
                     additionalProperties: {}
                     description: Pending confirmation details or null
                   pendingSecret:
-                    type: object
-                    properties: {}
-                    additionalProperties: {}
+                    anyOf:
+                      - type: object
+                        properties:
+                          requestId:
+                            type: string
+                          service:
+                            type: string
+                          field:
+                            type: string
+                          label:
+                            type: string
+                          description:
+                            type: string
+                          placeholder:
+                            type: string
+                          purpose:
+                            type: string
+                          allowedTools:
+                            type: array
+                            items:
+                              type: string
+                          allowedDomains:
+                            type: array
+                            items:
+                              type: string
+                          allowOneTimeSend:
+                            type: boolean
+                        required:
+                          - requestId
+                        additionalProperties: {}
+                      - type: "null"
                     description: Pending secret request or null
                   interactions:
                     type: array
@@ -28639,6 +28751,14 @@ components:
                               maximum: 2
                             - type: "null"
                         - type: "null"
+                    topP:
+                      anyOf:
+                        - anyOf:
+                            - type: number
+                              minimum: 0
+                              maximum: 1
+                            - type: "null"
+                        - type: "null"
                     thinking:
                       anyOf:
                         - type: object
@@ -28876,6 +28996,14 @@ components:
                   maximum: 2
                 - type: "null"
             - type: "null"
+        topP:
+          anyOf:
+            - anyOf:
+                - type: number
+                  minimum: 0
+                  maximum: 1
+                - type: "null"
+            - type: "null"
         thinking:
           anyOf:
             - type: object
@@ -29068,6 +29196,14 @@ components:
                 - type: number
                   minimum: 0
                   maximum: 2
+                - type: "null"
+            - type: "null"
+        topP:
+          anyOf:
+            - anyOf:
+                - type: number
+                  minimum: 0
+                  maximum: 1
                 - type: "null"
             - type: "null"
         thinking:
@@ -29293,6 +29429,12 @@ components:
                       minimum: 0
                       maximum: 2
                     - type: "null"
+                topP:
+                  anyOf:
+                    - type: number
+                      minimum: 0
+                      maximum: 1
+                    - type: "null"
                 thinking:
                   type: object
                   properties:
@@ -29430,6 +29572,12 @@ components:
                           - type: number
                             minimum: 0
                             maximum: 2
+                          - type: "null"
+                      topP:
+                        anyOf:
+                          - type: number
+                            minimum: 0
+                            maximum: 1
                           - type: "null"
                       thinking:
                         type: object
@@ -29597,6 +29745,12 @@ components:
             - type: number
               minimum: 0
               maximum: 2
+            - type: "null"
+        topP:
+          anyOf:
+            - type: number
+              minimum: 0
+              maximum: 1
             - type: "null"
         thinking:
           type: object

@@ -1,7 +1,29 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
+import { isWeakOpenModel } from "../../../providers/weak-open-model.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
+
+/**
+ * Message shown when a provider has no active connections. Weak open models
+ * loop through redundant discovery commands (channel checks, `oauth providers
+ * get`, loading the OAuth setup skill) before rendering the connect button, so
+ * they get an explicit single next action: render the core `oauth_connect`
+ * surface directly. Capable models keep the terse default.
+ */
+export function noConnectionsMessage(provider: string): string {
+  const base = `No active connections for ${provider}.`;
+  if (isWeakOpenModel(process.env.__RESOLVED_MODEL)) {
+    return (
+      `${base}\nTo let the user connect, render the connect button: call ` +
+      `\`ui_show\` with surface_type "oauth_connect" and ` +
+      `data.providerKey "${provider}". That surface is always available — do ` +
+      `not run further \`oauth\`/\`channels\` commands or load a setup skill ` +
+      `just to display it.\n`
+    );
+  }
+  return `${base}\nConnect with \`assistant oauth connect ${provider}\`.\n`;
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -91,9 +113,7 @@ Examples:
 
           // Text output
           if (connections.length === 0) {
-            process.stdout.write(
-              `No active connections for ${provider}.\nConnect with \`assistant oauth connect ${provider}\`.\n`,
-            );
+            process.stdout.write(noConnectionsMessage(provider));
             return;
           }
 

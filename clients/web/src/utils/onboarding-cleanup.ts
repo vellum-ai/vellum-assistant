@@ -26,11 +26,19 @@
  */
 import { removeLocalSetting, getLocalBool, setLocalBool } from "@/utils/local-settings";
 import { setDeviceBool } from "@/utils/device-settings";
+import { setDiagnosticsReportingGate } from "@/lib/consent/diagnostics-consent";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 import { patchConsent, type UserConsent } from "@/domains/account/profile";
 
 export const TOS_CONSENT_VERSION = "2026-06-08";
-export const PRIVACY_CONSENT_VERSION = "2026-06-08";
+export const PRIVACY_CONSENT_VERSION = "2026-06-18";
+
+// The privacy version that the legacy "ai"-named device key was last written
+// under, before that field was folded into "privacy". Frozen as a literal (not
+// PRIVACY_CONSENT_VERSION) so it keeps pointing at the real legacy key after
+// the privacy version is bumped — letting us recognize and clean up that stale
+// key rather than treating it as current consent.
+const LEGACY_AI_PRIVACY_CONSENT_VERSION = "2026-06-08";
 
 // Version stamp embedded in each field's device-cache key. ToS tracks its own
 // version; the privacy checkbox (privacy policy + AI data sharing) and the two
@@ -46,12 +54,10 @@ function consentKey(field: keyof typeof CONSENT_KEY_VERSION, userId: string): st
   return `device:consent:${field}:v${CONSENT_KEY_VERSION[field]}:${userId}`;
 }
 
-// The previous release stored this consent under a field named "ai" (now folded
-// into "privacy"). Read at the same version the old key was written under so an
-// existing offline user with only the old key migrates cleanly instead of
-// reading privacy=false and being re-routed through onboarding.
+// The previous release stored privacy consent under a field named "ai" (now
+// folded into "privacy"), written under LEGACY_AI_PRIVACY_CONSENT_VERSION.
 function legacyPrivacyConsentKey(userId: string): string {
-  return `device:consent:ai:v${PRIVACY_CONSENT_VERSION}:${userId}`;
+  return `device:consent:ai:v${LEGACY_AI_PRIVACY_CONSENT_VERSION}:${userId}`;
 }
 
 export function restoreConsentForUser(
@@ -64,14 +70,14 @@ export function restoreConsentForUser(
     const analyticsCurrent = getLocalBool(consentKey("share_analytics", userId), false);
     const diagnosticsCurrent = getLocalBool(consentKey("share_diagnostics", userId), false);
     const tos = getLocalBool(consentKey("tos", userId), false);
-    let privacy = getLocalBool(consentKey("privacy", userId), false);
+    const privacy = getLocalBool(consentKey("privacy", userId), false);
 
-    // Migrate the previous version's "ai"-named key into "privacy" so a renamed-
-    // key user isn't read as un-consented (which the empty-server fallback would
-    // turn into an onboarding re-route).
-    if (!privacy && getLocalBool(legacyPrivacyConsentKey(userId), false)) {
-      privacy = true;
-      setLocalBool(consentKey("privacy", userId), true);
+    // The legacy "ai"-named key was written under the previous privacy version,
+    // so it cannot attest to the current one. Never promote it — that would
+    // stamp stale consent as current. Clean it up if present so it doesn't
+    // linger, and leave privacy un-set so the user re-reviews the updated
+    // privacy checkbox.
+    if (getLocalBool(legacyPrivacyConsentKey(userId), false)) {
       removeLocalSetting(legacyPrivacyConsentKey(userId));
     }
 
@@ -79,12 +85,17 @@ export function restoreConsentForUser(
 
     // One-time migration: users who accepted before the per-user device
     // key change still have consent in the legacy vellum: active keys.
-    // Promote to the new keys so they aren't re-prompted.
+    // Promote ToS so they aren't re-prompted — its version is unchanged, so the
+    // legacy acceptance is still current. The legacy privacy key is unversioned
+    // and predates the current privacy version, so promoting it would stamp
+    // stale consent as current (and let the empty-server fallback backfill it)
+    // without showing the updated privacy checkbox. Force privacy through
+    // re-review instead.
     const legacyTos = getLocalBool("vellum:onboarding:tosAccepted", false);
     const legacyPrivacy = getLocalBool("vellum:onboarding:aiDataConsent", false);
     if (legacyTos || legacyPrivacy) {
-      persistConsentForUser(userId, legacyTos, legacyPrivacy);
-      return { tos: legacyTos, privacy: legacyPrivacy, analyticsCurrent, diagnosticsCurrent };
+      persistConsentForUser(userId, legacyTos, false);
+      return { tos: legacyTos, privacy: false, analyticsCurrent, diagnosticsCurrent };
     }
 
     return { tos: false, privacy: false, analyticsCurrent, diagnosticsCurrent };
@@ -216,6 +227,8 @@ export function saveConsent(opts: {
   store.setShareDiagnostics(opts.shareDiagnostics);
   store.setAnalyticsConsentCurrent(true);
   store.setDiagnosticsConsentCurrent(true);
+  // Version is current by construction here, so the gate equals the preference.
+  setDiagnosticsReportingGate(opts.shareDiagnostics);
 
   persistConsentForUser(opts.userId, opts.tos, opts.privacy);
   persistToggleConsent(opts.userId, { analyticsCurrent: true, diagnosticsCurrent: true });
@@ -240,16 +253,31 @@ export function savePreferenceToggle(
 ): void {
   const store = useOnboardingStore.getState();
   const { userId, hasPlatformSession } = opts;
+  // The on/off value is always device-persisted, but the version-currency ack
+  // ("confirmed under the current terms version") is only earned with a live
+  // platform session to record it against — offline it would stamp a currency
+  // the user never reviewed terms for.
   if (field === "share_analytics") {
     store.setShareAnalytics(value);
     setDeviceBool("shareAnalytics", value);
-    store.setAnalyticsConsentCurrent(true);
-    persistToggleConsent(userId, { analyticsCurrent: true });
+    if (hasPlatformSession) {
+      store.setAnalyticsConsentCurrent(true);
+      persistToggleConsent(userId, { analyticsCurrent: true });
+    }
   } else {
     store.setShareDiagnostics(value);
     setDeviceBool("shareDiagnostics", value);
-    store.setDiagnosticsConsentCurrent(true);
-    persistToggleConsent(userId, { diagnosticsCurrent: true });
+    if (hasPlatformSession) {
+      store.setDiagnosticsConsentCurrent(true);
+      // Version is current here (a live session re-stamps it), so the effective
+      // reporting gate equals the preference.
+      setDiagnosticsReportingGate(value);
+      persistToggleConsent(userId, { diagnosticsCurrent: true });
+    } else {
+      // Offline: no version ack is earned, so the effective gate stays closed
+      // regardless of the toggle value until a live session re-confirms.
+      setDiagnosticsReportingGate(false);
+    }
   }
 
   if (hasPlatformSession) {

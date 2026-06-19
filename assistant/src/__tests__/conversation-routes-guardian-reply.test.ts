@@ -222,13 +222,16 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     const routerCall = (routeGuardianReplyMock as any).mock
       .calls[0][0] as Record<string, unknown>;
     expect(routerCall.messageText).toBe("05BECB approve");
-    expect(routerCall.pendingRequestIds).toEqual(["access-req-1"]);
+    expect(routerCall.pendingScope).toEqual({
+      mode: "scoped",
+      requestIds: ["access-req-1"],
+    });
     expect(addMessageMock).toHaveBeenCalledTimes(2);
     expect(persistUserMessage).toHaveBeenCalledTimes(0);
     expect(runAgentLoop).toHaveBeenCalledTimes(0);
   });
 
-  test("passes empty pendingRequestIds array when no canonical hints are found", async () => {
+  test("passes a blocked scope when no canonical hints are found", async () => {
     listPendingByDestinationMock.mockReturnValue([]);
     listCanonicalMock.mockReturnValue([]);
     routeGuardianReplyMock.mockResolvedValue({
@@ -301,7 +304,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
     const routerCall = (routeGuardianReplyMock as any).mock
       .calls[0][0] as Record<string, unknown>;
-    expect(routerCall.pendingRequestIds).toEqual([]);
+    expect(routerCall.pendingScope).toEqual({ mode: "blocked" });
     expect(persistUserMessage).toHaveBeenCalledTimes(1);
     expect(runAgentLoop).toHaveBeenCalledTimes(1);
   });
@@ -384,15 +387,15 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
     const routerCall = (routeGuardianReplyMock as any).mock
       .calls[0][0] as Record<string, unknown>;
-    expect(routerCall.pendingRequestIds).toEqual([
-      "tool-approval-live",
-      "access-req-1",
-    ]);
-    expect(
-      (routerCall.pendingRequestIds as string[]).includes(
-        "tool-approval-stale",
-      ),
-    ).toBe(false);
+    const scope = routerCall.pendingScope as {
+      mode: string;
+      requestIds: string[];
+    };
+    expect(scope).toEqual({
+      mode: "scoped",
+      requestIds: ["tool-approval-live", "access-req-1"],
+    });
+    expect(scope.requestIds.includes("tool-approval-stale")).toBe(false);
   });
 
   test("text fallback: request-code approve routes through guardian reply router", async () => {

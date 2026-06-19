@@ -7,16 +7,8 @@ import {
   getPlatformUserId,
   getSentryDsn,
 } from "./config/env.js";
+import { getCachedShareDiagnostics } from "./platform/consent-cache.js";
 import { APP_VERSION, COMMIT_SHA } from "./version.js";
-
-// Fail closed: drop all Sentry events until a successful platform consent fetch
-// confirms share_diagnostics opt-in (set via setDiagnosticsConsented).
-let diagnosticsConsented = false;
-
-/** Gate Sentry event delivery on the platform share_diagnostics consent. */
-export function setDiagnosticsConsented(consented: boolean): void {
-  diagnosticsConsented = consented;
-}
 
 /** Patterns that match sensitive data in Sentry event values. */
 const PII_PATTERNS = [
@@ -52,7 +44,8 @@ function redactObject(obj: unknown): unknown {
  * Initializes Sentry when the DSN is set; no-ops when empty/unset so
  * local dev builds don't send crash reports. Events are dropped by
  * beforeSend until the platform share_diagnostics consent confirms opt-in
- * (see setDiagnosticsConsented); VELLUM_DEV=1 and legacyDiagnosticsOptOut
+ * (re-read from the consent cache per event, so a revocation takes effect
+ * within one refresh cycle); VELLUM_DEV=1 and legacyDiagnosticsOptOut
  * hard-disable via closeSentry() after config loads.
  */
 export function initSentry(): void {
@@ -95,7 +88,7 @@ export function initSentry(): void {
       },
     },
     beforeSend(event) {
-      if (!diagnosticsConsented) return null;
+      if (!getCachedShareDiagnostics()) return null;
       if (event.exception?.values) {
         event.exception.values = event.exception.values.map((ex) => ({
           ...ex,

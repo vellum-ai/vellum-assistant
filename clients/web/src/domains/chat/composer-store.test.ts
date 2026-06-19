@@ -237,6 +237,65 @@ describe("saveDraft and clearDraft", () => {
 });
 
 // ---------------------------------------------------------------------------
+// restoreDraftIfEmpty — cold-load restore (page reload)
+// ---------------------------------------------------------------------------
+
+describe("restoreDraftIfEmpty", () => {
+  beforeEach(() => {
+    getStore().setInput("");
+    getStore().clearRestoredDraftNotice();
+  });
+
+  test("restores a saved draft into an empty composer and fires the notice", () => {
+    getStore().loadAssistantDrafts("assistant-1");
+    getStore().saveDraft("conv-A", "recovered text");
+    getStore().setInput("");
+
+    getStore().restoreDraftIfEmpty("conv-A");
+
+    expect(getStore().input).toBe("recovered text");
+    expect(getStore().restoredDraftConversationId).toBe("conv-A");
+  });
+
+  test("does not clobber existing composer text (e.g. deep-link prefill)", () => {
+    getStore().loadAssistantDrafts("assistant-1");
+    getStore().saveDraft("conv-A", "saved draft");
+    getStore().setInput("user is mid-sentence");
+
+    getStore().restoreDraftIfEmpty("conv-A");
+
+    expect(getStore().input).toBe("user is mid-sentence");
+    expect(getStore().restoredDraftConversationId).toBeNull();
+  });
+
+  test("no-op when there is no saved draft for the key", () => {
+    getStore().loadAssistantDrafts("assistant-1");
+    getStore().setInput("");
+
+    getStore().restoreDraftIfEmpty("conv-unknown");
+
+    expect(getStore().input).toBe("");
+    expect(getStore().restoredDraftConversationId).toBeNull();
+  });
+
+  test("does not restore a whitespace-only stored draft", () => {
+    // Inject a whitespace-only draft directly into the persisted blob so the
+    // trim guard is exercised (saveDraft itself never stores whitespace).
+    localSettingsStore.set(
+      "vellum:chatDrafts:assistant-1",
+      JSON.stringify({ "conv-A": "   " }),
+    );
+    getStore().loadAssistantDrafts("assistant-1");
+    getStore().setInput("");
+
+    getStore().restoreDraftIfEmpty("conv-A");
+
+    expect(getStore().input).toBe("");
+    expect(getStore().restoredDraftConversationId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Attachment lifecycle basics
 // ---------------------------------------------------------------------------
 

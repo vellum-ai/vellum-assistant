@@ -196,6 +196,12 @@ const updateConfigCalls: Array<{ maxInputTokens?: number }> = [];
 
 mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   ContextWindowManager: class {
+    estimateInputTokens() {
+      return 0;
+    }
+    get tokenCountInputs() {
+      return { systemPrompt: "", tools: undefined };
+    }
     nonPersistedPrefixCount = 0;
     constructor() {}
     updateConfig(cfg: { maxInputTokens?: number }) {

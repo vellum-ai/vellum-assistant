@@ -13,6 +13,7 @@ interface ClientEntryJSON {
   machineName?: string;
   connectedAt: string;
   lastActiveAt: string;
+  degraded?: boolean;
 }
 
 interface ListClientsResponse {
@@ -111,6 +112,7 @@ Examples:
           "LABEL",
           "CONNECTED",
           "LAST ACTIVE",
+          "STATUS",
         ];
         const rows: string[][] = entries.map((e: ClientEntryJSON) => [
           e.clientId,
@@ -119,6 +121,7 @@ Examples:
           e.machineName ?? "—",
           formatRelativeTime(e.connectedAt),
           formatRelativeTime(e.lastActiveAt),
+          e.degraded ? "degraded" : "—",
         ]);
 
         // Calculate column widths

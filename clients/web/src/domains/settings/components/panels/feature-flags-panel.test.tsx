@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import * as gatewaySdk from "@/generated/gateway/sdk.gen";
 
 // Regression test for the bug where assistant-scoped flag toggles never
 // persisted: the panel read the active assistant id from the platform
@@ -21,6 +22,15 @@ const getMock = mock((_request: unknown) =>
 
 mock.module("@/generated/api/client.gen", () => ({
   client: { patch: patchMock, get: getMock },
+}));
+
+// Assistant-scoped flag writes route through the gateway client
+// (`assistantFeatureFlagsPatch`), so the toggle's PATCH lands here, not on
+// the platform client above. Spread the real module so the read-query path
+// (`assistantFeatureFlagsGet`, used by the flag-sync hook) keeps working.
+mock.module("@/generated/gateway/sdk.gen", () => ({
+  ...gatewaySdk,
+  assistantFeatureFlagsPatch: patchMock,
 }));
 
 mock.module("@/assistant/use-active-assistant-id", () => ({
@@ -78,7 +88,7 @@ describe("FeatureFlagsPanel", () => {
 
     const request = patchMock.mock.calls[0]?.[0];
     expect(request).toMatchObject({
-      url: "/v1/assistants/assistant-1/feature-flags/voice-mode",
+      path: { assistant_id: "assistant-1", flag_key: "voice-mode" },
       body: { enabled: true },
       throwOnError: false,
     });

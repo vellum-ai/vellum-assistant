@@ -18,6 +18,8 @@ export function handleSecretRequest(
   useInteractionStore.getState().showSecret({
     requestId: event.requestId,
     label: event.label,
+    service: event.service,
+    field: event.field,
     description: event.description,
     placeholder: event.placeholder,
     allowOneTimeSend: event.allowOneTimeSend,

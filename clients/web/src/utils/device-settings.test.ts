@@ -70,6 +70,13 @@ describe("getDeviceBool", () => {
     localStorage.setItem("vellum_share_analytics", "false");
     expect(getDeviceBool("shareAnalytics", false)).toBe(true);
   });
+
+  test("never reads a legacy fallback for a legacy-less setting", () => {
+    // diagnosticsReporting was born post-migration: it has no legacy key,
+    // so a stray vellum_diagnostics_reporting value must not leak through.
+    localStorage.setItem("vellum_diagnostics_reporting", "true");
+    expect(getDeviceBool("diagnosticsReporting", false)).toBe(false);
+  });
 });
 
 describe("migrateDeviceSettings", () => {
@@ -134,6 +141,15 @@ describe("migrateDeviceSettings", () => {
 
     expect(localStorage.getItem("device:theme")).toBeNull();
     expect(localStorage.length).toBe(0);
+  });
+
+  test("leaves a legacy-less setting alone (no legacy key to migrate)", () => {
+    localStorage.setItem("vellum_diagnostics_reporting", "true");
+
+    migrateDeviceSettings();
+
+    expect(localStorage.getItem("vellum_diagnostics_reporting")).toBe("true");
+    expect(localStorage.getItem("device:diagnostics_reporting")).toBeNull();
   });
 
   test("preserves legacy key when storage write fails", () => {

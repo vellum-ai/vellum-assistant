@@ -12,6 +12,7 @@ export interface ProfileParamVisibility {
   speed: boolean;
   verbosity: boolean;
   temperature: boolean;
+  topP: boolean;
   thinking: boolean;
   /** Gemini's reasoning-depth knob (`thinking.level`). Distinct from `thinking`
    * (Anthropic/OpenRouter enable + stream toggles) — Gemini uses a level. */
@@ -25,6 +26,7 @@ export const VISIBILITY_NONE: ProfileParamVisibility = {
   speed: false,
   verbosity: false,
   temperature: false,
+  topP: false,
   thinking: false,
   thinkingLevel: false,
 };
@@ -134,6 +136,31 @@ function supportsEffort(provider: string, modelId: string, supportsThinking: boo
   return false;
 }
 
+// Native `openai` is intentionally excluded: it uses the Responses API, which
+// doesn't forward sampling params — reasoning models reject `top_p`/`temperature`
+// with HTTP 400, and resolved `effort` defaults to a reasoning effort, so the
+// control would silently no-op. This mirrors how `temperature` is gated to the
+// Anthropic wire only. OpenAI-compatible connections use the chat-completions
+// client, which forwards `top_p`.
+const TOP_P_OPENAI_COMPAT_PROVIDERS = new Set([
+  "openai-compatible",
+  "fireworks",
+  "minimax",
+  "atlascloud",
+  "ollama",
+  "openrouter",
+]);
+
+/**
+ * `topP` is gated to providers whose clients actually forward it: the Anthropic
+ * wire and OpenAI-compatible providers (which use the chat-completions client).
+ * Native `openai` (Responses API) and Gemini are excluded — neither forwards
+ * `top_p`.
+ */
+function supportsTopP(providerId: string, usesAnthropicWire: boolean): boolean {
+  return usesAnthropicWire || TOP_P_OPENAI_COMPAT_PROVIDERS.has(providerId);
+}
+
 export function resolveProfileParamVisibility(
   provider: string,
   model: string,
@@ -153,6 +180,7 @@ export function resolveProfileParamVisibility(
     speed: providerId === "anthropic" && modelId.includes("opus"),
     verbosity: providerId === "openai" && isOpenAIGPT5Family(modelId),
     temperature: usesAnthropicWire,
+    topP: supportsTopP(providerId, usesAnthropicWire),
     thinking:
       (providerId === "anthropic" || providerId === "openrouter") &&
       supportsThinkingResult &&
