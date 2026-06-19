@@ -273,6 +273,23 @@ describe("title-generate stop hook", () => {
     });
   });
 
+  test("preserves the third-turn retitle when the title is still replaceable", async () => {
+    mockGetConversation.mockReturnValueOnce({
+      title: "Untitled Conversation",
+      isAutoTitle: 2,
+      conversationType: "standard",
+    });
+    const ctx = makeStopCtx({ messages: historyWithUserTurns(3) });
+
+    await stop(ctx);
+    await flushMacrotasks();
+
+    expect(queueRegenerateConversationTitleMock).toHaveBeenCalledTimes(1);
+    const call = queueRegenerateConversationTitleMock.mock.calls[0]?.[0];
+    expect(call?.conversationId).toBe("conv-1");
+    expect(call).not.toHaveProperty("onlyIfReplaceable");
+  });
+
   test("fallback title retry is not blocked by the retitling opt-out", async () => {
     skipAutoRetitling = true;
     mockGetConversation.mockReturnValueOnce({

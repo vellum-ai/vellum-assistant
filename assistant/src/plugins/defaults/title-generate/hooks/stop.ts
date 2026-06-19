@@ -90,6 +90,22 @@ const stop: PluginHookFn<StopContext> = async (ctx) => {
     // Fall through to queueing.
   }
 
+  if (
+    userTurns === SECOND_PASS_USER_TURN &&
+    !getConfig().conversations.skipAutoRetitling
+  ) {
+    const { conversationId } = ctx;
+    // Deferred to a later macrotask so the just-completed turn's persistence
+    // settles first. The service regenerates from the most recent stored
+    // messages, so it must run after the reply is persisted to reflect it. The
+    // service is itself fire-and-forget and re-checks replaceability, owning
+    // provider resolution, persistence, and the resulting broadcast.
+    setTimeout(() => {
+      queueRegenerateConversationTitle({ conversationId });
+    }, 0);
+    return;
+  }
+
   if (retryFallbackTitle) {
     const { conversationId } = ctx;
     setTimeout(() => {
@@ -100,20 +116,6 @@ const stop: PluginHookFn<StopContext> = async (ctx) => {
     }, 0);
     return;
   }
-
-  if (getConfig().conversations.skipAutoRetitling) return;
-
-  if (userTurns !== SECOND_PASS_USER_TURN) return;
-
-  const { conversationId } = ctx;
-  // Deferred to a later macrotask so the just-completed turn's persistence
-  // settles first. The service regenerates from the most recent stored
-  // messages, so it must run after the reply is persisted to reflect it. The
-  // service is itself fire-and-forget and re-checks replaceability, owning
-  // provider resolution, persistence, and the resulting broadcast.
-  setTimeout(() => {
-    queueRegenerateConversationTitle({ conversationId });
-  }, 0);
 };
 
 export default stop;
