@@ -391,6 +391,17 @@ export type AgentEvent =
        */
       type: "agent_loop_exit";
       reason: AgentLoopExitReason;
+    }
+  | {
+      /**
+       * Emitted when the `pre-model-call` hook chain mutates the system
+       * prompt for the current call — i.e. `finalPreModelCtx.systemPrompt`
+       * differs from the value the loop handed the hook. Carries the
+       * post-hook string so consumers can observe exactly what the provider
+       * received.
+       */
+      type: "system_prompt_changed";
+      systemPrompt: string;
     };
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
@@ -1516,6 +1527,21 @@ export class AgentLoop {
             HOOKS.PRE_MODEL_CALL,
             preModelCtx,
           );
+          // Emit a changed event when the hook mutated the prompt. Compare
+          // against the pre-hook value from providerOptions, not
+          // preModelCtx — the hook may mutate the context object in place,
+          // which would make preModelCtx.systemPrompt already reflect the
+          // change and hide the diff.
+          const preHookSystemPrompt = providerOptions.systemPrompt ?? null;
+          if (
+            typeof finalPreModelCtx.systemPrompt === "string" &&
+            finalPreModelCtx.systemPrompt !== preHookSystemPrompt
+          ) {
+            await onEvent({
+              type: "system_prompt_changed",
+              systemPrompt: finalPreModelCtx.systemPrompt,
+            });
+          }
           // Push the post-hook prompt into the owning Conversation so the
           // compactor's next mid-loop estimate picks it up. Only on the main
           // agent's turn: the compactor is gated to run only for `mainAgent`,

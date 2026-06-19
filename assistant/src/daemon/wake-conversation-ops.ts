@@ -147,6 +147,7 @@ function translateAgentEventToServerMessage(
     case "compaction_completed":
     case "history_stripped":
     case "agent_loop_exit":
+    case "system_prompt_changed":
       return null;
     case "llm_call_started":
       // The wake path persists its assistant tail via

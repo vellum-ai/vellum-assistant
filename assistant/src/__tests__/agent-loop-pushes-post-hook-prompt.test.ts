@@ -27,7 +27,12 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
-// Mock plugin pipeline: returns whatever the per-test hook stub produces.
+// Mock plugin pipeline. Two modes:
+//  - return mode (default): returns `hookResponse` as the hook result.
+//  - in-place mode: mutates ctx.systemPrompt directly and returns the same
+//    object, simulating a hook that edits the context without returning a
+//    new value — the scenario that requires comparing against
+//    providerOptions.systemPrompt, not preModelCtx.systemPrompt.
 type PreModelCallCtx = {
   conversationId: string;
   callSite: string | null;
@@ -45,11 +50,18 @@ let hookResponse: PreModelCallCtx = {
   deferAssistantOutput: false,
   logger: {},
 };
+let hookMutatesInPlace = false;
 mock.module("../plugins/pipeline.js", () => ({
   runHook: async (
     _hook: unknown,
-    _ctx: PreModelCallCtx,
-  ): Promise<PreModelCallCtx> => hookResponse,
+    ctx: PreModelCallCtx,
+  ): Promise<PreModelCallCtx> => {
+    if (hookMutatesInPlace) {
+      ctx.systemPrompt = hookResponse.systemPrompt;
+      return ctx;
+    }
+    return hookResponse;
+  },
 }));
 
 // Minimal `getConfig` so the loop's defaults/loader path doesn't trip.
@@ -85,6 +97,7 @@ function setLlmConfig(raw: unknown): void {
 
 beforeEach(() => {
   mockLlmConfig = LLMSchema.parse({}) as Record<string, unknown>;
+  hookMutatesInPlace = false;
   hookResponse = {
     conversationId: "test-conv",
     callSite: "mainAgent",
@@ -273,5 +286,179 @@ describe("AgentLoop.systemPromptUpdated pushback", () => {
     // on the conversation side. Verify the forward happens (the test for
     // equality-based no-opping lives on the conversation).
     expect(capturedPrompts).toEqual(["UNTOUCHED-PROMPT"]);
+  });
+});
+
+describe("AgentLoop system_prompt_changed event", () => {
+  test("fires when the hook mutates the prompt on mainAgent", async () => {
+    setLlmConfig({
+      default: { provider: "anthropic", model: "mock-model" },
+    });
+
+    const mutatedPrompt = "BASELINE\n\n<!-- advisor:steering -->";
+    hookResponse = {
+      conversationId: "test-conv",
+      callSite: "mainAgent",
+      systemPrompt: mutatedPrompt,
+      modelProfile: null,
+      deferAssistantOutput: false,
+      logger: {},
+    };
+
+    const { provider } = makeRecordingProvider();
+    const events: AgentEvent[] = [];
+
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "BASELINE",
+      config: {},
+      conversationId: "test-conv",
+    });
+
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: (e) => {
+        events.push(e);
+      },
+      trust,
+      callSite: "mainAgent",
+    });
+
+    const changedEvents = events.filter(
+      (e) => e.type === "system_prompt_changed",
+    );
+    expect(changedEvents).toHaveLength(1);
+    expect(changedEvents[0].systemPrompt).toBe(mutatedPrompt);
+  });
+
+  test("fires on non-mainAgent call sites too", async () => {
+    setLlmConfig({
+      default: { provider: "anthropic", model: "mock-model" },
+    });
+
+    hookResponse = {
+      conversationId: "test-conv",
+      callSite: "subagentSpawn",
+      systemPrompt: "MUTATED-BY-HOOK",
+      modelProfile: null,
+      deferAssistantOutput: false,
+      logger: {},
+    };
+
+    const { provider } = makeRecordingProvider();
+    const events: AgentEvent[] = [];
+
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "BASELINE",
+      config: {},
+      conversationId: "test-conv",
+    });
+
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: (e) => {
+        events.push(e);
+      },
+      trust,
+      callSite: "subagentSpawn",
+    });
+
+    const changedEvents = events.filter(
+      (e) => e.type === "system_prompt_changed",
+    );
+    expect(changedEvents).toHaveLength(1);
+    expect(changedEvents[0].systemPrompt).toBe("MUTATED-BY-HOOK");
+  });
+
+  test("does not fire when hook returns the same prompt", async () => {
+    setLlmConfig({
+      default: { provider: "anthropic", model: "mock-model" },
+    });
+
+    hookResponse = {
+      conversationId: "test-conv",
+      callSite: "mainAgent",
+      systemPrompt: "SAME-PROMPT",
+      modelProfile: null,
+      deferAssistantOutput: false,
+      logger: {},
+    };
+
+    const { provider } = makeRecordingProvider();
+    const events: AgentEvent[] = [];
+
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "SAME-PROMPT",
+      config: {},
+      conversationId: "test-conv",
+    });
+
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: (e) => {
+        events.push(e);
+      },
+      trust,
+      callSite: "mainAgent",
+    });
+
+    const changedEvents = events.filter(
+      (e) => e.type === "system_prompt_changed",
+    );
+    expect(changedEvents).toHaveLength(0);
+  });
+
+  test("fires when the hook mutates ctx.systemPrompt in place", async () => {
+    setLlmConfig({
+      default: { provider: "anthropic", model: "mock-model" },
+    });
+
+    // In-place mode: the mock mutates ctx.systemPrompt directly and
+    // returns the same object reference. The old comparison against
+    // preModelCtx.systemPrompt would miss this because preModelCtx IS
+    // the mutated object. Comparing against providerOptions.systemPrompt
+    // (captured pre-hook) catches it.
+    hookMutatesInPlace = true;
+    hookResponse = {
+      conversationId: "test-conv",
+      callSite: "mainAgent",
+      systemPrompt: "BASELINE\n\n<!-- advisor:steering -->",
+      modelProfile: null,
+      deferAssistantOutput: false,
+      logger: {},
+    };
+
+    const { provider } = makeRecordingProvider();
+    const events: AgentEvent[] = [];
+
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "BASELINE",
+      config: {},
+      conversationId: "test-conv",
+    });
+
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: (e) => {
+        events.push(e);
+      },
+      trust,
+      callSite: "mainAgent",
+    });
+
+    const changedEvents = events.filter(
+      (e) => e.type === "system_prompt_changed",
+    );
+    expect(changedEvents).toHaveLength(1);
+    expect(changedEvents[0].systemPrompt).toBe(
+      "BASELINE\n\n<!-- advisor:steering -->",
+    );
   });
 });
