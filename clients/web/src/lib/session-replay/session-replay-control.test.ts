@@ -90,11 +90,17 @@ const {
   installSessionReplayControlListeners,
 } = await import("@/lib/session-replay/session-replay-control");
 
+const NETWORK = {
+  requestSanitizer: <T>(r: T) => r,
+  responseSanitizer: <T>(r: T) => r,
+  isEnabled: true,
+};
 const CONFIG = {
   appId: "app-123",
   surface: "web" as const,
   environment: "test",
   release: "1.2.3",
+  network: NETWORK,
 };
 
 function authState(over: Partial<MockAuthState> = {}): MockAuthState {
@@ -138,6 +144,7 @@ describe("syncSessionReplay", () => {
       environment: "test",
       release: "1.2.3",
       surface: "web",
+      network: NETWORK,
     });
     expect(stopMock).not.toHaveBeenCalled();
   });

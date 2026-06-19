@@ -7,12 +7,16 @@
  * provider replaces `noopProvider`.
  */
 
+import type { SessionReplayNetworkConfig } from "@/lib/session-replay/network-sanitize";
+
 export type SessionReplaySurface = "web" | "macos" | "ios";
 
 export interface SessionReplayInitOptions {
   environment: string;
   release?: string;
   surface: SessionReplaySurface;
+  /** Request/response sanitizers a real provider forwards to the SDK's `network` config. */
+  network: SessionReplayNetworkConfig;
 }
 
 /** Metadata about the authenticated platform user attached to a recording. */
