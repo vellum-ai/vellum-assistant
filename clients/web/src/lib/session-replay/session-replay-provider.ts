@@ -4,16 +4,19 @@
  * active SDK can be swapped by changing the `provider` binding — no caller
  * changes.
  */
-// Session-replay vendor SDK. Referenced only through the neutral `replaySdk`
-// alias below so the vendor name stays out of shipped code and proxied URLs
-// (it's pattern-matched by ad-blockers — the whole reason we proxy first-party).
-import replaySdk from "logrocket";
-
 import type { SessionReplayNetworkConfig } from "@/lib/session-replay/network-sanitize";
+
+// Type-only handle to the vendor SDK. The runtime module is loaded lazily (see
+// `init`) — never statically imported, because the SDK eagerly appends its
+// recorder <script> at module-evaluation time, which would fetch the recorder
+// from the vendor's default CDN at app startup (before consent and bypassing
+// our first-party proxy). The `logrocket` name is otherwise kept out of shipped
+// code so ad-blockers can't pattern-match it.
+type ReplaySdk = typeof import("logrocket");
 
 /** The SDK's `network` option type, derived from the SDK's own init signature. */
 type SdkNetworkOption = NonNullable<
-  Parameters<typeof replaySdk.init>[1]
+  Parameters<ReplaySdk["init"]>[1]
 >["network"];
 
 export type SessionReplaySurface = "web" | "macos" | "ios";
@@ -75,28 +78,47 @@ export interface SessionReplayProvider {
  */
 const replayProvider: SessionReplayProvider = (() => {
   let active = false;
-  // `replaySdk.init` is one-shot — re-running it can't cleanly re-init the
-  // recorder, so a revoke→re-grant within a page must not call it again.
+  // The SDK is loaded once; re-running its `init` can't cleanly re-init the
+  // recorder, so a revoke→re-grant within a page must not load/init it again.
   let started = false;
+  // Resolved SDK once the lazy import completes; until then `identify` calls
+  // queue in `pendingIdentify` (latest wins) and flush on load.
+  let sdk: ReplaySdk | null = null;
+  let pendingIdentify: { uid: string; traits: Record<string, string> } | null =
+    null;
+
   return {
     init(appId, options) {
       if (!started) {
-        // Must be set before init so the SDK loads the recorder from our proxy.
-        window._lrAsyncScript = `${options.base}/_sr/cdn/logger.min.js`;
-        replaySdk.init(appId, {
-          serverURL: `${options.base}/_sr/ingest/i`,
-          release: options.release,
-          // Share the recording session across Vellum subdomains.
-          rootHostname: import.meta.env.VITE_ROOT_HOSTNAME ?? ".vellum.ai",
-          // Live consent gate: evaluated before every upload, so a mid-session
-          // opt-out halts ingestion immediately rather than at next reload.
-          shouldSendData: options.shouldSendData,
-          // SessionReplayNetworkConfig mirrors the SDK's `network` option; the
-          // sanitizers spread-preserve SDK-private fields (e.g. reqId), so this
-          // structural cast across the seam is safe.
-          network: options.network as SdkNetworkOption,
-        });
         started = true;
+        // Set before the SDK module evaluates: its eager loader appends the
+        // recorder <script> reading `window._lrAsyncScript`, so this points it
+        // at our first-party proxy instead of the vendor CDN.
+        window._lrAsyncScript = `${options.base}/_sr/cdn/logger.min.js`;
+        // Lazy import so the eager recorder load happens only here (consent
+        // confirmed), never at app startup. See the `ReplaySdk` type note.
+        void import("logrocket").then((mod) => {
+          // `logrocket` is CJS (`export = `); the interop default holds the SDK.
+          const replaySdk = (mod as { default: ReplaySdk }).default;
+          replaySdk.init(appId, {
+            serverURL: `${options.base}/_sr/ingest/i`,
+            release: options.release,
+            // Share the recording session across Vellum subdomains.
+            rootHostname: import.meta.env.VITE_ROOT_HOSTNAME ?? ".vellum.ai",
+            // Live consent gate: evaluated before every upload, so a mid-session
+            // opt-out halts ingestion immediately rather than at next reload.
+            shouldSendData: options.shouldSendData,
+            // SessionReplayNetworkConfig mirrors the SDK's `network` option; the
+            // sanitizers spread-preserve SDK-private fields (e.g. reqId), so this
+            // structural cast across the seam is safe.
+            network: options.network as SdkNetworkOption,
+          });
+          sdk = replaySdk;
+          if (pendingIdentify) {
+            replaySdk.identify(pendingIdentify.uid, pendingIdentify.traits);
+            pendingIdentify = null;
+          }
+        });
       }
       active = true;
       if (import.meta.env.DEV) {
@@ -112,7 +134,9 @@ const replayProvider: SessionReplayProvider = (() => {
       if (traits.name) userTraits.name = traits.name;
       if (traits.email) userTraits.email = traits.email;
       if (traits.username) userTraits.username = traits.username;
-      replaySdk.identify(uid, userTraits);
+      // Queue until the lazy SDK import resolves, then dispatch directly.
+      if (sdk) sdk.identify(uid, userTraits);
+      else pendingIdentify = { uid, traits: userTraits };
       if (import.meta.env.DEV) {
         console.debug("[session-replay] identify", {
           uid,

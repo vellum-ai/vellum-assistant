@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Mock the vendor SDK so we can assert how the provider drives it without
-// loading the real recorder.
+// loading the real recorder. The provider imports it lazily (dynamic import),
+// which mock.module intercepts the same as a static import.
 const initMock = mock((_appId: string, _options: Record<string, unknown>) => {});
 const identifyMock = mock(
   (_uid: string, _traits: Record<string, string>) => {},
@@ -21,15 +22,18 @@ const NETWORK = {
   isEnabled: true,
 };
 
+/** Drain microtasks so the provider's lazy `import("logrocket")` resolves. */
+const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
 beforeEach(() => {
   initMock.mockClear();
   identifyMock.mockClear();
 });
 
-// The provider is a module singleton with one-shot init, so these tests run as
-// an ordered sequence: the first `init` primes the SDK for the rest.
-describe("replay provider (first-party proxy, singleton lifecycle)", () => {
-  test("init points recorder + ingest at our origin and wires the consent gate", () => {
+// The provider is a module singleton that lazily loads the SDK once, so these
+// tests run as an ordered sequence: the first `init` loads + primes it.
+describe("replay provider (first-party proxy, lazy load)", () => {
+  test("defers the SDK load, then forwards proxied config + queued identify", async () => {
     let consent = true;
     provider.init("app-123", {
       environment: "test",
@@ -40,30 +44,48 @@ describe("replay provider (first-party proxy, singleton lifecycle)", () => {
       network: NETWORK,
     });
 
-    // Recorder script served first-party (set before init).
+    // Recorder URL is set synchronously, pointing at our first-party proxy.
     expect(window._lrAsyncScript).toBe(`${BASE}/_sr/cdn/logger.min.js`);
+    expect(provider.isActive()).toBe(true);
 
-    // Ingest routed through our proxy; no vendor host leaks.
+    // identify before the lazy import resolves must queue, not throw.
+    provider.identify("u1", {
+      name: "Alice Smith",
+      email: "alice@example.com",
+      surface: "web",
+    });
+
+    // Nothing touches the SDK synchronously — the import is deferred so the
+    // recorder never loads at app startup (regression guard for the P1).
+    expect(initMock).not.toHaveBeenCalled();
+    expect(identifyMock).not.toHaveBeenCalled();
+
+    await flush();
+
+    // SDK init forwarded our proxied config.
     expect(initMock).toHaveBeenCalledTimes(1);
     const [appId, options] = initMock.mock.calls[0]!;
     expect(appId).toBe("app-123");
     expect(options.serverURL).toBe(`${BASE}/_sr/ingest/i`);
     expect(options.release).toBe("1.2.3");
-    // Defaults to the apex root hostname when VITE_ROOT_HOSTNAME is unset.
     expect(options.rootHostname).toBe(".vellum.ai");
-    // Network sanitizers are forwarded to the SDK's network config.
     expect(options.network).toBe(NETWORK);
-    expect(provider.isActive()).toBe(true);
 
-    // The SDK re-checks shouldSendData before every upload, so a mid-session
-    // revoke halts ingestion live rather than at next reload.
+    // shouldSendData reflects live consent, re-checked before every upload.
     const shouldSendData = options.shouldSendData as () => boolean;
     expect(shouldSendData()).toBe(true);
     consent = false;
     expect(shouldSendData()).toBe(false);
+
+    // The queued identify flushes once the SDK is loaded.
+    expect(identifyMock).toHaveBeenCalledWith("u1", {
+      surface: "web",
+      name: "Alice Smith",
+      email: "alice@example.com",
+    });
   });
 
-  test("init is one-shot: a revoke→re-grant within a page does not re-init", () => {
+  test("init is one-shot: a revoke→re-grant within a page does not reload", async () => {
     provider.stop();
     expect(provider.isActive()).toBe(false);
 
@@ -74,25 +96,19 @@ describe("replay provider (first-party proxy, singleton lifecycle)", () => {
       shouldSendData: () => true,
       network: NETWORK,
     });
+    await flush();
 
-    // Re-running init must not call the SDK again — the recorder can't be
-    // cleanly re-init'd mid-page; consent gating is what (un)pauses uploads.
+    // Already loaded — must not import/init the SDK again.
     expect(initMock).not.toHaveBeenCalled();
-    // ...but the provider counts as active again so re-identify can fire.
     expect(provider.isActive()).toBe(true);
   });
 
-  test("identify forwards only defined traits plus surface", () => {
-    provider.identify("u1", {
-      name: "Alice Smith",
-      email: "alice@example.com",
-      surface: "macos",
-    });
+  test("identify after load dispatches directly", () => {
+    provider.identify("u2", { username: "bob", surface: "macos" });
 
-    expect(identifyMock).toHaveBeenCalledWith("u1", {
+    expect(identifyMock).toHaveBeenCalledWith("u2", {
       surface: "macos",
-      name: "Alice Smith",
-      email: "alice@example.com",
+      username: "bob",
     });
   });
 });
