@@ -240,16 +240,24 @@ export function savePreferenceToggle(
 ): void {
   const store = useOnboardingStore.getState();
   const { userId, hasPlatformSession } = opts;
+  // The on/off value is always device-persisted, but the version-currency ack
+  // ("confirmed under the current terms version") is only earned with a live
+  // platform session to record it against — offline it would stamp a currency
+  // the user never reviewed terms for.
   if (field === "share_analytics") {
     store.setShareAnalytics(value);
     setDeviceBool("shareAnalytics", value);
-    store.setAnalyticsConsentCurrent(true);
-    persistToggleConsent(userId, { analyticsCurrent: true });
+    if (hasPlatformSession) {
+      store.setAnalyticsConsentCurrent(true);
+      persistToggleConsent(userId, { analyticsCurrent: true });
+    }
   } else {
     store.setShareDiagnostics(value);
     setDeviceBool("shareDiagnostics", value);
-    store.setDiagnosticsConsentCurrent(true);
-    persistToggleConsent(userId, { diagnosticsCurrent: true });
+    if (hasPlatformSession) {
+      store.setDiagnosticsConsentCurrent(true);
+      persistToggleConsent(userId, { diagnosticsCurrent: true });
+    }
   }
 
   if (hasPlatformSession) {

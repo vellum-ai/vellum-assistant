@@ -1,7 +1,7 @@
 import * as Sentry from "@sentry/node";
 import { app } from "electron";
 
-import { onSettingChange, readSetting, writeSetting } from "./settings";
+import { onSettingChange, writeSetting } from "./settings";
 
 declare const __VELLUM_BUILD_SHA__: string;
 declare const __VELLUM_ENVIRONMENT__: string;
@@ -79,48 +79,43 @@ function tryClose(): void {
   Sentry.getCurrentScope().setClient(undefined);
 }
 
-/**
- * Read consent from electron-store. Strict opt-in: absent or false → OFF.
- */
-function readConsent(): boolean {
-  return readSetting("shareDiagnostics") === true;
+let cachedOptions: Sentry.NodeOptions | null = null;
+
+function applyConsent(enabled: boolean): void {
+  if (!cachedOptions) return;
+  if (enabled) {
+    tryInit(cachedOptions);
+  } else {
+    tryClose();
+  }
 }
 
 /**
- * Initialize Sentry for the Electron main process, gated on the user's
- * Share Diagnostics consent stored in electron-store. The renderer syncs
- * its localStorage `device:share_diagnostics` value to main via the
- * `vellum:diagnostics:setShareDiagnostics` IPC channel.
- *
- * Strict opt-in semantics (matching the renderer's `sentry-control.ts`):
- *   - stored `true`  → Sentry ON  (explicit consent)
- *   - stored `false` → Sentry OFF (explicit opt-out)
- *   - absent         → Sentry OFF (no consent on record yet)
- *
- * Also installs an electron-store watcher so flipping the toggle
- * mid-session immediately enables/disables Sentry without restart.
+ * Prepare main-process Sentry consent gating, starting fail-closed: Sentry is
+ * NOT initialized from the persisted `shareDiagnostics` value, because main
+ * boots before any renderer exists and the persisted value can be a stale
+ * opt-in from a prior signed-in run. The renderer owns the live-session gate
+ * and pushes the effective consent over the
+ * `vellum:diagnostics:setShareDiagnostics` IPC channel; until it does, main
+ * stays silent. An electron-store watcher keeps Sentry in sync with later
+ * mid-session toggles.
  */
 export function initSentryMain(): void {
-  const options = resolveOptions();
-  if (!options) return;
-
-  if (readConsent()) {
-    tryInit(options);
-  }
+  cachedOptions = resolveOptions();
+  if (!cachedOptions) return;
 
   onSettingChange("shareDiagnostics", (newValue) => {
-    if (newValue === true) {
-      tryInit(options);
-    } else {
-      tryClose();
-    }
+    applyConsent(newValue === true);
   });
 }
 
 /**
- * Update the persisted diagnostics consent from the renderer's IPC call.
- * Triggers the `onSettingChange` watcher which handles Sentry lifecycle.
+ * Apply the renderer's effective (session-gated) diagnostics consent: persist
+ * it and enable/disable Sentry immediately. Applied directly rather than via
+ * the change watcher so an unchanged persisted value still enforces the gate
+ * (electron-store's `onDidChange` does not fire when the value is unchanged).
  */
 export function setShareDiagnostics(enabled: boolean): void {
   writeSetting("shareDiagnostics", enabled);
+  applyConsent(enabled);
 }
