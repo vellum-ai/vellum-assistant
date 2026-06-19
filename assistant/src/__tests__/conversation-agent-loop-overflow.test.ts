@@ -68,6 +68,7 @@ const defaultLlmConfig: LLMConfig = {
     speed: "standard" as const,
     verbosity: "medium" as const,
     temperature: null,
+    topP: null,
     thinking: { enabled: false, streamThinking: true },
     contextWindow: {
       enabled: true,

@@ -219,6 +219,7 @@ describe("AssistantConfigSchema", () => {
       speed: "standard",
       verbosity: "medium",
       temperature: null,
+      topP: null,
       thinking: { enabled: true, streamThinking: true },
       contextWindow: {
         enabled: true,
