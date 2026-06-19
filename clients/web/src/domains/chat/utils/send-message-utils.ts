@@ -183,6 +183,8 @@ export function parsePendingSecretState(raw: Record<string, unknown>): PendingSe
   return {
     requestId: typeof raw.requestId === "string" ? raw.requestId : "",
     label: optionalString(raw.label),
+    service: optionalString(raw.service),
+    field: optionalString(raw.field),
     description: optionalString(raw.description),
     placeholder: optionalString(raw.placeholder),
     allowOneTimeSend: optionalBoolean(raw.allowOneTimeSend),
