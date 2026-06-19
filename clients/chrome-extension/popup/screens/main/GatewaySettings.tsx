@@ -13,6 +13,30 @@ export interface GatewaySettingsProps {
 
 const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:7830';
 
+// Health states that represent a settled connection outcome. `connecting`
+// and `reconnecting` are transient — the SSE fetch is still in flight — so
+// we keep polling past them before deciding success vs failure.
+const SETTLED_HEALTH = new Set(['connected', 'auth_required', 'error', 'assistant_gone']);
+const SETTLE_TIMEOUT_MS = 6_000;
+const SETTLE_POLL_MS = 400;
+
+/**
+ * Poll connection status until health settles out of the transient
+ * connecting/reconnecting states, so reconnect feedback reflects the real
+ * SSE outcome rather than the in-flight snapshot. Returns the last status
+ * seen if it never settles within the timeout.
+ */
+async function pollSettledStatus(): Promise<GetStatusResponse | undefined> {
+  const deadline = Date.now() + SETTLE_TIMEOUT_MS;
+  let last: GetStatusResponse | undefined;
+  for (;;) {
+    last = await sendMessage<GetStatusResponse>({ type: 'get_status' });
+    if (last?.health && SETTLED_HEALTH.has(last.health)) return last;
+    if (Date.now() >= deadline) return last;
+    await new Promise((resolve) => setTimeout(resolve, SETTLE_POLL_MS));
+  }
+}
+
 /**
  * Collapsible "Advanced" disclosure for self-hosted mode that lets the
  * user view and edit the gateway URL their assistant listens on, then
@@ -56,26 +80,28 @@ export function GatewaySettings({ failure }: GatewaySettingsProps) {
     await sendMessage({ type: 'gateway-url-set', gatewayUrl: url });
     await sendMessage({ type: 'connect' });
 
-    // `connect` resolves even when the gateway is unreachable (the worker
-    // sets health=error rather than throwing), so read the resulting
-    // health to decide whether the attempt actually failed.
-    const status = await sendMessage<GetStatusResponse>({ type: 'get_status' });
+    // `connect` resolves once the SSE fetch is kicked off — before it opens
+    // or fails — so poll until health settles to report the real outcome
+    // (unreachable gateway, bad token, or a successful connection).
+    const status = await pollSettledStatus();
 
     setSaving(false);
     const failed =
       status?.health === 'error' ||
       status?.health === 'auth_required' ||
       status?.health === 'assistant_gone';
-    setFeedback(
-      failed
-        ? {
-            kind: 'error',
-            text:
-              status.healthDetail?.lastErrorMessage ??
-              'Could not connect. Check the URL and that your assistant is running.',
-          }
-        : { kind: 'ok', text: 'Saved — reconnecting…' },
-    );
+    if (failed) {
+      setFeedback({
+        kind: 'error',
+        text:
+          status?.healthDetail?.lastErrorMessage ??
+          'Could not connect. Check the URL and that your assistant is running.',
+      });
+    } else if (status?.health === 'connected') {
+      setFeedback({ kind: 'ok', text: 'Connected.' });
+    } else {
+      setFeedback({ kind: 'ok', text: 'Saved — still reaching the gateway…' });
+    }
   }, [gatewayUrl]);
 
   const handleKeyDown = useCallback(
