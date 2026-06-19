@@ -197,6 +197,14 @@ export interface WakeOptions {
    */
   suppressWakeSurface?: boolean;
   /**
+   * Run the wake's turn as non-interactive (no client present). Threads to the
+   * agent loop's `isNonInteractive`, which gates the `<non_interactive_context>`
+   * and `<background_turn>` injectors. Fork-based memory retrospectives set this
+   * to the source conversation's background-turn state so the fork reproduces
+   * the source's injected turn block (prompt-cache prefix parity). Default false.
+   */
+  isNonInteractive?: boolean;
+  /**
    * Optional exact tool allowlist for this wake. Used by internal maintenance
    * jobs that need the assistant's judgment but must not execute arbitrary
    * side-effect tools. Enforcement depends on `toolGateMode`: in `"wire"`
@@ -588,6 +596,7 @@ export async function wakeAgentForOpportunity(
       opts.forceOverrideProfile ??
       getConversationOverrideProfile(conversationId);
     const callSite = opts.callSite ?? "mainAgent";
+    const isNonInteractive = opts.isNonInteractive ?? false;
     const config = getConfig();
     const effectiveContextWindow = resolveEffectiveContextWindow({
       llm: config.llm,
@@ -1122,6 +1131,7 @@ export async function wakeAgentForOpportunity(
           trust: wakeTrust,
           overrideProfile,
           forceOverrideProfile,
+          isNonInteractive,
           // The wake's compaction lives in the pre-run gate above
           // (`conversation.maybeCompact()`), never in the loop: the in-loop
           // budget gate and overflow-recovery ladder stay disabled because
