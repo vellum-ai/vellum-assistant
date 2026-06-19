@@ -76,6 +76,7 @@ import toolErrorPostToolUse from "./tool-error/hooks/post-tool-use.js";
 import toolErrorPkg from "./tool-error/package.json" with { type: "json" };
 import toolResultTruncatePostToolUse from "./tool-result-truncate/hooks/post-tool-use.js";
 import toolResultTruncatePkg from "./tool-result-truncate/package.json" with { type: "json" };
+import visionPerceptionPreModelCall from "./vision-perception/hooks/pre-model-call.js";
 import visionPerceptionPkg from "./vision-perception/package.json" with { type: "json" };
 import vlmAskTool from "./vision-perception/tools/vlm-ask.js";
 import vlmDescribeTool from "./vision-perception/tools/vlm-describe.js";
@@ -342,12 +343,21 @@ export const defaultAdvisorPlugin: Plugin = {
  * the `vision-perception` feature flag — `bootstrapPlugins` skips it (no tool
  * contributions) when the flag is off. `finalizeTool` fills each tool's defaults
  * so it satisfies `Tool`.
+ *
+ * The feature only engages for backbones that lack native vision: the per-turn
+ * tool gate omits the `vlm_*` tools for vision-capable models, and for non-vision
+ * backbones the outbound request swaps each uploaded image for a marker naming
+ * its attachment id (a usable `media_ref`). The `pre-model-call` hook is the
+ * home for that gating logic (see `hooks/pre-model-call.ts`).
  */
 export const visionPerceptionPlugin: Plugin = {
   manifest: {
     name: visionPerceptionPkg.name,
     version: visionPerceptionPkg.version,
     requiresFlag: ["vision-perception"],
+  },
+  hooks: {
+    "pre-model-call": visionPerceptionPreModelCall,
   },
   tools: [
     finalizeTool(vlmAskTool, "vlm_ask"),

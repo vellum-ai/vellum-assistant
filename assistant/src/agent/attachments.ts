@@ -26,6 +26,7 @@ export function attachmentsToContentBlocks(
           media_type: mediaType,
           data,
         },
+        ...(attachment.id ? { _attachmentId: attachment.id } : {}),
       } as ContentBlock;
     }
 
@@ -41,6 +42,40 @@ export function attachmentsToContentBlocks(
       ...(attachment.id ? { _attachmentId: attachment.id } : {}),
     } as ContentBlock;
   });
+}
+
+/**
+ * Backfill an attachment id onto the in-memory content block for the
+ * `attachmentIndex`-th uploaded attachment.
+ *
+ * Inline (data-only) uploads have no attachment id when the message body is
+ * built — the id is minted later, when the attachment row is created and linked
+ * to the persisted message. Without this backfill the image/file block sent to
+ * the model never carries `_attachmentId`, so downstream consumers (notably the
+ * vision-perception media markers) cannot correlate the block back to a usable
+ * `media_ref`.
+ *
+ * Attachment blocks are appended to `message.content` in attachment order by
+ * {@link attachmentsToContentBlocks}, after any leading text block and before
+ * any trailing source-path annotation, so the `attachmentIndex`-th `image`/
+ * `file` block is the one to tag. Mutates the block in place (the caller holds
+ * the same reference the model loop reads). A no-op if the target block is
+ * missing or already carries an id.
+ */
+export function backfillAttachmentId(
+  message: Message,
+  attachmentIndex: number,
+  attachmentId: string,
+): void {
+  let seen = 0;
+  for (const block of message.content) {
+    if (block.type !== "image" && block.type !== "file") continue;
+    if (seen === attachmentIndex) {
+      if (!block._attachmentId) block._attachmentId = attachmentId;
+      return;
+    }
+    seen++;
+  }
 }
 
 /**

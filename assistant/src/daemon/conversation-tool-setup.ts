@@ -18,6 +18,10 @@ import { getBindingByConversation } from "../memory/external-conversation-store.
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { advisorEnabledForProfile } from "../plugins/defaults/advisor/advisor-gate.js";
+import {
+  isVlmToolName,
+  resolveBackboneSupportsVision,
+} from "../plugins/defaults/vision-perception/hooks/pre-model-call.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
@@ -609,6 +613,18 @@ export function isToolActiveForContext(
     // hooks run, so a hook that re-routes the profile mid-turn (the model-router
     // lever on `PreModelCallContext.modelProfile`) is not reflected here.
     return advisorEnabledForProfile(ctx.currentTurnOverrideProfile ?? null);
+  }
+  if (isVlmToolName(name)) {
+    // Vision perception only engages for backbones that lack native vision:
+    // offer the `vlm_*` tools only when the resolved backbone can't see images
+    // itself. A vision-capable model reads uploaded media directly, so the tool
+    // would be dead weight — omit it. Resolves the model the same way dispatch
+    // does (the per-turn override, else the active profile / call-site default).
+    return !resolveBackboneSupportsVision({
+      callSite: ctx.currentCallSite ?? null,
+      overrideProfile: ctx.currentTurnOverrideProfile ?? null,
+      selectionSeed: ctx.conversationId ?? null,
+    });
   }
   if (UI_SURFACE_TOOL_NAMES.has(name)) {
     if (

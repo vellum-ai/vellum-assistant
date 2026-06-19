@@ -8,6 +8,7 @@
 import { v4 as uuid } from "uuid";
 
 import {
+  backfillAttachmentId,
   enrichMessageWithSourcePaths,
   type MessageAttachmentInput,
 } from "../agent/attachments.js";
@@ -593,7 +594,7 @@ export async function persistQueuedMessageBody(
           );
           continue;
         }
-        attachInlineAttachmentToMessage(
+        const stored = attachInlineAttachmentToMessage(
           persistedUserMessage.id,
           i,
           a.filename,
@@ -601,6 +602,11 @@ export async function persistQueuedMessageBody(
           a.data,
           { sourcePath: a.filePath },
         );
+        // Inline uploads arrive without an attachment id, so the content block
+        // built above (and held by ctx.messages) has no `_attachmentId`. Backfill
+        // the freshly-minted id so the model loop can surface a usable media_ref
+        // (e.g. the vision-perception markers for non-vision backbones).
+        backfillAttachmentId(llmMessage, i, stored.id);
       } catch (err) {
         if (err instanceof AttachmentUploadError) {
           log.warn(
