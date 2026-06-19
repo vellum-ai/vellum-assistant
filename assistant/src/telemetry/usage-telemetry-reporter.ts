@@ -10,10 +10,7 @@
  * flush is skipped and retried next cycle.
  */
 
-import {
-  getPlatformOrganizationId,
-  getPlatformUserId,
-} from "../config/env.js";
+import { getPlatformOrganizationId, getPlatformUserId } from "../config/env.js";
 import { queryUnreportedAuthFallbackEvents } from "../memory/auth-fallback-events-store.js";
 import {
   getMemoryCheckpoint,
@@ -25,8 +22,15 @@ import { queryUnreportedOnboardingEvents } from "../memory/onboarding-events-sto
 import { queryUnreportedSkillLoadedEvents } from "../memory/skill-loaded-events-store.js";
 import { queryUnreportedToolExecutedEvents } from "../memory/tool-executed-events-store.js";
 import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
+import {
+  assembleBoundedTurnTrace,
+  isTurnSettled,
+} from "../memory/turn-trace-store.js";
 import { VellumPlatformClient } from "../platform/client.js";
-import { getCachedShareAnalytics } from "../platform/consent-cache.js";
+import {
+  getCachedDiagnosticsTraceCollectionEnabled,
+  getCachedShareAnalytics,
+} from "../platform/consent-cache.js";
 import { arePlatformFeaturesEnabled } from "../platform/feature-gate.js";
 import type { UsageAttributionProfileSource } from "../usage/types.js";
 import { getDeviceId } from "../util/device-id.js";
@@ -344,9 +348,54 @@ export class UsageTelemetryReporter {
         BATCH_SIZE,
       );
 
+      // Trace completeness barrier (trace-eligible owners only).
+      //
+      // When trace collection is on, a turn's trace must only be sent once that
+      // turn is COMPLETE — otherwise a flush that races an in-progress reply
+      // would capture a partial transcript and the watermark would advance past
+      // the turn, leaving it permanently partial. So we report only the leading
+      // run of complete turns and STOP at the first incomplete (in-flight) one:
+      // the turn watermark is a single monotonic `(createdAt, id)` cursor, so a
+      // later complete turn cannot be reported past an earlier deferred one
+      // without skipping it. The deferred turn (and everything after it) is
+      // picked up on a later flush once its response settles.
+      //
+      // When trace collection is OFF, no turn is deferred and reporting timing
+      // is unchanged for everyone else — `turn_raw` behavior is untouched.
+      const traceEligible = getCachedDiagnosticsTraceCollectionEnabled();
+      let reportableTurnEvents = turnEvents;
+      if (traceEligible && turnEvents.length > 0) {
+        let barrier = turnEvents.length;
+        for (let i = 0; i < turnEvents.length; i++) {
+          const t = turnEvents[i];
+          if (
+            !isTurnSettled({
+              conversationId: t.conversationId,
+              userMessageId: t.id,
+              userMessageCreatedAt: t.createdAt,
+            })
+          ) {
+            barrier = i;
+            break;
+          }
+        }
+        if (barrier < turnEvents.length) {
+          reportableTurnEvents = turnEvents.slice(0, barrier);
+          log.debug(
+            {
+              deferredTurnId: turnEvents[barrier].id,
+              deferredConversationId: turnEvents[barrier].conversationId,
+              reportedTurns: barrier,
+              deferredTurns: turnEvents.length - barrier,
+            },
+            "Deferring in-progress turn(s) from telemetry until complete",
+          );
+        }
+      }
+
       if (
         events.length === 0 &&
-        turnEvents.length === 0 &&
+        reportableTurnEvents.length === 0 &&
         lifecycleEvents.length === 0 &&
         onboardingEvents.length === 0 &&
         authFallbackEvents.length === 0 &&
@@ -369,7 +418,7 @@ export class UsageTelemetryReporter {
       log.debug(
         {
           usageCount: events.length,
-          turnCount: turnEvents.length,
+          turnCount: reportableTurnEvents.length,
           lifecycleCount: lifecycleEvents.length,
           onboardingCount: onboardingEvents.length,
           authFallbackCount: authFallbackEvents.length,
@@ -415,7 +464,26 @@ export class UsageTelemetryReporter {
             assistant_version: e.assistantVersion ?? APP_VERSION,
           }),
         ),
-        ...turnEvents.map((e): TelemetryEvent => {
+        ...reportableTurnEvents.map((e): TelemetryEvent => {
+          // Owner-consent gate for per-turn trace collection. `traceEligible`
+          // is the server-derived boolean (LD flag + `share_diagnostics` +
+          // privacy-policy version, folded by the platform into
+          // `diagnostics_trace_collection_enabled`); the daemon never evaluates
+          // the flag itself, and reads it from the same owner-consent cache that
+          // gates analytics (`startConsentRefresh` keeps it fresh). Fail-closed:
+          // when consent is off / unknown the trace is omitted and the
+          // trace-free turn row flushes as before. The `share_analytics` gate
+          // above already passed, so this is an additional, independent gate
+          // specific to trace PII. Every turn reaching here is settled (the
+          // completeness barrier dropped any in-flight turns), so the trace is
+          // never a partial mid-turn snapshot.
+          const trace = traceEligible
+            ? assembleBoundedTurnTrace({
+                conversationId: e.conversationId,
+                userMessageId: e.id,
+                userMessageCreatedAt: e.createdAt,
+              })
+            : null;
           // `messages.metadata.client` is a nested JSON object extracted
           // via `json_extract`; sqlite returns it as a text representation.
           // Parse defensively — a corrupted blob in the JSON column should
@@ -450,6 +518,11 @@ export class UsageTelemetryReporter {
             interface_id: e.interfaceId,
             channel_id: e.channelId,
             client,
+            // Only attach `trace` when consent is on AND a bounded trace was
+            // assembled. Omitting the key entirely when there's no trace keeps
+            // the wire shape byte-identical to pre-trace turn events for the
+            // common (no-consent) path.
+            ...(trace ? { trace } : {}),
             // Turn events derive from `messages` + `conversations`
             // rather than a dedicated table. Adding `assistant_version`
             // to `messages` is a separate (larger) migration; until
@@ -629,9 +702,11 @@ export class UsageTelemetryReporter {
         setMemoryCheckpoint(CHECKPOINT_KEY_WATERMARK_ID, lastEvent.id);
       }
 
-      // Advance turn watermark (compound cursor)
-      if (turnEvents.length > 0) {
-        const lastTurn = turnEvents[turnEvents.length - 1];
+      // Advance turn watermark (compound cursor) — only to the last REPORTED
+      // turn. Deferred (in-flight) turns sit beyond this cursor and are
+      // re-evaluated on a later flush, so the watermark never skips them.
+      if (reportableTurnEvents.length > 0) {
+        const lastTurn = reportableTurnEvents[reportableTurnEvents.length - 1];
         setMemoryCheckpoint(
           CHECKPOINT_KEY_TURN_WATERMARK,
           String(lastTurn.createdAt),
@@ -706,10 +781,14 @@ export class UsageTelemetryReporter {
         );
       }
 
-      // If we got a full batch of any type, there may be more — recurse
+      // If we got a full batch of any type, there may be more — recurse.
+      // Turns use the REPORTED count: when the completeness barrier truncates
+      // the batch, the deferred turns must wait for a later flush (by which
+      // point they've settled) rather than being re-queried and re-deferred in
+      // a tight recursion.
       if (
         events.length === BATCH_SIZE ||
-        turnEvents.length === BATCH_SIZE ||
+        reportableTurnEvents.length === BATCH_SIZE ||
         lifecycleEvents.length === BATCH_SIZE ||
         onboardingEvents.length === BATCH_SIZE ||
         authFallbackEvents.length === BATCH_SIZE ||
