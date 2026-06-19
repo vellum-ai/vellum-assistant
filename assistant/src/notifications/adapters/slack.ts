@@ -156,11 +156,11 @@ function buildAccessRequestCardBlocks(
   };
   blocks.push(card);
 
-  // Security warnings (revoked / restricted / stranger). These previously sat
-  // in a `card.subtext` field, which is not part of Slack's card block schema
-  // (https://docs.slack.dev/reference/block-kit/blocks/card-block) — Slack
-  // silently dropped it, so guardians never saw the warnings. Render them in a
-  // context block under the card so they are actually delivered.
+  // Security warnings (revoked / restricted / stranger) render in a context
+  // block under the card. Slack's card block schema has no field for them
+  // (https://docs.slack.dev/reference/block-kit/blocks/card-block) and Slack
+  // silently drops unknown card fields, so a dedicated block is needed to
+  // surface them to the guardian.
   if (warningsText) {
     blocks.push({
       type: "context",
