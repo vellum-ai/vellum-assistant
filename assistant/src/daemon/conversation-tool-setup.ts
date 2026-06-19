@@ -597,7 +597,9 @@ export function isToolActiveForContext(
     // profile disables the advisor, omit the tool from the wire list so the
     // model never sees a tool it can only no-op on. Resolves the profile the
     // same way the advisor's execution-time guard does (the per-turn override,
-    // else the active profile).
+    // else the active profile). The wire list is fixed before PRE_MODEL_CALL
+    // hooks run, so a hook that re-routes the profile mid-turn (the model-router
+    // lever on `PreModelCallContext.modelProfile`) is not reflected here.
     return advisorEnabledForProfile(ctx.currentTurnOverrideProfile ?? null);
   }
   if (UI_SURFACE_TOOL_NAMES.has(name)) {
