@@ -2,9 +2,11 @@ import { describe, expect, test } from "bun:test";
 
 import {
   attachmentsToContentBlocks,
+  backfillAttachmentId,
   enrichMessageWithSourcePaths,
 } from "../agent/attachments.js";
 import { createUserMessage } from "../agent/message-types.js";
+import type { FileContent, ImageContent } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
 // attachmentsToContentBlocks
@@ -142,6 +144,73 @@ describe("createUserMessage with image attachments", () => {
     expect(imageBlock.source.data).toBe(base64);
     expect(imageBlock.source.media_type).toBe("image/jpeg");
     expect(imageBlock.source.type).toBe("base64");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// backfillAttachmentId
+// ---------------------------------------------------------------------------
+
+describe("backfillAttachmentId", () => {
+  test("tags the image block for an inline (id-less) upload", () => {
+    // Inline uploads have no attachment id when the message is built, so the
+    // block starts without `_attachmentId`. The id is minted later and must be
+    // backfilled onto the in-memory block.
+    const msg = createUserMessage("what is this?", [
+      { filename: "photo.jpg", mimeType: "image/jpeg", data: "imgdata" },
+    ]);
+    expect((msg.content[1] as ImageContent)._attachmentId).toBeUndefined();
+
+    backfillAttachmentId(msg, 0, "att-123");
+
+    expect((msg.content[1] as ImageContent)._attachmentId).toBe("att-123");
+  });
+
+  test("maps attachment index to the Nth media block, skipping text", () => {
+    const msg = createUserMessage("compare these", [
+      { filename: "a.jpg", mimeType: "image/jpeg", data: "img1" },
+      { filename: "b.png", mimeType: "image/png", data: "img2" },
+    ]);
+    // content: [text, image, image]
+    backfillAttachmentId(msg, 0, "att-a");
+    backfillAttachmentId(msg, 1, "att-b");
+
+    expect((msg.content[1] as ImageContent)._attachmentId).toBe("att-a");
+    expect((msg.content[2] as ImageContent)._attachmentId).toBe("att-b");
+  });
+
+  test("counts file blocks toward the index alongside images", () => {
+    const msg = createUserMessage("look", [
+      { filename: "doc.pdf", mimeType: "application/pdf", data: "pdfdata" },
+      { filename: "photo.jpg", mimeType: "image/jpeg", data: "imgdata" },
+    ]);
+    // content: [text, file, image]
+    backfillAttachmentId(msg, 1, "att-img");
+
+    expect((msg.content[1] as FileContent)._attachmentId).toBeUndefined();
+    expect((msg.content[2] as ImageContent)._attachmentId).toBe("att-img");
+  });
+
+  test("does not overwrite an id already present on the block", () => {
+    const blocks = attachmentsToContentBlocks([
+      {
+        id: "preexisting",
+        filename: "photo.jpg",
+        mimeType: "image/jpeg",
+        data: "imgdata",
+      },
+    ]);
+    const msg = { role: "user" as const, content: blocks };
+    backfillAttachmentId(msg, 0, "att-new");
+
+    expect((msg.content[0] as ImageContent)._attachmentId).toBe("preexisting");
+  });
+
+  test("is a no-op when the target index has no media block", () => {
+    const msg = createUserMessage("just text", []);
+    expect(() => backfillAttachmentId(msg, 0, "att-x")).not.toThrow();
+    expect(msg.content).toHaveLength(1);
+    expect(msg.content[0].type).toBe("text");
   });
 });
 
