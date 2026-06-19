@@ -248,7 +248,13 @@ export class OpenAIResponsesProvider implements Provider {
       // builds `params` field-by-field; the Responses API accepts it as a
       // top-level param. Mirrors the chat-completions client's forwarding so
       // OpenAI-profile `topP` is honored on the Responses path too.
-      if (typeof topP === "number") {
+      //
+      // Skip it on reasoning requests: OpenAI reasoning models (o-series,
+      // GPT-5 reasoning) reject sampling params like `top_p`/`temperature`
+      // with HTTP 400 when `reasoning` is active. This mirrors the Anthropic
+      // thinking guard, which drops temperature/top_p when extended thinking
+      // is enabled. (`temperature` is never forwarded on this path at all.)
+      if (typeof topP === "number" && !params.reasoning) {
         params.top_p = topP;
       }
 

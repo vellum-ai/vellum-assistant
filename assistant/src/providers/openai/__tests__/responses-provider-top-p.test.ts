@@ -67,4 +67,20 @@ describe("OpenAIResponsesProvider top_p forwarding", () => {
     const params = requests[0] as { top_p?: number };
     expect(params.top_p).toBeUndefined();
   });
+
+  test("omits top_p on reasoning requests even when configured", async () => {
+    const { provider, requests } = stubProvider();
+
+    // `effort: "high"` maps to a reasoning.effort via EFFORT_TO_REASONING_EFFORT,
+    // so `params.reasoning` is set. Reasoning models reject sampling params, so
+    // top_p must not be forwarded.
+    await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      { config: { top_p: 0.9, effort: "high" } },
+    );
+
+    const params = requests[0] as { top_p?: number; reasoning?: unknown };
+    expect(params.reasoning).toBeDefined();
+    expect(params.top_p).toBeUndefined();
+  });
 });
