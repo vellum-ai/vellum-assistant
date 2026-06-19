@@ -125,7 +125,8 @@ function buildRequesterIdBlock(
  * Build Slack blocks for an access request using a native Card block.
  *
  * Layout:
- *   Card — title + subtitle (identity) + body (preview) + actions + subtext (warnings)
+ *   Card — title + subtitle (identity) + body (preview) + actions
+ *   Context — security warnings (revoked/restricted/stranger), when present
  *   Context — source permalink (when the request is from Slack)
  *   Context — stable requester ID (when it adds info beyond subtitle)
  *   Context — invite directive
@@ -141,20 +142,31 @@ function buildAccessRequestCardBlocks(
   const subtitle = buildAccessRequestSubtitle(view);
   const body = buildAccessRequestBody(view);
 
-  const subtext =
+  const warningsText =
     view.warnings.length > 0
       ? truncate(view.warnings.map((w) => `:warning: ${w}`).join(" · "), 200)
       : undefined;
 
   const card: Record<string, unknown> = {
     type: "card",
-    title: { type: "plain_text", text: "Access Request" },
+    title: { type: "mrkdwn", text: "Access Request" },
     subtitle: { type: "mrkdwn", text: subtitle },
     body: { type: "mrkdwn", text: body },
     actions: buildCardActions(approval),
   };
-  if (subtext) card.subtext = { type: "mrkdwn", text: subtext };
   blocks.push(card);
+
+  // Security warnings (revoked / restricted / stranger). These previously sat
+  // in a `card.subtext` field, which is not part of Slack's card block schema
+  // (https://docs.slack.dev/reference/block-kit/blocks/card-block) — Slack
+  // silently dropped it, so guardians never saw the warnings. Render them in a
+  // context block under the card so they are actually delivered.
+  if (warningsText) {
+    blocks.push({
+      type: "context",
+      elements: [{ type: "mrkdwn", text: warningsText }],
+    });
+  }
 
   const sourceContext = buildSourceContextBlock(view);
   if (sourceContext) blocks.push(sourceContext);
@@ -217,7 +229,7 @@ function buildToolApprovalCardBlocks(
   const card: Record<string, unknown> = {
     type: "card",
     title: {
-      type: "plain_text",
+      type: "mrkdwn",
       text: details ? "Tool Approval" : "Approval Request",
     },
     body: {
