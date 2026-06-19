@@ -7316,11 +7316,7 @@ components:
           format: date-time
           readOnly: true
           nullable: true
-        diagnostics_trace_collection_enabled:
-          type: boolean
-          readOnly: true
       required:
-      - diagnostics_trace_collection_enabled
       - share_analytics
       - share_analytics_accepted_at
       - share_analytics_accepted_version
