@@ -503,6 +503,8 @@ function makeWakeConversation(options: {
     getTurnChannelContext: () => null,
     getTurnInterfaceContext: () => null,
     trustContext: undefined,
+    buildCurrentSystemPrompt: () => "mock-system-prompt",
+    modelOverride: undefined,
     ...(drainQueue ? { drainQueue } : {}),
   };
 
