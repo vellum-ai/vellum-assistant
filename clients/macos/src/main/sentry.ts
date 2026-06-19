@@ -20,6 +20,12 @@ declare const __SENTRY_DSN_MACOS__: string;
  * (OOM, segfault) upload real minidumps instead of reason-strings. Those
  * minidumps are uploaded via `core.captureEvent`, so they pass through
  * `beforeSend` and respect `client.getOptions().enabled` (see syncNativeGate).
+ *
+ * `ipcMode` is forced to `Classic`: the default (`Both`) installs a custom
+ * protocol scheme via `configureProtocol`, which throws if `init()` runs after
+ * the app `ready` event. We init lazily on first consent (always post-`ready`),
+ * and the protocol channel is unused anyway (no renderer-side Sentry SDK), so
+ * Classic IPC is both required and sufficient.
  */
 function resolveOptions(): Sentry.ElectronMainOptions | null {
   const dsn =
@@ -34,7 +40,14 @@ function resolveOptions(): Sentry.ElectronMainOptions | null {
   const release =
     typeof __VELLUM_BUILD_SHA__ === "string" ? __VELLUM_BUILD_SHA__ : undefined;
 
-  return { dsn, environment, release, tracesSampleRate: 0, attachStacktrace: true };
+  return {
+    dsn,
+    environment,
+    release,
+    tracesSampleRate: 0,
+    attachStacktrace: true,
+    ipcMode: Sentry.IPCMode.Classic,
+  };
 }
 
 function applyTags(): void {
