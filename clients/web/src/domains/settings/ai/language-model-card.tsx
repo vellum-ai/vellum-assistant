@@ -207,8 +207,7 @@ export function LanguageModelCard() {
               as="p"
               className="mt-1 text-(--content-tertiary)"
             >
-              Which profile the advisor consults for a second opinion — your
-              strongest profile by default.
+              Which model your assistant consults for a second opinion
             </Typography>
           </div>
 
