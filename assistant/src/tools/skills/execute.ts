@@ -87,8 +87,7 @@ export function augmentSkillExecuteError(
 
   const guidance =
     `\n\nThis skill_execute call carried no parameters for "${toolName}". ` +
-    `Put the tool's parameters inside \`input\` as a JSON object — not as ` +
-    `siblings of \`tool\`, and not as a JSON-encoded string. For example: ` +
+    `Put the tool's parameters inside \`input\`. For example: ` +
     `{"tool": "${toolName}", "input": { /* the tool's parameters */ }, ` +
     `"activity": "..."}. The skill's instructions (from skill_load) list ` +
     `"${toolName}"'s required fields.`;
