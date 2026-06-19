@@ -897,12 +897,11 @@ async function computeFileSha256(
   const hash = createHash("sha256");
   if (size === 0) return hash.digest("hex");
 
-  // Read through an explicitly-managed FileHandle rather than
-  // `createReadStream` so the descriptor is always released in `finally`.
-  // This pass walks every file in the workspace; relying on stream
-  // auto-close left one descriptor open per file under Bun, which is what
-  // exhausted the daemon's file-descriptor limit (EMFILE) between restarts.
-  // A bounded read loop keeps peak memory flat regardless of file size.
+  // Read through an explicitly-managed FileHandle so the descriptor is
+  // always released in `finally`. This pass opens every file in the
+  // workspace, so any per-file descriptor leak here would exhaust the
+  // daemon's file-descriptor limit (EMFILE). A bounded read loop keeps peak
+  // memory flat regardless of file size.
   const readChunkBytes = 64 * 1024;
   const handle = await open(filePath, "r");
   try {
@@ -1075,7 +1074,7 @@ async function* generateTarStream(
       // consistency mechanism for the database.
       let bytesWritten = 0;
       if (entrySize > 0) {
-        // Managed FileHandle (not `createReadStream`) so the descriptor is
+        // Read through an explicitly-managed FileHandle so the descriptor is
         // released in `finally` even when the consumer abandons the generator
         // mid-file. Each read uses a fresh buffer so a yielded chunk is never
         // overwritten by the next read before the consumer drains it.

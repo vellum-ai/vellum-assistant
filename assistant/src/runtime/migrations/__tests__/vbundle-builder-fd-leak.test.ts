@@ -1,17 +1,13 @@
 /**
- * Regression test for the export-route file-descriptor leak.
+ * Regression test for descriptor hygiene in the vbundle export path.
  *
- * `streamExportVBundle` walks the entire workspace twice — once to hash every
- * file (Pass 1) and once to stream each file into the tar (Pass 2). Both passes
- * previously read through `createReadStream`, whose underlying descriptor was
- * not reliably closed under Bun, so a single export leaked roughly one open
- * descriptor per workspace file. On a long-lived daemon repeated exports drove
- * the process into EMFILE ("too many open files"), failing every subsequent
- * subprocess spawn.
- *
- * Both passes now read through an explicitly-closed `FileHandle`. This test
- * pins that contract: the number of open descriptors held by the process must
- * not grow proportionally to the number of files exported.
+ * `streamExportVBundle` opens every file in the workspace twice — once to hash
+ * it (Pass 1) and once to stream it into the tar (Pass 2). This test pins the
+ * invariant that those reads release their descriptors: the number of open
+ * descriptors held by the process must not grow proportionally to the number
+ * of files exported. Without that guarantee a workspace-sized export exhausts
+ * the daemon's descriptor limit (EMFILE) and every subsequent subprocess spawn
+ * fails.
  *
  * Descriptor counting uses `/proc/self/fd`, which only exists on Linux. The
  * assertion is skipped on platforms without it (e.g. macOS dev machines); CI
@@ -29,6 +25,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
+import { assertNotLiveDb } from "../../../__tests__/assert-not-live-db.js";
 import { streamExportVBundle } from "../vbundle-builder.js";
 import { defaultV1Options } from "./v1-test-helpers.js";
 
@@ -69,7 +66,10 @@ function createPopulatedWorkspace(fileCount: number): {
 
   return {
     dir,
-    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+    cleanup: () => {
+      assertNotLiveDb(dir);
+      rmSync(dir, { recursive: true, force: true });
+    },
   };
 }
 
