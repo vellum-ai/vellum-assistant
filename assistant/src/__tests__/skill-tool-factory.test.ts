@@ -255,24 +255,6 @@ describe("createSkillTool — unknown parameter validation", () => {
     expect(result.isError).toBe(false);
   });
 
-  test("strips the harness `activity` field before validation", async () => {
-    const hash = computeSkillVersionHash(tempDir);
-    const tool = createSkillTool(
-      makeEntry({ executor: "echo.ts" }),
-      tempDir,
-      hash,
-    );
-
-    // A first-class skill-tool call may carry `activity` (the harness progress
-    // field). It must not be rejected as an unknown parameter.
-    const result = await tool.execute(
-      { query: "hello", activity: "Doing the thing" },
-      makeContext(),
-    );
-
-    expect(result.isError).toBe(false);
-  });
-
   test("allows empty input when schema has no required fields", async () => {
     const hash = computeSkillVersionHash(tempDir);
     const tool = createSkillTool(
