@@ -16408,6 +16408,48 @@ paths:
                                 required:
                                   - requestId
                                 additionalProperties: false
+                              pendingQuestion:
+                                type: object
+                                properties:
+                                  requestId:
+                                    type: string
+                                  entries:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        id:
+                                          type: string
+                                        question:
+                                          type: string
+                                        description:
+                                          type: string
+                                        options:
+                                          type: array
+                                          items:
+                                            type: object
+                                            properties:
+                                              id:
+                                                type: string
+                                              label:
+                                                type: string
+                                              description:
+                                                type: string
+                                            required:
+                                              - id
+                                              - label
+                                            additionalProperties: false
+                                        freeTextPlaceholder:
+                                          type: string
+                                      required:
+                                        - id
+                                        - question
+                                        - options
+                                      additionalProperties: false
+                                required:
+                                  - requestId
+                                  - entries
+                                additionalProperties: false
                             required:
                               - name
                               - input
@@ -16795,6 +16837,48 @@ paths:
                                             type: boolean
                                         required:
                                           - requestId
+                                        additionalProperties: false
+                                      pendingQuestion:
+                                        type: object
+                                        properties:
+                                          requestId:
+                                            type: string
+                                          entries:
+                                            type: array
+                                            items:
+                                              type: object
+                                              properties:
+                                                id:
+                                                  type: string
+                                                question:
+                                                  type: string
+                                                description:
+                                                  type: string
+                                                options:
+                                                  type: array
+                                                  items:
+                                                    type: object
+                                                    properties:
+                                                      id:
+                                                        type: string
+                                                      label:
+                                                        type: string
+                                                      description:
+                                                        type: string
+                                                    required:
+                                                      - id
+                                                      - label
+                                                    additionalProperties: false
+                                                freeTextPlaceholder:
+                                                  type: string
+                                              required:
+                                                - id
+                                                - question
+                                                - options
+                                              additionalProperties: false
+                                        required:
+                                          - requestId
+                                          - entries
                                         additionalProperties: false
                                     required:
                                       - name

@@ -19,6 +19,7 @@
  */
 
 import type { InteractionResolutionState } from "../api/events/interaction-resolved.js";
+import type { QuestionEntry } from "../api/events/question-request.js";
 import type { UserDecision } from "../permissions/types.js";
 import { getLogger } from "../util/logger.js";
 import { broadcastMessage } from "./assistant-event-hub.js";
@@ -50,6 +51,18 @@ export interface ConfirmationDetails {
   }>;
 }
 
+/**
+ * Full batched question payload carried on a pending `question` interaction, so
+ * a history-load render can stamp the outstanding prompt back onto its tool
+ * call and rehydrate the question card on a cold reconnect. Mirrors the
+ * `question_request` event's `questions[]` — `metadata` only retains the
+ * `orderedIds`/`optionsById` the response route needs to validate submissions,
+ * which is insufficient to reconstruct the card.
+ */
+export interface QuestionDetails {
+  entries: QuestionEntry[];
+}
+
 export interface PendingInteraction {
   /**
    * Owning conversation, when the interaction was raised inside one. Absent
@@ -69,6 +82,8 @@ export interface PendingInteraction {
     | "host_transfer"
     | "acp_confirmation";
   confirmationDetails?: ConfirmationDetails;
+  /** For a pending `question`: the full batched entries, so a history-load render can rehydrate the question card. */
+  questionDetails?: QuestionDetails;
   /** For ACP permissions: resolves directly without a Conversation object. */
   directResolve?: (decision: UserDecision) => void;
   /** When set, the host_bash request should be routed to this specific client. */

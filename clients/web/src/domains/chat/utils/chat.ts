@@ -8,6 +8,7 @@ import type {
   AllowlistOption,
   DirectoryScopeOption,
   PendingConfirmationState,
+  PendingQuestionState,
   ScopeOption,
 } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -317,6 +318,37 @@ export function extractWirePendingConfirmation(
       const tc = msg.toolCalls[ti];
       if (tc?.pendingConfirmation) {
         return { ...tc.pendingConfirmation, toolUseId: tc.id };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Find the in-flight `ask_question` prompt a history snapshot carries on one
+ * of its tool calls. The daemon stamps `pendingQuestion` from the
+ * pending-interactions registry at render time, so on a cold reconnect (or a
+ * reopen after the live event buffer aged out) the prompt rides the snapshot
+ * rather than a replayed `question_request` event. Returns the prompt
+ * projected into the interaction-store shape — with `toolUseId` set to the
+ * carrying tool call — or null when no tool call is awaiting an answer. Scans
+ * latest-first since the outstanding prompt is on the most recent tool call.
+ * Mirrors {@link extractWirePendingConfirmation}.
+ */
+export function extractWirePendingQuestion(
+  messages: DisplayMessage[],
+): PendingQuestionState | null {
+  for (let mi = messages.length - 1; mi >= 0; mi--) {
+    const msg = messages[mi];
+    if (!msg?.toolCalls?.length) continue;
+    for (let ti = msg.toolCalls.length - 1; ti >= 0; ti--) {
+      const tc = msg.toolCalls[ti];
+      if (tc?.pendingQuestion) {
+        return {
+          requestId: tc.pendingQuestion.requestId,
+          entries: tc.pendingQuestion.entries,
+          toolUseId: tc.id,
+        };
       }
     }
   }
