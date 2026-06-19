@@ -306,10 +306,10 @@ describe("checkSourceActiveSuppression (pre-decision gate)", () => {
     expect(checkSourceActiveSuppression(makeSignal()).passed).toBe(true);
   });
 
-  test("runDeterministicChecks no longer re-applies source-active suppression", async () => {
-    // Source-active is enforced as a pre-decision gate in emitNotificationSignal,
-    // not here. A source-active signal that still reaches the post-decision
-    // checks must not be re-suppressed by this stage.
+  test("runDeterministicChecks does not suppress source-active signals (handled by the pre-decision gate)", async () => {
+    // Source-active suppression is enforced by the pre-decision gate in
+    // emitNotificationSignal, not by this stage. A source-active signal
+    // evaluated here therefore passes — this stage only validates the decision.
     const signal = makeSignal({
       attentionHints: {
         requiresAction: false,
