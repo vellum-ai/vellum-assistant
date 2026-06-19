@@ -289,9 +289,10 @@ export async function runDaemon(): Promise<void> {
   log.info({ version: APP_VERSION }, "Daemon starting");
 
   try {
-    // Initialize crash reporting eagerly so early startup failures are
-    // captured. After config loads we check the opt-out flag and call
-    // closeSentry() if the user has disabled it.
+    // Initialize crash reporting eagerly so the Sentry client is ready before
+    // early startup failures occur. Events are dropped (beforeSend) until the
+    // consent gate below confirms share_diagnostics opt-in; dev mode and the
+    // legacy local opt-out hard-disable via closeSentry().
     initSentry();
 
     ensureDataDir();
@@ -641,13 +642,17 @@ export async function runDaemon(): Promise<void> {
       });
     }
 
-    // Privacy gating: Sentry crash/error reporting is gated by sendDiagnostics,
-    // while the usage telemetry reporter re-checks the platform share_analytics
-    // consent on every flush. Both are disabled in dev mode. Early-startup
-    // crashes before this point are still captured.
+    // Privacy gating: Sentry crash/error reporting follows the platform owner's
+    // share_diagnostics consent; the usage telemetry reporter re-checks
+    // share_analytics on every flush. Both are disabled in dev mode. Sentry was
+    // initialized early, but beforeSend re-reads getCachedShareDiagnostics() on
+    // every event, so it drops events until consent confirms opt-in and honors a
+    // later revocation within one refresh cycle (the cache is refreshed by
+    // startConsentRefresh() below, mirroring the share_analytics posture).
     const isDevMode = process.env.VELLUM_DEV === "1";
-    const sendDiagnostics = !isDevMode && config.sendDiagnostics;
-    if (!sendDiagnostics) {
+    if (isDevMode || config.legacyDiagnosticsOptOut === true) {
+      // Dev mode and a preserved legacy local opt-out both disable Sentry
+      // unconditionally, without waiting on platform consent.
       await closeSentry();
     }
 

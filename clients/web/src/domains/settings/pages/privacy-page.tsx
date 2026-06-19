@@ -82,7 +82,7 @@ export function PrivacyPage() {
         <div className="space-y-4">
           <SettingRow
             label="Share Analytics"
-            helperText="Send anonymous product usage data. Your conversations and personal data are never included."
+            helperText="Send anonymous product usage data."
             checked={shareAnalytics}
             onChange={handleAnalyticsToggle}
             variant="toggle-trailing"
@@ -90,7 +90,7 @@ export function PrivacyPage() {
           <Divider />
           <SettingRow
             label="Share Diagnostics"
-            helperText="Send crash reports and performance metrics. Your conversations and personal data are never included."
+            helperText="Send crash reports and performance metrics."
             checked={shareDiagnostics}
             onChange={handleDiagnosticsToggle}
             variant="toggle-trailing"
