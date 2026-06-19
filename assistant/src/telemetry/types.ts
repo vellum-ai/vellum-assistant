@@ -147,6 +147,82 @@ export interface TurnTelemetryClientInfo {
   interface_version?: string;
 }
 
+/**
+ * One message in a turn trace. `role` is the stored `messages.role`
+ * (`"user"` / `"assistant"` / `"system"`); tool-result rows persisted with
+ * role `"user"` keep that role here so the transcript is faithful to what was
+ * sent to the model. `content` is the parsed `messages.content` — either the
+ * modern `ContentBlock[]` (text / tool_use / tool_result / thinking / image /
+ * file blocks) or a legacy plain string. Stored verbatim by the platform as an
+ * opaque JSON column, so the shape is self-describing rather than normalized.
+ */
+export interface TurnTraceMessage {
+  /** `messages.id` — stable per-row id. */
+  id: string;
+  /** Stored role of the message row. */
+  role: string;
+  /** Epoch-ms `messages.created_at`. */
+  created_at: number;
+  /**
+   * Parsed `messages.content`. `unknown` because it is forwarded verbatim:
+   * modern rows are `ContentBlock[]`, legacy rows are a plain string.
+   */
+  content: unknown;
+}
+
+/**
+ * One tool invocation in a turn trace, projected from the `tool_invocations`
+ * audit table for the turn window. Carries the full tool call + result so the
+ * platform sees the same transcript the assistant did. Both `input` and
+ * `result` are captured verbatim (full-fidelity) — no field-level redaction is
+ * applied. The protections for this PII are the owner consent gate, the
+ * PII-segregated `pii_turn_raw` table, and its 30-day TTL.
+ */
+export interface TurnTraceToolCall {
+  /** `tool_invocations.id`. */
+  id: string;
+  tool_name: string;
+  /** Verbatim tool input — parsed JSON when it parses, else the raw string. */
+  input: unknown;
+  /** Stored tool result string (verbatim). */
+  result: string;
+  /** Audit decision (`"allow"` / `"error"` / …). */
+  decision: string;
+  duration_ms: number;
+  created_at: number;
+}
+
+/**
+ * Full transcript of a single turn — the user message, assistant response
+ * message(s), and the tool calls + results that occurred between this user
+ * turn and the next real user turn. Attached to the turn telemetry event's
+ * `trace` field ONLY when the owner has consented
+ * (`diagnostics_trace_collection_enabled` on the owner-consent endpoint).
+ * The platform stores this verbatim as an opaque JSON column, so the daemon
+ * owns the shape.
+ *
+ * Each turn's trace is its natural window. A turn whose window holds no
+ * assistant response (a coalesced-batch head, or a turn that failed/cancelled
+ * before responding) traces user-only — faithful, since its window genuinely
+ * has no response. A coalesced batch's shared response lives on the batch's
+ * final turn's window, where the daemon already attributes it.
+ */
+export interface TurnTrace {
+  /** Shape version so the platform/dbt can evolve parsing without ambiguity. */
+  schema_version: 1;
+  /**
+   * Ordered message rows for the turn (the user message first, then assistant
+   * responses and any tool-result rows), oldest-first by `(created_at, id)`.
+   */
+  messages: TurnTraceMessage[];
+  /**
+   * Tool invocations that occurred during the turn window, oldest-first. May
+   * be empty for turns with no tool use. Projected from `tool_invocations`,
+   * which complements the inline tool_use/tool_result blocks in `messages`.
+   */
+  tool_calls: TurnTraceToolCall[];
+}
+
 /** Turn event — one per user message. */
 export interface TurnTelemetryEvent extends TelemetryEventBase {
   type: "turn";
@@ -200,6 +276,19 @@ export interface TurnTelemetryEvent extends TelemetryEventBase {
    * middleware hasn't been wired to yet).
    */
   client: TurnTelemetryClientInfo | null;
+  /**
+   * Full per-turn transcript (user message + assistant responses + tool
+   * calls/results). Present ONLY when the assistant owner has consented to
+   * diagnostics trace collection — the daemon reads the derived
+   * `diagnostics_trace_collection_enabled` boolean from the platform's
+   * owner-consent endpoint and attaches the trace fail-closed (absent field,
+   * fetch failure, or `false` → no trace). The platform dual-writes consented
+   * traces into a separate PII table and keeps the trace-free turn row;
+   * downstream consumers that don't read traces ignore this field. Null /
+   * absent when consent is off, unknown, or the serialized trace exceeded the
+   * size cap.
+   */
+  trace?: TurnTrace | null;
 }
 
 /** Lifecycle event — app_open, hatch, etc. */
