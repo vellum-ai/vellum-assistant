@@ -640,6 +640,14 @@ export interface AgentLoopConstructorOptions {
    * result-time pass and the post-turn truncation covers the turn instead.
    */
   resolveConversationDir?: () => string | null;
+  /**
+   * Receive the post-pre-model-call-hook prompt each time the hook diffs
+   * the rendered string for the mainAgent call site. The owning
+   * {@link Conversation} updates its canonical `_systemPrompt` field so the
+   * compactor's mid-loop estimate and Anthropic prefix stay byte-aligned
+   * with the loop's send. See {@link Conversation.setSystemPrompt}.
+   */
+  systemPromptUpdated?: (prompt: string) => void;
 }
 
 export class AgentLoop {
@@ -663,6 +671,8 @@ export class AgentLoop {
 
   /** See {@link AgentLoopConstructorOptions.resolveConversationDir}. */
   private readonly resolveConversationDir: (() => string | null) | null;
+  /** Loop's post-pre-model-call-hook prompt writeback, see {@link AgentLoopConstructorOptions.systemPromptUpdated}. */
+  private readonly systemPromptUpdated: ((prompt: string) => void) | null;
 
   /**
    * Loop-held compaction circuit breaker. The loop has a 1:1 lifetime with its
@@ -684,6 +694,7 @@ export class AgentLoop {
       resolveSystemPrompt,
       conversationId,
       resolveConversationDir,
+      systemPromptUpdated,
     } = options;
     this.provider = provider;
     this.systemPrompt = systemPrompt;
@@ -694,6 +705,7 @@ export class AgentLoop {
     this.toolExecutor = toolExecutor ?? null;
     this.conversationId = conversationId;
     this.resolveConversationDir = resolveConversationDir ?? null;
+    this.systemPromptUpdated = systemPromptUpdated ?? null;
     this.compactionCircuit = new CompactionCircuit(this.conversationId);
   }
 
@@ -1447,6 +1459,20 @@ export class AgentLoop {
             HOOKS.PRE_MODEL_CALL,
             preModelCtx,
           );
+          // Push the post-hook prompt into the owning Conversation so the
+          // compactor's next mid-loop estimate picks it up. Only on the main
+          // agent's turn: the compactor is gated to run only for `mainAgent`,
+          // and pushing from subagent / title / count callers would leak
+          // hook diffs into turns whose provider never observed them. The
+          // hook owns the policy (appending its steering block, deciding
+          // whether to mutate); we just faithfully forward.
+          if (
+            this.systemPromptUpdated != null &&
+            callSite === "mainAgent" &&
+            typeof finalPreModelCtx.systemPrompt === "string"
+          ) {
+            this.systemPromptUpdated(finalPreModelCtx.systemPrompt);
+          }
           providerOptions.systemPrompt =
             finalPreModelCtx.systemPrompt ?? undefined;
           // Route this call to the hook's chosen inference profile. The

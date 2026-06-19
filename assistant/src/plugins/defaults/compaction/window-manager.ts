@@ -220,7 +220,14 @@ export interface OverflowRecoveryOptions {
 
 export interface ContextWindowManagerOptions {
   provider: Provider;
-  systemPrompt: string | (() => string);
+  /**
+   * Live read-through to the source-of-truth system prompt. The owning
+   * {@link Conversation} (see {@link Conversation.setSystemPrompt} callers)
+   * holds the canonical string; the manager reads it on every estimate / prompt
+   * render so a post-hook diff mutating the prompt is observed by the compactor
+   * on its next mid-loop call without manual invalidation.
+   */
+  resolveSystemPrompt: () => string;
   config: ContextWindowConfig;
   /** Pre-computed tool token budget to include in all estimations. */
   toolTokenBudget?: number;
@@ -286,7 +293,13 @@ function extractText(content: ContentBlock[]): string {
 
 export class ContextWindowManager {
   private readonly provider: Provider;
-  private readonly _systemPrompt: string | (() => string);
+  /**
+   * Read-through closure to the conversation's live system prompt. The
+   * owning {@link Conversation} mutates the prompt on every post-hook diff
+   * (`setSystemPrompt`); this closure re-reads on every estimate so the
+   * compactor's Anthropic prefix stays byte-aligned with the agent loop's.
+   */
+  private readonly resolveSystemPrompt: () => string;
   private config: ContextWindowConfig;
   private readonly toolTokenBudget: number;
   private readonly conversationId: string | undefined;
@@ -300,7 +313,6 @@ export class ContextWindowManager {
    * rows. Decremented after a successful compaction.
    */
   private _nonPersistedPrefixCount = 0;
-  private _resolvedSystemPrompt: string | undefined;
   /**
    * Reducer state for the in-progress overflow-recovery ladder, held across
    * the successive {@link reduceOverflowOneRung} calls of a single turn so the
@@ -324,7 +336,7 @@ export class ContextWindowManager {
 
   constructor(options: ContextWindowManagerOptions) {
     this.provider = options.provider;
-    this._systemPrompt = options.systemPrompt;
+    this.resolveSystemPrompt = options.resolveSystemPrompt;
     this.config = options.config;
     this.toolTokenBudget = options.toolTokenBudget ?? 0;
     this.conversationId = options.conversationId;
@@ -365,18 +377,7 @@ export class ContextWindowManager {
   }
 
   private get systemPrompt(): string {
-    if (this._resolvedSystemPrompt !== undefined)
-      return this._resolvedSystemPrompt;
-    const resolved =
-      typeof this._systemPrompt === "function"
-        ? this._systemPrompt()
-        : this._systemPrompt;
-    this._resolvedSystemPrompt = resolved;
-    return resolved;
-  }
-
-  private clearSystemPromptCache(): void {
-    this._resolvedSystemPrompt = undefined;
+    return this.resolveSystemPrompt();
   }
 
   private resolveCompactionConfig(): CompactionConfig {
@@ -389,18 +390,16 @@ export class ContextWindowManager {
 
   /**
    * Estimate the prompt-token cost of `messages` using the same path as the
-   * auto-compaction pre-check. Clears the system-prompt cache so the next
-   * turn re-resolves it (the system prompt is lazy and may have changed).
+   * auto-compaction pre-check. Reads the system prompt through the live
+   * {@link resolveSystemPrompt} closure on every call so a post-hook diff
+   * that mutated the prompt on the agent loop's turn is picked up here on
+   * the compactor's next mid-loop estimate without manual invalidation.
    */
   estimateInputTokens(messages: Message[]): number {
-    try {
-      return estimatePromptTokens(messages, this.systemPrompt, {
-        providerName: this.estimationProviderName,
-        toolTokenBudget: this.toolTokenBudget,
-      });
-    } finally {
-      this.clearSystemPromptCache();
-    }
+    return estimatePromptTokens(messages, this.systemPrompt, {
+      providerName: this.estimationProviderName,
+      toolTokenBudget: this.toolTokenBudget,
+    });
   }
 
   /**
@@ -414,11 +413,7 @@ export class ContextWindowManager {
     systemPrompt: string;
     tools: ToolDefinition[] | undefined;
   } {
-    try {
-      return { systemPrompt: this.systemPrompt, tools: this.resolveTools?.() };
-    } finally {
-      this.clearSystemPromptCache();
-    }
+    return { systemPrompt: this.systemPrompt, tools: this.resolveTools?.() };
   }
 
   /**
@@ -430,18 +425,14 @@ export class ContextWindowManager {
   shouldCompact(messages: Message[]): ShouldCompactResult {
     const compaction = this.resolveCompactionConfig();
     if (!compaction.enabled) return { needed: false, estimatedTokens: 0 };
-    try {
-      const estimated = estimatePromptTokens(messages, this.systemPrompt, {
-        providerName: this.estimationProviderName,
-        toolTokenBudget: this.toolTokenBudget,
-      });
-      const threshold = Math.floor(
-        this.config.maxInputTokens * compaction.autoThreshold,
-      );
-      return { needed: estimated >= threshold, estimatedTokens: estimated };
-    } finally {
-      this.clearSystemPromptCache();
-    }
+    const estimated = estimatePromptTokens(messages, this.systemPrompt, {
+      providerName: this.estimationProviderName,
+      toolTokenBudget: this.toolTokenBudget,
+    });
+    const threshold = Math.floor(
+      this.config.maxInputTokens * compaction.autoThreshold,
+    );
+    return { needed: estimated >= threshold, estimatedTokens: estimated };
   }
 
   async maybeCompact(
@@ -449,11 +440,7 @@ export class ContextWindowManager {
     signal?: AbortSignal,
     options?: ContextWindowCompactOptions,
   ): Promise<ContextWindowResult> {
-    try {
-      return await this._maybeCompact(messages, signal, options);
-    } finally {
-      this.clearSystemPromptCache();
-    }
+    return await this._maybeCompact(messages, signal, options);
   }
 
   /**
@@ -470,11 +457,7 @@ export class ContextWindowManager {
     options: OverflowRecoveryRungOptions,
     signal?: AbortSignal,
   ): Promise<ReducerStepResult> {
-    try {
-      return await this._reduceOverflowOneRung(messages, options, signal);
-    } finally {
-      this.clearSystemPromptCache();
-    }
+    return await this._reduceOverflowOneRung(messages, options, signal);
   }
 
   /**
@@ -828,24 +811,20 @@ export class ContextWindowManager {
         "ContextWindowManager has no conversationId — cannot run emergency compaction",
       );
     }
-    try {
-      return await runEmergencyCompaction({
-        conversationId: this.conversationId,
-        messages,
-        provider: this.provider,
-        systemPrompt: this.systemPrompt,
-        tools: undefined,
-        compaction: this.resolveCompactionConfig(),
-        maxInputTokens: this.config.maxInputTokens,
-        previousEstimatedInputTokens: options.previousEstimatedInputTokens,
-        force: true,
-        signal,
-        overrideProfile: options.overrideProfile ?? null,
-        nonPersistedPrefixCount: this._nonPersistedPrefixCount,
-      });
-    } finally {
-      this.clearSystemPromptCache();
-    }
+    return await runEmergencyCompaction({
+      conversationId: this.conversationId,
+      messages,
+      provider: this.provider,
+      systemPrompt: this.systemPrompt,
+      tools: undefined,
+      compaction: this.resolveCompactionConfig(),
+      maxInputTokens: this.config.maxInputTokens,
+      previousEstimatedInputTokens: options.previousEstimatedInputTokens,
+      force: true,
+      signal,
+      overrideProfile: options.overrideProfile ?? null,
+      nonPersistedPrefixCount: this._nonPersistedPrefixCount,
+    });
   }
 
   /**

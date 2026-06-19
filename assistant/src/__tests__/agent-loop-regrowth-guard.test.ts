@@ -101,7 +101,7 @@ function installManager(opts?: { proactiveExhausted?: boolean }): {
   const exhausted = opts?.proactiveExhausted ?? false;
   createContextWindowManager({
     provider: { name: "mock-provider" } as unknown as Provider,
-    systemPrompt: "system",
+    resolveSystemPrompt: () => "system",
     config: {} as unknown as ContextWindowConfig,
     conversationId: CONVERSATION_ID,
   });

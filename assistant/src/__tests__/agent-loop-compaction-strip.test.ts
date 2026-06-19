@@ -106,7 +106,7 @@ function installCapturingManager(capture: CompactionInputCapture): {
 } {
   createContextWindowManager({
     provider: { name: "mock-provider" } as unknown as Provider,
-    systemPrompt: "system",
+    resolveSystemPrompt: () => "system",
     config: {} as unknown as ContextWindowConfig,
     conversationId: CONVERSATION_ID,
   });

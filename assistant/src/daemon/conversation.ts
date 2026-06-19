@@ -296,7 +296,19 @@ export class Conversation {
     outputTokens: 0,
     estimatedCost: 0,
   };
-  /** @internal */ readonly systemPrompt: string;
+  /**
+   * Canonical system prompt for this conversation. Owns the post-pre-model-call-hook
+   * diff the agent loop pushes via {@link setSystemPrompt}; the
+   * {@link ContextWindowManager} reads it through a live closure so the
+   * compactor's Anthropic prefix stays byte-aligned with the agent loop's
+   * rendered prefix — otherwise the prompt-cache key busts on every compaction.
+   * @internal
+   */
+  private _systemPrompt: string;
+  /** Read-only public view; mutations must go through {@link setSystemPrompt}. */
+  public get systemPrompt(): string {
+    return this._systemPrompt;
+  }
   /** @internal */ contextCompactedMessageCount = 0;
   /** @internal */ contextCompactedAt: number | null = null;
   /** @internal */ contextSummary: string | null = null;
@@ -591,7 +603,7 @@ export class Conversation {
   ) {
     const { maxTokens, speedOverride, cacheTtl, modelOverride } = options ?? {};
     this.conversationId = conversationId;
-    this.systemPrompt = systemPrompt;
+    this._systemPrompt = systemPrompt;
     this.provider = provider;
     this.workingDir = workingDir;
     this.sendToClient = sendToClient;
@@ -727,6 +739,13 @@ export class Conversation {
       toolExecutor: toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,
       resolveSystemPrompt: resolveSystemPromptCallback,
+      /**
+       * Receive the agent loop's post-pre-model-call-hook prompt. Wired so
+       * the compactor's Anthropic prefix stays byte-aligned with the loop's
+       * rendered prefix (otherwise the prompt-cache key busts on every
+       * compaction when the advisor hook appends a steering block).
+       */
+      systemPromptUpdated: (prompt) => this.setSystemPrompt(prompt),
       resolveConversationDir: () => {
         const conv = getConversation(this.conversationId);
         if (!conv) return null;
@@ -738,7 +757,15 @@ export class Conversation {
     });
     createContextWindowManager({
       provider,
-      systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
+      /**
+       * Live read-through to the canonical system prompt on this
+       * Conversation. The agent loop's `systemPromptUpdated` callback above
+       * mutates `this._systemPrompt` after every pre-model-call hook, and
+       * the compactor's estimate/compact calls re-read on every invocation
+       * so a hook diff lands on the Anthropic prefix without manual
+       * invalidation.
+       */
+      resolveSystemPrompt: () => this._systemPrompt,
       config: initialContextWindowConfig,
       toolTokenBudget: this.agentLoop.getToolTokenBudget(),
       conversationId: this.conversationId,
@@ -800,6 +827,19 @@ export class Conversation {
   }
 
   // ── Prompt Cache Warming ─────────────────────────────────────────
+
+  /**
+   * Replace the canonical system prompt with `prompt`. The agent loop calls
+   * this from its post-pre-model-call-hook path so the
+   * {@link ContextWindowManager}'s next mid-loop estimate reads the same
+   * string the loop just sent to the provider; without this, every
+   * compaction turn would render a different Anthropic prefix-cache key and
+   * bust the cache. Idempotent: re-setting the same value is a no-op.
+   */
+  setSystemPrompt(prompt: string): void {
+    if (prompt === this._systemPrompt) return;
+    this._systemPrompt = prompt;
+  }
 
   /**
    * Fire-and-forget LLM call with max_tokens=1 to populate the provider's
