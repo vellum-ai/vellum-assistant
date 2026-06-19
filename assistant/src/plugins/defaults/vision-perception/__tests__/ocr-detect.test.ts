@@ -121,6 +121,27 @@ describe("vlm_ocr tool", () => {
     ]);
   });
 
+  test("drops layout blocks with non-finite coords instead of fabricating a zero box", async () => {
+    // null and empty-string coords must NOT coerce to a 0-size [0,0,0,0] box —
+    // those blocks are dropped; the valid block is still returned.
+    responseText =
+      '```json\n{"full_text": "ABC", "blocks": [' +
+      '{"text": "null-box", "bbox": [null, null, null, null]},' +
+      '{"text": "empty-box", "bbox": ["", "", "", ""]},' +
+      '{"text": "valid", "bbox": [100, 200, 300, 400]}' +
+      "]}\n```";
+    const result = await vlmOcrTool.execute?.(
+      { media_ref: "att-1", layout: true },
+      ctx,
+    );
+
+    expect(result?.isError).toBe(false);
+    const parsed = JSON.parse(result?.content ?? "");
+    expect(parsed.blocks).toEqual([
+      { text: "valid", bbox: [100, 200, 300, 400] },
+    ]);
+  });
+
   test("layout=true with malformed model output degrades to isError (no throw)", async () => {
     responseText = "sorry, I cannot read that image";
     const result = await vlmOcrTool.execute?.(
@@ -169,6 +190,25 @@ describe("vlm_detect tool", () => {
     const parsed = JSON.parse(result?.content ?? "");
     expect(parsed.detections).toEqual([
       { label: "car", bbox: [10, 20, 30, 40], confidence: null },
+    ]);
+  });
+
+  test("drops detections with non-finite coords instead of returning zero boxes", async () => {
+    // Placeholder/uncertain coords (null and empty strings) must NOT coerce to
+    // a [0,0,0,0] box — those detections are dropped, while a valid detection
+    // in the same response is still returned.
+    responseText =
+      '{"detections": [' +
+      '{"label": "ghost", "bbox": [null, null, null, null], "confidence": 0.9},' +
+      '{"label": "blank", "bbox": ["", "", "", ""], "confidence": 0.8},' +
+      '{"label": "dog", "bbox": [500, 600, 700, 800], "confidence": 0.5}' +
+      "]}";
+    const result = await vlmDetectTool.execute?.({ media_ref: "att-1" }, ctx);
+
+    expect(result?.isError).toBe(false);
+    const parsed = JSON.parse(result?.content ?? "");
+    expect(parsed.detections).toEqual([
+      { label: "dog", bbox: [500, 600, 700, 800], confidence: 0.5 },
     ]);
   });
 

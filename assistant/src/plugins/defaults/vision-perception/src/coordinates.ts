@@ -50,18 +50,46 @@ function clampCoord(value: number): number {
 }
 
 /**
+ * Coerce a single raw coordinate to an actual finite number, or `null` when it
+ * isn't one.
+ *
+ * The vision model sometimes emits placeholder/uncertain coordinates like
+ * `null`, `undefined`, or an empty string instead of a number. A bare
+ * `Number(...)` would silently turn those into `0` (e.g. `Number(null) === 0`,
+ * `Number("") === 0`), fabricating a valid-looking zero coordinate. We instead
+ * reject anything that isn't already a finite number or a non-empty string that
+ * parses to one, so the box can be dropped rather than coerced to `[0,0,0,0]`.
+ */
+function toCoord(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed === "") return null;
+    const n = Number(trimmed);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+/**
  * Normalize a raw 4-tuple box onto the 0–{@link COORD_SCALE} contract.
  *
  * A box whose every coordinate is already within `[0, 1]` is treated as a
  * fractional box and scaled up; otherwise it is assumed to already be on (or
  * near) the 0–1000 scale and is only clamped. Coordinates are reordered so
- * `x0 <= x1` and `y0 <= y1`. Returns `null` when `raw` isn't four finite
- * numbers.
+ * `x0 <= x1` and `y0 <= y1`. Returns `null` when `raw` isn't four actual finite
+ * numbers — placeholder/uncertain coordinates (`null`, `undefined`, empty
+ * strings, NaN/Infinity) are rejected so the detection/block is dropped rather
+ * than fabricated as a zero box.
  */
 export function normalizeBox(raw: unknown): BBox | null {
   if (!Array.isArray(raw) || raw.length !== 4) return null;
-  const nums = raw.map((n) => (typeof n === "number" ? n : Number(n)));
-  if (nums.some((n) => !Number.isFinite(n))) return null;
+  const nums: number[] = [];
+  for (const n of raw) {
+    const coord = toCoord(n);
+    if (coord === null) return null;
+    nums.push(coord);
+  }
 
   const fractional = nums.every((n) => n >= 0 && n <= 1);
   const scaled = fractional ? nums.map((n) => n * COORD_SCALE) : nums;

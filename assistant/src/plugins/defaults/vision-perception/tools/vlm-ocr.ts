@@ -60,13 +60,12 @@ function buildOcrPrompt(region: BBox | null, layout: boolean): string {
   );
 }
 
-function asBoxOrZero(raw: unknown): BBox {
-  return normalizeBox(raw) ?? [0, 0, 0, 0];
-}
-
 /**
  * Parse the model's `layout` response into positioned blocks. Throws when the
  * response isn't the expected JSON object so the tool can degrade to an error.
+ * Blocks whose `bbox` isn't four actual finite numbers are dropped rather than
+ * fabricated as a zero box (the model sometimes emits placeholder/uncertain
+ * coordinates like `null` or empty strings).
  */
 function parseLayout(text: string, imageSize: ImageSize): OcrResult {
   const parsed = parseModelJson(text);
@@ -75,12 +74,17 @@ function parseLayout(text: string, imageSize: ImageSize): OcrResult {
   }
   const obj = parsed as Record<string, unknown>;
   const rawBlocks = Array.isArray(obj.blocks) ? obj.blocks : [];
-  const blocks: OcrBlock[] = rawBlocks
-    .filter((b): b is Record<string, unknown> => !!b && typeof b === "object")
-    .map((b) => ({
-      text: typeof b.text === "string" ? b.text : "",
-      bbox: asBoxOrZero(b.bbox),
-    }));
+  const blocks: OcrBlock[] = [];
+  for (const b of rawBlocks) {
+    if (!b || typeof b !== "object") continue;
+    const block = b as Record<string, unknown>;
+    const bbox = normalizeBox(block.bbox);
+    if (!bbox) continue;
+    blocks.push({
+      text: typeof block.text === "string" ? block.text : "",
+      bbox,
+    });
+  }
   const fullText =
     typeof obj.full_text === "string"
       ? obj.full_text
