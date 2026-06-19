@@ -1,3 +1,6 @@
+import { readdirSync, unlinkSync } from "node:fs";
+import path from "node:path";
+
 import * as Sentry from "@sentry/electron/main";
 import { app } from "electron";
 
@@ -81,11 +84,63 @@ function syncNativeGate(consented: boolean): void {
   if (options) options.enabled = consented;
 }
 
+/**
+ * Directories the installed `@sentry/electron` minidump loader scans on its
+ * startup sweep (darwin). Mirrors getMinidumpLoader() in
+ * `@sentry/electron/main/integrations/sentry-minidump/minidump-loader.js`:
+ * Crashpad writes completed/pending `.dmp` files under `crashDumps`, and the
+ * loader uploads any it finds (via core.captureEvent) on the next init when
+ * `enabled !== false`.
+ */
+function queuedMinidumpDirs(): string[] {
+  const crashDumps = app.getPath("crashDumps");
+  return [path.join(crashDumps, "completed"), path.join(crashDumps, "pending")];
+}
+
+/**
+ * Fail-closed disk gate for the never-initialized case. When consent is false
+ * and the SDK was never initialized (e.g. the first effective consent after a
+ * restart is false), there is no client to run the minidump integration's
+ * delete-on-disabled startup scan — `Sentry.init({ enabled: false })` does NOT
+ * set up integrations, so the scan never installs. Without this, Crashpad
+ * dumps written during the opted-out session persist on disk and a LATER
+ * opt-in's init would scan and upload them. We delete them ourselves so a
+ * minidump captured while opted out can never be exfiltrated by a later opt-in.
+ */
+function purgeQueuedMinidumps(): void {
+  for (const dir of queuedMinidumpDirs()) {
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.endsWith(".dmp")) continue;
+      try {
+        unlinkSync(path.join(dir, entry));
+      } catch {
+        // Best effort: a dump we cannot delete here is still gated by the
+        // native `enabled` flag once a client exists.
+      }
+    }
+  }
+}
+
 function applyConsent(consented: boolean): void {
   if (!cachedOptions) return;
   enabled = consented;
-  if (consented) ensureInitialized();
-  syncNativeGate(consented);
+  if (consented) {
+    ensureInitialized();
+    syncNativeGate(consented);
+    return;
+  }
+  // Opted out. If a client exists, its minidump integration deletes queued
+  // dumps when the native gate is false. If not (never initialized — fail-
+  // closed boot, or first consent after restart is false), no integration
+  // runs, so we purge the queued dumps from disk ourselves.
+  if (Sentry.getClient()) syncNativeGate(consented);
+  else purgeQueuedMinidumps();
 }
 
 /**

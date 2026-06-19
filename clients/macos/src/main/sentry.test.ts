@@ -55,7 +55,29 @@ mock.module("electron", () => ({
   app: {
     isPackaged: false,
     on: mock(() => {}),
+    getPath: (name: string) =>
+      name === "crashDumps" ? "/fake/crash-dumps" : "/fake/user-data",
   },
+}));
+
+// In-memory model of the Crashpad minidump dirs the SDK loader scans, so the
+// purge path can be asserted without touching the real filesystem.
+let minidumpFs: Record<string, string[]> = {};
+const unlinkMock = mock((filePath: string) => {
+  const dir = filePath.slice(0, filePath.lastIndexOf("/"));
+  const file = filePath.slice(filePath.lastIndexOf("/") + 1);
+  if (minidumpFs[dir]) {
+    minidumpFs[dir] = minidumpFs[dir].filter((f) => f !== file);
+  }
+});
+
+mock.module("node:fs", () => ({
+  readdirSync: (dir: string) => {
+    const files = minidumpFs[dir];
+    if (!files) throw new Error("ENOENT");
+    return files;
+  },
+  unlinkSync: unlinkMock,
 }));
 
 let settingChangeCb: ((newValue: boolean | undefined) => void) | null = null;
@@ -86,6 +108,8 @@ beforeEach(() => {
   setTagMock.mockReset();
   setClientMock.mockReset();
   writeSettingMock.mockReset();
+  unlinkMock.mockClear();
+  minidumpFs = {};
   sentryClient = undefined;
   settingChangeCb = null;
 });
@@ -105,6 +129,43 @@ describe("initSentryMain (before any consent)", () => {
     expect(initMock).not.toHaveBeenCalled();
     // ...but it does register the mid-session watcher.
     expect(settingChangeCb).not.toBeNull();
+  });
+});
+
+// Regression for the reviewer's scenario: the first effective consent after a
+// restart is `false`. The SDK was never initialized (fail-closed boot), so
+// there is no client to run the minidump integration's delete-on-disabled
+// startup scan — and `Sentry.init({ enabled: false })` would NOT set that
+// integration up anyway. Dumps captured while opted out must therefore be
+// purged from disk here, so a LATER opt-in's startup scan cannot upload them.
+//
+// Runs BEFORE the lifecycle test below, which permanently sets the module's
+// one-shot `initialized` singleton.
+describe("opted-out boot purges queued minidumps (never-initialized path)", () => {
+  test("first consent=false with no client deletes queued dumps so a later opt-in can't upload them", () => {
+    initSentryMain();
+    expect(initMock).not.toHaveBeenCalled();
+
+    // Crashpad wrote dumps into the loader's scan dirs during the prior
+    // (opted-out) session. No client exists (init never ran).
+    minidumpFs = {
+      "/fake/crash-dumps/completed": ["a.dmp", "metadata"],
+      "/fake/crash-dumps/pending": ["b.dmp"],
+    };
+    sentryClient = undefined;
+
+    // First effective consent after restart is false.
+    setShareDiagnostics(false);
+
+    // Still no init, and the queued .dmp files were deleted (metadata left).
+    expect(initMock).not.toHaveBeenCalled();
+    expect(unlinkMock).toHaveBeenCalledTimes(2);
+    expect(minidumpFs["/fake/crash-dumps/completed"]).toEqual(["metadata"]);
+    expect(minidumpFs["/fake/crash-dumps/pending"]).toEqual([]);
+
+    // A later opt-in's startup scan now finds nothing to upload.
+    expect(minidumpFs["/fake/crash-dumps/completed"]).not.toContain("a.dmp");
+    expect(minidumpFs["/fake/crash-dumps/pending"]).not.toContain("b.dmp");
   });
 });
 
