@@ -21,7 +21,7 @@ import { getDeviceId } from "./device-id";
 import { handleSync } from "./ipc";
 import { resolveAppProtocolPath } from "./app-protocol";
 import { registerVellumAppProtocol } from "./vellumapp-protocol";
-import { planGatewayForward } from "./gateway-forward";
+import { buildGatewayForwardEffect, planGatewayForward } from "./gateway-forward";
 import {
   fetchForwardPlanWithRetry,
   planPlatformForward,
@@ -280,16 +280,10 @@ const forwardGatewayRequest = async (
       return null;
     case "reject":
       return new Response(plan.message, { status: plan.status });
-    case "forward":
-      return net.fetch(plan.url, {
-        method: plan.method,
-        headers: plan.headers,
-        body: plan.hasBody ? request.body : undefined,
-        // Stream the request body instead of buffering it; required by the
-        // fetch spec whenever a `ReadableStream` body is supplied.
-        ...(plan.hasBody ? { duplex: "half" } : {}),
-        redirect: "manual",
-      });
+    case "forward": {
+      const { url, init } = await buildGatewayForwardEffect(plan, request);
+      return net.fetch(url, init);
+    }
   }
 };
 

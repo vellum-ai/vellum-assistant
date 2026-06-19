@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { planGatewayForward } from "./gateway-forward";
+import {
+  buildGatewayForwardEffect,
+  planGatewayForward,
+} from "./gateway-forward";
 
 const allow =
   (...ports: number[]) =>
@@ -93,5 +96,49 @@ describe("planGatewayForward", () => {
     if (plan.kind !== "forward") throw new Error("expected forward");
     expect(plan.headers.get("authorization")).toBe("Bearer guardian-token");
     expect(plan.headers.get("content-type")).toBe("application/json");
+  });
+});
+
+describe("buildGatewayForwardEffect", () => {
+  test("buffers a body into a finite ArrayBuffer and never streams it", async () => {
+    // A streamed (`duplex: "half"`) request body stalls forever over the
+    // plain-HTTP loopback hop in Chromium's net stack, hanging image/file
+    // uploads. The body must be buffered, and `duplex` must never be set.
+    const plan = planGatewayForward(
+      request("/assistant/__gateway/8080/v1/assistants/x/attachments", {
+        method: "POST",
+      }),
+      allow(8080),
+    );
+    if (plan.kind !== "forward") throw new Error("expected forward");
+
+    const payload = "--boundary\r\nfile bytes\r\n--boundary--";
+    const bodyReq = new Request("http://localhost/ignored", {
+      method: "POST",
+      body: payload,
+    });
+    const { url, init } = await buildGatewayForwardEffect(plan, bodyReq);
+
+    expect(url).toBe("http://127.0.0.1:8080/v1/assistants/x/attachments");
+    expect(init.method).toBe("POST");
+    expect(init.body).toBeInstanceOf(ArrayBuffer);
+    expect(new TextDecoder().decode(init.body)).toBe(payload);
+    expect("duplex" in init).toBe(false);
+  });
+
+  test("sends no body for a bodyless GET", async () => {
+    const plan = planGatewayForward(
+      request("/__gateway/8080/v1/stream"),
+      allow(8080),
+    );
+    if (plan.kind !== "forward") throw new Error("expected forward");
+
+    const { init } = await buildGatewayForwardEffect(
+      plan,
+      new Request("http://localhost/ignored"),
+    );
+
+    expect(init.body).toBeUndefined();
+    expect("duplex" in init).toBe(false);
   });
 });

@@ -80,3 +80,41 @@ export function planGatewayForward(
     }
   }
 }
+
+export interface GatewayForwardEffect {
+  url: string;
+  init: {
+    method: string;
+    headers: Headers;
+    body?: ArrayBuffer;
+    redirect: "manual";
+  };
+}
+
+/**
+ * Resolve a `forward` plan into the concrete `net.fetch` arguments, buffering
+ * the request body into a finite `ArrayBuffer` rather than streaming it.
+ *
+ * The renderer reaches local gateways over plain-HTTP loopback
+ * (`http://127.0.0.1:<port>`), and Chromium's network stack cannot upload a
+ * streamed (`duplex: "half"`) request body over cleartext HTTP/1.1 — a
+ * non-trivial body (an image or file attachment) stalls indefinitely while
+ * waiting to send, so the upload spins forever. A buffered body carries an
+ * explicit `Content-Length` and uploads normally. The gateway buffers the body
+ * upstream regardless, so nothing on this hop needs request streaming.
+ */
+export async function buildGatewayForwardEffect(
+  plan: Extract<GatewayForwardPlan, { kind: "forward" }>,
+  request: { arrayBuffer: () => Promise<ArrayBuffer> },
+): Promise<GatewayForwardEffect> {
+  const body = plan.hasBody ? await request.arrayBuffer() : undefined;
+  return {
+    url: plan.url,
+    init: {
+      method: plan.method,
+      headers: plan.headers,
+      body,
+      redirect: "manual",
+    },
+  };
+}
