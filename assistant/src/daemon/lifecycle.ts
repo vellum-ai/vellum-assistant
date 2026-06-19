@@ -76,7 +76,10 @@ import {
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
 import { registerSecretsDeps } from "../runtime/routes/secrets-deps.js";
-import { publishConversationListChanged } from "../runtime/sync/resource-sync-events.js";
+import {
+  publishConfigChanged,
+  publishConversationListChanged,
+} from "../runtime/sync/resource-sync-events.js";
 import { recoverStaleSchedules } from "../schedule/schedule-recovery.js";
 import { startScheduler } from "../schedule/scheduler.js";
 import {
@@ -374,11 +377,16 @@ export async function runDaemon(): Promise<void> {
     // the same race). Enable-direction only; chained so it sees the fresh cache.
     // Then reconcile flag-gated managed profiles (OS Beta): `seedInferenceProfiles()`
     // runs synchronously earlier in boot before flags are available, so this lands
-    // the profile on the same boot once the flag cache is populated.
+    // the profile on the same boot once the flag cache is populated. When this
+    // reconcile is the call that mutates config (it raced ahead of the gateway
+    // flag listener), publish the config invalidation so any client that already
+    // fetched `GET /v1/config` refreshes its profile picker.
     void initFeatureFlagOverrides()
       .then(() => syncFlagGatedTools())
       .then(() => {
-        reconcileFlagGatedProfiles();
+        if (reconcileFlagGatedProfiles()) {
+          publishConfigChanged();
+        }
       })
       .catch((err) => log.warn({ err }, "Background feature flag init failed"));
 
