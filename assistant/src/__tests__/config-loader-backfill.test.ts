@@ -75,7 +75,12 @@ import {
   loadConfig,
   mergeDefaultWorkspaceConfig,
 } from "../config/loader.js";
-import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
+import {
+  MANAGED_PROFILE_NAMES,
+  materializeProfile,
+  OS_BETA_PROFILE_TEMPLATE,
+  seedInferenceProfiles,
+} from "../config/seed-inference-profiles.js";
 import type { DrizzleDb } from "../memory/db-connection.js";
 import { migrateCreateProviderConnections } from "../memory/migrations/243-provider-connections.js";
 import { migrateProviderConnectionStatusLabel } from "../memory/migrations/244-provider-connection-status-label.js";
@@ -1400,5 +1405,77 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     expect(config.llm.profiles.balanced?.status).toBe("active");
     // Label is still suffixed (Vellum can push label updates).
     expect(config.llm.profiles.balanced?.label).toBe("Balanced (Managed)");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: OS Beta flag-gated managed profile. The template is defined but
+// intentionally NOT part of MANAGED_PROFILE_TEMPLATES, so seedInferenceProfiles
+// must never create it. A later PR reconciles it in/out based on the `os-beta`
+// feature flag.
+// ---------------------------------------------------------------------------
+
+describe("OS Beta managed profile template", () => {
+  beforeEach(() => {
+    ensureTestDir();
+    const resetPaths = [
+      CONFIG_PATH,
+      join(WORKSPACE_DIR, "default-config.json"),
+      join(WORKSPACE_DIR, "hatch-overlay.json"),
+      join(WORKSPACE_DIR, "keys.enc"),
+      join(WORKSPACE_DIR, "data"),
+      join(WORKSPACE_DIR, "data", "memory"),
+    ];
+    for (const path of resetPaths) {
+      if (existsSync(path)) {
+        rmSync(path, { recursive: true, force: true });
+      }
+    }
+    ensureTestDir();
+    setStorePathForTesting(join(WORKSPACE_DIR, "keys.enc"));
+    delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
+    delete process.env.IS_PLATFORM;
+    invalidateConfigCache();
+  });
+
+  afterEach(() => {
+    setStorePathForTesting(null);
+    delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
+    delete process.env.IS_PLATFORM;
+    invalidateConfigCache();
+  });
+
+  test("seedInferenceProfiles does not create an os-beta profile", () => {
+    writeConfig({ llm: { default: { provider: "anthropic" } } });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles["os-beta"]).toBeUndefined();
+    expect((raw.llm.profileOrder as string[]).includes("os-beta")).toBe(false);
+  });
+
+  test("MANAGED_PROFILE_NAMES does not yet contain os-beta", () => {
+    // Membership lands with the flag-gated reconciler in a later PR, so the
+    // route layer can't lock a user-owned os-beta profile before a managed
+    // one exists.
+    expect(MANAGED_PROFILE_NAMES.has("os-beta")).toBe(false);
+  });
+
+  test("materializeProfile honors the explicit OS Beta model", () => {
+    const entry = materializeProfile(
+      OS_BETA_PROFILE_TEMPLATE,
+      "fireworks",
+      "fireworks-managed",
+    );
+
+    expect(entry.model).toBe("accounts/fireworks/models/glm-5p2");
+    expect(entry.provider_connection).toBe("fireworks-managed");
+    expect(entry.provider).toBe("fireworks");
+    expect(entry.label).toBe("OS Beta");
+    expect(entry.source).toBe("managed");
+    expect(entry.maxTokens).toBe(32000);
+    expect(entry.effort).toBe("high");
+    expect(entry.thinking?.enabled).toBe(true);
   });
 });
