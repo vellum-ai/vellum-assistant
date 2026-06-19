@@ -336,19 +336,28 @@ export async function ensureCliInstalled(): Promise<void> {
     return;
   }
 
-  if (cliInstallPromise) return cliInstallPromise;
+  // Clear the lock once the install settles (success or failure) so a later
+  // call never short-circuits on a stale resolved promise — otherwise a bin
+  // that goes missing mid-session wedges every retry until an app restart.
+  if (!cliInstallPromise) {
+    cliInstallPromise = (async () => {
+      try {
+        await bunInstallCli();
+        writeCliLocator();
+        cleanupOldVersions();
+      } finally {
+        cliInstallPromise = null;
+      }
+    })();
+  }
+  await cliInstallPromise;
 
-  cliInstallPromise = (async () => {
-    await bunInstallCli();
-    writeCliLocator();
-    cleanupOldVersions();
-  })();
-
-  try {
-    await cliInstallPromise;
-  } catch (err) {
-    cliInstallPromise = null;
-    throw err;
+  // Fail loudly on an exit-0 install that linked no bin, rather than letting
+  // it surface downstream as a cryptic `bun run` "Module not found".
+  if (!isCliInstalled()) {
+    throw new Error(
+      `CLI install reported success but no vellum binary was found at ${getCliBinPath()}.`,
+    );
   }
 }
 

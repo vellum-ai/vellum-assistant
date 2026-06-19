@@ -9,6 +9,7 @@
  * and returns the text.
  */
 
+import { getConfig } from "../../../config/loader.js";
 import type { LLMCallSite } from "../../../config/schemas/llm.js";
 import {
   extractAllText,
@@ -20,8 +21,26 @@ import { ADVISOR_CONFIG } from "./config.js";
 import { advisorRequestText, buildAdvisorSystem } from "./steering.js";
 import { toAdvisorMessages } from "./transcript.js";
 
-// The general-purpose call site; the model is selected via `overrideProfile`.
-const ADVISOR_CALL_SITE: LLMCallSite = "inference";
+// Dedicated advisor call site. Its default profile (`quality-optimized`) lives
+// in CALL_SITE_DEFAULTS; a workspace overrides which profile the advisor runs
+// on via `llm.advisorProfile`, which we float above the call-site layers.
+const ADVISOR_CALL_SITE: LLMCallSite = "advisor";
+
+/**
+ * Resolve the routing override for the advisor consult. When the workspace has
+ * set `llm.advisorProfile`, force it above the call-site layers so it is
+ * authoritative; otherwise return `{}` so the `advisor` call site resolves to
+ * its default profile.
+ */
+function advisorOverride(): {
+  overrideProfile?: string;
+  forceOverrideProfile?: boolean;
+} {
+  const advisorProfile = getConfig().llm.advisorProfile;
+  return advisorProfile
+    ? { overrideProfile: advisorProfile, forceOverrideProfile: true }
+    : {};
+}
 
 export interface ConsultParams {
   systemPrompt: string | null;
@@ -46,9 +65,9 @@ export async function consultAdvisor(params: ConsultParams): Promise<string> {
     return "(advisor: no conversation context is available yet)";
   }
 
-  const provider = await getConfiguredProvider(ADVISOR_CALL_SITE, {
-    overrideProfile: ADVISOR_CONFIG.profile,
-  });
+  const override = advisorOverride();
+
+  const provider = await getConfiguredProvider(ADVISOR_CALL_SITE, override);
   if (!provider) {
     return "(advisor unavailable: no inference provider is configured)";
   }
@@ -63,7 +82,7 @@ export async function consultAdvisor(params: ConsultParams): Promise<string> {
     systemPrompt: buildAdvisorSystem(params.systemPrompt),
     config: {
       callSite: ADVISOR_CALL_SITE,
-      overrideProfile: ADVISOR_CONFIG.profile,
+      ...override,
       tool_choice: { type: "none" },
     },
     signal: withTimeout(params.signal, ADVISOR_CONFIG.timeoutMs),

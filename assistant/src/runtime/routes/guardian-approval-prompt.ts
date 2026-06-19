@@ -2,7 +2,7 @@
  * Approval prompt delivery: rich UI (buttons) with plain-text fallback.
  */
 import type { ChannelId } from "../../channels/types.js";
-import { createCanonicalGuardianDelivery } from "../../memory/canonical-guardian-store.js";
+import { recordApprovalCardDelivery } from "../../notifications/canonical-delivery-recorder.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
 import type { ApprovalMessageContext } from "../approval-message-composer.js";
@@ -21,37 +21,6 @@ import type { ApprovalCopyGenerator } from "../http-types.js";
 import { requiredDecisionKeywords } from "./channel-route-shared.js";
 
 const log = getLogger("runtime-http");
-
-/**
- * Record the delivered approval card so an emoji reaction on it can be routed
- * back to its canonical request. The card's channel-native message id (e.g.
- * Slack `ts`) is the addressing key the reaction decision path uses to recover
- * which request the guardian acted on.
- *
- * Best-effort: a failure here must not be mistaken for a delivery failure by
- * the surrounding try/catch (which would trigger a fallback re-post), so errors
- * are swallowed and logged.
- */
-function recordApprovalCardDelivery(
-  requestId: string,
-  channel: ChannelId,
-  chatId: string,
-  messageId: string,
-): void {
-  try {
-    createCanonicalGuardianDelivery({
-      requestId,
-      destinationChannel: channel,
-      destinationChatId: chatId,
-      destinationMessageId: messageId,
-    });
-  } catch (err) {
-    log.error(
-      { err, requestId, channel, chatId },
-      "Failed to record approval card delivery; reaction-based approval on this card will not resolve",
-    );
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Tool input summary for rich-UI approval prompts
@@ -179,12 +148,13 @@ export async function deliverGeneratedApprovalPrompt(
         assistantId,
       );
       if (deliveryResult.ts) {
-        recordApprovalCardDelivery(
-          uiMetadata.requestId,
-          sourceChannel,
+        recordApprovalCardDelivery({
+          requestId: uiMetadata.requestId,
+          channel: sourceChannel,
           chatId,
-          deliveryResult.ts,
-        );
+          messageId: deliveryResult.ts,
+          status: "sent",
+        });
       }
       return true;
     } catch (err) {
@@ -211,12 +181,13 @@ export async function deliverGeneratedApprovalPrompt(
         assistantId,
       });
       if (fallbackResult.ts) {
-        recordApprovalCardDelivery(
-          uiMetadata.requestId,
-          sourceChannel,
+        recordApprovalCardDelivery({
+          requestId: uiMetadata.requestId,
+          channel: sourceChannel,
           chatId,
-          fallbackResult.ts,
-        );
+          messageId: fallbackResult.ts,
+          status: "sent",
+        });
       }
       return true;
     } catch (err) {
@@ -244,12 +215,13 @@ export async function deliverGeneratedApprovalPrompt(
       assistantId,
     });
     if (plainResult.ts) {
-      recordApprovalCardDelivery(
-        uiMetadata.requestId,
-        sourceChannel,
+      recordApprovalCardDelivery({
+        requestId: uiMetadata.requestId,
+        channel: sourceChannel,
         chatId,
-        plainResult.ts,
-      );
+        messageId: plainResult.ts,
+        status: "sent",
+      });
     }
     return true;
   } catch (err) {

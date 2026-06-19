@@ -128,12 +128,10 @@ const CLASSIFICATION_MAP: Record<Reason, ClassificationEnum> = {
   other: "other",
 };
 
-function getFeedbackClient(): "macos" | "ios" | "web" {
-  // The Electron shell wraps clients/web on macOS. Backend ClientEnum doesn't
-  // have a separate `electron` value; reporting `macos` keeps the
-  // platform-level signal accurate and matches the slot vacated by the
-  // retiring Swift macOS app.
-  if (isElectron()) return "macos";
+function getFeedbackClient(): "electron" | "ios" | "web" {
+  if (isElectron()) {
+    return "electron";
+  }
   return Capacitor.getPlatform() === "ios" ? "ios" : "web";
 }
 

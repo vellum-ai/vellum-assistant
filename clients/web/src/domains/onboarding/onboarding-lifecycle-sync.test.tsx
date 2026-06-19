@@ -171,7 +171,7 @@ mock.module("@sentry/react", () => ({
 }));
 
 mock.module("@/domains/onboarding/prefs", () => ({
-  readAiDataConsent: () => true,
+  readPrivacyConsent: () => true,
   readSelectedVersion: () => null,
   readShareAnalytics: () => true,
   readTosAccepted: () => true,
@@ -195,7 +195,7 @@ mock.module("@/lib/navigation/build-state", () => ({
     isAuthenticated: true,
     platformSession: platformSessionValue,
     tosAccepted: true,
-    aiDataConsent: true,
+    privacyConsent: true,
     ...overrides,
   }),
 }));

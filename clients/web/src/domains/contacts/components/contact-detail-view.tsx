@@ -13,6 +13,7 @@ interface ContactDetailViewProps {
   contact: ContactPayload;
   savePending: boolean;
   deletePending: boolean;
+  verifyPending?: boolean;
   mergePending?: boolean;
   canMerge?: boolean;
   availableChannels?: ChannelInfo[];
@@ -21,6 +22,7 @@ interface ContactDetailViewProps {
   onDelete: () => Promise<void>;
   onMerge?: () => void;
   onSetupChannel?: (type: string) => void;
+  onVerifyChannel?: (type: string) => void;
   onRevokeChannel?: (channelId: string, type: string) => void;
 }
 
@@ -32,6 +34,7 @@ function ContactDetailViewInner({
   contact,
   savePending,
   deletePending,
+  verifyPending,
   mergePending = false,
   canMerge = false,
   availableChannels,
@@ -40,6 +43,7 @@ function ContactDetailViewInner({
   onDelete,
   onMerge,
   onSetupChannel,
+  onVerifyChannel,
   onRevokeChannel,
 }: ContactDetailViewProps) {
   const isNewContactDraft = contact.displayName === "New Contact";
@@ -158,7 +162,10 @@ function ContactDetailViewInner({
           contactChannels={contact.channels}
           availableChannels={availableChannels}
           a2aEnabled={a2aEnabled}
+          verifyLoading={verifyPending}
+          verifySubject="contact"
           onSetupChannel={onSetupChannel}
+          onVerifyChannel={onVerifyChannel}
           onRevokeChannel={onRevokeChannel}
         />
       </DetailCard>

@@ -53,7 +53,7 @@ beforeEach(() => {
 });
 
 describe("consultAdvisor", () => {
-  test("routes through the inference call site, tools off, capped, returns advice", async () => {
+  test("routes through the advisor call site, tools off, returns advice", async () => {
     const messages: Message[] = [
       userMsg("build a worker pool"),
       {
@@ -74,8 +74,11 @@ describe("consultAdvisor", () => {
     expect(advice).toBe(responseText);
 
     const config = optionConfig();
-    expect(config.callSite).toBe("inference");
-    expect(config.overrideProfile).toBe("quality-optimized");
+    expect(config.callSite).toBe("advisor");
+    // No `advisorProfile` is configured in the default test config, so the
+    // consult passes no override and the `advisor` call site resolves to its
+    // default profile (`quality-optimized`).
+    expect(config.overrideProfile).toBeUndefined();
     expect(config.tool_choice).toEqual({ type: "none" });
     // No advisor-specific output cap — the resolver applies the profile budget.
     expect(config.max_tokens).toBeUndefined();

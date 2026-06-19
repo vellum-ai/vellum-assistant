@@ -40,18 +40,18 @@ const restoreConsentForUserMock = mock(
     _userId: string | null,
   ): {
     tos: boolean;
-    ai: boolean;
+    privacy: boolean;
     analyticsCurrent: boolean;
     diagnosticsCurrent: boolean;
   } => ({
     tos: false,
-    ai: false,
+    privacy: false,
     analyticsCurrent: false,
     diagnosticsCurrent: false,
   }),
 );
 const persistConsentForUserMock = mock(
-  (_userId: string | null, _tos: boolean, _ai: boolean) => {},
+  (_userId: string | null, _tos: boolean, _privacy: boolean) => {},
 );
 const persistToggleConsentMock = mock(
   (
@@ -64,7 +64,7 @@ const resolveServerConsentMock = mock(
     _consent: unknown,
   ): {
     tos: boolean;
-    ai: boolean;
+    privacy: boolean;
     shareAnalytics: boolean | null;
     shareDiagnostics: boolean | null;
     analyticsCurrent: boolean;
@@ -72,7 +72,7 @@ const resolveServerConsentMock = mock(
     hasServerRecord: boolean;
   } => ({
     tos: false,
-    ai: false,
+    privacy: false,
     shareAnalytics: null,
     shareDiagnostics: null,
     analyticsCurrent: false,
@@ -206,7 +206,8 @@ mock.module("@/utils/onboarding-cleanup", () => ({
   persistConsentForUser: persistConsentForUserMock,
   persistToggleConsent: persistToggleConsentMock,
   resolveServerConsent: resolveServerConsentMock,
-  CONSENT_VERSION: "2026-06-08",
+  TOS_CONSENT_VERSION: "2026-06-08",
+  PRIVACY_CONSENT_VERSION: "2026-06-08",
 }));
 
 const setAnalyticsConsentCurrentMock = mock((_value: boolean) => {});
@@ -222,7 +223,7 @@ mock.module("@/domains/onboarding/onboarding-store", () => ({
   useOnboardingStore: {
     getState: () => ({
       setTosAccepted: () => {},
-      setAiDataConsent: () => {},
+      setPrivacyConsent: () => {},
       setShareAnalytics: setShareAnalyticsMock,
       setShareDiagnostics: setShareDiagnosticsMock,
       setAnalyticsConsentCurrent: setAnalyticsConsentCurrentMock,
@@ -505,7 +506,7 @@ describe("auth store onboarding flag reconciliation", () => {
     };
     resolveServerConsentMock.mockReturnValueOnce({
       tos: true,
-      ai: true,
+      privacy: true,
       shareAnalytics: true,
       shareDiagnostics: true,
       analyticsCurrent: true,
@@ -543,7 +544,7 @@ describe("auth store onboarding flag reconciliation", () => {
     sessionUser = { id: "user-1", email: "user@example.com" };
     restoreConsentForUserMock.mockReturnValueOnce({
       tos: true,
-      ai: true,
+      privacy: true,
       analyticsCurrent: true,
       diagnosticsCurrent: true,
     });
@@ -590,7 +591,7 @@ describe("auth store onboarding flag reconciliation", () => {
     mockStoreShareAnalytics = false;
     restoreConsentForUserMock.mockReturnValueOnce({
       tos: true,
-      ai: true,
+      privacy: true,
       analyticsCurrent: true,
       diagnosticsCurrent: true,
     });
@@ -612,7 +613,7 @@ describe("auth store onboarding flag reconciliation", () => {
     sessionUser = { id: "user-1", email: "user@example.com" };
     resolveServerConsentMock.mockReturnValueOnce({
       tos: false,
-      ai: false,
+      privacy: false,
       shareAnalytics: false,
       shareDiagnostics: true,
       analyticsCurrent: false,
@@ -631,7 +632,7 @@ describe("auth store onboarding flag reconciliation", () => {
     mockFetchConsentError = new Error("Network error");
     restoreConsentForUserMock.mockReturnValueOnce({
       tos: true,
-      ai: true,
+      privacy: true,
       analyticsCurrent: true,
       diagnosticsCurrent: true,
     });
