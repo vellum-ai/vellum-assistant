@@ -54,7 +54,9 @@ const setPreferredBackendKindMock = mock(
   (_conversationId: string, _kind: CdpClientKind) => {},
 );
 const clearPreferredBackendKindMock = mock((_conversationId: string) => {});
-const waitForExtensionClientMock = mock(async (_actor?: string) => true);
+const waitForExtensionClientMock = mock(
+  async (_actor?: string, _targetClientId?: string) => true,
+);
 
 // ---------------------------------------------------------------------------
 // Module mocks (must be declared before dynamic import)
@@ -154,8 +156,13 @@ describe("acquireCdpClientWithMode: target_client_id overrides sticky backend mo
     );
 
     // The grace wait runs before backend selection so a flapping extension
-    // SSE reconnect doesn't hard-fail the dispatch.
+    // SSE reconnect doesn't hard-fail the dispatch, and it targets the exact
+    // requested client.
     expect(waitForExtensionClientMock).toHaveBeenCalledTimes(1);
+    expect(waitForExtensionClientMock).toHaveBeenCalledWith(
+      undefined,
+      "host-client-grace",
+    );
     expect(getCdpClientCalls[0].mode).toBe("extension");
   });
 

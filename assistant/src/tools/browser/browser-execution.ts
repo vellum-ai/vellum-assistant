@@ -419,6 +419,7 @@ async function acquireCdpClientWithMode(
   if (effectiveMode === "extension") {
     await HostBrowserProxy.instance.waitForExtensionClient(
       context.sourceActorPrincipalId,
+      targetClientId,
     );
   }
 

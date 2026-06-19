@@ -57,6 +57,7 @@ async function handleBrowserTabs({ body = {} }: RouteHandlerArgs) {
   // "no Chrome Extension connected" error.
   await HostBrowserProxy.instance.waitForExtensionClient(
     context.sourceActorPrincipalId,
+    targetClientId,
   );
 
   if (command === "list") {

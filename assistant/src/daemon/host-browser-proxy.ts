@@ -208,19 +208,30 @@ export class HostBrowserProxy {
   }
 
   /**
-   * Poll until a Chrome Extension client is connected, or `timeoutMs`
-   * elapses. Absorbs brief SSE reconnect blips so extension-pinned
-   * dispatch doesn't hard-fail on a momentary gap. Returns the final
-   * availability; callers proceed to dispatch regardless (which still
-   * surfaces the typed "no Chrome Extension connected" error if absent).
+   * Poll until the extension client that dispatch will route to is
+   * connected, or `timeoutMs` elapses. Absorbs brief SSE reconnect blips
+   * so extension-pinned dispatch doesn't hard-fail on a momentary gap.
+   *
+   * When `targetClientId` is supplied, waits for that *exact* client —
+   * `request()` resolves the target by id, so waiting for any sibling
+   * extension (multi-install setups) would return early and still fail.
+   * Otherwise waits for any extension owned by the actor, matching the
+   * auto-resolution preference. Returns the final availability; callers
+   * proceed to dispatch regardless (which still surfaces the typed "no
+   * Chrome Extension connected" error if absent).
    */
   async waitForExtensionClient(
     sourceActorPrincipalId?: string,
+    targetClientId?: string,
     timeoutMs = EXTENSION_RECONNECT_GRACE_MS,
   ): Promise<boolean> {
+    const connected = () =>
+      targetClientId != null
+        ? assistantEventHub.getClientById(targetClientId) !== undefined
+        : this.hasExtensionClient(sourceActorPrincipalId);
     const deadline = Date.now() + timeoutMs;
     for (;;) {
-      if (this.hasExtensionClient(sourceActorPrincipalId)) return true;
+      if (connected()) return true;
       if (Date.now() >= deadline) return false;
       await sleep(EXTENSION_RECONNECT_POLL_MS);
     }
