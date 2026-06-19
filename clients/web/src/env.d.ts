@@ -26,6 +26,12 @@ interface ImportMetaEnv {
   readonly VITE_SENTRY_DSN_IOS?: string;
   /** Sentry environment tag (e.g. "production", "staging"). */
   readonly VITE_SENTRY_ENVIRONMENT?: string;
+  /**
+   * Session-replay app ID. A single ID across all hosts (web / Electron / iOS):
+   * replay records the web DOM, so one project covers every surface and the host
+   * is distinguished by a `surface` trait. Unset → session replay disabled.
+   */
+  readonly VITE_SESSION_REPLAY_APP_ID?: string;
   /** Stripe publishable key for payment forms. Injected by CI/CD pipeline. */
   readonly VITE_STRIPE_PUBLISHABLE_KEY?: string;
   /** App version stamp for diagnostic reporting. */
