@@ -33,10 +33,15 @@ beforeEach(() => {
   syncDiagnosticsToMain.mockClear();
 });
 
-/** Asserts the effective gate was written (device bool + main sync) with `value`. */
+/**
+ * Asserts the effective gate device bool was written with `value`. The
+ * Electron main mirror is NOT synced from here — the `sentry-control` watcher
+ * pushes the session-composed value on this device-setting change — so the
+ * gate writer must never call `syncDiagnosticsToMain` directly.
+ */
 function expectGate(value: boolean): void {
   expect(setDeviceBool).toHaveBeenCalledWith("diagnosticsReporting", value);
-  expect(syncDiagnosticsToMain).toHaveBeenCalledWith(value);
+  expect(syncDiagnosticsToMain).not.toHaveBeenCalled();
 }
 
 describe("applyResolvedDiagnosticsConsent — saved preference", () => {
