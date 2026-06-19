@@ -214,6 +214,87 @@ function renderCreate(
   );
 }
 
+/** Render the editor in edit mode for an existing profile. */
+function renderEdit(
+  initialValues: Record<string, unknown>,
+  onSave: (name: string, entry: unknown) => Promise<void> = () =>
+    Promise.resolve(),
+) {
+  return render(
+    <Wrapper>
+      <ProfileEditorModal
+        isOpen
+        mode="edit"
+        profileName={(initialValues.name as string) ?? "balanced"}
+        initialValues={initialValues as never}
+        existingNames={[(initialValues.name as string) ?? "balanced"]}
+        connections={[makeConnection("anthropic-personal")]}
+        assistantId={ASSISTANT_ID}
+        onSave={onSave}
+        onCancel={() => {}}
+      />
+    </Wrapper>,
+  );
+}
+
+/** Render the editor in view mode for a managed (platform-seeded) profile. */
+function renderView(
+  initialValues: Record<string, unknown>,
+  onSave: (
+    name: string,
+    entry: unknown,
+    options?: { mode?: "merge" | "replace" },
+  ) => Promise<void> = () => Promise.resolve(),
+) {
+  return render(
+    <Wrapper>
+      <ProfileEditorModal
+        isOpen
+        mode="view"
+        profileName={(initialValues.name as string) ?? "balanced"}
+        initialValues={initialValues as never}
+        existingNames={[(initialValues.name as string) ?? "balanced"]}
+        connections={[makeConnection("anthropic-personal")]}
+        assistantId={ASSISTANT_ID}
+        onSave={onSave}
+        onCancel={() => {}}
+      />
+    </Wrapper>,
+  );
+}
+
+/** The Top P toggle is a switch labelled (via aria-labelledby) "Top P". */
+function topPSwitch(): HTMLElement {
+  const sw = Array.from(
+    document.querySelectorAll<HTMLElement>('[role="switch"]'),
+  ).find((el) => {
+    const labelId = el.getAttribute("aria-labelledby");
+    const labelEl = labelId ? document.getElementById(labelId) : null;
+    return labelEl?.textContent?.trim() === "Top P";
+  });
+  if (!sw) throw new Error("expected a Top P switch");
+  return sw;
+}
+
+/**
+ * The Top P value slider, or null when absent. Its range is 0..1
+ * (aria-valuemax "1"), which distinguishes it from temperature (0..2) and the
+ * token sliders (large maxes).
+ */
+function findTopPSlider(): HTMLElement | null {
+  return (
+    Array.from(
+      document.querySelectorAll<HTMLElement>('[role="slider"]'),
+    ).find((el) => el.getAttribute("aria-valuemax") === "1") ?? null
+  );
+}
+
+function topPSlider(): HTMLElement {
+  const slider = findTopPSlider();
+  if (!slider) throw new Error("expected a Top P slider (aria-valuemax=1)");
+  return slider;
+}
+
 /** Drive a provider-first create up to a Save-enabled state. */
 function fillCreateForm(): void {
   selectProvider("Anthropic");
@@ -483,5 +564,135 @@ describe("ProfileEditorModal create mode — provider-first", () => {
       expect(resolved).toBe(true);
     });
     expect(toastSuccessCalls).toEqual([]);
+  });
+});
+
+describe("ProfileEditorModal — Top P wiring", () => {
+  // Anthropic opus → visibility.topP is true, so the control renders.
+  const balancedProfile = {
+    name: "balanced",
+    label: "Balanced",
+    provider: "anthropic",
+    model: "claude-opus-4-8",
+    topP: 0.9,
+  };
+
+  test("opens a profile with topP showing the toggle on at that value", () => {
+    renderEdit(balancedProfile);
+
+    expect(topPSwitch().getAttribute("aria-checked")).toBe("true");
+    expect(topPSlider().getAttribute("aria-valuenow")).toBe("0.9");
+  });
+
+  test("a profile without topP shows the toggle off and no slider", () => {
+    renderEdit({ ...balancedProfile, topP: undefined });
+
+    expect(topPSwitch().getAttribute("aria-checked")).toBe("false");
+    expect(findTopPSlider()).toBeNull();
+  });
+
+  test("saving with Top P enabled submits topP as a number", async () => {
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+
+    renderEdit(balancedProfile, onSave);
+
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.topP).toBe(0.9);
+    expect(typeof saveCalls[0].entry.topP).toBe("number");
+  });
+
+  test("disabling Top P in edit mode submits topP: null", async () => {
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+
+    renderEdit(balancedProfile, onSave);
+
+    // Toggle Top P off, then save — edit mode clears it explicitly with null.
+    fireEvent.click(topPSwitch());
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.topP).toBeNull();
+  });
+
+  describe("managed profile in view mode", () => {
+    // A managed (platform-seeded) Balanced profile. Anthropic opus →
+    // visibility.topP is true, so the Top P control renders even in view mode.
+    const managedProfile = {
+      name: "balanced",
+      label: "Balanced",
+      provider: "anthropic",
+      model: "claude-opus-4-8",
+      source: "managed",
+    };
+
+    test("the Top P control is editable even though the modal is read-only", () => {
+      renderView(managedProfile);
+
+      // The Top P toggle stays interactive while the rest of the editor is
+      // locked (provider/model dropdowns are disabled in view mode).
+      expect((topPSwitch() as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    test("enabling Top P arms the otherwise close-only Save button", () => {
+      renderView(managedProfile);
+
+      // View mode opens with Save disabled (no policy fields touched yet).
+      expect(getSaveBtn().disabled).toBe(true);
+
+      // Turning Top P on is a tracked view-mode change → Save unlocks.
+      fireEvent.click(topPSwitch());
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+
+    test("saving sends topP in a merge entry without seed-owned fields", async () => {
+      const saveCalls: {
+        name: string;
+        entry: Record<string, unknown>;
+        options?: { mode?: "merge" | "replace" };
+      }[] = [];
+      const onSave = (
+        name: string,
+        entry: unknown,
+        options?: { mode?: "merge" | "replace" },
+      ) => {
+        saveCalls.push({
+          name,
+          entry: entry as Record<string, unknown>,
+          options,
+        });
+        return Promise.resolve();
+      };
+
+      renderView(managedProfile, onSave);
+
+      // Enable Top P, then save.
+      fireEvent.click(topPSwitch());
+      fireEvent.click(getSaveBtn());
+
+      await waitFor(() => {
+        expect(saveCalls.length).toBe(1);
+      });
+      // The merge entry carries the new topP number...
+      expect(saveCalls[0].entry.topP).toBe(0.95);
+      expect(typeof saveCalls[0].entry.topP).toBe("number");
+      // ...as a deep-merge so seed-owned fields are never sent.
+      expect(saveCalls[0].options?.mode).toBe("merge");
+      expect(saveCalls[0].entry.provider).toBeUndefined();
+      expect(saveCalls[0].entry.model).toBeUndefined();
+    });
   });
 });

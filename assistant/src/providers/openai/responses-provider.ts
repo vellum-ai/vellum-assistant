@@ -243,6 +243,16 @@ export class OpenAIResponsesProvider implements Provider {
         params.text = { verbosity };
       }
 
+      // Sampling params (`top_p`/`temperature`) are intentionally NOT forwarded
+      // on the Responses path. OpenAI reasoning models (o-series, GPT-5
+      // reasoning) reject them with HTTP 400 when reasoning is active, and the
+      // resolved `effort` defaults to a reasoning effort, so `reasoning` is set
+      // on essentially every Responses request. The profile editor therefore
+      // doesn't surface `topP` for the native `openai` provider (mirroring
+      // `temperature`, which is also never offered/forwarded here); OpenAI-
+      // compatible connections, which use the chat-completions client, honor
+      // `top_p` normally.
+
       if (tools && tools.length > 0) {
         if (
           this.useNativeWebSearch &&
