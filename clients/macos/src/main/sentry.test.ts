@@ -14,7 +14,10 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
  *    once (lazily, on first consent) and thereafter gate JS event delivery via a
  *    `beforeSend` that returns null while disabled — never close()/re-init.
  * Native crash capture rides on the default `@sentry/electron/main`
- * integrations, so init alone configures it.
+ * integrations, so init alone configures it. Native minidumps upload via
+ * core.captureEvent, so they pass through `beforeSend` AND respect
+ * `client.getOptions().enabled`, which we sync to the live consent flag so the
+ * SDK deletes (never uploads) pre-consent minidumps while opted out.
  *
  * `@sentry/electron/main`, `electron`, and `./settings` are mocked so the
  * module runs without an Electron runtime. Each test file runs in its own
@@ -105,9 +108,20 @@ describe("initSentryMain (before any consent)", () => {
   });
 });
 
-describe("consent lifecycle (one-shot init, beforeSend gate)", () => {
-  test("first enable inits the SDK once with a beforeSend gate; later toggles only flip the flag", () => {
+describe("consent lifecycle (one-shot init, beforeSend gate, native gate)", () => {
+  test("first enable inits the SDK once and gates both JS and native events; later toggles only flip the flag and native gate", () => {
     initSentryMain();
+
+    // No native upload path is armed before the first consent: init() (which
+    // starts Crashpad and the minidump uploader) has not run.
+    expect(initMock).not.toHaveBeenCalled();
+
+    // Stand up a client whose options carry a live `enabled` flag, mirroring the
+    // real SDK. The minidump integration reads `getOptions().enabled` at crash
+    // time to decide whether to upload or delete queued minidumps.
+    const clientOptions = { enabled: true };
+    const closeMock = mock(() => Promise.resolve(true));
+    sentryClient = { getOptions: () => clientOptions, close: closeMock };
 
     // First enable via the direct apply path (not the unfired change watcher).
     setShareDiagnostics(true);
@@ -121,27 +135,37 @@ describe("consent lifecycle (one-shot init, beforeSend gate)", () => {
     });
     // Tags are applied so events carry process/arch/electron/packaged context.
     expect(setTagMock).toHaveBeenCalledWith("process", "main");
+    // Native gate armed on: the SDK uploads minidumps.
+    expect(clientOptions.enabled).toBe(true);
 
     const beforeSend = lastInitOptions?.beforeSend as
       | ((event: unknown) => unknown)
       | undefined;
-    // Enabled now: beforeSend passes events through.
+    // Enabled now: beforeSend passes JS events through.
     const okEvent = { message: "ok" };
     expect(beforeSend?.(okEvent)).toBe(okEvent);
+    // ...and minidump-shaped native events (no `type`, level fatal) too.
+    const minidumpEvent = { level: "fatal", platform: "native" };
+    expect(beforeSend?.(minidumpEvent)).toBe(minidumpEvent);
 
-    // Disable: no close()/re-init churn; client stays installed, events dropped.
-    const closeMock = mock(() => Promise.resolve(true));
-    sentryClient = { getOptions: () => ({ enabled: true }), close: closeMock };
+    // Disable: no close()/re-init churn; client stays installed.
     setShareDiagnostics(false);
     expect(writeSettingMock).toHaveBeenCalledWith("shareDiagnostics", false);
     expect(closeMock).not.toHaveBeenCalled();
     expect(setClientMock).not.toHaveBeenCalled();
+    // JS events dropped...
     expect(beforeSend?.({ message: "boom" })).toBeNull();
+    // ...native minidump events dropped at beforeSend too...
+    expect(beforeSend?.({ level: "fatal", platform: "native" })).toBeNull();
+    // ...and the native gate flips off so the SDK deletes (never uploads)
+    // queued/pre-consent minidumps rather than holding them.
+    expect(clientOptions.enabled).toBe(false);
 
-    // Re-enable: still no second init — only the flag flips back on.
+    // Re-enable: still no second init — only the flags flip back on.
     settingChangeCb?.(true);
     expect(initMock).toHaveBeenCalledTimes(1);
     const okAgain = { message: "ok-again" };
     expect(beforeSend?.(okAgain)).toBe(okAgain);
+    expect(clientOptions.enabled).toBe(true);
   });
 });

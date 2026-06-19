@@ -14,7 +14,9 @@ declare const __SENTRY_DSN_MACOS__: string;
  * The default `@sentry/electron/main` integrations enable Crashpad minidump
  * capture (`sentryMinidumpIntegration`) and renderer/child process crash
  * reporting (`childProcessIntegration`), so native main/renderer crashes
- * (OOM, segfault) upload real minidumps instead of reason-strings.
+ * (OOM, segfault) upload real minidumps instead of reason-strings. Those
+ * minidumps are uploaded via `core.captureEvent`, so they pass through
+ * `beforeSend` and respect `client.getOptions().enabled` (see syncNativeGate).
  */
 function resolveOptions(): Sentry.ElectronMainOptions | null {
   const dsn =
@@ -47,9 +49,8 @@ let cachedOptions: Sentry.ElectronMainOptions | null = null;
 // delivery via the `enabled` flag below rather than tearing the client down.
 let initialized = false;
 // Live consent flag consulted by `beforeSend`: JS events are dropped while
-// false. Native Crashpad minidumps still flush once the SDK is initialized;
-// deeper pre-consent minidump gating is handled by a later PR (PR 10). This
-// PR fixes the stale-listener churn and keeps JS event delivery consent-gated.
+// false. Native Crashpad minidump events also pass through `beforeSend` (they
+// are captured via core.captureEvent), so this flag gates them too.
 let enabled = false;
 
 /**
@@ -68,10 +69,23 @@ function ensureInitialized(): void {
   initialized = true;
 }
 
+/**
+ * Fail-closed native gate: keep `client.getOptions().enabled` in sync with the
+ * live consent flag. The minidump integration reads this at crash time —
+ * when false it deletes queued minidumps (including pre-consent dumps surfaced
+ * on a later launch) instead of uploading, and the transport short-circuits.
+ * Combined with `beforeSend`, no native minidump leaves the app while opted out.
+ */
+function syncNativeGate(consented: boolean): void {
+  const options = Sentry.getClient()?.getOptions();
+  if (options) options.enabled = consented;
+}
+
 function applyConsent(consented: boolean): void {
   if (!cachedOptions) return;
   enabled = consented;
   if (consented) ensureInitialized();
+  syncNativeGate(consented);
 }
 
 /**
