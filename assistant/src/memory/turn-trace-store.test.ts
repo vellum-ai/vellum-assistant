@@ -5,9 +5,10 @@
  * tool_result rows) plus its tool invocations are gathered into a faithful,
  * window-bounded trace, that the window stops at the next REAL user turn (and
  * never at the turn's own tool-result rows), that tool inputs/results are
- * captured verbatim (no field-level redaction), that coalesced batch turns
- * attribute the shared response to its owner without duplicating or dropping
- * it, and that the size cap omits oversized traces fail-closed.
+ * captured verbatim (no field-level redaction), that coalesced-batch turns
+ * trace their natural windows (head user-only, shared response on the final
+ * batched turn — no batch inference), and that the size cap omits oversized
+ * traces fail-closed.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -470,11 +471,14 @@ describe("assembleTurnTrace", () => {
   });
 });
 
-describe("assembleTurnTrace — batched (coalesced-response) turns", () => {
-  // On-disk layout produced by drainBatch for a 3-message batch followed by a
-  // normal turn: [u1][u2][u3][assistant + tools][u4][assistant2].
-  // The shared response answers u1/u2/u3 and is attributed to u3 (the last
-  // batched user row, == lastUserMessageId).
+describe("assembleTurnTrace — coalesced-batch natural windows", () => {
+  // The daemon coalesces queued user messages: drainBatch persists every
+  // batched user row, then runs ONE shared response attributed to the LAST
+  // batched user row. On disk: [u1][u2][u3][assistant + tools][u4][assistant2].
+  // No batch inference is attempted (there is no durable batch signal in the
+  // stored messages, and a batch head is indistinguishable from a turn that
+  // failed/cancelled before responding). Each turn just traces its natural
+  // window, which is faithful.
   function seedThreeMessageBatch(convId: string): void {
     insertMessage(convId, {
       id: "u1",
@@ -491,7 +495,7 @@ describe("assembleTurnTrace — batched (coalesced-response) turns", () => {
     insertMessage(convId, {
       id: "u3",
       role: "user",
-      content: [{ type: "text", text: "third batched (owner)" }],
+      content: [{ type: "text", text: "third batched (final)" }],
       createdAt: 1020,
     });
     // Shared response written AFTER the last batched user row, with a tool call.
@@ -517,197 +521,47 @@ describe("assembleTurnTrace — batched (coalesced-response) turns", () => {
       result: "ok",
       createdAt: 1035,
     });
-    // A later, genuinely separate turn.
-    insertMessage(convId, {
-      id: "u4",
-      role: "user",
-      content: [{ type: "text", text: "later separate turn" }],
-      createdAt: 2000,
-    });
-    insertMessage(convId, {
-      id: "a2",
-      role: "assistant",
-      content: [{ type: "text", text: "reply to u4" }],
-      createdAt: 2010,
-    });
   }
 
-  test("the batch OWNER (last batched user row) traces the shared response + tool calls", () => {
+  test("a batched HEAD turn's trace contains only its own user row (faithful, no batch field)", () => {
     const conv = createConversation({ conversationType: "standard" });
     seedThreeMessageBatch(conv.id);
 
+    const trace = assembleTurnTrace(boundary(conv.id, "u1", 1000));
+    // Natural window: just the head's own user row. Its window genuinely has no
+    // assistant response (the shared response is on the final batched turn).
+    expect(trace.messages.map((m) => m.id)).toEqual(["u1"]);
+    expect(trace.tool_calls).toEqual([]);
+    // No batch inference: the response is not duplicated onto the head, and the
+    // trace carries no `batch` field.
+    expect(JSON.stringify(trace)).not.toContain("shared reply to all three");
+    expect("batch" in trace).toBe(false);
+  });
+
+  test("a batched MIDDLE turn's trace also contains only its own user row", () => {
+    const conv = createConversation({ conversationType: "standard" });
+    seedThreeMessageBatch(conv.id);
+
+    const trace = assembleTurnTrace(boundary(conv.id, "u2", 1010));
+    expect(trace.messages.map((m) => m.id)).toEqual(["u2"]);
+    expect(trace.tool_calls).toEqual([]);
+    expect("batch" in trace).toBe(false);
+  });
+
+  test("the FINAL batched turn's trace contains the shared assistant response + tools", () => {
+    const conv = createConversation({ conversationType: "standard" });
+    seedThreeMessageBatch(conv.id);
+
+    // The shared response is attributed by the daemon to the last batched user
+    // row (lastUserMessageId == u3); u3's natural window includes it.
     const trace = assembleTurnTrace(boundary(conv.id, "u3", 1020));
-    // Owner window holds its own user row, the shared assistant response, and
-    // the tool-result row — NOT silently responseless.
     expect(trace.messages.map((m) => m.id)).toEqual([
       "u3",
       "a-shared",
       "a-shared-toolresult",
     ]);
     expect(trace.tool_calls.map((t) => t.id)).toEqual(["ti-shared"]);
-    // Self-describing batch marker: this turn owns the shared response.
-    expect(trace.batch).toEqual({
-      role: "owner",
-      batch_size: 3,
-      member_user_message_ids: ["u1", "u2", "u3"],
-      response_owner_turn_id: "u3",
-    });
-  });
-
-  test("a batched HEAD turn is marked as a member pointing at the response owner (no silent omission)", () => {
-    const conv = createConversation({ conversationType: "standard" });
-    seedThreeMessageBatch(conv.id);
-
-    const trace = assembleTurnTrace(boundary(conv.id, "u1", 1000));
-    // The head's own window is just its user row (the response lives on the
-    // owner turn) — but the batch marker makes that explicit, so a consumer
-    // joins to the owner's trace rather than reading this as responseless.
-    expect(trace.messages.map((m) => m.id)).toEqual(["u1"]);
-    expect(trace.tool_calls).toEqual([]);
-    expect(trace.batch).toEqual({
-      role: "member",
-      batch_size: 3,
-      member_user_message_ids: ["u1", "u2", "u3"],
-      response_owner_turn_id: "u3",
-    });
-    // The shared response is NOT duplicated onto the head turn.
-    expect(JSON.stringify(trace)).not.toContain("shared reply to all three");
-  });
-
-  test("a batched MIDDLE turn is also marked as a member of the same batch", () => {
-    const conv = createConversation({ conversationType: "standard" });
-    seedThreeMessageBatch(conv.id);
-
-    const trace = assembleTurnTrace(boundary(conv.id, "u2", 1010));
-    expect(trace.messages.map((m) => m.id)).toEqual(["u2"]);
-    expect(trace.batch).toEqual({
-      role: "member",
-      batch_size: 3,
-      member_user_message_ids: ["u1", "u2", "u3"],
-      response_owner_turn_id: "u3",
-    });
-  });
-
-  test("the later separate turn is NOT batched and traces normally", () => {
-    const conv = createConversation({ conversationType: "standard" });
-    seedThreeMessageBatch(conv.id);
-
-    const trace = assembleTurnTrace(boundary(conv.id, "u4", 2000));
-    expect(trace.messages.map((m) => m.id)).toEqual(["u4", "a2"]);
-    expect(trace.batch).toBeUndefined();
-  });
-
-  test("a normal (non-batched) turn carries no batch marker", () => {
-    const conv = createConversation({ conversationType: "standard" });
-    insertMessage(conv.id, {
-      id: "m-user-1",
-      role: "user",
-      content: [{ type: "text", text: "hi" }],
-      createdAt: 1000,
-    });
-    insertMessage(conv.id, {
-      id: "m-asst-1",
-      role: "assistant",
-      content: [{ type: "text", text: "hello" }],
-      createdAt: 1100,
-    });
-
-    const trace = assembleTurnTrace(boundary(conv.id, "m-user-1", 1000));
-    expect(trace.messages.map((m) => m.id)).toEqual(["m-user-1", "m-asst-1"]);
-    expect(trace.batch).toBeUndefined();
-  });
-
-  test("a two-message batch resolves owner/member correctly", () => {
-    const conv = createConversation({ conversationType: "standard" });
-    insertMessage(conv.id, {
-      id: "u1",
-      role: "user",
-      content: [{ type: "text", text: "a" }],
-      createdAt: 1000,
-    });
-    insertMessage(conv.id, {
-      id: "u2",
-      role: "user",
-      content: [{ type: "text", text: "b" }],
-      createdAt: 1010,
-    });
-    insertMessage(conv.id, {
-      id: "a-shared",
-      role: "assistant",
-      content: [{ type: "text", text: "reply to both" }],
-      createdAt: 1020,
-    });
-
-    const head = assembleTurnTrace(boundary(conv.id, "u1", 1000));
-    expect(head.batch).toEqual({
-      role: "member",
-      batch_size: 2,
-      member_user_message_ids: ["u1", "u2"],
-      response_owner_turn_id: "u2",
-    });
-    const owner = assembleTurnTrace(boundary(conv.id, "u2", 1010));
-    expect(owner.messages.map((m) => m.id)).toEqual(["u2", "a-shared"]);
-    expect(owner.batch?.role).toBe("owner");
-  });
-
-  test("a batch following an earlier turn detects only the current batch run", () => {
-    // [u1][a1] then a batch [u2][u3][a-shared]. u2/u3's batch must not include
-    // u1 (it's separated by a1, the previous response).
-    const conv = createConversation({ conversationType: "standard" });
-    insertMessage(conv.id, {
-      id: "u1",
-      role: "user",
-      content: [{ type: "text", text: "first turn" }],
-      createdAt: 1000,
-    });
-    insertMessage(conv.id, {
-      id: "a1",
-      role: "assistant",
-      content: [{ type: "text", text: "reply 1" }],
-      createdAt: 1010,
-    });
-    insertMessage(conv.id, {
-      id: "u2",
-      role: "user",
-      content: [{ type: "text", text: "batch head" }],
-      createdAt: 1020,
-    });
-    insertMessage(conv.id, {
-      id: "u3",
-      role: "user",
-      content: [{ type: "text", text: "batch owner" }],
-      createdAt: 1030,
-    });
-    insertMessage(conv.id, {
-      id: "a-shared",
-      role: "assistant",
-      content: [{ type: "text", text: "reply to batch" }],
-      createdAt: 1040,
-    });
-
-    expect(
-      assembleTurnTrace(boundary(conv.id, "u1", 1000)).batch,
-    ).toBeUndefined();
-    const head = assembleTurnTrace(boundary(conv.id, "u2", 1020));
-    expect(head.batch).toEqual({
-      role: "member",
-      batch_size: 2,
-      member_user_message_ids: ["u2", "u3"],
-      response_owner_turn_id: "u3",
-    });
-  });
-
-  test("a settled user message with no following response is not treated as a batch", () => {
-    const conv = createConversation({ conversationType: "standard" });
-    insertMessage(conv.id, {
-      id: "u1",
-      role: "user",
-      content: [{ type: "text", text: "no response yet" }],
-      createdAt: 1000,
-    });
-    const trace = assembleTurnTrace(boundary(conv.id, "u1", 1000));
-    expect(trace.messages.map((m) => m.id)).toEqual(["u1"]);
-    expect(trace.batch).toBeUndefined();
+    expect("batch" in trace).toBe(false);
   });
 });
 

@@ -193,50 +193,6 @@ export interface TurnTraceToolCall {
 }
 
 /**
- * Batch attribution for a turn whose response is shared across several
- * consecutive user messages.
- *
- * The daemon coalesces queued user messages: `drainBatch` persists every
- * batched user row, then runs ONE shared response attributed to the LAST
- * batched user message (matching how `llm_usage` / `turn_index` attribute the
- * response). On disk the rows are `[u1][u2]…[uN][assistant][tool_results]`, so
- * only the LAST batched turn's window contains the response; the head/middle
- * turns would otherwise look responseless.
- *
- * To keep each turn's trace self-describing without duplicating the response
- * across N turns, every batched turn carries this marker:
- *  - the response owner (the last batched user message, `uN`) traces the shared
- *    response + tools in its `messages`/`tool_calls` as usual, and is marked
- *    `role: "owner"`;
- *  - the head/middle members (`u1`…`u(N-1)`) trace only their own user row and
- *    are marked `role: "member"`, pointing at `response_owner_turn_id` so the
- *    response is never silently dropped — a consumer joins to the owner's trace.
- *
- * Absent on non-batched turns (the common case).
- */
-export interface TurnTraceBatchInfo {
-  /**
-   * `"owner"` for the last batched user message — its trace holds the shared
-   * response. `"member"` for the head/middle user messages, whose response
-   * lives on the owner turn.
-   */
-  role: "owner" | "member";
-  /** Number of user messages sharing the one response (≥ 2 for a real batch). */
-  batch_size: number;
-  /**
-   * `messages.id` of every user message in the batch, oldest-first. The last
-   * entry equals `response_owner_turn_id`.
-   */
-  member_user_message_ids: string[];
-  /**
-   * `messages.id` of the batch's response owner (the last batched user message,
-   * the one the shared response is attributed to). For a `"member"` turn this
-   * is a different turn; for the `"owner"` turn it equals this turn's own id.
-   */
-  response_owner_turn_id: string;
-}
-
-/**
  * Full transcript of a single turn — the user message, assistant response
  * message(s), and the tool calls + results that occurred between this user
  * turn and the next real user turn. Attached to the turn telemetry event's
@@ -244,6 +200,12 @@ export interface TurnTraceBatchInfo {
  * (`diagnostics_trace_collection_enabled` on the owner-consent endpoint).
  * The platform stores this verbatim as an opaque JSON column, so the daemon
  * owns the shape.
+ *
+ * Each turn's trace is its natural window. A turn whose window holds no
+ * assistant response (a coalesced-batch head, or a turn that failed/cancelled
+ * before responding) traces user-only — faithful, since its window genuinely
+ * has no response. A coalesced batch's shared response lives on the batch's
+ * final turn's window, where the daemon already attributes it.
  */
 export interface TurnTrace {
   /** Shape version so the platform/dbt can evolve parsing without ambiguity. */
@@ -251,8 +213,6 @@ export interface TurnTrace {
   /**
    * Ordered message rows for the turn (the user message first, then assistant
    * responses and any tool-result rows), oldest-first by `(created_at, id)`.
-   * For a batched non-owner turn this is just the turn's own user row(s) — the
-   * shared response is on the owner turn (see {@link batch}).
    */
   messages: TurnTraceMessage[];
   /**
@@ -261,13 +221,6 @@ export interface TurnTrace {
    * which complements the inline tool_use/tool_result blocks in `messages`.
    */
   tool_calls: TurnTraceToolCall[];
-  /**
-   * Present only when this turn is part of a coalesced batch (its response is
-   * shared with adjacent user messages). Identifies the batch and which turn
-   * owns the shared response so head/middle turns aren't read as responseless.
-   * Absent on ordinary turns. See {@link TurnTraceBatchInfo}.
-   */
-  batch?: TurnTraceBatchInfo;
 }
 
 /** Turn event — one per user message. */
