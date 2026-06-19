@@ -26,6 +26,7 @@ export function parseProvenanceTrustClass(
     if (
       trustClass === "guardian" ||
       trustClass === "trusted_contact" ||
+      trustClass === "unverified_contact" ||
       trustClass === "unknown"
     ) {
       return trustClass;
@@ -43,6 +44,7 @@ export function filterMessagesForUntrustedActor(
     const provenanceTrustClass = parseProvenanceTrustClass(m.metadata);
     return (
       provenanceTrustClass === "trusted_contact" ||
+      provenanceTrustClass === "unverified_contact" ||
       provenanceTrustClass === "unknown"
     );
   });

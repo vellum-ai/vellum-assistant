@@ -133,4 +133,7 @@ export const PREFIX_PATTERNS: SecretPrefixPattern[] = [
 
   // -- Tavily --
   { label: "Tavily API Key", regex: /tvly-[A-Za-z0-9]{20,}/ },
+
+  // -- Firecrawl --
+  { label: "Firecrawl API Key", regex: /fc-[A-Za-z0-9]{20,}/ },
 ];

@@ -55,7 +55,6 @@ export function createGuardianBinding(params: {
       {
         type: params.channel,
         address: canonicalId,
-        externalUserId: canonicalId,
         externalChatId: params.guardianDeliveryChatId,
         status: "active",
         verifiedAt: Date.now(),

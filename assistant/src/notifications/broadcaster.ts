@@ -83,11 +83,15 @@ function resolveApprovalContext(
     // Extract tool context so channel adapters can render structured
     // approval cards without re-parsing contextPayload.
     let toolName: string | undefined;
+    let riskLevel: string | undefined;
+    let commandPreview: string | undefined;
     if (
       parsed.requestKind === "tool_approval" ||
       parsed.requestKind === "tool_grant_request"
     ) {
       toolName = nonEmpty(parsed.toolName);
+      riskLevel = nonEmpty(parsed.riskLevel);
+      commandPreview = nonEmpty(parsed.commandPreview);
     } else if (parsed.requestKind === "pending_question") {
       toolName = nonEmpty(parsed.toolName);
     }
@@ -99,8 +103,8 @@ function resolveApprovalContext(
       permissionDetails: toolName
         ? {
             toolName,
-            riskLevel: "medium",
-            toolInput: {},
+            riskLevel: riskLevel ?? "medium",
+            toolInput: commandPreview ? { _summary: commandPreview } : {},
             requesterIdentifier: nonEmpty(parsed.requesterIdentifier),
           }
         : undefined,

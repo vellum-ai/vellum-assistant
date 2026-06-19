@@ -930,7 +930,16 @@ async function doConnect(_options: ConnectOptions): Promise<void> {
         console.warn("[vellum] pair failed:", pairResp.status);
       }
     } catch (err) {
+      // A thrown fetch (not a non-ok status) means the gateway is
+      // unreachable — surface a terminal error instead of looping
+      // silently in "reconnecting". The keepalive alarm keeps retrying.
       console.warn("[vellum] pair request error:", err);
+      if (shouldConnect) {
+        setConnectionHealth("error", {
+          lastErrorMessage: `Couldn't reach the gateway at ${gatewayUrl}. Check the gateway URL and make sure your assistant is running.`,
+        });
+      }
+      return;
     }
 
     if (!shouldConnect) return;

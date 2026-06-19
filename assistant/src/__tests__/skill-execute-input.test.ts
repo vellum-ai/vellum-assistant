@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { resolveSkillExecuteInput } from "../tools/skills/execute.js";
+import {
+  augmentSkillExecuteError,
+  resolveSkillExecuteInput,
+} from "../tools/skills/execute.js";
 
 describe("resolveSkillExecuteInput", () => {
   test("returns a correctly nested object unchanged", () => {
@@ -81,5 +84,47 @@ describe("resolveSkillExecuteInput", () => {
       foo: "bar",
     });
     expect(result).toEqual({ foo: "bar" });
+  });
+});
+
+describe("augmentSkillExecuteError", () => {
+  test("appends envelope guidance when an empty-input call errors", () => {
+    // The subagent_spawn failure: empty input, tool rejects with a field-level
+    // message that says nothing about the skill_execute envelope.
+    const result = augmentSkillExecuteError(
+      "subagent_spawn",
+      {},
+      { content: 'Both "label" and "objective" are required.', isError: true },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Both "label" and "objective" are required.',
+    );
+    expect(result.content).toContain("carried no parameters");
+    expect(result.content).toContain('"tool": "subagent_spawn"');
+    expect(result.content).toContain("inside `input`");
+  });
+
+  test("leaves errors untouched when parameters were resolved", () => {
+    // A non-empty resolved input means the model structured the call; any error
+    // is a real tool-level failure, not an envelope-shape mistake.
+    const original = {
+      content: "Subagent quota exceeded.",
+      isError: true,
+    };
+    const result = augmentSkillExecuteError(
+      "subagent_spawn",
+      { label: "x", objective: "y" },
+      original,
+    );
+    expect(result).toBe(original);
+  });
+
+  test("leaves successful empty-input calls untouched", () => {
+    // Tools that legitimately accept no parameters (e.g. subagent_status) must
+    // not have guidance appended to their successful results.
+    const original = { content: "No subagents running.", isError: false };
+    const result = augmentSkillExecuteError("subagent_status", {}, original);
+    expect(result).toBe(original);
   });
 });

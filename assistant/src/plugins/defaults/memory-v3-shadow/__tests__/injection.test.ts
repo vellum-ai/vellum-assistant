@@ -130,6 +130,7 @@ mock.module("../../../../config/loader.js", () => ({
           memory: {
             enabled: memoryEnabled,
             v3: {
+              live: liveEnabled,
               spotlight: spotlightConfig,
               prune: pruneConfig ?? undefined,
             },

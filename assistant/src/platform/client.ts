@@ -16,6 +16,18 @@ const log = getLogger("platform-client");
 
 let _missingPrereqsWarned = false;
 
+export interface OwnerConsent {
+  shareAnalytics: boolean;
+  shareDiagnostics: boolean;
+  /**
+   * Version of the diagnostics-sharing consent the owner accepted
+   * ("YYYY-MM-DD", or "" if never accepted). Composes the per-turn
+   * trace-collection gate: traces are only collected once this is >= the
+   * disclosing version (see telemetry/trace-collection-policy.ts).
+   */
+  shareDiagnosticsAcceptedVersion: string;
+}
+
 export class VellumPlatformClient {
   private readonly platformBaseUrl: string;
   private readonly apiKey: string;
@@ -107,6 +119,60 @@ export class VellumPlatformClient {
     headers.set("Authorization", `Api-Key ${this.apiKey}`);
 
     return fetch(url, { ...init, headers });
+  }
+
+  /**
+   * Fetch the platform owner's telemetry consent for this assistant.
+   *
+   * Returns `null` whenever the consent is unknown — missing assistant id,
+   * any non-2xx response (e.g. 404 before the endpoint is deployed), a
+   * malformed body, or a network error. Callers treat `null` as default-off.
+   * Never throws.
+   */
+  async getOwnerConsent(): Promise<OwnerConsent | null> {
+    if (!this.assistantId) {
+      return null;
+    }
+
+    try {
+      const res = await this.fetch(
+        `/v1/assistants/${this.assistantId}/owner-consent/`,
+      );
+      if (!res.ok) {
+        log.debug(
+          { status: res.status },
+          "owner-consent fetch returned non-2xx — treating as unknown",
+        );
+        return null;
+      }
+
+      const body = (await res.json()) as {
+        share_analytics?: unknown;
+        share_diagnostics?: unknown;
+        share_diagnostics_accepted_version?: unknown;
+      };
+      if (
+        typeof body.share_analytics !== "boolean" ||
+        typeof body.share_diagnostics !== "boolean"
+      ) {
+        log.debug("owner-consent body malformed — treating as unknown");
+        return null;
+      }
+
+      return {
+        shareAnalytics: body.share_analytics,
+        shareDiagnostics: body.share_diagnostics,
+        // Back-compat: an older platform that doesn't return this field yields
+        // "" → fails the trace-collection version gate → fail-closed (no trace).
+        shareDiagnosticsAcceptedVersion:
+          typeof body.share_diagnostics_accepted_version === "string"
+            ? body.share_diagnostics_accepted_version
+            : "",
+      };
+    } catch (err) {
+      log.debug({ err }, "owner-consent fetch failed — treating as unknown");
+      return null;
+    }
   }
 
   get baseUrl(): string {

@@ -340,7 +340,7 @@ const SPA_BASE = "/assistant/";
  *
  * Resolution order:
  *   1. npm-installed package — require.resolve('@vellumai/web/package.json')
- *   2. Source checkout — walk up from cli/ to find apps/web/dist/
+ *   2. Source checkout — walk up from cli/ to find clients/web/dist/
  */
 function findWebDistDir(): string | null {
   try {
@@ -355,7 +355,7 @@ function findWebDistDir(): string | null {
 
   let dir = import.meta.dir;
   for (let depth = 0; depth < 8; depth++) {
-    const candidate = path.join(dir, "apps", "web", "dist", "index.html");
+    const candidate = path.join(dir, "clients", "web", "dist", "index.html");
     if (existsSync(candidate)) {
       return path.dirname(candidate);
     }
@@ -367,13 +367,13 @@ function findWebDistDir(): string | null {
 }
 
 /**
- * Locate the apps/web source directory for running the Vite dev server.
+ * Locate the clients/web source directory for running the Vite dev server.
  * Only works from a source checkout (not npm-installed).
  */
 function findWebSourceDir(): string | null {
   let dir = import.meta.dir;
   for (let depth = 0; depth < 8; depth++) {
-    const candidate = path.join(dir, "apps", "web", "vite.config.ts");
+    const candidate = path.join(dir, "clients", "web", "vite.config.ts");
     if (existsSync(candidate)) {
       return path.dirname(candidate);
     }
@@ -679,7 +679,7 @@ async function runWebInterface(
       `${ANSI.bold}--interface web${ANSI.reset}: unable to locate ` +
         `@vellumai/web assets.\n\n` +
         `  npm/bunx install:   npm install @vellumai/web\n` +
-        `  source checkout:    cd apps/web && VITE_PLATFORM_MODE=false bun run build`,
+        `  source checkout:    cd clients/web && VITE_PLATFORM_MODE=false bun run build`,
     );
     process.exit(1);
   }

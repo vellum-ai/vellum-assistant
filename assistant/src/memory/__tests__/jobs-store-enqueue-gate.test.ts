@@ -48,14 +48,12 @@ mock.module("../../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => true,
 }));
 
-// Stub trust resolver — never claim the actor is untrusted in tests.
-mock.module("../../runtime/actor-trust-resolver.js", () => ({
-  isUntrustedTrustClass: () => false,
-}));
-
 // Stub the conversation-source lookup so the recursion guards in the
 // retrospective and auto-analysis paths fall through to the enqueue.
+// `getConversation` returning null keeps `isLowYieldRetrospectiveSource`
+// false, so the retrospective is enqueued rather than skipped.
 mock.module("../conversation-crud.js", () => ({
+  getConversation: () => null,
   getConversationSource: () => null,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
@@ -117,12 +115,10 @@ mock.module("../db-connection.js", () => ({
 
 // Now load the real modules under test.
 const { isMemoryEnabled } = await import("../jobs-store.js");
-const { enqueueAutoAnalysisIfEnabled } = await import(
-  "../auto-analysis-enqueue.js"
-);
-const { enqueueMemoryRetrospectiveIfEnabled } = await import(
-  "../memory-retrospective-enqueue.js"
-);
+const { enqueueAutoAnalysisIfEnabled } =
+  await import("../auto-analysis-enqueue.js");
+const { enqueueMemoryRetrospectiveIfEnabled } =
+  await import("../memory-retrospective-enqueue.js");
 
 beforeEach(() => {
   dbInserts.length = 0;

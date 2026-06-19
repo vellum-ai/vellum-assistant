@@ -10,9 +10,11 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// Usage-data collection is enabled so recordActivationEvent writes rows.
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ collectUsageData: true }),
+// Analytics consent is granted so recordActivationEvent writes rows.
+let shareAnalytics = true;
+
+mock.module("../platform/consent-cache.js", () => ({
+  getCachedShareAnalytics: () => shareAnalytics,
 }));
 
 let broadcastedMessages: ServerMessage[] = [];
@@ -117,6 +119,7 @@ async function showTaggedChoice(
 
 describe("activation moment emission from ui_show surface commits", () => {
   beforeEach(() => {
+    shareAnalytics = true;
     broadcastedMessages = [];
     resetTables();
   });

@@ -5,6 +5,11 @@
  * invite token redemption.
  */
 import type { SourceMetadata } from "@vellumai/gateway-client";
+import {
+  ADMISSION_POLICY_DEFAULT,
+  type AdmissionPolicy,
+  isAdmissionPolicy,
+} from "@vellumai/gateway-client";
 
 import {
   attachmentsToContentBlocks,
@@ -17,6 +22,7 @@ import {
   isChannelId,
   parseInterfaceId,
 } from "../../channels/types.js";
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
 import {
   createApprovalConversationGenerator,
@@ -53,7 +59,6 @@ import {
 import {
   clearPayload,
   findMessageBySourceId,
-  linkMessage,
   recordInbound,
 } from "../../memory/delivery-crud.js";
 import { markProcessed } from "../../memory/delivery-status.js";
@@ -78,28 +83,45 @@ import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../../messaging/providers/slack/message-metadata.js";
+import { MESSAGE_PREVIEW_MAX_LENGTH } from "../../notifications/notification-utils.js";
 import type { ContentBlock } from "../../providers/types.js";
 import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
 import { getLogger } from "../../util/logger.js";
+import { truncate } from "../../util/truncate.js";
+import { notifyGuardianOfAccessRequest } from "../access-request-helper.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { deliverChannelReply } from "../gateway-client.js";
 import { resolveTrustContext } from "../trust-context-resolver.js";
 import { canonicalChannelAssistantId } from "./channel-route-shared.js";
 import { BadRequestError } from "./errors.js";
 import { handleApprovalInterception } from "./guardian-approval-interception.js";
-import { enforceIngressAcl } from "./inbound-stages/acl-enforcement.js";
+import {
+  channelStatusToMemberStatus,
+  enforceIngressAcl,
+} from "./inbound-stages/acl-enforcement.js";
+import { enforceAdmissionPolicy } from "./inbound-stages/admission-policy.js";
 import { processChannelMessageInBackground } from "./inbound-stages/background-dispatch.js";
 import { handleBootstrapIntercept } from "./inbound-stages/bootstrap-intercept.js";
 import { handleEditIntercept } from "./inbound-stages/edit-intercept.js";
 import { handleEscalationIntercept } from "./inbound-stages/escalation-intercept.js";
 import { handleGuardianActivationIntercept } from "./inbound-stages/guardian-activation-intercept.js";
 import { handleGuardianReplyIntercept } from "./inbound-stages/guardian-reply-intercept.js";
+import {
+  handleSlackReactionIntercept,
+  isSlackReactionEvent,
+} from "./inbound-stages/reaction-intercept.js";
 import { runSecretIngressCheck } from "./inbound-stages/secret-ingress-check.js";
 import { tryTranscribeAudioAttachments } from "./inbound-stages/transcribe-audio.js";
 import type { RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("runtime-http");
+
+// Gates the per-channel admission floor stage. When off, the floor is never
+// enforced and inbound falls back to ACL-only behavior (the gateway also skips
+// attaching a floor when off, so the ACL sees the default permissive policy).
+const CHANNEL_TRUST_FLOORS_FLAG = "channel-trust-floors" as const;
+
 const DISK_PRESSURE_REMOTE_BLOCK_REPLY =
   "Storage is critically low, so remote messages are ignored until the guardian frees enough space. Please try again later.";
 
@@ -383,6 +405,57 @@ export async function handleChannelInbound({
   });
   if (guardianActivationResponse) return guardianActivationResponse;
 
+  // ── Slack reaction handling ──
+  // Reactions are passive channel signals — not messages, and not access
+  // attempts. Dispatch them to a dedicated interceptor BEFORE the message
+  // pipeline (ACL, admission floor, disk-pressure, conversation binding) so a
+  // 👍 never triggers a verification handshake or an access-request
+  // notification, and a stranger's reaction creates no conversation/binding.
+  // The interceptor drops strangers, records known contacts' reactions as
+  // transcript signals, and routes a guardian's reaction on an approval card
+  // through the canonical guardian decision pipeline. Reactions never drive an
+  // agent turn.
+  if (isSlackReactionEvent(body)) {
+    return handleSlackReactionIntercept({
+      callbackData: body.callbackData!,
+      sourceChannel,
+      sourceInterface,
+      conversationExternalId,
+      externalMessageId,
+      canonicalAssistantId,
+      rawSenderId,
+      canonicalSenderId,
+      actorDisplayName: body.actorDisplayName,
+      actorUsername: body.actorUsername,
+      replyCallbackUrl: body.replyCallbackUrl,
+      sourceMetadata: body.sourceMetadata,
+      slackChannelName,
+      approvalConversationGenerator,
+    });
+  }
+
+  // ── Admission policy pre-computation ──
+  // Resolve the effective policy before ACL so it can skip its hard-deny
+  // paths for permissive policies (`strangers`, `any_contact`). The same
+  // value is reused by the floor stage below, which is gated on
+  // `channel-trust-floors`.
+  const channelTrustFloorsEnabled = isAssistantFeatureFlagEnabled(
+    CHANNEL_TRUST_FLOORS_FLAG,
+    getConfig(),
+  );
+  const admissionPolicyFromGateway = isAdmissionPolicy(
+    sourceMetadata?.admissionPolicy,
+  )
+    ? (sourceMetadata!.admissionPolicy as AdmissionPolicy)
+    : ADMISSION_POLICY_DEFAULT;
+  // Pass `undefined` to the ACL when the feature is off so it takes none of
+  // its policy-aware bypasses (the floor stage is skipped too). This keeps the
+  // flag-off path on the pre-feature ACL behavior and prevents a bypass from
+  // routing to a disabled floor stage and admitting unconditionally.
+  const effectiveAdmissionPolicyForAcl = channelTrustFloorsEnabled
+    ? admissionPolicyFromGateway
+    : undefined;
+
   // ── Ingress ACL enforcement ──
   const aclResult = await enforceIngressAcl({
     canonicalSenderId,
@@ -398,6 +471,7 @@ export async function handleChannelInbound({
     replyCallbackUrl: body.replyCallbackUrl,
     assistantId,
     externalMessageId,
+    effectiveAdmissionPolicy: effectiveAdmissionPolicyForAcl,
   });
   if (aclResult.earlyResponse) return aclResult.earlyResponse;
   const { resolvedMember } = aclResult;
@@ -657,6 +731,144 @@ export async function handleChannelInbound({
     slackActorTimezone,
   );
 
+  // ── Admission policy floor ──
+  // Sits between trust resolution and the agent loop. The gateway attaches
+  // the per-channel-type floor (`sourceMetadata.admissionPolicy`); the
+  // runtime evaluates `trustClass ≥ floor`. Denials reuse the same
+  // canned-reply / guardian-notify side effects as `not_a_member` (no
+  // re-verification challenge — §8.2). The gateway kill switch already
+  // dropped `no_one` upstream, but the stage handles it defensively.
+  //
+  // Internal channels (`vellum`, `platform`, `a2a`) short-circuit admit
+  // inside `enforceAdmissionPolicy` — defense in depth alongside the
+  // gateway's exempt-channel skip and the PUT-handler's 403.
+  //
+  // Bootstrap deep-link: when ACL flagged a validated pending_bootstrap
+  // session, skip the floor entirely. The bootstrap intercept stage below
+  // handles identity binding and emits its own reply; the sender has not
+  // yet acquired a trust class and should not be denied here.
+  // Gated by `channel-trust-floors`: when off, skip the floor entirely (admit)
+  // so inbound falls back to ACL-only behavior. The gateway also omits the
+  // floor when off, so the ACL above already saw the default permissive policy.
+  const admissionResult =
+    !channelTrustFloorsEnabled || aclResult.isValidatedBootstrap
+      ? ({ admitted: true } as const)
+      : enforceAdmissionPolicy({
+          sourceChannel,
+          trustClass: trustCtx.trustClass,
+          memberStatus: resolvedMember?.channel.status,
+          policy: admissionPolicyFromGateway,
+        });
+  if (!admissionResult.admitted) {
+    log.info(
+      {
+        sourceChannel,
+        conversationExternalId,
+        eventId: result.eventId,
+        trustClass: trustCtx.trustClass,
+        reason: admissionResult.reason,
+        effectivePolicy: admissionResult.effectivePolicy,
+        shouldChallenge: admissionResult.shouldChallenge,
+      },
+      "Inbound admission policy floor denied",
+    );
+
+    // §8.2 + webhook idempotency: skip guardian-notify + reply side
+    // effects on duplicate deliveries (matches the disk-pressure branch
+    // below at line ~810). Without this guard, a webhook retry of the
+    // same duplicated event that hit the floor re-fires the access
+    // request notification and the canned denial reply — visible to the
+    // guardian/sender without a re-evaluation.
+    if (result.duplicate) {
+      return {
+        accepted: true,
+        duplicate: result.duplicate,
+        eventId: result.eventId,
+        denied: true,
+        reason: admissionResult.reason,
+      };
+    }
+
+    // Notify the guardian about the access attempt — same surface as
+    // `acl-enforcement.ts:267-449` for `not_a_member`, so denials are
+    // visible in the same UI. previousMemberStatus is only meaningful when
+    // a member record exists; we pass it through when available so the
+    // guardian sees "previously pending" etc.
+    let guardianNotified = false;
+    try {
+      const accessResult = notifyGuardianOfAccessRequest({
+        canonicalAssistantId,
+        sourceChannel,
+        conversationExternalId,
+        actorExternalId: canonicalSenderId ?? rawSenderId,
+        actorDisplayName: body.actorDisplayName,
+        actorUsername: body.actorUsername,
+        ...(resolvedMember
+          ? {
+              previousMemberStatus: channelStatusToMemberStatus(
+                resolvedMember.channel.status,
+              ),
+            }
+          : {}),
+        messagePreview: truncate(trimmedContent, MESSAGE_PREVIEW_MAX_LENGTH),
+        ...(typeof sourceMetadata?.isStranger === "boolean"
+          ? { isStranger: sourceMetadata.isStranger }
+          : {}),
+        ...(typeof sourceMetadata?.isRestricted === "boolean"
+          ? { isRestricted: sourceMetadata.isRestricted }
+          : {}),
+        ...(typeof sourceMetadata?.messageId === "string"
+          ? { messageTs: sourceMetadata.messageId }
+          : {}),
+      });
+      guardianNotified = accessResult.notified;
+    } catch (err) {
+      log.error(
+        { err, sourceChannel, conversationExternalId },
+        "Failed to notify guardian of access request (admission policy)",
+      );
+    }
+
+    // Canned reply mirrors the not_a_member surface. §8.2: no upgrade
+    // challenge text for `trusted_contacts` / `guardian_only` denials —
+    // sender gets the standard "ask the guardian" copy.
+    const replyText = guardianNotified
+      ? "Hmm looks like you don't have access to talk to me. I'll let your guardian know you tried."
+      : "Sorry, you haven't been approved to message this assistant.";
+    let replyDelivered = false;
+    if (replyCallbackUrl) {
+      const replyPayload: Parameters<typeof deliverChannelReply>[1] = {
+        chatId: conversationExternalId,
+        text: replyText,
+        assistantId: canonicalAssistantId,
+      };
+      if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
+        replyPayload.ephemeral = true;
+        replyPayload.user = (canonicalSenderId ?? rawSenderId)!;
+      }
+      try {
+        await deliverChannelReply(replyCallbackUrl, replyPayload);
+        replyDelivered = true;
+      } catch (err) {
+        log.error(
+          { err, conversationExternalId },
+          "Failed to deliver admission policy denial reply",
+        );
+      }
+    }
+
+    if (!result.duplicate) markProcessed(result.eventId);
+
+    return {
+      accepted: true,
+      duplicate: result.duplicate,
+      eventId: result.eventId,
+      denied: true,
+      reason: admissionResult.reason,
+      ...(!replyDelivered && { replyText }),
+    };
+  }
+
   const diskPressureDecision = classifyDiskPressureTurnPolicy(
     getDiskPressureStatus(),
     {
@@ -714,121 +926,6 @@ export async function handleChannelInbound({
       eventId: result.eventId,
       diskPressure: "blocked",
       reason: diskPressureDecision.reason,
-    };
-  }
-
-  // ── Slack reaction handling ──
-  // Reactions arrive as regular `SlackInboundEvent`s with `callbackData`
-  // prefixed `reaction:` (added) or `reaction_removed:` (removed).
-  //
-  // Two paths from here:
-  //   1. Guardian approval-by-reaction. A `reaction:` (added) event from
-  //      the guardian on an active approval prompt is consumed by
-  //      `handleApprovalInterception` to apply the decision. In that case
-  //      we do NOT persist the reaction as a transcript line — resolved
-  //      guardian approval reactions have no transcript representation.
-  //   2. All other reactions (non-guardian, no pending approval, stale,
-  //      and any `reaction_removed:` event regardless of actor) fall
-  //      through to `persistSlackReactionAsMessage` so Slack transcript
-  //      rendering can surface them inline. Reactions never trigger an
-  //      agent response, so we short-circuit before escalation and
-  //      agent-loop dispatch in both cases.
-  if (isSlackReactionEvent(body)) {
-    // Approval interception runs only for reactions (added) — `reaction_removed`
-    // never expresses an approval intent, so un-reacting is left as a pure
-    // transcript signal. Gated by the same `replyCallbackUrl && !duplicate`
-    // preconditions used by the standard approval interception call below.
-    const isReactionAdded = body.callbackData?.startsWith("reaction:") === true;
-    if (isReactionAdded && replyCallbackUrl && !result.duplicate) {
-      const trustCtxForReaction: TrustContext = attachSlackRequesterTimezone(
-        resolveTrustContext({
-          assistantId: canonicalAssistantId,
-          sourceChannel,
-          conversationExternalId,
-          actorExternalId: rawSenderId,
-          actorUsername: body.actorUsername,
-          actorDisplayName: body.actorDisplayName,
-        }),
-        slackActorTimezone,
-      );
-
-      const approvalMessageTs =
-        typeof sourceMetadata?.messageId === "string"
-          ? sourceMetadata.messageId
-          : undefined;
-
-      const reactionApprovalResult = await handleApprovalInterception({
-        conversationId: result.conversationId,
-        callbackData: body.callbackData,
-        content: trimmedContent,
-        conversationExternalId,
-        sourceChannel,
-        actorExternalId: canonicalSenderId ?? rawSenderId,
-        replyCallbackUrl,
-        trustCtx: trustCtxForReaction,
-        assistantId: canonicalAssistantId,
-        approvalCopyGenerator,
-        approvalConversationGenerator,
-        approvalMessageTs,
-      });
-
-      // A real guardian decision was applied — short-circuit and skip the
-      // reaction-persistence path so we do not double-record it as a
-      // transcript line. All other interception outcomes (stale_ignored,
-      // non-guardian, no pending approval) fall through to persistence.
-      if (reactionApprovalResult.type === "guardian_decision_applied") {
-        return {
-          accepted: true,
-          duplicate: false,
-          eventId: result.eventId,
-          approval: reactionApprovalResult.type,
-        };
-      }
-    }
-
-    const reactedMessageTs =
-      typeof sourceMetadata?.messageId === "string"
-        ? sourceMetadata.messageId
-        : undefined;
-    if (!reactedMessageTs) {
-      log.debug(
-        { conversationId: result.conversationId, eventId: result.eventId },
-        "Skipping reaction persistence: missing sourceMetadata.messageId",
-      );
-      return {
-        accepted: result.accepted,
-        duplicate: result.duplicate,
-        eventId: result.eventId,
-      };
-    }
-
-    const threadTs =
-      typeof sourceMetadata?.threadId === "string"
-        ? sourceMetadata.threadId
-        : undefined;
-
-    try {
-      await persistSlackReactionAsMessage({
-        conversationId: result.conversationId,
-        conversationExternalId,
-        eventId: result.eventId,
-        callbackData: body.callbackData!,
-        actorDisplayName: body.actorDisplayName,
-        threadTs,
-        reactedMessageTs,
-        duplicate: result.duplicate,
-      });
-    } catch (err) {
-      log.error(
-        { err, conversationId: result.conversationId, eventId: result.eventId },
-        "Failed to persist Slack reaction event",
-      );
-    }
-
-    return {
-      accepted: result.accepted,
-      duplicate: result.duplicate,
-      eventId: result.eventId,
     };
   }
 
@@ -1292,117 +1389,6 @@ export async function handleChannelInbound({
     duplicate: result.duplicate,
     eventId: result.eventId,
   };
-}
-
-/**
- * Detect a Slack reaction event by inspecting the inbound payload's
- * `callbackData` prefix. The gateway encodes reactions as a unified
- * `SlackInboundEvent` with `callbackData` of the form
- * `reaction:<emoji>` (added) or `reaction_removed:<emoji>` (removed) —
- * see `gateway/src/slack/normalize.ts`. This helper centralizes that
- * convention so the daemon can route reactions to a dedicated persistence
- * branch instead of the agent-response pipeline.
- */
-export function isSlackReactionEvent(body: {
-  sourceChannel?: string;
-  callbackData?: string;
-}): boolean {
-  if (body.sourceChannel !== "slack") return false;
-  const cb = body.callbackData;
-  if (typeof cb !== "string") return false;
-  return cb.startsWith("reaction:") || cb.startsWith("reaction_removed:");
-}
-
-/**
- * Parse a reaction `callbackData` string into its op (added/removed) and
- * emoji name. Returns `null` when the input is not a reaction prefix or
- * when the emoji portion is empty.
- */
-export function parseSlackReactionCallbackData(
-  callbackData: string,
-): { op: "added" | "removed"; emoji: string } | null {
-  let op: "added" | "removed";
-  let emoji: string;
-  if (callbackData.startsWith("reaction_removed:")) {
-    op = "removed";
-    emoji = callbackData.slice("reaction_removed:".length);
-  } else if (callbackData.startsWith("reaction:")) {
-    op = "added";
-    emoji = callbackData.slice("reaction:".length);
-  } else {
-    return null;
-  }
-  if (emoji.length === 0) return null;
-  return { op, emoji };
-}
-
-/**
- * Persist a Slack reaction event as a `messages` row with `slackMeta`
- * envelope so the renderer can surface it inline in the chronological
- * transcript. Reactions do not trigger an agent response — the row is
- * written and the inbound event is linked, but the agent loop is not
- * dispatched.
- *
- * The caller is expected to have run `recordInbound` already so that
- * deduplication and conversation resolution have happened. Duplicate
- * inbound events are skipped here to keep persistence idempotent.
- */
-async function persistSlackReactionAsMessage(params: {
-  conversationId: string;
-  conversationExternalId: string;
-  eventId: string;
-  callbackData: string;
-  actorDisplayName?: string;
-  threadTs?: string;
-  reactedMessageTs: string;
-  duplicate: boolean;
-}): Promise<void> {
-  if (params.duplicate) return;
-
-  const parsed = parseSlackReactionCallbackData(params.callbackData);
-  if (!parsed) {
-    log.debug(
-      {
-        conversationId: params.conversationId,
-        callbackData: params.callbackData,
-      },
-      "Skipping reaction persistence: unparseable callbackData",
-    );
-    return;
-  }
-
-  const slackMeta: SlackMessageMetadata = {
-    source: "slack",
-    channelId: params.conversationExternalId,
-    channelTs: params.reactedMessageTs,
-    eventKind: "reaction",
-    ...(params.threadTs ? { threadTs: params.threadTs } : {}),
-    ...(params.actorDisplayName
-      ? { displayName: params.actorDisplayName }
-      : {}),
-    reaction: {
-      emoji: parsed.emoji,
-      targetChannelTs: params.reactedMessageTs,
-      op: parsed.op,
-      ...(params.actorDisplayName
-        ? { actorDisplayName: params.actorDisplayName }
-        : {}),
-    },
-  };
-
-  // Sentinel content — Slack transcript renderers read `slackMeta` to format
-  // the reaction line; the literal text is never displayed to the model.
-  const persisted = await addMessage(
-    params.conversationId,
-    "user",
-    "[reaction]",
-    {
-      metadata: { slackMeta: writeSlackMetadata(slackMeta) },
-      skipIndexing: true,
-    },
-  );
-  linkMessage(params.eventId, persisted.id);
-  markProcessed(params.eventId);
 }
 
 /**

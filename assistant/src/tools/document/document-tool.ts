@@ -13,12 +13,11 @@ import {
   searchDocumentsByTitle,
   updateDocumentContent,
 } from "../../documents/document-store.js";
+import { canActOnPrivilegedDocuments } from "../../runtime/effective-capabilities.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 function isPrivilegedDocumentActor(context: ToolContext): boolean {
-  return (
-    context.trustClass === "guardian" || context.executionChannel === "vellum"
-  );
+  return canActOnPrivilegedDocuments(context);
 }
 
 export function documentNotFound(surfaceId: string): ToolExecutionResult {

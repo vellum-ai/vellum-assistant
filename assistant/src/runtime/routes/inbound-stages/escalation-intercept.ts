@@ -11,7 +11,6 @@ import type { ChannelId, InterfaceId } from "../../../channels/types.js";
 import { createCanonicalGuardianRequest } from "../../../memory/canonical-guardian-store.js";
 import { storePayload } from "../../../memory/delivery-crud.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
-import type { NotificationSourceChannel } from "../../../notifications/signal.js";
 import { getLogger } from "../../../util/logger.js";
 import { getGuardianBinding } from "../../channel-verification-service.js";
 import { GUARDIAN_APPROVAL_TTL_MS } from "../channel-route-shared.js";
@@ -133,7 +132,7 @@ export function handleEscalationIntercept(
   // channels, supplementing the direct guardian notification below.
   void emitNotificationSignal({
     sourceEventName: "ingress.escalation",
-    sourceChannel: sourceChannel as NotificationSourceChannel,
+    sourceChannel,
     sourceContextId: conversationId,
     attentionHints: {
       requiresAction: true,

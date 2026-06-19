@@ -58,8 +58,6 @@ function loadRegistry(): Registry {
 const LEGACY_KEY_ALLOWLIST = new Set([
   // Type definitions documenting the legacy format
   "assistant/src/config/types.ts",
-  // macOS client: fallback reads from legacy config section
-  "clients/macos/vellum-assistant/Features/Settings/SettingsAccountTab.swift",
 ]);
 
 function isTestFile(filePath: string): boolean {

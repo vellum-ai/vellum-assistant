@@ -16,6 +16,7 @@ const fullDefault = {
   speed: "standard" as const,
   verbosity: "medium" as const,
   temperature: null,
+  topP: null,
   thinking: { enabled: true, streamThinking: true },
   contextWindow: {
     enabled: true,
@@ -201,6 +202,26 @@ describe("resolveCallSiteConfig", () => {
     // Profile fields must not appear because mainAgent didn't reference them.
     expect(resolved.speed).toBe("standard");
     expect(resolved.effort).toBe("max");
+  });
+
+  test("topP defaults to null when no profile or override sets it", () => {
+    const llm = LLMSchema.parse({ default: fullDefault });
+    const resolved = resolveCallSiteConfig("mainAgent", llm);
+    expect(resolved.topP).toBeNull();
+  });
+
+  test("profile-level topP resolves onto the merged config", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        nucleus: { topP: 0.9 },
+      },
+      callSites: {
+        memoryExtraction: { profile: "nucleus" },
+      },
+    });
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+    expect(resolved.topP).toBe(0.9);
   });
 
   test("returns isolated nested objects (not aliased to llm.default)", () => {
@@ -668,30 +689,6 @@ describe("resolveCallSiteConfig", () => {
     const resolved = resolveCallSiteConfig("emptyStateGreeting", llm);
     expect(resolved.model).toBe("claude-sonnet-4-7");
     expect(resolved.effort).toBe("medium");
-  });
-
-  test("workflowLeaf defaults to the cost-optimized profile", () => {
-    const llm = LLMSchema.parse({
-      default: fullDefault,
-      profiles: {
-        balanced: {
-          model: "claude-sonnet-4-7",
-          effort: "medium",
-        },
-        "cost-optimized": {
-          model: "claude-haiku-4-5-20251001",
-          effort: "low",
-        },
-      },
-    });
-
-    expect(resolveDefaultProfileKey("workflowLeaf", llm)).toBe(
-      "cost-optimized",
-    );
-    const resolved = resolveCallSiteConfig("workflowLeaf", llm);
-    expect(resolved.model).toBe("claude-haiku-4-5-20251001");
-    expect(resolved.effort).toBe("low");
-    expect(resolved.thinking.enabled).toBe(false);
   });
 
   test("explicit callSites config overrides CALL_SITE_DEFAULTS", () => {
@@ -1435,5 +1432,54 @@ describe("resolveCallSiteConfig logitBias provenance", () => {
       activeProfile: "plain",
     });
     expect(resolveCallSiteConfig("mainAgent", llm).logitBias).toBeUndefined();
+  });
+});
+
+describe("resolveCallSiteConfig — workflowLeaf default", () => {
+  test("inherits the workspace default config rather than pinning cost-optimized", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        "cost-optimized": {
+          provider: "anthropic",
+          model: "claude-haiku-4-5-20251001",
+        },
+      },
+    });
+    const resolved = resolveCallSiteConfig("workflowLeaf", llm);
+    // No pinned profile → the model comes from llm.default, NOT the
+    // `cost-optimized` profile (which is uncredentialed on a BYOK install).
+    expect(resolved.model).toBe("claude-opus-4-7");
+    // Call-site tuning still applies.
+    expect(resolved.effort).toBe("low");
+    expect(resolved.thinking?.enabled).toBe(false);
+    // The call site has no implicit default profile key.
+    expect(resolveDefaultProfileKey("workflowLeaf", llm)).toBeUndefined();
+  });
+
+  test("honors an explicit workflowLeaf call-site override", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        cheap: { provider: "anthropic", model: "claude-haiku-4-5-20251001" },
+      },
+      callSites: { workflowLeaf: { profile: "cheap" } },
+    });
+    expect(resolveCallSiteConfig("workflowLeaf", llm).model).toBe(
+      "claude-haiku-4-5-20251001",
+    );
+  });
+
+  test("honors a per-call override profile (an explicit per-leaf profile)", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        fancy: { provider: "anthropic", model: "claude-sonnet-4-7" },
+      },
+    });
+    expect(
+      resolveCallSiteConfig("workflowLeaf", llm, { overrideProfile: "fancy" })
+        .model,
+    ).toBe("claude-sonnet-4-7");
   });
 });

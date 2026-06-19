@@ -294,6 +294,37 @@ export async function getSlackConversationInfo(
   };
 }
 
+interface SlackHistoryResponse extends SlackApiResponse {
+  messages?: Array<{ ts?: string; blocks?: unknown[] }>;
+}
+
+/**
+ * Fetch the Block Kit blocks of a single channel message by timestamp.
+ *
+ * Used to edit a message in place while preserving its existing content — e.g.
+ * withdrawing an approval card's buttons without discarding the card body.
+ * Returns null when the message can't be read (missing `*:history` scope, a
+ * threaded reply not present in channel history, or a deleted message) so
+ * callers can degrade gracefully instead of failing the edit.
+ */
+export async function getSlackMessageBlocks(
+  channelId: string,
+  ts: string,
+): Promise<unknown[] | null> {
+  const data = (await callSlackApiGet(
+    "conversations.history",
+    new URLSearchParams({
+      channel: channelId,
+      latest: ts,
+      oldest: ts,
+      inclusive: "true",
+      limit: "1",
+    }),
+  )) as SlackHistoryResponse;
+  const message = data.messages?.find((m) => m.ts === ts) ?? data.messages?.[0];
+  return Array.isArray(message?.blocks) ? message.blocks : null;
+}
+
 /**
  * Call a Slack Web API method with form-urlencoded body.
  */

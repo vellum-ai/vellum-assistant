@@ -94,6 +94,35 @@ export interface PluginInitContext {
   assistantVersion: string;
 }
 
+// ─── Model profiles ──────────────────────────────────────────────────────────
+
+/**
+ * A workspace inference profile a plugin can route to. Returned by
+ * {@link getModelProfiles}; {@link key} is the value a `pre-model-call` hook
+ * assigns to `PreModelCallContext.modelProfile` to route a call. A model router
+ * reads this list (typically at `init`) to learn which profiles exist before
+ * mapping a classified message onto one.
+ */
+export interface ModelProfileInfo {
+  /** Profile key in `llm.profiles`; assignable to `PreModelCallContext.modelProfile`. */
+  readonly key: string;
+  /** Human-readable label, falling back to {@link key} when none is set. */
+  readonly label: string;
+  /** Author-supplied description, or `null` when none is set. */
+  readonly description: string | null;
+  /** Whether this is the workspace's active profile. */
+  readonly isActive: boolean;
+  /** Whether the profile is disabled; routing to it is rejected by the resolver. */
+  readonly isDisabled: boolean;
+  /**
+   * Whether this is a weighted "mix" profile — an A/B blend that resolves to one
+   * of its constituent profiles per conversation via a seeded weighted pick.
+   * Routing to its {@link key} is valid; it directs the call into the blend
+   * rather than at a single fixed model.
+   */
+  readonly isMix: boolean;
+}
+
 // ─── Shutdown context ────────────────────────────────────────────────────────
 
 /**

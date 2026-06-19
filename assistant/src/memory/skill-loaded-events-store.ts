@@ -1,7 +1,7 @@
 import { and, asc, eq, gt, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getConfig } from "../config/loader.js";
+import { getCachedShareAnalytics } from "../platform/consent-cache.js";
 import type { UsageAttributionColumns } from "../usage/attribution.js";
 import { getDb } from "./db-connection.js";
 import { skillLoadedEvents } from "./schema.js";
@@ -38,7 +38,7 @@ export interface SkillLoadedEvent {
  * opt-out, matching the rest of telemetry).
  */
 export function recordSkillLoadedEvent(record: SkillLoadedEventRecord): void {
-  if (!getConfig().collectUsageData) return;
+  if (!getCachedShareAnalytics()) return;
   const db = getDb();
   db.insert(skillLoadedEvents)
     .values({

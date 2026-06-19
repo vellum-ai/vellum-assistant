@@ -85,7 +85,7 @@ function saveRawConfig(
  *
  * Resolution order:
  *   1. npm-installed package — require.resolve('@vellumai/web/package.json')
- *   2. Source checkout — walk up from cli/ to find apps/web/dist/
+ *   2. Source checkout — walk up from cli/ to find clients/web/dist/
  */
 export function findWebDistDir(): string | null {
   try {
@@ -100,7 +100,7 @@ export function findWebDistDir(): string | null {
 
   let dir = import.meta.dir;
   for (let depth = 0; depth < 8; depth++) {
-    const candidate = join(dir, "apps", "web", "dist", "index.html");
+    const candidate = join(dir, "clients", "web", "dist", "index.html");
     if (existsSync(candidate)) {
       return dirname(candidate);
     }
@@ -255,8 +255,6 @@ function buildRemoteWebIngressLocations(opts: {
     location = /v1/pair/ { return 404; }
     location = /v1/pair/web-init { return 404; }
     location = /v1/pair/web-init/ { return 404; }
-    location = /v1/remote-web/pairing-challenge { return 404; }
-    location = /v1/remote-web/pairing-challenge/ { return 404; }
     location = /v1/devices { return 404; }
     location = /v1/devices/ { return 404; }
     location = /v1/devices/revoke { return 404; }
@@ -265,6 +263,8 @@ function buildRemoteWebIngressLocations(opts: {
     location = /v1/guardian/init/ { return 404; }
     location = /v1/guardian/reset-bootstrap { return 404; }
     location = /v1/guardian/reset-bootstrap/ { return 404; }
+    location = /v1/remote-web/pairing-verification { return 404; }
+    location = /v1/remote-web/pairing-verification/ { return 404; }
     location ^~ /assistant/__local/ { return 404; }
     location ^~ /assistant/__gateway/ { return 404; }
 

@@ -1,8 +1,9 @@
 /**
  * Tests for UsageTelemetryReporter.
  *
- * Covers both auth modes (authenticated / anonymous), watermark advancement,
- * error handling, batch recursion, device ID resolution, and payload shape.
+ * Covers the authenticated send path (and the skip behavior when credentials
+ * are absent or the platform is disabled), watermark advancement, error
+ * handling, batch recursion, device ID resolution, and payload shape.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -91,18 +92,83 @@ mock.module("../version.js", () => ({
   APP_VERSION: "1.2.3-test",
 }));
 
-let mockCollectUsageData = true;
+const mockGetCachedShareAnalytics = mock(() => true);
+// Owner's `share_diagnostics` consent — one part of the trace-collection gate.
+const mockGetCachedShareDiagnostics = mock(() => false);
+// Owner's accepted diagnostics-consent version — the disclosing-version part of
+// the trace gate. Default to a far-future (unconditionally eligible) version so
+// the consent/flag cases drive eligibility on those axes; the version-specific
+// cases override it with old/empty values.
+const mockGetCachedShareDiagnosticsVersion = mock(() => "2999-01-01");
 
+mock.module("../platform/consent-cache.js", () => ({
+  getCachedShareAnalytics: mockGetCachedShareAnalytics,
+  getCachedShareDiagnostics: mockGetCachedShareDiagnostics,
+  getCachedShareDiagnosticsVersion: mockGetCachedShareDiagnosticsVersion,
+}));
+
+// The `trace-collection` feature flag — the other half of the trace gate.
+const mockIsAssistantFeatureFlagEnabled = mock(
+  (_key: string, _config: unknown): boolean => true,
+);
+
+mock.module("../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: mockIsAssistantFeatureFlagEnabled,
+}));
+
+// Stub config — the flag checker is mocked, so the contents don't matter; this
+// just keeps `getConfig()` from touching the real loader / filesystem.
 mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-    collectUsageData: mockCollectUsageData,
-  }),
+  getConfig: () => ({}),
+}));
+
+interface MockTurnTrace {
+  schema_version: 1;
+  messages: {
+    id: string;
+    role: string;
+    created_at: number;
+    content: unknown;
+  }[];
+  tool_calls: unknown[];
+}
+
+// Returns a non-null bounded trace by default; individual tests override the
+// return value (including null, for the over-cap / assembly-failure path).
+function defaultBoundedTurnTrace(boundary: {
+  conversationId: string;
+  userMessageId: string;
+  userMessageCreatedAt: number;
+}): MockTurnTrace | null {
+  return {
+    schema_version: 1,
+    messages: [
+      {
+        id: boundary.userMessageId,
+        role: "user",
+        created_at: boundary.userMessageCreatedAt,
+        content: [{ type: "text", text: "hello" }],
+      },
+    ],
+    tool_calls: [],
+  };
+}
+
+const mockAssembleBoundedTurnTrace = mock(defaultBoundedTurnTrace);
+
+// Turn-completeness gate. Default: every turn is settled (complete), so the
+// deferral barrier never fires unless a test opts a turn into "in-flight".
+const mockIsTurnSettled = mock(
+  (_boundary: {
+    conversationId: string;
+    userMessageId: string;
+    userMessageCreatedAt: number;
+  }): boolean => true,
+);
+
+mock.module("../memory/turn-trace-store.js", () => ({
+  assembleBoundedTurnTrace: mockAssembleBoundedTurnTrace,
+  isTurnSettled: mockIsTurnSettled,
 }));
 
 const mockQueryUnreportedLifecycleEvents = mock(
@@ -290,7 +356,25 @@ let mockFetch: ReturnType<typeof mock>;
 
 beforeEach(() => {
   eventIdCounter = 0;
-  mockCollectUsageData = true;
+  // Default consent ON so the happy-path send tests exercise the flush.
+  mockGetCachedShareAnalytics.mockReset();
+  mockGetCachedShareAnalytics.mockReturnValue(true);
+  // Default `share_diagnostics` consent OFF — most tests don't expect a trace;
+  // the trace-specific tests opt in explicitly.
+  mockGetCachedShareDiagnostics.mockReset();
+  mockGetCachedShareDiagnostics.mockReturnValue(false);
+  // Default the accepted consent version eligible so trace tests drive the gate
+  // via the flag + share_diagnostics knobs; version cases override it.
+  mockGetCachedShareDiagnosticsVersion.mockReset();
+  mockGetCachedShareDiagnosticsVersion.mockReturnValue("2999-01-01");
+  // Default the `trace-collection` flag ON so trace tests can drive eligibility
+  // via the consent knob alone; the flag-gating test flips it explicitly.
+  mockIsAssistantFeatureFlagEnabled.mockReset();
+  mockIsAssistantFeatureFlagEnabled.mockReturnValue(true);
+  mockAssembleBoundedTurnTrace.mockReset();
+  mockAssembleBoundedTurnTrace.mockImplementation(defaultBoundedTurnTrace);
+  mockIsTurnSettled.mockReset();
+  mockIsTurnSettled.mockReturnValue(true);
   mockGetMemoryCheckpoint.mockReset();
   mockSetMemoryCheckpoint.mockReset();
   mockQueryUnreportedUsageEvents.mockReset();
@@ -303,7 +387,8 @@ beforeEach(() => {
   getDb().delete(authFallbackEvents).run();
   getDb().delete(toolInvocations).run();
   getDb().delete(skillLoadedEvents).run();
-  mockPlatformClient = null;
+  delete process.env.VELLUM_DISABLE_PLATFORM;
+  delete process.env.IS_PLATFORM;
   mockGetPlatformBaseUrl.mockReset();
   mockGetDeviceId.mockReset();
   mockGetDeviceId.mockReturnValue("test-device-id");
@@ -320,10 +405,23 @@ beforeEach(() => {
     Promise.resolve(new Response('{"accepted":0}', { status: 200 })),
   );
   globalThis.fetch = mockFetch as unknown as typeof fetch;
+
+  // Default to an authenticated client whose fetch delegates to the mockFetch
+  // spy, so the existing payload/body assertions keep working. The reporter
+  // sends authenticated-only; tests that exercise the no-credentials path
+  // override this with `mockPlatformClient = null`.
+  mockPlatformClient = {
+    baseUrl: "https://test.vellum.ai",
+    assistantApiKey: "test-key",
+    platformAssistantId: "asst-123",
+    fetch: (path: string, init?: RequestInit) => mockFetch(path, init),
+  };
 });
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  delete process.env.VELLUM_DISABLE_PLATFORM;
+  delete process.env.IS_PLATFORM;
 });
 
 // ---------------------------------------------------------------------------
@@ -354,26 +452,57 @@ describe("UsageTelemetryReporter", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  test("anonymous flush sends request without auth headers", async () => {
+  test("flush is skipped when no platform credentials are available", async () => {
+    // Authenticated-only: with no client, nothing is sent and the watermark is
+    // left intact so the backlog ships once credentials resolve.
     mockPlatformClient = null;
-    mockGetPlatformBaseUrl.mockReturnValue("https://platform.test.ai");
 
     const events = [makeUsageEvent()];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
-    mockFetch.mockImplementation(() =>
-      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    const watermarkCalls = mockSetMemoryCheckpoint.mock.calls.filter(
+      (c) => c[0] === "telemetry:usage:last_reported_at",
     );
+    expect(watermarkCalls.length).toBe(0);
+  });
+
+  test("flush is skipped when VELLUM_DISABLE_PLATFORM is set in local mode", async () => {
+    // The platform-disabled toggle suppresses the send. Unlike the opt-out
+    // branch, watermarks are NOT advanced, so the backlog ships once the flag
+    // is cleared.
+    process.env.VELLUM_DISABLE_PLATFORM = "true";
+
+    const events = [makeUsageEvent()];
+    mockQueryUnreportedUsageEvents.mockReturnValue(events);
+
+    const reporter = new UsageTelemetryReporter();
+    // Construction initializes the absent tool_executed watermark; clear that
+    // call so the assertion below covers only the flush.
+    mockSetMemoryCheckpoint.mockClear();
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockSetMemoryCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("VELLUM_DISABLE_PLATFORM is ignored when IS_PLATFORM is set (managed mode)", async () => {
+    // Platform-managed assistants always connect to the platform; an inherited
+    // VELLUM_DISABLE_PLATFORM must not suppress telemetry for them (matches
+    // arePlatformFeaturesEnabled / VellumPlatformClient.create()).
+    process.env.IS_PLATFORM = "true";
+    process.env.VELLUM_DISABLE_PLATFORM = "true";
+
+    const events = [makeUsageEvent()];
+    mockQueryUnreportedUsageEvents.mockReturnValue(events);
 
     const reporter = new UsageTelemetryReporter();
     await reporter.flush();
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
-    const [url, opts] = mockFetch.mock.calls[0] as [string, RequestInit];
-    expect(url).toStartWith("https://platform.test.ai");
-    expect(url).toEndWith("/telemetry/ingest/");
-    const headers = opts.headers as Record<string, string>;
-    expect(headers["Content-Type"]).toBe("application/json");
-    expect(headers["X-Telemetry-Token"]).toBeUndefined();
   });
 
   test("watermark advances on successful upload", async () => {
@@ -921,6 +1050,406 @@ describe("UsageTelemetryReporter", () => {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // Per-turn trace collection (gated on the trace-collection flag AND
+  // share_diagnostics consent)
+  // -------------------------------------------------------------------------
+
+  function singleTurnEvent() {
+    return [
+      {
+        id: "evt-turn-trace",
+        createdAt: 1700000050000,
+        conversationId: "conv-trace",
+        conversationType: "standard",
+        turnIndex: 2,
+        interfaceId: "macos",
+        channelId: "vellum",
+        clientMetadata: null,
+      },
+    ];
+  }
+
+  test("attaches the assembled trace when the trace-collection flag, share_diagnostics, and an eligible consent version are all true", async () => {
+    mockIsAssistantFeatureFlagEnabled.mockReturnValue(true);
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    mockQueryUnreportedTurnEvents.mockReturnValue(singleTurnEvent());
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    // The gate consults the `trace-collection` flag.
+    expect(mockIsAssistantFeatureFlagEnabled).toHaveBeenCalledWith(
+      "trace-collection",
+      expect.anything(),
+    );
+
+    // The assembler is called with the turn's (conversationId, id, createdAt)
+    // boundary so the window lines up with the turn event.
+    expect(mockAssembleBoundedTurnTrace).toHaveBeenCalledTimes(1);
+    expect(mockAssembleBoundedTurnTrace.mock.calls[0][0]).toEqual({
+      conversationId: "conv-trace",
+      userMessageId: "evt-turn-trace",
+      userMessageCreatedAt: 1700000050000,
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    // Still exactly one event — the single turn event, now carrying `trace`.
+    expect(body.events.length).toBe(1);
+    const turn = body.events[0];
+    expect(turn.type).toBe("turn");
+    expect(turn.daemon_event_id).toBe("evt-turn-trace");
+    expect(turn.trace).toBeDefined();
+    expect(turn.trace.schema_version).toBe(1);
+    expect(turn.trace.messages[0].id).toBe("evt-turn-trace");
+    expect(Array.isArray(turn.trace.tool_calls)).toBe(true);
+  });
+
+  test("omits the trace when share_diagnostics is false even though the flag is on (and still emits the turn event)", async () => {
+    mockIsAssistantFeatureFlagEnabled.mockReturnValue(true);
+    mockGetCachedShareDiagnostics.mockReturnValue(false);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    mockQueryUnreportedTurnEvents.mockReturnValue(singleTurnEvent());
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    // Gate off → no assembly at all (no PII touched).
+    expect(mockAssembleBoundedTurnTrace).not.toHaveBeenCalled();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    // The single turn event still flushes — just without a trace.
+    expect(body.events.length).toBe(1);
+    const turn = body.events[0];
+    expect(turn.type).toBe("turn");
+    expect(turn.daemon_event_id).toBe("evt-turn-trace");
+    expect("trace" in turn).toBe(false);
+  });
+
+  test("omits the trace when the accepted consent version predates the disclosure threshold (flag + share_diagnostics on)", async () => {
+    mockIsAssistantFeatureFlagEnabled.mockReturnValue(true);
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
+    // Consent recorded under an older version that never disclosed trace
+    // collection → gate closed, mirroring the platform ingest gate.
+    mockGetCachedShareDiagnosticsVersion.mockReturnValue("2000-01-01");
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    mockQueryUnreportedTurnEvents.mockReturnValue(singleTurnEvent());
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    // Version below threshold → no assembly at all (no PII touched).
+    expect(mockAssembleBoundedTurnTrace).not.toHaveBeenCalled();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(1);
+    expect("trace" in body.events[0]).toBe(false);
+  });
+
+  test("omits the trace when the owner never accepted a versioned consent (empty version)", async () => {
+    mockIsAssistantFeatureFlagEnabled.mockReturnValue(true);
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
+    // Empty version (never accepted / no-row default where share_diagnostics is
+    // true but unversioned) fails closed.
+    mockGetCachedShareDiagnosticsVersion.mockReturnValue("");
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    mockQueryUnreportedTurnEvents.mockReturnValue(singleTurnEvent());
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockAssembleBoundedTurnTrace).not.toHaveBeenCalled();
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(1);
+    expect("trace" in body.events[0]).toBe(false);
+  });
+
+  test("omits the trace when the trace-collection flag is off even though share_diagnostics is true", async () => {
+    mockIsAssistantFeatureFlagEnabled.mockReturnValue(false);
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    mockQueryUnreportedTurnEvents.mockReturnValue(singleTurnEvent());
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    // Flag off → gate closed → no assembly at all (no PII touched).
+    expect(mockAssembleBoundedTurnTrace).not.toHaveBeenCalled();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    // The single turn event still flushes — just without a trace.
+    expect(body.events.length).toBe(1);
+    expect("trace" in body.events[0]).toBe(false);
+  });
+
+  test("omits the trace (key absent) when the assembler returns null (over-cap / failure) but still emits the turn event", async () => {
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
+    // Over-cap / assembly-failure path: the bounded assembler returns null.
+    mockAssembleBoundedTurnTrace.mockReturnValueOnce(null);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    mockQueryUnreportedTurnEvents.mockReturnValue(singleTurnEvent());
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockAssembleBoundedTurnTrace).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(1);
+    expect("trace" in body.events[0]).toBe(false);
+  });
+
+  test("no trace is assembled or attached when the whole flush is gated off by share_analytics", async () => {
+    // The analytics gate short-circuits the entire flush; trace assembly must
+    // never run (and nothing is sent) even when the trace gate is fully on
+    // (flag + share_diagnostics both true).
+    mockGetCachedShareAnalytics.mockReturnValue(false);
+    mockIsAssistantFeatureFlagEnabled.mockReturnValue(true);
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
+    mockQueryUnreportedTurnEvents.mockReturnValue(singleTurnEvent());
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockAssembleBoundedTurnTrace).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // Trace completeness barrier — don't emit partial traces mid-turn
+  // -------------------------------------------------------------------------
+
+  function turnEvent(id: string, createdAt: number, conversationId: string) {
+    return {
+      id,
+      createdAt,
+      conversationId,
+      conversationType: "standard",
+      turnIndex: 1,
+      interfaceId: "macos",
+      channelId: "vellum",
+      clientMetadata: null,
+    };
+  }
+
+  test("a flush during an in-progress turn defers it (no partial trace, watermark held)", async () => {
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    const checkpoints = useStatefulCheckpoints();
+    mockQueryUnreportedTurnEvents.mockReturnValue([
+      turnEvent("evt-inflight", 1700000050000, "conv-1"),
+    ]);
+    // The turn's response is still streaming — not settled.
+    mockIsTurnSettled.mockReturnValue(false);
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    // No trace assembled, and the turn is NOT sent (the only event was deferred).
+    expect(mockAssembleBoundedTurnTrace).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
+    // The turn watermark must NOT advance past the deferred turn.
+    expect(checkpoints.get("telemetry:turns:last_reported_at")).toBeUndefined();
+    expect(checkpoints.get("telemetry:turns:last_reported_id")).toBeUndefined();
+  });
+
+  test("a later flush emits the COMPLETE trace once the turn settles", async () => {
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    const checkpoints = useStatefulCheckpoints();
+    mockQueryUnreportedTurnEvents.mockReturnValue([
+      turnEvent("evt-inflight", 1700000050000, "conv-1"),
+    ]);
+
+    // Flush 1: turn in progress -> deferred, nothing sent.
+    mockIsTurnSettled.mockReturnValue(false);
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+    expect(mockFetch).not.toHaveBeenCalled();
+
+    // Flush 2: the response + tool results have landed; the turn is settled and
+    // the full trace assembles. The same (still-unreported) turn now ships.
+    mockIsTurnSettled.mockReturnValue(true);
+    mockAssembleBoundedTurnTrace.mockReturnValue({
+      schema_version: 1,
+      messages: [
+        {
+          id: "evt-inflight",
+          role: "user",
+          created_at: 1700000050000,
+          content: [{ type: "text", text: "do a thing" }],
+        },
+        {
+          id: "asst-1",
+          role: "assistant",
+          created_at: 1700000051000,
+          content: [{ type: "text", text: "done" }],
+        },
+      ],
+      tool_calls: [{ id: "ti-1" }],
+    });
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(1);
+    const turn = body.events[0];
+    expect(turn.daemon_event_id).toBe("evt-inflight");
+    // The COMPLETE transcript: user message + assistant response + tool call.
+    expect(turn.trace.messages.map((m: { id: string }) => m.id)).toEqual([
+      "evt-inflight",
+      "asst-1",
+    ]);
+    expect(turn.trace.tool_calls).toHaveLength(1);
+    // Watermark now advances to the (now-complete) turn.
+    expect(checkpoints.get("telemetry:turns:last_reported_at")).toBe(
+      String(1700000050000),
+    );
+    expect(checkpoints.get("telemetry:turns:last_reported_id")).toBe(
+      "evt-inflight",
+    );
+  });
+
+  test("the final turn of a conversation still gets its complete trace once its own response finishes", async () => {
+    // No successor turn exists; `isTurnSettled` returns true purely because the
+    // conversation is no longer processing. The trace must still be sent (not
+    // deferred forever for lack of a next user turn).
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    mockQueryUnreportedTurnEvents.mockReturnValue([
+      turnEvent("evt-final", 1700000060000, "conv-final"),
+    ]);
+    mockIsTurnSettled.mockReturnValue(true);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockAssembleBoundedTurnTrace).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(1);
+    expect(body.events[0].daemon_event_id).toBe("evt-final");
+    expect(body.events[0].trace).toBeDefined();
+  });
+
+  test("barrier: a complete turn ordered AFTER an in-flight turn is also deferred (no watermark skip)", async () => {
+    // The turn watermark is a single monotonic cursor, so a complete turn that
+    // sorts after a deferred in-flight turn cannot be reported without skipping
+    // the deferred one. Both wait; the earlier complete turn (before the
+    // barrier) is reported.
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    const checkpoints = useStatefulCheckpoints();
+    mockQueryUnreportedTurnEvents.mockReturnValue([
+      turnEvent("evt-a-complete", 1700000010000, "conv-a"),
+      turnEvent("evt-b-inflight", 1700000020000, "conv-b"),
+      turnEvent("evt-c-complete", 1700000030000, "conv-c"),
+    ]);
+    // Only the middle turn is in-flight.
+    mockIsTurnSettled.mockImplementation(
+      (b) => b.userMessageId !== "evt-b-inflight",
+    );
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    // Only the turn BEFORE the in-flight barrier is reported.
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["evt-a-complete"]);
+    // Watermark stops at the last reported turn, NOT the later complete turn —
+    // so the deferred middle turn is never skipped.
+    expect(checkpoints.get("telemetry:turns:last_reported_at")).toBe(
+      String(1700000010000),
+    );
+    expect(checkpoints.get("telemetry:turns:last_reported_id")).toBe(
+      "evt-a-complete",
+    );
+  });
+
+  test("with tracing disabled, an in-progress turn is NOT deferred (reporting timing unchanged)", async () => {
+    // The completeness barrier is trace-eligible-only. With trace collection
+    // off, turn telemetry / turn_raw behavior is unchanged: the turn ships
+    // immediately and `isTurnSettled` is never consulted.
+    mockGetCachedShareDiagnostics.mockReturnValue(false);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    const checkpoints = useStatefulCheckpoints();
+    mockQueryUnreportedTurnEvents.mockReturnValue([
+      turnEvent("evt-inflight", 1700000050000, "conv-1"),
+    ]);
+    // Even though the turn would be "in-flight", the gate is off so this is
+    // never consulted.
+    mockIsTurnSettled.mockReturnValue(false);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockIsTurnSettled).not.toHaveBeenCalled();
+    // The turn ships immediately, trace-free.
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(1);
+    expect(body.events[0].daemon_event_id).toBe("evt-inflight");
+    expect("trace" in body.events[0]).toBe(false);
+    // Watermark advances as usual.
+    expect(checkpoints.get("telemetry:turns:last_reported_at")).toBe(
+      String(1700000050000),
+    );
+  });
+
   test("llm_usage events carry conversation_id, conversation_type, and turn_index", async () => {
     // Three LLM calls across the spectrum of the new fields:
     //  - tied to a conversation, mid-turn (typical foreground)
@@ -1001,8 +1530,8 @@ describe("UsageTelemetryReporter", () => {
     });
   });
 
-  test("flush is skipped and watermarks advanced when collectUsageData is false", async () => {
-    mockCollectUsageData = false;
+  test("flush is skipped and watermarks advanced when share_analytics consent is off", async () => {
+    mockGetCachedShareAnalytics.mockReturnValue(false);
     const events = [makeUsageEvent()];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
     mockFetch.mockImplementation(() =>
@@ -1044,16 +1573,37 @@ describe("UsageTelemetryReporter", () => {
     }
   });
 
-  test("events sent normally after re-enabling collectUsageData", async () => {
+  test("platform disabled takes precedence over consent off — watermarks NOT advanced", async () => {
+    // VELLUM_DISABLE_PLATFORM keeps the consent cache false (the consent
+    // refresh can't create a platform client), so both gates would fire. The
+    // platform-disabled gate runs first and returns without advancing
+    // watermarks, preserving the backlog until the flag is cleared — a
+    // deployment toggle must not be treated as a privacy opt-out.
+    process.env.VELLUM_DISABLE_PLATFORM = "true";
+    mockGetCachedShareAnalytics.mockReturnValue(false);
+    const events = [makeUsageEvent()];
+    mockQueryUnreportedUsageEvents.mockReturnValue(events);
+
+    const reporter = new UsageTelemetryReporter();
+    // Construction initializes the absent tool_executed watermark; clear that
+    // call so the assertion below covers only the flush.
+    mockSetMemoryCheckpoint.mockClear();
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockSetMemoryCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("events sent normally after re-granting share_analytics consent", async () => {
     // First flush with opt-out — watermarks advance, nothing sent
-    mockCollectUsageData = false;
+    mockGetCachedShareAnalytics.mockReturnValue(false);
     const reporter = new UsageTelemetryReporter();
     await reporter.flush();
     expect(mockFetch).not.toHaveBeenCalled();
     mockSetMemoryCheckpoint.mockReset();
 
-    // Re-enable and flush with new events
-    mockCollectUsageData = true;
+    // Re-grant consent and flush with new events
+    mockGetCachedShareAnalytics.mockReturnValue(true);
     const events = [makeUsageEvent({ id: "evt-after-reenable" })];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
     mockFetch.mockImplementation(() =>
@@ -1587,8 +2137,8 @@ describe("UsageTelemetryReporter", () => {
 
     // Rows accumulated before any flush ever advanced the watermark — e.g.
     // an opt-out period under an older build that gated reporter
-    // construction on collectUsageData while the always-on audit listener
-    // kept writing.
+    // construction on the usage-data opt-out while the always-on audit
+    // listener kept writing.
     seedToolInvocation({
       id: "ti-opt-out-window",
       createdAt: Date.now() - 60_000,
@@ -1667,7 +2217,7 @@ describe("UsageTelemetryReporter", () => {
     // constructs and runs the reporter; the always-on audit listener keeps
     // writing rows. Every opted-out flush (5-minute cycle plus the final
     // flush in stop()) advances the watermark past them without sending.
-    mockCollectUsageData = false;
+    mockGetCachedShareAnalytics.mockReturnValue(false);
     const optOutRowCreatedAt = Date.now() - 5_000;
     seedToolInvocation({
       id: "ti-opt-out-window",
@@ -1683,7 +2233,7 @@ describe("UsageTelemetryReporter", () => {
 
     // Session 2: the user opts back in and restarts. Only rows recorded
     // after the opt-out epoch ship — the opt-out-window row never does.
-    mockCollectUsageData = true;
+    mockGetCachedShareAnalytics.mockReturnValue(true);
     seedToolInvocation({ id: "ti-after-opt-in", createdAt: advanced + 1000 });
     const reporter = new UsageTelemetryReporter();
     await reporter.flush();
@@ -1708,7 +2258,7 @@ describe("UsageTelemetryReporter", () => {
 
     // Opted-out flush: advances the timestamp watermark to Date.now() and
     // must also pin the ID watermark to the high-sorting sentinel.
-    mockCollectUsageData = false;
+    mockGetCachedShareAnalytics.mockReturnValue(false);
     const optedOutReporter = new UsageTelemetryReporter();
     await optedOutReporter.flush();
     expect(mockFetch).not.toHaveBeenCalled();
@@ -1726,7 +2276,7 @@ describe("UsageTelemetryReporter", () => {
     });
 
     // Re-opt-in: only rows strictly after the opt-out epoch ship.
-    mockCollectUsageData = true;
+    mockGetCachedShareAnalytics.mockReturnValue(true);
     seedToolInvocation({ id: "ti-after-opt-in", createdAt: watermark + 1000 });
     const reporter = new UsageTelemetryReporter();
     await reporter.flush();

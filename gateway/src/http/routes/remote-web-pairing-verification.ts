@@ -5,13 +5,10 @@ import {
   recordRemoteWebPairingVerificationFailure,
   type RemoteWebPairingVerificationRateLimit,
 } from "../../remote-web/pairing-verification-rate-limit-store.js";
+import { enforceLoopbackOnly } from "../loopback-guard.js";
+import { readLimitedBody } from "../read-limited-body.js";
 
 const MAX_VERIFICATION_BODY_BYTES = 256;
-
-type ReadVerificationBodyResult =
-  | { status: "ok"; text: string }
-  | { status: "too_large" }
-  | { status: "unreadable" };
 
 function jsonError(code: string, message: string, status: number): Response {
   return Response.json({ error: { code, message } }, { status });
@@ -41,57 +38,6 @@ function failedAttemptResponse(clientIp: string, response: Response): Response {
   return response;
 }
 
-function concatChunks(chunks: Uint8Array[], totalBytes: number): Uint8Array {
-  const bytes = new Uint8Array(totalBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bytes;
-}
-
-async function readVerificationBody(
-  req: Request,
-): Promise<ReadVerificationBodyResult> {
-  const contentLength = req.headers.get("content-length");
-  if (
-    contentLength &&
-    Number.isFinite(Number(contentLength)) &&
-    Number(contentLength) > MAX_VERIFICATION_BODY_BYTES
-  ) {
-    return { status: "too_large" };
-  }
-
-  if (!req.body) return { status: "ok", text: "" };
-
-  const reader = req.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let totalBytes = 0;
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!value) continue;
-
-      totalBytes += value.byteLength;
-      if (totalBytes > MAX_VERIFICATION_BODY_BYTES) {
-        await reader.cancel().catch(() => {});
-        return { status: "too_large" };
-      }
-      chunks.push(value);
-    }
-  } catch {
-    return { status: "unreadable" };
-  }
-
-  return {
-    status: "ok",
-    text: new TextDecoder().decode(concatChunks(chunks, totalBytes)),
-  };
-}
-
 export async function handleVerifyRemoteWebPairingChallenge(
   req: Request,
   clientIp: string,
@@ -103,13 +49,20 @@ export async function handleVerifyRemoteWebPairingChallenge(
     });
   }
 
+  const guardError = enforceLoopbackOnly(
+    req,
+    clientIp,
+    "remote-web-pairing-verification",
+  );
+  if (guardError) return guardError;
+
   const rateLimitedBeforeBodyRead =
     checkRemoteWebPairingVerificationRateLimit(clientIp);
   if (rateLimitedBeforeBodyRead) {
     return rateLimitedResponse(rateLimitedBeforeBodyRead);
   }
 
-  const rawBody = await readVerificationBody(req);
+  const rawBody = await readLimitedBody(req, MAX_VERIFICATION_BODY_BYTES);
   if (rawBody.status === "too_large") {
     return failedAttemptResponse(
       clientIp,

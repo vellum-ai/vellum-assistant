@@ -283,6 +283,11 @@ export { migrateBackfillOriginChannelFromBindings } from "./288-backfill-origin-
 export { migrateContactChannelsUniqueExtUser } from "./289-contact-channels-unique-ext-user.js";
 export { migrateScheduleCapabilities } from "./290-schedule-capabilities.js";
 export { migrateContactChannelsRenormalizeAddresses } from "./291-contact-channels-renormalize-addresses.js";
+export { migrateScheduleDefaultNoReuseConversation } from "./292-schedule-default-no-reuse-conversation.js";
+export { migrateWorkflowJournalLeafTokens } from "./293-workflow-journal-leaf-tokens.js";
+export { migrateDropExternalUserId } from "./294-drop-external-user-id.js";
+export { dropApprovalPromptTsTrackerTable } from "./295-drop-approval-prompt-ts-tracker.js";
+export { migrateRewriteBalancedEconomyProfilePins } from "./296-rewrite-balanced-economy-profile-pins.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

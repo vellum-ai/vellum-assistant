@@ -25,6 +25,11 @@ import {
   getClientRegistrationHeaders,
 } from "../lib/client-identity.js";
 import { GATEWAY_PORT } from "../lib/constants.js";
+import {
+  formatFeatureFlagGateMessage,
+  isAssistantFeatureFlagEnabled,
+  WEB_REMOTE_INGRESS_FLAG,
+} from "../lib/feature-flags.js";
 import { getLocalLanIPv4 } from "../lib/local.js";
 import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
 
@@ -50,12 +55,17 @@ OPTIONS:
     --url <url>      Reachable gateway URL to advertise in the bundle
                     (default: the assistant's runtime URL, not loopback)
     --label <name>   Human label for this pairing (echoed in the output)
+    --web            Create a browser pairing URL for remote web access
+    --web-approve <code>
+                    Approve a browser pairing code shown by /assistant/pair
     --json           Output the raw bundle as JSON
 
 EXAMPLES:
     vellum pair
     vellum pair "My Assistant" --label "phone"
     vellum pair --url https://abc123.ngrok.app
+    vellum pair --web --url https://abc123.ngrok.app
+    vellum pair --web-approve ABCD-EFGH
     vellum pair --json
 `);
 }
@@ -72,6 +82,71 @@ interface PairResponse {
   refreshAfter?: string;
 }
 
+interface RemoteWebPairingChallengeResponse {
+  deviceCode: string;
+  userCode: string;
+  verificationUri: string;
+  expiresAt: string;
+  expiresInSeconds: number;
+}
+
+interface RemoteWebPairingApprovalResponse {
+  status: "approved";
+  verificationUri: string;
+  expiresAt: string;
+}
+
+function normalizePublicBaseUrl(value: string): string {
+  const url = new URL(value);
+  url.search = "";
+  url.hash = "";
+  const parts = url.pathname.split("/").filter(Boolean);
+  const assistantIndex = parts.indexOf("assistant");
+  if (assistantIndex >= 0) {
+    parts.splice(assistantIndex);
+  }
+  url.pathname = parts.length ? `/${parts.join("/")}` : "/";
+  return url.toString().replace(/\/+$/, "");
+}
+
+function buildRemoteWebPairingUrl(
+  challenge: RemoteWebPairingChallengeResponse,
+): string {
+  const url = new URL(challenge.verificationUri);
+  url.hash = new URLSearchParams({
+    device_code: challenge.deviceCode,
+  }).toString();
+  return url.toString();
+}
+
+async function assertWebRemoteIngressEnabled(
+  assistantId: string,
+  runtimeUrl: string,
+): Promise<void> {
+  let enabled: boolean;
+  try {
+    enabled = await isAssistantFeatureFlagEnabled(
+      assistantId,
+      WEB_REMOTE_INGRESS_FLAG,
+      { runtimeUrl },
+    );
+  } catch (err) {
+    console.error(
+      `Error: could not verify the \`${WEB_REMOTE_INGRESS_FLAG}\` feature flag. Is the assistant running? Try \`vellum wake\` and retry. ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+    process.exit(1);
+  }
+
+  if (!enabled) {
+    console.error(
+      `Error: ${formatFeatureFlagGateMessage(WEB_REMOTE_INGRESS_FLAG)}`,
+    );
+    process.exit(1);
+  }
+}
+
 export async function pair(): Promise<void> {
   const rawArgs = process.argv.slice(3);
 
@@ -81,11 +156,26 @@ export async function pair(): Promise<void> {
   }
 
   const jsonOutput = rawArgs.includes("--json");
-  let args = rawArgs.filter((a) => a !== "--json");
+  const webPairing = rawArgs.includes("--web");
+  const webApproval = rawArgs.includes("--web-approve");
+  let args = rawArgs.filter((a) => a !== "--json" && a !== "--web");
 
   const [label, afterLabel] = extractFlag(args, "--label");
-  const [urlOverride, afterUrl] = extractFlag(afterLabel, "--url");
+  const [webApproveCode, afterWebApprove] = extractFlag(
+    afterLabel,
+    "--web-approve",
+  );
+  const [urlOverride, afterUrl] = extractFlag(afterWebApprove, "--url");
   args = afterUrl;
+
+  if (webPairing && webApproveCode) {
+    console.error("Error: use either --web or --web-approve, not both.");
+    process.exit(1);
+  }
+  if (webApproval && !webApproveCode) {
+    console.error("Error: --web-approve requires a pairing code.");
+    process.exit(1);
+  }
 
   // Resolve the target. An explicit argument is matched by display name OR id
   // (with the standard ambiguity error); no argument falls back to the active
@@ -126,7 +216,7 @@ export async function pair(): Promise<void> {
   // so without an explicit --url the bundle would point the other machine at
   // its own localhost. Refuse to advertise a loopback URL unless the user
   // explicitly passed one. (An explicit --url is trusted as-is.)
-  if (!urlOverride && isLoopbackHost(advertisedUrl)) {
+  if (!urlOverride && !webApproveCode && isLoopbackHost(advertisedUrl)) {
     const lan = getLocalLanIPv4();
     // Use THIS assistant's gateway port (not the global default) — second
     // local instances listen on a different port.
@@ -147,6 +237,126 @@ export async function pair(): Promise<void> {
       `Re-run with a reachable URL, e.g.:\n  vellum pair --url ${suggestion}`,
     );
     process.exit(1);
+  }
+
+  if (webApproveCode) {
+    await assertWebRemoteIngressEnabled(entry.assistantId, mintUrl);
+
+    let response: Response;
+    try {
+      response = await loopbackSafeFetch(
+        `${mintUrl}/v1/remote-web/pairing-verification`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userCode: webApproveCode }),
+        },
+      );
+    } catch (err) {
+      console.error(
+        `Error: could not reach the gateway at ${mintUrl} ` +
+          `(${err instanceof Error ? err.message : String(err)}).`,
+      );
+      console.error("Is the assistant running? Try `vellum wake`.");
+      process.exit(1);
+    }
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      console.error(
+        `Error: HTTP ${response.status}: ${body || response.statusText}`,
+      );
+      process.exit(1);
+    }
+
+    const result = (await response.json()) as RemoteWebPairingApprovalResponse;
+    if (jsonOutput) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    console.log("Remote web pairing approved.");
+    console.log(`Expires: ${result.expiresAt}`);
+    return;
+  }
+
+  if (webPairing) {
+    await assertWebRemoteIngressEnabled(entry.assistantId, mintUrl);
+
+    let publicBaseUrl: string;
+    try {
+      publicBaseUrl = normalizePublicBaseUrl(advertisedUrl);
+    } catch {
+      console.error(`Error: invalid --url value '${advertisedUrl}'.`);
+      process.exit(1);
+    }
+
+    let response: Response;
+    try {
+      response = await loopbackSafeFetch(
+        `${mintUrl}/v1/remote-web/pairing-challenge`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ publicBaseUrl }),
+        },
+      );
+    } catch (err) {
+      console.error(
+        `Error: could not reach the gateway at ${mintUrl} ` +
+          `(${err instanceof Error ? err.message : String(err)}).`,
+      );
+      console.error("Is the assistant running? Try `vellum wake`.");
+      process.exit(1);
+    }
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      console.error(
+        `Error: HTTP ${response.status}: ${body || response.statusText}`,
+      );
+      process.exit(1);
+    }
+
+    const challenge =
+      (await response.json()) as RemoteWebPairingChallengeResponse;
+    const pairUrl = buildRemoteWebPairingUrl(challenge);
+
+    if (jsonOutput) {
+      console.log(
+        JSON.stringify(
+          {
+            pairUrl,
+            userCode: challenge.userCode,
+            verificationUri: challenge.verificationUri,
+            expiresAt: challenge.expiresAt,
+            expiresInSeconds: challenge.expiresInSeconds,
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+
+    const displayName = entry.name || entry.assistantName || entry.assistantId;
+    console.log(`Created remote web pairing for ${displayName}.`);
+    console.log("");
+    console.log("Open this URL in the browser:");
+    console.log("");
+    console.log(`  ${pairUrl}`);
+    console.log("");
+    console.log("Approve this pairing locally when you're ready:");
+    console.log("");
+    const approveTarget = assistantName
+      ? `${JSON.stringify(assistantName)} `
+      : "";
+    console.log(`  Code: ${challenge.userCode}`);
+    console.log(
+      `  Run:  vellum pair ${approveTarget}--web-approve ${challenge.userCode}`,
+    );
+    console.log("");
+    console.log(`Expires: ${challenge.expiresAt}`);
+    return;
   }
 
   // Fresh per-pairing device identity — each `vellum pair` is independently

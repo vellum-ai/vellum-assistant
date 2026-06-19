@@ -12,6 +12,8 @@ mock.module("../../util/logger.js", () => ({
 // ---------------------------------------------------------------------------
 
 let sourceTag: string | null = null;
+let convType = "standard";
+let convSource = "user";
 const upsertCalls: Array<{
   payload: { conversationId: string };
   runAfter: number;
@@ -19,6 +21,10 @@ const upsertCalls: Array<{
 
 mock.module("../conversation-crud.js", () => ({
   getConversationSource: (_id: string) => sourceTag,
+  getConversation: (_id: string) => ({
+    conversationType: convType,
+    source: convSource,
+  }),
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
@@ -31,13 +37,6 @@ mock.module("../jobs-store.js", () => ({
   },
 }));
 
-mock.module("../../runtime/actor-trust-resolver.js", () => ({
-  isUntrustedTrustClass: (trustClass: string | undefined) =>
-    trustClass === "trusted_contact" ||
-    trustClass === "unknown" ||
-    trustClass === undefined,
-}));
-
 import {
   enqueueMemoryRetrospectiveIfEnabled,
   enqueueMemoryRetrospectiveOnCompaction,
@@ -47,6 +46,8 @@ import {
 describe("enqueueMemoryRetrospectiveIfEnabled", () => {
   beforeEach(() => {
     sourceTag = null;
+    convType = "standard";
+    convSource = "user";
     upsertCalls.length = 0;
   });
 
@@ -84,6 +85,35 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
       trigger: "interval",
     });
     expect(upsertCalls).toHaveLength(0);
+  });
+
+  test("scheduled conversation — skips enqueue", () => {
+    convType = "scheduled";
+    enqueueMemoryRetrospectiveIfEnabled({
+      conversationId: "c1",
+      trigger: "interval",
+    });
+    expect(upsertCalls).toHaveLength(0);
+  });
+
+  test("memory_v2_consolidation source — skips enqueue", () => {
+    convType = "background";
+    convSource = "memory_v2_consolidation";
+    enqueueMemoryRetrospectiveIfEnabled({
+      conversationId: "c1",
+      trigger: "interval",
+    });
+    expect(upsertCalls).toHaveLength(0);
+  });
+
+  test("heartbeat (background) source — still enqueues", () => {
+    convType = "background";
+    convSource = "heartbeat";
+    enqueueMemoryRetrospectiveIfEnabled({
+      conversationId: "c1",
+      trigger: "interval",
+    });
+    expect(upsertCalls).toHaveLength(1);
   });
 });
 

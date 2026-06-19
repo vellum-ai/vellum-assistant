@@ -158,6 +158,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "credential-execution/prompted-credential.ts", // shared prompt-action persistence (stores secret via setSecureKeyAsync)
       "tools/credentials/broker.ts", // brokered credential access
       "tools/network/web-search.ts", // web search API key lookup
+      "tools/network/web-fetch.ts", // web fetch provider (Firecrawl) API key lookup
       "daemon/handlers/config-telegram.ts", // Telegram bot token management
       "daemon/handlers/config-vercel.ts", // Vercel API token management
       "runtime/routes/integrations/twilio.ts", // Twilio credential management (HTTP control-plane)
@@ -237,6 +238,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "tools/credential-execution/make-authenticated-request.ts", // resolves the CES RPC client via getCesClient
       "tools/credential-execution/manage-secure-command-tool.ts", // resolves the CES RPC client via getCesClient
       "tools/executor.ts", // CES approval bridge resolves the CES RPC client via getCesClient
+      "tools/network/web-fetch.ts", // Firecrawl /scrape BYOK fetch provider API key lookup (firecrawl provider key)
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));

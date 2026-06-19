@@ -136,16 +136,18 @@ export const AssistantConfigSchema = z
       .describe(
         "Per-plugin configuration keyed by plugin name. Validated downstream by each plugin's manifest.config validator at bootstrap.",
       ),
-    collectUsageData: z
+    legacyTelemetryOptOut: z
       .boolean()
-      .default(true)
+      .optional()
       .describe(
-        "Whether to collect anonymous usage data to help improve the assistant",
+        "Fail-closed telemetry marker: set for a workspace that had an explicit local usage-data opt-out before telemetry moved to platform share_analytics consent. While set, usage telemetry stays disabled regardless of platform consent.",
       ),
-    sendDiagnostics: z
+    legacyDiagnosticsOptOut: z
       .boolean()
-      .default(true)
-      .describe("Whether to send diagnostic/crash reports"),
+      .optional()
+      .describe(
+        "Fail-closed diagnostics marker: set for a workspace that had an explicit local sendDiagnostics opt-out before crash reporting moved to platform share_diagnostics consent. While set, Sentry stays disabled regardless of platform consent.",
+      ),
     maxStepsPerSession: z
       .number({ error: "maxStepsPerSession must be a number" })
       .int("maxStepsPerSession must be an integer")

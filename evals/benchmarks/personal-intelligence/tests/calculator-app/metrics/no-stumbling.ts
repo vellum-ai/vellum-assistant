@@ -71,7 +71,12 @@ async function judgeStumbled(narration: string): Promise<boolean> {
       },
     },
   });
-  return Boolean(verdict.stumbled);
+  if (typeof verdict.stumbled !== "boolean") {
+    throw new Error(
+      `no-stumbling judge returned a non-boolean verdict: ${JSON.stringify(verdict)}`,
+    );
+  }
+  return verdict.stumbled;
 }
 
 /**

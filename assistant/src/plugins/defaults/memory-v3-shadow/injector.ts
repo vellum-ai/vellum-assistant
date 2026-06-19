@@ -41,9 +41,9 @@
  *    block id only); it is never persisted to metadata, so the frozen card
  *    prefix it follows stays byte-stable and cached regardless.
  *
- * Flag gating is unchanged: `memory-v3-live` attaches blocks; `memory-v3-shadow`
- * (live off) logs what WOULD inject (net-new slugs + bytes + spotlight refs)
- * and attaches nothing; both off → no orchestration.
+ * Gating: `memory.v3.live` (config) attaches blocks; the `memory-v3-shadow`
+ * flag (live off) logs what WOULD inject (net-new slugs + bytes + spotlight
+ * refs) and attaches nothing; both off → no orchestration.
  *
  * Both injectors apply the same personal-memory trust gate as v2
  * ({@link isPersonalMemoryAllowed}): an untrusted remote actor's turn
@@ -62,6 +62,7 @@
 
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../config/loader.js";
+import { isMemoryV3Live } from "../../../config/memory-v3-gate.js";
 import { isPersonalMemoryAllowed } from "../../../daemon/trust-context.js";
 import {
   wrapMemoryBlock,
@@ -85,11 +86,7 @@ import {
   renderSpotlightInner,
   type SpotlightEntry,
 } from "./render-injection.js";
-import {
-  MEMORY_V3_LIVE,
-  MEMORY_V3_SHADOW,
-  observeTurn,
-} from "./shadow-plugin.js";
+import { MEMORY_V3_SHADOW, observeTurn } from "./shadow-plugin.js";
 import {
   MEMORY_V3_BLOCK_ID,
   MEMORY_V3_COMMIT_META_KEY,
@@ -239,7 +236,7 @@ export const memoryV3Injector: Injector = {
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
     const config = getConfig();
     if (config.memory.enabled === false) return null;
-    const live = isAssistantFeatureFlagEnabled(MEMORY_V3_LIVE, config);
+    const live = isMemoryV3Live(config);
     const shadow = isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config);
     if (!live && !shadow) return null;
     if (!isPersonalMemoryAllowed(ctx.trust)) return null;
@@ -378,7 +375,7 @@ export const memoryV3SpotlightInjector: Injector = {
     // Live-only: shadow mode logs spotlight refs from the cards injector and
     // must keep the turn untouched (no ring state either, so a later
     // live-flag flip starts from a clean window).
-    if (!isAssistantFeatureFlagEnabled(MEMORY_V3_LIVE, config)) return null;
+    if (!isMemoryV3Live(config)) return null;
     if (!isPersonalMemoryAllowed(ctx.trust)) return null;
 
     try {

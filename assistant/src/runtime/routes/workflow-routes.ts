@@ -5,21 +5,18 @@
  * shared ROUTES array. They are read/abort surfaces over the workflow run
  * manager and the saved-workflow library — a human (via the `vellum workflows`
  * CLI or the app) can inspect runs and abort an in-flight one.
- *
- * Every handler is gated on the `workflows` feature flag: when it is off, the
- * routes behave as if they do not exist (404), so disabling the flag fully
- * hides the surface.
  */
 
 import { z } from "zod";
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
-import { getConfig } from "../../config/loader.js";
-import type { AssistantConfig } from "../../config/schema.js";
 import { getAutoApproveThreshold } from "../../permissions/gateway-threshold-reader.js";
 import { isFullAccessThreshold } from "../../permissions/threshold.js";
 import { manifestGrantsSideEffects } from "../../workflows/capabilities.js";
-import type { WorkflowRun } from "../../workflows/journal-store.js";
+import {
+  getJournal,
+  type WorkflowJournalEntry,
+  type WorkflowRun,
+} from "../../workflows/journal-store.js";
 import { listWorkflows } from "../../workflows/library.js";
 import {
   getWorkflowRunManager,
@@ -46,19 +43,16 @@ export interface WorkflowRoutesDeps {
     "list" | "status" | "abort" | "resume"
   >;
   listWorkflows: typeof listWorkflows;
-  getConfig: () => AssistantConfig;
-  isFlagEnabled: (config: AssistantConfig) => boolean;
   getAutoApproveThreshold: typeof getAutoApproveThreshold;
+  getJournal: typeof getJournal;
 }
 
 function defaultDeps(): WorkflowRoutesDeps {
   return {
     getManager: getWorkflowRunManager,
     listWorkflows,
-    getConfig,
-    isFlagEnabled: (config) =>
-      isAssistantFeatureFlagEnabled("workflows", config),
     getAutoApproveThreshold,
+    getJournal,
   };
 }
 
@@ -105,20 +99,32 @@ const savedWorkflowSchema = z.object({
   path: z.string(),
 });
 
+const workflowLeafSchema = z.object({
+  seq: z.number(),
+  kind: z.enum(["agent", "workflow"]),
+  label: z.string().optional(),
+  phase: z.string().optional(),
+  promptSummary: z.string().optional(),
+  status: z.string(),
+  resultSummary: z.string().optional(),
+  inputTokens: z.number().optional(),
+  outputTokens: z.number().optional(),
+  createdAt: z.number().nullable(),
+});
+
+const workflowJournalSchema = z.object({
+  runId: z.string(),
+  status: z.enum(VALID_RUN_STATUSES).optional(),
+  agentsSpawned: z.number().optional(),
+  inputTokens: z.number().optional(),
+  outputTokens: z.number().optional(),
+  phase: z.string().optional(),
+  leaves: z.array(workflowLeafSchema),
+});
+
 // ---------------------------------------------------------------------------
 // Handlers (transport-agnostic)
 // ---------------------------------------------------------------------------
-
-/**
- * Throw a 404 when the `workflows` flag is off, hiding the whole surface. The
- * NotFoundError (rather than a 403) keeps a disabled-flag indistinguishable
- * from a route that does not exist.
- */
-function assertFlagEnabled(): void {
-  if (!deps.isFlagEnabled(deps.getConfig())) {
-    throw new NotFoundError("Workflows are not enabled.");
-  }
-}
 
 /**
  * The single compact-run wire contract, inferred from {@link workflowRunSchema}.
@@ -145,6 +151,64 @@ export function toWireRun(run: WorkflowRun): WorkflowRunWire {
   };
 }
 
+/**
+ * Render an arbitrary journal value (prompt, result, `{ error }`) into a short
+ * single-string preview, truncating to `max` characters. Objects are
+ * JSON-stringified so a structured result still produces a readable summary.
+ */
+function summarize(value: unknown, max = 200): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  let text: string;
+  if (typeof value === "string") {
+    text = value;
+  } else {
+    try {
+      text = JSON.stringify(value);
+    } catch {
+      return undefined;
+    }
+  }
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+/**
+ * Project a journal entry into the bounded leaf wire shape, dropping the bulky
+ * raw `request`/`result` payloads in favor of short summaries. The `request`
+ * and `result` columns are `unknown`, so read their fields defensively.
+ */
+export function toWireLeaf(
+  entry: WorkflowJournalEntry,
+): z.infer<typeof workflowLeafSchema> {
+  const request =
+    entry.request && typeof entry.request === "object"
+      ? (entry.request as Record<string, unknown>)
+      : undefined;
+  const opts =
+    request?.opts && typeof request.opts === "object"
+      ? (request.opts as Record<string, unknown>)
+      : undefined;
+  const label = typeof opts?.label === "string" ? opts.label : undefined;
+  const phase = typeof opts?.phase === "string" ? opts.phase : undefined;
+  const promptSummary = summarize(request?.prompt);
+  const resultSummary = summarize(entry.result);
+  return {
+    seq: entry.seq,
+    kind: entry.kind,
+    ...(label !== undefined ? { label } : {}),
+    ...(phase !== undefined ? { phase } : {}),
+    ...(promptSummary !== undefined ? { promptSummary } : {}),
+    status: entry.status,
+    ...(resultSummary !== undefined ? { resultSummary } : {}),
+    ...(entry.inputTokens !== undefined
+      ? { inputTokens: entry.inputTokens }
+      : {}),
+    ...(entry.outputTokens !== undefined
+      ? { outputTokens: entry.outputTokens }
+      : {}),
+    createdAt: entry.createdAt,
+  };
+}
+
 function parseLimit(raw: string | undefined): number | undefined {
   if (raw === undefined) return undefined;
   const n = Number(raw);
@@ -162,7 +226,6 @@ function parseStatus(
 }
 
 function handleListRuns(queryParams: Record<string, string>) {
-  assertFlagEnabled();
   const limit = parseLimit(queryParams.limit);
   const status = parseStatus(queryParams.status);
   const runs = deps.getManager().list({
@@ -173,7 +236,6 @@ function handleListRuns(queryParams: Record<string, string>) {
 }
 
 function handleGetRun(id: string) {
-  assertFlagEnabled();
   const run = deps.getManager().status(id);
   if (!run) {
     throw new NotFoundError(`Workflow run ${id} not found`);
@@ -181,8 +243,29 @@ function handleGetRun(id: string) {
   return toWireRun(run);
 }
 
+function handleGetRunJournal(id: string) {
+  const run = deps.getManager().status(id);
+  if (!run) {
+    throw new NotFoundError(`Workflow run ${id} not found`);
+  }
+  return {
+    runId: run.id,
+    status: run.status,
+    agentsSpawned: run.agentsSpawned,
+    inputTokens: run.inputTokens,
+    outputTokens: run.outputTokens,
+    // Only agent leaves; the live `workflow_leaf_*` stream is emitted solely for
+    // agent leaves (nested workflow resolutions never reach it), so the
+    // backfilled set must match. `kind: "workflow"` entries carry no label and
+    // would render as phantom unlabeled nodes.
+    leaves: deps
+      .getJournal(id)
+      .filter((entry) => entry.kind === "agent")
+      .map(toWireLeaf),
+  };
+}
+
 function handleAbortRun(id: string) {
-  assertFlagEnabled();
   // status() is the source of truth for existence; abort() itself is a no-op
   // for unknown/finished runs, so 404 on an unknown id is surfaced here.
   const manager = deps.getManager();
@@ -194,7 +277,6 @@ function handleAbortRun(id: string) {
 }
 
 async function handleResumeRun(id: string) {
-  assertFlagEnabled();
   const manager = deps.getManager();
   // status() is the source of truth for existence, so 404 an unknown id here
   // (matching abort) rather than letting resume's "not_found" reach the client
@@ -245,7 +327,6 @@ async function handleResumeRun(id: string) {
 }
 
 function handleListSavedWorkflows() {
-  assertFlagEnabled();
   return { workflows: deps.listWorkflows() };
 }
 
@@ -298,6 +379,27 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: workflowRunSchema,
     additionalResponses: { "404": { description: "Run not found" } },
     handler: ({ pathParams }: RouteHandlerArgs) => handleGetRun(pathParams!.id),
+  },
+  {
+    operationId: "getWorkflowRunJournal",
+    endpoint: "workflows/runs/:id/journal",
+    method: "GET",
+    // Unlike the run list/status routes (settings metadata), the journal returns
+    // per-leaf prompt/result summaries — conversation/work-product content — so it
+    // requires `chat.read`, matching the subagent-detail route (the analogous
+    // content surface), not the `settings.read` used by the management routes.
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Get workflow run journal",
+    description:
+      "Return a workflow run's leaf journal as bounded per-leaf summaries (one entry per finished leaf).",
+    tags: ["workflows"],
+    responseBody: workflowJournalSchema,
+    additionalResponses: { "404": { description: "Run not found" } },
+    handler: ({ pathParams }: RouteHandlerArgs) =>
+      handleGetRunJournal(pathParams!.id),
   },
   {
     operationId: "abortWorkflowRun",

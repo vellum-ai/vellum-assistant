@@ -61,6 +61,19 @@ export interface RunAsyncSqliteOptions {
    * the runtime pick.
    */
   forceBackend?: AsyncSqliteBackend;
+  /**
+   * Database file to run the statement against. Defaults to the main
+   * assistant DB (`getDbPath()`). Pass `getLogsDbPath()` to target the
+   * secondary append-only file directly.
+   *
+   * This only affects the `sqlite3-cli` backend, which opens the given file
+   * as its own `main` database — so a statement like
+   * `DELETE FROM llm_request_logs` runs against the right file with no ATTACH.
+   * The in-process fallback always runs on the daemon connection, which has
+   * the logs DB ATTACHed, so unqualified table names already resolve to the
+   * correct file regardless of this option.
+   */
+  dbPath?: string;
 }
 
 let warnedAboutFallback = false;
@@ -74,7 +87,12 @@ export async function runAsyncSqlite(
     forced === "in-process-blocking" ? undefined : findSqlite3();
 
   if (sqlite3Path && forced !== "in-process-blocking") {
-    return runViaCli(sqlite3Path, sql, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+    return runViaCli(
+      sqlite3Path,
+      sql,
+      options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      options.dbPath ?? getDbPath(),
+    );
   }
 
   if (!warnedAboutFallback) {
@@ -97,9 +115,9 @@ async function runViaCli(
   sqlite3Path: string,
   sql: string,
   timeoutMs: number,
+  dbPath: string,
 ): Promise<AsyncSqliteResult> {
   const startMs = Date.now();
-  const dbPath = getDbPath();
 
   log.info(
     { sqlite3Path, dbPath, timeoutMs, sqlPreview: sql.slice(0, 80) },

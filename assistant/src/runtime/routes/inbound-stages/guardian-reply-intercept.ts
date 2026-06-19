@@ -16,7 +16,10 @@ import {
 } from "../../../memory/canonical-guardian-store.js";
 import { getLogger } from "../../../util/logger.js";
 import { deliverChannelReply } from "../../gateway-client.js";
-import { routeGuardianReply } from "../../guardian-reply-router.js";
+import {
+  type GuardianPendingScope,
+  routeGuardianReply,
+} from "../../guardian-reply-router.js";
 import type { ApprovalConversationGenerator } from "../../http-types.js";
 
 const log = getLogger("runtime-http");
@@ -30,6 +33,12 @@ export interface GuardianReplyInterceptParams {
   trimmedContent: string;
   hasCallbackData: boolean;
   callbackData: string | undefined;
+  /**
+   * For emoji-reaction decisions: the channel-native id (Slack `ts`) of the
+   * message the reaction was attached to. Threaded to the router so it can
+   * recover the target request from the reacted card's delivery record.
+   */
+  reactedMessageTs?: string;
   rawSenderId: string | undefined;
   canonicalSenderId: string | null;
   canonicalAssistantId: string;
@@ -65,6 +74,7 @@ export async function handleGuardianReplyIntercept(
     trimmedContent,
     hasCallbackData,
     callbackData,
+    reactedMessageTs,
     rawSenderId,
     canonicalSenderId,
     canonicalAssistantId,
@@ -102,43 +112,51 @@ export async function handleGuardianReplyIntercept(
   // based pending requests so that requests without delivery rows (e.g.
   // tool_approval requests created inline) are not silently excluded.
   //
-  // On Slack, when no delivery-scoped results exist for the current
-  // chat, pass [] (empty array) instead of undefined. This prevents the
-  // router's identity-based fallback from intercepting unrelated
+  // On Slack, when no delivery-scoped results exist for the current chat,
+  // use `{ mode: "blocked" }` rather than identity-fallback. This prevents
+  // the router's identity-based fallback from intercepting unrelated
   // messages in other channels/threads — a cross-chat hijacking vector
   // unique to Slack where a single guardian is active in many threaded
   // contexts. Explicit callbacks (apr:<id>:<action>) and request codes
   // still work cross-chat because they carry specific request
-  // identifiers and bypass the pendingRequests list.
+  // identifiers and bypass the pending-request scope.
   //
-  // Non-Slack channels (Telegram, WhatsApp) keep undefined so the
+  // Non-Slack channels (Telegram, WhatsApp) leave the scope unset so the
   // identity-based fallback stays active. On those channels, delivery
   // rows are created asynchronously (fire-and-forget .then()) so the
   // guardian can reply before the row is persisted. Cross-chat
   // contamination is unlikely there because each chat is a distinct
   // conversation with no thread concept.
-  const deliveryScopedPendingRequests =
-    listPendingCanonicalGuardianRequestsByDestinationChat(
-      sourceChannel,
-      conversationExternalId,
-    );
-  let pendingRequestIds: string[] | undefined;
-  if (deliveryScopedPendingRequests.length > 0) {
-    const deliveryIds = new Set(deliveryScopedPendingRequests.map((r) => r.id));
-    // Also include identity-based pending requests so we don't hide them
-    const identityId = canonicalSenderId ?? rawSenderId!;
-    const identityPending = listCanonicalGuardianRequests({
-      status: "pending",
-      guardianExternalUserId: identityId,
-    });
-    for (const r of identityPending) {
-      deliveryIds.add(r.id);
+  // Reactions address one specific request by the reacted card's message id,
+  // so they bypass the pending-request list scoping that the text/NL paths
+  // need — the router's reaction branch resolves the target directly.
+  const isReaction = callbackData?.startsWith("reaction:") === true;
+  let pendingScope: GuardianPendingScope | undefined;
+  if (!isReaction) {
+    const deliveryScopedPendingRequests =
+      listPendingCanonicalGuardianRequestsByDestinationChat(
+        sourceChannel,
+        conversationExternalId,
+      );
+    if (deliveryScopedPendingRequests.length > 0) {
+      const deliveryIds = new Set(
+        deliveryScopedPendingRequests.map((r) => r.id),
+      );
+      // Also include identity-based pending requests so we don't hide them
+      const identityId = canonicalSenderId ?? rawSenderId!;
+      const identityPending = listCanonicalGuardianRequests({
+        status: "pending",
+        guardianExternalUserId: identityId,
+      });
+      for (const r of identityPending) {
+        deliveryIds.add(r.id);
+      }
+      pendingScope = { mode: "scoped", requestIds: [...deliveryIds] };
+    } else if (sourceChannel === "slack") {
+      // Block identity-based fallback on Slack to prevent cross-chat
+      // NL/free-text interception. See comment above for rationale.
+      pendingScope = { mode: "blocked" };
     }
-    pendingRequestIds = [...deliveryIds];
-  } else if (sourceChannel === "slack") {
-    // Block identity-based fallback on Slack to prevent cross-chat
-    // NL/free-text interception. See comment above for rationale.
-    pendingRequestIds = [];
   }
 
   const routerResult = await routeGuardianReply({
@@ -152,7 +170,8 @@ export async function handleGuardianReplyIntercept(
     },
     conversationId,
     callbackData,
-    pendingRequestIds,
+    reactedMessageTs,
+    pendingScope,
     approvalConversationGenerator,
     channelDeliveryContext: {
       replyCallbackUrl,

@@ -245,6 +245,69 @@ describe("vellum backup <local>: guardian bootstrap secret", () => {
   });
 });
 
+describe("vellum backup: --export-timeout flag", () => {
+  test("rejects a non-numeric value before any lookup", async () => {
+    setArgv("my-local", "--export-timeout", "soon");
+
+    const consoleErrorSpy = spyOn(console, "error").mockImplementation(
+      () => undefined,
+    );
+    try {
+      await expect(backup()).rejects.toThrow("process.exit:1");
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("--export-timeout must be a positive number"),
+      );
+      expect(findAssistantByNameMock).not.toHaveBeenCalled();
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
+  test("rejects a non-positive value", async () => {
+    setArgv("my-local", "--export-timeout", "0");
+
+    const consoleErrorSpy = spyOn(console, "error").mockImplementation(
+      () => undefined,
+    );
+    try {
+      await expect(backup()).rejects.toThrow("process.exit:1");
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("--export-timeout must be a positive number"),
+      );
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
+  test("accepts a valid override and completes the local export", async () => {
+    const localEntry = {
+      assistantId: "local-assistant",
+      runtimeUrl: "http://127.0.0.1:7830",
+      cloud: "local",
+      guardianBootstrapSecret: "bootstrap-secret-value",
+    } satisfies assistantConfig.AssistantEntry;
+    findAssistantByNameMock.mockReturnValue(localEntry);
+    setArgv(
+      "my-local",
+      "--export-timeout",
+      "600",
+      "--output",
+      "/tmp/local-backup.vbundle",
+    );
+
+    globalThis.fetch = mock(async () => {
+      return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    await backup();
+
+    expect(writeFileSyncMock).toHaveBeenCalledTimes(1);
+    expect(writeFileSyncMock.mock.calls[0]![0]).toBe(
+      "/tmp/local-backup.vbundle",
+    );
+  });
+});
+
 describe("vellum backup <platform-managed>: GCS happy path", () => {
   test("requests upload URL → kicks off runtime export → polls → downloads from GCS → writes file", async () => {
     findAssistantByNameMock.mockReturnValue(VELLUM_ENTRY);

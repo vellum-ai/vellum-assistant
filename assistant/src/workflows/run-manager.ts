@@ -5,8 +5,6 @@
  * and routes (later PRs) drive. It owns everything the raw {@link executeWorkflow}
  * engine deliberately does NOT:
  *
- *  - **Feature-flag gate.** `start` hard-fails with {@link WorkflowsDisabledError}
- *    when the `workflows` flag is off, BEFORE any engine code path is reachable.
  *  - **Concurrent-run cap.** At most `config.workflows.maxConcurrentRuns` runs
  *    may be in flight; the (N+1)th `start` throws {@link WorkflowRunCapError}.
  *  - **Async launch.** `start` resolves capabilities, creates the journal run
@@ -28,7 +26,6 @@
 
 import { createHash, randomUUID } from "node:crypto";
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
 import {
@@ -57,15 +54,6 @@ const log = getLogger("workflow-run-manager");
 
 /** Source tag for the completion wake (shows up in the wake's structured log). */
 const WORKFLOW_WAKE_SOURCE = "workflow_completed";
-
-/** Thrown by `start` when the `workflows` feature flag is disabled. */
-export class WorkflowsDisabledError extends Error {
-  readonly code = "workflows_disabled" as const;
-  constructor() {
-    super("Workflows are not enabled.");
-    this.name = "WorkflowsDisabledError";
-  }
-}
 
 /** Thrown by `start` when the concurrent-run cap is already reached. */
 export class WorkflowRunCapError extends Error {
@@ -126,6 +114,11 @@ interface StartWorkflowCommon {
    * scheduled run with no chat surface) — the summary is then events-only.
    */
   conversationId?: string;
+  /**
+   * The `skill_execute` tool-use block id that launched this run; forwarded on
+   * `workflow_started` so the client anchors the inline card to the spawn call.
+   */
+  toolUseId?: string;
   /** Human-readable label for display; defaults to the run id. */
   label?: string;
   /** Trust/auth context forwarded to every leaf. */
@@ -141,7 +134,6 @@ export interface WorkflowRunManagerDeps {
   leafRunner: typeof runLeaf;
   journal: typeof journalStore;
   getConfig: () => AssistantConfig;
-  isFlagEnabled: (config: AssistantConfig) => boolean;
   wake: typeof wakeAgentForOpportunity;
   broadcast: typeof broadcastMessage;
   newRunId: () => string;
@@ -155,8 +147,6 @@ function defaultDeps(): WorkflowRunManagerDeps {
     leafRunner: runLeaf,
     journal: journalStore,
     getConfig,
-    isFlagEnabled: (config) =>
-      isAssistantFeatureFlagEnabled("workflows", config),
     wake: wakeAgentForOpportunity,
     broadcast: broadcastMessage,
     newRunId: () => randomUUID(),
@@ -178,18 +168,14 @@ export class WorkflowRunManager {
   }
 
   /**
-   * Launch a workflow run. Gates on the `workflows` flag and the concurrent-run
-   * cap (both throw before any engine code is reachable), resolves capabilities,
+   * Launch a workflow run. Gates on the concurrent-run cap (which throws before
+   * any engine code is reachable), resolves capabilities,
    * creates the journal run row, and kicks off {@link executeWorkflow}
    * asynchronously. Returns the `runId` immediately — completion is surfaced via
    * events and a conversation wake.
    */
   start(opts: StartWorkflowOptions): { runId: string } {
     const config = this.deps.getConfig();
-    if (!this.deps.isFlagEnabled(config)) {
-      throw new WorkflowsDisabledError();
-    }
-
     const limit = config.workflows.maxConcurrentRuns;
     if (this.inflight.size >= limit) {
       throw new WorkflowRunCapError(limit);
@@ -233,6 +219,19 @@ export class WorkflowRunManager {
 
     const controller = new AbortController();
     this.inflight.set(runId, controller);
+
+    // Announce the launch only when there's a conversation to scope it to (the
+    // same gate the in-flight/terminal broadcasts use). `resume` never emits
+    // this — the run already announced itself on its original `start`.
+    if (opts.conversationId) {
+      this.deps.broadcast({
+        type: "workflow_started",
+        runId,
+        conversationId: opts.conversationId,
+        ...(opts.toolUseId ? { toolUseId: opts.toolUseId } : {}),
+        label,
+      });
+    }
 
     // Fire-and-forget: the engine owns its own try/catch and always finishes
     // the run row. We never await it — `start` must return synchronously.
@@ -282,9 +281,6 @@ export class WorkflowRunManager {
    */
   resume(runId: string): { runId: string } {
     const config = this.deps.getConfig();
-    if (!this.deps.isFlagEnabled(config)) {
-      throw new WorkflowsDisabledError();
-    }
 
     if (this.inflight.has(runId)) {
       throw new WorkflowResumeNotPossibleError(runId, "in_flight");
@@ -398,6 +394,14 @@ export class WorkflowRunManager {
     ctx: RunContext,
   ): Promise<void> {
     const config = this.deps.getConfig();
+    // `workflow_progress` / `workflow_completed` always broadcast: a run with no
+    // originating conversation emits them unscoped (no `conversationId`) for raw
+    // SSE listeners and the DB record, preserving the pre-scoping contract that
+    // surfaces conversationless scheduled runs. The conversation-only signals —
+    // `workflow_started`, the `onLeaf` leaf events, and the completion wake —
+    // stay gated on `conversationId` since they exist solely to drive the inline
+    // workflow card in that conversation.
+    const conversationId = ctx.conversationId;
     try {
       const result = await this.deps.executeWorkflow({
         runId,
@@ -415,6 +419,7 @@ export class WorkflowRunManager {
           this.deps.broadcast({
             type: "workflow_progress",
             runId,
+            ...(conversationId ? { conversationId } : {}),
             label,
             agentsSpawned,
             ...(event.type === "phase"
@@ -422,6 +427,41 @@ export class WorkflowRunManager {
               : { message: event.message }),
           });
         },
+        ...(conversationId
+          ? {
+              onLeaf: (event) => {
+                if (event.type === "leaf_started") {
+                  this.deps.broadcast({
+                    type: "workflow_leaf_started",
+                    runId,
+                    conversationId,
+                    seq: event.seq,
+                    ...(event.label !== undefined
+                      ? { label: event.label }
+                      : {}),
+                    ...(event.phase !== undefined
+                      ? { phase: event.phase }
+                      : {}),
+                    promptSummary: event.promptSummary,
+                  });
+                } else {
+                  this.deps.broadcast({
+                    type: "workflow_leaf_finished",
+                    runId,
+                    conversationId,
+                    seq: event.seq,
+                    status: event.status,
+                    ...(event.label !== undefined
+                      ? { label: event.label }
+                      : {}),
+                    inputTokens: event.inputTokens,
+                    outputTokens: event.outputTokens,
+                    resultSummary: event.resultSummary,
+                  });
+                }
+              },
+            }
+          : {}),
       });
 
       const summary = buildCompletionSummary(
@@ -434,6 +474,7 @@ export class WorkflowRunManager {
       this.deps.broadcast({
         type: "workflow_completed",
         runId,
+        ...(conversationId ? { conversationId } : {}),
         status: result.status,
         agentsSpawned: result.agentsSpawned,
         inputTokens: result.inputTokens,
@@ -495,6 +536,7 @@ interface RunContext {
 const VALID_TRUST_CLASSES: ReadonlySet<TrustContext["trustClass"]> = new Set([
   "guardian",
   "trusted_contact",
+  "unverified_contact",
   "unknown",
 ]);
 

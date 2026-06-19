@@ -96,12 +96,22 @@ function resolveUserFilename(
         filename = contactWithChannels.userFile ?? null;
       } else if (trustContext.trustClass === "guardian") {
         // Managed desktop: the JWT principal ID used as requesterExternalUserId
-        // may differ from the contact channel's external_user_id (they are
-        // separate identity concepts). Fall back to the channel-type guardian.
+        // may differ from the contact channel's address (they are separate
+        // identity concepts). Fall back to the channel-type guardian.
         const guardian = findGuardianForChannel(trustContext.sourceChannel);
         if (guardian) {
           filename = guardian.contact.userFile ?? "guardian.md";
         }
+      }
+    } else if (trustContext.trustClass === "guardian") {
+      // Guardian-trust turn carrying no requester identity — background and
+      // scheduled turns (heartbeat, scheduled pulses) run under the guardian
+      // trust class but have no per-actor address to look up. Resolve the
+      // channel's guardian user file so they load the same persona as a
+      // foreground guardian turn instead of falling back to users/default.md.
+      const guardian = findGuardianForChannel(trustContext.sourceChannel);
+      if (guardian) {
+        filename = guardian.contact.userFile ?? "guardian.md";
       }
     }
   } catch (err) {

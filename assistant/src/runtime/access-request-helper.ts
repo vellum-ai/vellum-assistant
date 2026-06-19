@@ -15,32 +15,19 @@ import type { ChannelId } from "../channels/types.js";
 import { findGuardianForChannel } from "../contacts/contact-store.js";
 import type { ChannelStatus } from "../contacts/types.js";
 import {
-  createCanonicalGuardianDelivery,
   createCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
-  updateCanonicalGuardianDelivery,
 } from "../memory/canonical-guardian-store.js";
+import {
+  recordApprovalCardDelivery,
+  recordGuardianRequestDeliveries,
+} from "../notifications/canonical-delivery-recorder.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
-import type {
-  GuardianResolutionSource,
-  NotificationSourceChannel,
-} from "../notifications/signal.js";
-import type { NotificationDeliveryResult } from "../notifications/types.js";
+import type { GuardianResolutionSource } from "../notifications/signal.js";
 import { getLogger } from "../util/logger.js";
 import { GUARDIAN_APPROVAL_TTL_MS } from "./routes/channel-route-shared.js";
 
 const log = getLogger("access-request-helper");
-
-function applyDeliveryStatus(
-  deliveryId: string,
-  result: NotificationDeliveryResult,
-): void {
-  if (result.status === "sent") {
-    updateCanonicalGuardianDelivery(deliveryId, { status: "sent" });
-    return;
-  }
-  updateCanonicalGuardianDelivery(deliveryId, { status: "failed" });
-}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -127,7 +114,7 @@ export function notifyGuardianOfAccessRequest(
     sourceGuardian &&
     sourceGuardian.contact.principalId === assistantGuardianPrincipalId
   ) {
-    guardianExternalUserId = sourceGuardian.channel.externalUserId;
+    guardianExternalUserId = sourceGuardian.channel.address;
     guardianPrincipalId = sourceGuardian.contact.principalId;
     guardianBindingChannel = sourceGuardian.channel.type;
     guardianResolutionSource = "source-channel-contact";
@@ -136,8 +123,7 @@ export function notifyGuardianOfAccessRequest(
   // Access requests always require a principal. If source-channel resolution
   // did not match the assistant anchor, use the anchored vellum identity.
   if (!guardianPrincipalId && vellumGuardian) {
-    guardianExternalUserId =
-      vellumGuardian.channel.externalUserId ?? guardianExternalUserId;
+    guardianExternalUserId = vellumGuardian.channel.address;
     guardianPrincipalId = assistantGuardianPrincipalId ?? null;
     guardianBindingChannel = guardianBindingChannel ?? "vellum";
     guardianResolutionSource = "vellum-anchor";
@@ -200,7 +186,7 @@ export function notifyGuardianOfAccessRequest(
     expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
   });
 
-  let vellumDeliveryId: string | null = null;
+  let vellumDeliveryId: string | undefined;
   // When the access request originates from a text channel with
   // notification delivery support (Slack, Telegram) and the guardian was
   // resolved via a verified same-channel contact, route the notification
@@ -219,7 +205,7 @@ export function notifyGuardianOfAccessRequest(
 
   void emitNotificationSignal({
     sourceEventName: "ingress.access_request",
-    sourceChannel: sourceChannel as NotificationSourceChannel,
+    sourceChannel,
     sourceContextId: `access-req-${sourceChannel}-${actorExternalId}`,
     requiresConversation: true,
     ...(sameChannelOnly ? { routingIntent: "single_channel" as const } : {}),
@@ -250,44 +236,26 @@ export function notifyGuardianOfAccessRequest(
     onConversationCreated: (info) => {
       if (info.sourceEventName !== "ingress.access_request" || vellumDeliveryId)
         return;
-      const delivery = createCanonicalGuardianDelivery({
+      vellumDeliveryId = recordApprovalCardDelivery({
         requestId: canonicalRequest.id,
-        destinationChannel: "vellum",
-        destinationConversationId: info.conversationId,
-      });
-      vellumDeliveryId = delivery.id;
+        channel: "vellum",
+        conversationId: info.conversationId,
+      })?.id;
     },
   })
     .then((signalResult) => {
-      for (const result of signalResult.deliveryResults) {
-        if (result.channel === "vellum") {
-          if (!vellumDeliveryId) {
-            const delivery = createCanonicalGuardianDelivery({
-              requestId: canonicalRequest.id,
-              destinationChannel: "vellum",
-              destinationConversationId: result.conversationId,
-            });
-            vellumDeliveryId = delivery.id;
-          }
-          applyDeliveryStatus(vellumDeliveryId, result);
-          continue;
-        }
-
-        const delivery = createCanonicalGuardianDelivery({
-          requestId: canonicalRequest.id,
-          destinationChannel: result.channel,
-          destinationChatId:
-            result.destination.length > 0 ? result.destination : undefined,
-        });
-        applyDeliveryStatus(delivery.id, result);
-      }
+      vellumDeliveryId = recordGuardianRequestDeliveries({
+        requestId: canonicalRequest.id,
+        deliveryResults: signalResult.deliveryResults,
+        vellumDeliveryId,
+      });
 
       if (!vellumDeliveryId && !sameChannelOnly) {
-        const fallback = createCanonicalGuardianDelivery({
+        recordApprovalCardDelivery({
           requestId: canonicalRequest.id,
-          destinationChannel: "vellum",
+          channel: "vellum",
+          status: "failed",
         });
-        updateCanonicalGuardianDelivery(fallback.id, { status: "failed" });
         log.warn(
           { requestId: canonicalRequest.id, reason: signalResult.reason },
           "Notification pipeline did not produce a vellum delivery result for access request",

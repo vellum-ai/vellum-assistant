@@ -260,6 +260,28 @@ describe("tryIpcProxy", () => {
     expect(params.body).toEqual({ message: "hello" });
   });
 
+  test("falls back to HTTP (returns null) on BINARY_UNSUPPORTED_OVER_IPC", async () => {
+    // Binary/streaming routes can't be carried over the IPC transport. The
+    // daemon signals this with a structured error; the proxy must return null
+    // so the request falls through to the HTTP proxy rather than surfacing the
+    // error to the client.
+    ipcCallAssistantMock.mockImplementation((method: string) => {
+      if (method === "get_route_schema") return Promise.resolve(ROUTE_SCHEMA);
+      return Promise.reject(
+        new MockIpcHandlerError(
+          "Binary/streaming responses are not supported over the IPC transport; use HTTP",
+          421,
+          "BINARY_UNSUPPORTED_OVER_IPC",
+        ),
+      );
+    });
+
+    const req = makeRequest("/v1/apps/myapp/dist/bundle.js");
+    const result = await tryIpcProxy(req, makeConfig());
+
+    expect(result).toBeNull();
+  });
+
   test("only forwards X-Vellum-* headers", async () => {
     const req = makeRequest("/v1/health", {
       headers: {

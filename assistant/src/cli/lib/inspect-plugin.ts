@@ -36,6 +36,10 @@ import {
   fetchMarketplaceEntries,
   type MarketplaceEntry,
 } from "./plugin-marketplace.js";
+import {
+  detectPluginSurfaces,
+  type PluginSurfaces,
+} from "./plugin-surfaces.js";
 
 /** Full commit SHA (40 hex SHA-1 or 64 hex SHA-256). */
 const FULL_SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
@@ -131,6 +135,12 @@ export interface PluginInspection {
   readonly remote: PluginRemoteInfo | null;
   /** Marketplace fetch error message, when the catalog could not be read. */
   readonly remoteError: string | null;
+  /**
+   * Surfaces the installed copy contributes (skills, hooks, tools), read from
+   * its on-disk tree. `null` when the plugin is not installed — there is no
+   * tree to inspect, and the marketplace metadata does not enumerate surfaces.
+   */
+  readonly surfaces: PluginSurfaces | null;
 }
 
 /** Neither an installed copy nor a marketplace entry claims the name. */
@@ -266,6 +276,7 @@ export async function inspectPlugin(
   });
   const installed = entry !== null;
   const local = entry ? readLocal(entry, readInstallMeta(entry.target)) : null;
+  const surfaces = entry ? detectPluginSurfaces(entry.target) : null;
 
   let remote: PluginRemoteInfo | null = null;
   let remoteError: string | null = null;
@@ -294,7 +305,7 @@ export async function inspectPlugin(
   }
 
   const status = classify(installed, local, remote, remoteError);
-  return { name, installed, status, local, remote, remoteError };
+  return { name, installed, status, local, remote, remoteError, surfaces };
 }
 
 function classify(

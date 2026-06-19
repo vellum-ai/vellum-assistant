@@ -1748,6 +1748,64 @@ describe("session-agent-loop", () => {
       // THEN the queue is drained with the loop-complete reason
       expect(drainReason).toBe("loop_complete");
     });
+
+    test("abort watchdog drives a wedged turn to its finally", async () => {
+      // GIVEN a provider whose call wedges: it acknowledges the user cancel
+      // (aborts the signal) but its promise never settles and never observes
+      // the signal — the exact condition that latched `processing` true.
+      const events: ServerMessage[] = [];
+      const abortController = new AbortController();
+      let drainReason: string | undefined;
+      // The provider's call wedges on this promise. It settles only on test
+      // teardown so the abandoned `run()` can unwind cleanly instead of leaking
+      // background work (e.g. partial-persist debounce timers) into later tests.
+      let releaseHang: (reason: unknown) => void = () => {};
+      const hang = new Promise<never>((_, reject) => {
+        releaseHang = reject;
+      });
+      const provider: Provider = {
+        name: "mock-provider",
+        sendMessage(_messages, _options) {
+          abortController.abort();
+          // Never observes the signal — the exact condition that latched
+          // `processing` true before the watchdog existed.
+          return hang;
+        },
+      };
+      const ctx = makeCtx({
+        loopProvider: provider,
+        abortController,
+        // Fire the watchdog quickly instead of the ~45s production default.
+        abortWatchdogMs: 30,
+        drainQueue: (reason: string) => {
+          drainReason = reason;
+        },
+      } as unknown as Partial<Conversation>);
+
+      try {
+        // WHEN the orchestrator runs the turn
+        await runAgentLoopImpl(ctx, "hi", "msg-1", (msg) => events.push(msg));
+
+        // THEN the watchdog forces the turn to its finally: processing clears,
+        // the abort controller is torn down, the queue drains, and the user
+        // sees a cancellation (not an error).
+        expect(ctx.isProcessing()).toBe(false);
+        expect(ctx.abortController).toBeNull();
+        expect(drainReason).toBe("loop_complete");
+        expect(
+          events.find((e) => e.type === "generation_cancelled"),
+        ).toBeDefined();
+        expect(
+          events.find((e) => e.type === "conversation_error"),
+        ).toBeUndefined();
+      } finally {
+        // Let the abandoned run() reject and unwind, then flush microtasks.
+        releaseHang(
+          new DOMException("The operation was aborted", "AbortError"),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    });
   });
 
   describe("stale pending surface cleanup", () => {

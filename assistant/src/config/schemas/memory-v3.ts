@@ -220,6 +220,12 @@ export const MemoryV3PruneSchema = z
 // so legacy configs keep parsing. Do not make this object `.strict()`.
 export const MemoryV3ConfigSchema = z
   .object({
+    live: z
+      .boolean({ error: "memory.v3.live must be a boolean" })
+      .default(false)
+      .describe(
+        "Whether memory-v3 is the live injected memory source, suppressing v2 injection. Off by default; brand-new assistants are switched on at creation via a workspace migration, while existing assistants stay on v2 until explicitly enabled.",
+      ),
     prune: MemoryV3PruneSchema.default(MemoryV3PruneSchema.parse({})),
     hotSet: MemoryV3HotSetSchema.default(MemoryV3HotSetSchema.parse({})),
     freshSet: MemoryV3FreshSetSchema.default(MemoryV3FreshSetSchema.parse({})),

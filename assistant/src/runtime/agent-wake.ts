@@ -58,6 +58,7 @@ import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { Conversation } from "../daemon/conversation.js";
+import { recordUsage } from "../daemon/conversation-usage.js";
 import { getDiskPressureStatus } from "../daemon/disk-pressure-guard.js";
 import {
   classifyDiskPressureTurnPolicy,
@@ -195,6 +196,14 @@ export interface WakeOptions {
    * retrospectives whose conversation title already says "(Retrospective)").
    */
   suppressWakeSurface?: boolean;
+  /**
+   * Run the wake's turn as non-interactive (no client present). Threads to the
+   * agent loop's `isNonInteractive`, which gates the `<non_interactive_context>`
+   * and `<background_turn>` injectors. Fork-based memory retrospectives set this
+   * to the source conversation's background-turn state so the fork reproduces
+   * the source's injected turn block (prompt-cache prefix parity). Default false.
+   */
+  isNonInteractive?: boolean;
   /**
    * Optional exact tool allowlist for this wake. Used by internal maintenance
    * jobs that need the assistant's judgment but must not execute arbitrary
@@ -587,6 +596,7 @@ export async function wakeAgentForOpportunity(
       opts.forceOverrideProfile ??
       getConversationOverrideProfile(conversationId);
     const callSite = opts.callSite ?? "mainAgent";
+    const isNonInteractive = opts.isNonInteractive ?? false;
     const config = getConfig();
     const effectiveContextWindow = resolveEffectiveContextWindow({
       llm: config.llm,
@@ -783,6 +793,47 @@ export async function wakeAgentForOpportunity(
       }
       if (event.type === "compaction_completed") {
         recordCompactionEndBestEffort(conversationId, event);
+      }
+      // Normal user turns record usage via the `dispatchAgentEvent` event handler)
+      // Wakes run their own onEvent and bypass it, so record here.
+      if (event.type === "usage") {
+        try {
+          recordUsage(
+            {
+              conversationId,
+              providerName: event.actualProvider ?? conversation.provider.name,
+              usageStats: conversation.usageStats,
+            },
+            event.inputTokens,
+            event.outputTokens,
+            event.model,
+            () => {},
+            "main_agent",
+            `wake:${source}`,
+            event.cacheCreationInputTokens ?? 0,
+            event.cacheReadInputTokens ?? 0,
+            event.rawResponse,
+            1,
+            undefined,
+            // Mirror the profile state the request actually ran under:
+            // `forceOverrideProfile` floats the override above the call-site
+            // profile (fork retrospectives with matchConversationProfile), and
+            // the conversation-id seed resolves the same mix arm the dispatch
+            // path chose. Without these, attribution credits the call-site
+            // profile/arm instead of the one that ran.
+            {
+              callSite,
+              overrideProfile: overrideProfile ?? null,
+              forceOverrideProfile,
+              selectionSeed: conversationId,
+            },
+          );
+        } catch (err) {
+          log.warn(
+            { conversationId, source, err },
+            "agent-wake: usage recording failed (non-fatal)",
+          );
+        }
       }
       // Replicates the recordRequestLog side-effect in `handleUsage` because
       // wakes own their own onEvent and never reach `dispatchAgentEvent`.
@@ -1080,6 +1131,7 @@ export async function wakeAgentForOpportunity(
           trust: wakeTrust,
           overrideProfile,
           forceOverrideProfile,
+          isNonInteractive,
           // The wake's compaction lives in the pre-run gate above
           // (`conversation.maybeCompact()`), never in the loop: the in-loop
           // budget gate and overflow-recovery ladder stay disabled because

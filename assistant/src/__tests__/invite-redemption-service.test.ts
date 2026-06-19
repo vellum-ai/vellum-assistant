@@ -292,7 +292,6 @@ describe("invite-redemption-service", () => {
         {
           type: "telegram",
           address: "guardian-tg-id",
-          externalUserId: "guardian-tg-id",
           status: "revoked",
         },
       ],
@@ -346,7 +345,6 @@ describe("invite-redemption-service", () => {
         {
           type: "telegram",
           address: "guardian-own-id",
-          externalUserId: "guardian-own-id",
           status: "revoked",
         },
       ],
@@ -381,7 +379,6 @@ describe("invite-redemption-service", () => {
         {
           type: "telegram",
           address: "guardian-code-id",
-          externalUserId: "guardian-code-id",
           status: "revoked",
         },
       ],

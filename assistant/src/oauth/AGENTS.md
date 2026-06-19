@@ -29,34 +29,15 @@ Then add the key to `ServicesSchema`:
 
 The key here **must** match the `managedServiceConfigKey` in `seed-providers.ts`. The cross-repo invariant test in `__tests__/seed-providers-managed.test.ts` will fail if they drift.
 
-### 3. _(managed only)_ Enable by default during onboarding — `clients/macos/.../HatchingStepView.swift`
+### 3. _(managed only)_ Enable by default during onboarding
 
-In `buildOnboardingConfigValues()`, add a line so managed-sign-in users get the integration pre-enabled:
+Managed-sign-in users should get the integration pre-enabled by setting `services.acme-oauth.mode` to `"managed"` in the client's onboarding config defaults.
 
-```swift
-configValues["services.acme-oauth.mode"] = "managed"
-```
+### 4. Set the logo URL — `seed-providers.ts`
 
-### 4. Add a cached logo — `clients/shared/Resources/IntegrationLogos/`
+The `logoUrl` field in `seed-providers.ts` is the source of truth for a provider's logo. Most providers use a [Simple Icons](https://simpleicons.org) (CC0-licensed) CDN URL like `https://cdn.simpleicons.org/acme`. The web client resolves logos from this field (see `clients/web/src/components/integrations/integration-icon.tsx`) and falls back to an initials avatar.
 
-Drop a **vector PDF** named `{provider_key}.pdf` (e.g. `acme.pdf`) into the `IntegrationLogos/` directory. The file is automatically bundled via `.copy()` in `clients/Package.swift` and looked up at runtime by `IntegrationLogoBundle` using the provider key — no code changes needed.
-
-Most existing logos come from [Simple Icons](https://simpleicons.org) (CC0-licensed). To get a PDF from Simple Icons:
-
-1. Find the icon slug on https://simpleicons.org (e.g. `slack`, `linear`).
-2. Download the SVG: `curl -o acme.svg https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/acme.svg`
-3. Convert to PDF using `rsvg-convert` (same tool used by `clients/scripts/sync-lucide-icons.sh`):
-   ```bash
-   # Install if needed: brew install librsvg
-   rsvg-convert -f pdf -o clients/shared/Resources/IntegrationLogos/acme.pdf acme.svg
-   ```
-4. Add the provider key to `clients/shared/Resources/integration-logos-manifest.json`.
-
-If the service is not on Simple Icons, source or create an SVG and convert it the same way. The result must be a true vector PDF (not a rasterized image wrapped in PDF) so it scales cleanly.
-
-The `logoUrl` field in `seed-providers.ts` serves as the remote fallback (most providers use a Simple Icons CDN URL like `https://cdn.simpleicons.org/acme`). The client renders the local PDF first, then falls back to `logoUrl`, then to an initials avatar.
-
-For brands Simple Icons doesn't host (e.g. Salesforce, which Simple Icons removed for trademark reasons), use the same `glincker/thesvg` source via jsDelivr — `https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/<key>/default.svg`. The recognised `logoUrl` prefixes are enforced by `oauth-provider-seed-logos.test.ts`; if you need a third source, extend that allowlist alongside the manifest in `clients/shared/Resources/integration-logos-manifest.json`.
+For brands Simple Icons doesn't host (e.g. Salesforce, which Simple Icons removed for trademark reasons), use the `glincker/thesvg` source via jsDelivr — `https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/<key>/default.svg`. The recognised `logoUrl` prefixes are enforced by `oauth-provider-seed-logos.test.ts`; if you need a third source, extend that allowlist.
 
 ### 5. Secret patterns (if applicable) — `../security/secret-patterns.ts`
 

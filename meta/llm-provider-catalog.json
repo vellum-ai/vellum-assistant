@@ -1187,6 +1187,22 @@
           }
         },
         {
+          "id": "z-ai/glm-5.2",
+          "displayName": "GLM-5.2",
+          "contextWindowTokens": 1048576,
+          "maxOutputTokens": 131072,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": false,
+          "supportsVision": false,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 1.4,
+            "outputPer1mTokens": 4.4
+          }
+        },
+        {
           "id": "mistralai/mistral-medium-3",
           "displayName": "Mistral Medium 3",
           "contextWindowTokens": 131072,
@@ -1348,6 +1364,36 @@
           "longContextMode": "unsupported",
           "supportsThinking": true,
           "supportsCaching": true,
+          "supportsVision": false,
+          "supportsToolUse": true
+        }
+      ]
+    },
+    {
+      "id": "atlascloud",
+      "displayName": "Atlas Cloud",
+      "subtitle": "Atlas Cloud AI models (OpenAI-compatible). Requires an Atlas Cloud API key.",
+      "setupMode": "api-key",
+      "setupHint": "Enter your Atlas Cloud API key to enable Atlas Cloud models.",
+      "envVar": "ATLASCLOUD_API_KEY",
+      "apiKeyPlaceholder": "apikey-...",
+      "credentialsGuide": {
+        "description": "Sign in to the Atlas Cloud console and create an API key.",
+        "url": "https://www.atlascloud.ai/console",
+        "linkLabel": "Open Atlas Cloud Console"
+      },
+      "supportsPlatformAuth": false,
+      "defaultModel": "deepseek-ai/deepseek-v4-pro",
+      "models": [
+        {
+          "id": "deepseek-ai/deepseek-v4-pro",
+          "displayName": "DeepSeek V4 Pro",
+          "contextWindowTokens": 128000,
+          "maxOutputTokens": 8192,
+          "defaultContextWindowTokens": 128000,
+          "longContextMode": "unsupported",
+          "supportsThinking": true,
+          "supportsCaching": false,
           "supportsVision": false,
           "supportsToolUse": true
         }

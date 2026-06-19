@@ -269,6 +269,22 @@ export interface Provider {
     messages: Message[],
     options?: SendMessageOptions,
   ): Promise<ProviderResponse>;
+  /**
+   * Exact prompt-token count from the provider's own tokenizer, for the
+   * `messages` + `systemPrompt` + `tools` composition the next call would
+   * send. Optional: providers without a token-counting endpoint omit it, and
+   * callers must fall back to the local estimator (`estimatePromptTokens`).
+   *
+   * This runs a dedicated counting request (no inference), so it carries a
+   * network round-trip and the provider's own rate limit — use it for
+   * user-initiated, occasional actions (e.g. `/compact`), never on the
+   * per-turn hot path.
+   */
+  countInputTokens?(
+    messages: Message[],
+    systemPrompt: string,
+    tools?: ToolDefinition[],
+  ): Promise<number>;
 }
 
 // ── Context-overflow error ────────────────────────────────────────────

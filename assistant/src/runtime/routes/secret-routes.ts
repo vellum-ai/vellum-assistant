@@ -26,6 +26,7 @@ import { setSentryOrganizationId, setSentryUserId } from "../../instrument.js";
 import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import { validateAnthropicApiKey } from "../../providers/anthropic/client.js";
+import { validateAtlasCloudApiKey } from "../../providers/atlascloud/client.js";
 import { validateGeminiApiKey } from "../../providers/gemini/client.js";
 import { validateMinimaxApiKey } from "../../providers/minimax/client.js";
 import { validateOpenAIApiKey } from "../../providers/openai/client.js";
@@ -199,6 +200,15 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
         }
       } else if (name === "minimax") {
         const validation = await validateMinimaxApiKey(value);
+        if (!validation.valid) {
+          log.warn(
+            { provider: name, reason: validation.reason },
+            "API key validation failed",
+          );
+          return { success: false, error: validation.reason };
+        }
+      } else if (name === "atlascloud") {
+        const validation = await validateAtlasCloudApiKey(value);
         if (!validation.valid) {
           log.warn(
             { provider: name, reason: validation.reason },

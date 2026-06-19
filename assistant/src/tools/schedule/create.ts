@@ -1,5 +1,4 @@
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
-import { getConfig } from "../../config/loader.js";
+import { resolveCapabilities } from "../../runtime/capabilities.js";
 import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
 import { formatIntegrationSummary } from "../../schedule/integration-status.js";
 import { validateRruleSetLines } from "../../schedule/recurrence-engine.js";
@@ -17,7 +16,7 @@ import {
 } from "../../schedule/schedule-store.js";
 import {
   CapabilityManifestSchema,
-  resolveCapabilities,
+  resolveCapabilities as resolveWorkflowCapabilities,
 } from "../../workflows/capabilities.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
@@ -32,7 +31,7 @@ export async function executeScheduleCreate(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  if (context.trustClass !== "guardian") {
+  if (!resolveCapabilities(context.trustClass).canManageSchedules) {
     return {
       content:
         "Error: schedule_create is restricted to guardian actors because schedules execute with elevated privileges.",
@@ -121,13 +120,9 @@ export async function executeScheduleCreate(
       };
     }
   } else if (mode === "workflow") {
-    // Workflow mode is gated by the `workflows` flag (a scheduled run would
-    // otherwise hard-fail at trigger time) and requires a saved workflow name —
-    // mirrors the HTTP route's create-side validation so the assistant-facing
-    // path and the settings route enforce the same shape.
-    if (!isAssistantFeatureFlagEnabled("workflows", getConfig())) {
-      return { content: "Error: workflows are not enabled.", isError: true };
-    }
+    // Workflow mode requires a saved workflow name — mirrors the HTTP route's
+    // create-side validation so the assistant-facing path and the settings route
+    // enforce the same shape.
     if (!workflowName) {
       return {
         content:
@@ -144,7 +139,7 @@ export async function executeScheduleCreate(
     if (input.capabilities !== undefined) {
       try {
         const manifest = CapabilityManifestSchema.parse(input.capabilities);
-        resolveCapabilities(manifest);
+        resolveWorkflowCapabilities(manifest);
         capabilities = manifest;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

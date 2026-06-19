@@ -92,7 +92,7 @@ mock.module("../runtime/channel-verification-service.js", () => ({
     return null;
   },
   createOutboundSession: () => ({
-    conversationId: "test-session",
+    sessionId: "test-session",
     secret: "123456",
   }),
   bindSessionIdentity: () => {},
@@ -108,16 +108,23 @@ mock.module("../runtime/channel-verification-service.js", () => ({
   }),
 }));
 
-// Mock gateway client — capture delivery calls
+// Mock gateway client — capture delivery calls. `failDeliveryWhen` lets a test
+// simulate a delivery failure for a specific payload (e.g. a DM that can't be
+// opened) so fallback paths can be exercised.
 const deliveredReplies: Array<{
   url: string;
   payload: Record<string, unknown>;
 }> = [];
+let failDeliveryWhen: ((payload: Record<string, unknown>) => boolean) | null =
+  null;
 mock.module("../runtime/gateway-client.js", () => ({
   deliverChannelReply: async (
     url: string,
     payload: Record<string, unknown>,
   ) => {
+    if (failDeliveryWhen?.(payload)) {
+      throw new Error("simulated delivery failure");
+    }
     deliveredReplies.push({ url, payload });
     return { ok: true };
   },
@@ -150,6 +157,7 @@ mock.module("../config/env.js", () => ({
 import { applyCanonicalGuardianDecision } from "../approvals/guardian-decision-primitive.js";
 import type { ActorContext } from "../approvals/guardian-request-resolvers.js";
 import { getResolver } from "../approvals/guardian-request-resolvers.js";
+import { upsertContactChannel } from "../contacts/contacts-write.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import {
   createCanonicalGuardianRequest,
@@ -564,7 +572,7 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
 
     expect("skipped" in result && result.skipped).toBe(true);
     if ("skipped" in result) {
-      expect(result.reason).toBe("not_trusted_contact");
+      expect(result.reason).toBe("not_bridgeable_trust_class");
     }
   });
 });
@@ -1088,3 +1096,212 @@ describe("cross-milestone integration checks", () => {
   });
 });
 
+// ===========================================================================
+// (g) access_request resolver: requester verification-code delivery
+//
+// On approval the requester must receive the 6-digit code so the guardian
+// never has to relay it by hand. On Slack the code is DM'd straight to the
+// requester (a private path is guaranteed via their user ID); other channels
+// keep the courier message because a private path to the requester is not
+// guaranteed there (e.g. a group chat would leak the secret).
+// ===========================================================================
+
+describe("(g) access_request resolver: requester code delivery", () => {
+  const REQUESTER_UID = "U_REQUESTER";
+  const GUARDIAN_UID = "U_GUARDIAN";
+
+  function createAccessRequest(overrides: Record<string, unknown> = {}) {
+    return createCanonicalGuardianRequest({
+      id: `access-req-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "slack",
+      conversationId: "conv-access-slack",
+      requesterExternalUserId: REQUESTER_UID,
+      requesterChatId: "C_SHARED_CHANNEL",
+      guardianExternalUserId: GUARDIAN_UID,
+      guardianPrincipalId: "test-principal-id",
+      toolName: "ingress_access_request",
+      expiresAt: Date.now() + 60_000,
+      ...overrides,
+    });
+  }
+
+  beforeEach(() => {
+    resetTables();
+    deliveredReplies.length = 0;
+    emittedSignals.length = 0;
+    failDeliveryWhen = null;
+  });
+
+  test("on-channel Slack approval DMs the verification code to the requester", async () => {
+    const req = createAccessRequest();
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: "approve_once",
+      actorContext: guardianActor({
+        channel: "slack",
+        actorExternalUserId: GUARDIAN_UID,
+      }),
+      channelDeliveryContext: {
+        replyCallbackUrl:
+          "http://localhost:3000/deliver/slack?threadTs=111.222",
+        guardianChatId: "C_SHARED_CHANNEL",
+        assistantId: "self",
+      },
+    });
+
+    expect(result.applied).toBe(true);
+
+    // The requester receives the actual code in their DM (chatId = user ID),
+    // not a "ask the guardian" courier message.
+    const requesterCodeReply = deliveredReplies.find(
+      (r) =>
+        r.payload.chatId === REQUESTER_UID &&
+        typeof r.payload.text === "string" &&
+        (r.payload.text as string).includes("123456"),
+    );
+    expect(requesterCodeReply).toBeDefined();
+    expect(requesterCodeReply!.payload.text).toContain(
+      "your access request was approved",
+    );
+    // The code DM is durable, never ephemeral.
+    expect(requesterCodeReply!.payload.ephemeral).toBeUndefined();
+    // threadTs (the guardian's channel thread) is stripped for the DM.
+    expect(requesterCodeReply!.url).not.toContain("threadTs");
+
+    // No courier "receive from the guardian" message goes to the requester.
+    const courier = deliveredReplies.find(
+      (r) =>
+        typeof r.payload.text === "string" &&
+        (r.payload.text as string).includes("receive from the guardian"),
+    );
+    expect(courier).toBeUndefined();
+  });
+
+  test("desktop-decided approval DMs the code to the Slack requester via the deliver path", async () => {
+    const req = createAccessRequest();
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: "approve_once",
+      // Desktop decision: no channelDeliveryContext, actor on the vellum channel.
+      actorContext: guardianActor({
+        channel: "vellum",
+        actorExternalUserId: undefined,
+      }),
+    });
+
+    expect(result.applied).toBe(true);
+
+    const requesterCodeReply = deliveredReplies.find(
+      (r) =>
+        r.payload.chatId === REQUESTER_UID &&
+        typeof r.payload.text === "string" &&
+        (r.payload.text as string).includes("123456"),
+    );
+    expect(requesterCodeReply).toBeDefined();
+    expect(requesterCodeReply!.url).toContain("/deliver/slack");
+    expect(requesterCodeReply!.payload.text).toContain(
+      "your access request was approved",
+    );
+  });
+
+  test("non-Slack channel keeps the courier message and never delivers the code to the requester chat", async () => {
+    const req = createAccessRequest({
+      sourceChannel: "telegram",
+      requesterChatId: "requester-chat-1",
+      conversationId: "conv-access-telegram",
+    });
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: "approve_once",
+      actorContext: guardianActor({
+        channel: "telegram",
+        actorExternalUserId: GUARDIAN_UID,
+      }),
+      channelDeliveryContext: {
+        replyCallbackUrl: "http://localhost:3000/deliver/telegram",
+        guardianChatId: "guardian-chat-1",
+        assistantId: "self",
+      },
+    });
+
+    expect(result.applied).toBe(true);
+
+    // The requester is told to expect the code from the guardian; the secret is
+    // never delivered to the requester's (possibly group) chat.
+    const requesterReply = deliveredReplies.find(
+      (r) => r.payload.chatId === "requester-chat-1",
+    );
+    expect(requesterReply).toBeDefined();
+    expect(requesterReply!.payload.text).toContain("receive from the guardian");
+    expect(requesterReply!.payload.text).not.toContain("123456");
+  });
+
+  test("Slack shared-channel fallback posts an ephemeral notice to the channel when the DM fails", async () => {
+    const req = createAccessRequest();
+
+    // Make the direct DM (to the U... user ID) fail so the courier fallback runs.
+    failDeliveryWhen = (payload) => payload.chatId === REQUESTER_UID;
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: "approve_once",
+      actorContext: guardianActor({
+        channel: "slack",
+        actorExternalUserId: GUARDIAN_UID,
+      }),
+      channelDeliveryContext: {
+        replyCallbackUrl:
+          "http://localhost:3000/deliver/slack?threadTs=111.222",
+        guardianChatId: "C_SHARED_CHANNEL",
+        assistantId: "self",
+      },
+    });
+
+    expect(result.applied).toBe(true);
+
+    // The courier notice falls back to an ephemeral message targeting the
+    // originating channel (C...), since chat.postEphemeral needs a channel ID —
+    // not the requester's user ID.
+    const courier = deliveredReplies.find(
+      (r) =>
+        typeof r.payload.text === "string" &&
+        (r.payload.text as string).includes("receive from the guardian"),
+    );
+    expect(courier).toBeDefined();
+    expect(courier!.payload.chatId).toBe("C_SHARED_CHANNEL");
+    expect(courier!.payload.ephemeral).toBe(true);
+    expect(courier!.payload.user).toBe(REQUESTER_UID);
+  });
+
+  test("guardian-facing reply uses the requester's display name, not the raw ID", async () => {
+    // Seed a contact so the resolver can resolve a display name.
+    upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: REQUESTER_UID,
+      displayName: "Alice",
+      status: "unverified",
+    });
+
+    const req = createAccessRequest();
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: "approve_once",
+      // Desktop decision → resolver returns guardianReplyText for assertion.
+      actorContext: guardianActor({
+        channel: "vellum",
+        actorExternalUserId: undefined,
+      }),
+    });
+
+    expect(result.applied).toBe(true);
+    const replyText = result.applied ? result.resolverReplyText : undefined;
+    expect(replyText).toContain("Alice");
+    expect(replyText).not.toContain(REQUESTER_UID);
+  });
+});

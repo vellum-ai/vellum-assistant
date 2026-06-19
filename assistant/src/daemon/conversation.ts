@@ -80,12 +80,10 @@ import {
 } from "../prompts/system-prompt.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
-import {
-  isUntrustedTrustClass,
-  type TrustClass,
-} from "../runtime/actor-trust-resolver.js";
+import { type TrustClass } from "../runtime/actor-trust-resolver.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../runtime/auth/types.js";
+import { resolveCapabilities } from "../runtime/capabilities.js";
 import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import {
@@ -107,7 +105,7 @@ import {
   runAgentLoopImpl,
 } from "./conversation-agent-loop.js";
 import type { HistoryConversationContext } from "./conversation-history.js";
-import { undo as undoImpl } from "./conversation-history.js";
+import { isToolResultBlock, undo as undoImpl } from "./conversation-history.js";
 import {
   abortConversation,
   disposeConversation,
@@ -174,6 +172,36 @@ import { conversationMetadataSyncTag } from "./message-types/sync.js";
 import { TraceEmitter } from "./trace-emitter.js";
 
 const log = getLogger("conversation");
+
+/**
+ * Whether a persisted message starts a new conversation turn. A turn is
+ * delimited by a "real" user message; a user message whose content is entirely
+ * tool_result blocks is a continuation within the current turn, and assistant
+ * messages never start one. Mirrors the turn-boundary definition used by
+ * `getAssistantMessageIdsInTurn`/`getTurnTimeBounds` and the agent loop's
+ * per-turn `turnCount++`, so counting these reconstructs `turnCount` on load.
+ */
+function startsNewTurn(role: string, content: string): boolean {
+  if (role !== "user") return false;
+  try {
+    const parsed = JSON.parse(content);
+    if (
+      Array.isArray(parsed) &&
+      parsed.length > 0 &&
+      parsed.every(
+        (block: unknown) =>
+          block != null &&
+          typeof block === "object" &&
+          isToolResultBlock(block as Record<string, unknown>),
+      )
+    ) {
+      return false;
+    }
+  } catch {
+    // Non-JSON content is a plain user message — a turn boundary.
+  }
+  return true;
+}
 
 export interface CleanResult {
   previousEstimatedInputTokens: number;
@@ -366,6 +394,13 @@ export class Conversation {
     workspaceDir: string,
   ) => Pick<WorkspaceGitService, "ensureInitialized">;
   /** @internal */ commitTurnChanges?: typeof commitTurnChanges;
+  /**
+   * Abort-watchdog timeout (ms) for the agent loop's bounded-unwind backstop.
+   * Overridable in tests to fire the watchdog quickly; defaults to the
+   * production constant in the agent loop when unset.
+   * @internal
+   */
+  abortWatchdogMs?: number;
   /**
    * The conversation's immutable creation type (`interactive`, `background`,
    * `scheduled`, …) as stored on the DB row. Cached on load (and set directly
@@ -824,10 +859,25 @@ export class Conversation {
 
   async loadFromDb(): Promise<void> {
     const trustClass = this.trustContext?.trustClass;
+    const canAccessMemory = resolveCapabilities(trustClass).canAccessMemory;
     const allDbMessages = getMessages(this.conversationId);
-    const dbMessages = isUntrustedTrustClass(trustClass)
-      ? filterMessagesForUntrustedActor(allDbMessages)
-      : allDbMessages;
+    const dbMessages = canAccessMemory
+      ? allDbMessages
+      : filterMessagesForUntrustedActor(allDbMessages);
+
+    // Rehydrate the in-memory turn counter from persisted history. `turnCount`
+    // is otherwise a fresh-zero field, so a reloaded conversation (eviction,
+    // restart, fork) would restart its turn numbering at 0 and the next turn
+    // would reuse `turnIndex` 0 — colliding with the conversation's first turn.
+    // The memory-v3 selector memoizes per (conversationId, turnIndex) for the
+    // life of the daemon process, so a collided turnIndex serves a stale
+    // selection and skips retrieval. One turn per real (turn-starting) user
+    // message, matching the agent loop's per-turn `turnCount++`. Counted from
+    // the full unsliced history so it survives compaction and is independent of
+    // the viewer's trust class.
+    this.turnCount = allDbMessages.filter((m) =>
+      startsNewTurn(m.role, m.content),
+    ).length;
 
     const conv = getConversation(this.conversationId);
     this.conversationType = conv?.conversationType ?? undefined;
@@ -855,12 +905,12 @@ export class Conversation {
     // than exist. Slack chronological context is a separate consumer that
     // applies its own trust filtering downstream, so it reads the raw
     // mirrored count rather than this in-context boundary.
-    const inContextCompactedCount = isUntrustedTrustClass(trustClass)
-      ? 0
-      : Math.min(this.contextCompactedMessageCount, dbMessages.length);
-    const contextSummaryForHistory = isUntrustedTrustClass(trustClass)
-      ? null
-      : this.contextSummary?.trim() || null;
+    const inContextCompactedCount = canAccessMemory
+      ? Math.min(this.contextCompactedMessageCount, dbMessages.length)
+      : 0;
+    const contextSummaryForHistory = canAccessMemory
+      ? this.contextSummary?.trim() || null
+      : null;
 
     // Every injection-strip event (`/clean` or compaction) updates
     // `historyStrippedAt`. Messages older than this should skip metadata
@@ -1556,8 +1606,65 @@ export class Conversation {
     }
   }
 
+  /**
+   * Token count for `messages` used to render the user-facing `/compact` and
+   * `/clean` figures. Prefers the provider's real `count_tokens` tokenizer (so
+   * the numbers match the context-window indicator's provider-reported usage)
+   * and falls back to the context-window manager's local estimate when the
+   * provider has no count endpoint or the count call fails — both measure the
+   * same system-prompt + tools composition the manager sizes against.
+   *
+   * The count is a network round-trip with its own rate limit, so this is for
+   * user-initiated actions only, never the per-turn auto-compaction gate.
+   */
+  private async calculateTokens(messages: Message[]): Promise<number> {
+    const countInputTokens = this.provider.countInputTokens;
+    if (!countInputTokens) {
+      return this.contextWindowManager.estimateInputTokens(messages);
+    }
+    try {
+      const { systemPrompt, tools } =
+        this.contextWindowManager.tokenCountInputs;
+      return await countInputTokens.call(
+        this.provider,
+        messages,
+        systemPrompt,
+        tools,
+      );
+    } catch (err) {
+      log.warn(
+        { err, conversationId: this.conversationId },
+        "Provider token count failed — falling back to local estimate",
+      );
+      return this.contextWindowManager.estimateInputTokens(messages);
+    }
+  }
+
   async forceCompact(): Promise<ContextWindowResult> {
-    return this.runCompaction(true);
+    // Report the user-facing before/after using the provider's real tokenizer
+    // (count_tokens) so the `/compact` line matches the context-window
+    // indicator, which reflects the provider's actual reported usage — rather
+    // than the local chars/4 estimate the compaction pipeline runs internally
+    // (it under-counts by ~25% on typical histories). `calculateTokens`
+    // falls back to that estimate when the provider has no count endpoint or
+    // the count call fails, so behavior degrades gracefully.
+    //
+    // Only the *displayed* numbers are overridden — the compaction log and
+    // circuit-breaker accounting inside `runCompaction` keep the estimate-based
+    // figures, leaving calibration and historical logs untouched.
+    const before = await this.calculateTokens(this.messages);
+    const result = await this.runCompaction(true);
+    // `runCompaction` applies the compacted history to `this.messages` in
+    // place, so after a successful compaction this re-counts the new history;
+    // a no-op leaves the context unchanged, so before === after.
+    const after = result.compacted
+      ? await this.calculateTokens(this.messages)
+      : before;
+    return {
+      ...result,
+      previousEstimatedInputTokens: before,
+      estimatedInputTokens: after,
+    };
   }
 
   /**
@@ -1676,15 +1783,17 @@ export class Conversation {
    * activations are no longer deduped against the prior session.
    */
   async forceClean(): Promise<CleanResult> {
-    const previousEstimatedInputTokens =
-      this.contextWindowManager.estimateInputTokens(this.messages);
+    // Use the provider's real tokenizer for the displayed before/after (see
+    // `forceCompact` for why); falls back to the local estimate when count
+    // isn't available.
+    const previousEstimatedInputTokens = await this.calculateTokens(
+      this.messages,
+    );
     const stripped = stripInjectionsForCompaction(this.messages);
     this.messages = stripped;
     await this.graphMemory.onCompacted(0);
     setConversationHistoryStrippedAt(this.conversationId, Date.now());
-    const estimatedInputTokens = this.contextWindowManager.estimateInputTokens(
-      this.messages,
-    );
+    const estimatedInputTokens = await this.calculateTokens(this.messages);
     return {
       previousEstimatedInputTokens,
       estimatedInputTokens,
@@ -1847,6 +1956,8 @@ export class Conversation {
        * this value via {@link SubagentManager.spawn}.
        */
       overrideProfile?: string;
+      /** Float `overrideProfile` above call-site layers for this run. */
+      forceOverrideProfile?: boolean;
     },
   ): Promise<void> {
     const { onEvent, ...rest } = options ?? {};

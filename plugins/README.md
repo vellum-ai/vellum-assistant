@@ -275,6 +275,40 @@ Multiple plugins' hooks chain in registration order — each sees the previous
 hook's edits. Throwing is contained by the loop: the provider call proceeds with
 the original request.
 
+**Discovering routable profiles.** Profile keys vary per workspace, so a router
+shouldn't hard-code them. The runtime handle `getModelProfiles()` returns the
+profiles this workspace defines, in the order the `/model` picker shows them —
+each entry is `{ key, label, description, isActive, isDisabled, isMix }`. Assign
+a `key` to `ctx.modelProfile` to route a call there. Disabled profiles are
+included and flagged via `isDisabled`; weighted "mix" profiles are included and
+flagged via `isMix` (a mix is a valid target — routing to it A/B-splits the call
+across its constituents per conversation). It reads live config, so call it
+whenever you need the current set — at `init` to build a map once, or per call.
+
+```ts
+// hooks/init.ts — build and validate the router's category → profile map
+import { getModelProfiles, type PluginInitContext } from "@vellumai/plugin-api";
+
+const CATEGORY_PROFILE: Record<string, string> = {
+  chat: "cost-optimized",
+  research: "balanced",
+  deep: "quality-optimized",
+};
+
+export default function init(ctx: PluginInitContext): void {
+  const routable = new Set(
+    getModelProfiles()
+      .filter((p) => !p.isDisabled)
+      .map((p) => p.key),
+  );
+  for (const [category, key] of Object.entries(CATEGORY_PROFILE)) {
+    if (!routable.has(key)) {
+      ctx.logger.warn({ category, key }, "configured profile missing or disabled");
+    }
+  }
+}
+```
+
 ### `post-tool-use`
 
 Fires once per tool result, **after** the tool returns and

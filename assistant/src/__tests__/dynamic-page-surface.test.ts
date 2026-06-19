@@ -5,7 +5,7 @@ import type {
   UiSurfaceShowDynamicPage,
 } from "../daemon/message-protocol.js";
 import { INTERACTIVE_SURFACE_TYPES } from "../daemon/message-protocol.js";
-import { uiShowTool } from "../tools/ui-surface/definitions.js";
+import { uiShowTool, uiUpdateTool } from "../tools/ui-surface/definitions.js";
 
 // ---------------------------------------------------------------------------
 // DynamicPageSurfaceData shape
@@ -151,6 +151,57 @@ describe("ui_show dynamic_page app substitute guard", () => {
     expect(proxied).toBe(false);
   });
 
+  test("redirects a weak open model to a declarative surface, not 'resend HTML'", async () => {
+    let proxied = false;
+
+    const result = await uiShowTool.execute(
+      {
+        surface_type: "dynamic_page",
+        title: "Fable 5 vs MiniMax M3",
+        data: {},
+      },
+      {
+        conversationId: "conversation-123",
+        workingDir: "/tmp",
+        trustClass: "guardian",
+        attribution: {
+          resolvedModel: "accounts/fireworks/models/minimax-m3",
+        } as never,
+        proxyToolResolver: async () => {
+          proxied = true;
+          return { content: "proxied", isError: false };
+        },
+      },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('surface_type: "table"');
+    expect(result.content).toContain("work_result");
+    expect(result.content).not.toContain("Resend ui_show with the full HTML");
+    expect(proxied).toBe(false);
+  });
+
+  test("keeps the resend-HTML hint for a capable model", async () => {
+    const result = await uiShowTool.execute(
+      {
+        surface_type: "dynamic_page",
+        title: "Fable 5 vs MiniMax M3",
+        data: {},
+      },
+      {
+        conversationId: "conversation-123",
+        workingDir: "/tmp",
+        trustClass: "guardian",
+        attribution: { resolvedModel: "claude-opus-4-8" } as never,
+        proxyToolResolver: async () => ({ content: "proxied", isError: false }),
+      },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Resend ui_show with the full HTML");
+    expect(result.content).not.toContain('surface_type: "table"');
+  });
+
   test("rejects dynamic_page with whitespace-only html and does not proxy", async () => {
     let proxied = false;
 
@@ -290,6 +341,106 @@ describe("ui_show empty card guard", () => {
         actions: [{ id: "ok", label: "OK" }],
         data: {},
       },
+      makeCtx(() => {
+        proxied = true;
+      }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(proxied).toBe(true);
+  });
+});
+
+describe("ui_update empty payload guard", () => {
+  function makeCtx(onProxy: () => void) {
+    return {
+      conversationId: "conversation-123",
+      workingDir: "/tmp",
+      trustClass: "guardian" as const,
+      proxyToolResolver: async () => {
+        onProxy();
+        return { content: "Surface updated", isError: false };
+      },
+    };
+  }
+
+  test("rejects an empty data object and does not proxy", async () => {
+    let proxied = false;
+    const result = await uiUpdateTool.execute(
+      { surface_id: "surf-1", data: {} },
+      makeCtx(() => {
+        proxied = true;
+      }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("empty `data` payload");
+    expect(proxied).toBe(false);
+  });
+
+  test("rejects missing data and does not proxy", async () => {
+    let proxied = false;
+    const result = await uiUpdateTool.execute(
+      { surface_id: "surf-1" },
+      makeCtx(() => {
+        proxied = true;
+      }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(proxied).toBe(false);
+  });
+
+  test("rejects data containing only nested empty objects", async () => {
+    let proxied = false;
+    const result = await uiUpdateTool.execute(
+      { surface_id: "surf-1", data: { templateData: {} } },
+      makeCtx(() => {
+        proxied = true;
+      }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(proxied).toBe(false);
+  });
+
+  test("rejects a task_progress update with an empty steps array", async () => {
+    let proxied = false;
+    const result = await uiUpdateTool.execute(
+      { surface_id: "surf-1", data: { templateData: { steps: [] } } },
+      makeCtx(() => {
+        proxied = true;
+      }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(proxied).toBe(false);
+  });
+
+  test("allows a task_progress step update", async () => {
+    let proxied = false;
+    const result = await uiUpdateTool.execute(
+      {
+        surface_id: "surf-1",
+        data: {
+          templateData: {
+            steps: [{ label: "Read memo", status: "completed" }],
+          },
+        },
+      },
+      makeCtx(() => {
+        proxied = true;
+      }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(proxied).toBe(true);
+  });
+
+  test("allows a status-only update without resending steps", async () => {
+    let proxied = false;
+    const result = await uiUpdateTool.execute(
+      { surface_id: "surf-1", data: { templateData: { status: "completed" } } },
       makeCtx(() => {
         proxied = true;
       }),

@@ -70,13 +70,12 @@ export function resolveDestinations(
             channel: channel as NotificationChannel,
             endpoint: externalChatId,
             metadata: {
-              externalUserId: guardianResult.channel.externalUserId,
+              externalUserId: guardianResult.channel.address,
             },
             bindingContext: {
               sourceChannel: channel as NotificationChannel,
               externalChatId,
-              externalUserId:
-                guardianResult.channel.externalUserId ?? undefined,
+              externalUserId: guardianResult.channel.address,
             },
           });
         }
@@ -101,13 +100,12 @@ export function resolveDestinations(
             channel: "slack",
             endpoint: chatId,
             metadata: {
-              externalUserId: guardianResult.channel.externalUserId,
+              externalUserId: guardianResult.channel.address,
             },
             bindingContext: {
               sourceChannel: "slack",
               externalChatId: chatId,
-              externalUserId:
-                guardianResult.channel.externalUserId ?? undefined,
+              externalUserId: guardianResult.channel.address,
             },
           });
         } else if (guardianResult && chatId) {

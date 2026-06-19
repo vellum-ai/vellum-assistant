@@ -1,7 +1,9 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { setOverridesForTesting } from "../../../../__tests__/feature-flag-test-helpers.js";
 import type { AssistantConfig } from "../../../../config/types.js";
+import { EmbeddingBackendUnavailableError } from "../../../../memory/embedding-backend.js";
+import { EmbeddingBillingBlockError } from "../../../../memory/embedding-billing-breaker.js";
 import type { MemoryJob } from "../../../../memory/jobs-store.js";
 import { renderCapabilityContent } from "../capabilities.js";
 import {
@@ -16,12 +18,17 @@ import { buildSectionIndex } from "../sections.js";
 import type { Section, SectionIndex, Slug } from "../types.js";
 
 const FLAG_SHADOW = "memory-v3-shadow";
-const FLAG_LIVE = "memory-v3-live";
 
-// The flag resolver ignores the passed config and reads the override cache; the
-// config arg only satisfies the signature. Flags are driven via
-// `setOverridesForTesting` below.
+// The shadow flag resolver ignores the passed config and reads the override
+// cache; the config arg only satisfies the signature. Shadow is driven via
+// `setOverridesForTesting`; v3-live (now config-gated) is driven through the
+// `isMemoryV3Live` mock slot below.
 const CONFIG = {} as AssistantConfig;
+
+let memoryV3LiveSlot = false;
+mock.module("../../../../config/memory-v3-gate.js", () => ({
+  isMemoryV3Live: () => memoryV3LiveSlot,
+}));
 
 function makeSection(article: Slug, ordinal: number): Section {
   return {
@@ -44,6 +51,7 @@ const JOB = { id: "job-1", type: "memory_v3_maintain" } as unknown as MemoryJob;
 describe("maintainJob", () => {
   afterEach(() => {
     setOverridesForTesting({});
+    memoryV3LiveSlot = false;
   });
 
   function deps(overrides: Partial<MaintainJobDeps> = {}): {
@@ -71,6 +79,7 @@ describe("maintainJob", () => {
         return makeIndex(slugs);
       },
       readPageBody: async (slug) => `body for ${slug}`,
+      readCapabilityBody: async (slug) => `capability body for ${slug}`,
       deleteSectionsForArticle: async (_config, article) => {
         calls.deleted.push(article);
       },
@@ -95,7 +104,7 @@ describe("maintainJob", () => {
   }
 
   test("no-op when both v3 flags are off", async () => {
-    setOverridesForTesting({ [FLAG_SHADOW]: false, [FLAG_LIVE]: false });
+    setOverridesForTesting({ [FLAG_SHADOW]: false });
     const { deps: d, calls } = deps({
       selectChangedPages: async () => ["page-a"],
     });
@@ -129,7 +138,7 @@ describe("maintainJob", () => {
   });
 
   test("runs when only the live flag is on", async () => {
-    setOverridesForTesting({ [FLAG_LIVE]: true });
+    memoryV3LiveSlot = true;
     const { deps: d, calls } = deps({
       selectChangedPages: async () => ["page-a"],
     });
@@ -283,6 +292,9 @@ describe("maintainJob", () => {
     const { deps: d, calls } = deps({
       loadCoreSet: () => ["page-live", "page-gone", "skills/example"],
       listIndexedSlugs: async () => ["page-live", "skills/example"],
+      // The capability row is already in the store, so the reconcile stage
+      // no-ops here and this test exercises core-validation in isolation.
+      listSectionArticles: async () => ["skills/example"],
     });
     const outcome = await maintainJob(JOB, CONFIG, d);
 
@@ -317,8 +329,9 @@ describe("maintainJob", () => {
     });
     const outcome = await maintainJob(JOB, CONFIG, d);
     expect(outcome.danglingCoreSlugs).toEqual([]);
-    // The prune stage reads the index once; the core stage adds no second read.
-    expect(indexReads).toBe(1);
+    // The reconcile and prune stages each read the index once; the empty core
+    // stage adds no further read.
+    expect(indexReads).toBe(2);
   });
 
   test("a thrown core-validation stage is contained and does not abort lane invalidation", async () => {
@@ -350,6 +363,53 @@ describe("maintainJob", () => {
     // Invalidation still runs after a thrown prune stage.
     expect(calls.invalidate).toBe(1);
     expect(outcome.invalidated).toBe(true);
+  });
+
+  test("reconciles capability rows missing from the section store", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    // The index lists a real page and three capability rows; the store already
+    // holds one of the caps. The change-delta excludes capability rows, so
+    // without this stage a skill enabled after the one-time backfill never
+    // reaches the dense lane. selectChangedPages stays empty so `calls.built`
+    // reflects reconcile embeds only.
+    const { deps: d, calls } = deps({
+      selectChangedPages: async () => [],
+      listIndexedSlugs: async () => [
+        "page-a",
+        "skills/already",
+        "skills/workflows",
+        "skills/another",
+      ],
+      listSectionArticles: async () => ["page-a", "skills/already"],
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+
+    // Only the caps missing from the store are embedded; the real page (handled
+    // by the change-delta stage) and the already-stored cap are left alone.
+    expect(outcome.capabilitiesReconciled).toBe(2);
+    expect(outcome.reconcileFailures).toBe(0);
+    expect(calls.built).toEqual([["skills/workflows"], ["skills/another"]]);
+    expect(calls.deleted).toEqual(["skills/workflows", "skills/another"]);
+    expect(calls.upserted.flat().map((s) => s.article)).toEqual([
+      "skills/workflows",
+      "skills/another",
+    ]);
+  });
+
+  test("skips a cold capability row (empty body) without deleting its points", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    const { deps: d, calls } = deps({
+      listIndexedSlugs: async () => ["skills/cold"],
+      listSectionArticles: async () => [],
+      readCapabilityBody: async () => "", // capability store not seeded yet
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+
+    expect(outcome.capabilitiesReconciled).toBe(0);
+    expect(outcome.reconcileFailures).toBe(0);
+    // Never replace good points with a blank: no delete, no upsert.
+    expect(calls.deleted).toEqual([]);
+    expect(calls.upserted).toEqual([]);
   });
 });
 
@@ -400,6 +460,7 @@ describe("computeChangedPages", () => {
 describe("backfillAllSections", () => {
   afterEach(() => {
     setOverridesForTesting({});
+    memoryV3LiveSlot = false;
   });
 
   function deps(overrides: Partial<BackfillJobDeps> = {}): {
@@ -410,6 +471,7 @@ describe("backfillAllSections", () => {
       deleted: string[];
       upserted: Section[][];
       committed: number[];
+      probed: number;
     };
   } {
     const calls = {
@@ -418,6 +480,7 @@ describe("backfillAllSections", () => {
       deleted: [] as string[],
       upserted: [] as Section[][],
       committed: [] as number[],
+      probed: 0,
     };
     const base: BackfillJobDeps = {
       config: CONFIG,
@@ -442,6 +505,9 @@ describe("backfillAllSections", () => {
         calls.committed.push(ms);
       },
       nowMs: () => 4242,
+      embedProbe: async () => {
+        calls.probed += 1;
+      },
     };
     return { deps: { ...base, ...overrides }, calls };
   }
@@ -516,6 +582,60 @@ describe("backfillAllSections", () => {
     // delete-then-upsert'd (sections gone), so advancing past its mtime would
     // hide it from the incremental selector forever. Holding the mark lets the
     // next pass re-embed it.
+    expect(calls.committed).toEqual([]);
+  });
+
+  test("aborts before any write when the pre-flight embed probe fails", async () => {
+    const { deps: d, calls } = deps({
+      selectAllPages: async () => ["page-a", "page-b"],
+      embedProbe: async () => {
+        throw new EmbeddingBackendUnavailableError();
+      },
+    });
+    await expect(backfillAllSections(CONFIG, d)).rejects.toThrow(
+      EmbeddingBackendUnavailableError,
+    );
+    // Nothing deleted, upserted, or committed — the corpus is untouched.
+    expect(calls.deleted).toEqual([]);
+    expect(calls.upserted).toEqual([]);
+    expect(calls.committed).toEqual([]);
+  });
+
+  test("aborts the run when the embedding backend goes down mid-loop (does not delete the rest of the corpus)", async () => {
+    // Healthy for the probe and the first article, then down. Without the abort,
+    // every remaining article would be delete-then-failed (the original
+    // incident): the backend-down state is process-wide.
+    let upserts = 0;
+    const { deps: d, calls } = deps({
+      selectAllPages: async () => ["page-1", "page-2", "page-3", "page-4"],
+      upsertSections: async (_config, sections) => {
+        upserts += 1;
+        if (upserts >= 2) throw new EmbeddingBackendUnavailableError();
+        calls.upserted.push(sections);
+      },
+    });
+    await expect(backfillAllSections(CONFIG, d)).rejects.toThrow(
+      EmbeddingBackendUnavailableError,
+    );
+    // page-1 embedded; page-2's delete ran then its embed threw → ABORT. page-3
+    // and page-4 are never touched, so their existing points stay intact.
+    expect(calls.deleted).toEqual(["page-1", "page-2"]);
+    expect(calls.upserted.flat().map((s) => s.article)).toEqual(["page-1"]);
+    expect(calls.committed).toEqual([]);
+  });
+
+  test("aborts the run on a billing-breaker error mid-loop", async () => {
+    const { deps: d, calls } = deps({
+      selectAllPages: async () => ["page-1", "page-2"],
+      upsertSections: async () => {
+        throw new EmbeddingBillingBlockError();
+      },
+    });
+    await expect(backfillAllSections(CONFIG, d)).rejects.toThrow(
+      EmbeddingBillingBlockError,
+    );
+    // First article's delete ran, its embed threw → abort. Second never touched.
+    expect(calls.deleted).toEqual(["page-1"]);
     expect(calls.committed).toEqual([]);
   });
 

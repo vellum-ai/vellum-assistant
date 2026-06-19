@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomInt } from "node:crypto";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
+const MAX_ACTIVE_CHALLENGES = 200;
 const USER_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const USER_CODE_LENGTH = 8;
 const DEVICE_CODE_BYTES = 32;
@@ -11,9 +12,11 @@ export interface PendingRemoteWebPairingChallenge {
   userCodeHash: string;
   publicBaseUrl: string;
   verificationUri: string;
-  status: "pending" | "approved";
+  status: "pending" | "approved" | "exchanging" | "consumed";
   expiresAtMs: number;
   approvedAtMs?: number;
+  exchangeStartedAtMs?: number;
+  consumedAtMs?: number;
 }
 
 export interface CreatedRemoteWebPairingChallenge {
@@ -25,6 +28,10 @@ export interface CreatedRemoteWebPairingChallenge {
   intervalSeconds: number;
 }
 
+export interface RemoteWebPairingChallengeCapacityLimit {
+  retryAfterSeconds: number;
+}
+
 export type ApproveRemoteWebPairingChallengeResult =
   | {
       status: "approved";
@@ -34,7 +41,27 @@ export type ApproveRemoteWebPairingChallengeResult =
   | { status: "expired" }
   | { status: "invalid" };
 
+export type ClaimRemoteWebPairingChallengeExchangeResult =
+  | {
+      status: "approved";
+      publicBaseUrl: string;
+      verificationUri: string;
+      expiresAt: string;
+    }
+  | {
+      status: "pending";
+      expiresAt: string;
+      intervalSeconds: number;
+    }
+  | { status: "expired" }
+  | { status: "consumed" }
+  | { status: "invalid" };
+
 const challengesByUserCodeHash = new Map<
+  string,
+  PendingRemoteWebPairingChallenge
+>();
+const challengesByDeviceCodeHash = new Map<
   string,
   PendingRemoteWebPairingChallenge
 >();
@@ -60,11 +87,32 @@ function normalizeUserCode(code: string): string {
   return code.replace(/[^A-Z0-9]/gi, "").toUpperCase();
 }
 
-function cleanupExpiredChallenges(): void {
-  const now = nowMs();
+function cleanupExpiredChallenges(now = nowMs()): void {
   for (const [hash, challenge] of challengesByUserCodeHash) {
-    if (challenge.expiresAtMs <= now) challengesByUserCodeHash.delete(hash);
+    if (challenge.expiresAtMs <= now) {
+      challengesByUserCodeHash.delete(hash);
+      challengesByDeviceCodeHash.delete(challenge.deviceCodeHash);
+    }
   }
+}
+
+export function checkRemoteWebPairingChallengeCapacity(): RemoteWebPairingChallengeCapacityLimit | null {
+  const now = nowMs();
+  cleanupExpiredChallenges(now);
+
+  if (challengesByUserCodeHash.size < MAX_ACTIVE_CHALLENGES) return null;
+
+  let earliestExpiresAtMs = Number.POSITIVE_INFINITY;
+  for (const challenge of challengesByUserCodeHash.values()) {
+    earliestExpiresAtMs = Math.min(earliestExpiresAtMs, challenge.expiresAtMs);
+  }
+
+  return {
+    retryAfterSeconds: Math.max(
+      1,
+      Math.ceil((earliestExpiresAtMs - now) / 1000),
+    ),
+  };
 }
 
 export function createRemoteWebPairingChallenge(
@@ -73,6 +121,7 @@ export function createRemoteWebPairingChallenge(
   cleanupExpiredChallenges();
 
   const deviceCode = randomBytes(DEVICE_CODE_BYTES).toString("base64url");
+  const deviceCodeHash = hashSecret(deviceCode);
   let userCode = randomUserCode();
   let userCodeHash = hashSecret(normalizeUserCode(userCode));
   while (challengesByUserCodeHash.has(userCodeHash)) {
@@ -82,14 +131,16 @@ export function createRemoteWebPairingChallenge(
 
   const verificationUri = `${publicBaseUrl}/assistant/pair`;
   const expiresAtMs = nowMs() + CODE_TTL_MS;
-  challengesByUserCodeHash.set(userCodeHash, {
-    deviceCodeHash: hashSecret(deviceCode),
+  const challenge: PendingRemoteWebPairingChallenge = {
+    deviceCodeHash,
     userCodeHash,
     publicBaseUrl,
     verificationUri,
     status: "pending",
     expiresAtMs,
-  });
+  };
+  challengesByUserCodeHash.set(userCodeHash, challenge);
+  challengesByDeviceCodeHash.set(deviceCodeHash, challenge);
 
   return {
     deviceCode,
@@ -107,10 +158,14 @@ export function approveRemoteWebPairingChallenge(
   const userCodeHash = hashSecret(normalizeUserCode(userCode));
   const challenge = challengesByUserCodeHash.get(userCodeHash);
   if (!challenge) return { status: "invalid" };
+  if (challenge.status === "exchanging" || challenge.status === "consumed") {
+    return { status: "invalid" };
+  }
 
   const now = nowMs();
   if (challenge.expiresAtMs <= now) {
     challengesByUserCodeHash.delete(userCodeHash);
+    challengesByDeviceCodeHash.delete(challenge.deviceCodeHash);
     return { status: "expired" };
   }
 
@@ -123,8 +178,69 @@ export function approveRemoteWebPairingChallenge(
   };
 }
 
+export function claimRemoteWebPairingChallengeExchange(
+  deviceCode: string,
+): ClaimRemoteWebPairingChallengeExchangeResult {
+  const deviceCodeHash = hashSecret(deviceCode);
+  const challenge = challengesByDeviceCodeHash.get(deviceCodeHash);
+  if (!challenge) return { status: "invalid" };
+
+  const now = nowMs();
+  if (challenge.expiresAtMs <= now) {
+    challengesByDeviceCodeHash.delete(deviceCodeHash);
+    challengesByUserCodeHash.delete(challenge.userCodeHash);
+    return { status: "expired" };
+  }
+
+  if (challenge.status === "pending") {
+    return {
+      status: "pending",
+      expiresAt: new Date(challenge.expiresAtMs).toISOString(),
+      intervalSeconds: POLL_INTERVAL_SECONDS,
+    };
+  }
+  if (challenge.status === "exchanging") {
+    return {
+      status: "pending",
+      expiresAt: new Date(challenge.expiresAtMs).toISOString(),
+      intervalSeconds: POLL_INTERVAL_SECONDS,
+    };
+  }
+  if (challenge.status === "consumed") return { status: "consumed" };
+
+  challenge.status = "exchanging";
+  challenge.exchangeStartedAtMs = now;
+  return {
+    status: "approved",
+    publicBaseUrl: challenge.publicBaseUrl,
+    verificationUri: challenge.verificationUri,
+    expiresAt: new Date(challenge.expiresAtMs).toISOString(),
+  };
+}
+
+export function completeRemoteWebPairingChallengeExchange(
+  deviceCode: string,
+): void {
+  const challenge = challengesByDeviceCodeHash.get(hashSecret(deviceCode));
+  if (!challenge || challenge.status !== "exchanging") return;
+
+  challenge.status = "consumed";
+  challenge.consumedAtMs = nowMs();
+}
+
+export function releaseRemoteWebPairingChallengeExchange(
+  deviceCode: string,
+): void {
+  const challenge = challengesByDeviceCodeHash.get(hashSecret(deviceCode));
+  if (!challenge || challenge.status !== "exchanging") return;
+
+  challenge.status = "approved";
+  challenge.exchangeStartedAtMs = undefined;
+}
+
 export function resetRemoteWebPairingChallengesForTests(): void {
   challengesByUserCodeHash.clear();
+  challengesByDeviceCodeHash.clear();
   nowForTests = null;
 }
 

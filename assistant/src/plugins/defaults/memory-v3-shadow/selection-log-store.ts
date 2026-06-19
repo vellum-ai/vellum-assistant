@@ -19,6 +19,7 @@
 import type { MemoryV3SelectionLog } from "../../../api/responses/memory-v3-selection-log.js";
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../config/loader.js";
+import { isMemoryV3Live } from "../../../config/memory-v3-gate.js";
 import { getDb, getSqliteFrom } from "../../../memory/db-connection.js";
 import { readPage } from "../../../memory/v2/page-store.js";
 import { getWorkspaceDir } from "../../../util/platform.js";
@@ -35,7 +36,6 @@ import {
 } from "./types.js";
 
 const MEMORY_V3_SHADOW = "memory-v3-shadow" as const;
-const MEMORY_V3_LIVE = "memory-v3-live" as const;
 
 interface SelectionRow {
   turn: number;
@@ -72,6 +72,52 @@ function rowsForMessageIds(messageIds: string[]): SelectionRow[] {
     `,
     )
     .all(...messageIds) as SelectionRow[];
+}
+
+const MAX_FORK_HOPS = 64;
+
+/**
+ * Read the `forkSourceMessageId` back-pointer that `cloneForkMessageMetadata`
+ * stamps onto every message a fork copies, for the given message ids.
+ */
+function forkSourceIdsOf(messageIds: string[]): string[] {
+  if (messageIds.length === 0) return [];
+  const placeholders = messageIds.map(() => "?").join(", ");
+  const rows = getSqliteFrom(getDb())
+    .query(
+      /*sql*/ `
+      SELECT json_extract(metadata, '$.forkSourceMessageId') AS src
+      FROM messages
+      WHERE id IN (${placeholders})
+    `,
+    )
+    .all(...messageIds) as Array<{ src: string | null }>;
+  return rows
+    .map((r) => r.src)
+    .filter((src): src is string => typeof src === "string" && src.length > 0);
+}
+
+/**
+ * A fork copies the parent's messages under fresh ids but does not copy their
+ * `memory_v3_selections` rows, so an inherited turn has no rows under its own
+ * message ids. Each copied message preserves a `forkSourceMessageId` pointer to
+ * the message it was cloned from; walk that chain (a fork of a fork chains it
+ * again) to the nearest ancestor generation that logged selections and return
+ * those rows. Returns `[]` when no ancestor has v3 rows (or the ids aren't fork
+ * copies).
+ */
+function rowsViaForkSource(messageIds: string[]): SelectionRow[] {
+  let frontier = messageIds;
+  const visited = new Set(messageIds);
+  for (let hop = 0; hop < MAX_FORK_HOPS; hop++) {
+    const sources = forkSourceIdsOf(frontier).filter((id) => !visited.has(id));
+    if (sources.length === 0) return [];
+    for (const id of sources) visited.add(id);
+    const rows = rowsForMessageIds(sources);
+    if (rows.length > 0) return rows;
+    frontier = sources;
+  }
+  return [];
 }
 
 /**
@@ -133,7 +179,7 @@ async function buildSelectionLog(
 
   return {
     turn: rows[0]!.turn,
-    live: isAssistantFeatureFlagEnabled(MEMORY_V3_LIVE, config),
+    live: isMemoryV3Live(config),
     shadow: isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config),
     selections,
     injectedText,
@@ -150,13 +196,20 @@ async function buildSelectionLog(
  * conversation with no v3 data). Message ids are globally unique, so no
  * conversation scope is needed.
  *
+ * For turns inherited from a fork, the copied messages carry fresh ids with no
+ * selection rows of their own, so the lookup falls back to the parent's rows by
+ * following each message's `forkSourceMessageId` back-pointer.
+ *
  * Selection rows are stored in selection order, so rendering them in row order
  * reproduces the block v3 would inject.
  */
 export async function getMemoryV3SelectionForInspectorByMessageIds(
   messageIds: string[],
 ): Promise<MemoryV3SelectionLog | null> {
-  return buildSelectionLog(rowsForMessageIds(messageIds));
+  const rows = rowsForMessageIds(messageIds);
+  return buildSelectionLog(
+    rows.length > 0 ? rows : rowsViaForkSource(messageIds),
+  );
 }
 
 /**

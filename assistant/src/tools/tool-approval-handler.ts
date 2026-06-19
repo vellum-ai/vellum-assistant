@@ -9,7 +9,7 @@ import {
   isUnparseableToolArgs,
   unparseableToolArgsMessage,
 } from "../providers/unparseable-tool-args.js";
-import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
+import { resolveCapabilities } from "../runtime/capabilities.js";
 import { createOrReuseToolGrantRequest } from "../runtime/tool-grant-request-helper.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
@@ -176,7 +176,7 @@ function guardianApprovalDeniedMessage(
   trustClass: ToolContext["trustClass"],
   toolName: string,
 ): string {
-  if (trustClass === "unknown") {
+  if (resolveCapabilities(trustClass).sensitiveToolApproval === "deny") {
     return `Permission denied for "${toolName}": this action requires guardian approval from a verified channel identity.`;
   }
   return `Permission denied for "${toolName}": this action requires guardian approval and the current actor is not the guardian.`;
@@ -322,7 +322,11 @@ export class ToolApprovalHandler {
       executionTarget,
     );
 
-    if (isUntrustedTrustClass(context.trustClass) && guardianApprovalRequired) {
+    if (
+      resolveCapabilities(context.trustClass).sensitiveToolApproval !==
+        "self" &&
+      guardianApprovalRequired
+    ) {
       const inputDigest = computeToolApprovalDigest(name, input);
       needsGrantConsumption = true;
       deferredConsumeParams = {
@@ -530,15 +534,18 @@ export class ToolApprovalHandler {
 
       // No matching grant or race condition - deny or wait inline.
       //
-      // For verified non-guardian actors (trusted_contact) with sufficient
-      // context, escalate to the guardian by creating a canonical
-      // tool_grant_request. Then wait bounded for the grant to become
-      // available - this lets the tool call succeed inline after guardian
-      // approval without the requester having to retry manually.
+      // For non-guardian actors with established identity (trusted_contact
+      // or unverified_contact) and sufficient context, escalate to the
+      // guardian by creating a canonical tool_grant_request. Then wait
+      // bounded for the grant to become available - this lets the tool call
+      // succeed inline after guardian approval without the requester having
+      // to retry manually.
       //
-      // Unverified actors remain fail-closed with no escalation or wait.
+      // Actors with no identity (unknown) remain fail-closed with no
+      // escalation or wait.
       if (
-        context.trustClass === "trusted_contact" &&
+        resolveCapabilities(context.trustClass).sensitiveToolApproval ===
+          "escalate-and-wait" &&
         context.assistantId &&
         context.executionChannel &&
         context.requesterExternalUserId
