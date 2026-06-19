@@ -35,6 +35,10 @@ describe("resolveProfileParamVisibility", () => {
     // Custom OpenAI-compatible connections route through the OpenAI adapter,
     // which forwards top_p — so the control must be visible for them too.
     expect(resolveProfileParamVisibility("openai-compatible", "some-custom-model").topP).toBe(true);
+    // Native `openai` uses the Responses API, which doesn't forward sampling
+    // params — topP is hidden there (same as temperature).
+    expect(resolveProfileParamVisibility("openai", "gpt-5").topP).toBe(false);
+    expect(resolveProfileParamVisibility("openai", "gpt-4o").topP).toBe(false);
     expect(resolveProfileParamVisibility("gemini", "gemini-2.5-flash").topP).toBe(false);
     expect(VISIBILITY_NONE.topP).toBe(false);
   });

@@ -136,8 +136,13 @@ function supportsEffort(provider: string, modelId: string, supportsThinking: boo
   return false;
 }
 
+// Native `openai` is intentionally excluded: it uses the Responses API, which
+// doesn't forward sampling params — reasoning models reject `top_p`/`temperature`
+// with HTTP 400, and resolved `effort` defaults to a reasoning effort, so the
+// control would silently no-op. This mirrors how `temperature` is gated to the
+// Anthropic wire only. OpenAI-compatible connections use the chat-completions
+// client, which forwards `top_p`.
 const TOP_P_OPENAI_COMPAT_PROVIDERS = new Set([
-  "openai",
   "openai-compatible",
   "fireworks",
   "minimax",
@@ -148,8 +153,9 @@ const TOP_P_OPENAI_COMPAT_PROVIDERS = new Set([
 
 /**
  * `topP` is gated to providers whose clients actually forward it: the Anthropic
- * wire and OpenAI-compatible providers. Gemini is intentionally excluded (it
- * uses a separate client that doesn't forward top_p yet).
+ * wire and OpenAI-compatible providers (which use the chat-completions client).
+ * Native `openai` (Responses API) and Gemini are excluded — neither forwards
+ * `top_p`.
  */
 function supportsTopP(providerId: string, usesAnthropicWire: boolean): boolean {
   return usesAnthropicWire || TOP_P_OPENAI_COMPAT_PROVIDERS.has(providerId);
