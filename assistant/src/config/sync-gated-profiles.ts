@@ -10,25 +10,55 @@ import {
 } from "./loader.js";
 import type { ProfileEntry } from "./schemas/llm.js";
 import {
+  type ManagedProfileTemplate,
   materializeProfile,
   OS_BETA_FEATURE_FLAG_KEY,
   OS_BETA_PROFILE_KEY,
   OS_BETA_PROFILE_TEMPLATE,
   readObject,
+  VISION_PERCEPTION_FLAG_KEY,
+  VISION_PROFILE_KEY,
+  VISION_PROFILE_TEMPLATE,
 } from "./seed-inference-profiles.js";
 
 const log = getLogger("sync-gated-profiles");
 
 /**
+ * A managed profile reconciled in/out of the workspace config based on a single
+ * feature flag. `seedInferenceProfiles()` runs synchronously at boot before
+ * feature flags are available, so these profiles are materialized here once
+ * flags have loaded.
+ */
+type FlagGatedProfile = {
+  flagKey: string;
+  profileKey: string;
+  template: ManagedProfileTemplate;
+};
+
+const FLAG_GATED_PROFILES: FlagGatedProfile[] = [
+  {
+    flagKey: OS_BETA_FEATURE_FLAG_KEY,
+    profileKey: OS_BETA_PROFILE_KEY,
+    template: OS_BETA_PROFILE_TEMPLATE,
+  },
+  {
+    flagKey: VISION_PERCEPTION_FLAG_KEY,
+    profileKey: VISION_PROFILE_KEY,
+    template: VISION_PROFILE_TEMPLATE,
+  },
+];
+
+/**
  * Reconcile flag-gated managed profiles against the current feature-flag state.
  *
  * `seedInferenceProfiles()` runs synchronously at boot before feature flags are
- * available, so the OS Beta profile (GLM 5.2 / fireworks-managed) is materialized
- * here once flags have loaded. When the `os-beta` flag is on, the managed profile
- * is created (ordered right after `balanced`); when it is off, a previously
- * managed entry is removed with `profileOrder` / `activeProfile` / `advisorProfile`
- * fallbacks. The reconcile is idempotent and never touches a user-owned profile of
- * the same name.
+ * available, so each flag-gated profile (e.g. OS Beta / GLM 5.2, or the vision
+ * profile / Qwen 3.7 Plus, both on fireworks-managed) is materialized here once
+ * flags have loaded. When a profile's flag is on the managed entry is created
+ * (ordered right after `balanced`); when it is off, a previously managed entry
+ * is removed with `profileOrder` / `activeProfile` / `advisorProfile` /
+ * call-site / mix fallbacks. The reconcile is idempotent and never touches a
+ * user-owned profile of the same name.
  *
  * Returns whether the on-disk config changed.
  */
@@ -50,64 +80,70 @@ export function reconcileFlagGatedProfiles(): boolean {
     : [];
   llm.profileOrder = profileOrder;
 
-  // The resolver reads flag state from the gateway-populated override cache and
-  // ignores the config argument; pass the read-only config for signature parity
-  // without mutating disk before the reconcile decision is made.
-  const enabled = isAssistantFeatureFlagEnabled(
-    OS_BETA_FEATURE_FLAG_KEY,
-    getConfigReadOnly(),
-  );
-
   const isPlatform =
     process.env.IS_PLATFORM === "true" || process.env.IS_PLATFORM === "1";
   const isByokMode = !isPlatform;
 
-  const previous = readObject(profiles[OS_BETA_PROFILE_KEY]);
+  let changed = false;
+  for (const gated of FLAG_GATED_PROFILES) {
+    const previous = readObject(profiles[gated.profileKey]);
 
-  // Never clobber a user-owned profile that happens to be named `os-beta`. The
-  // entry is ours to manage only when it is absent or already managed; a
-  // user-sourced entry of the same name is left untouched on every path.
-  const isOursToManage = previous == null || previous.source === "managed";
-  if (!isOursToManage) {
-    return false;
+    // Never clobber a user-owned profile that happens to share this name. The
+    // entry is ours to manage only when it is absent or already managed; a
+    // user-sourced entry of the same name is left untouched on every path.
+    const isOursToManage = previous == null || previous.source === "managed";
+    if (!isOursToManage) {
+      continue;
+    }
+
+    // The resolver reads flag state from the gateway-populated override cache
+    // and ignores the config argument; pass the read-only config for signature
+    // parity without mutating disk before the reconcile decision is made.
+    const enabled = isAssistantFeatureFlagEnabled(
+      gated.flagKey,
+      getConfigReadOnly(),
+    );
+
+    const profileChanged = enabled
+      ? enableProfile(gated, profiles, profileOrder, previous, isByokMode)
+      : disableProfile(gated, llm, profiles, profileOrder, previous);
+
+    if (profileChanged) {
+      log.info(
+        { profile: gated.profileKey, enabled },
+        "Reconciled flag-gated profile",
+      );
+    }
+    changed = changed || profileChanged;
   }
-
-  const changed = enabled
-    ? enableProfile(profiles, profileOrder, previous, isByokMode)
-    : disableProfile(llm, profiles, profileOrder, previous);
 
   if (changed) {
     saveRawConfig(config);
     invalidateConfigCache();
-    log.info(
-      { profile: OS_BETA_PROFILE_KEY, enabled },
-      "Reconciled flag-gated profile",
-    );
   }
   return changed;
 }
 
 function enableProfile(
+  gated: FlagGatedProfile,
   profiles: Record<string, Record<string, unknown>>,
   profileOrder: string[],
   previous: Record<string, unknown> | null,
   isByokMode: boolean,
 ): boolean {
+  const { template } = gated;
   const effectiveTemplate = isByokMode
-    ? {
-        ...OS_BETA_PROFILE_TEMPLATE,
-        label: `${OS_BETA_PROFILE_TEMPLATE.label} (Managed)`,
-      }
-    : OS_BETA_PROFILE_TEMPLATE;
+    ? { ...template, label: `${template.label} (Managed)` }
+    : template;
   const next = materializeProfile(
     effectiveTemplate,
-    OS_BETA_PROFILE_TEMPLATE.provider,
-    OS_BETA_PROFILE_TEMPLATE.connectionName,
+    template.provider,
+    template.connectionName,
   ) as Record<string, unknown>;
 
   // BYOK installs seed managed profiles disabled: the platform-auth
   // `fireworks-managed` connection backing this profile isn't usable until the
-  // user enables it, so a fresh OS Beta entry starts disabled to avoid offering
+  // user enables it, so a fresh managed entry starts disabled to avoid offering
   // an unusable route. A user's own status override (preserved below) wins on
   // later reconciles.
   if (isByokMode && !previous) {
@@ -126,16 +162,16 @@ function enableProfile(
 
   let changed = false;
   if (!previous || !isDeepStrictEqual(previous, next)) {
-    profiles[OS_BETA_PROFILE_KEY] = next as ProfileEntry;
+    profiles[gated.profileKey] = next as ProfileEntry;
     changed = true;
   }
 
-  if (!profileOrder.includes(OS_BETA_PROFILE_KEY)) {
+  if (!profileOrder.includes(gated.profileKey)) {
     const balancedIndex = profileOrder.indexOf("balanced");
     if (balancedIndex >= 0) {
-      profileOrder.splice(balancedIndex + 1, 0, OS_BETA_PROFILE_KEY);
+      profileOrder.splice(balancedIndex + 1, 0, gated.profileKey);
     } else {
-      profileOrder.push(OS_BETA_PROFILE_KEY);
+      profileOrder.push(gated.profileKey);
     }
     changed = true;
   }
@@ -148,6 +184,7 @@ function enableProfile(
 const MIX_MIN_ARMS = 2;
 
 function disableProfile(
+  gated: FlagGatedProfile,
   llm: Record<string, unknown>,
   profiles: Record<string, Record<string, unknown>>,
   profileOrder: string[],
@@ -155,13 +192,13 @@ function disableProfile(
 ): boolean {
   if (!previous) return false;
 
-  delete profiles[OS_BETA_PROFILE_KEY];
+  delete profiles[gated.profileKey];
 
   // The removal closure: every name here is absent from `profiles` once the
   // closure settles, so the written config can never reference one. A mix that
   // loses arms below the >= 2 minimum is itself invalid, so it joins the set
   // and the loop runs to a fixpoint to resolve any references that cascade.
-  const removed = new Set<string>([OS_BETA_PROFILE_KEY]);
+  const removed = new Set<string>([gated.profileKey]);
   let cascading = true;
   while (cascading) {
     cascading = false;

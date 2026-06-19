@@ -23,7 +23,7 @@ const log = getLogger("seed-inference-profiles");
  * resolved at seed time from `PROVIDER_MODEL_INTENTS` so the catalog stays the
  * single source of truth for "which model does this intent map to?".
  */
-type ManagedProfileTemplate = Omit<
+export type ManagedProfileTemplate = Omit<
   ProfileEntry,
   "provider" | "model" | "provider_connection"
 > & {
@@ -161,15 +161,40 @@ export const OS_BETA_PROFILE_TEMPLATE: ManagedProfileTemplate = {
   contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
 };
 
+export const VISION_PROFILE_KEY = "vision";
+export const VISION_PERCEPTION_FLAG_KEY = "vision-perception";
+
+/**
+ * Flag-gated managed profile backing the `visionPerception` call site. NOT in
+ * MANAGED_PROFILE_TEMPLATES, so the unconditional boot seed never creates it.
+ * Reconciled in/out by the flag-gated profile reconcile based on the
+ * `vision-perception` feature flag. Pins a vision-capable model explicitly via
+ * `model` over the existing managed Fireworks connection; perception is a
+ * one-shot, non-reasoning call so thinking is off.
+ */
+export const VISION_PROFILE_TEMPLATE: ManagedProfileTemplate = {
+  model: "accounts/fireworks/models/qwen3p7-plus",
+  provider: "fireworks",
+  connectionName: "fireworks-managed",
+  source: "managed",
+  label: "Vision (Qwen 3.7 Plus)",
+  description: "Image and video perception model, in beta",
+  maxTokens: 32000,
+  effort: "low",
+  thinking: { enabled: false, streamThinking: false },
+  contextWindow: { maxInputTokens: 262144 },
+};
+
 // Membership here marks a name as managed. The route layer applies managed
 // restrictions (blocking model/provider edits and deletion) only to entries
 // whose on-disk `source` is `managed`, so a user-owned profile sharing one of
-// these names is not locked. `OS_BETA_PROFILE_KEY` is flag-gated: it is
-// materialized by the flag-gated profile reconcile, which refuses to touch a
-// same-named user profile.
+// these names is not locked. `OS_BETA_PROFILE_KEY` and `VISION_PROFILE_KEY` are
+// flag-gated: they are materialized by the flag-gated profile reconcile, which
+// refuses to touch a same-named user profile.
 export const MANAGED_PROFILE_NAMES = new Set([
   ...Object.keys(MANAGED_PROFILE_TEMPLATES),
   OS_BETA_PROFILE_KEY,
+  VISION_PROFILE_KEY,
   AUTO_PROFILE_KEY,
 ]);
 
