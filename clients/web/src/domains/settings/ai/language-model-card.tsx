@@ -113,19 +113,21 @@ export function LanguageModelCard() {
   const isProfileDirty = effectiveActiveProfile !== activeProfile;
   const isAdvisorProfileDirty = effectiveAdvisorProfile !== advisorProfile;
 
-  // One save for the whole card — persists both the default and advisor
-  // profile. `null` clears the advisor profile (the PATCH deep-merge deletes
-  // the key); unchanged fields are no-ops.
+  // One save for the whole card. Only the dirty field(s) are sent so we never
+  // re-write a value the user didn't edit (the config PATCH deep-merges every
+  // provided key, so blindly re-sending a stale selector could clobber a change
+  // made elsewhere — e.g. an `/model` switch). `null` clears the advisor profile.
   const handleSave = useCallback(async () => {
     try {
+      const llm: {
+        activeProfile?: string | null;
+        advisorProfile?: string | null;
+      } = {};
+      if (isProfileDirty) llm.activeProfile = effectiveActiveProfile;
+      if (isAdvisorProfileDirty) llm.advisorProfile = effectiveAdvisorProfile;
       await configMutation.mutateAsync({
         path: { assistant_id: assistantId },
-        body: {
-          llm: {
-            activeProfile: effectiveActiveProfile,
-            advisorProfile: effectiveAdvisorProfile,
-          },
-        },
+        body: { llm },
       });
       toast.success("Saved.");
     } catch (error) {
@@ -133,6 +135,8 @@ export function LanguageModelCard() {
       captureError(error, { context: "settings-ai-language-model-save" });
     }
   }, [
+    isProfileDirty,
+    isAdvisorProfileDirty,
     effectiveActiveProfile,
     effectiveAdvisorProfile,
     configMutation,
