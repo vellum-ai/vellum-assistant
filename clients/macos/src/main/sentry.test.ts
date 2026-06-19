@@ -197,7 +197,7 @@ describe("consent lifecycle (one-shot init, beforeSend gate, native gate)", () =
       attachStacktrace: true,
       // Classic IPC: the default (Both) installs a custom protocol scheme that
       // throws when init() runs post-`ready` — which lazy first-consent init
-      // always does. Regression guard for VELLUM-ASSISTANT-MACOS-1P5.
+      // always does.
       ipcMode: 1,
     });
     // Tags are applied so events carry process/arch/electron/packaged context.
