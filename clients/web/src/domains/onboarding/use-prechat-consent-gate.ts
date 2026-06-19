@@ -2,14 +2,14 @@
  * Consent readiness gate for the pre-chat onboarding flow.
  *
  * Auth is already enforced by `authMiddleware` on the `/assistant` route
- * tree, so this hook only handles consent: it reads ToS + AI-data consent
+ * tree, so this hook only handles consent: it reads ToS + privacy consent
  * from localStorage and redirects to the privacy screen when missing
  * (web only — native defers consent to the downstream privacy screen).
  */
 import { useEffect } from "react";
 import { useNavigate } from "react-router";
 
-import { readAiDataConsent, readTosAccepted } from "@/domains/onboarding/prefs";
+import { readPrivacyConsent, readTosAccepted } from "@/domains/onboarding/prefs";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { routes } from "@/utils/routes";
 
@@ -25,7 +25,7 @@ export function usePreChatConsentGate(): boolean {
   const navigate = useNavigate();
   const isNative = useIsNativePlatform();
 
-  const consentOk = readTosAccepted() && readAiDataConsent();
+  const consentOk = readTosAccepted() && readPrivacyConsent();
 
   useEffect(() => {
     if (!consentOk && !isNative) {

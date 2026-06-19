@@ -35,6 +35,7 @@ export const SEARCH_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
   perplexity: "PERPLEXITY_API_KEY",
   brave: "BRAVE_API_KEY",
   tavily: "TAVILY_API_KEY",
+  firecrawl: "FIRECRAWL_API_KEY",
 };
 
 /**

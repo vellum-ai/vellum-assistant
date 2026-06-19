@@ -7,6 +7,7 @@ export const WEB_SEARCH_PROVIDER_IDS: readonly string[] = [
   "perplexity",
   "brave",
   "tavily",
+  "firecrawl",
 ];
 
 /** Short display name used in picker UI. */
@@ -17,6 +18,7 @@ export const WEB_SEARCH_PROVIDER_DISPLAY_NAMES: Readonly<
   perplexity: "Perplexity",
   brave: "Brave",
   tavily: "Tavily",
+  firecrawl: "Firecrawl",
 };
 
 /** Placeholder hint shown in the API-key input. BYOK providers only. */
@@ -26,6 +28,7 @@ export const WEB_SEARCH_PROVIDER_KEY_PLACEHOLDERS: Readonly<
   perplexity: "pplx-...",
   brave: "BSA...",
   tavily: "tvly-...",
+  firecrawl: "fc-...",
 };
 
 /** localStorage key used to persist each BYOK provider's user-supplied key. */
@@ -35,6 +38,7 @@ export const WEB_SEARCH_PROVIDER_KEY_STORAGE: Readonly<
   perplexity: "vellum:ai:perplexityKey",
   brave: "vellum:ai:braveKey",
   tavily: "vellum:ai:tavilyKey",
+  firecrawl: "vellum:ai:firecrawlKey",
 };
 
 /** Provider ids that require a user-supplied API key. */
@@ -42,4 +46,5 @@ export const WEB_SEARCH_BYOK_PROVIDER_IDS: ReadonlySet<string> = new Set([
   "perplexity",
   "brave",
   "tavily",
+  "firecrawl",
 ]);

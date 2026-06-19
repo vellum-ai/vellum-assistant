@@ -165,15 +165,38 @@ export async function sendSlackReply(
       );
       return { ok: true, ts: result.ts };
     } catch (err) {
-      if (err instanceof SlackApiError && err.slackError === "invalid_blocks") {
-        log.warn(
-          { chatId, messageTs: options!.messageTs },
-          "chat.update returned invalid_blocks; falling back to chat.postMessage without blocks",
-        );
-        delete slackBody.blocks;
+      if (
+        err instanceof SlackApiError &&
+        err.slackError === "invalid_blocks" &&
+        Array.isArray(updateBody.blocks) &&
+        updateBody.blocks.length > 0
+      ) {
+        // `invalid_blocks` means Slack rejected the Block Kit payload, not the
+        // target message — the message still exists. Retry the update without
+        // blocks so it is edited in place. Posting a fresh message here would
+        // leave the original alongside a duplicate ("ghost") reply.
+        const retryBody: Record<string, unknown> = {
+          channel: chatId,
+          text,
+          ts: options!.messageTs,
+        };
+        try {
+          const retryResult = await callSlackApi("chat.update", retryBody);
+          log.info(
+            { chatId, messageTs: options!.messageTs },
+            "Slack message updated without blocks after invalid_blocks",
+          );
+          return { ok: true, ts: retryResult.ts };
+        } catch (retryErr) {
+          log.warn(
+            { err: retryErr, chatId, messageTs: options!.messageTs },
+            "Slack chat.update without blocks failed, falling back to chat.postMessage",
+          );
+          delete slackBody.blocks;
+        }
       } else {
         log.warn(
-          { chatId, messageTs: options!.messageTs },
+          { err, chatId, messageTs: options!.messageTs },
           "Slack chat.update failed, falling back to chat.postMessage",
         );
       }

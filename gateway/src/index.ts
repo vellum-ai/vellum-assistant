@@ -75,10 +75,6 @@ import {
   createFeatureFlagsPatchHandler,
 } from "./http/routes/feature-flags.js";
 import {
-  createPrivacyConfigGetHandler,
-  createPrivacyConfigPatchHandler,
-} from "./http/routes/privacy-config.js";
-import {
   createGlobalThresholdGetHandler,
   createGlobalThresholdPutHandler,
   createConversationThresholdGetHandler,
@@ -521,8 +517,6 @@ async function main() {
   const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler(() =>
     emitFlagChanged(),
   );
-  const handlePrivacyConfigGet = createPrivacyConfigGetHandler();
-  const handlePrivacyConfigPatch = createPrivacyConfigPatchHandler();
   const handleGlobalThresholdGet = createGlobalThresholdGetHandler();
   const handleGlobalThresholdPut = createGlobalThresholdPutHandler();
   const handleConversationThresholdGet =
@@ -1151,7 +1145,7 @@ async function main() {
       auth: "edge-scoped",
       // Read-only polling endpoint — read scope, not write. Matches the
       // convention used for other GET endpoints in this router (OAuth
-      // providers GET, OAuth apps GET, privacy config GET) so a token
+      // providers GET, OAuth apps GET) so a token
       // profile with `settings.read` only (e.g. the `ui_page_v1`
       // profile) can still poll import progress.
       scope: "settings.read",
@@ -1339,36 +1333,6 @@ async function main() {
         }
         return handleFeatureFlagsPatch(req, flagKey);
       },
-    },
-
-    // ── Privacy config (scope-protected) ──
-    {
-      path: "/v1/config/privacy",
-      method: "GET",
-      auth: "edge-scoped",
-      scope: "settings.read",
-      handler: (req) => handlePrivacyConfigGet(req),
-    },
-    {
-      path: /^\/v1\/assistants\/([^/]+)\/config\/privacy\/$/,
-      method: "GET",
-      auth: "edge-scoped",
-      scope: "settings.read",
-      handler: (req) => handlePrivacyConfigGet(req),
-    },
-    {
-      path: "/v1/config/privacy",
-      method: "PATCH",
-      auth: "edge-scoped",
-      scope: "settings.write",
-      handler: (req) => handlePrivacyConfigPatch(req),
-    },
-    {
-      path: /^\/v1\/assistants\/([^/]+)\/config\/privacy\/$/,
-      method: "PATCH",
-      auth: "edge-scoped",
-      scope: "settings.write",
-      handler: (req) => handlePrivacyConfigPatch(req),
     },
 
     // ── Auto-approve thresholds (scope-protected) ──

@@ -16,7 +16,7 @@
 
 import { getConfigReadOnly } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
-import { VellumPlatformClient } from "./client.js";
+import { type OwnerConsent, VellumPlatformClient } from "./client.js";
 
 const log = getLogger("consent-cache");
 
@@ -31,6 +31,12 @@ let cachedDiagnosticsTraceCollectionEnabled = false; // default-off until first 
 // re-consent signal; not auto-cleared here.
 let legacyOptOut = false;
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
+
+// One-shot consent-resolved hook state. `firstConsentResolved` flips on the
+// first successful fetch; `lastResolvedConsent` retains it for late registrants.
+let firstConsentResolved = false;
+let lastResolvedConsent: OwnerConsent | null = null;
+const consentResolvedListeners: Array<(consent: OwnerConsent) => void> = [];
 
 /**
  * Synchronous hot-path accessor for the effective `share_analytics` consent.
@@ -84,7 +90,35 @@ export async function refreshConsentCache(): Promise<void> {
     setCachedDiagnosticsTraceCollectionEnabled(
       consent.diagnosticsTraceCollectionEnabled,
     );
+    lastResolvedConsent = consent;
+    if (!firstConsentResolved) {
+      firstConsentResolved = true;
+      const listeners = consentResolvedListeners.splice(0);
+      for (const l of listeners) {
+        try {
+          l(consent);
+        } catch (err) {
+          log.debug({ err }, "consent-resolved listener failed");
+        }
+      }
+    }
   }
+}
+
+/**
+ * One-shot hook fired on the FIRST successful platform consent fetch. Lets
+ * one-time startup decisions (e.g. Sentry) gate on consent without doing I/O on
+ * the hot path. Registrants after the first resolution fire synchronously with
+ * the last resolved consent; null fetches never trigger it.
+ */
+export function onConsentResolved(
+  listener: (consent: OwnerConsent) => void,
+): void {
+  if (firstConsentResolved && lastResolvedConsent) {
+    listener(lastResolvedConsent);
+    return;
+  }
+  consentResolvedListeners.push(listener);
 }
 
 function setCachedShareAnalytics(value: boolean): void {
@@ -144,4 +178,11 @@ export function __setCachedDiagnosticsTraceCollectionEnabledForTest(
   value: boolean,
 ): void {
   cachedDiagnosticsTraceCollectionEnabled = value;
+}
+
+/** Test-only: clear one-shot consent-resolved hook state. */
+export function __resetConsentResolutionForTest(): void {
+  firstConsentResolved = false;
+  lastResolvedConsent = null;
+  consentResolvedListeners.length = 0;
 }

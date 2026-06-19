@@ -1,5 +1,6 @@
 
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useReducedMotion } from "motion/react";
 
 import { Typography } from "@vellumai/design-library";
 
@@ -18,32 +19,59 @@ export function formatNumber(n: number): string {
 
 export const ANIMATION_DURATION_MS = 300;
 
+/**
+ * Eases a displayed number toward `target`. A single rAF loop tracks a moving
+ * target: when `target` changes mid-flight (frequent during streaming) we just
+ * update the goal rather than cancelling and restarting a fresh tween on every
+ * update, so the metric counters never spawn overlapping rAF loops. The loop
+ * self-terminates once it catches up, and snaps instantly when the user prefers
+ * reduced motion.
+ */
 export function useAnimatedNumber(target: number): number {
+  const reduceMotion = useReducedMotion();
   const [displayed, setDisplayed] = useState(target);
-  const rafRef = useRef<number>(0);
   const displayedRef = useRef(target);
+  const targetRef = useRef(target);
+  const rafRef = useRef<number>(0);
 
   useEffect(() => {
-    const from = displayedRef.current;
-    if (from === target) return;
+    targetRef.current = target;
 
-    cancelAnimationFrame(rafRef.current);
-    const start = performance.now();
+    if (reduceMotion) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = 0;
+      displayedRef.current = target;
+      setDisplayed(target);
+      return;
+    }
+
+    // Already at the target, or a loop is already running toward the
+    // (just-updated) target — nothing new to start.
+    if (displayedRef.current === target || rafRef.current) return;
+
+    const startTime = performance.now();
+    const startValue = displayedRef.current;
 
     const step = (now: number) => {
-      const elapsed = now - start;
-      const progress = Math.min(elapsed / ANIMATION_DURATION_MS, 1);
+      // Re-read the goal each frame so a target that changed mid-tween is
+      // tracked without restarting the animation.
+      const goal = targetRef.current;
+      const progress = Math.min((now - startTime) / ANIMATION_DURATION_MS, 1);
       const eased = 1 - (1 - progress) ** 3;
-      const value = from + (target - from) * eased;
-      displayedRef.current = value;
-      setDisplayed(value);
+      displayedRef.current =
+        progress >= 1 ? goal : startValue + (goal - startValue) * eased;
+      setDisplayed(displayedRef.current);
       if (progress < 1) {
         rafRef.current = requestAnimationFrame(step);
+      } else {
+        rafRef.current = 0;
       }
     };
     rafRef.current = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [target]);
+  }, [target, reduceMotion]);
+
+  // Cancel any in-flight frame on unmount.
+  useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
   return displayed;
 }

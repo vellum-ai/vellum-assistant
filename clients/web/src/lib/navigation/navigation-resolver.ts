@@ -8,6 +8,7 @@ import { routes } from "@/utils/routes";
 
 export interface NavigationState {
   isLocalMode: boolean;
+  isPlatformDisabled: boolean;
   isRemoteGateway: boolean;
   remoteGatewayPublicPathPrefix: string;
   isGatewayAuth: boolean;
@@ -16,7 +17,7 @@ export interface NavigationState {
   isAuthenticated: boolean;
   platformSession: PlatformSessionStatus;
   tosAccepted: boolean;
-  aiDataConsent: boolean;
+  privacyConsent: boolean;
   analyticsConsentCurrent: boolean;
   diagnosticsConsentCurrent: boolean;
 }
@@ -51,7 +52,7 @@ export type NavigationDecision =
 // ---------------------------------------------------------------------------
 
 function hasCompletedOnboarding(state: NavigationState): boolean {
-  return state.tosAccepted && state.aiDataConsent;
+  return state.tosAccepted && state.privacyConsent;
 }
 
 /**
@@ -319,7 +320,18 @@ function requireConsent(
   _path: string,
   pathnameWithSearch: string,
 ): NavigationDecision | null {
-  if (state.isLocalMode || consentIsCurrent(state)) return null;
+  // Consent is a platform-account concern: only enforce it when there is a
+  // live platform session to consent against. A disabled platform or an
+  // absent/unknown session has no server consent record to gate on. Note this
+  // is NOT gated on isLocalMode — a local-mode client with a platform session
+  // still re-reviews stale terms.
+  if (
+    state.isPlatformDisabled ||
+    state.platformSession !== "present" ||
+    consentIsCurrent(state)
+  ) {
+    return null;
+  }
 
   const returnTo = encodeURIComponent(pathnameWithSearch);
   return { action: "redirect", to: `${routes.reviewTerms}?returnTo=${returnTo}` };

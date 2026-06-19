@@ -147,3 +147,49 @@ export const MultipleMetadataFields: Story = {
     />
   ),
 };
+
+// Withdrawn state: when the request is resolved (here, from another surface),
+// the card keeps its information and the action buttons are replaced by a
+// completion summary. See `approvals/guardian-card-withdrawal.ts`.
+export const ResolvedApproved: Story = {
+  name: "Resolved — approved (buttons withdrawn)",
+  render: () => (
+    <SurfaceRouter
+      surface={{
+        ...toolApprovalSurface("req-ta-006", {
+          title: "Tool Approval",
+          subtitle: "Requesting approval to run this tool",
+          body: "> Alex is requesting approval to use `bash` to run `npm install express`",
+          metadata: [
+            { label: "Tool", value: "bash" },
+            { label: "Source", value: "slack" },
+          ],
+        }),
+        completed: true,
+        completionSummary: "Approved",
+      }}
+      onAction={() => {}}
+    />
+  ),
+};
+
+export const ResolvedDenied: Story = {
+  name: "Resolved — denied (buttons withdrawn)",
+  render: () => (
+    <SurfaceRouter
+      surface={{
+        ...toolApprovalSurface("req-ta-007", {
+          title: "Tool Approval",
+          subtitle: "Requesting approval to run this tool",
+          body: "> Casey is requesting approval to use `file_write` to write to `/etc/hosts`",
+          metadata: [
+            { label: "Tool", value: "file_write" },
+          ],
+        }),
+        completed: true,
+        completionSummary: "Denied",
+      }}
+      onAction={() => {}}
+    />
+  ),
+};

@@ -7,6 +7,7 @@
 
 import type { PluginHookFn, PreModelCallContext } from "@vellumai/plugin-api";
 
+import { advisorEnabledForProfile } from "../advisor-gate.js";
 import { recordSystemPrompt } from "../advisor-state-store.js";
 import { ADVISOR_CONFIG } from "../config.js";
 import { appendSteering, stripSteering } from "../steering.js";
@@ -16,7 +17,12 @@ const preModelCall: PluginHookFn<PreModelCallContext> = async (ctx) => {
 
   recordSystemPrompt(ctx.conversationId, stripSteering(ctx.systemPrompt));
 
-  if (ADVISOR_CONFIG.steeringEnabled) {
+  // Steer the model to consult only when the steering is globally on AND the
+  // chat profile this turn routes to has the advisor enabled (default on).
+  if (
+    ADVISOR_CONFIG.steeringEnabled &&
+    advisorEnabledForProfile(ctx.modelProfile)
+  ) {
     ctx.systemPrompt = appendSteering(ctx.systemPrompt);
   }
 };

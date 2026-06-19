@@ -328,19 +328,26 @@ export function isPlatformAssistant(a: LockfileAssistant): boolean {
 }
 
 /**
- * True when the CLI's `wake --repair-guardian` can actually re-provision this
- * assistant's guardian token. Only plain local entries reach the repair
- * block — `wake` returns early for Docker containers and refuses
- * apple-container entries — so recovery UI must not offer repair for those.
- * `cloud` is optional in the lockfile contract; legacy entries omit it and
- * the CLI treats them as local, so they stay repairable here too.
+ * A plain local assistant the vellum CLI can start directly: cloud `"local"` or
+ * unset (legacy entries the CLI treats as local), with a gateway port. `vellum
+ * wake` operates only on these — it returns early for Docker containers and
+ * refuses apple-container entries — so the "Wake up" affordance and
+ * guardian-repair recovery must both be limited to them.
  */
-export function isGuardianRepairable(assistantId: string): boolean {
+export function isCliWakeableAssistant(assistantId: string): boolean {
   const entry = getLockfile().assistants.find(
     (a) => a.assistantId === assistantId,
   );
   if (!entry || !isLocalAssistant(entry)) return false;
   return entry.cloud == null || entry.cloud === "local";
+}
+
+/**
+ * True when the CLI's `wake --repair-guardian` can re-provision this assistant's
+ * guardian token — the same plain-local set `vellum wake` operates on.
+ */
+export function isGuardianRepairable(assistantId: string): boolean {
+  return isCliWakeableAssistant(assistantId);
 }
 
 export function getLocalAssistants(): LockfileAssistant[] {

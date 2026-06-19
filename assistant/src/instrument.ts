@@ -9,6 +9,15 @@ import {
 } from "./config/env.js";
 import { APP_VERSION, COMMIT_SHA } from "./version.js";
 
+// Fail closed: drop all Sentry events until a successful platform consent fetch
+// confirms share_diagnostics opt-in (set via setDiagnosticsConsented).
+let diagnosticsConsented = false;
+
+/** Gate Sentry event delivery on the platform share_diagnostics consent. */
+export function setDiagnosticsConsented(consented: boolean): void {
+  diagnosticsConsented = consented;
+}
+
 /** Patterns that match sensitive data in Sentry event values. */
 const PII_PATTERNS = [
   /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
@@ -41,9 +50,10 @@ function redactObject(obj: unknown): unknown {
 /**
  * Call after dotenv has loaded so SENTRY_DSN_ASSISTANT is available.
  * Initializes Sentry when the DSN is set; no-ops when empty/unset so
- * local dev builds don't send crash reports. If the user later opts out
- * via the sendDiagnostics config key (or VELLUM_DEV=1), call closeSentry()
- * after config is loaded to stop future event capturing.
+ * local dev builds don't send crash reports. Events are dropped by
+ * beforeSend until the platform share_diagnostics consent confirms opt-in
+ * (see setDiagnosticsConsented); VELLUM_DEV=1 and legacyDiagnosticsOptOut
+ * hard-disable via closeSentry() after config loads.
  */
 export function initSentry(): void {
   const dsn = getSentryDsn();
@@ -54,6 +64,14 @@ export function initSentry(): void {
     dist: COMMIT_SHA,
     environment: process.env.VELLUM_ENVIRONMENT ?? "production",
     sendDefaultPii: false,
+    // Fail-closed: suppress client-report pings (discarded-event counts) so an
+    // assistant with unconfirmed share_diagnostics consent stays network-silent.
+    sendClientReports: false,
+    // Drop the default ProcessSession integration: it starts a release-health
+    // session on init and flushes a session envelope on process exit (a network
+    // request not covered by the beforeSend event gate), violating fail-closed.
+    integrations: (defaults) =>
+      defaults.filter((i) => i.name !== "ProcessSession"),
     serverName: hostname(),
     initialScope: {
       tags: {
@@ -77,6 +95,7 @@ export function initSentry(): void {
       },
     },
     beforeSend(event) {
+      if (!diagnosticsConsented) return null;
       if (event.exception?.values) {
         event.exception.values = event.exception.values.map((ex) => ({
           ...ex,
@@ -101,9 +120,9 @@ export function initSentry(): void {
 }
 
 /**
- * Stop capturing future Sentry events. Called after config loads when the
- * user has disabled sendDiagnostics so that early-startup crashes are
- * still captured but subsequent events are suppressed.
+ * Stop capturing future Sentry events. Called after config loads for the
+ * legacyDiagnosticsOptOut local opt-out (or VELLUM_DEV=1) to hard-disable
+ * crash reporting independent of the share_diagnostics consent gate.
  */
 export async function closeSentry(): Promise<void> {
   await Sentry.close();

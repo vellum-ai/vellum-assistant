@@ -13,10 +13,13 @@
 
 import type { ChannelId } from "../channels/types.js";
 import {
-  createCanonicalGuardianDelivery,
   createCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
 } from "../memory/canonical-guardian-store.js";
+import {
+  recordApprovalCardDelivery,
+  recordGuardianRequestDeliveries,
+} from "../notifications/canonical-delivery-recorder.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { getLogger } from "../util/logger.js";
 import { getGuardianBinding } from "./channel-verification-service.js";
@@ -139,6 +142,10 @@ export function createOrReuseToolGrantRequest(
     canonicalRequest.requestCode ??
     canonicalRequest.id.slice(0, 6).toUpperCase();
 
+  // The vellum delivery row is created up front in onConversationCreated so the
+  // in-app client sees it immediately; the post-resolve recorder reuses it.
+  let vellumDeliveryId: string | undefined;
+
   // Emit notification so guardian is alerted. Uses 'guardian.question' as
   // sourceEventName so that existing request-code guidance in the notification
   // pipeline is preserved.
@@ -166,25 +173,21 @@ export function createOrReuseToolGrantRequest(
     },
     dedupeKey: `tool-grant-request:${canonicalRequest.id}`,
     onConversationCreated: (info) => {
-      createCanonicalGuardianDelivery({
+      vellumDeliveryId = recordApprovalCardDelivery({
         requestId: canonicalRequest.id,
-        destinationChannel: "vellum",
-        destinationConversationId: info.conversationId,
-      });
+        channel: "vellum",
+        conversationId: info.conversationId,
+      })?.id;
     },
   });
 
   // Record deliveries from the notification pipeline results (fire-and-forget).
   void signalPromise.then((signalResult) => {
-    for (const result of signalResult.deliveryResults) {
-      if (result.channel === "vellum") continue; // handled in onConversationCreated
-      createCanonicalGuardianDelivery({
-        requestId: canonicalRequest.id,
-        destinationChannel: result.channel,
-        destinationChatId:
-          result.destination.length > 0 ? result.destination : undefined,
-      });
-    }
+    recordGuardianRequestDeliveries({
+      requestId: canonicalRequest.id,
+      deliveryResults: signalResult.deliveryResults,
+      vellumDeliveryId,
+    });
   });
 
   log.info(

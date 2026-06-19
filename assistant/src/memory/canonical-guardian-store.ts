@@ -74,7 +74,7 @@ export interface CanonicalGuardianRequest {
   updatedAt: number;
 }
 
-interface CanonicalGuardianDelivery {
+export interface CanonicalGuardianDelivery {
   id: string;
   requestId: string;
   destinationChannel: string;
@@ -672,6 +672,44 @@ export function listPendingCanonicalGuardianRequestsByDestinationChat(
   }
 
   return pendingRequests;
+}
+
+/**
+ * Find the pending canonical request whose guardian-facing delivery landed on a
+ * specific channel message (channel + chat + message id).
+ *
+ * This is the addressing key for emoji-reaction decisions: a reaction carries
+ * only the message it is attached to, so the delivered card's message id is how
+ * we recover which request the guardian acted on — even when several cards are
+ * pending in the same chat. Returns null when no delivery matches or the matched
+ * request is no longer pending.
+ */
+export function getPendingCanonicalRequestByDestinationMessage(
+  destinationChannel: string,
+  destinationChatId: string,
+  destinationMessageId: string,
+): CanonicalGuardianRequest | null {
+  const db = getDb();
+
+  const delivery = db
+    .select()
+    .from(canonicalGuardianDeliveries)
+    .where(
+      and(
+        eq(canonicalGuardianDeliveries.destinationChannel, destinationChannel),
+        eq(canonicalGuardianDeliveries.destinationChatId, destinationChatId),
+        eq(
+          canonicalGuardianDeliveries.destinationMessageId,
+          destinationMessageId,
+        ),
+      ),
+    )
+    .get();
+
+  if (!delivery) return null;
+
+  const request = getCanonicalGuardianRequest(delivery.requestId);
+  return request && request.status === "pending" ? request : null;
 }
 
 // ---------------------------------------------------------------------------

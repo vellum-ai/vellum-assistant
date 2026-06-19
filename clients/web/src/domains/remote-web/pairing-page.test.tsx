@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 
 let remoteGatewayMode = false;
@@ -123,8 +123,12 @@ describe("RemoteWebPairingPage", () => {
     expect(
       createRemoteWebPairingChallengeMock.mock.calls[0]?.[0],
     ).toBeInstanceOf(AbortSignal);
-    expect(exchangeRemoteWebPairingTokenMock.mock.calls[0]?.[0]).toBe(
-      "created-device",
-    );
+    // The token-exchange poll fires in an effect after the challenge resolves
+    // and `pairing` is set, so it lands a tick after the user code renders.
+    await waitFor(() => {
+      expect(exchangeRemoteWebPairingTokenMock.mock.calls[0]?.[0]).toBe(
+        "created-device",
+      );
+    });
   });
 });

@@ -145,6 +145,40 @@ describe("AssistantConfigSchema", () => {
     expect(result.services["web-search"].mode).toBe("your-own");
   });
 
+  test("accepts Firecrawl as a web search provider", () => {
+    const result = AssistantConfigSchema.parse({
+      services: {
+        "web-search": { mode: "your-own", provider: "firecrawl" },
+      },
+    });
+
+    expect(result.services["web-search"].provider).toBe("firecrawl");
+    expect(result.services["web-search"].mode).toBe("your-own");
+  });
+
+  test("defaults the web-fetch provider to the built-in fetcher", () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.services["web-fetch"].provider).toBe("default");
+  });
+
+  test("accepts Firecrawl as a web fetch provider", () => {
+    const result = AssistantConfigSchema.parse({
+      services: {
+        "web-fetch": { mode: "your-own", provider: "firecrawl" },
+      },
+    });
+
+    expect(result.services["web-fetch"].provider).toBe("firecrawl");
+  });
+
+  test("rejects an unknown web-fetch provider", () => {
+    expect(() =>
+      AssistantConfigSchema.parse({
+        services: { "web-fetch": { provider: "nope" } },
+      }),
+    ).toThrow();
+  });
+
   test("accepts valid complete config", () => {
     const input = {
       llm: {

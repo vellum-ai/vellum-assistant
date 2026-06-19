@@ -2,10 +2,10 @@ import { useAuthStore } from "@/stores/auth-store";
 import { isSessionSettled, isAuthenticated } from "@/stores/session-status";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { remoteGatewayPublicPathPrefix } from "@/lib/auth/remote-gateway-session";
-import { isLocalMode, isRemoteGatewayMode } from "@/lib/local-mode";
+import { isLocalMode, isPlatformDisabled, isRemoteGatewayMode } from "@/lib/local-mode";
 import {
   readTosAccepted,
-  readAiDataConsent,
+  readPrivacyConsent,
   readAnalyticsConsentCurrent,
   readDiagnosticsConsentCurrent,
 } from "@/domains/onboarding/prefs";
@@ -19,6 +19,7 @@ export function buildNavigationState(
   const isRemoteGateway = isRemoteGatewayMode();
   return {
     isLocalMode: isLocalMode(),
+    isPlatformDisabled: isPlatformDisabled(),
     isRemoteGateway,
     remoteGatewayPublicPathPrefix: isRemoteGateway
       ? remoteGatewayPublicPathPrefix()
@@ -29,7 +30,7 @@ export function buildNavigationState(
     isAuthenticated: isAuthenticated(sessionStatus),
     platformSession,
     tosAccepted: readTosAccepted(),
-    aiDataConsent: readAiDataConsent(),
+    privacyConsent: readPrivacyConsent(),
     analyticsConsentCurrent: readAnalyticsConsentCurrent(),
     diagnosticsConsentCurrent: readDiagnosticsConsentCurrent(),
     ...overrides,

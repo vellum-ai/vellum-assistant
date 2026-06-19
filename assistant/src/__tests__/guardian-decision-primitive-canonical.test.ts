@@ -235,8 +235,10 @@ describe("applyCanonicalGuardianDecision", () => {
 
   test("rejects decision when request has no guardianPrincipalId", async () => {
     // unknown_kind is not in DECISIONABLE_KINDS so it can be created without
-    // guardianPrincipalId, but the decision primitive still rejects because
-    // the request is missing its principal binding.
+    // guardianPrincipalId. A request with no bound principal can never be
+    // authorized by anyone — this is a data-integrity fault
+    // (request_misconfigured), not an authorization denial against the actor,
+    // so it must not be reported as identity_mismatch / "no permission".
     const req = createCanonicalGuardianRequest({
       kind: "unknown_kind",
       sourceType: "channel",
@@ -253,7 +255,7 @@ describe("applyCanonicalGuardianDecision", () => {
 
     expect(result.applied).toBe(false);
     if (result.applied) return;
-    expect(result.reason).toBe("identity_mismatch");
+    expect(result.reason).toBe("request_misconfigured");
   });
 
   test("rejects decision when actor has no guardianPrincipalId", async () => {

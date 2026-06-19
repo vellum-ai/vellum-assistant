@@ -64,6 +64,18 @@
       "category": "productivity",
       "homepage": "https://github.com/AnitaKirkovska/model-router",
       "license": "MIT"
+    },
+    {
+      "name": "marketing-expert",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/marketing-expert",
+        "ref": "15d1f38c2e3c82b8f206ea8009fb158c5ba4746f"
+      },
+      "description": "Acts as a full-stack marketing expert for any business (B2B or B2C): an on-demand persona plus playbook skills (positioning, demand planning, launches, content & copywriting, brand voice, email sequences, SEO & GEO, competitive teardown, board reporting) and deterministic funnel/positioning/GTM/competitive tools.",
+      "category": "marketing",
+      "homepage": "https://github.com/vellum-ai/marketing-expert",
+      "license": "MIT"
     }
   ]
 }

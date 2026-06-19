@@ -25,6 +25,13 @@ export interface AppViewerContainerProps {
   route?: string;
   /** Enables the fullscreen toggle (nav-bar button + fullscreen rendering). Default false. */
   enableFullscreen?: boolean;
+  /**
+   * Handler for actions the sandboxed app dispatches via
+   * `window.vellum.sendAction(actionId, data)` (e.g. `relay_prompt`). The
+   * viewer is presentational — the consumer owns what an action does. Omit it
+   * (e.g. the standalone library viewer) to ignore app actions.
+   */
+  onAction?: (actionId: string, data?: Record<string, unknown>) => void;
 }
 
 export function AppViewerContainer({
@@ -41,6 +48,7 @@ export function AppViewerContainer({
   isDeploying,
   route,
   enableFullscreen = false,
+  onAction,
 }: AppViewerContainerProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
@@ -78,6 +86,7 @@ export function AppViewerContainer({
   useSandboxFetchProxy(iframeRef, {
     frameId: appId,
     assistantId,
+    onAction,
   });
 
   return (

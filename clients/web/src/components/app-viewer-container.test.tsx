@@ -1,10 +1,11 @@
 /**
- * Tests for `AppViewerContainer` fullscreen mode.
+ * Tests for `AppViewerContainer`: fullscreen mode and that app actions are
+ * forwarded to the sandbox fetch proxy.
  *
  * We mount via `@testing-library/react` (backed by happy-dom — see
- * `clients/web/test-setup.ts`). The sandbox fetch-proxy hook and the bridge
- * injection are mocked to no-ops so the iframe renders without browser-only
- * plumbing.
+ * `clients/web/test-setup.ts`). The bridge injection is a no-op and the
+ * sandbox fetch-proxy hook is mocked to capture its options so the forwarding
+ * test can assert on the `onAction` it received.
  *
  * Buttons are located by their lucide glyph class (e.g. `svg.lucide-maximize2`,
  * `svg.lucide-minimize2`) rather than by accessible name, because the
@@ -16,8 +17,18 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
+let capturedOptions:
+  | { onAction?: (actionId: string, data?: Record<string, unknown>) => void }
+  | undefined;
 mock.module("@/hooks/use-sandbox-fetch-proxy", () => ({
-  useSandboxFetchProxy: () => {},
+  useSandboxFetchProxy: (
+    _ref: unknown,
+    options?: {
+      onAction?: (actionId: string, data?: Record<string, unknown>) => void;
+    },
+  ) => {
+    capturedOptions = options;
+  },
 }));
 
 mock.module("@/utils/sandbox-bridge", () => ({
@@ -28,6 +39,7 @@ import { AppViewerContainer } from "@/components/app-viewer-container";
 
 afterEach(() => {
   cleanup();
+  capturedOptions = undefined;
 });
 
 function renderViewer(props?: { enableFullscreen?: boolean; appId?: string }) {
@@ -110,5 +122,29 @@ describe("AppViewerContainer fullscreen", () => {
     expect(getMaximizeButton()).toBeNull();
     expect(getRoot().classList.contains("rounded-xl")).toBe(true);
     expect(getRoot().classList.contains("fixed")).toBe(false);
+  });
+});
+
+describe("AppViewerContainer app actions", () => {
+  test("forwards onAction to the sandbox fetch proxy", () => {
+    const onAction = () => {};
+    render(
+      <AppViewerContainer
+        appId="app-1"
+        appName="My App"
+        html="<html><body>hi</body></html>"
+        assistantId="assistant-1"
+        onClose={() => {}}
+        onAction={onAction}
+      />,
+    );
+
+    expect(capturedOptions?.onAction).toBe(onAction);
+  });
+
+  test("omits onAction when the consumer doesn't provide one", () => {
+    renderViewer();
+
+    expect(capturedOptions?.onAction).toBeUndefined();
   });
 });
