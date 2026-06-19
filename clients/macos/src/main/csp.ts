@@ -1,11 +1,23 @@
 import { session } from "electron";
 
+// Root hostname (leading dot, e.g. ".vellum.ai") injected at build time via
+// electron-vite `define` from VITE_ROOT_HOSTNAME — the same var the web bundle
+// reads. Falls back to the production default when unset (e.g. under `bun
+// test`, which doesn't run the bundler).
+declare const __VELLUM_ROOT_HOSTNAME__: string;
+const ROOT_HOSTNAME =
+  typeof __VELLUM_ROOT_HOSTNAME__ === "string"
+    ? __VELLUM_ROOT_HOSTNAME__
+    : ".vellum.ai";
+// Wildcard host for CSP source lists, e.g. "*.vellum.ai".
+const WILDCARD_HOST = `*${ROOT_HOSTNAME}`;
+
 // 'unsafe-inline' in script-src: required because sandboxed srcdoc iframes
 // (dynamic-page-surface, app-viewer) inherit the parent CSP and their
 // injected bridge/storage scripts are inline. The sandbox attribute is the
 // primary isolation boundary for that content.
 //
-// https://*.vellum.ai in script-src: the session-replay recorder script is
+// https://${WILDCARD_HOST} in script-src: the session-replay recorder script is
 // served first-party from the platform origin (`/_sr/cdn/...`) and loads as a
 // regular <script>. Ingest is already covered by connect-src and the recorder
 // worker by `worker-src ... blob:`, so this is the only directive that needs it.
@@ -19,9 +31,9 @@ import { session } from "electron";
 // connections need the planned proxy-through-main follow-up.
 export const CSP_POLICY = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' https://*.vellum.ai",
+  `script-src 'self' 'unsafe-inline' https://${WILDCARD_HOST}`,
   "style-src 'self' 'unsafe-inline'",
-  "connect-src 'self' blob: data: https://*.vellum.ai wss://*.vellum.ai https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://api.elevenlabs.io https://api.deepgram.com ws://localhost:* ws://127.0.0.1:*",
+  `connect-src 'self' blob: data: https://${WILDCARD_HOST} wss://${WILDCARD_HOST} https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://api.elevenlabs.io https://api.deepgram.com ws://localhost:* ws://127.0.0.1:*`,
   "img-src 'self' https: data: blob:",
   "media-src 'self' blob:",
   "worker-src 'self' blob: https://cdn.jsdelivr.net",

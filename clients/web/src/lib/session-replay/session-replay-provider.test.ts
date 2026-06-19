@@ -41,6 +41,8 @@ describe("replay provider (first-party proxy)", () => {
     expect(appId).toBe("app-123");
     expect(options.serverURL).toBe(`${BASE}/_sr/ingest/i`);
     expect(options.release).toBe("1.2.3");
+    // Defaults to the apex root hostname when VITE_ROOT_HOSTNAME is unset.
+    expect(options.rootHostname).toBe(".vellum.ai");
     expect(provider.isActive()).toBe(true);
   });
 

@@ -66,8 +66,8 @@ const replayProvider: SessionReplayProvider = (() => {
       replaySdk.init(appId, {
         serverURL: `${options.base}/_sr/ingest/i`,
         release: options.release,
-        // Share the recording session across *.vellum.ai subdomains.
-        rootHostname: ".vellum.ai",
+        // Share the recording session across Vellum subdomains.
+        rootHostname: import.meta.env.VITE_ROOT_HOSTNAME ?? ".vellum.ai",
       });
       active = true;
       if (import.meta.env.DEV) {
