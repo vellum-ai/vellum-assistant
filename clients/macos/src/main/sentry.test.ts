@@ -49,6 +49,8 @@ mock.module("@sentry/electron/main", () => ({
   getClient: () => sentryClient,
   getCurrentScope: () => ({ setClient: setClientMock }),
   setTag: setTagMock,
+  // Mirror the real enum so the production import resolves; Classic === 1.
+  IPCMode: { Classic: 1, Protocol: 2, Both: 3 },
 }));
 
 mock.module("electron", () => ({
@@ -193,6 +195,10 @@ describe("consent lifecycle (one-shot init, beforeSend gate, native gate)", () =
       dsn: "https://public@example.test/1",
       tracesSampleRate: 0,
       attachStacktrace: true,
+      // Classic IPC: the default (Both) installs a custom protocol scheme that
+      // throws when init() runs post-`ready` — which lazy first-consent init
+      // always does. Regression guard for VELLUM-ASSISTANT-MACOS-1P5.
+      ipcMode: 1,
     });
     // Tags are applied so events carry process/arch/electron/packaged context.
     expect(setTagMock).toHaveBeenCalledWith("process", "main");
