@@ -283,16 +283,16 @@ Error reporting uses Sentry. The daemon/runtime (Node) project's DSN is configur
 
 ### Sentry projects & DSNs
 
-Each surface reports to its own Sentry project via a dedicated DSN (injected at build time by CI; an empty DSN no-ops):
+Each surface has its own Sentry project. The target DSN-to-secret map below records which secret feeds which surface; a per-host runtime selector in the shared clients/web bundle is being wired up incrementally, so today `sentry-init.ts` still initializes every renderer host with `VITE_SENTRY_DSN`. An empty DSN no-ops.
 
-| Surface | DSN env var | Notes |
-| --- | --- | --- |
-| Web | `VITE_SENTRY_DSN` | clients/web browser bundle |
-| Desktop | `SENTRY_DSN_DESKTOP` | Electron main process + renderer (`VITE_SENTRY_DSN_DESKTOP`) |
-| Mobile | `SENTRY_DSN_MOBILE` | Capacitor renderer (`VITE_SENTRY_DSN_MOBILE`) |
-| Assistant | `SENTRY_DSN_ASSISTANT` | daemon/runtime (Node) |
+| Surface | DSN env var | Build-time var | Delivered via |
+| --- | --- | --- | --- |
+| Web | `VITE_SENTRY_DSN` | `VITE_SENTRY_DSN` | web SPA build |
+| Desktop | `SENTRY_DSN_DESKTOP` | `VITE_SENTRY_DSN_DESKTOP` | macOS app build (bundles its own web build) |
+| Mobile | `SENTRY_DSN_MOBILE` | `VITE_SENTRY_DSN_MOBILE` | web SPA build (the iOS webview loads the deployed SPA and selects this DSN at runtime) |
+| Assistant | `SENTRY_DSN_ASSISTANT` | — | daemon/runtime (Node) |
 
-The shared clients/web bundle resolves its renderer DSN per host: web → `VITE_SENTRY_DSN`, Electron → `VITE_SENTRY_DSN_DESKTOP`, Capacitor → `VITE_SENTRY_DSN_MOBILE`.
+The mobile DSN is baked into the deployed web SPA bundle rather than the iOS build, because the iOS app runs the deployed SPA via `server.url` (see `clients/web/capacitor.config.ts`) and bundles no web assets at `cap sync`. The desktop DSN is injected build-time in the macOS app, which bundles its own web build.
 
 **Sentry CLI**: Use the newer `sentry` CLI (not the legacy `sentry-cli`). Install from `https://cli.sentry.dev/install`. Authenticate with `sentry auth login`.
 

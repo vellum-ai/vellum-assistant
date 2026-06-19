@@ -102,8 +102,9 @@ jobs:
         working-directory: clients/web
         env:
           VELLUM_ENVIRONMENT: ${{ steps.config.outputs.vellum_env }}
-          # PR 9 wires the mobile Sentry DSN into the Capacitor build here:
-          # VITE_SENTRY_DSN_MOBILE: ${{ secrets.SENTRY_DSN_MOBILE }}
+          # No Sentry DSN here: this build bundles no web assets. The iOS app
+          # loads the deployed web SPA via `server.url`, so the mobile DSN is
+          # baked into the SPA bundle by the web-SPA deploy workflow.
         run: bunx cap sync ios
 
       - name: Install XcodeGen
