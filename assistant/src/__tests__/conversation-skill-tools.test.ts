@@ -30,8 +30,6 @@ let mockVersionHashes: Record<string, string> = {};
 let mockVersionHashErrors: Set<string> = new Set();
 /** Install metadata by skill id (readInstallMeta derives the id from the directory path). */
 let mockInstallMetas: Record<string, SkillInstallMeta | null> = {};
-/** Merged catalog entries returned by getCachedCatalogSync. */
-let mockCachedCatalog: Array<{ id: string; updatedAt?: string }> = [];
 /** skill_loaded events captured by the mocked store. */
 let recordedSkillLoadedEvents: SkillLoadedEventRecord[] = [];
 /** When true, recordSkillLoadedEvent throws (simulates a store failure). */
@@ -249,10 +247,6 @@ mock.module("../skills/install-meta.js", () => ({
     const skillId = parts[parts.length - 1];
     return mockInstallMetas[skillId] ?? null;
   },
-}));
-
-mock.module("../skills/catalog-cache.js", () => ({
-  getCachedCatalogSync: () => mockCachedCatalog,
 }));
 
 mock.module("../memory/skill-loaded-events-store.js", () => ({
@@ -788,17 +782,15 @@ describe("skill_loaded telemetry recording", () => {
     mockVersionHashes = {};
     mockVersionHashErrors = new Set();
     mockInstallMetas = {};
-    mockCachedCatalog = [];
     recordedSkillLoadedEvents = [];
     mockRecordSkillLoadedFailure = false;
     mockRegisterFailures = new Set();
     sessionState = new Map<string, string>();
   });
 
-  test("bundled skill activation records an event with attribution and catalog updatedAt", () => {
+  test("bundled skill activation records an event with attribution", () => {
     mockCatalog = [makeSkill("notes", undefined, "bundled")];
     mockManifests = { notes: makeManifest(["notes_add"]) };
-    mockCachedCatalog = [{ id: "notes", updatedAt: "2026-01-02T03:04:05Z" }];
 
     const history: Message[] = [
       ...skillLoadMessages('<loaded_skill id="notes" />'),
@@ -812,7 +804,7 @@ describe("skill_loaded telemetry recording", () => {
     expect(recordedSkillLoadedEvents[0]).toEqual({
       conversationId: "conv-xyz",
       skillName: "notes",
-      skillUpdatedAt: "2026-01-02T03:04:05Z",
+      skillUpdatedAt: undefined,
       provider: "test-provider",
       model: "test-model",
       inferenceProfile: "balanced",
@@ -990,10 +982,9 @@ describe("skill_loaded telemetry recording", () => {
     expect(mockUnregisteredSkillIds).toEqual([]);
   });
 
-  test("catalog miss yields undefined skillUpdatedAt (persisted as null)", () => {
+  test("skill_updated_at is not populated (reserved field persists as null)", () => {
     mockCatalog = [makeSkill("notes", undefined, "bundled")];
     mockManifests = { notes: makeManifest(["notes_add"]) };
-    mockCachedCatalog = []; // no merged-catalog entry for "notes"
 
     const history: Message[] = [
       ...skillLoadMessages('<loaded_skill id="notes" />'),
@@ -1052,7 +1043,6 @@ describe("skill_loaded telemetry recording", () => {
   test("instruction-only bundled skill (no TOOLS.json) records exactly one event", () => {
     mockCatalog = [makeSkill("guides", undefined, "bundled")];
     // No manifest registered for "guides" — instruction-only skill.
-    mockCachedCatalog = [{ id: "guides", updatedAt: "2026-02-03T04:05:06Z" }];
 
     const history: Message[] = [
       ...skillLoadMessages('<loaded_skill id="guides" />'),
@@ -1066,7 +1056,7 @@ describe("skill_loaded telemetry recording", () => {
     expect(recordedSkillLoadedEvents[0]).toEqual({
       conversationId: "conv-xyz",
       skillName: "guides",
-      skillUpdatedAt: "2026-02-03T04:05:06Z",
+      skillUpdatedAt: undefined,
       provider: "test-provider",
       model: "test-model",
       inferenceProfile: "balanced",

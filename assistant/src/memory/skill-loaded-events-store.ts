@@ -15,7 +15,11 @@ import { skillLoadedEvents } from "./schema.js";
 export interface SkillLoadedEventRecord extends Partial<UsageAttributionColumns> {
   conversationId?: string;
   skillName: string;
-  /** ISO 8601 timestamp from the merged skill catalog, when known. */
+  /**
+   * Reserved skill-version field, currently unset (persists as null). Kept for
+   * telemetry wire compatibility after the catalog's git-date `updatedAt` — the
+   * prior source — was removed.
+   */
   skillUpdatedAt?: string;
 }
 

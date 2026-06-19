@@ -10,7 +10,6 @@
  *   node scripts/skills/generate-catalog.mjs
  */
 
-import { execSync } from "node:child_process";
 import { readdirSync, readFileSync, writeFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,25 +19,6 @@ import { parseFrontmatter } from "./parse-skill-yaml.mjs";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SKILLS_DIR = resolve(__dirname, "../../skills");
 const CATALOG_PATH = join(SKILLS_DIR, "catalog.json");
-
-/**
- * Get the last git commit date for a directory (ISO 8601).
- * Falls back to null if git is unavailable or the directory has no history.
- */
-function getGitUpdatedAt(dirPath) {
-  try {
-    const date = execSync(
-      `git log -1 --format=%aI -- "${dirPath}"`,
-      { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
-    ).trim();
-    if (!date) return null;
-    // Normalize to canonical ISO 8601 via Date to avoid +00:00 vs Z
-    // discrepancies between git versions / environments.
-    return new Date(date).toISOString();
-  } catch {
-    return null;
-  }
-}
 
 /**
  * Build a catalog entry from a skill directory.
@@ -76,12 +56,6 @@ function buildEntry(skillName) {
   // Extract compatibility
   if (frontmatter.compatibility && typeof frontmatter.compatibility === "string") {
     entry.compatibility = frontmatter.compatibility;
-  }
-
-  // Last modified date from git history
-  const updatedAt = getGitUpdatedAt(skillDir);
-  if (updatedAt) {
-    entry.updatedAt = updatedAt;
   }
 
   return entry;

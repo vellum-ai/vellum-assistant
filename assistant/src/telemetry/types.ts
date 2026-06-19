@@ -295,8 +295,10 @@ export interface SkillLoadedTelemetryEvent extends ModelTelemetryEventBase {
   type: "skill_loaded";
   skill_name: string;
   /**
-   * ISO 8601 timestamp — the catalog's `updatedAt`, effectively the
-   * skill version. Null when the catalog carries no timestamp.
+   * Reserved skill-version field, currently always null. The catalog's former
+   * git-date `updatedAt` (the prior source) was not a function of skill content
+   * and has been removed; the field is kept (nullable) for telemetry wire
+   * compatibility.
    */
   skill_updated_at: string | null;
   conversation_id: string | null;

@@ -20,7 +20,6 @@ import { recordSkillLoadedEvent } from "../memory/skill-loaded-events-store.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { ActiveSkillEntry } from "../skills/active-skill-tools.js";
 import { deriveActiveSkills } from "../skills/active-skill-tools.js";
-import { getCachedCatalogSync } from "../skills/catalog-cache.js";
 import { readInstallMeta } from "../skills/install-meta.js";
 import { parseToolManifestFile } from "../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
@@ -167,9 +166,13 @@ function isVellumProducedSkill(skill: SkillSummary): boolean {
 /**
  * Record a `skill_loaded` telemetry event for a newly-activated Vellum-produced
  * skill. Metadata only — never skill output or conversation content.
- * `skill_updated_at` comes from the cached merged catalog (sync accessor —
- * this runs on the hot tool-projection path). Failures are swallowed at
- * debug level: recording must never break tool projection.
+ *
+ * `skill_updated_at` is intentionally left unset: the catalog's former per-skill
+ * `updatedAt` was a git commit date (not a function of skill content, and it
+ * drifted on every merge), so it has been dropped. The field is retained as
+ * nullable for telemetry wire compatibility; a real skill-version identity, if
+ * needed, belongs in a separate, platform-coordinated change. Failures are
+ * swallowed at debug level: recording must never break tool projection.
  */
 function recordSkillLoadedTelemetry(
   skill: SkillSummary,
@@ -178,11 +181,9 @@ function recordSkillLoadedTelemetry(
   if (!telemetry) return;
   try {
     if (!isVellumProducedSkill(skill)) return;
-    const catalogEntry = getCachedCatalogSync().find((s) => s.id === skill.id);
     recordSkillLoadedEvent({
       conversationId: telemetry.conversationId,
       skillName: skill.id,
-      skillUpdatedAt: catalogEntry?.updatedAt,
       ...toAttributionColumns(telemetry.attribution),
     });
   } catch (err) {
