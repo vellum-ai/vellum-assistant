@@ -676,4 +676,27 @@ scheduleUpdateNode.argRules = scheduleUpdateArgRules;
 // arg parser pairs `--mode script` / `--script <cmd>` correctly.
 scheduleUpdateNode.argSchema = { valueFlags: ["--mode", "--script"] };
 
+// `schedules create` mirrors `schedules update`: medium-risk as a state
+// mutation, but creating a script-mode schedule persists host shell execution
+// for a later schedule fire — classify those as high like `bash`.
+const scheduleCreateArgRules: ArgRule[] = [
+  {
+    id: "assistant-schedules-create:script",
+    flags: ["--script"],
+    risk: "high",
+    reason:
+      "Persists an arbitrary shell command that the schedule executes on fire",
+  },
+  {
+    id: "assistant-schedules-create:mode-script",
+    flags: ["--mode"],
+    valuePattern: "^script$",
+    risk: "high",
+    reason: "Creates a script-mode schedule (host shell execution on fire)",
+  },
+];
+const scheduleCreateNode = getExistingPath(spec, "schedules create");
+scheduleCreateNode.argRules = scheduleCreateArgRules;
+scheduleCreateNode.argSchema = { valueFlags: ["--mode", "--script"] };
+
 export default spec;
