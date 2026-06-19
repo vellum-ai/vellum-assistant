@@ -21,13 +21,14 @@ import type { Message, ToolDefinition } from "../providers/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";
-import { getMcpToolDefinitions } from "../tools/registry.js";
+import { getMcpToolDefinitions, getTool } from "../tools/registry.js";
 import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
 } from "../tools/schema-transforms.js";
 import {
   augmentSkillExecuteError,
+  recoverSkillExecuteEnvelope,
   resolveSkillExecuteInput,
 } from "../tools/skills/execute.js";
 import { resolveToolInvocationAlias } from "../tools/tool-name-aliases.js";
@@ -303,9 +304,16 @@ export function createToolExecutor(
     // risk level, permission checks, hooks, and lifecycle events all fire
     // with the real tool name.
     if (executionName === "skill_execute") {
+      // Recover an envelope the provider wrapped as unparseable when MiniMax's
+      // coercion failed to JSON-decode a bare-string `input` (see
+      // recoverSkillExecuteEnvelope), then resolve the inner tool + params.
+      const envelope = recoverSkillExecuteEnvelope(executionInput);
       const rawToolName =
-        typeof executionInput.tool === "string" ? executionInput.tool : "";
-      const rawToolInput = resolveSkillExecuteInput(executionInput);
+        typeof envelope.tool === "string" ? envelope.tool : "";
+      const innerSchema = rawToolName
+        ? getTool(rawToolName)?.input_schema
+        : undefined;
+      const rawToolInput = resolveSkillExecuteInput(envelope, innerSchema);
 
       // Clone to avoid mutating shared input objects
       const { name: toolName, input: toolInput } = resolveToolInvocationAlias(
