@@ -1,0 +1,229 @@
+/**
+ * APNs remote-push device-token registration for the Capacitor iOS app.
+ *
+ * The daemon's `platform` notification channel POSTs background notifications
+ * (reminders, activity completions, etc.) to the Vellum platform's
+ * `/v1/assistants/{id}/push/dispatch/` endpoint, which fans them out to every
+ * APNs device token registered for the bound user. This module is the missing
+ * client half: it asks iOS for an APNs device token via
+ * `@capacitor/push-notifications`, then upserts that token to the platform so
+ * the daemon has somewhere to deliver.
+ *
+ * Why this matters for reminders specifically: the in-app local-notification
+ * path (`runtime/notifications.ts`) only fires while the JS runtime is alive
+ * (foreground / recently-backgrounded). Scheduled reminders fire while the app
+ * is backgrounded or suspended, so APNs remote push is the only path that can
+ * reach the device. (LUM-1159)
+ *
+ * Lifecycle:
+ *   - {@link registerForRemotePush} — call once an assistant is active. Requests
+ *     notification permission, registers for APNs, and upserts the resulting
+ *     token to the platform. Idempotent and safe to call on every mount.
+ *   - {@link unregisterFromRemotePush} — call from the logout path BEFORE the
+ *     session cookie is cleared (see `stores/auth-store.ts`) so the platform
+ *     delete is authenticated. Removes the token for the bound assistant.
+ *
+ * iOS-only and best-effort: no-ops on Electron, desktop browsers, and Android
+ * (no native Capacitor Android shell ships today); registration/delete failures
+ * are reported to Sentry but never thrown into the app lifecycle.
+ *
+ * Per `docs/CAPACITOR.md`, the `@capacitor/*` plugins are destructured inline
+ * at each call site — never returned through an `async` boundary — because the
+ * plugin Proxy's `.then` trap would hang the awaiting caller forever.
+ */
+
+import { Capacitor } from "@capacitor/core";
+
+import {
+  assistantsPushTokensDelete,
+  assistantsPushTokensUpsert,
+} from "@/generated/api/sdk.gen";
+import type { ApnsEnvironmentEnum } from "@/generated/api/types.gen";
+import { captureError } from "@/lib/sentry/capture-error";
+import { isNativePlatform } from "@/runtime/native-auth";
+
+/**
+ * Bundle-id suffix that maps to the development APNs entitlement. The dev Xcode
+ * config (`clients/ios/App/App/Config/App-Dev.xcconfig`) signs with
+ * `App-Dev.entitlements` (`aps-environment = development`) and ships the `.dev`
+ * bundle id; production and staging both sign with `App.entitlements`
+ * (`aps-environment = production`). APNs rejects a token minted under one
+ * environment if dispatched against the other, so the platform stores the
+ * environment alongside the token and the value must match the running build.
+ */
+const DEV_BUNDLE_SUFFIX = ".dev";
+
+/** Token registration we last upserted, retained so logout can delete it. */
+interface RegisteredToken {
+  token: string;
+  bundleId: string;
+  assistantId: string;
+}
+
+let listenersRegistered = false;
+let currentAssistantId: string | null = null;
+let lastRegistered: RegisteredToken | null = null;
+
+/**
+ * True only on the native Capacitor iOS runtime.
+ *
+ * APNs remote push is a native-only capability: a device token only exists
+ * inside the iOS app process, there is no web/Electron equivalent, and the
+ * daemon's `platform` channel exclusively targets iOS device tokens. This is
+ * not a "present but broken" web API — there is nothing to feature-detect — so
+ * a platform short-circuit is the correct guard. Android is excluded because no
+ * native Capacitor Android shell ships today; revisit this guard if one does.
+ */
+export function isRemotePushSupported(): boolean {
+  return isNativePlatform() && Capacitor.getPlatform() === "ios";
+}
+
+/** Map the running build's bundle id to its APNs entitlement environment. */
+function resolveApnsEnvironment(bundleId: string): ApnsEnvironmentEnum {
+  return bundleId.endsWith(DEV_BUNDLE_SUFFIX) ? "development" : "production";
+}
+
+/**
+ * Upsert a freshly-minted APNs token to the platform for the given assistant.
+ * Best-effort: a non-2xx response or thrown error is reported and swallowed.
+ */
+async function upsertToken(token: string, assistantId: string): Promise<void> {
+  try {
+    // `@capacitor/app` is a plugin Proxy — destructure inline (see CAPACITOR.md).
+    const { App } = await import("@capacitor/app");
+    const { id: bundleId } = await App.getInfo();
+
+    const result = await assistantsPushTokensUpsert({
+      path: { assistant_id: assistantId },
+      body: {
+        token,
+        platform: "ios",
+        bundle_id: bundleId,
+        apns_environment: resolveApnsEnvironment(bundleId),
+      },
+      throwOnError: false,
+    });
+
+    if (result.error) {
+      captureError(result.error, {
+        context: "push_registration_upsert",
+        level: "warning",
+        bestEffort: true,
+      });
+      return;
+    }
+
+    lastRegistered = { token, bundleId, assistantId };
+  } catch (err) {
+    captureError(err, {
+      context: "push_registration_upsert",
+      level: "warning",
+      bestEffort: true,
+    });
+  }
+}
+
+/**
+ * Register the APNs `registration` / `registrationError` listeners exactly
+ * once. The `registration` handler upserts the token under whichever assistant
+ * is current when iOS delivers it (iOS may emit the token asynchronously, and
+ * re-emits the cached token on subsequent `register()` calls).
+ */
+async function ensureListeners(): Promise<void> {
+  if (listenersRegistered) return;
+  listenersRegistered = true;
+  try {
+    const { PushNotifications } = await import("@capacitor/push-notifications");
+    await PushNotifications.addListener("registration", (token) => {
+      const assistantId = currentAssistantId;
+      if (!assistantId) return;
+      void upsertToken(token.value, assistantId);
+    });
+    await PushNotifications.addListener("registrationError", (err) => {
+      captureError(err, {
+        context: "push_registration_apns",
+        level: "warning",
+      });
+    });
+  } catch (err) {
+    // Allow a later call to retry listener registration.
+    listenersRegistered = false;
+    captureError(err, {
+      context: "push_registration_listeners",
+      level: "warning",
+    });
+  }
+}
+
+/**
+ * Request notification permission, register for APNs, and upsert the resulting
+ * device token to the platform for `assistantId`. No-ops off native iOS.
+ *
+ * Safe to call repeatedly (e.g. on every mount or assistant switch): iOS shows
+ * the permission prompt at most once, `register()` re-emits the cached token,
+ * and the listener re-upserts it. The same `UNUserNotificationCenter`
+ * authorization backs the local-notification path, so this does not introduce a
+ * second OS prompt.
+ */
+export async function registerForRemotePush(assistantId: string): Promise<void> {
+  if (!isRemotePushSupported()) return;
+  currentAssistantId = assistantId;
+
+  // If iOS already handed us a token for this device under a different
+  // assistant, re-upsert it now rather than waiting for another registration
+  // event (which only fires again on the next `register()`).
+  if (lastRegistered && lastRegistered.assistantId !== assistantId) {
+    void upsertToken(lastRegistered.token, assistantId);
+  }
+
+  try {
+    // `@capacitor/push-notifications` is a plugin Proxy — destructure inline.
+    const { PushNotifications } = await import("@capacitor/push-notifications");
+    await ensureListeners();
+    const permission = await PushNotifications.requestPermissions();
+    if (permission.receive !== "granted") return;
+    await PushNotifications.register();
+  } catch (err) {
+    captureError(err, {
+      context: "push_registration_register",
+      level: "warning",
+    });
+  }
+}
+
+/**
+ * Delete the last-registered device token from the platform. Call this from the
+ * logout flow BEFORE the session cookie is cleared so the request is
+ * authenticated (the platform delete is keyed on the still-valid session).
+ *
+ * Best-effort and idempotent: no-ops when nothing was registered or off native
+ * iOS, and swallows delete failures.
+ */
+export async function unregisterFromRemotePush(): Promise<void> {
+  currentAssistantId = null;
+  const registered = lastRegistered;
+  lastRegistered = null;
+
+  if (!registered || !isRemotePushSupported()) return;
+
+  try {
+    await assistantsPushTokensDelete({
+      path: { assistant_id: registered.assistantId, token: registered.token },
+      query: { bundle_id: registered.bundleId },
+      throwOnError: false,
+    });
+  } catch (err) {
+    captureError(err, {
+      context: "push_registration_delete",
+      level: "warning",
+      bestEffort: true,
+    });
+  }
+}
+
+/** Test-only: reset module state between cases. */
+export function __resetPushRegistrationStateForTests(): void {
+  listenersRegistered = false;
+  currentAssistantId = null;
+  lastRegistered = null;
+}
