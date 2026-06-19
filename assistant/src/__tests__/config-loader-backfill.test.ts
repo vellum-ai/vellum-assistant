@@ -729,6 +729,7 @@ describe("loadConfig startup behavior", () => {
       "accounts/fireworks/models/minimax-m3",
     );
     expect(raw.llm.profiles.balanced.maxTokens).toBe(32000);
+    expect(raw.llm.profiles.balanced.topP).toBe(0.95);
     expect(raw.llm.profiles.balanced.provider_connection).toBe(
       "fireworks-managed",
     );
@@ -1108,6 +1109,11 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
 
     // Personal profiles keep their bare labels — they're the daily driver.
     expect(config.llm.profiles["custom-balanced"]?.label).toBe("Balanced");
+
+    // top_p is scoped to the managed Balanced profile only; the BYOK
+    // custom-balanced profile must not pick it up.
+    expect(config.llm.profiles.balanced?.topP).toBe(0.95);
+    expect(config.llm.profiles["custom-balanced"]?.topP).toBeUndefined();
   });
 
   test("off-platform hatch initializes managed profile status to 'disabled'", () => {

@@ -51,6 +51,7 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     effort: "high",
     thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+    topP: 0.95,
   },
   "quality-optimized": {
     intent: "quality-optimized",
