@@ -849,7 +849,7 @@ function buildForkInstruction({
     ? "Your review window is the full conversation above, ending just before this instruction message."
     : `Your review window starts at ${anchorDescription} and ends just before this instruction message. If you cannot locate that anchoring turn in your visible history (for example, it is behind the compaction summary), fail closed: review only the most recent visible messages after the summary, not the whole conversation.`;
 
-  return `This is an automated background memory pass over the conversation above — not a message from the user. Do not reply conversationally or in persona; just perform the review described here. Only the \`remember\` tool is available for this pass — any other tool call will be rejected, so don't attempt one.
+  return `This is an automated background memory pass over the conversation above — not a message from the user. Do not reply conversationally; just perform the review described here. Only the \`remember\` tool is available for this pass — any other tool call will be rejected, so don't attempt one.
 
 ${windowAnchor}
 
