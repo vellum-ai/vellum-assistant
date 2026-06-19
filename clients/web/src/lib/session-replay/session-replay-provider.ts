@@ -20,8 +20,6 @@ export interface SessionReplayTraits {
   name?: string;
   email?: string;
   username?: string;
-  isStaff?: boolean;
-  organizationId?: string;
   surface: SessionReplaySurface;
 }
 

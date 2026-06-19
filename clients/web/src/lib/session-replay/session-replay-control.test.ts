@@ -60,7 +60,6 @@ interface MockUser {
   username?: string | null;
   firstName?: string;
   lastName?: string;
-  isStaff?: boolean;
 }
 interface MockAuthState {
   platformSession: string;
@@ -82,11 +81,6 @@ mock.module("@/stores/auth-store", () => ({
       };
     },
   },
-}));
-
-let orgId: string | null = null;
-mock.module("@/stores/organization-store", () => ({
-  getActiveOrganizationIdForRequests: () => orgId,
 }));
 
 const {
@@ -122,7 +116,6 @@ beforeEach(() => {
   active = false;
   consentGranted = false;
   user = null;
-  orgId = null;
 });
 
 describe("sessionReplayConsentGranted", () => {
@@ -151,7 +144,7 @@ describe("syncSessionReplay", () => {
 
   test("identifies the user on start", () => {
     consentGranted = true;
-    user = { id: "u1", email: "a@b.co" };
+    user = { id: "u1", email: "user@example.com" };
     syncSessionReplay(CONFIG);
     expect(identifyMock).toHaveBeenCalledTimes(1);
     expect(identifyMock.mock.calls[0]![0]).toBe("u1");
@@ -181,24 +174,20 @@ describe("syncSessionReplay", () => {
 });
 
 describe("identifySessionReplayUser", () => {
-  test("builds traits from the auth + organization stores", () => {
+  test("builds traits from the auth store", () => {
     active = true;
     user = {
       id: "u1",
-      email: "a@b.co",
+      email: "user@example.com",
       username: "alice",
       firstName: "Alice",
       lastName: "Smith",
-      isStaff: true,
     };
-    orgId = "org-9";
     identifySessionReplayUser("electron");
     expect(identifyMock).toHaveBeenCalledWith("u1", {
       name: "Alice Smith",
-      email: "a@b.co",
+      email: "user@example.com",
       username: "alice",
-      isStaff: true,
-      organizationId: "org-9",
       surface: "electron",
     });
   });

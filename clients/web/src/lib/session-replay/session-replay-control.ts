@@ -16,7 +16,6 @@ import {
   type SessionReplaySurface,
   type SessionReplayTraits,
 } from "@/lib/session-replay/session-replay-provider";
-import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { watchDeviceSetting } from "@/utils/device-settings";
 
@@ -43,8 +42,6 @@ function buildTraits(surface: SessionReplaySurface): SessionReplayTraits {
     name: name || undefined,
     email: user?.email ?? undefined,
     username: user?.username ?? undefined,
-    isStaff: user?.isStaff,
-    organizationId: getActiveOrganizationIdForRequests() ?? undefined,
     surface,
   };
 }
