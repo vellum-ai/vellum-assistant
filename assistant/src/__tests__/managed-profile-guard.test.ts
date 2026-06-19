@@ -22,10 +22,19 @@ function makeDefaultRawConfig(): Record<string, unknown> {
         "quality-optimized": {
           provider: "anthropic",
           model: "claude-sonnet",
+          source: "managed",
         },
-        balanced: { provider: "anthropic", model: "claude-sonnet" },
-        "cost-optimized": { provider: "anthropic", model: "claude-haiku" },
-        "my-custom": { provider: "openai", model: "gpt-4o" },
+        balanced: {
+          provider: "anthropic",
+          model: "claude-sonnet",
+          source: "managed",
+        },
+        "cost-optimized": {
+          provider: "anthropic",
+          model: "claude-haiku",
+          source: "managed",
+        },
+        "my-custom": { provider: "openai", model: "gpt-4o", source: "user" },
       },
     },
   };
@@ -274,6 +283,50 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
     expect(profile.status).toBe("disabled");
   });
 
+  test("allows edits to a user-owned profile sharing a managed name (os-beta)", async () => {
+    savedRaw = null;
+    rawConfig = {
+      llm: {
+        profiles: {
+          "os-beta": {
+            provider: "anthropic",
+            model: "claude-sonnet",
+            source: "user",
+          },
+        },
+      },
+    };
+    const result = await replaceRoute.handler({
+      pathParams: { name: "os-beta" },
+      body: { provider: "openai", model: "gpt-4o" },
+    });
+    expect(result).toEqual({ ok: true });
+    const profile = (savedRaw as unknown as Record<string, any>)?.llm
+      ?.profiles?.["os-beta"] as Record<string, unknown>;
+    expect(profile.provider).toBe("openai");
+    expect(profile.model).toBe("gpt-4o");
+  });
+
+  test("rejects edits to a managed os-beta profile", async () => {
+    rawConfig = {
+      llm: {
+        profiles: {
+          "os-beta": {
+            provider: "fireworks",
+            model: "accounts/fireworks/models/glm-5p2",
+            source: "managed",
+          },
+        },
+      },
+    };
+    await expect(
+      replaceRoute.handler({
+        pathParams: { name: "os-beta" },
+        body: { provider: "openai", model: "gpt-4o" },
+      }),
+    ).rejects.toThrow(BadRequestError);
+  });
+
   test("PUT { label: '' } on managed profile still rejected by `.min(1)`", async () => {
     // `.nullable()` only widens the type to accept null — empty strings
     // still fail the min-length check, which is correct: an empty string
@@ -373,6 +426,44 @@ describe("PATCH /v1/config — managed profile deletion guard", () => {
       },
     });
     expect(result).toHaveProperty("llm");
+  });
+
+  test("allows deletion of a user-owned profile sharing a managed name (os-beta)", async () => {
+    savedRaw = null;
+    rawConfig = {
+      llm: {
+        profiles: {
+          "os-beta": {
+            provider: "anthropic",
+            model: "claude-sonnet",
+            source: "user",
+          },
+        },
+      },
+    };
+    const result = await patchRoute.handler({
+      body: { llm: { profiles: { "os-beta": null } } },
+    });
+    expect(result).toHaveProperty("llm");
+  });
+
+  test("rejects deletion of a managed os-beta profile", async () => {
+    rawConfig = {
+      llm: {
+        profiles: {
+          "os-beta": {
+            provider: "fireworks",
+            model: "accounts/fireworks/models/glm-5p2",
+            source: "managed",
+          },
+        },
+      },
+    };
+    await expect(
+      patchRoute.handler({
+        body: { llm: { profiles: { "os-beta": null } } },
+      }),
+    ).rejects.toThrow('Cannot delete managed profile "os-beta".');
   });
 
   test("rejects nulling the entire profiles map", async () => {

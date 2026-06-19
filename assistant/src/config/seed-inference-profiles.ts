@@ -160,14 +160,15 @@ export const OS_BETA_PROFILE_TEMPLATE: ManagedProfileTemplate = {
   contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
 };
 
-// Membership here marks a profile as managed for the route layer, which blocks
-// model/provider edits and deletion. A key only belongs in this set when a
-// managed profile of that name exists to back it. `OS_BETA_PROFILE_KEY` is
-// flag-gated and has no unconditional managed entry, so it stays out — keeping
-// it in would let the route layer lock a user-created `os-beta` profile that
-// has no managed definition behind it.
+// Membership here marks a name as managed. The route layer applies managed
+// restrictions (blocking model/provider edits and deletion) only to entries
+// whose on-disk `source` is `managed`, so a user-owned profile sharing one of
+// these names is not locked. `OS_BETA_PROFILE_KEY` is flag-gated: it is
+// materialized by the flag-gated profile reconcile, which refuses to touch a
+// same-named user profile.
 export const MANAGED_PROFILE_NAMES = new Set([
   ...Object.keys(MANAGED_PROFILE_TEMPLATES),
+  OS_BETA_PROFILE_KEY,
   AUTO_PROFILE_KEY,
 ]);
 
