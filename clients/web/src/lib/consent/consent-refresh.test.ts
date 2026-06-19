@@ -127,6 +127,17 @@ describe("refreshDiagnosticsConsent", () => {
     await refreshDiagnosticsConsent();
     expect(applyResolvedDiagnosticsConsent).not.toHaveBeenCalled();
   });
+
+  test("leaves state unchanged for an empty server record", async () => {
+    // Default consentRecord() has empty accepted-version fields →
+    // hasServerRecord=false. A device-confirmed opted-in user whose server
+    // record is missing (backfill pending/failed) must NOT have the gate closed
+    // by a refresh — only the auth resync applies the device fallback.
+    consentResult = Promise.resolve(consentRecord());
+    await refreshDiagnosticsConsent();
+    expect(fetchConsent).toHaveBeenCalledTimes(1);
+    expect(applyResolvedDiagnosticsConsent).not.toHaveBeenCalled();
+  });
 });
 
 describe("installConsentRefreshListeners", () => {

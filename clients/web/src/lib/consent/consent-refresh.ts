@@ -41,6 +41,13 @@ export async function refreshDiagnosticsConsent(): Promise<void> {
     // or overwrite the next user's setting, so discard it.
     if (useAuthStore.getState().user?.id !== userIdBefore) return;
     const resolved = resolveServerConsent(consent);
+    // An empty server record is not authoritative: a platform-side revoke
+    // always arrives as a real record (share_diagnostics=false or a stale
+    // version). Closing the gate here would disable Sentry for a device-
+    // confirmed opted-in user whose server record is just missing (backfill
+    // pending/failed) until a full auth resync. Leave state unchanged, matching
+    // the failed-fetch posture; the auth resync owns the device-fallback reopen.
+    if (!resolved.hasServerRecord) return;
     applyResolvedDiagnosticsConsent(
       {
         shareDiagnostics: resolved.shareDiagnostics,
