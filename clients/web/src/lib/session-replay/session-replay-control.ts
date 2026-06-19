@@ -24,7 +24,7 @@ export interface SessionReplayConfig {
   surface: SessionReplaySurface;
   environment: string;
   release?: string;
-  /** Origin fronting the first-party LogRocket proxy. */
+  /** Origin fronting the first-party session replay proxy. */
   base: string;
 }
 
