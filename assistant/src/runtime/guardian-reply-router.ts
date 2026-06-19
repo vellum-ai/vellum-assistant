@@ -58,10 +58,8 @@ const log = getLogger("guardian-reply-router");
 
 /**
  * How to scope a guardian's pending requests when resolving an inbound reply.
- *
- * Replaces a `string[] | undefined` tri-state whose `[]` (fail-closed) was too
- * easy to conflate with `undefined` (identity fallback) — the conflation that
- * would re-open the Slack cross-chat reply-hijack vector (#30377 / JARVIS-650).
+ * The three states are mutually exclusive and named so the security-critical
+ * `blocked` cannot be confused with the absence of a hint:
  *
  *   - `scoped`: resolve only these request ids, and constrain request-code
  *     routing to this set (delivery-/conversation-scoped hints).
@@ -242,7 +240,7 @@ function findPendingCanonicalRequests(
   conversationId?: string,
 ): CanonicalGuardianRequest[] {
   // `blocked` fails closed: no pending requests and no identity fallback — the
-  // Slack cross-chat hijack guard (#30377 / JARVIS-650).
+  // Slack cross-chat hijack guard.
   if (scope.mode === "blocked") {
     return [];
   }
