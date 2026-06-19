@@ -626,6 +626,72 @@ describe("Subagent spawn success and failure", () => {
     }
   });
 
+  test("spawn inherits the invoker's resolved profile from attribution over the catalog default", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "inherit-applied-id";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "Applied child", objective: "Do it" },
+        makeContext("sess-inherit-applied", {
+          sendToClient: () => {},
+          // The invoker ran under heartbeatAgent but resolved to
+          // quality-optimized via a configured llm.callSites.heartbeatAgent
+          // profile. attribution captures that resolved profile; the catalog
+          // default (cost-optimized) would not.
+          invokingCallSite: "heartbeatAgent",
+          attribution: {
+            appliedProfile: "quality-optimized",
+            resolvedMixArm: null,
+          },
+        }),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(capturedConfig!.overrideProfile).toBe("quality-optimized");
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("spawn pins the invoker's resolved mix arm rather than the mix name", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "inherit-mixarm-id";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "Mix child", objective: "Do it" },
+        makeContext("sess-inherit-mixarm", {
+          sendToClient: () => {},
+          invokingCallSite: "mainAgent",
+          // The parent turn expanded a mix profile to the "balanced" arm; the
+          // child should pin that arm, not re-expand the mix under its own seed.
+          attribution: {
+            appliedProfile: "balanced-mix",
+            resolvedMixArm: "balanced",
+          },
+        }),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(capturedConfig!.overrideProfile).toBe("balanced");
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
   test("spawn returns error for unknown inference_profile", async () => {
     const manager = getSubagentManager();
     const originalSpawn = manager.spawn.bind(manager);
