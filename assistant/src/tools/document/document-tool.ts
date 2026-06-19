@@ -269,16 +269,41 @@ export function executeDocumentCreate(
   };
 }
 
+/**
+ * Resolve the target document for an update. An explicit `surface_id` is used
+ * verbatim; when absent, the update targets the conversation's most recently
+ * updated document (`getDocumentsForConversation` orders by `updated_at DESC`),
+ * which is the document being streamed into. This lets a model stream chunks
+ * with only `content` instead of threading the opaque `surface_id` back through
+ * every call — a step weak models routinely drop, leaving the document stuck on
+ * its first chunk.
+ */
+function resolveUpdateSurfaceId(
+  input: Record<string, unknown>,
+  context: ToolContext,
+): ToolExecutionResult | string {
+  if (typeof input.surface_id === "string" && input.surface_id.trim() !== "") {
+    return input.surface_id;
+  }
+  const docs = getDocumentsForConversation(context.conversationId);
+  if (docs.length === 0) {
+    return invalidInput(
+      "surface_id is required: no document is open in this conversation. Call document_create first.",
+    );
+  }
+  return docs[0].surfaceId;
+}
+
 export function executeDocumentUpdate(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const surfaceIdOrError = validateSurfaceId(input);
-  if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
-  const surfaceId = surfaceIdOrError;
   if (typeof input.content !== "string") {
     return invalidInput("content is required and must be a string");
   }
+  const surfaceIdOrError = resolveUpdateSurfaceId(input, context);
+  if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
+  const surfaceId = surfaceIdOrError;
   // Loose `!= null` to match validateInputAgainstSchema, which treats null as
   // "absent" for enum checks — without this, { mode: null } passes the
   // factory validator but rejects here. The `?? "append"` below handles null.
