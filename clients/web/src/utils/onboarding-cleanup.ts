@@ -32,6 +32,13 @@ import { patchConsent, type UserConsent } from "@/domains/account/profile";
 export const TOS_CONSENT_VERSION = "2026-06-08";
 export const PRIVACY_CONSENT_VERSION = "2026-06-18";
 
+// The privacy version that the legacy "ai"-named device key was last written
+// under, before that field was folded into "privacy". Frozen as a literal (not
+// PRIVACY_CONSENT_VERSION) so it keeps pointing at the real legacy key after
+// the privacy version is bumped — letting us recognize and clean up that stale
+// key rather than treating it as current consent.
+const LEGACY_AI_PRIVACY_CONSENT_VERSION = "2026-06-08";
+
 // Version stamp embedded in each field's device-cache key. ToS tracks its own
 // version; the privacy checkbox (privacy policy + AI data sharing) and the two
 // share toggles track the privacy version.
@@ -46,12 +53,10 @@ function consentKey(field: keyof typeof CONSENT_KEY_VERSION, userId: string): st
   return `device:consent:${field}:v${CONSENT_KEY_VERSION[field]}:${userId}`;
 }
 
-// The previous release stored this consent under a field named "ai" (now folded
-// into "privacy"). Read at the same version the old key was written under so an
-// existing offline user with only the old key migrates cleanly instead of
-// reading privacy=false and being re-routed through onboarding.
+// The previous release stored privacy consent under a field named "ai" (now
+// folded into "privacy"), written under LEGACY_AI_PRIVACY_CONSENT_VERSION.
 function legacyPrivacyConsentKey(userId: string): string {
-  return `device:consent:ai:v${PRIVACY_CONSENT_VERSION}:${userId}`;
+  return `device:consent:ai:v${LEGACY_AI_PRIVACY_CONSENT_VERSION}:${userId}`;
 }
 
 export function restoreConsentForUser(
@@ -64,14 +69,14 @@ export function restoreConsentForUser(
     const analyticsCurrent = getLocalBool(consentKey("share_analytics", userId), false);
     const diagnosticsCurrent = getLocalBool(consentKey("share_diagnostics", userId), false);
     const tos = getLocalBool(consentKey("tos", userId), false);
-    let privacy = getLocalBool(consentKey("privacy", userId), false);
+    const privacy = getLocalBool(consentKey("privacy", userId), false);
 
-    // Migrate the previous version's "ai"-named key into "privacy" so a renamed-
-    // key user isn't read as un-consented (which the empty-server fallback would
-    // turn into an onboarding re-route).
-    if (!privacy && getLocalBool(legacyPrivacyConsentKey(userId), false)) {
-      privacy = true;
-      setLocalBool(consentKey("privacy", userId), true);
+    // The legacy "ai"-named key was written under the previous privacy version,
+    // so it cannot attest to the current one. Never promote it — that would
+    // stamp stale consent as current. Clean it up if present so it doesn't
+    // linger, and leave privacy un-set so the user re-reviews the updated
+    // privacy checkbox.
+    if (getLocalBool(legacyPrivacyConsentKey(userId), false)) {
       removeLocalSetting(legacyPrivacyConsentKey(userId));
     }
 

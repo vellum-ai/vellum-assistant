@@ -285,18 +285,20 @@ describe("persistToggleConsent + restoreConsentForUser round-trip", () => {
     expect(r.diagnosticsCurrent).toBe(false);
   });
 
-  test("migrates the previous version's per-user 'ai' key into 'privacy'", () => {
-    // An existing offline user consented under the old field name.
-    const legacyAiKey = `device:consent:ai:v${PRIVACY_CONSENT_VERSION}:user-1`;
+  test("cleans up the legacy 'ai' key without satisfying the current privacy version", () => {
+    // A user consented under the old field name at the previous privacy version.
+    // The privacy version has since been bumped, so that stale consent must not
+    // be promoted as current — the key is cleaned up and privacy stays un-set.
+    const legacyAiKey = `device:consent:ai:v2026-06-08:user-1`;
     const privacyKey = `device:consent:privacy:v${PRIVACY_CONSENT_VERSION}:user-1`;
     localStorage.setItem(legacyAiKey, "true");
 
     const r = restoreConsentForUser("user-1");
 
-    expect(r.privacy).toBe(true);
-    // The old key is promoted to the new one and removed.
-    expect(localStorage.getItem(privacyKey)).toBe("true");
+    expect(r.privacy).toBe(false);
+    // The stale key is removed and privacy is not stamped current.
     expect(localStorage.getItem(legacyAiKey)).toBeNull();
+    expect(localStorage.getItem(privacyKey)).toBeNull();
   });
 
   test("migrates legacy unversioned ToS but forces privacy re-review", () => {
