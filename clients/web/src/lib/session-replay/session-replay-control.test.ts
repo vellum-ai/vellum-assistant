@@ -95,6 +95,7 @@ const CONFIG = {
   surface: "web" as const,
   environment: "test",
   release: "1.2.3",
+  base: "https://app.example.com",
 };
 
 function authState(over: Partial<MockAuthState> = {}): MockAuthState {
@@ -138,6 +139,7 @@ describe("syncSessionReplay", () => {
       environment: "test",
       release: "1.2.3",
       surface: "web",
+      base: "https://app.example.com",
     });
     expect(stopMock).not.toHaveBeenCalled();
   });

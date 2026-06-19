@@ -5,6 +5,11 @@ import { session } from "electron";
 // injected bridge/storage scripts are inline. The sandbox attribute is the
 // primary isolation boundary for that content.
 //
+// https://*.vellum.ai in script-src: the session-replay recorder script is
+// served first-party from the platform origin (`/_sr/cdn/...`) and loads as a
+// regular <script>. Ingest is already covered by connect-src and the recorder
+// worker by `worker-src ... blob:`, so this is the only directive that needs it.
+//
 // ws://localhost / ws://127.0.0.1 in connect-src: the self-hosted gateway's
 // WebSocket endpoints (/v1/stt/stream dictation partials, /v1/live-voice).
 // HTTP gateway traffic rides the app:// protocol forward in main and stays
@@ -14,7 +19,7 @@ import { session } from "electron";
 // connections need the planned proxy-through-main follow-up.
 export const CSP_POLICY = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  "script-src 'self' 'unsafe-inline' https://*.vellum.ai",
   "style-src 'self' 'unsafe-inline'",
   "connect-src 'self' blob: data: https://*.vellum.ai wss://*.vellum.ai https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://api.elevenlabs.io https://api.deepgram.com ws://localhost:* ws://127.0.0.1:*",
   "img-src 'self' https: data: blob:",

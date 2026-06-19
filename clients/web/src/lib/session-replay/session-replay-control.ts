@@ -24,6 +24,8 @@ export interface SessionReplayConfig {
   surface: SessionReplaySurface;
   environment: string;
   release?: string;
+  /** Origin fronting the first-party LogRocket proxy. */
+  base: string;
 }
 
 /**
@@ -64,6 +66,7 @@ function tryInit(config: SessionReplayConfig): void {
     environment: config.environment,
     release: config.release,
     surface: config.surface,
+    base: config.base,
   });
   identifySessionReplayUser(config.surface);
 }

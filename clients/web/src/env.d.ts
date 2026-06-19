@@ -59,4 +59,10 @@ interface Window {
   __VELLUM_FLAG_OVERRIDES__?: Record<string, boolean | string>;
   /** Runtime config injected by the shell (Electron preload, CLI, etc.). */
   __VELLUM_CONFIG__?: { disablePlatform?: boolean; mode?: string };
+  /**
+   * SDK-defined override for the session-replay recorder script URL. Set before
+   * the replay SDK inits so it loads the recorder from our first-party proxy
+   * (see `session-replay-provider.ts`).
+   */
+  _lrAsyncScript?: string;
 }
