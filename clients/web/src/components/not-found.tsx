@@ -35,10 +35,10 @@ export function NotFound() {
           ghosted oversized 404 anchoring the composition behind the content. */}
       <div aria-hidden className="pointer-events-none absolute inset-0">
         <div
-          className="absolute left-1/2 top-1/2 size-[min(120vmin,900px)] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-40 blur-3xl"
+          className="absolute left-1/2 top-1/2 size-[min(120vmin,900px)] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-60 blur-3xl dark:opacity-30"
           style={{
             background:
-              "radial-gradient(circle at center, var(--content-quiet), transparent 60%)",
+              "radial-gradient(circle at center, var(--content-tertiary), transparent 60%)",
           }}
         />
         <div
