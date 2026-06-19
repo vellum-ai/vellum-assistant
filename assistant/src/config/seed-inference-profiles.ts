@@ -160,9 +160,13 @@ export const OS_BETA_PROFILE_TEMPLATE: ManagedProfileTemplate = {
   contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
 };
 
+// `OS_BETA_PROFILE_KEY` is intentionally absent here: it joins this set only
+// once the flag-gated reconciler that actually seeds the managed `os-beta`
+// profile lands. Adding it earlier would make the route layer treat a
+// pre-existing user-created `os-beta` profile as managed (blocking edits and
+// deletion) before any managed profile exists to back it.
 export const MANAGED_PROFILE_NAMES = new Set([
   ...Object.keys(MANAGED_PROFILE_TEMPLATES),
-  OS_BETA_PROFILE_KEY,
   AUTO_PROFILE_KEY,
 ]);
 

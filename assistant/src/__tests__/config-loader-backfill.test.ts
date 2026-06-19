@@ -1455,8 +1455,11 @@ describe("OS Beta managed profile template", () => {
     expect((raw.llm.profileOrder as string[]).includes("os-beta")).toBe(false);
   });
 
-  test("MANAGED_PROFILE_NAMES contains os-beta", () => {
-    expect(MANAGED_PROFILE_NAMES.has("os-beta")).toBe(true);
+  test("MANAGED_PROFILE_NAMES does not yet contain os-beta", () => {
+    // Membership lands with the flag-gated reconciler in a later PR, so the
+    // route layer can't lock a user-owned os-beta profile before a managed
+    // one exists.
+    expect(MANAGED_PROFILE_NAMES.has("os-beta")).toBe(false);
   });
 
   test("materializeProfile honors the explicit OS Beta model", () => {
