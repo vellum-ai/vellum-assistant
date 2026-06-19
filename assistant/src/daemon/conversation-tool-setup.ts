@@ -92,8 +92,10 @@ export type {
  * agent's). The conversation id is threaded as the mix selection seed so
  * mix-profile arms match what the dispatch path actually ran.
  *
- * Returns `null` on any failure: attribution is telemetry-only and must
- * never break tool execution (or skill loads, which reuse this helper).
+ * Returns `null` on any failure: attribution must never break tool execution
+ * (or skill loads, which reuse this helper). Consumers read it best-effort —
+ * usage telemetry, and `subagent_spawn`, which inherits the resolved
+ * `appliedProfile` so a child defaults to the invoking turn's profile.
  */
 export function resolveConversationAttribution(
   ctx: Pick<

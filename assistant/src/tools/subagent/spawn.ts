@@ -96,34 +96,37 @@ export async function executeSubagentSpawn(
 
   // The subagent runs as its own background conversation, so the agent
   // loop's background-skip rule would zero out any inherited profile.
-  // Pass the parent's profile explicitly via `SubagentConfig` so
-  // `SubagentManager.spawn` forwards it back into the subagent's
-  // `runAgentLoop` call as `options.overrideProfile`.
+  // Forward the invoker's profile explicitly via `SubagentConfig` so
+  // `SubagentManager.spawn` passes it into the subagent's `runAgentLoop` as
+  // `options.overrideProfile`.
   //
   // Resolution order: an explicit spawn-time profile, then the per-turn
-  // `context.overrideProfile` (populated by `runAgentLoopImpl` from its
-  // resolved `turnOverrideProfile`, covering per-conversation overrides and
-  // tool-routed switches), then a row read, and finally the resolved DEFAULT
-  // profile of the call site that invoked us. That last fallback is what makes
-  // a subagent match its invoker when the invoking turn ran purely on its
-  // call-site default — the workspace `activeProfile` for `mainAgent`, or the
-  // call site's own catalog default (e.g. `cost-optimized`) for a
-  // heartbeat/background invoker. `resolveDefaultProfileKey` does not reflect a
-  // static `llm.callSites.<callSite>` profile override (only the
-  // activeProfile-for-mainAgent path plus the catalog default), a narrow gap
-  // that only surfaces with no `activeProfile` set and a hand-tuned call-site
-  // profile.
+  // `context.overrideProfile` (per-conversation override or tool-routed
+  // switch), then a row read, then the profile the invoking turn actually
+  // resolved to. `context.attribution` mirrors the full resolver precedence —
+  // including a configured `llm.callSites.<callSite>.profile`, which
+  // `resolveDefaultProfileKey` alone does NOT capture — so the child matches
+  // the profile that ran the parent turn even when it came from a call-site
+  // override. `resolvedMixArm` pins the exact arm a mix profile expanded to
+  // (the child would otherwise re-expand under its own seed). The trailing
+  // `resolveDefaultProfileKey` is a fallback for spawns with no attribution
+  // (e.g. outside an agent-loop turn).
   //
-  // The fallback is forwarded NON-forced, so an explicit
+  // The inherited profile is forwarded NON-forced, so an explicit
   // `llm.callSites.subagentSpawn` profile still wins; an explicit
   // `inference_profile` argument keeps `forceOverrideProfile` and wins
   // outright. (The row read short-circuits to `undefined` for the background
   // subagent conversation and for tool calls outside an agent-loop turn.)
   let inheritedOverrideProfile = requestedOverrideProfile;
   if (inheritedOverrideProfile === undefined) {
+    const invokerResolvedProfile =
+      context.attribution?.resolvedMixArm ??
+      context.attribution?.appliedProfile ??
+      undefined;
     const inheritedCandidate =
       context.overrideProfile ??
       getConversationOverrideProfile(context.conversationId) ??
+      invokerResolvedProfile ??
       resolveDefaultProfileKey(
         context.invokingCallSite ?? "mainAgent",
         getConfig().llm,
