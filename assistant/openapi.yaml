@@ -19315,9 +19315,37 @@ paths:
                     additionalProperties: {}
                     description: Pending confirmation details or null
                   pendingSecret:
-                    type: object
-                    properties: {}
-                    additionalProperties: {}
+                    anyOf:
+                      - type: object
+                        properties:
+                          requestId:
+                            type: string
+                          service:
+                            type: string
+                          field:
+                            type: string
+                          label:
+                            type: string
+                          description:
+                            type: string
+                          placeholder:
+                            type: string
+                          purpose:
+                            type: string
+                          allowedTools:
+                            type: array
+                            items:
+                              type: string
+                          allowedDomains:
+                            type: array
+                            items:
+                              type: string
+                          allowOneTimeSend:
+                            type: boolean
+                        required:
+                          - requestId
+                        additionalProperties: {}
+                      - type: "null"
                     description: Pending secret request or null
                   interactions:
                     type: array
