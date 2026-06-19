@@ -74,9 +74,8 @@ const useOnboardingStoreBase = create<OnboardingStore>()((set) => ({
   },
   setShareDiagnostics: (value) => {
     set({ shareDiagnostics: value });
-    // The device-key write fires the watcher in `sentry-control.ts`, which
-    // re-syncs both Sentry clients with the session gate applied — so the
-    // main-process sync is centralized there, not forced un-gated from here.
+    // Writing the device key fires the `sentry-control.ts` watcher, which
+    // applies the live-session gate and syncs both Sentry clients.
     setLocalBool(KEY_SHARE_DIAGNOSTICS, value);
   },
   setTosAccepted: (value) => {
