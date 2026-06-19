@@ -77,18 +77,32 @@ export class SecretPrompter {
         resolve({ value: null, delivery: "store" });
       }, timeoutMs);
 
+      const config = getConfig();
+
       // Register all lifecycle state in pendingInteractions — same pattern as
       // host proxies and PermissionPrompter. The prompter tracks ownership via ownedIds.
+      // SECURITY: secretDetails carries only the public prompt metadata broadcast
+      // on the secret_request event — never the secret value the user will supply.
       pendingInteractions.register(requestId, {
         conversationId: effectiveConversationId,
         kind: "secret",
+        secretDetails: {
+          service,
+          field,
+          label,
+          description,
+          placeholder,
+          purpose,
+          allowedTools,
+          allowedDomains,
+          allowOneTimeSend: config.secretDetection.allowOneTimeSend,
+        },
         rpcResolve: resolve as (value: unknown) => void,
         rpcReject: reject,
         timer,
       });
       this.ownedIds.add(requestId);
 
-      const config = getConfig();
       const msg: SecretRequestMessage = {
         type: "secret_request",
         requestId,

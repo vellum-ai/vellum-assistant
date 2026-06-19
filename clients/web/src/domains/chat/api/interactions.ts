@@ -117,6 +117,36 @@ export async function submitSecretResponse(
   }
 }
 
+/**
+ * Cancel a pending secret prompt. Posts ONLY `{ requestId }` (no `value`,
+ * no `delivery`) so the daemon resolves the awaiting interaction as cancelled
+ * — the daemon treats an absent `value` as cancellation.
+ */
+export async function submitSecretCancel(
+  assistantId: string,
+  requestId: string,
+): Promise<SubmitSecretResponseResult> {
+  try {
+    const { error, response } = await secretPost({
+      path: { assistant_id: assistantId },
+      body: { requestId },
+      throwOnError: false,
+    });
+    assertHasResponse(response, error, "Failed to cancel secret prompt");
+    if (!response.ok) {
+      const msg = extractErrorMessage(error, response);
+      return { ok: false, status: response.status, error: msg };
+    }
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 500,
+      error: err instanceof Error ? err.message : "Something went wrong.",
+    };
+  }
+}
+
 export async function submitConfirmation(
   assistantId: string,
   requestId: string,

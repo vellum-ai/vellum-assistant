@@ -4,10 +4,28 @@ import { type FormEvent, useState } from "react";
 
 import { Card, Input } from "@vellumai/design-library";
 
+/**
+ * Mechanically humanize a structured identifier like `slack_channel` or
+ * `app_token` into "Slack channel" / "App token" — split on underscores and
+ * capitalize the first letter of the first word. Intentionally generic: no
+ * per-service or per-field lookup table. Credential-specific naming is the
+ * model/skill's job, not this shared component's.
+ */
+function humanizeIdentifier(raw: string): string {
+  const words = raw.split("_").filter(Boolean);
+  if (words.length === 0) {
+    return "";
+  }
+  const joined = words.join(" ");
+  return joined.charAt(0).toUpperCase() + joined.slice(1);
+}
+
 export interface SecretPromptCardProps {
   secret: {
     requestId: string;
     label?: string;
+    service?: string;
+    field?: string;
     description?: string;
     placeholder?: string;
     allowOneTimeSend?: boolean;
@@ -35,6 +53,12 @@ export function SecretPromptCard({
   const trimmedValue = value.trim();
   const canSubmit = trimmedValue.length > 0 && !isSubmitting && !saved;
 
+  const credentialIdentity = [secret.service, secret.field]
+    .filter((part): part is string => !!part)
+    .map(humanizeIdentifier)
+    .filter(Boolean)
+    .join(" · ");
+
   const handleSave = (e: FormEvent) => {
     e.preventDefault();
     if (!canSubmit) {
@@ -55,6 +79,11 @@ export function SecretPromptCard({
           <span className="text-body-small-default text-[var(--content-tertiary)]">
             {secret.label || "Secret required"}
           </span>
+          {credentialIdentity && (
+            <span className="text-body-small-default text-[var(--content-tertiary)]">
+              {credentialIdentity}
+            </span>
+          )}
         </div>
       </div>
 
