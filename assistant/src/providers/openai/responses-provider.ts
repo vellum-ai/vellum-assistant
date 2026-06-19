@@ -204,6 +204,7 @@ export class OpenAIResponsesProvider implements Provider {
     const modelOverride = configObj?.model as string | undefined;
     const effort = configObj?.effort as string | undefined;
     const verbosity = configObj?.verbosity as string | undefined;
+    const topP = configObj?.top_p as number | undefined;
     const usageAttributionHeaders = configObj?.usageAttributionHeaders as
       | Record<string, string>
       | undefined;
@@ -241,6 +242,14 @@ export class OpenAIResponsesProvider implements Provider {
         modelSupportsVerbosity(modelOverride ?? this.model)
       ) {
         params.text = { verbosity };
+      }
+
+      // `top_p` (nucleus sampling). Forwarded explicitly because this client
+      // builds `params` field-by-field; the Responses API accepts it as a
+      // top-level param. Mirrors the chat-completions client's forwarding so
+      // OpenAI-profile `topP` is honored on the Responses path too.
+      if (typeof topP === "number") {
+        params.top_p = topP;
       }
 
       if (tools && tools.length > 0) {
