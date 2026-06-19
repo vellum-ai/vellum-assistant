@@ -165,11 +165,16 @@ export async function rewriteForSelfHostedIngress(
 
   // In local mode the gateway proxy runs over plain HTTP, and Chrome
   // refuses to send a streaming (duplex: "half") body without TLS
-  // (ERR_ALPN_NEGOTIATION_FAILED). Buffer the body as an ArrayBuffer so
-  // the Request carries a finite-length payload. Platform self-hosted
-  // uses TLS, so keep the streaming body to avoid buffering large uploads.
+  // (ERR_ALPN_NEGOTIATION_FAILED), so the body must be buffered into a
+  // finite-length payload. Buffer to a Blob rather than an ArrayBuffer:
+  // an ArrayBuffer body is streamed to the network process through a
+  // fixed-capacity (~1-2 MB) data pipe, so a larger upload stalls forever
+  // when the local consumer drains the pipe slowly. A Blob is passed by
+  // reference (blob handle) and read directly, with no renderer-side data
+  // pipe to block on. Platform self-hosted uses TLS, so keep the streaming
+  // body there to avoid buffering large uploads.
   const body = isLocalMode()
-    ? (request.body ? await request.arrayBuffer() : null)
+    ? (request.body ? await request.blob() : null)
     : request.body;
 
   const init: RequestInit = {
