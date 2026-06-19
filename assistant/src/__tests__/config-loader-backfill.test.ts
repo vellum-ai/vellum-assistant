@@ -826,6 +826,48 @@ describe("loadConfig startup behavior", () => {
     );
   });
 
+  test("reseed preserves user-edited topP on managed profiles", () => {
+    // Simulate a user who overrode topP on the managed "balanced" profile via
+    // PUT /v1/config/llm/profiles/balanced { topP: 0.5 }. The override must
+    // survive the reconcile instead of reverting to the template's 0.95.
+    writeConfig({
+      llm: {
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            model: "old-model-from-previous-release",
+            provider_connection: "anthropic-managed",
+            topP: 0.5,
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    // The user's topP override is preserved across the reseed (not reverted to
+    // the template default of 0.95).
+    expect(raw.llm.profiles.balanced.topP).toBe(0.5);
+    // Model still refreshes — topP is user-owned, the rest is template-owned.
+    expect(raw.llm.profiles.balanced.model).toBe(
+      "accounts/fireworks/models/minimax-m3",
+    );
+  });
+
+  test("reseed seeds the template topP on a fresh managed balanced profile", () => {
+    // No previous on-disk entry → the balanced profile materializes with the
+    // template's topP default of 0.95.
+    writeConfig({ llm: {} });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles.balanced.topP).toBe(0.95);
+  });
+
   test("off-platform reseed preserves an explicit null label (user cleared it)", () => {
     // Setting label to null is the "clear" intent — must survive too,
     // otherwise the next boot would re-stamp the template's default

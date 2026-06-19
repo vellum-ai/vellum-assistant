@@ -163,9 +163,10 @@ export type SeedInferenceProfilesOptions = {
  *    `cost-optimized`): reconciled from the code templates on every boot —
  *    on-platform and off-platform alike — so Vellum can push model/config
  *    updates to customers in a release without a workspace migration. The
- *    templates own all profile content; only `label` and `status` are
- *    user-overridable and survive reseeds. Platform overlays
- *    (`preserveProfileNames`) take precedence for the boot they are supplied.
+ *    templates own all profile content; only `label`, `status`,
+ *    `advisorEnabled`, and `topP` are user-overridable and survive reseeds.
+ *    Platform overlays (`preserveProfileNames`) take precedence for the boot
+ *    they are supplied.
  *
  * 2. **User profiles** (`custom-balanced`, `custom-quality-optimized`,
  *    `custom-cost-optimized`): materialized once at hatch time for
@@ -217,13 +218,14 @@ export function seedInferenceProfiles(
   //    its first merge), so on subsequent boots the templates reconcile content
   //    as usual.
   //
-  //    Two user-editable fields survive the reconcile: `label` (display
-  //    rename) and `status` (active/disabled toggle) — the only fields a user
-  //    may override. The PUT route `/v1/config/llm/profiles/:name` lets users
-  //    patch these on managed profiles without duplicating; we honor those
-  //    edits across reseeds or they'd silently revert on every boot. Carry by
-  //    key-presence rather than truthiness so an explicit `null` (user
-  //    cleared the label) survives too.
+  //    A whitelist of user-editable fields survives the reconcile: `label`
+  //    (display rename), `status` (active/disabled toggle), `advisorEnabled`
+  //    (per-profile advisor toggle), and `topP` (sampling override) — the only
+  //    fields a user may override. The PUT route `/v1/config/llm/profiles/:name`
+  //    lets users patch these on managed profiles without duplicating; we honor
+  //    those edits across reseeds or they'd silently revert on every boot. Carry
+  //    by key-presence rather than truthiness so an explicit `null` (user
+  //    cleared the field) survives too.
   //
   //    BYOK seed defaults (off-platform only):
   //      • label: " (Managed)" suffix disambiguates managed profile labels
@@ -284,6 +286,12 @@ export function seedInferenceProfiles(
       if ("advisorEnabled" in previous) {
         next.advisorEnabled = previous.advisorEnabled;
       }
+      // `topP` is user-editable on managed profiles (see the managed-profile
+      // editable allowlist on the PUT route) — preserve a user override across
+      // reseeds, including an explicit `null` clear, or it would silently revert
+      // to the template value on every boot. Carry by key-presence (not
+      // truthiness) so `null` survives too.
+      if ("topP" in previous) next.topP = previous.topP;
     }
     profiles[name] = next as ProfileEntry;
   }
