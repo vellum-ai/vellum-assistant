@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/web",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "type": "module",
   "description": "Pre-built web SPA for the Vellum Assistant",
   "license": "MIT",
