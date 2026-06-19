@@ -897,6 +897,38 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
     expect(result.decisionApplied).toBe(false);
   });
 
+  test("explicit request code still resolves under a blocked scope (cross-chat carve-out)", async () => {
+    // The Slack cross-chat guard blocks identity fallback, but an explicit
+    // request code carries its own target and must still resolve — otherwise a
+    // guardian could not approve-by-code from a chat where no card was delivered.
+    const req = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      conversationId: "conv-other",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      requestCode: "ABC123",
+      toolName: "shell",
+      expiresAt: Date.now() + 60_000,
+    });
+    registerPendingToolApprovalInteraction(req.id, "conv-other", "shell");
+
+    const result = await routeGuardianReply(
+      replyCtx({
+        messageText: "ABC123 approve",
+        actor: trustedActor(),
+        conversationId: "conv-unrelated",
+        pendingScope: { mode: "blocked" },
+        approvalConversationGenerator: undefined,
+      }),
+    );
+
+    expect(result.consumed).toBe(true);
+    expect(result.requestId).toBe(req.id);
+    expect(result.decisionApplied).toBe(true);
+    expect(getCanonicalGuardianRequest(req.id)!.status).toBe("approved");
+  });
+
   test("multiple hinted pending requests with plain-text approve returns disambiguation", async () => {
     const req1 = createCanonicalGuardianRequest({
       kind: "tool_approval",
