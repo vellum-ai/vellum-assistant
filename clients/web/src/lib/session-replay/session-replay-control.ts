@@ -25,6 +25,8 @@ export interface SessionReplayConfig {
   surface: SessionReplaySurface;
   environment: string;
   release?: string;
+  /** Origin fronting the first-party session replay proxy. */
+  base: string;
   network: SessionReplayNetworkConfig;
 }
 
@@ -66,6 +68,10 @@ function tryInit(config: SessionReplayConfig): void {
     environment: config.environment,
     release: config.release,
     surface: config.surface,
+    base: config.base,
+    // Live gate the SDK re-checks before every upload — a mid-session revoke
+    // stops ingestion even though the recorder can't be un-init'd.
+    shouldSendData: sessionReplayConsentGranted,
     network: config.network,
   });
   identifySessionReplayUser(config.surface);

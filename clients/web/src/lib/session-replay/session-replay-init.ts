@@ -1,3 +1,4 @@
+import { getPlatformRuntimeUrl } from "@/lib/local-mode";
 import { sessionReplayNetworkConfig } from "@/lib/session-replay/network-sanitize";
 import {
   installSessionReplayControlListeners,
@@ -31,6 +32,8 @@ export function initSessionReplay(): void {
     surface: sessionReplaySurface(),
     environment: import.meta.env.VITE_SENTRY_ENVIRONMENT ?? "local",
     release: import.meta.env.VITE_APP_VERSION,
+    // Platform origin per environment + surface; fronts the first-party proxy.
+    base: getPlatformRuntimeUrl(),
     network: sessionReplayNetworkConfig,
   };
   syncSessionReplay(config);

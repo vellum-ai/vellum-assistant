@@ -64,6 +64,11 @@ const BUILD_DEFINES = {
       process.env.VELLUM_ENABLE_CHROME_DEVTOOLS === "1",
   ),
   __SENTRY_DSN_MACOS__: JSON.stringify(process.env.SENTRY_DSN_MACOS || ""),
+  // Root hostname (leading dot) shared with the web bundle's
+  // VITE_ROOT_HOSTNAME; baked into the CSP source lists (see src/main/csp.ts).
+  __VELLUM_ROOT_HOSTNAME__: JSON.stringify(
+    process.env.VITE_ROOT_HOSTNAME || ".vellum.ai",
+  ),
 };
 
 export default defineConfig({

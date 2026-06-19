@@ -71,6 +71,7 @@
     "clsx": "2.1.1",
     "jszip": "3.10.1",
     "katex": "0.17.0",
+    "logrocket": "12.1.1",
     "lucide-react": "1.16.0",
     "motion": "12.39.0",
     "pdfjs-dist": "5.7.284",

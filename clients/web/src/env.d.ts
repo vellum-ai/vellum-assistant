@@ -32,6 +32,13 @@ interface ImportMetaEnv {
    * is distinguished by a `surface` trait. Unset → session replay disabled.
    */
   readonly VITE_SESSION_REPLAY_APP_ID?: string;
+  /**
+   * Root hostname shared across Vellum subdomains, with a leading dot (e.g.
+   * `.vellum.ai`). Used as the session-replay cookie scope (`rootHostname`).
+   * Defaults to `.vellum.ai` when unset. The Electron main process reads the
+   * same var via `process.env` at build time (see `electron.vite.config.ts`).
+   */
+  readonly VITE_ROOT_HOSTNAME?: string;
   /** Stripe publishable key for payment forms. Injected by CI/CD pipeline. */
   readonly VITE_STRIPE_PUBLISHABLE_KEY?: string;
   /** App version stamp for diagnostic reporting. */
@@ -59,4 +66,10 @@ interface Window {
   __VELLUM_FLAG_OVERRIDES__?: Record<string, boolean | string>;
   /** Runtime config injected by the shell (Electron preload, CLI, etc.). */
   __VELLUM_CONFIG__?: { disablePlatform?: boolean; mode?: string };
+  /**
+   * SDK-defined override for the session-replay recorder script URL. Set before
+   * the replay SDK inits so it loads the recorder from our first-party proxy
+   * (see `session-replay-provider.ts`).
+   */
+  _lrAsyncScript?: string;
 }

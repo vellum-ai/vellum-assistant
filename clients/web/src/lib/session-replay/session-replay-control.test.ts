@@ -100,6 +100,7 @@ const CONFIG = {
   surface: "web" as const,
   environment: "test",
   release: "1.2.3",
+  base: "https://app.example.com",
   network: NETWORK,
 };
 
@@ -144,6 +145,9 @@ describe("syncSessionReplay", () => {
       environment: "test",
       release: "1.2.3",
       surface: "web",
+      base: "https://app.example.com",
+      // Live consent gate handed to the SDK (same ref as the exported gate).
+      shouldSendData: sessionReplayConsentGranted,
       network: NETWORK,
     });
     expect(stopMock).not.toHaveBeenCalled();
