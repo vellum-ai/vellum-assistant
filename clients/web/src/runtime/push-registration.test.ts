@@ -298,6 +298,28 @@ describe("unregisterFromRemotePush", () => {
     expect(lastDeleteArg?.path.token).toBe("race-token");
   });
 
+  test("awaits ALL concurrent in-flight upserts before deleting, not just the latest", async () => {
+    let releaseUpsert!: () => void;
+    upsertGate = new Promise<void>((resolve) => {
+      releaseUpsert = resolve;
+    });
+
+    await registerForRemotePush("assistant-1");
+    // Two overlapping upserts (e.g. manual re-upsert + cached token re-emit).
+    registrationHandler?.({ value: "token-A" });
+    registrationHandler?.({ value: "token-B" });
+    await Promise.resolve();
+
+    const unregisterPromise = unregisterFromRemotePush();
+    releaseUpsert();
+    await unregisterPromise;
+
+    // Both upserts settled before the delete ran — no straggler can
+    // re-register the token after logout.
+    expect(upsertMock).toHaveBeenCalledTimes(2);
+    expect(deleteMock).toHaveBeenCalledTimes(1);
+  });
+
   test("reports a failed delete to Sentry instead of silently dropping it", async () => {
     deleteError = { detail: "server error" };
     await registerForRemotePush("assistant-1");

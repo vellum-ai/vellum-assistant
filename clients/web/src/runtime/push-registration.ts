@@ -98,19 +98,23 @@ const persistedRegistration = createStorageAccessor<RegisteredToken | null>({
 let listenersRegistered = false;
 let currentAssistantId: string | null = null;
 let lastRegistered: RegisteredToken | null = null;
-let pendingUpsert: Promise<void> | null = null;
+const pendingUpserts = new Set<Promise<void>>();
 
 /**
- * Track an in-flight upsert so logout can await it before concluding there is
- * nothing to delete. Without this, a `registration` event whose `upsertToken`
- * is still mid-POST when logout fires would leave `lastRegistered` unset — the
- * DELETE would be skipped while the upsert still succeeds, leaving a signed-out
- * device registered.
+ * Track every in-flight upsert so logout can await all of them before
+ * concluding there is nothing to delete. Without this, a `registration` event
+ * whose `upsertToken` is still mid-POST when logout fires would leave
+ * `lastRegistered` unset — the DELETE would be skipped while the upsert still
+ * succeeds, leaving a signed-out device registered. A set (not a single
+ * promise) is required because concurrent upserts can overlap — e.g. an
+ * assistant switch starts a manual re-upsert and `register()` re-emits the
+ * cached token — and awaiting only the latest would let an earlier, slower
+ * upsert re-register the token after the delete.
  */
 function trackUpsert(upsert: Promise<void>): void {
-  pendingUpsert = upsert;
+  pendingUpserts.add(upsert);
   void upsert.finally(() => {
-    if (pendingUpsert === upsert) pendingUpsert = null;
+    pendingUpserts.delete(upsert);
   });
 }
 
@@ -255,12 +259,11 @@ export async function unregisterFromRemotePush(): Promise<void> {
   // already in flight so we don't miss a token that is about to be registered
   // server-side. Logout awaits this function before clearing the session.
   currentAssistantId = null;
-  if (pendingUpsert) {
-    try {
-      await pendingUpsert;
-    } catch {
-      // Upsert failures are already reported inside upsertToken.
-    }
+  // Drain in a loop: awaiting a batch can let a concurrent upsert finish and a
+  // straggler get added. New upserts can only originate from a `registration`
+  // event, which now no-ops (currentAssistantId is null), so this terminates.
+  while (pendingUpserts.size > 0) {
+    await Promise.allSettled([...pendingUpserts]);
   }
 
   // Fall back to persisted storage: a process reload before re-registration
@@ -305,6 +308,6 @@ export function __resetPushRegistrationStateForTests(): void {
   listenersRegistered = false;
   currentAssistantId = null;
   lastRegistered = null;
-  pendingUpsert = null;
+  pendingUpserts.clear();
   persistedRegistration.remove();
 }
