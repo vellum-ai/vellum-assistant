@@ -76,8 +76,10 @@ mock.module("@/stores/auth-store", () => ({
   },
 }));
 
-const { syncSentryClient, diagnosticsConsentGranted, installSentryControlListeners } =
-  await import("@/lib/sentry/sentry-control");
+const { syncSentryClient, installSentryControlListeners } = await import(
+  "@/lib/sentry/sentry-control"
+);
+const { diagnosticsConsentGranted } = await import("@/lib/sentry/consent-gate");
 
 const OPTIONS: BrowserOptions = { dsn: "https://public@example.test/1" };
 

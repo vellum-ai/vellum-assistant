@@ -34,8 +34,6 @@ import { watchDeviceSetting } from "@/utils/device-settings";
 import { syncDiagnosticsToMain } from "@/runtime/diagnostics";
 import { useAuthStore } from "@/stores/auth-store";
 
-export { diagnosticsConsentGranted };
-
 function tryInit(options: BrowserOptions): void {
   const flavor = selectSentryFlavor();
   if (flavor.getClientEnabled()) return;
