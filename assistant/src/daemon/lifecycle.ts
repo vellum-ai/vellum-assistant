@@ -20,6 +20,7 @@ import {
 import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
+import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { createCesClient } from "../credential-execution/client.js";
 import { refreshManagedConnectionCache } from "../credential-execution/managed-catalog.js";
@@ -371,8 +372,14 @@ export async function runDaemon(): Promise<void> {
     // this fetch completes, so without this follow-up sync a flag-enabled
     // assistant would not expose the gated tools until a restart (which can lose
     // the same race). Enable-direction only; chained so it sees the fresh cache.
+    // Then reconcile flag-gated managed profiles (OS Beta): `seedInferenceProfiles()`
+    // runs synchronously earlier in boot before flags are available, so this lands
+    // the profile on the same boot once the flag cache is populated.
     void initFeatureFlagOverrides()
       .then(() => syncFlagGatedTools())
+      .then(() => {
+        reconcileFlagGatedProfiles();
+      })
       .catch((err) => log.warn({ err }, "Background feature flag init failed"));
 
     startGatewayFlagListener();

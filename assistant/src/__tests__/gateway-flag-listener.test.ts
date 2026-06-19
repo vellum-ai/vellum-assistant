@@ -61,6 +61,32 @@ mock.module("../tools/registry.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Track reconcileFlagGatedProfiles calls and let each test control whether it
+// reports a config change, so we can assert the listener broadcasts only when
+// the managed profile set actually changes.
+// ---------------------------------------------------------------------------
+let reconcileCallCount = 0;
+let reconcileReturns = false;
+
+mock.module("../config/sync-gated-profiles.js", () => ({
+  reconcileFlagGatedProfiles: () => {
+    reconcileCallCount++;
+    return reconcileReturns;
+  },
+}));
+
+// ---------------------------------------------------------------------------
+// Track publishConfigChanged so we can assert the picker-refresh broadcast.
+// ---------------------------------------------------------------------------
+let configChangedCount = 0;
+
+mock.module("../runtime/sync/resource-sync-events.js", () => ({
+  publishConfigChanged: () => {
+    configChangedCount++;
+  },
+}));
+
+// ---------------------------------------------------------------------------
 // Dynamic imports (after mock.module)
 // ---------------------------------------------------------------------------
 const { startGatewayFlagListener, stopGatewayFlagListener } =
@@ -117,6 +143,9 @@ describe("gateway-flag-listener", () => {
     refreshCallCount = 0;
     syncToolsCallCount = 0;
     publishedTagSets = [];
+    reconcileCallCount = 0;
+    reconcileReturns = false;
+    configChangedCount = 0;
     testServer = createTestServer();
   });
 
@@ -178,6 +207,44 @@ describe("gateway-flag-listener", () => {
       "feature-flags:client",
       "feature-flags:assistant",
     ]);
+  });
+
+  test("reconciles flag-gated profiles and broadcasts config_changed when the profile set changes", async () => {
+    reconcileReturns = true;
+    await new Promise<void>((resolve) => {
+      testServer.server.listen(socketPath, resolve);
+    });
+
+    startGatewayFlagListener();
+    await testServer.waitForClient();
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Connect path reconciles once and, since it reports a change, broadcasts.
+    expect(reconcileCallCount).toBe(1);
+    expect(configChangedCount).toBe(1);
+
+    testServer.emit("feature_flags_changed");
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(reconcileCallCount).toBe(2);
+    expect(configChangedCount).toBe(2);
+  });
+
+  test("reconciles but does not broadcast config_changed when the profile set is unchanged", async () => {
+    reconcileReturns = false;
+    await new Promise<void>((resolve) => {
+      testServer.server.listen(socketPath, resolve);
+    });
+
+    startGatewayFlagListener();
+    await testServer.waitForClient();
+    await new Promise((r) => setTimeout(r, 100));
+
+    testServer.emit("feature_flags_changed");
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(reconcileCallCount).toBeGreaterThanOrEqual(2);
+    expect(configChangedCount).toBe(0);
   });
 
   test("ignores non-flag events", async () => {
