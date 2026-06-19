@@ -11,6 +11,7 @@ import { RouterProvider } from "react-router";
 import { AppProviders } from "@/components/providers";
 import { WindowDragRegion } from "@/components/window-drag-region";
 import { isChunkLoadError } from "@/lib/chunk-errors";
+import { installConsentRefreshListeners } from "@/lib/consent/consent-refresh";
 import { isLocalMode, loadLockfile } from "@/lib/local-mode";
 import { initSentry } from "@/lib/sentry/sentry-init";
 import { setupAuthListeners, useAuthStore } from "@/stores/auth-store";
@@ -27,6 +28,7 @@ async function boot() {
   initInputModality();
   await initSafeAreaBridge();
   initSentry();
+  installConsentRefreshListeners();
 
   setupOrganizationStore();
   if (isLocalMode()) {
