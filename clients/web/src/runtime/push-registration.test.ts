@@ -86,14 +86,19 @@ interface DeleteArg {
 let lastUpsertArg: UpsertArg | null = null;
 let lastDeleteArg: DeleteArg | null = null;
 let upsertError: unknown = undefined;
+let deleteError: unknown = undefined;
+// When set, the upsert blocks on this gate so a test can interleave logout
+// with an in-flight upsert.
+let upsertGate: Promise<void> | null = null;
 
 const upsertMock = mock(async (arg: UpsertArg) => {
+  if (upsertGate) await upsertGate;
   lastUpsertArg = arg;
   return { data: {}, error: upsertError };
 });
 const deleteMock = mock(async (arg: DeleteArg) => {
   lastDeleteArg = arg;
-  return { data: undefined, error: undefined };
+  return { data: undefined, error: deleteError };
 });
 mock.module("@/generated/api/sdk.gen", () => ({
   assistantsPushTokensUpsert: upsertMock,
@@ -133,6 +138,8 @@ beforeEach(() => {
   lastUpsertArg = null;
   lastDeleteArg = null;
   upsertError = undefined;
+  deleteError = undefined;
+  upsertGate = null;
   addListenerMock.mockClear();
   requestPermissionsMock.mockClear();
   registerMock.mockClear();
@@ -267,6 +274,41 @@ describe("unregisterFromRemotePush", () => {
       query: { bundle_id: "ai.vocify-inc.vellum-assistant-ios" },
       throwOnError: false,
     });
+  });
+
+  test("waits for an in-flight upsert, then deletes the freshly-registered token", async () => {
+    // Block the upsert so we can interleave logout while it is still in flight.
+    let releaseUpsert!: () => void;
+    upsertGate = new Promise<void>((resolve) => {
+      releaseUpsert = resolve;
+    });
+
+    await registerForRemotePush("assistant-1");
+    // iOS delivers the token; the upsert starts but hasn't resolved yet.
+    registrationHandler?.({ value: "race-token" });
+    await Promise.resolve();
+
+    // User logs out mid-upsert. unregister must await the in-flight upsert
+    // rather than concluding there is nothing to delete.
+    const unregisterPromise = unregisterFromRemotePush();
+    releaseUpsert();
+    await unregisterPromise;
+
+    expect(deleteMock).toHaveBeenCalledTimes(1);
+    expect(lastDeleteArg?.path.token).toBe("race-token");
+  });
+
+  test("reports a failed delete to Sentry instead of silently dropping it", async () => {
+    deleteError = { detail: "server error" };
+    await registerForRemotePush("assistant-1");
+    registrationHandler?.({ value: "apns-token-abc" });
+    await flushMicrotasks();
+    captureErrorMock.mockClear();
+
+    await unregisterFromRemotePush();
+
+    expect(deleteMock).toHaveBeenCalledTimes(1);
+    expect(captureErrorMock).toHaveBeenCalledTimes(1);
   });
 
   test("no-ops when no token was registered", async () => {

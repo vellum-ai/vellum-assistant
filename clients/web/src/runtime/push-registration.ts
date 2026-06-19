@@ -98,6 +98,21 @@ const persistedRegistration = createStorageAccessor<RegisteredToken | null>({
 let listenersRegistered = false;
 let currentAssistantId: string | null = null;
 let lastRegistered: RegisteredToken | null = null;
+let pendingUpsert: Promise<void> | null = null;
+
+/**
+ * Track an in-flight upsert so logout can await it before concluding there is
+ * nothing to delete. Without this, a `registration` event whose `upsertToken`
+ * is still mid-POST when logout fires would leave `lastRegistered` unset — the
+ * DELETE would be skipped while the upsert still succeeds, leaving a signed-out
+ * device registered.
+ */
+function trackUpsert(upsert: Promise<void>): void {
+  pendingUpsert = upsert;
+  void upsert.finally(() => {
+    if (pendingUpsert === upsert) pendingUpsert = null;
+  });
+}
 
 /**
  * True only on the native Capacitor iOS runtime.
@@ -173,7 +188,7 @@ async function ensureListeners(): Promise<void> {
     await PushNotifications.addListener("registration", (token) => {
       const assistantId = currentAssistantId;
       if (!assistantId) return;
-      void upsertToken(token.value, assistantId);
+      trackUpsert(upsertToken(token.value, assistantId));
     });
     await PushNotifications.addListener("registrationError", (err) => {
       captureError(err, {
@@ -209,7 +224,7 @@ export async function registerForRemotePush(assistantId: string): Promise<void> 
   // assistant, re-upsert it now rather than waiting for another registration
   // event (which only fires again on the next `register()`).
   if (lastRegistered && lastRegistered.assistantId !== assistantId) {
-    void upsertToken(lastRegistered.token, assistantId);
+    trackUpsert(upsertToken(lastRegistered.token, assistantId));
   }
 
   try {
@@ -233,10 +248,21 @@ export async function registerForRemotePush(assistantId: string): Promise<void> 
  * authenticated (the platform delete is keyed on the still-valid session).
  *
  * Best-effort and idempotent: no-ops when nothing was registered or off native
- * iOS, and swallows delete failures.
+ * iOS, and reports (does not throw) delete failures.
  */
 export async function unregisterFromRemotePush(): Promise<void> {
+  // Stop new registration events from upserting, then wait for any upsert
+  // already in flight so we don't miss a token that is about to be registered
+  // server-side. Logout awaits this function before clearing the session.
   currentAssistantId = null;
+  if (pendingUpsert) {
+    try {
+      await pendingUpsert;
+    } catch {
+      // Upsert failures are already reported inside upsertToken.
+    }
+  }
+
   // Fall back to persisted storage: a process reload before re-registration
   // leaves `lastRegistered` null even though a token is still registered.
   const registered = lastRegistered ?? persistedRegistration.load();
@@ -246,11 +272,25 @@ export async function unregisterFromRemotePush(): Promise<void> {
   if (!registered || !isRemotePushSupported()) return;
 
   try {
-    await assistantsPushTokensDelete({
+    const result = await assistantsPushTokensDelete({
       path: { assistant_id: registered.assistantId, token: registered.token },
       query: { bundle_id: registered.bundleId },
       throwOnError: false,
     });
+    // `throwOnError: false` surfaces 4xx/5xx in `result.error`; a silently
+    // failed delete leaves the token registered, so report it rather than
+    // treating the unregister as complete.
+    if (result.error) {
+      captureError(result.error, {
+        context: "push_registration_delete",
+        level: "warning",
+        bestEffort: true,
+        extra: {
+          assistantId: registered.assistantId,
+          bundleId: registered.bundleId,
+        },
+      });
+    }
   } catch (err) {
     captureError(err, {
       context: "push_registration_delete",
@@ -265,5 +305,6 @@ export function __resetPushRegistrationStateForTests(): void {
   listenersRegistered = false;
   currentAssistantId = null;
   lastRegistered = null;
+  pendingUpsert = null;
   persistedRegistration.remove();
 }
