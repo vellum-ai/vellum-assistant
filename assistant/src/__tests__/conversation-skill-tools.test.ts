@@ -372,7 +372,9 @@ describe("projectSkillTools", () => {
       previouslyActiveSkillIds: sessionState,
     });
 
-    // Tool definitions are no longer sent to the LLM — tools are invoked via skill_execute dispatch.
+    // Tool definitions are not sent to the LLM here — tools are invoked via
+    // skill_execute dispatch; weak-open-model first-class exposure resolves
+    // defs from the registry by name in createResolveToolsCallback.
     expect(result.toolDefinitions).toEqual([]);
     expect(result.allowedToolNames).toEqual(
       new Set(["deploy_run", "deploy_status"]),
