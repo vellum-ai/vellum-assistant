@@ -1,13 +1,13 @@
 import type { BrowserOptions } from "@sentry/react";
 
 import {
+  diagnosticsConsentGranted,
   installSentryControlListeners,
   syncSentryClient,
 } from "@/lib/sentry/sentry-control";
 import { syncDiagnosticsToMain } from "@/runtime/diagnostics";
 import { sanitizeUrl } from "@/lib/sentry/url-sanitize";
 import { isNativePlatform } from "@/runtime/native-auth";
-import { getDeviceBool } from "@/utils/device-settings";
 
 /**
  * Resolve the Sentry DSN for the current host. The shared bundle reports to a
@@ -115,15 +115,15 @@ const options: BrowserOptions = {
 /**
  * Bootstrap Sentry consent gating. Must be called after
  * `migrateDeviceSettings()` so the `device:diagnostics_reporting` key
- * is available when `readConsent()` reads localStorage.
+ * is available when the consent gate reads localStorage.
  *
- * Also syncs the effective reporting gate to the Electron main process
- * (no-op on web/iOS) so the main-process Sentry client matches.
+ * Also syncs the effective (session-gated) reporting gate to the Electron main
+ * process (no-op on web/iOS) so the main-process Sentry client matches.
  */
 export function initSentry(): void {
   // Resolve the DSN at init time (post host-detection), not at module load.
   const resolved: BrowserOptions = { ...options, dsn: resolveDsn() };
   syncSentryClient(resolved);
   installSentryControlListeners(resolved);
-  syncDiagnosticsToMain(getDeviceBool("diagnosticsReporting", false));
+  syncDiagnosticsToMain(diagnosticsConsentGranted());
 }

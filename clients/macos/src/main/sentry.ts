@@ -1,15 +1,15 @@
 import * as Sentry from "@sentry/electron/main";
 import { app } from "electron";
 
-import { onSettingChange, readSetting, writeSetting } from "./settings";
+import { onSettingChange, writeSetting } from "./settings";
 
 declare const __VELLUM_BUILD_SHA__: string;
 declare const __VELLUM_ENVIRONMENT__: string;
 declare const __SENTRY_DSN_MACOS__: string;
 
 /**
- * Resolved Sentry init options — cached once so re-init after consent
- * change doesn't need to re-derive them.
+ * Resolved Sentry init options — cached once so the first consented enable
+ * doesn't need to re-derive them.
  *
  * The default `@sentry/electron/main` integrations enable Crashpad minidump
  * capture (`sentryMinidumpIntegration`) and renderer/child process crash
@@ -39,62 +39,67 @@ function applyTags(): void {
   Sentry.setTag("packaged", String(app.isPackaged));
 }
 
-function tryInit(options: Sentry.ElectronMainOptions): void {
-  const existing = Sentry.getClient();
-  if (existing && existing.getOptions().enabled !== false) return;
-  Sentry.init({ ...options, enabled: true });
-  applyTags();
-}
-
-function tryClose(): void {
-  const client = Sentry.getClient();
-  if (!client) return;
-  void client.close(2000);
-  Sentry.getCurrentScope().setClient(undefined);
-}
+let cachedOptions: Sentry.ElectronMainOptions | null = null;
+// Whether the SDK has been initialized this process. `@sentry/electron/main`
+// init() starts Crashpad and installs crash listeners that close() does NOT
+// remove, so an off→on→off churn of init/close would leak stale listeners.
+// We init AT MOST ONCE (lazily, on first consent) and thereafter gate event
+// delivery via the `enabled` flag below rather than tearing the client down.
+let initialized = false;
+// Live consent flag consulted by `beforeSend`: JS events are dropped while
+// false. Native Crashpad minidumps still flush once the SDK is initialized;
+// deeper pre-consent minidump gating is handled by a later PR (PR 10). This
+// PR fixes the stale-listener churn and keeps JS event delivery consent-gated.
+let enabled = false;
 
 /**
- * Read consent from electron-store. Strict opt-in: absent or false → OFF.
+ * Initialize the SDK exactly once, on the first time consent is enabled. After
+ * this, toggling consent only flips the `enabled` flag — the client is never
+ * closed or re-inited, so crash listeners are installed at most once.
  */
-function readConsent(): boolean {
-  return readSetting("shareDiagnostics") === true;
+function ensureInitialized(): void {
+  if (initialized || !cachedOptions) return;
+  Sentry.init({
+    ...cachedOptions,
+    enabled: true,
+    beforeSend: (event) => (enabled ? event : null),
+  });
+  applyTags();
+  initialized = true;
+}
+
+function applyConsent(consented: boolean): void {
+  if (!cachedOptions) return;
+  enabled = consented;
+  if (consented) ensureInitialized();
 }
 
 /**
- * Initialize Sentry for the Electron main process, gated on the user's
- * Share Diagnostics consent stored in electron-store. The renderer syncs an
- * effective diagnostics gate (preference && version-current) to main via the
- * `vellum:diagnostics:setShareDiagnostics` IPC channel.
- *
- * Strict opt-in semantics (matching the renderer's `sentry-control.ts`):
- *   - stored `true`  → Sentry ON  (explicit consent)
- *   - stored `false` → Sentry OFF (explicit opt-out)
- *   - absent         → Sentry OFF (no consent on record yet)
- *
- * Also installs an electron-store watcher so flipping the toggle
- * mid-session immediately enables/disables Sentry without restart.
+ * Prepare main-process Sentry consent gating, starting fail-closed: Sentry is
+ * NOT initialized from the persisted `shareDiagnostics` value, because main
+ * boots before any renderer exists and the persisted value can be a stale
+ * opt-in from a prior signed-in run. The renderer owns the live-session gate
+ * and pushes the effective consent over the
+ * `vellum:diagnostics:setShareDiagnostics` IPC channel; until it does, main
+ * stays silent. An electron-store watcher keeps Sentry in sync with later
+ * mid-session toggles.
  */
 export function initSentryMain(): void {
-  const options = resolveOptions();
-  if (!options) return;
-
-  if (readConsent()) {
-    tryInit(options);
-  }
+  cachedOptions = resolveOptions();
+  if (!cachedOptions) return;
 
   onSettingChange("shareDiagnostics", (newValue) => {
-    if (newValue === true) {
-      tryInit(options);
-    } else {
-      tryClose();
-    }
+    applyConsent(newValue === true);
   });
 }
 
 /**
- * Update the persisted diagnostics consent from the renderer's IPC call.
- * Triggers the `onSettingChange` watcher which handles Sentry lifecycle.
+ * Apply the renderer's effective (session-gated) diagnostics consent: persist
+ * it and apply consent immediately. Applied directly rather than via the change
+ * watcher so an unchanged persisted value still enforces the gate (electron-
+ * store's `onDidChange` does not fire when the value is unchanged).
  */
-export function setShareDiagnostics(enabled: boolean): void {
-  writeSetting("shareDiagnostics", enabled);
+export function setShareDiagnostics(enabledValue: boolean): void {
+  writeSetting("shareDiagnostics", enabledValue);
+  applyConsent(enabledValue);
 }

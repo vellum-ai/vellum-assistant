@@ -16,10 +16,10 @@ export const capacitorFlavor: SentryFlavor = {
     Capacitor.init({ ...options, enabled: true }, reactInit);
   },
   close() {
-    const client = Capacitor.getClient();
-    if (!client) return;
-    void client.close(2000);
-    Capacitor.getCurrentScope().setClient(undefined);
+    // Use the Capacitor SDK's own close routine, which shuts down BOTH the JS
+    // client and the native sentry-cocoa SDK. Closing only the JS client would
+    // leave native crash reporting running after an opt-out.
+    return Capacitor.close();
   },
   getClientEnabled() {
     const client = Capacitor.getClient();
