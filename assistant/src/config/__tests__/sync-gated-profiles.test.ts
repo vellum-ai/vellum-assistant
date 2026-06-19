@@ -365,4 +365,89 @@ describe("reconcileFlagGatedProfiles", () => {
     expect(reconcileFlagGatedProfiles()).toBe(false);
     expect(readFileSync(CONFIG_PATH, "utf-8")).toBe(before);
   });
+
+  test("vision-perception flag on materializes the managed vision profile", () => {
+    process.env.IS_PLATFORM = "true";
+    seedBalancedConfig();
+    setOverridesForTesting({ "vision-perception": true });
+
+    expect(reconcileFlagGatedProfiles()).toBe(true);
+
+    const raw = readConfig();
+    const vision = raw.llm.profiles["vision"]!;
+    expect(vision.model).toBe("accounts/fireworks/models/qwen3p7-plus");
+    expect(vision.provider).toBe("fireworks");
+    expect(vision.provider_connection).toBe("fireworks-managed");
+    expect(vision.source).toBe("managed");
+    expect(vision.label).toBe("Vision (Qwen 3.7 Plus)");
+    expect(raw.llm.profileOrder.includes("vision")).toBe(true);
+  });
+
+  test("vision-perception flag on in BYOK mode seeds the vision profile disabled", () => {
+    seedBalancedConfig();
+    setOverridesForTesting({ "vision-perception": true });
+
+    expect(reconcileFlagGatedProfiles()).toBe(true);
+
+    const vision = readConfig().llm.profiles["vision"]!;
+    expect(vision.status).toBe("disabled");
+    expect(vision.label).toBe("Vision (Qwen 3.7 Plus) (Managed)");
+    expect(vision.source).toBe("managed");
+  });
+
+  test("vision-perception flag on is idempotent across repeated runs", () => {
+    process.env.IS_PLATFORM = "true";
+    seedBalancedConfig();
+    setOverridesForTesting({ "vision-perception": true });
+
+    expect(reconcileFlagGatedProfiles()).toBe(true);
+    invalidateConfigCache();
+    expect(reconcileFlagGatedProfiles()).toBe(false);
+  });
+
+  test("vision-perception flag off removes a managed vision profile", () => {
+    process.env.IS_PLATFORM = "true";
+    seedBalancedConfig();
+    setOverridesForTesting({ "vision-perception": true });
+    reconcileFlagGatedProfiles();
+    invalidateConfigCache();
+
+    expect(readConfig().llm.profiles["vision"]).toBeDefined();
+
+    setOverridesForTesting({ "vision-perception": false });
+    expect(reconcileFlagGatedProfiles()).toBe(true);
+
+    const after = readConfig();
+    expect(after.llm.profiles["vision"]).toBeUndefined();
+    expect(after.llm.profileOrder.includes("vision")).toBe(false);
+  });
+
+  test("a user-owned vision profile is never touched", () => {
+    process.env.IS_PLATFORM = "true";
+    writeConfig({
+      llm: {
+        default: { provider: "anthropic" },
+        profiles: {
+          vision: {
+            source: "user",
+            label: "Mine",
+            provider: "anthropic",
+            model: "claude-x",
+            provider_connection: "anthropic-personal",
+          },
+        },
+        profileOrder: ["vision"],
+      },
+    });
+    invalidateConfigCache();
+    const before = readFileSync(CONFIG_PATH, "utf-8");
+
+    setOverridesForTesting({ "vision-perception": true });
+    expect(reconcileFlagGatedProfiles()).toBe(false);
+    expect(readFileSync(CONFIG_PATH, "utf-8")).toBe(before);
+
+    setOverridesForTesting({ "vision-perception": false });
+    expect(reconcileFlagGatedProfiles()).toBe(false);
+    expect(readFileSync(CONFIG_PATH, "utf-8")).toBe(before);
+  });
 });
