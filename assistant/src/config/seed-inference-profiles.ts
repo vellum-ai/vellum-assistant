@@ -163,8 +163,11 @@ export type SeedInferenceProfilesOptions = {
  *    `cost-optimized`): reconciled from the code templates on every boot —
  *    on-platform and off-platform alike — so Vellum can push model/config
  *    updates to customers in a release without a workspace migration. The
- *    templates own all profile content; only `label`, `status`,
- *    `advisorEnabled`, and `topP` are user-overridable and survive reseeds.
+ *    templates own all profile content; `label`, `status`, `advisorEnabled`,
+ *    and `topP` are user overrides that survive reseeds. Of those, only
+ *    `label`, `status`, and `topP` are editable through the managed PUT route
+ *    allowlist; `advisorEnabled` is edited via the generic config path but is
+ *    still preserved here so it survives reboots.
  *    Platform overlays (`preserveProfileNames`) take precedence for the boot
  *    they are supplied.
  *
@@ -221,10 +224,13 @@ export function seedInferenceProfiles(
   //    A whitelist of user-editable fields survives the reconcile: `label`
   //    (display rename), `status` (active/disabled toggle), `advisorEnabled`
   //    (per-profile advisor toggle), and `topP` (sampling override) — the only
-  //    fields a user may override. The PUT route `/v1/config/llm/profiles/:name`
-  //    lets users patch these on managed profiles without duplicating; we honor
-  //    those edits across reseeds or they'd silently revert on every boot. Carry
-  //    by key-presence rather than truthiness so an explicit `null` (user
+  //    fields a user may override. The managed PUT route
+  //    `/v1/config/llm/profiles/:name` lets users patch `label`, `status`, and
+  //    `topP` on managed profiles without duplicating (its editable allowlist,
+  //    `MANAGED_PROFILE_EDITABLE_KEYS`, deliberately excludes `advisorEnabled`,
+  //    which is set through the generic config path). We honor every one of
+  //    these overrides across reseeds or they'd silently revert on every boot.
+  //    Carry by key-presence rather than truthiness so an explicit `null` (user
   //    cleared the field) survives too.
   //
   //    BYOK seed defaults (off-platform only):
