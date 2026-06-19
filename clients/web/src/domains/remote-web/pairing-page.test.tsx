@@ -66,7 +66,7 @@ describe("RemoteWebPairingPage", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("Not found")).not.toBeNull();
+    expect(screen.getByText("Page not found")).not.toBeNull();
     expect(createRemoteWebPairingChallengeMock).not.toHaveBeenCalled();
     expect(exchangeRemoteWebPairingTokenMock).not.toHaveBeenCalled();
   });
@@ -105,7 +105,9 @@ describe("RemoteWebPairingPage", () => {
     );
 
     expect(screen.getByText("Starting pairing")).not.toBeNull();
-    expect(container.querySelector(".animate-spin.text-blue-600")).not.toBeNull();
+    expect(
+      container.querySelector(".animate-spin.text-blue-600"),
+    ).not.toBeNull();
     expect(container.querySelector(".text-red-600")).toBeNull();
     expect(exchangeRemoteWebPairingTokenMock).not.toHaveBeenCalled();
   });
