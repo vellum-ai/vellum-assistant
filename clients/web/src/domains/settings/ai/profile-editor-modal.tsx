@@ -225,6 +225,14 @@ function ProfileEditorModalInner({
     typeof initialValues?.temperature === "number" ? initialValues.temperature : 0.7,
   );
 
+  // Advanced params — top P
+  const [topPEnabled, setTopPEnabled] = useState<boolean>(
+    typeof initialValues?.topP === "number",
+  );
+  const [topP, setTopP] = useState<number>(
+    typeof initialValues?.topP === "number" ? initialValues.topP : 0.95,
+  );
+
   // Advanced params — thinking
   const [thinkingEnabled, setThinkingEnabled] = useState<boolean>(
     initialValues?.thinking?.enabled ?? false,
@@ -336,6 +344,8 @@ function ProfileEditorModalInner({
     setVerbosity("medium");
     setTemperatureEnabled(false);
     setTemperature(0.7);
+    setTopPEnabled(false);
+    setTopP(0.95);
     setThinkingEnabled(false);
     setThinkingStreamThinking(false);
     setThinkingLevel(THINKING_LEVEL_INHERIT);
@@ -530,6 +540,14 @@ function ProfileEditorModalInner({
         }
         // create mode + toggle off → omit
       }
+      if (visibility.topP) {
+        if (topPEnabled) {
+          entry.topP = topP;
+        } else if (effectiveMode === "edit") {
+          entry.topP = null;
+        }
+        // create mode + toggle off → omit
+      }
       if (visibility.thinking) {
         entry.thinking = {
           enabled: thinkingEnabled,
@@ -674,6 +692,10 @@ function ProfileEditorModalInner({
       onTemperatureEnabledChange={setTemperatureEnabled}
       temperature={temperature}
       onTemperatureChange={setTemperature}
+      topPEnabled={topPEnabled}
+      onTopPEnabledChange={setTopPEnabled}
+      topP={topP}
+      onTopPChange={setTopP}
       thinkingEnabled={thinkingEnabled}
       onThinkingEnabledChange={setThinkingEnabled}
       thinkingStreamThinking={thinkingStreamThinking}

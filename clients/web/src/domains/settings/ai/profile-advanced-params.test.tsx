@@ -43,6 +43,10 @@ interface FieldOverrides {
   selectedModel?: typeof MODEL;
   defaultMaxOutputTokens?: number;
   defaultContextWindowMaxInputTokens?: number;
+  topPEnabled?: boolean;
+  onTopPEnabledChange?: (v: boolean) => void;
+  topP?: number;
+  onTopPChange?: (v: number) => void;
 }
 
 function renderParams(overrides: FieldOverrides) {
@@ -72,6 +76,10 @@ function renderParams(overrides: FieldOverrides) {
       onTemperatureEnabledChange={() => {}}
       temperature={1}
       onTemperatureChange={() => {}}
+      topPEnabled={overrides.topPEnabled ?? false}
+      onTopPEnabledChange={overrides.onTopPEnabledChange ?? (() => {})}
+      topP={overrides.topP ?? 1}
+      onTopPChange={overrides.onTopPChange ?? (() => {})}
       thinkingEnabled={false}
       onThinkingEnabledChange={() => {}}
       thinkingStreamThinking={false}
@@ -357,6 +365,10 @@ describe("ProfileAdvancedParams token-budget fields", () => {
         onTemperatureEnabledChange={() => {}}
         temperature={1}
         onTemperatureChange={() => {}}
+        topPEnabled={false}
+        onTopPEnabledChange={() => {}}
+        topP={1}
+        onTopPChange={() => {}}
         thinkingEnabled={false}
         onThinkingEnabledChange={() => {}}
         thinkingStreamThinking={false}
@@ -381,5 +393,90 @@ describe("ProfileAdvancedParams token-budget fields", () => {
 
     // THEN it advances by 1,000 tokens, not a coarse quartile jump
     expect(onContextWindowChange).toHaveBeenLastCalledWith(201000);
+  });
+});
+
+const topPOnly: ProfileParamVisibility = {
+  ...VISIBILITY_NONE,
+  topP: true,
+};
+
+describe("ProfileAdvancedParams Top P control", () => {
+  test("renders the Top P toggle when visibility.topP is true", () => {
+    renderParams({ visibility: topPOnly });
+
+    expect(screen.getByRole("switch", { name: "Top P" })).toBeTruthy();
+  });
+
+  test("does not render the Top P control when visibility.topP is false", () => {
+    renderParams({ visibility: maxTokensOnly });
+
+    expect(screen.queryByRole("switch", { name: "Top P" })).toBeNull();
+  });
+
+  test("toggling Top P invokes onTopPEnabledChange", () => {
+    const onTopPEnabledChange = mock();
+    renderParams({ visibility: topPOnly, onTopPEnabledChange });
+
+    fireEvent.click(screen.getByRole("switch", { name: "Top P" }));
+
+    expect(onTopPEnabledChange).toHaveBeenLastCalledWith(true);
+  });
+
+  test("the slider only renders once Top P is enabled", () => {
+    const { rerender } = renderParams({ visibility: topPOnly });
+
+    expect(screen.queryByRole("slider")).toBeNull();
+
+    rerender(
+      <ProfileAdvancedParams
+        visibility={topPOnly}
+        isReadOnly={false}
+        model="claude-opus-4"
+        selectedModel={MODEL}
+        maxTokens={null}
+        onMaxTokensChange={() => {}}
+        contextWindowMaxInputTokens={null}
+        onContextWindowChange={() => {}}
+        effort="none"
+        onEffortChange={() => {}}
+        speed="standard"
+        onSpeedChange={() => {}}
+        verbosity="low"
+        onVerbosityChange={() => {}}
+        temperatureEnabled={false}
+        onTemperatureEnabledChange={() => {}}
+        temperature={1}
+        onTemperatureChange={() => {}}
+        topPEnabled={true}
+        onTopPEnabledChange={() => {}}
+        topP={0.9}
+        onTopPChange={() => {}}
+        thinkingEnabled={false}
+        onThinkingEnabledChange={() => {}}
+        thinkingStreamThinking={false}
+        onThinkingStreamThinkingChange={() => {}}
+        thinkingLevel="default"
+        onThinkingLevelChange={() => {}}
+      />,
+    );
+    const slider = screen.getByRole("slider");
+    expect(slider.getAttribute("aria-valuemin")).toBe("0");
+    expect(slider.getAttribute("aria-valuemax")).toBe("1");
+    expect(slider.getAttribute("aria-valuenow")).toBe("0.9");
+  });
+
+  test("sliding Top P invokes onTopPChange", () => {
+    const onTopPChange = mock();
+    renderParams({
+      visibility: topPOnly,
+      topPEnabled: true,
+      topP: 0.9,
+      onTopPChange,
+    });
+
+    fireEvent.keyDown(screen.getByRole("slider"), { key: "ArrowRight" });
+
+    expect(onTopPChange).toHaveBeenCalled();
   });
 });

@@ -86,6 +86,10 @@ interface ProfileAdvancedParamsProps {
   onTemperatureEnabledChange: (v: boolean) => void;
   temperature: number;
   onTemperatureChange: (v: number) => void;
+  topPEnabled: boolean;
+  onTopPEnabledChange: (v: boolean) => void;
+  topP: number;
+  onTopPChange: (v: number) => void;
   thinkingEnabled: boolean;
   onThinkingEnabledChange: (v: boolean) => void;
   thinkingStreamThinking: boolean;
@@ -259,6 +263,10 @@ export function ProfileAdvancedParams({
   onTemperatureEnabledChange,
   temperature,
   onTemperatureChange,
+  topPEnabled,
+  onTopPEnabledChange,
+  topP,
+  onTopPChange,
   thinkingEnabled,
   onThinkingEnabledChange,
   thinkingStreamThinking,
@@ -381,6 +389,38 @@ export function ProfileAdvancedParams({
                   }
                   min={0}
                   max={2}
+                  step={0.01}
+                  disabled={isReadOnly}
+                  showValue
+                  formatValue={(v) =>
+                    typeof v === "number" ? v.toFixed(2) : String(v)
+                  }
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Top P */}
+      {visibility.topP && (
+        <div className="space-y-2">
+          <Toggle
+            checked={topPEnabled}
+            onChange={(v) => onTopPEnabledChange(v)}
+            label="Top P"
+            disabled={isReadOnly}
+          />
+          {topPEnabled && (
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <Slider
+                  value={topP}
+                  onValueChange={(v) =>
+                    onTopPChange(typeof v === "number" ? v : v[0])
+                  }
+                  min={0}
+                  max={1}
                   step={0.01}
                   disabled={isReadOnly}
                   showValue
