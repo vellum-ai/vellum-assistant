@@ -34,6 +34,19 @@ mock.module("@/lib/auth/gateway-session", () => ({
   isGatewayAuthMode: () => false,
 }));
 
+// Consent prefs are read by buildNavigationState. Pin them current so the
+// platform-session consent gate (which applies to a local client that has a
+// live platform session) does not interfere with the session-admission
+// assertions below.
+const prefsActual = await import("@/domains/onboarding/prefs");
+mock.module("@/domains/onboarding/prefs", () => ({
+  ...prefsActual,
+  readTosAccepted: () => true,
+  readPrivacyConsent: () => true,
+  readAnalyticsConsentCurrent: () => true,
+  readDiagnosticsConsentCurrent: () => true,
+}));
+
 import { authMiddleware } from "./auth-middleware";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -100,7 +113,7 @@ beforeEach(() => {
   mockSelectedAssistant = undefined;
   mockGatewayTokenPresent = false;
   useAuthStore.setState(initialAuthState, true);
-  useResolvedAssistantsStore.setState({ assistants: [] });
+  useResolvedAssistantsStore.setState({ assistants: [], activeAssistantId: null });
   useAssistantLifecycleStore.setState({ assistantState: { kind: "error", message: "no assistant" } });
 });
 
@@ -169,6 +182,9 @@ describe("authMiddleware — app-access admit gate", () => {
     mockGatewayTokenPresent = true;
     useResolvedAssistantsStore.setState({
       assistants: [localAssistant] as never[],
+      // The selected local assistant is the one the lifecycle activated, so its
+      // gateway token counts as a per-assistant reachability signal.
+      activeAssistantId: localAssistant.assistantId,
     });
   }
 
