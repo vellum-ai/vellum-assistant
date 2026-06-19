@@ -331,12 +331,9 @@ describe("LLM catalog parity: daemon vs client", () => {
     });
   });
 
-  test("Fireworks catalog includes Qwen3-VL-235B with vision support", () => {
+  test("Fireworks catalog includes Qwen 3.7 Plus with vision support", () => {
     expect(
-      isModelInCatalog(
-        "fireworks",
-        "accounts/fireworks/models/qwen3-vl-235b-a22b-instruct",
-      ),
+      isModelInCatalog("fireworks", "accounts/fireworks/models/qwen3p7-plus"),
     ).toBe(true);
 
     const fireworks = PROVIDER_CATALOG.find(
@@ -344,15 +341,14 @@ describe("LLM catalog parity: daemon vs client", () => {
     );
     expect(
       fireworks?.models.find(
-        (model) =>
-          model.id === "accounts/fireworks/models/qwen3-vl-235b-a22b-instruct",
+        (model) => model.id === "accounts/fireworks/models/qwen3p7-plus",
       ),
     ).toMatchObject({
-      displayName: "Qwen3-VL-235B (Instruct)",
+      displayName: "Qwen 3.7 Plus",
       contextWindowTokens: 262144,
       maxOutputTokens: 32768,
       supportsVision: true,
-      supportsToolUse: false,
+      supportsToolUse: true,
     });
   });
 

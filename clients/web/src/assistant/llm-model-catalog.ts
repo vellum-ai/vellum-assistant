@@ -240,11 +240,12 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
     {
-      id: "accounts/fireworks/models/qwen3-vl-235b-a22b-instruct",
-      displayName: "Qwen3-VL-235B (Instruct)",
+      id: "accounts/fireworks/models/qwen3p7-plus",
+      displayName: "Qwen 3.7 Plus",
       contextWindowTokens: 262_144,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 32_768,
+      supportsThinking: true,
     },
     {
       id: "accounts/fireworks/models/kimi-k2p5",
