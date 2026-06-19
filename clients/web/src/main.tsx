@@ -14,6 +14,7 @@ import { isChunkLoadError } from "@/lib/chunk-errors";
 import { installConsentRefreshListeners } from "@/lib/consent/consent-refresh";
 import { isLocalMode, loadLockfile } from "@/lib/local-mode";
 import { initSentry } from "@/lib/sentry/sentry-init";
+import { initSessionReplay } from "@/lib/session-replay/session-replay-init";
 import { setupAuthListeners, useAuthStore } from "@/stores/auth-store";
 import { setupOrganizationStore } from "@/stores/organization-store";
 import { router } from "./routes";
@@ -28,6 +29,7 @@ async function boot() {
   initInputModality();
   await initSafeAreaBridge();
   initSentry();
+  initSessionReplay();
   installConsentRefreshListeners();
 
   setupOrganizationStore();
