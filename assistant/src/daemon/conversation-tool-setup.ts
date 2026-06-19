@@ -19,6 +19,7 @@ import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { advisorEnabledForProfile } from "../plugins/defaults/advisor/advisor-gate.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
+import { isWeakOpenModel } from "../providers/weak-open-model.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";
@@ -682,6 +683,36 @@ export function isToolActiveForContext(
 }
 
 /**
+ * Resolve the loaded skill tools to expose first-class to weak open models.
+ *
+ * Weak open models (MiniMax, Kimi, DeepSeek, GLM) fail to serialize the nested
+ * `skill_execute` envelope — a large value double-escaped as a JSON string in
+ * `input` — and either drop it or emit it bare. Exposing each loaded skill
+ * tool first-class lets the model fill the tool's own scalar params directly
+ * (single-escape). Capable models keep the envelope-only contract: this returns
+ * `[]` for them, so their wire surface is unchanged.
+ *
+ * Defs are resolved from the registry by name; `skillToolNames` come from the
+ * projection (skill tools only), filtered by `turnAllowed` so subagent
+ * allowlists and the tool exclude list still apply. The generic `skill_execute`
+ * tool remains available as a fallback for both model tiers.
+ */
+export function resolveFirstClassSkillDefs(
+  skillToolNames: Iterable<string>,
+  turnAllowed: ReadonlySet<string>,
+  resolvedModel: string | null | undefined,
+): ToolDefinition[] {
+  if (!isWeakOpenModel(resolvedModel)) return [];
+  const defs: ToolDefinition[] = [];
+  for (const name of skillToolNames) {
+    if (!turnAllowed.has(name)) continue;
+    const tool = getTool(name);
+    if (tool) defs.push(tool);
+  }
+  return defs;
+}
+
+/**
  * Build a resolveTools callback that merges base tool definitions with
  * dynamically projected skill tools on each agent turn. Also updates
  * allowedToolNames so newly-activated skill tools aren't blocked by
@@ -810,7 +841,30 @@ export function createResolveToolsCallback(
     }
 
     ctx.allowedToolNames = turnAllowed;
-    const baseDefs = injectActivityField(allBaseDefs, ACTIVITY_SKIP_SET);
+
+    // Weak open models fail to serialize the nested `skill_execute` envelope
+    // (a large value double-escaped as a JSON string in `input`), so expose the
+    // loaded skill tools first-class — their scalar params are emitted directly
+    // (single-escape). The defs are resolved from the registry by name; the
+    // names are already in `turnAllowed`. The generic `skill_execute` stays
+    // available as a fallback, and capable models keep the envelope-only
+    // contract (this branch is skipped for them).
+    const resolvedModel = resolveConversationAttribution({
+      conversationId: ctx.conversationId ?? "",
+      currentCallSite: ctx.currentCallSite,
+      currentTurnOverrideProfile: ctx.currentTurnOverrideProfile,
+    })?.resolvedModel;
+    const baseDefs = [
+      ...injectActivityField(allBaseDefs, ACTIVITY_SKIP_SET),
+      ...injectActivityField(
+        resolveFirstClassSkillDefs(
+          projection.allowedToolNames,
+          turnAllowed,
+          resolvedModel,
+        ),
+        ACTIVITY_SKIP_SET,
+      ),
+    ];
 
     const config = getConfig();
     if (
