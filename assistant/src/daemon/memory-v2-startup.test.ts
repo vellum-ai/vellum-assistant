@@ -8,7 +8,9 @@
  * credential — the seed's embed throws and the synthetic capability pages never
  * reach the page index. The reseed must fire only when v2 memory is enabled AND
  * the managed-proxy prerequisites are now satisfied, so self-hosted / BYOK
- * assistants (no managed proxy) are never made to run a doomed embed.
+ * assistants (no managed proxy) are never made to run a doomed embed. When v3 is
+ * live it then enqueues a `memory_v3_maintain` job so v3 picks up the capability
+ * pages immediately instead of waiting out the 6h maintain backstop.
  *
  * Dynamic-imported collaborators are mocked at module scope; `bun:test`
  * isolates `mock.module` per test file.
@@ -19,8 +21,12 @@ import { makeMockLogger } from "../__tests__/helpers/mock-logger.js";
 import type { AssistantConfig } from "../config/schema.js";
 
 const proxyState = { prereqs: true };
+const v3State = { live: true };
 const seedSkill = mock(async () => {});
 const seedCli = mock(async () => {});
+const enqueueJob = mock(
+  (_type: string, _payload: Record<string, unknown>) => 1,
+);
 
 mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
@@ -28,6 +34,14 @@ mock.module("../util/logger.js", () => ({
 
 mock.module("../providers/platform-proxy/context.js", () => ({
   hasManagedProxyPrereqs: async () => proxyState.prereqs,
+}));
+
+mock.module("../config/memory-v3-gate.js", () => ({
+  isMemoryV3Live: () => v3State.live,
+}));
+
+mock.module("../memory/jobs-store.js", () => ({
+  enqueueMemoryJob: enqueueJob,
 }));
 
 mock.module("../memory/v2/skill-store.js", () => ({
@@ -48,7 +62,9 @@ function configWithV2(enabled: boolean): AssistantConfig {
 afterEach(() => {
   seedSkill.mockClear();
   seedCli.mockClear();
+  enqueueJob.mockClear();
   proxyState.prereqs = true;
+  v3State.live = true;
 });
 
 describe("maybeReseedCapabilitiesAfterManagedCredential", () => {
@@ -61,11 +77,33 @@ describe("maybeReseedCapabilitiesAfterManagedCredential", () => {
     expect(seedCli).toHaveBeenCalledTimes(1);
   });
 
+  test("enqueues a v3 maintain pass after reseeding when v3 is live", async () => {
+    proxyState.prereqs = true;
+    v3State.live = true;
+
+    await maybeReseedCapabilitiesAfterManagedCredential(configWithV2(true));
+
+    expect(enqueueJob).toHaveBeenCalledTimes(1);
+    expect(enqueueJob).toHaveBeenCalledWith("memory_v3_maintain", {});
+  });
+
+  test("reseeds but does not enqueue a v3 maintain pass when v3 is not live", async () => {
+    proxyState.prereqs = true;
+    v3State.live = false;
+
+    await maybeReseedCapabilitiesAfterManagedCredential(configWithV2(true));
+
+    expect(seedSkill).toHaveBeenCalledTimes(1);
+    expect(seedCli).toHaveBeenCalledTimes(1);
+    expect(enqueueJob).not.toHaveBeenCalled();
+  });
+
   test("no-op when v2 memory is disabled", async () => {
     await maybeReseedCapabilitiesAfterManagedCredential(configWithV2(false));
 
     expect(seedSkill).not.toHaveBeenCalled();
     expect(seedCli).not.toHaveBeenCalled();
+    expect(enqueueJob).not.toHaveBeenCalled();
   });
 
   test("no-op for non-managed assistants (managed-proxy prereqs not satisfied)", async () => {
@@ -75,6 +113,7 @@ describe("maybeReseedCapabilitiesAfterManagedCredential", () => {
 
     expect(seedSkill).not.toHaveBeenCalled();
     expect(seedCli).not.toHaveBeenCalled();
+    expect(enqueueJob).not.toHaveBeenCalled();
   });
 
   test("swallows a seed failure and still reseeds the other catalog", async () => {
