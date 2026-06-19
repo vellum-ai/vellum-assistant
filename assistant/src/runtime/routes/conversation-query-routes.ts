@@ -755,8 +755,14 @@ function rejectManagedProfileDeletion(body: Record<string, unknown>): void {
   }
   const profiles = asMutablePlainObject(llm.profiles);
   if (!profiles) return;
+  const existingProfiles = asMutablePlainObject(getConfig().llm.profiles) ?? {};
   for (const name of Object.keys(profiles)) {
-    if (profiles[name] === null && MANAGED_PROFILE_NAMES.has(name)) {
+    if (profiles[name] !== null || !MANAGED_PROFILE_NAMES.has(name)) continue;
+    // Only block deletion when the on-disk entry is Vellum-managed. A
+    // user-owned profile sharing a managed name carries a non-managed `source`
+    // and is freely deletable.
+    const existing = asMutablePlainObject(existingProfiles[name]);
+    if (existing?.source === "managed") {
       throw new BadRequestError(`Cannot delete managed profile "${name}".`);
     }
   }
@@ -929,7 +935,24 @@ async function handleReplaceInferenceProfile({
     const detail = parsed.error.issues.map((issue) => issue.message).join("; ");
     throw new BadRequestError(`Invalid profile fragment: ${detail}`);
   }
-  const isManaged = MANAGED_PROFILE_NAMES.has(name);
+  // A managed name with no existing entry stays protected so users can't
+  // shadow a seeded managed profile. An existing entry carrying a non-managed
+  // `source` is user-owned and remains fully editable.
+  const existingProfile = asMutablePlainObject(
+    getConfig().llm.profiles?.[name],
+  );
+  const isManaged =
+    MANAGED_PROFILE_NAMES.has(name) &&
+    (existingProfile == null || existingProfile.source === "managed");
+  // A managed profile name with no materialized entry (e.g. a flag-gated profile
+  // whose flag is off) cannot be patched: writing label/status here would persist
+  // a source-less stub that later blocks the real managed profile from being
+  // seeded. Reject rather than create a placeholder.
+  if (MANAGED_PROFILE_NAMES.has(name) && existingProfile == null) {
+    throw new BadRequestError(
+      `Profile "${name}" is not currently available and cannot be edited.`,
+    );
+  }
   if (isManaged) {
     // Managed profiles are daemon-seeded — provider, model, and the
     // connection binding all belong to the seed contract and can't be

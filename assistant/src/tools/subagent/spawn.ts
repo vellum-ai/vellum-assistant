@@ -1,4 +1,7 @@
 import { validateInferenceProfileKey } from "../../config/inference-profile-validation.js";
+import { resolveDefaultProfileKey } from "../../config/llm-resolver.js";
+import { getConfig } from "../../config/loader.js";
+import { AUTO_PROFILE_KEY } from "../../config/seed-inference-profiles.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
 import { getConversationOverrideProfile } from "../../memory/conversation-crud.js";
 import type { Message } from "../../providers/types.js";
@@ -97,20 +100,41 @@ export async function executeSubagentSpawn(
   // `SubagentManager.spawn` forwards it back into the subagent's
   // `runAgentLoop` call as `options.overrideProfile`.
   //
-  // Prefer an explicit spawn-time profile, then the per-turn
+  // Resolution order: an explicit spawn-time profile, then the per-turn
   // `context.overrideProfile` (populated by `runAgentLoopImpl` from its
-  // resolved `turnOverrideProfile`) over a row read so nested spawns inherit
-  // correctly. The current subagent's own conversation row never has
-  // `inferenceProfile` set — its override arrived via in-memory
-  // `SubagentConfig.overrideProfile` — and even if it were set,
-  // `getConversationOverrideProfile` short-circuits for background
-  // conversations and returns `undefined`. Falling back to the row read
-  // preserves behavior for tool calls that originate outside an agent-loop
-  // turn.
-  const inheritedOverrideProfile =
-    requestedOverrideProfile ??
-    context.overrideProfile ??
-    getConversationOverrideProfile(context.conversationId);
+  // resolved `turnOverrideProfile`, covering per-conversation overrides and
+  // tool-routed switches), then a row read, and finally the resolved DEFAULT
+  // profile of the call site that invoked us. That last fallback is what makes
+  // a subagent match its invoker when the invoking turn ran purely on its
+  // call-site default — the workspace `activeProfile` for `mainAgent`, or the
+  // call site's own catalog default (e.g. `cost-optimized`) for a
+  // heartbeat/background invoker. `resolveDefaultProfileKey` does not reflect a
+  // static `llm.callSites.<callSite>` profile override (only the
+  // activeProfile-for-mainAgent path plus the catalog default), a narrow gap
+  // that only surfaces with no `activeProfile` set and a hand-tuned call-site
+  // profile.
+  //
+  // The fallback is forwarded NON-forced, so an explicit
+  // `llm.callSites.subagentSpawn` profile still wins; an explicit
+  // `inference_profile` argument keeps `forceOverrideProfile` and wins
+  // outright. (The row read short-circuits to `undefined` for the background
+  // subagent conversation and for tool calls outside an agent-loop turn.)
+  let inheritedOverrideProfile = requestedOverrideProfile;
+  if (inheritedOverrideProfile === undefined) {
+    const inheritedCandidate =
+      context.overrideProfile ??
+      getConversationOverrideProfile(context.conversationId) ??
+      resolveDefaultProfileKey(
+        context.invokingCallSite ?? "mainAgent",
+        getConfig().llm,
+      );
+    // Skip the metadata-only "auto" key: forwarding it collapses the child to
+    // `llm.default`, whereas the invoker's own auto base IS the `subagentSpawn`
+    // default — so leaving this undefined keeps the child on that default.
+    if (inheritedCandidate !== AUTO_PROFILE_KEY) {
+      inheritedOverrideProfile = inheritedCandidate;
+    }
+  }
 
   try {
     const subagentId = await manager.spawn(

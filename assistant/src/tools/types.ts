@@ -13,6 +13,7 @@ import { RiskLevel } from "@vellumai/skill-host-contracts";
 import { z } from "zod";
 
 import type { InterfaceId } from "../channels/types.js";
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import type { SecretPromptResult } from "../permissions/secret-prompter.js";
 import type { ContentBlock } from "../providers/types.js";
@@ -363,6 +364,14 @@ export interface ToolContext {
    * `executeSubagentSpawn` in tools/subagent/spawn.ts.
    */
   overrideProfile?: string;
+  /**
+   * The LLM call site of the turn currently executing this tool (`mainAgent`,
+   * `heartbeatAgent`, scheduled work, etc.). `subagent_spawn` reads it to
+   * default a spawned subagent's inference profile to the profile the invoking
+   * turn resolved to, so subagents match whatever agent invoked them rather
+   * than always falling back to the static `subagentSpawn` call-site default.
+   */
+  invokingCallSite?: LLMCallSite;
   /**
    * Canonical principal ID of the actor on whose behalf this tool invocation
    * is running. Sourced from `conversation.trustContext.guardianPrincipalId`.

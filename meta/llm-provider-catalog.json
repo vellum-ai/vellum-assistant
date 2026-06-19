@@ -586,6 +586,23 @@
           }
         },
         {
+          "id": "accounts/fireworks/models/glm-5p2",
+          "displayName": "GLM 5.2",
+          "contextWindowTokens": 1040000,
+          "maxOutputTokens": 131072,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": false,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 1.4,
+            "outputPer1mTokens": 4.4,
+            "cacheReadPer1mTokens": 0.26
+          }
+        },
+        {
           "id": "accounts/fireworks/models/kimi-k2p5",
           "displayName": "Kimi K2.5",
           "contextWindowTokens": 256000,
