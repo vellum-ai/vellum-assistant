@@ -28639,6 +28639,14 @@ components:
                               maximum: 2
                             - type: "null"
                         - type: "null"
+                    topP:
+                      anyOf:
+                        - anyOf:
+                            - type: number
+                              minimum: 0
+                              maximum: 1
+                            - type: "null"
+                        - type: "null"
                     thinking:
                       anyOf:
                         - type: object
@@ -28876,6 +28884,14 @@ components:
                   maximum: 2
                 - type: "null"
             - type: "null"
+        topP:
+          anyOf:
+            - anyOf:
+                - type: number
+                  minimum: 0
+                  maximum: 1
+                - type: "null"
+            - type: "null"
         thinking:
           anyOf:
             - type: object
@@ -29068,6 +29084,14 @@ components:
                 - type: number
                   minimum: 0
                   maximum: 2
+                - type: "null"
+            - type: "null"
+        topP:
+          anyOf:
+            - anyOf:
+                - type: number
+                  minimum: 0
+                  maximum: 1
                 - type: "null"
             - type: "null"
         thinking:
@@ -29293,6 +29317,12 @@ components:
                       minimum: 0
                       maximum: 2
                     - type: "null"
+                topP:
+                  anyOf:
+                    - type: number
+                      minimum: 0
+                      maximum: 1
+                    - type: "null"
                 thinking:
                   type: object
                   properties:
@@ -29430,6 +29460,12 @@ components:
                           - type: number
                             minimum: 0
                             maximum: 2
+                          - type: "null"
+                      topP:
+                        anyOf:
+                          - type: number
+                            minimum: 0
+                            maximum: 1
                           - type: "null"
                       thinking:
                         type: object
@@ -29597,6 +29633,12 @@ components:
             - type: number
               minimum: 0
               maximum: 2
+            - type: "null"
+        topP:
+          anyOf:
+            - type: number
+              minimum: 0
+              maximum: 1
             - type: "null"
         thinking:
           type: object
