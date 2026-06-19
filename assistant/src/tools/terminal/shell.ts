@@ -308,6 +308,11 @@ export const shellTool = {
 
     const env = buildSanitizedEnv();
     env.__CONVERSATION_ID = context.conversationId;
+    // Surface the resolving model to assistant CLI commands so they can tailor
+    // remediation guidance for weak open models (see isWeakOpenModel).
+    if (context.attribution?.resolvedModel) {
+      env.__RESOLVED_MODEL = context.attribution.resolvedModel;
+    }
     if (proxyEnv) {
       Object.assign(env, proxyEnv);
     }
