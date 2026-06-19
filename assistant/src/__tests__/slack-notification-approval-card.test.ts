@@ -8,8 +8,9 @@ import type { ApprovalUIMetadata } from "../runtime/channel-approval-types.js";
 /**
  * Pins the Slack approval-card block contract: the title, identity subtitle,
  * quoted-preview body, action callback ids, source/permalink and requester-id
- * context blocks, warning subtext, and guardian verification note that
- * `buildApprovalNotificationBlocks` emits for an access request.
+ * context blocks, the security-warning context block, and guardian
+ * verification note that `buildApprovalNotificationBlocks` emits for an
+ * access request.
  */
 
 const APPROVAL: ApprovalUIMetadata = {
@@ -121,29 +122,34 @@ describe("Slack access-request card blocks", () => {
     );
   });
 
-  test("warnings render in the card subtext", () => {
-    const c = card(
-      buildApprovalNotificationBlocks(
-        buildPayload({
-          ...BASE,
-          isStranger: true,
-          isRestricted: true,
-          previousMemberStatus: "revoked",
-        }),
-        "msg",
-      ),
+  test("warnings render in a context block under the card", () => {
+    const blocks = buildApprovalNotificationBlocks(
+      buildPayload({
+        ...BASE,
+        isStranger: true,
+        isRestricted: true,
+        previousMemberStatus: "revoked",
+      }),
+      "msg",
     );
-    const subtext = text(c.subtext);
-    expect(subtext).toContain(":warning: This user was previously revoked.");
-    expect(subtext).toContain(
+    // `subtext` is not a Slack card field; warnings must live in a real block
+    // or Slack drops them and the guardian never sees them.
+    expect(card(blocks).subtext).toBeUndefined();
+    const warning = contextTexts(blocks).find((t) => t.includes(":warning:"));
+    expect(warning).toBeDefined();
+    expect(warning).toContain(":warning: This user was previously revoked.");
+    expect(warning).toContain(
       ":warning: External Slack user (not in this workspace).",
     );
-    expect(subtext).toContain(":warning: Guest / restricted account.");
+    expect(warning).toContain(":warning: Guest / restricted account.");
   });
 
-  test("no subtext when there are no warnings", () => {
-    const c = card(buildApprovalNotificationBlocks(buildPayload(BASE), "msg"));
-    expect(c.subtext).toBeUndefined();
+  test("no warning context block when there are no warnings", () => {
+    const blocks = buildApprovalNotificationBlocks(buildPayload(BASE), "msg");
+    expect(card(blocks).subtext).toBeUndefined();
+    expect(contextTexts(blocks).some((t) => t.includes(":warning:"))).toBe(
+      false,
+    );
   });
 
   test("body falls back to a default label when no preview", () => {
