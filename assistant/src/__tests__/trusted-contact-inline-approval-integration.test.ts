@@ -1242,6 +1242,44 @@ describe("(g) access_request resolver: requester code delivery", () => {
     expect(verificationSent.length).toBe(1);
   });
 
+  test("off-channel approval on a channel with no deliverable callback (e.g. email) still records verification_sent", async () => {
+    // `email` has no deliver URL (resolveDeliverCallbackUrlForChannel returns
+    // null), so the requester cannot be auto-notified here. The guardian still
+    // receives the code inline, so the lifecycle transition must be recorded —
+    // the emit must not be gated on requester deliverability.
+    const req = createAccessRequest({
+      sourceChannel: "email",
+      requesterChatId: "requester@example.com",
+      conversationId: "conv-access-email",
+    });
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: "approve_once",
+      actorContext: guardianActor({
+        channel: "vellum",
+        actorExternalUserId: undefined,
+      }),
+    });
+
+    expect(result.applied).toBe(true);
+
+    // Guardian gets the code inline; no requester delivery is attempted because
+    // there is no deliver callback for the channel.
+    const replyText = result.applied ? result.resolverReplyText : undefined;
+    expect(replyText).toContain("123456");
+    const requesterDelivery = deliveredReplies.find(
+      (r) => r.payload.chatId === "requester@example.com",
+    );
+    expect(requesterDelivery).toBeUndefined();
+
+    // The audit/lifecycle signal is still recorded for this off-channel approve.
+    const verificationSent = emittedSignals.filter(
+      (s) => s.sourceEventName === "ingress.trusted_contact.verification_sent",
+    );
+    expect(verificationSent.length).toBe(1);
+  });
+
   test("non-Slack channel keeps the courier message and never delivers the code to the requester chat", async () => {
     const req = createAccessRequest({
       sourceChannel: "telegram",

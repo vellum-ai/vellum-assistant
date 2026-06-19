@@ -835,52 +835,61 @@ const accessRequestResolver: GuardianRequestResolver = {
           verificationSessionId: session.sessionId,
         });
       }
-    } else if (desktopDeliverUrl && requesterChatId) {
-      // Guardian decided off-channel (e.g. desktop) but the requester is on a
-      // deliverable channel. On Slack, DM the code directly (parity with the
-      // on-channel path); otherwise fall back to the courier notice.
-      const requesterCodeDelivered =
-        channel === "slack" && requesterExternalUserId
-          ? await deliverVerificationCodeToSlackRequester({
-              replyCallbackUrl: desktopDeliverUrl,
-              requesterExternalUserId,
-              verificationCode: session.secret,
-              assistantId,
-            })
-          : false;
-
-      if (requesterCodeDelivered) {
-        requesterNotified = true;
-      } else {
-        // For Slack, route to DM via requesterExternalUserId (user ID) instead
-        // of requesterChatId (channel ID) to avoid posting in public channels.
-        const targetChatId =
+    } else {
+      // Guardian decided off-channel (e.g. desktop). The guardian receives the
+      // verification code inline via `guardianReplyText` regardless of the
+      // requester's channel, so the lifecycle transition is recorded for every
+      // off-channel approve — including channels with no deliverable callback
+      // (e.g. email), where the requester cannot be auto-notified here.
+      if (desktopDeliverUrl && requesterChatId) {
+        // The requester is on a deliverable channel. On Slack, DM the code
+        // directly (parity with the on-channel path); otherwise fall back to
+        // the courier notice.
+        const requesterCodeDelivered =
           channel === "slack" && requesterExternalUserId
-            ? requesterExternalUserId
-            : requesterChatId;
-        try {
-          await deliverChannelReply(desktopDeliverUrl, {
-            chatId: targetChatId,
-            text:
-              "Your access request has been approved! " +
-              "Please enter the 6-digit verification code you receive from the guardian.",
-            assistantId,
-          });
+            ? await deliverVerificationCodeToSlackRequester({
+                replyCallbackUrl: desktopDeliverUrl,
+                requesterExternalUserId,
+                verificationCode: session.secret,
+                assistantId,
+              })
+            : false;
+
+        if (requesterCodeDelivered) {
           requesterNotified = true;
-        } catch (err) {
-          log.error(
-            { err, requesterChatId },
-            "Failed to notify requester of access request approval (desktop decision path)",
-          );
+        } else {
+          // For Slack, route to DM via requesterExternalUserId (user ID)
+          // instead of requesterChatId (channel ID) to avoid posting in public
+          // channels.
+          const targetChatId =
+            channel === "slack" && requesterExternalUserId
+              ? requesterExternalUserId
+              : requesterChatId;
+          try {
+            await deliverChannelReply(desktopDeliverUrl, {
+              chatId: targetChatId,
+              text:
+                "Your access request has been approved! " +
+                "Please enter the 6-digit verification code you receive from the guardian.",
+              assistantId,
+            });
+            requesterNotified = true;
+          } catch (err) {
+            log.error(
+              { err, requesterChatId },
+              "Failed to notify requester of access request approval (desktop decision path)",
+            );
+          }
         }
       }
 
-      // Record the verification_sent lifecycle transition for the off-channel
-      // approve path. The session is minted and the request is approved
-      // regardless of whether the requester DM landed — the guardian still
-      // receives the code via guardianReplyText — so emit unconditionally,
-      // mirroring the on-channel branch which keys off guardian receipt rather
-      // than requester delivery.
+      // Record the verification_sent lifecycle transition for every off-channel
+      // approve. The session is minted and the guardian has the code via
+      // `guardianReplyText` regardless of whether (or how) the requester was
+      // notified — mirroring the on-channel branch, which keys off guardian
+      // receipt rather than requester delivery. Without this, approves on
+      // channels with no deliverable callback (e.g. email) would silently skip
+      // the audit/lifecycle record.
       emitVerificationSentSignal({
         channel,
         conversationId: request.conversationId,
