@@ -17,7 +17,7 @@ const realVideoFrames = await import("../src/video-frames.js");
 type SampledVideo = Awaited<
   ReturnType<typeof realVideoFrames.sampleVideoFrames>
 >;
-const { VideoFramesError } = realVideoFrames;
+const { VideoFramesError, planTimestamps, END_EPSILON_S } = realVideoFrames;
 
 // A 1x1 JPEG-ish payload; frames are pre-built fixtures so no ffmpeg runs.
 const FRAME_DATA = "ZmFrZS1mcmFtZQ==";
@@ -221,5 +221,49 @@ describe("vlm_video_log tool", () => {
     const result = await vlmVideoLogTool.execute?.({ media_ref: "vid-1" }, ctx);
 
     expect(result?.isError).toBe(true);
+  });
+});
+
+describe("planTimestamps avoids seeking to the video's end (EOF)", () => {
+  // Regression for Codex P1: the last sampled timestamp used to equal the
+  // duration, so ffmpeg seeked to EOF and produced no frame, turning ordinary
+  // clips > ~2s into `{ isError: true }` results.
+  test("no sampled timestamp equals the duration for a multi-frame clip", () => {
+    const durationS = 10;
+    const { timestamps } = planTimestamps(durationS, 0, durationS, "keyframes");
+
+    expect(timestamps.length).toBeGreaterThan(1);
+    for (const t of timestamps) {
+      expect(t).toBeLessThan(durationS);
+    }
+    // The final timestamp is pulled back by exactly the EOF epsilon.
+    expect(timestamps[timestamps.length - 1]).toBeCloseTo(
+      durationS - END_EPSILON_S,
+      6,
+    );
+  });
+
+  test("the cap holds for every uniform strategy and an explicit full window", () => {
+    const durationS = 30;
+    for (const strategy of ["uniform_1hz", "uniform_4hz"] as const) {
+      const { timestamps } = planTimestamps(durationS, 0, durationS, strategy);
+      expect(Math.max(...timestamps)).toBeLessThan(durationS);
+      expect(Math.max(...timestamps)).toBeLessThanOrEqual(
+        durationS - END_EPSILON_S,
+      );
+    }
+  });
+
+  test("a single-frame clip still samples a valid, non-negative timestamp", () => {
+    // A very short clip (sub-epsilon) must not yield a negative seek time.
+    const tiny = planTimestamps(0.05, 0, 0.05, "keyframes");
+    expect(tiny.timestamps).toHaveLength(1);
+    expect(tiny.timestamps[0]).toBeGreaterThanOrEqual(0);
+    expect(tiny.timestamps[0]).toBeLessThanOrEqual(0.05);
+
+    // A normal short clip samples near the middle, still below the duration.
+    const short = planTimestamps(1.5, 0, 1.5, "keyframes");
+    expect(short.timestamps).toHaveLength(1);
+    expect(short.timestamps[0]).toBeLessThan(1.5);
   });
 });

@@ -100,6 +100,15 @@ const STRATEGY_FPS: Record<SampleStrategy, number | null> = {
 };
 
 /**
+ * Seconds to pull the final sampled timestamp back from the video's end.
+ * Seeking ffmpeg to exactly the duration (EOF) commonly yields no frame / an
+ * empty file, which would make {@link extractFrameAt} throw and turn an ordinary
+ * clip into a `{ isError: true }` result. Clamping every timestamp to at most
+ * `duration - EPSILON` keeps us on a real frame just before the end.
+ */
+export const END_EPSILON_S = 0.1;
+
+/**
  * Translate a {@link spawnWithTimeout} run into a typed error vocabulary: a
  * thrown promise (the binary could not be spawned — absent in this environment)
  * and a non-zero exit both become {@link VideoFramesError}.
@@ -198,8 +207,12 @@ async function extractFrameAt(
  * window (a robust, deterministic proxy for scene coverage without a second
  * decode pass). The list is capped at {@link MAX_FRAMES}; the returned
  * `requested` reflects the pre-cap count so the caller can report truncation.
+ *
+ * Every timestamp is held strictly below the clip's duration (by
+ * {@link END_EPSILON_S}); see that constant for why seeking to EOF is avoided.
+ * Exported for unit testing of that invariant.
  */
-function planTimestamps(
+export function planTimestamps(
   durationS: number,
   windowStart: number,
   windowEnd: number,
@@ -217,13 +230,20 @@ function planTimestamps(
   }
 
   const count = Math.min(requested, MAX_FRAMES);
+
+  // Never seek to the duration itself: ffmpeg at EOF commonly returns no frame.
+  // Cap every timestamp at `duration - EPSILON`, but keep it non-negative so a
+  // sub-epsilon clip still samples a valid frame near the start.
+  const maxT = Math.max(0, durationS - END_EPSILON_S);
+  const cap = (t: number) => Math.min(maxT, t);
+
   const timestamps: number[] = [];
   if (count === 1) {
-    timestamps.push(windowStart + span / 2);
+    timestamps.push(cap(windowStart + span / 2));
   } else {
     const step = span / (count - 1);
     for (let i = 0; i < count; i++) {
-      timestamps.push(Math.min(durationS, windowStart + i * step));
+      timestamps.push(cap(windowStart + i * step));
     }
   }
   return { timestamps, requested };
