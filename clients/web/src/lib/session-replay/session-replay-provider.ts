@@ -121,6 +121,14 @@ const replayProvider: SessionReplayProvider = (() => {
             // sanitizers spread-preserve SDK-private fields (e.g. reqId), so this
             // structural cast across the seam is safe.
             network: options.network as SdkNetworkOption,
+            dom: {
+              // Surfaces a console warning when a stylesheet can't be recorded —
+              // the cause of unstyled replays. The recorder captures console
+              // output, so the diagnostic lands in the session itself. Non-prod
+              // only, to keep production consoles quiet.
+              shouldLogDroppedStyleDiagnostics:
+                options.environment !== "production",
+            },
           });
           sdk = replaySdk;
           if (pendingIdentify) {

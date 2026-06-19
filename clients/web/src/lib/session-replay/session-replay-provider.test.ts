@@ -75,6 +75,11 @@ describe("replay provider (first-party proxy, lazy load)", () => {
     // SDK config object, so it never POSTs to the vendor host directly.
     expect(window.__SDKCONFIG__?.statsURL).toBe(`${BASE}/_sr/ingest/s`);
 
+    // Non-prod (here: "test") logs a diagnostic when a stylesheet can't be
+    // recorded, so unstyled replays are traceable from the session console.
+    const dom = options.dom as { shouldLogDroppedStyleDiagnostics?: boolean };
+    expect(dom.shouldLogDroppedStyleDiagnostics).toBe(true);
+
     // shouldSendData reflects live consent, re-checked before every upload.
     const shouldSendData = options.shouldSendData as () => boolean;
     expect(shouldSendData()).toBe(true);
