@@ -22,6 +22,7 @@ import {
   invalidateConfigCache,
 } from "../../config/loader.js";
 import type { CesClient } from "../../credential-execution/client.js";
+import { maybeReseedCapabilitiesAfterManagedCredential } from "../../daemon/memory-v2-startup.js";
 import { setSentryOrganizationId, setSentryUserId } from "../../instrument.js";
 import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
@@ -296,6 +297,10 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
       }
       if (isManagedProxyCredential(service, field)) {
         await refreshProvidersAfterSecretChange();
+        // Close the first-boot race where the startup capability seed ran before
+        // the managed embedding credential was provisioned, leaving skill/CLI
+        // pages unseeded until restart. Detached — must not block the response.
+        void maybeReseedCapabilitiesAfterManagedCredential(getConfig());
         if (service === "vellum" && field === "assistant_api_key") {
           const generation = ++apiKeyGeneration;
           const deps = getSecretsDeps();
