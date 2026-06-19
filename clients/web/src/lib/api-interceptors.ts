@@ -87,6 +87,21 @@ const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>([
   // must be forwarded to the gateway in local / self-hosted mode rather
   // than falling through to the platform proxy.
   "x",
+  // Daemon- and gateway-owned per-assistant resources that are reached
+  // through the platform client via raw `client.*` calls (their gateway
+  // SDK functions aren't generated yet) instead of the daemon client.
+  // Like `events`/`x` above they must be forwarded to the gateway in
+  // local / self-hosted mode rather than falling through to the dead
+  // platform proxy — otherwise e.g. the background `TimezoneSync` PATCH to
+  // `config` retries against a nonexistent platform and floods the console
+  // with 502s. `a2a` is deliberately excluded: `/a2a/invites/redeem` is a
+  // platform broker (Django) route that must stay on the platform.
+  "config",
+  "permissions",
+  "trust-rules",
+  "artifacts",
+  "contacts",
+  "contact-channels",
 ]);
 
 const ASSISTANT_PATH_RE =
