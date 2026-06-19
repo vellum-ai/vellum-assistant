@@ -2,7 +2,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
+import {
+  isModelInCatalog,
+  PROVIDER_CATALOG,
+} from "../providers/model-catalog.js";
 import { PLATFORM_PROVIDER_META } from "../providers/platform-proxy/constants.js";
 import { resolvePricing, resolvePricingForUsage } from "../util/pricing.js";
 
@@ -299,6 +302,32 @@ describe("LLM catalog parity: daemon vs client", () => {
       maxOutputTokens: 128000,
       longContextPricingThresholdTokens: 272000,
       longContextMode: "native-model",
+    });
+  });
+
+  test("Fireworks catalog includes GLM 5.2", () => {
+    expect(
+      isModelInCatalog("fireworks", "accounts/fireworks/models/glm-5p2"),
+    ).toBe(true);
+
+    const fireworks = PROVIDER_CATALOG.find(
+      (entry) => entry.id === "fireworks",
+    );
+    expect(
+      fireworks?.models.find(
+        (model) => model.id === "accounts/fireworks/models/glm-5p2",
+      ),
+    ).toMatchObject({
+      displayName: "GLM 5.2",
+      contextWindowTokens: 1040000,
+      maxOutputTokens: 131072,
+      supportsToolUse: true,
+      supportsVision: false,
+      pricing: {
+        inputPer1mTokens: 1.4,
+        outputPer1mTokens: 4.4,
+        cacheReadPer1mTokens: 0.26,
+      },
     });
   });
 
