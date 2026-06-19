@@ -93,12 +93,18 @@ mock.module("../version.js", () => ({
 }));
 
 const mockGetCachedShareAnalytics = mock(() => true);
-// Owner's `share_diagnostics` consent — one half of the trace-collection gate.
+// Owner's `share_diagnostics` consent — one part of the trace-collection gate.
 const mockGetCachedShareDiagnostics = mock(() => false);
+// Owner's accepted diagnostics-consent version — the disclosing-version part of
+// the trace gate. Default to a far-future (unconditionally eligible) version so
+// the consent/flag cases drive eligibility on those axes; the version-specific
+// cases override it with old/empty values.
+const mockGetCachedShareDiagnosticsVersion = mock(() => "2999-01-01");
 
 mock.module("../platform/consent-cache.js", () => ({
   getCachedShareAnalytics: mockGetCachedShareAnalytics,
   getCachedShareDiagnostics: mockGetCachedShareDiagnostics,
+  getCachedShareDiagnosticsVersion: mockGetCachedShareDiagnosticsVersion,
 }));
 
 // The `trace-collection` feature flag — the other half of the trace gate.
@@ -357,6 +363,10 @@ beforeEach(() => {
   // the trace-specific tests opt in explicitly.
   mockGetCachedShareDiagnostics.mockReset();
   mockGetCachedShareDiagnostics.mockReturnValue(false);
+  // Default the accepted consent version eligible so trace tests drive the gate
+  // via the flag + share_diagnostics knobs; version cases override it.
+  mockGetCachedShareDiagnosticsVersion.mockReset();
+  mockGetCachedShareDiagnosticsVersion.mockReturnValue("2999-01-01");
   // Default the `trace-collection` flag ON so trace tests can drive eligibility
   // via the consent knob alone; the flag-gating test flips it explicitly.
   mockIsAssistantFeatureFlagEnabled.mockReset();
@@ -1060,7 +1070,7 @@ describe("UsageTelemetryReporter", () => {
     ];
   }
 
-  test("attaches the assembled trace when BOTH the trace-collection flag and share_diagnostics are true", async () => {
+  test("attaches the assembled trace when the trace-collection flag, share_diagnostics, and an eligible consent version are all true", async () => {
     mockIsAssistantFeatureFlagEnabled.mockReturnValue(true);
     mockGetCachedShareDiagnostics.mockReturnValue(true);
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
@@ -1127,6 +1137,55 @@ describe("UsageTelemetryReporter", () => {
     expect(turn.type).toBe("turn");
     expect(turn.daemon_event_id).toBe("evt-turn-trace");
     expect("trace" in turn).toBe(false);
+  });
+
+  test("omits the trace when the accepted consent version predates the disclosure threshold (flag + share_diagnostics on)", async () => {
+    mockIsAssistantFeatureFlagEnabled.mockReturnValue(true);
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
+    // Consent recorded under an older version that never disclosed trace
+    // collection → gate closed, mirroring the platform ingest gate.
+    mockGetCachedShareDiagnosticsVersion.mockReturnValue("2000-01-01");
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    mockQueryUnreportedTurnEvents.mockReturnValue(singleTurnEvent());
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    // Version below threshold → no assembly at all (no PII touched).
+    expect(mockAssembleBoundedTurnTrace).not.toHaveBeenCalled();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(1);
+    expect("trace" in body.events[0]).toBe(false);
+  });
+
+  test("omits the trace when the owner never accepted a versioned consent (empty version)", async () => {
+    mockIsAssistantFeatureFlagEnabled.mockReturnValue(true);
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
+    // Empty version (never accepted / no-row default where share_diagnostics is
+    // true but unversioned) fails closed.
+    mockGetCachedShareDiagnosticsVersion.mockReturnValue("");
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    mockQueryUnreportedTurnEvents.mockReturnValue(singleTurnEvent());
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockAssembleBoundedTurnTrace).not.toHaveBeenCalled();
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(1);
+    expect("trace" in body.events[0]).toBe(false);
   });
 
   test("omits the trace when the trace-collection flag is off even though share_diagnostics is true", async () => {

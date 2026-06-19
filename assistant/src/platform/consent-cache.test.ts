@@ -48,8 +48,10 @@ mock.module("../util/logger.js", () => ({
 import {
   __setCachedShareAnalyticsForTest,
   __setCachedShareDiagnosticsForTest,
+  __setCachedShareDiagnosticsVersionForTest,
   getCachedShareAnalytics,
   getCachedShareDiagnostics,
+  getCachedShareDiagnosticsVersion,
   refreshConsentCache,
   startConsentRefresh,
   stopConsentRefresh,
@@ -63,6 +65,7 @@ function makeConsent(overrides: Partial<OwnerConsent> = {}): OwnerConsent {
   return {
     shareAnalytics: false,
     shareDiagnostics: false,
+    shareDiagnosticsAcceptedVersion: "",
     ...overrides,
   };
 }
@@ -81,6 +84,7 @@ describe("consent-cache", () => {
     mockLegacyTelemetryOptOut = false;
     __setCachedShareAnalyticsForTest(false);
     __setCachedShareDiagnosticsForTest(false);
+    __setCachedShareDiagnosticsVersionForTest("");
   });
 
   afterEach(async () => {
@@ -213,5 +217,51 @@ describe("consent-cache", () => {
     mockClient = makeClient(makeConsent({ shareDiagnostics: true }), "");
     await refreshConsentCache();
     expect(getCachedShareDiagnostics()).toBe(false);
+  });
+
+  test("caches the accepted diagnostics-consent version from a successful fetch", async () => {
+    mockClient = makeClient(
+      makeConsent({
+        shareDiagnostics: true,
+        shareDiagnosticsAcceptedVersion: "2026-06-18",
+      }),
+    );
+    await refreshConsentCache();
+    expect(getCachedShareDiagnosticsVersion()).toBe("2026-06-18");
+  });
+
+  test("a missing client clears a prior cached diagnostics version", async () => {
+    __setCachedShareDiagnosticsVersionForTest("2026-06-18");
+    mockClient = null;
+    await refreshConsentCache();
+    expect(getCachedShareDiagnosticsVersion()).toBe("");
+  });
+
+  test("a client without a resolvable assistant identity clears the diagnostics version", async () => {
+    __setCachedShareDiagnosticsVersionForTest("2026-06-18");
+    mockClient = makeClient(
+      makeConsent({
+        shareDiagnostics: true,
+        shareDiagnosticsAcceptedVersion: "2026-06-18",
+      }),
+      "",
+    );
+    await refreshConsentCache();
+    expect(getCachedShareDiagnosticsVersion()).toBe("");
+  });
+
+  test("a null fetch keeps the last known diagnostics version", async () => {
+    mockClient = makeClient(
+      makeConsent({
+        shareDiagnostics: true,
+        shareDiagnosticsAcceptedVersion: "2026-06-18",
+      }),
+    );
+    await refreshConsentCache();
+    expect(getCachedShareDiagnosticsVersion()).toBe("2026-06-18");
+
+    mockClient = makeClient(null);
+    await refreshConsentCache();
+    expect(getCachedShareDiagnosticsVersion()).toBe("2026-06-18");
   });
 });

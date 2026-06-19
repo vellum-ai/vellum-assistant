@@ -32,6 +32,7 @@ import { VellumPlatformClient } from "../platform/client.js";
 import {
   getCachedShareAnalytics,
   getCachedShareDiagnostics,
+  getCachedShareDiagnosticsVersion,
 } from "../platform/consent-cache.js";
 import { arePlatformFeaturesEnabled } from "../platform/feature-gate.js";
 import type { UsageAttributionProfileSource } from "../usage/types.js";
@@ -42,6 +43,7 @@ import {
   type ActivationStepName,
   buildActivationDaemonEventId,
 } from "./activation-funnel.js";
+import { isDiagnosticsConsentVersionEligible } from "./trace-collection-policy.js";
 import type { TelemetryEvent, TurnTelemetryClientInfo } from "./types.js";
 
 const log = getLogger("usage-telemetry");
@@ -365,14 +367,20 @@ export class UsageTelemetryReporter {
       // When trace collection is OFF, no turn is deferred and reporting timing
       // is unchanged for everyone else — `turn_raw` behavior is untouched.
       //
-      // Trace eligibility is composed daemon-side: the `trace-collection`
-      // LaunchDarkly flag (delivered via the assistant-tagged flag sync, already
-      // evaluated server-side for this assistant's owner) AND the owner's cached
-      // `share_diagnostics` consent. This mirrors the platform's owner-based
-      // ingest gate. Fail-closed: both must be true.
+      // Trace eligibility is composed daemon-side to mirror the platform's
+      // authoritative owner-based ingest gate, so traces for ineligible owners
+      // never leave the device. Three parts, fail-closed (all must be true):
+      //   1. the `trace-collection` LaunchDarkly flag (delivered via the
+      //      assistant-tagged flag sync, already evaluated server-side for this
+      //      assistant's owner),
+      //   2. the owner's cached `share_diagnostics` consent, and
+      //   3. the owner's cached `share_diagnostics_accepted_version` being at or
+      //      past the disclosing version — the platform applies the identical
+      //      check, so an old consent never yields a trace here or there.
       const traceEligible =
         isAssistantFeatureFlagEnabled("trace-collection", getConfig()) &&
-        getCachedShareDiagnostics();
+        getCachedShareDiagnostics() &&
+        isDiagnosticsConsentVersionEligible(getCachedShareDiagnosticsVersion());
       let reportableTurnEvents = turnEvents;
       if (traceEligible && turnEvents.length > 0) {
         let barrier = turnEvents.length;
@@ -476,9 +484,10 @@ export class UsageTelemetryReporter {
         ),
         ...reportableTurnEvents.map((e): TelemetryEvent => {
           // Per-turn trace collection gate. `traceEligible` (computed above)
-          // requires both the `trace-collection` flag AND the owner's cached
-          // `share_diagnostics` consent. Fail-closed: when either is off the
-          // trace is omitted and the trace-free turn row flushes as before. The
+          // requires the `trace-collection` flag AND the owner's cached
+          // `share_diagnostics` consent AND an eligible accepted consent
+          // version. Fail-closed: when any is off the trace is omitted and the
+          // trace-free turn row flushes as before. The
           // `share_analytics` gate above already passed, so this is an
           // additional, independent gate specific to trace PII. Every turn
           // reaching here is settled (the completeness barrier dropped any
