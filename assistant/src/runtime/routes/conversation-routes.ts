@@ -151,6 +151,10 @@ import {
   collectPendingConfirmations,
   enrichToolCallsWithConfirmation,
 } from "./tool-call-confirmation-enrichment.js";
+import {
+  collectPendingQuestions,
+  enrichToolCallsWithQuestion,
+} from "./tool-call-question-enrichment.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import { RouteResponse } from "./types.js";
 
@@ -822,6 +826,7 @@ export function handleListMessages({
   const pendingConfirmations = collectPendingConfirmations(
     resolvedConversationId,
   );
+  const pendingQuestions = collectPendingQuestions(resolvedConversationId);
 
   const messages: RuntimeMessagePayload[] = parsed.map((m) => {
     const mergedMessageIds = m.id ? (mergedIdMap.get(m.id) ?? []) : [];
@@ -885,10 +890,13 @@ export function handleListMessages({
       m.id ?? undefined,
     );
 
-    const toolCalls = enrichToolCallsWithConfirmation(rendered.toolCalls, {
-      workspaceDir,
-      pendingConfirmations,
-    });
+    const toolCalls = enrichToolCallsWithQuestion(
+      enrichToolCallsWithConfirmation(rendered.toolCalls, {
+        workspaceDir,
+        pendingConfirmations,
+      }),
+      { pendingQuestions },
+    );
 
     // Strip <no_response/> markers from assistant messages so web/API clients
     // never see the raw sentinel. Only assistant messages produce it; user

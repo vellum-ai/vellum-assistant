@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   extractWirePendingConfirmation,
+  extractWirePendingQuestion,
   hasAssistantMessage,
   shouldClearFirstMessageGateOnConversationChange,
 } from "@/domains/chat/utils/chat";
@@ -136,6 +137,59 @@ describe("chat utilities", () => {
 
       // WHEN we extract the wire-carried confirmation
       const restored = extractWirePendingConfirmation(messages);
+
+      // THEN there is nothing to restore
+      expect(restored).toBeNull();
+    });
+  });
+
+  describe("extractWirePendingQuestion", () => {
+    test("projects a snapshot-carried question into interaction-store shape", () => {
+      /**
+       * The live `question_request` event can be missed (e.g. broadcast while
+       * no SSE client was connected). On the next history load the daemon
+       * stamps the outstanding prompt onto its tool call; the FE must restore
+       * it to the interaction store so the card finally renders.
+       */
+      // GIVEN a history snapshot whose latest tool call carries a pending question
+      const entries = [
+        {
+          id: "q1",
+          question: "What's the email about?",
+          options: [{ id: "a", label: "iOS app is live" }],
+        },
+      ];
+      const messages = [
+        message("user", "user-1"),
+        assistantWithToolCalls("assistant-1", [
+          {
+            id: "tool-1",
+            name: "ask_question",
+            input: {},
+            pendingQuestion: { requestId: "req-9", entries },
+          },
+        ]),
+      ];
+
+      // WHEN we extract the wire-carried question
+      const restored = extractWirePendingQuestion(messages);
+
+      // THEN the prompt is returned with toolUseId set to the carrying tool call
+      expect(restored?.requestId).toBe("req-9");
+      expect(restored?.entries).toEqual(entries);
+      expect(restored?.toolUseId).toBe("tool-1");
+    });
+
+    test("returns null when no tool call is awaiting an answer", () => {
+      // GIVEN a snapshot whose tool calls carry no pending question
+      const messages = [
+        assistantWithToolCalls("assistant-1", [
+          { id: "tool-1", name: "ask_question", input: {}, result: "answered" },
+        ]),
+      ];
+
+      // WHEN we extract the wire-carried question
+      const restored = extractWirePendingQuestion(messages);
 
       // THEN there is nothing to restore
       expect(restored).toBeNull();
