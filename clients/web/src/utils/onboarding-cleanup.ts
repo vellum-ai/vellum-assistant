@@ -26,6 +26,7 @@
  */
 import { removeLocalSetting, getLocalBool, setLocalBool } from "@/utils/local-settings";
 import { setDeviceBool } from "@/utils/device-settings";
+import { setDiagnosticsReportingGate } from "@/lib/consent/diagnostics-consent";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 import { patchConsent, type UserConsent } from "@/domains/account/profile";
 
@@ -226,6 +227,8 @@ export function saveConsent(opts: {
   store.setShareDiagnostics(opts.shareDiagnostics);
   store.setAnalyticsConsentCurrent(true);
   store.setDiagnosticsConsentCurrent(true);
+  // Version is current by construction here, so the gate equals the preference.
+  setDiagnosticsReportingGate(opts.shareDiagnostics);
 
   persistConsentForUser(opts.userId, opts.tos, opts.privacy);
   persistToggleConsent(opts.userId, { analyticsCurrent: true, diagnosticsCurrent: true });
@@ -266,7 +269,14 @@ export function savePreferenceToggle(
     setDeviceBool("shareDiagnostics", value);
     if (hasPlatformSession) {
       store.setDiagnosticsConsentCurrent(true);
+      // Version is current here (a live session re-stamps it), so the effective
+      // reporting gate equals the preference.
+      setDiagnosticsReportingGate(value);
       persistToggleConsent(userId, { diagnosticsCurrent: true });
+    } else {
+      // Offline: no version ack is earned, so the effective gate stays closed
+      // regardless of the toggle value until a live session re-confirms.
+      setDiagnosticsReportingGate(false);
     }
   }
 

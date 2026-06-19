@@ -608,6 +608,45 @@ describe("auth store onboarding flag reconciliation", () => {
     );
   });
 
+  test("device-consent fallback reopens the diagnostics reporting gate for a device-confirmed opt-in", async () => {
+    // Empty server record, but the user has a current device-side diagnostics
+    // ack and an opted-in preference. The no-server-record chokepoint closes
+    // the gate; the fallback must reopen it so a confirmed opted-in user isn't
+    // left with Sentry disabled.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockStoreShareDiagnostics = true;
+    localStorage.setItem("device:diagnostics_reporting", "false");
+    restoreConsentForUserMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(localStorage.getItem("device:diagnostics_reporting")).toBe("true");
+  });
+
+  test("device-consent fallback keeps the gate closed for a device opt-out", async () => {
+    // Same empty-record fallback, but the device preference is opted out — the
+    // gate must stay false even though the device ack is current.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockStoreShareDiagnostics = false;
+    localStorage.setItem("device:diagnostics_reporting", "true");
+    restoreConsentForUserMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(localStorage.getItem("device:diagnostics_reporting")).toBe("false");
+    mockStoreShareDiagnostics = true;
+  });
+
   test("stale-but-real record keeps server share values and skips the device fallback", async () => {
     // hasServerRecord=true but legal consent is stale (tos=false). The server's
     // share opt-out is authoritative and must be applied; the device fallback

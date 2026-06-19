@@ -1630,6 +1630,7 @@ jobs:
           SENTRY_DSN_MACOS: ${{ secrets.SENTRY_DSN_MACOS }}
           VITE_PLATFORM_MODE: "false"
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+          VITE_SENTRY_DSN_MACOS: ${{ secrets.SENTRY_DSN_MACOS }}
           VITE_SENTRY_ENVIRONMENT: dev
         run: bun run pack --environment dev
 

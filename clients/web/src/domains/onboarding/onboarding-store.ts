@@ -74,8 +74,10 @@ const useOnboardingStoreBase = create<OnboardingStore>()((set) => ({
   },
   setShareDiagnostics: (value) => {
     set({ shareDiagnostics: value });
-    // Writing the device key fires the `sentry-control.ts` watcher, which
-    // applies the live-session gate and syncs both Sentry clients.
+    // Writes only the saved preference. The effective reporting gate
+    // (`device:diagnostics_reporting`) — which actually drives the Sentry
+    // clients via the `sentry-control.ts` watcher — is written separately by
+    // the consent chokepoint (`setDiagnosticsReportingGate`).
     setLocalBool(KEY_SHARE_DIAGNOSTICS, value);
   },
   setTosAccepted: (value) => {
