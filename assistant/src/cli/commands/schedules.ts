@@ -73,9 +73,9 @@ Schedules are recurring or one-shot jobs run by the assistant.
 
 This namespace exposes full CRUD against the assistant's schedule store:
 create, list, get, update, enable/disable, cancel, delete, plus run history
-and manual one-time execution. One documented exception: 'create' is limited
-to 'execute' mode — notify/script/wake schedules are created via the
-in-assistant schedule_create tool, but can be inspected and updated here.
+and manual one-time execution. 'create' supports 'execute' (default) and
+'script' modes; notify/wake schedules are created via the in-assistant
+schedule_create tool, but can be inspected and updated here.
 
 Examples:
   $ assistant schedules list
@@ -416,9 +416,21 @@ Examples:
           "-d, --description <text>",
           "Authored description explaining what the schedule is for",
         )
-        .requiredOption(
+        .option(
+          "--mode <mode>",
+          "Schedule mode: 'execute' (default, sends --message) or 'script' (runs --script, no LLM)",
+        )
+        .option(
           "-m, --message <text>",
-          "Message body sent to the assistant on each fire",
+          "Message body sent to the assistant on each fire (required for execute mode)",
+        )
+        .option(
+          "--script <command>",
+          "Shell command run on each fire (required for script mode; runs with no LLM)",
+        )
+        .option(
+          "--timeout-ms <ms>",
+          "Script-mode execution timeout in milliseconds (integer)",
         )
         .option(
           "-t, --timezone <tz>",
@@ -426,7 +438,7 @@ Examples:
         )
         .option(
           "--profile <name>",
-          "Inference profile (llm.profiles key) the schedule's runs use; defaults to the mainAgent model selection when omitted",
+          "Inference profile (llm.profiles key) the schedule's runs use; defaults to the mainAgent model selection when omitted (execute mode only)",
         )
         .option("--no-enabled", "Create the schedule in a disabled state")
         .option("--json", "Machine-readable compact JSON output")
@@ -436,11 +448,14 @@ Examples:
 Options:
   -e, --expression <expr>   Cron (e.g. '*/30 * * * *') or RRULE expression.
   -d, --description <text>  Authored description explaining what the schedule is for.
-  -m, --message <text>      Message body sent on each fire.
+  --mode <mode>             'execute' (default) or 'script'.
+  -m, --message <text>      Message body sent on each fire (execute mode).
+  --script <command>        Shell command run on each fire (script mode).
+  --timeout-ms <ms>         Script-mode execution timeout in milliseconds.
   -t, --timezone <tz>       IANA timezone applied to the expression.
   --profile <name>          Inference profile (llm.profiles key) the schedule's
-                            runs use. When omitted, runs use the default —
-                            the mainAgent call site's model selection.
+                            runs use (execute mode only). When omitted, runs use
+                            the default — the mainAgent call site's model selection.
   --no-enabled              Create the schedule disabled. Defaults to enabled.
   --json                    Output the updated schedule list as compact JSON.
 
@@ -448,15 +463,21 @@ Arguments:
   <name>   Display name for the schedule.
 
 Behavior:
-  Creates a recurring schedule in 'execute' mode. The IPC endpoint is
-  currently locked to execute mode; notify/script/wake schedules remain
-  reachable only through the in-assistant schedule_create LLM tool.
+  Creates a recurring schedule. In 'execute' mode (default) each fire sends
+  --message to the assistant; in 'script' mode each fire runs --script as a
+  shell command with no LLM. notify/wake schedules remain reachable only
+  through the in-assistant schedule_create LLM tool.
 
 Examples:
   $ assistant schedules create "Heartbeat" \\
       --expression '*/30 * * * *' \\
       --description 'Checks service heartbeat every 30 minutes' \\
       --message 'run heartbeat'
+  $ assistant schedules create "Disk check" \\
+      --mode script \\
+      --expression '*/15 * * * *' \\
+      --description 'Logs disk usage every 15 minutes' \\
+      --script 'df -h / >> /tmp/disk.log'
   $ assistant schedules create "Morning summary" \\
       --expression '0 9 * * MON-FRI' \\
       --description 'Summarizes weekday activity' \\
@@ -474,7 +495,10 @@ Examples:
             opts: {
               expression: string;
               description: string;
-              message: string;
+              mode?: string;
+              message?: string;
+              script?: string;
+              timeoutMs?: string;
               timezone?: string;
               profile?: string;
               enabled: boolean;
@@ -482,27 +506,30 @@ Examples:
             },
             cmd: Command,
           ) => {
-            const scheduleName = name.trim();
-            if (!scheduleName) {
-              const error = "name is required";
+            const fail = (error: string) => {
               if (opts.json) {
                 writeOutput(cmd, { ok: false, error });
               } else {
                 log.error(error);
               }
               process.exitCode = 1;
+            };
+
+            const scheduleName = name.trim();
+            if (!scheduleName) {
+              fail("name is required");
               return;
             }
 
             const description = opts.description.trim();
             if (!description) {
-              const error = "description is required";
-              if (opts.json) {
-                writeOutput(cmd, { ok: false, error });
-              } else {
-                log.error(error);
-              }
-              process.exitCode = 1;
+              fail("description is required");
+              return;
+            }
+
+            const mode = (opts.mode ?? "execute").trim();
+            if (mode !== "execute" && mode !== "script") {
+              fail("--mode must be one of: execute, script");
               return;
             }
 
@@ -510,11 +537,62 @@ Examples:
               name: scheduleName,
               expression: opts.expression,
               description,
-              message: opts.message,
               enabled: opts.enabled,
             };
             if (opts.timezone != null) body.timezone = opts.timezone;
-            if (opts.profile != null) body.inferenceProfile = opts.profile;
+
+            if (mode === "script") {
+              const script = opts.script?.trim();
+              if (!script) {
+                fail("--script is required for script-mode schedules");
+                return;
+              }
+              // Script schedules run no LLM, so a message body and inference
+              // profile have no effect — reject rather than silently ignore.
+              if (opts.message != null) {
+                fail(
+                  "--message is not used by script-mode schedules; pass --script instead",
+                );
+                return;
+              }
+              if (opts.profile != null) {
+                fail(
+                  "--profile is not supported for script-mode schedules (scripts run no LLM)",
+                );
+                return;
+              }
+              body.mode = "script";
+              body.script = script;
+              if (opts.timeoutMs != null) {
+                const parsed = Number(opts.timeoutMs);
+                if (!Number.isInteger(parsed)) {
+                  fail(
+                    `--timeout-ms must be an integer, got "${opts.timeoutMs}"`,
+                  );
+                  return;
+                }
+                body.timeoutMs = parsed;
+              }
+            } else {
+              if (!opts.message) {
+                fail("--message is required for execute-mode schedules");
+                return;
+              }
+              if (opts.script != null) {
+                fail(
+                  "--script is only valid for script-mode schedules; pass --mode script",
+                );
+                return;
+              }
+              if (opts.timeoutMs != null) {
+                fail(
+                  "--timeout-ms is only valid for script-mode schedules; pass --mode script",
+                );
+                return;
+              }
+              body.message = opts.message;
+              if (opts.profile != null) body.inferenceProfile = opts.profile;
+            }
 
             const result = await cliIpcCall<ListSchedulesResponse>(
               "createSchedule",

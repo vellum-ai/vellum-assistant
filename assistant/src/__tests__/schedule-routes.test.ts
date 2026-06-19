@@ -1231,16 +1231,60 @@ describe("POST /schedules — create", () => {
     expect(job.description).toBe("Description fallback");
   });
 
-  test("rejects modes other than execute/workflow", () => {
+  test("rejects modes other than execute/script/workflow", () => {
+    for (const mode of ["notify", "wake"]) {
+      expect(() =>
+        postCreate({
+          name: "x",
+          description: "Run the thing",
+          expression: "* * * * *",
+          message: "hi",
+          mode,
+        }),
+      ).toThrow("Only 'execute', 'script', and 'workflow' modes are supported");
+    }
+  });
+
+  test("creates a script schedule with a timeout and no message", () => {
+    const result = postCreate({
+      name: "Disk check",
+      description: "Logs disk usage",
+      expression: "*/15 * * * *",
+      mode: "script",
+      script: "  df -h /  ",
+      timeoutMs: 5000,
+    });
+    expect(result.schedules).toHaveLength(1);
+    const job = listSchedules()[0];
+    expect(job.mode).toBe("script");
+    expect(job.script).toBe("df -h /");
+    expect(job.message).toBe("");
+    expect(job.timeoutMs).toBe(5000);
+    expect(job.expression).toBe("*/15 * * * *");
+  });
+
+  test("rejects a script schedule with no script", () => {
     expect(() =>
       postCreate({
         name: "x",
         description: "Run the thing",
         expression: "* * * * *",
-        message: "hi",
-        mode: "notify",
+        mode: "script",
       }),
-    ).toThrow("Only 'execute' and 'workflow' modes are supported");
+    ).toThrow("script is required for script-mode schedules");
+  });
+
+  test("rejects an out-of-range script timeout", () => {
+    expect(() =>
+      postCreate({
+        name: "x",
+        description: "Run the thing",
+        expression: "* * * * *",
+        mode: "script",
+        script: "echo hi",
+        timeoutMs: 1,
+      }),
+    ).toThrow();
   });
 
   test("rejects an unparseable expression", () => {

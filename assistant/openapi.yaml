@@ -21299,7 +21299,7 @@ paths:
     post:
       operationId: schedules_post
       summary: Create schedule
-      description: Create a new recurring schedule. Currently restricted to mode='execute'.
+      description: Create a new recurring schedule in 'execute', 'script', or 'workflow' mode.
       tags:
         - schedules
       requestBody:
@@ -21320,9 +21320,17 @@ paths:
                   description: Cron or RRULE expression
                 message:
                   type: string
-                  description:
-                    Message body to execute on each fire. Required for execute mode; ignored for workflow mode (which triggers
-                    workflowName/workflowArgs).
+                  description: Message body to execute on each fire. Required for execute mode; ignored for script/workflow modes.
+                script:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                  description: Shell command run on each fire (no LLM). Required when mode='script'.
+                timeoutMs:
+                  anyOf:
+                    - type: number
+                    - type: "null"
+                  description: Script-mode execution timeout in ms; omitted or null = default.
                 timezone:
                   anyOf:
                     - type: string
@@ -21333,7 +21341,7 @@ paths:
                   description: Whether the schedule starts active (default true)
                 mode:
                   type: string
-                  description: "'execute' (default) or 'workflow' (flag-gated)"
+                  description: "'execute' (default), 'script', or 'workflow' (flag-gated)"
                 workflowName:
                   type: string
                   description: Saved workflow to trigger (required for workflow mode)

@@ -748,6 +748,123 @@ describe("schedules create", () => {
     expect(exitFromIpcResultCalls).toEqual([mockIpcResult]);
     expect(errorLines).toEqual([]);
   });
+
+  test("creates a script schedule with --mode script and --timeout-ms", async () => {
+    mockIpcResult = { ok: true, result: { schedules: [] } };
+
+    const { exitCode } = await runCommand([
+      "schedules",
+      "create",
+      "Disk check",
+      "--mode",
+      "script",
+      "--expression",
+      "*/15 * * * *",
+      "--description",
+      "Logs disk usage",
+      "--script",
+      "df -h /",
+      "--timeout-ms",
+      "5000",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(ipcCalls).toEqual([
+      {
+        method: "createSchedule",
+        params: {
+          body: {
+            name: "Disk check",
+            expression: "*/15 * * * *",
+            description: "Logs disk usage",
+            enabled: true,
+            mode: "script",
+            script: "df -h /",
+            timeoutMs: 5000,
+          },
+        },
+      },
+    ]);
+    expect(logLines).toEqual(["Created schedule: Disk check"]);
+  });
+
+  test("requires --script for script mode", async () => {
+    const { exitCode } = await runCommand([
+      "schedules",
+      "create",
+      "Disk check",
+      "--mode",
+      "script",
+      "--expression",
+      "*/15 * * * *",
+      "--description",
+      "Logs disk usage",
+    ]);
+
+    expect(exitCode).not.toBe(0);
+    expect(ipcCalls).toEqual([]);
+    expect(errorLines).toEqual([
+      "--script is required for script-mode schedules",
+    ]);
+  });
+
+  test("rejects --script without --mode script", async () => {
+    const { exitCode } = await runCommand([
+      "schedules",
+      "create",
+      "Heartbeat",
+      "--expression",
+      "*/30 * * * *",
+      "--description",
+      "Checks service heartbeat",
+      "--message",
+      "run heartbeat",
+      "--script",
+      "df -h /",
+    ]);
+
+    expect(exitCode).not.toBe(0);
+    expect(ipcCalls).toEqual([]);
+  });
+
+  test("requires --message for execute mode", async () => {
+    const { exitCode } = await runCommand([
+      "schedules",
+      "create",
+      "Heartbeat",
+      "--expression",
+      "*/30 * * * *",
+      "--description",
+      "Checks service heartbeat",
+    ]);
+
+    expect(exitCode).not.toBe(0);
+    expect(ipcCalls).toEqual([]);
+    expect(errorLines).toEqual([
+      "--message is required for execute-mode schedules",
+    ]);
+  });
+
+  test("rejects a non-integer --timeout-ms", async () => {
+    const { exitCode } = await runCommand([
+      "schedules",
+      "create",
+      "Disk check",
+      "--mode",
+      "script",
+      "--expression",
+      "*/15 * * * *",
+      "--description",
+      "Logs disk usage",
+      "--script",
+      "df -h /",
+      "--timeout-ms",
+      "abc",
+    ]);
+
+    expect(exitCode).not.toBe(0);
+    expect(ipcCalls).toEqual([]);
+  });
 });
 
 describe("schedules update", () => {

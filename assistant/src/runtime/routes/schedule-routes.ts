@@ -269,11 +269,11 @@ function handleCreateSchedule(body: Record<string, unknown>) {
 
   if (!name) throw new BadRequestError("name is required");
   if (!expression) throw new BadRequestError("expression is required");
-  // Workflow-mode runs trigger a saved workflow by name and ignore `job.message`
-  // entirely (see the workflow branch below), so only require a message for the
-  // execute path. Requiring it for workflow mode would force API/UI callers to
+  // Only execute mode sends a message: workflow mode triggers a saved workflow
+  // by name and script mode runs a shell command (see the branches below), so
+  // both ignore `job.message`. Requiring it for them would force callers to
   // pass an unused dummy string.
-  if (mode !== "workflow" && !message) {
+  if (mode === "execute" && !message) {
     throw new BadRequestError("message is required");
   }
   if (description === "") {
@@ -281,11 +281,13 @@ function handleCreateSchedule(body: Record<string, unknown>) {
   }
 
   // The settings UI only exposes execute mode; `workflow` mode is reachable
-  // here (flag-gated) and via the schedule_create LLM tool. All other modes
-  // remain tool-only.
-  if (mode !== "execute" && mode !== "workflow") {
+  // here (flag-gated). `script` mode (LLM-free shell command) is creatable via
+  // this endpoint and the schedule_create LLM tool. notify/wake remain
+  // tool-only because they need channel/conversation targets this path cannot
+  // set.
+  if (mode !== "execute" && mode !== "workflow" && mode !== "script") {
     throw new BadRequestError(
-      "Only 'execute' and 'workflow' modes are supported by this endpoint",
+      "Only 'execute', 'script', and 'workflow' modes are supported by this endpoint",
     );
   }
 
@@ -321,6 +323,42 @@ function handleCreateSchedule(body: Record<string, unknown>) {
         { id: job.id, name: job.name, workflowName },
         "Workflow schedule created",
       );
+    } catch (err) {
+      if (err instanceof Error) throw new BadRequestError(err.message);
+      throw err;
+    }
+    return handleListSchedules({});
+  }
+
+  if (mode === "script") {
+    const script = typeof body.script === "string" ? body.script.trim() : "";
+    if (!script) {
+      throw new BadRequestError("script is required for script-mode schedules");
+    }
+    let timeoutMs: number | undefined;
+    if (body.timeoutMs != null) {
+      if (typeof body.timeoutMs !== "number") {
+        throw new BadRequestError("timeoutMs must be a number or null");
+      }
+      const timeoutError = validateScriptTimeoutMs(body.timeoutMs);
+      if (timeoutError) throw new BadRequestError(timeoutError);
+      timeoutMs = body.timeoutMs;
+    }
+    try {
+      const job = createSchedule({
+        name,
+        description,
+        // Script mode runs `script`, not an LLM message, so message is unused.
+        message: "",
+        mode: "script",
+        script,
+        enabled,
+        timezone,
+        expression: normalized.expression,
+        syntax: normalized.syntax,
+        timeoutMs,
+      });
+      log.info({ id: job.id, name: job.name }, "Script schedule created");
     } catch (err) {
       if (err instanceof Error) throw new BadRequestError(err.message);
       throw err;
@@ -676,7 +714,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Create schedule",
     description:
-      "Create a new recurring schedule. Currently restricted to mode='execute'.",
+      "Create a new recurring schedule in 'execute', 'script', or 'workflow' mode.",
     tags: ["schedules"],
     requestBody: z.object({
       name: z.string().describe("Display name"),
@@ -690,7 +728,21 @@ export const ROUTES: RouteDefinition[] = [
       message: z
         .string()
         .describe(
-          "Message body to execute on each fire. Required for execute mode; ignored for workflow mode (which triggers workflowName/workflowArgs).",
+          "Message body to execute on each fire. Required for execute mode; ignored for script/workflow modes.",
+        )
+        .optional(),
+      script: z
+        .string()
+        .nullable()
+        .describe(
+          "Shell command run on each fire (no LLM). Required when mode='script'.",
+        )
+        .optional(),
+      timeoutMs: z
+        .number()
+        .nullable()
+        .describe(
+          "Script-mode execution timeout in ms; omitted or null = default.",
         )
         .optional(),
       timezone: z
@@ -704,7 +756,7 @@ export const ROUTES: RouteDefinition[] = [
         .optional(),
       mode: z
         .string()
-        .describe("'execute' (default) or 'workflow' (flag-gated)")
+        .describe("'execute' (default), 'script', or 'workflow' (flag-gated)")
         .optional(),
       workflowName: z
         .string()
