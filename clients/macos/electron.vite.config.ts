@@ -30,7 +30,6 @@ const DEPS_TO_INLINE = [
   "@vellumai/ipc-contract",
   "@vellumai/local-mode",
   "@vellumai/environments",
-  "@sentry/node",
 ];
 
 // Resolved at config-evaluation time and inlined into the main bundle via

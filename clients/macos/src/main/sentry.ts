@@ -1,4 +1,4 @@
-import * as Sentry from "@sentry/node";
+import * as Sentry from "@sentry/electron/main";
 import { app } from "electron";
 
 import { onSettingChange, readSetting, writeSetting } from "./settings";
@@ -10,8 +10,13 @@ declare const __SENTRY_DSN_MACOS__: string;
 /**
  * Resolved Sentry init options — cached once so re-init after consent
  * change doesn't need to re-derive them.
+ *
+ * The default `@sentry/electron/main` integrations enable Crashpad minidump
+ * capture (`sentryMinidumpIntegration`) and renderer/child process crash
+ * reporting (`childProcessIntegration`), so native main/renderer crashes
+ * (OOM, segfault) upload real minidumps instead of reason-strings.
  */
-function resolveOptions(): Sentry.NodeOptions | null {
+function resolveOptions(): Sentry.ElectronMainOptions | null {
   const dsn =
     typeof __SENTRY_DSN_MACOS__ === "string" ? __SENTRY_DSN_MACOS__ : "";
   if (!dsn) return null;
@@ -34,42 +39,11 @@ function applyTags(): void {
   Sentry.setTag("packaged", String(app.isPackaged));
 }
 
-function installCrashListeners(): void {
-  app.on("render-process-gone", (_event, _webContents, details) => {
-    if (details.reason === "clean-exit") return;
-    Sentry.captureMessage(`Renderer process gone: ${details.reason}`, {
-      level: "fatal",
-      extra: { exitCode: details.exitCode, reason: details.reason },
-    });
-  });
-
-  app.on("child-process-gone", (_event, details) => {
-    if (details.reason === "clean-exit") return;
-    Sentry.captureMessage(
-      `Child process gone: ${details.type} (${details.reason})`,
-      {
-        level: "error",
-        extra: {
-          type: details.type,
-          reason: details.reason,
-          exitCode: details.exitCode,
-        },
-      },
-    );
-  });
-}
-
-let listenersInstalled = false;
-
-function tryInit(options: Sentry.NodeOptions): void {
+function tryInit(options: Sentry.ElectronMainOptions): void {
   const existing = Sentry.getClient();
   if (existing && existing.getOptions().enabled !== false) return;
   Sentry.init({ ...options, enabled: true });
   applyTags();
-  if (!listenersInstalled) {
-    installCrashListeners();
-    listenersInstalled = true;
-  }
 }
 
 function tryClose(): void {
@@ -88,8 +62,8 @@ function readConsent(): boolean {
 
 /**
  * Initialize Sentry for the Electron main process, gated on the user's
- * Share Diagnostics consent stored in electron-store. The renderer syncs
- * its localStorage `device:share_diagnostics` value to main via the
+ * Share Diagnostics consent stored in electron-store. The renderer syncs an
+ * effective diagnostics gate (preference && version-current) to main via the
  * `vellum:diagnostics:setShareDiagnostics` IPC channel.
  *
  * Strict opt-in semantics (matching the renderer's `sentry-control.ts`):
