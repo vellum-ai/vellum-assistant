@@ -15,7 +15,7 @@
  * the model decides whether the current run is genuinely an investigation
  * worth delegating.
  *
- * Three triggers:
+ * Two triggers, sharing one trailing-run computation:
  *
  * 1. **Long dig** (all models): an unbroken run of
  *    {@link EXPLORATION_NUDGE_THRESHOLD} exploration calls with no user-facing
@@ -33,20 +33,6 @@
  *    only models prone to this looping; the one legitimate identical-call pattern
  *    (polling an external process's output) is rare inside an unbroken
  *    read-only run and the nudge is advisory anyway.
- * 3. **Empty-input escalation** (loop-prone models only): the current call is a
- *    `skill_execute` whose resolved inner input is empty and that errored, for
- *    the {@link EMPTY_INPUT_ESCALATE_THRESHOLD}-th time in the trailing run
- *    against the same inner tool. A weak model that emits an empty `input`
- *    cannot serialize the call's parameters, and the existing remediation text
- *    has demonstrably failed (it repeated the empty call up to nine times in
- *    one doc-writer incident). Prose from the same weak model is not the fix,
- *    so this branch consults a stronger advisor model (Pragun's `consultAdvisor`)
- *    once per streak and injects its concrete guidance. Unlike triggers 1–2 the
- *    detection ignores the envelope's `activity` field (which the model varies
- *    every call, defeating byte-identical matching) and keys on the resolved
- *    inner tool. The advisor consult is an LLM call, so it is tightly gated:
- *    loop-prone model, errored empty call, threshold reached, advisor enabled,
- *    and at most once per streak.
  *
  * The trailing run is derived from conversation history on every call
  * (mirroring the tool-error plugin) so the signal survives mid-run compaction
@@ -123,43 +109,6 @@ const EXPLORATION_TOOL_NAMES: ReadonlySet<string> = new Set([
   "file_list",
 ]);
 
-/** The dispatch wrapper whose empty inner input signals a stuck weak model. */
-const SKILL_EXECUTE_TOOL_NAME = "skill_execute";
-
-/**
- * Number of consecutive empty-input `skill_execute` calls against the same
- * inner tool (including the current one) that triggers an advisor escalation
- * on loop-prone models. Empty input means the model dropped the call's
- * parameters entirely — a cleaner stuck signal than a byte-identical repeat,
- * so it fires one step sooner than {@link EXPLORATION_LOOP_REPEAT_THRESHOLD}.
- */
-export const EMPTY_INPUT_ESCALATE_THRESHOLD = 2;
-
-/**
- * Notice wrapping the advisor's guidance after an empty-input escalation. The
- * advice comes from a stronger model that reviewed the conversation; the model
- * is told to act on it and stop sending empty calls.
- */
-export function emptyInputEscalationText(
-  innerTool: string,
-  repeatCount: number,
-  advice: string,
-): string {
-  return `<system_notice>You have called ${innerTool} with empty parameters ${repeatCount} times in a row and it keeps failing — the parameters are not reaching the tool. A stronger advisor model reviewed this conversation and provided guidance:\n\n${advice}\n\nAct on it now: re-issue ${innerTool} once with every required field filled in. Do not send another empty call.</system_notice>`;
-}
-
-/**
- * Deterministic fallback when the advisor is unavailable or returns nothing.
- * Zero-cost and firm: stop repeating the empty call, fill the parameters, or
- * tell the user plainly.
- */
-export function emptyInputNudgeText(
-  innerTool: string,
-  repeatCount: number,
-): string {
-  return `<system_notice>You have called ${innerTool} with empty parameters ${repeatCount} times in a row and it keeps failing — the parameters are not reaching the tool. Stop repeating the empty call. Re-issue ${innerTool} once with every required field filled in (the skill's instructions from skill_load list them). If you cannot produce the parameters, tell the user plainly instead of retrying.</system_notice>`;
-}
-
 /**
  * Streak length at the last nudge (either kind), per conversation. A
  * high-water mark rather than a flag so long-dig nudges stay one full
@@ -170,19 +119,9 @@ export function emptyInputNudgeText(
  */
 const lastNudgedStreakByConversation = new Map<string, number>();
 
-/**
- * Empty-input streak length at the last escalation, per conversation. The
- * advisor consult is an LLM call, so it must fire at most once per streak: we
- * escalate when the streak first reaches the threshold and not again until it
- * drops back below it (the model recovered or the turn boundary moved). Entries
- * reset to 0 when the streak falls below the threshold.
- */
-const lastEscalatedEmptyStreakByConversation = new Map<string, number>();
-
 /** Test-only: clear the per-conversation nudge high-water marks. */
 export function resetExplorationDriftStateForTests(): void {
   lastNudgedStreakByConversation.clear();
-  lastEscalatedEmptyStreakByConversation.clear();
 }
 
 /** A `tool_use` block's invocation: tool name plus its raw input. */
@@ -293,170 +232,11 @@ function currentCallRepeatCount(
   return count;
 }
 
-/** Envelope keys consumed by `skill_execute` itself, never inner-tool params. */
-const SKILL_EXECUTE_ENVELOPE_KEYS: ReadonlySet<string> = new Set([
-  "tool",
-  "input",
-  "activity",
-]);
-
-/**
- * The inner tool name and emptiness of a `skill_execute` envelope. Mirrors the
- * emptiness verdict of `resolveSkillExecuteInput` (in `tools/skills/execute.ts`)
- * without importing it — keeping this lightweight history hook off the tool
- * registry's module graph. A call counts as non-empty when `input` is a
- * populated object, a non-empty string (the resolver JSON-parses it), or when
- * inner parameters are spread as siblings of `tool`/`activity`. Everything else
- * — including the empty-string `input: ""` shape weak models emit — is empty. A
- * non-`skill_execute` invocation reports an empty tool name and never matches.
- */
-function innerSkillExecute(invocation: ToolInvocation): {
-  tool: string;
-  empty: boolean;
-} {
-  const envelope = invocation.input;
-  if (
-    envelope === null ||
-    typeof envelope !== "object" ||
-    Array.isArray(envelope)
-  ) {
-    return { tool: "", empty: true };
-  }
-  const env = envelope as Record<string, unknown>;
-  const tool = typeof env.tool === "string" ? env.tool : "";
-  const raw = env.input;
-  if (raw !== null && typeof raw === "object" && !Array.isArray(raw)) {
-    if (Object.keys(raw as Record<string, unknown>).length > 0) {
-      return { tool, empty: false };
-    }
-  } else if (typeof raw === "string" && raw.trim() !== "") {
-    return { tool, empty: false };
-  }
-  const hasSiblingParams = Object.keys(env).some(
-    (key) => !SKILL_EXECUTE_ENVELOPE_KEYS.has(key),
-  );
-  return { tool, empty: !hasSiblingParams };
-}
-
-/**
- * Count empty-input `skill_execute` calls against `innerTool` in the trailing
- * run — the stretch of history since the model last sent the user text or a
- * real user message arrived. Unlike {@link trailingExplorationRun} this does
- * not break on intervening non-matching tool results: an empty-input loop is
- * still a loop even if a stray successful call sits between two empties. The
- * envelope's `activity` field is ignored (the model varies it every call), so
- * matching keys only on the resolved inner tool + emptiness.
- */
-function trailingEmptyInputRepeatCount(
-  messages: ReadonlyArray<Message>,
-  usesById: ReadonlyMap<string, ToolInvocation>,
-  innerTool: string,
-): number {
-  let count = 0;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i];
-    if (message.role === "assistant") {
-      const spokeToUser = message.content.some(
-        (block) => block.type === "text" && block.text.trim().length > 0,
-      );
-      if (spokeToUser) break;
-      continue;
-    }
-    if (message.role !== "user") continue;
-    const hasToolResult = message.content.some(
-      (block) => block.type === "tool_result",
-    );
-    if (!hasToolResult) break;
-    for (const block of message.content) {
-      if (block.type !== "tool_result") continue;
-      const use = usesById.get(block.tool_use_id);
-      if (use === undefined || use.name !== SKILL_EXECUTE_TOOL_NAME) continue;
-      const inner = innerSkillExecute(use);
-      if (inner.empty && inner.tool === innerTool) count++;
-    }
-  }
-  return count;
-}
-
-/**
- * Trigger 3: escalate a weak model stuck issuing empty-input `skill_execute`
- * calls to a stronger advisor. Returns `true` when it handled the call (so the
- * caller stops), `false` when this branch does not apply.
- */
-async function maybeEscalateEmptyInput(
-  ctx: PostToolUseContext,
-  usesById: ReadonlyMap<string, ToolInvocation>,
-  currentUse: ToolInvocation,
-): Promise<boolean> {
-  if (currentUse.name !== SKILL_EXECUTE_TOOL_NAME) return false;
-  // Only models known to drop tool parameters, and only when the call errored —
-  // a rare tool that legitimately takes no parameters succeeds and is skipped.
-  if (!LOOP_PRONE_MODEL_PATTERN.test(ctx.model)) return false;
-  if (ctx.toolResponse.is_error !== true) return false;
-
-  const inner = innerSkillExecute(currentUse);
-  if (!inner.empty || inner.tool === "") return false;
-
-  // The current result is not in history yet — count it explicitly.
-  const repeatCount =
-    trailingEmptyInputRepeatCount(ctx.messages, usesById, inner.tool) + 1;
-
-  const lastEscalated =
-    lastEscalatedEmptyStreakByConversation.get(ctx.conversationId) ?? 0;
-  if (repeatCount < EMPTY_INPUT_ESCALATE_THRESHOLD) {
-    // Streak hasn't reached the threshold (or restarted) — clear any stale mark
-    // so a later loop can escalate again.
-    if (lastEscalated !== 0) {
-      lastEscalatedEmptyStreakByConversation.delete(ctx.conversationId);
-    }
-    return false;
-  }
-  // Escalate at most once per streak.
-  if (lastEscalated >= EMPTY_INPUT_ESCALATE_THRESHOLD) return true;
-  lastEscalatedEmptyStreakByConversation.set(ctx.conversationId, repeatCount);
-
-  // Heavy imports (provider graph, config) stay off the per-tool-result hot
-  // path — pulled in only on the rare escalation.
-  const { advisorEnabledForProfile } =
-    await import("../../advisor/advisor-gate.js");
-  let advice = "";
-  if (advisorEnabledForProfile(null)) {
-    const { consultAdvisor } = await import("../../advisor/consult.js");
-    advice = await consultAdvisor({
-      systemPrompt: null,
-      messages: ctx.messages,
-    });
-  }
-  const escalated = advice.trim().length > 0 && !advice.startsWith("(advisor");
-  const nudgeText = escalated
-    ? emptyInputEscalationText(inner.tool, repeatCount, advice)
-    : emptyInputNudgeText(inner.tool, repeatCount);
-
-  ctx.logger.info(
-    {
-      plugin: "exploration-drift",
-      trigger: "empty-input-escalation",
-      innerTool: inner.tool,
-      repeatCount,
-      escalated,
-    },
-    "Empty-input skill_execute loop — escalating to advisor",
-  );
-  ctx.additionalContext = ctx.additionalContext
-    ? `${ctx.additionalContext}\n${nudgeText}`
-    : nudgeText;
-  return true;
-}
-
 const postToolUse: PluginHookFn<PostToolUseContext> = async (ctx) => {
   const usesById = toolUsesById(ctx.messages);
   const currentUse = usesById.get(ctx.toolResponse.tool_use_id);
-  if (currentUse === undefined) return;
-
-  // Trigger 3 handles skill_execute; triggers 1–2 handle exploration tools.
-  if (await maybeEscalateEmptyInput(ctx, usesById, currentUse)) return;
-
-  if (!EXPLORATION_TOOL_NAMES.has(currentUse.name)) return;
+  if (currentUse === undefined || !EXPLORATION_TOOL_NAMES.has(currentUse.name))
+    return;
 
   // The current result is not in history yet — count it explicitly.
   const run = trailingExplorationRun(ctx.messages, usesById);
