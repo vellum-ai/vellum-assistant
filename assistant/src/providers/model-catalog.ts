@@ -678,6 +678,23 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       {
+        id: "accounts/fireworks/models/glm-5p2",
+        displayName: "GLM 5.2",
+        // Fireworks serves GLM 5.2 with a 1,040K input window.
+        contextWindowTokens: 1040000,
+        maxOutputTokens: 131072,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: false,
+        supportsToolUse: true,
+        maxEffort: "max",
+        pricing: {
+          inputPer1mTokens: 1.4,
+          outputPer1mTokens: 4.4,
+          cacheReadPer1mTokens: 0.26,
+        },
+      },
+      {
         id: "accounts/fireworks/models/kimi-k2p5",
         displayName: "Kimi K2.5",
         contextWindowTokens: 256000,

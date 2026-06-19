@@ -1,7 +1,9 @@
 import { connect, type Socket } from "node:net";
 
 import { refreshOverridesFromGateway } from "../config/assistant-feature-flags.js";
+import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
+import { publishConfigChanged } from "../runtime/sync/resource-sync-events.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { syncFlagGatedTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
@@ -19,11 +21,25 @@ const log = getLogger("gateway-flag-listener");
  * they live in a flag-gated bundled skill surfaced via `skill_load` against the
  * live flag cache, so they need no registry sync here. `syncFlagGatedTools` is
  * idempotent and enable-only, so re-running it on every refresh is safe; it also
- * never throws (it logs internally).
+ * never throws (it logs internally). After tools sync, `reconcileFlagGatedProfiles`
+ * adds or removes the flag-gated managed profile (OS Beta); when it reports a
+ * change a `config_changed` broadcast refreshes the profile picker on clients.
+ * The profile reconcile runs only when the refresh confirmed flags loaded from
+ * the gateway — a transient IPC failure leaves the cache unset and resolves
+ * `os-beta` to its registry default `false`, which would remove the user's
+ * profile and reset their selection. Tool sync tolerates the default and stays
+ * unconditional.
  */
 function refreshFlagsAndSyncTools(context: string): void {
   refreshOverridesFromGateway()
-    .then(() => syncFlagGatedTools())
+    .then(async (loaded) => {
+      await syncFlagGatedTools();
+      if (loaded && reconcileFlagGatedProfiles()) {
+        // Reuse the config-changed broadcast clients already consume so the
+        // profile picker reflects the added/removed managed profile.
+        publishConfigChanged();
+      }
+    })
     .catch((err) => {
       log.warn(
         { err },
