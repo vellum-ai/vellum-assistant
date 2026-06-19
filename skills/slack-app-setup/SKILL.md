@@ -98,8 +98,8 @@ Do both of the following in the **same response** — the instruction text and t
 
    ```bash
    assistant credentials prompt --service slack_channel --field app_token \
-     --label "App-Level Token" --placeholder "xapp-..." \
-     --description "Paste the App-Level Token you just generated"
+     --label "Slack App-Level Token (xapp-...)" --placeholder "xapp-..." \
+     --description "Paste the App-Level Token you just generated. Do not use the Client Secret or Signing Secret."
    ```
 
 ⚠️ CRITICAL — point of action: **Fire the `assistant credentials prompt` command in this same response. Do not wait for the user to say "okay I have it" before firing it.** The secure prompt queues silently; the user fills it when they're ready. Waiting for verbal confirmation leaves the user stuck staring at instructions with no input field.
@@ -120,8 +120,8 @@ Then collect:
 
   ```bash
   assistant credentials prompt --service slack_channel --field bot_token \
-    --label "Bot User OAuth Token" --placeholder "xoxb-..." \
-    --description "From Install App page — the Bot User OAuth Token"
+    --label "Slack Bot User OAuth Token (xoxb-...)" --placeholder "xoxb-..." \
+    --description "Paste the Bot User OAuth Token from the Install App page. Do not use the App-Level Token, Client Secret, or Signing Secret."
   ```
 
 > ✓ Checkpoint: After Step 3, the `app_token` and `bot_token` are both in the credential store and the user has confirmed both prompts came back successful. If either prompt failed, re-run it before moving on.
