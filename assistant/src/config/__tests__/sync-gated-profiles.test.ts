@@ -118,6 +118,18 @@ describe("reconcileFlagGatedProfiles", () => {
     expect(order.indexOf("os-beta")).toBe(order.indexOf("balanced") + 1);
   });
 
+  test("flag on in BYOK mode seeds the os-beta profile disabled", () => {
+    seedBalancedConfig();
+    setOverridesForTesting({ "os-beta": true });
+
+    expect(reconcileFlagGatedProfiles()).toBe(true);
+
+    const osBeta = readConfig().llm.profiles["os-beta"]!;
+    expect(osBeta.status).toBe("disabled");
+    expect(osBeta.label).toBe("OS Beta (Managed)");
+    expect(osBeta.source).toBe("managed");
+  });
+
   test("flag on is idempotent across repeated runs", () => {
     process.env.IS_PLATFORM = "true";
     seedBalancedConfig();

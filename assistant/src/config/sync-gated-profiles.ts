@@ -105,6 +105,15 @@ function enableProfile(
     OS_BETA_PROFILE_TEMPLATE.connectionName,
   ) as Record<string, unknown>;
 
+  // BYOK installs seed managed profiles disabled: the platform-auth
+  // `fireworks-managed` connection backing this profile isn't usable until the
+  // user enables it, so a fresh OS Beta entry starts disabled to avoid offering
+  // an unusable route. A user's own status override (preserved below) wins on
+  // later reconciles.
+  if (isByokMode && !previous) {
+    next.status = "disabled";
+  }
+
   if (previous) {
     // The only fields a user may override on a managed profile. Carry `label`
     // by key-presence so an explicit null (user cleared it) survives too.
