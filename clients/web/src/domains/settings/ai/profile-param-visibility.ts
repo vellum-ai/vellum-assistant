@@ -138,6 +138,7 @@ function supportsEffort(provider: string, modelId: string, supportsThinking: boo
 
 const TOP_P_OPENAI_COMPAT_PROVIDERS = new Set([
   "openai",
+  "openai-compatible",
   "fireworks",
   "minimax",
   "atlascloud",

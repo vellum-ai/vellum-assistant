@@ -26,12 +26,15 @@ describe("resolveProfileParamVisibility", () => {
     expect(vis.verbosity).toBe(false);
   });
 
-  test("topP is true for anthropic, fireworks, and openrouter, false for gemini", () => {
+  test("topP is true for anthropic, fireworks, openrouter, and openai-compatible, false for gemini", () => {
     expect(resolveProfileParamVisibility("anthropic", "claude-3-opus-20240229").topP).toBe(true);
     expect(
       resolveProfileParamVisibility("fireworks", "accounts/fireworks/models/minimax-m3").topP,
     ).toBe(true);
     expect(resolveProfileParamVisibility("openrouter", "anthropic/claude-fable-5").topP).toBe(true);
+    // Custom OpenAI-compatible connections route through the OpenAI adapter,
+    // which forwards top_p — so the control must be visible for them too.
+    expect(resolveProfileParamVisibility("openai-compatible", "some-custom-model").topP).toBe(true);
     expect(resolveProfileParamVisibility("gemini", "gemini-2.5-flash").topP).toBe(false);
     expect(VISIBILITY_NONE.topP).toBe(false);
   });
