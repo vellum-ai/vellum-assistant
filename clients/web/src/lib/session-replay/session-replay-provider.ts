@@ -100,6 +100,15 @@ const replayProvider: SessionReplayProvider = (() => {
         void import("logrocket").then((mod) => {
           // `logrocket` is CJS (`export = `); the interop default holds the SDK.
           const replaySdk = (mod as { default: ReplaySdk }).default;
+          // The SDK splits traffic into a data endpoint (`serverURL`, set via
+          // init below) and a separate stats beacon — which has no init option
+          // and otherwise POSTs to the vendor host directly, bypassing the proxy
+          // (a CSP violation under Electron's `app://` and an ad-blocker target).
+          // Its config object is the only lever, so point the beacon at the proxy
+          // here, after the module's loader has populated the object but before
+          // the async recorder bundle reads it.
+          window.__SDKCONFIG__ = window.__SDKCONFIG__ ?? {};
+          window.__SDKCONFIG__.statsURL = `${options.base}/_sr/ingest/s`;
           replaySdk.init(appId, {
             serverURL: `${options.base}/_sr/ingest/i`,
             release: options.release,
