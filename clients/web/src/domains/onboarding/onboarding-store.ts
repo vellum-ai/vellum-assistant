@@ -17,7 +17,6 @@
 
 import { create } from "zustand";
 
-import { syncDiagnosticsToMain } from "@/runtime/diagnostics";
 import { createSelectors } from "@/utils/create-selectors";
 import {
   getLocalBool,
@@ -75,8 +74,10 @@ const useOnboardingStoreBase = create<OnboardingStore>()((set) => ({
   },
   setShareDiagnostics: (value) => {
     set({ shareDiagnostics: value });
+    // The device-key write fires the watcher in `sentry-control.ts`, which
+    // re-syncs both Sentry clients with the session gate applied — so the
+    // main-process sync is centralized there, not forced un-gated from here.
     setLocalBool(KEY_SHARE_DIAGNOSTICS, value);
-    syncDiagnosticsToMain(value);
   },
   setTosAccepted: (value) => {
     set({ tosAccepted: value });

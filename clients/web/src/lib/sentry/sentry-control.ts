@@ -1,15 +1,17 @@
 import * as Sentry from "@sentry/react";
 
 import { getDeviceBool, watchDeviceSetting } from "@/utils/device-settings";
+import { syncDiagnosticsToMain } from "@/runtime/diagnostics";
 import { useAuthStore } from "@/stores/auth-store";
 import { hasLivePlatformSession } from "@/stores/session-status";
 
 /**
- * Gates the browser-side Sentry client on BOTH the user's Share Diagnostics
- * toggle (`device:share_diagnostics`) AND a live platform session. Diagnostics
- * are recorded against a platform account, so an offline / self-hosted client
- * with no session stays fail-closed regardless of the device toggle — matching
- * the daemon's consent posture.
+ * Gates Sentry on BOTH the user's Share Diagnostics toggle
+ * (`device:share_diagnostics`) AND a live platform session. Diagnostics are
+ * recorded against a platform account, so an offline / self-hosted client with
+ * no session stays fail-closed regardless of the device toggle — matching the
+ * daemon's consent posture. The same gate drives the browser client and, via
+ * `syncDiagnosticsToMain`, the Electron main-process client.
  *
  * Strict opt-in semantics for the device toggle (when a session is live):
  *   - stored "true"  → Sentry ON  (explicit consent)
@@ -19,7 +21,7 @@ import { hasLivePlatformSession } from "@/stores/session-status";
  * Reference: https://docs.sentry.io/platforms/javascript/guides/react/configuration/options/
  */
 
-function readConsent(): boolean {
+export function diagnosticsConsentGranted(): boolean {
   if (!hasLivePlatformSession(useAuthStore.getState().platformSession)) {
     return false;
   }
@@ -46,7 +48,7 @@ function tryClose(): void {
  */
 export function syncSentryClient(options: Sentry.BrowserOptions): void {
   if (!options.dsn) return;
-  if (readConsent()) {
+  if (diagnosticsConsentGranted()) {
     tryInit(options);
   } else {
     tryClose();
@@ -54,23 +56,23 @@ export function syncSentryClient(options: Sentry.BrowserOptions): void {
 }
 
 /**
- * Install listeners so the Sentry client turns on/off whenever the gate
- * changes: the user flipping the Share Diagnostics toggle (cross-tab via the
- * native `storage` event, same-tab via the custom event from `setLocalSetting`)
- * or the platform session transitioning in/out of "present".
+ * Install listeners so both Sentry clients (browser + Electron main) re-apply
+ * the gate whenever it changes: the user flipping the Share Diagnostics toggle
+ * (cross-tab via the native `storage` event, same-tab via the custom event from
+ * `setLocalSetting`) or the platform session transitioning in/out of "present".
  *
  * Returns a cleanup function that removes both listeners.
  */
 export function installSentryControlListeners(
   options: Sentry.BrowserOptions,
 ): () => void {
-  const stopDeviceWatch = watchDeviceSetting("shareDiagnostics", () => {
+  const sync = () => {
     syncSentryClient(options);
-  });
+    syncDiagnosticsToMain(diagnosticsConsentGranted());
+  };
+  const stopDeviceWatch = watchDeviceSetting("shareDiagnostics", sync);
   const stopSessionWatch = useAuthStore.subscribe((state, prevState) => {
-    if (state.platformSession !== prevState.platformSession) {
-      syncSentryClient(options);
-    }
+    if (state.platformSession !== prevState.platformSession) sync();
   });
   return () => {
     stopDeviceWatch();

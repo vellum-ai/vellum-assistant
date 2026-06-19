@@ -9,9 +9,14 @@ let platformSession = "absent";
 let mockClient:
   | { getOptions: () => { enabled?: boolean }; close: () => Promise<boolean> }
   | undefined;
+let deviceWatchCallback: (() => void) | null = null;
+let authSubscriber:
+  | ((state: { platformSession: string }, prev: { platformSession: string }) => void)
+  | null = null;
 
 const initMock = mock((_opts: Record<string, unknown>) => {});
 const setClientMock = mock((_client: unknown) => {});
+const syncDiagnosticsToMainMock = mock((_enabled: boolean) => {});
 
 mock.module("@sentry/react", () => ({
   init: initMock,
@@ -21,26 +26,60 @@ mock.module("@sentry/react", () => ({
 
 mock.module("@/utils/device-settings", () => ({
   getDeviceBool: (_key: string, _dflt: boolean) => deviceDiagnostics,
-  watchDeviceSetting: () => () => {},
+  watchDeviceSetting: (_name: string, cb: () => void) => {
+    deviceWatchCallback = cb;
+    return () => {
+      deviceWatchCallback = null;
+    };
+  },
+}));
+
+mock.module("@/runtime/diagnostics", () => ({
+  syncDiagnosticsToMain: syncDiagnosticsToMainMock,
 }));
 
 mock.module("@/stores/auth-store", () => ({
   useAuthStore: {
     getState: () => ({ platformSession }),
-    subscribe: () => () => {},
+    subscribe: (cb: typeof authSubscriber) => {
+      authSubscriber = cb;
+      return () => {
+        authSubscriber = null;
+      };
+    },
   },
 }));
 
-const { syncSentryClient } = await import("@/lib/sentry/sentry-control");
+const { syncSentryClient, diagnosticsConsentGranted, installSentryControlListeners } =
+  await import("@/lib/sentry/sentry-control");
 
 const OPTIONS = { dsn: "https://public@example.test/1" };
 
 beforeEach(() => {
   initMock.mockReset();
   setClientMock.mockReset();
+  syncDiagnosticsToMainMock.mockReset();
   mockClient = undefined;
   deviceDiagnostics = false;
   platformSession = "absent";
+  deviceWatchCallback = null;
+  authSubscriber = null;
+});
+
+describe("diagnosticsConsentGranted", () => {
+  test("false without a live platform session even when the toggle is on", () => {
+    deviceDiagnostics = true;
+    platformSession = "absent";
+    expect(diagnosticsConsentGranted()).toBe(false);
+  });
+
+  test("true only with a live session and the toggle on", () => {
+    platformSession = "present";
+    deviceDiagnostics = true;
+    expect(diagnosticsConsentGranted()).toBe(true);
+    deviceDiagnostics = false;
+    expect(diagnosticsConsentGranted()).toBe(false);
+  });
 });
 
 describe("syncSentryClient consent gate", () => {
@@ -78,5 +117,41 @@ describe("syncSentryClient consent gate", () => {
     syncSentryClient(OPTIONS);
     expect(initMock).not.toHaveBeenCalled();
     expect(closeMock).toHaveBeenCalled();
+  });
+});
+
+describe("installSentryControlListeners drives the Electron main process", () => {
+  test("device toggle change syncs main with the session-gated value", () => {
+    platformSession = "present";
+    deviceDiagnostics = true;
+    const stop = installSentryControlListeners(OPTIONS);
+
+    syncDiagnosticsToMainMock.mockReset();
+    deviceWatchCallback?.();
+    expect(syncDiagnosticsToMainMock).toHaveBeenCalledWith(true);
+
+    // Offline, the same toggle value tells main to disable.
+    platformSession = "absent";
+    syncDiagnosticsToMainMock.mockReset();
+    deviceWatchCallback?.();
+    expect(syncDiagnosticsToMainMock).toHaveBeenCalledWith(false);
+
+    stop();
+  });
+
+  test("a platform-session transition re-syncs both clients", () => {
+    deviceDiagnostics = true;
+    platformSession = "absent";
+    const stop = installSentryControlListeners(OPTIONS);
+
+    initMock.mockReset();
+    syncDiagnosticsToMainMock.mockReset();
+    platformSession = "present";
+    authSubscriber?.({ platformSession: "present" }, { platformSession: "absent" });
+
+    expect(initMock).toHaveBeenCalled();
+    expect(syncDiagnosticsToMainMock).toHaveBeenCalledWith(true);
+
+    stop();
   });
 });
