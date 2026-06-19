@@ -320,12 +320,20 @@ export function hasAssistants(): boolean {
 }
 
 /**
- * A local-kind (non-platform) assistant, by origin. Identity only — whether it
- * currently has a reachable gateway is a separate, connect-time question
- * (see `getLocalGatewayUrl`).
+ * A local-kind assistant, by origin: a plain on-machine assistant the web client
+ * drives through its local flows (gateway connect, wake, local retire) — cloud
+ * `"local"`, or a legacy entry with no `cloud`. Identity only — whether it
+ * currently has a reachable gateway is a separate, connect-time question (see
+ * `getLocalGatewayUrl`).
+ *
+ * Deliberately excludes the externally-managed container runtimes (`docker`,
+ * `apple-container`) and remote self-hosted clouds (`paired`/`gcp`/`aws`/
+ * `custom`, reached at their own `runtimeUrl`), along with platform (`vellum`):
+ * the web client manages none of those through its local flows. See the `cloud`
+ * taxonomy in `cli/src/lib/assistant-config.ts`.
  */
 export function isLocalAssistant(a: LockfileAssistant): boolean {
-  return a.cloud !== "vellum";
+  return a.cloud == null || a.cloud === "local";
 }
 
 export function isPlatformAssistant(a: LockfileAssistant): boolean {
@@ -333,18 +341,17 @@ export function isPlatformAssistant(a: LockfileAssistant): boolean {
 }
 
 /**
- * A plain local assistant the vellum CLI manages: cloud `"local"` or unset
- * (treated as local), not Docker or apple-container. `vellum wake` operates only
- * on these — it returns early for Docker and refuses apple-container — so the
- * "Wake up" and guardian-repair affordances are limited to them. A missing
- * gateway port does NOT disqualify: wake is what (re)establishes it.
+ * Whether `vellum wake` can start or repair the assistant with this id. Wake
+ * operates only on plain local assistants (the {@link isLocalAssistant} set) —
+ * it refuses Docker and apple-container entries — so the "Wake up" and
+ * guardian-repair affordances are limited to them. A missing gateway port does
+ * NOT disqualify: wake is what (re)establishes it.
  */
 export function isCliWakeableAssistant(assistantId: string): boolean {
   const entry = getLockfile().assistants.find(
     (a) => a.assistantId === assistantId,
   );
-  if (!entry) return false;
-  return entry.cloud == null || entry.cloud === "local";
+  return !!entry && isLocalAssistant(entry);
 }
 
 /**
@@ -416,16 +423,31 @@ export function gatewayProxyUrl(port: number): string {
 }
 
 /**
+ * Whether this runtime should reach `assistant` over a local gateway: a
+ * local-kind assistant, in local (non-remote-gateway) mode. Whether that gateway
+ * is currently resolvable — a recorded port — is a separate question answered by
+ * `getLocalGatewayUrl`.
+ */
+function expectsLocalGateway(
+  assistant: LockfileAssistant | undefined,
+): assistant is LockfileAssistant {
+  return (
+    !!assistant &&
+    isLocalMode() &&
+    !isRemoteGatewayMode() &&
+    isLocalAssistant(assistant)
+  );
+}
+
+/**
  * Return the local gateway proxy URL for the given assistant (default: the
- * selected one), or `undefined` when not in local mode / not a local
- * assistant.
+ * selected one), or `undefined` when this runtime doesn't reach it over a local
+ * gateway or the gateway port hasn't been recorded yet.
  */
 export function getLocalGatewayUrl(
   assistant: LockfileAssistant | undefined = getSelectedAssistant(),
 ): string | undefined {
-  if (!isLocalMode()) return undefined;
-  if (isRemoteGatewayMode()) return undefined;
-  if (!assistant || !isLocalAssistant(assistant)) return undefined;
+  if (!expectsLocalGateway(assistant)) return undefined;
   const gatewayPort = assistant.resources?.gatewayPort;
   if (gatewayPort == null) return undefined;
   return gatewayProxyUrl(gatewayPort);
@@ -466,12 +488,7 @@ export async function primeLocalGatewayConnection(
     // A local assistant we recognize but can't resolve a gateway for (no port)
     // is recoverable by waking it — surface that instead of silently leaving
     // the session unconnected. Non-local / non-local-mode cases stay no-ops.
-    if (
-      assistant &&
-      isLocalMode() &&
-      !isRemoteGatewayMode() &&
-      isLocalAssistant(assistant)
-    ) {
+    if (expectsLocalGateway(assistant)) {
       throw new UnresolvedLocalGatewayError(assistant.assistantId);
     }
     return;
