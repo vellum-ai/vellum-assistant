@@ -294,21 +294,16 @@ describe("api-interceptors / self-hosted rewriting", () => {
   });
 
   test("rewrites daemon/gateway-owned segments reached via the platform client", async () => {
-    // config / permissions / trust-rules / artifacts / contacts /
-    // contact-channels are daemon- or gateway-owned but are called through
-    // the platform client via raw `client.*` requests (e.g. the background
-    // `TimezoneSync` PATCH to `config`). In local / self-hosted mode they
-    // must route to the gateway like conversations rather than fall through
-    // to the dead platform proxy and flood the console with 502s.
+    // config / permissions / trust-rules are daemon- or gateway-owned and
+    // are called through the platform client via raw `client.*` requests
+    // (e.g. the background `TimezoneSync` PATCH to `config`). In local /
+    // self-hosted mode they must route to the gateway like conversations
+    // rather than fall through to the dead platform proxy and flood the
+    // console with 502s. (contacts / contact-channels / artifacts are NOT
+    // listed — their assistant-scoped routes aren't served by the gateway
+    // or daemon, so forwarding them would only 404.)
     setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
-    for (const segment of [
-      "config",
-      "permissions",
-      "trust-rules",
-      "artifacts",
-      "contacts",
-      "contact-channels",
-    ]) {
+    for (const segment of ["config", "permissions", "trust-rules"]) {
       const path = `/v1/assistants/${SELF_HOSTED_ID}/${segment}/`;
       const input = new Request(`https://platform.test${path}`, {
         method: "POST",
@@ -414,9 +409,10 @@ describe("api-interceptors / self-hosted rewriting", () => {
   });
 
   test("does NOT rewrite first segments outside the allowlist", async () => {
-    // The platform client's narrow allowlist ensures platform-owned
-    // routes fall through to Django. Pin the non-rewriting contract
-    // for the routes most likely to get mistakenly captured.
+    // The platform client's narrow allowlist ensures platform-owned routes
+    // (and runtime routes not yet mirrored on the gateway) fall through
+    // rather than being rewritten. Pin the non-rewriting contract for the
+    // routes most likely to get mistakenly captured.
     setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
     for (const segment of [
       "activate",
@@ -432,10 +428,16 @@ describe("api-interceptors / self-hosted rewriting", () => {
       "domains",
       "email-addresses",
       "oauth",
-      // `/a2a/invites/redeem` is a platform broker (Django) route — it sits
-      // in the same client file as the allowlisted `contacts` /
-      // `contact-channels`, so pin that it is NOT captured by the allowlist.
+      // `/a2a/invites/redeem` is a platform broker (Django) route.
       "a2a",
+      // contacts / contact-channels / artifacts are daemon/gateway-owned but
+      // their assistant-scoped routes aren't served (the contacts control
+      // plane is registered at flat `/v1/contacts...` paths; there is no
+      // artifacts route), so they must NOT be rewritten — forwarding would
+      // 404 rather than reach a handler.
+      "contacts",
+      "contact-channels",
+      "artifacts",
     ]) {
       const input = new Request(
         `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/${segment}/`,
