@@ -646,6 +646,57 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
     });
     expect(optionLabels).toContain("openrouter/fusion");
   });
+
+  test("clears a catalog model the connection's subscription filters out, rather than offering it", async () => {
+    // A ChatGPT-subscription OpenAI connection only accepts the Codex-compatible
+    // model set, so a profile pinned to an in-catalog but non-Codex model
+    // (gpt-5.5-pro) is a known-incompatible binding: the editor clears it rather
+    // than presenting it as a valid, saveable choice.
+    const subscriptionConnection = {
+      name: "openai-chatgpt",
+      label: null,
+      provider: "openai",
+      auth: {
+        type: "oauth_subscription",
+        credential: "credential/openai/oauth_subscription",
+      },
+      models: null,
+    } as unknown as ProviderConnection;
+
+    renderEdit(
+      {
+        name: "codex",
+        label: "Codex",
+        provider: "openai",
+        model: "gpt-5.5-pro",
+        provider_connection: "openai-chatgpt",
+        status: "active",
+      },
+      subscriptionConnection,
+    );
+
+    // The incompatible model is auto-cleared: the Model trigger falls back to the
+    // placeholder and never surfaces "GPT-5.5 Pro".
+    await waitFor(() => {
+      const labels = dropdownTriggers().map((t) => t.textContent?.trim());
+      expect(labels).toContain("Select a model");
+    });
+    expect(dropdownTriggers().map((t) => t.textContent?.trim())).not.toContain(
+      "GPT-5.5 Pro",
+    );
+
+    // The dropdown offers the Codex-compatible models but not the filtered one.
+    const optionLabels = dropdownTriggers().flatMap((trigger) => {
+      fireEvent.click(trigger);
+      const labels = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
+      ).map((o) => o.textContent?.trim());
+      fireEvent.click(trigger);
+      return labels;
+    });
+    expect(optionLabels).toContain("GPT-5.5");
+    expect(optionLabels).not.toContain("GPT-5.5 Pro");
+  });
 });
 
 describe("ProfileEditorModal — Top P wiring", () => {

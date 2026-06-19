@@ -187,14 +187,11 @@ export function ProfileEditorProviderSection({
     availableConnectionsForProvider,
   ]);
 
-  // The Model dropdown must always be able to render the profile's
-  // currently-bound model — even when it isn't in the static catalog. A profile
-  // can be bound (via Chat) to a model this app build doesn't list yet: a new
-  // or cloaked provider model, or one carried only on the connection. Without
-  // surfacing it here the trigger falls back to the empty "Select a model"
-  // placeholder and the model can't be re-selected, even though it dispatches
-  // fine in Chat. Resolve its label from the catalog, then connection models,
-  // then the raw id. See JARVIS-1180.
+  // The Model dropdown always offers the profile's currently-bound model, even
+  // when it's absent from the static catalog — a profile can be bound (via Chat)
+  // to a model this build doesn't list: a new or cloaked provider model, or one
+  // carried only on the connection. Label it from the catalog, then connection
+  // models, then the raw id.
   const modelOptions: readonly { id: string; displayName: string }[] = useMemo(() => {
     if (!model || availableModels.some((m) => m.id === model)) {
       return availableModels;
@@ -222,16 +219,22 @@ export function ProfileEditorProviderSection({
     ? MODEL_EMPTY_STATE_COPY[modelEmptyState]
     : null;
 
-  // Auto-clear model when it's no longer in the available list — but ONLY for
-  // per-connection providers (openai-compatible), whose model list changes when
-  // the connection changes, so a stale binding must clear. Catalog-backed
-  // providers (OpenRouter, Anthropic, …) have a fixed list: a bound model
-  // that's absent from it is a newer/cloaked model, not a stale binding, and
-  // clearing it would silently wipe a working profile (the JARVIS-1180 bug).
-  // Provider changes already reset the model in the parent's
-  // handleProviderChange, so this guard doesn't strand cross-provider bindings.
+  // Clear the bound model when it isn't selectable for the current connection.
+  // Per-connection providers (openai-compatible) derive their model list from
+  // the connection, so a binding the connection doesn't offer must clear. For a
+  // catalog-backed provider a model that's entirely absent from the catalog is a
+  // newer/cloaked model the build doesn't list — keep it, clearing it would wipe
+  // a working profile. But a model that IS in the catalog yet filtered out of
+  // availableModels (e.g. a non-Codex model under a ChatGPT subscription
+  // connection) is a known-incompatible binding and still clears. The parent's
+  // handleProviderChange resets the model on provider switch, so this never
+  // strands a cross-provider binding.
   useEffect(() => {
-    if (!provider || getModelsForProvider(provider).length > 0) return;
+    if (!provider) return;
+    const catalogModels = getModelsForProvider(provider);
+    if (catalogModels.length > 0 && !catalogModels.some((m) => m.id === model)) {
+      return;
+    }
     if (
       model &&
       availableModels.length > 0 &&
