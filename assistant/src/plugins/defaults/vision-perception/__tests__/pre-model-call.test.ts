@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ImageContent, Message } from "../../../../providers/types.js";
+import type {
+  FileContent,
+  ImageContent,
+  Message,
+} from "../../../../providers/types.js";
 
 // The gate resolves the turn's effective provider/model via the LLM resolver and
 // reads `supportsVision` from the real model catalog, behind the
@@ -21,13 +25,12 @@ mock.module("../../../../config/llm-resolver.js", () => ({
   resolveCallSiteConfig: () => resolvedProviderModel,
 }));
 
-// Attachment-store lookup supplies the marker's filename. Configurable per test.
-let attachmentFilenames: Record<string, string> = {};
+// Attachment-store lookup supplies the marker's filename and (for the video
+// file-block path) the attachment `kind`. Configurable per test.
+let attachmentRows: Record<string, { originalFilename: string; kind: string }> =
+  {};
 mock.module("../../../../memory/attachments-store.js", () => ({
-  getAttachmentById: (id: string) =>
-    attachmentFilenames[id]
-      ? { originalFilename: attachmentFilenames[id] }
-      : null,
+  getAttachmentById: (id: string) => attachmentRows[id] ?? null,
 }));
 
 const {
@@ -53,6 +56,22 @@ function imageMessage(attachmentId?: string): Message {
   return { role: "user", content: [{ type: "text", text: "look" }, block] };
 }
 
+function fileMessage(
+  block: Partial<FileContent> & { type?: "file" } = {},
+): Message {
+  const fileBlock: FileContent = {
+    type: "file",
+    source: {
+      type: "base64",
+      media_type: block.source?.media_type ?? "application/pdf",
+      data: "AAAA",
+      filename: block.source?.filename ?? "doc.pdf",
+    },
+    ...(block._attachmentId ? { _attachmentId: block._attachmentId } : {}),
+  };
+  return { role: "user", content: [{ type: "text", text: "look" }, fileBlock] };
+}
+
 const gate = () =>
   resolveBackboneSupportsVision({
     callSite: "mainAgent",
@@ -63,7 +82,11 @@ const gate = () =>
 beforeEach(() => {
   flagEnabled = true;
   resolvedProviderModel = { ...VISION_MODEL };
-  attachmentFilenames = { "att-1": "photo.png" };
+  attachmentRows = {
+    "att-1": { originalFilename: "photo.png", kind: "image" },
+    "vid-1": { originalFilename: "clip.mp4", kind: "video" },
+    "doc-1": { originalFilename: "report.pdf", kind: "document" },
+  };
 });
 
 describe("vision-capable backbone keeps the feature inert", () => {
@@ -108,6 +131,108 @@ describe("non-vision backbone surfaces a usable media_ref", () => {
     expect(text).toContain('media_ref="att-1"');
     expect(text).toContain('file "photo.png"');
     expect(text).toContain("vlm_ask");
+  });
+});
+
+describe("non-vision backbone surfaces uploaded videos", () => {
+  test("a video file block becomes a marker advertising vlm_video_log", () => {
+    resolvedProviderModel = { ...NON_VISION_MODEL };
+
+    const out = applyVisionPerceptionMarkers(
+      [
+        fileMessage({
+          source: {
+            type: "base64",
+            media_type: "video/mp4",
+            data: "AAAA",
+            filename: "clip.mp4",
+          },
+          _attachmentId: "vid-1",
+        }),
+      ],
+      gate(),
+    );
+    const blocks = out[0].content;
+
+    // The raw file block is gone; the model never receives video bytes.
+    expect(blocks.some((b) => b.type === "file")).toBe(false);
+
+    const marker = blocks.find(
+      (b) => b.type === "text" && b.text.includes("id="),
+    );
+    expect(marker).toBeDefined();
+    const text = (marker as { text: string }).text;
+    expect(text).toContain("Video attachment available");
+    expect(text).toContain('id="vid-1"');
+    expect(text).toContain('media_ref="vid-1"');
+    expect(text).toContain('file "clip.mp4"');
+    expect(text).toContain("vlm_video_log");
+  });
+
+  test("a video file block with a generic mime is detected via attachment kind", () => {
+    resolvedProviderModel = { ...NON_VISION_MODEL };
+
+    const out = applyVisionPerceptionMarkers(
+      [
+        fileMessage({
+          source: {
+            type: "base64",
+            media_type: "application/octet-stream",
+            data: "AAAA",
+            filename: "clip.mov",
+          },
+          _attachmentId: "vid-1",
+        }),
+      ],
+      gate(),
+    );
+    const blocks = out[0].content;
+    expect(blocks.some((b) => b.type === "file")).toBe(false);
+    const marker = blocks.find(
+      (b) => b.type === "text" && b.text.includes("vlm_video_log"),
+    );
+    expect(marker).toBeDefined();
+    expect((marker as { text: string }).text).toContain('media_ref="vid-1"');
+  });
+
+  test("a non-video file block (e.g. a PDF) is left untouched", () => {
+    resolvedProviderModel = { ...NON_VISION_MODEL };
+
+    const messages = [
+      fileMessage({
+        source: {
+          type: "base64",
+          media_type: "application/pdf",
+          data: "AAAA",
+          filename: "report.pdf",
+        },
+        _attachmentId: "doc-1",
+      }),
+    ];
+    const out = applyVisionPerceptionMarkers(messages, gate());
+    // No rewrite was needed, so the same array reference comes back and the file
+    // block survives intact.
+    expect(out).toBe(messages);
+    expect(out[0].content[1]).toMatchObject({ type: "file" });
+  });
+
+  test("a video file block on a vision-capable backbone is left unchanged", () => {
+    resolvedProviderModel = { ...VISION_MODEL };
+
+    const messages = [
+      fileMessage({
+        source: {
+          type: "base64",
+          media_type: "video/mp4",
+          data: "AAAA",
+          filename: "clip.mp4",
+        },
+        _attachmentId: "vid-1",
+      }),
+    ];
+    const out = applyVisionPerceptionMarkers(messages, gate());
+    expect(out).toBe(messages);
+    expect(out[0].content[1]).toMatchObject({ type: "file" });
   });
 });
 

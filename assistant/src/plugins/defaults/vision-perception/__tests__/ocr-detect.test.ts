@@ -60,6 +60,7 @@ let attachmentBytes: Record<string, Buffer> = {};
 mock.module("../../../../memory/attachments-store.js", () => ({
   getAttachmentById: (id: string) => attachmentRows[id] ?? null,
   getAttachmentContent: (id: string) => attachmentBytes[id] ?? null,
+  getFilePathForAttachment: () => null,
 }));
 
 const vlmOcrTool = (await import("../tools/vlm-ocr.js")).default;

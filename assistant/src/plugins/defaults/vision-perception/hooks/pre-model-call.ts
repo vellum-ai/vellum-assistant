@@ -33,6 +33,7 @@ import { getAttachmentById } from "../../../../memory/attachments-store.js";
 import { PROVIDER_CATALOG } from "../../../../providers/model-catalog.js";
 import type {
   ContentBlock,
+  FileContent,
   ImageContent,
   Message,
 } from "../../../../providers/types.js";
@@ -49,6 +50,7 @@ export const VLM_TOOL_NAMES: ReadonlySet<string> = new Set([
   "vlm_describe",
   "vlm_ocr",
   "vlm_detect",
+  "vlm_video_log",
 ]);
 
 /** Whether `name` is one of the plugin's vision tools. */
@@ -104,6 +106,25 @@ function mediaKind(block: ImageContent): string {
   return block.source.media_type.startsWith("video/") ? "Video" : "Image";
 }
 
+/**
+ * Whether a `file` block carries a video the model can't read inline. Inline
+ * uploads of `video/*` reach the model as a {@link FileContent} block (only
+ * `image/*` becomes an {@link ImageContent} — see `agent/attachments.ts`), so a
+ * non-vision backbone needs that block rewritten into a `vlm_video_log` marker
+ * too. Detected by the block's own `media_type` first (no DB hit), falling back
+ * to the attachment row's `kind` for blocks whose declared MIME is generic.
+ */
+function isVideoFileBlock(block: FileContent): boolean {
+  if (block.source.media_type.toLowerCase().startsWith("video/")) return true;
+  const id = block._attachmentId;
+  if (typeof id !== "string") return false;
+  try {
+    return getAttachmentById(id)?.kind === "video";
+  } catch {
+    return false;
+  }
+}
+
 /** Best-effort original filename for an attachment id; falls back to a generic label. */
 function resolveAttachmentFilename(attachmentId: string): string {
   try {
@@ -115,28 +136,44 @@ function resolveAttachmentFilename(attachmentId: string): string {
 
 /**
  * Render the text marker that replaces a raw media block for a non-vision
- * backbone. Names the attachment id so the model has a usable `media_ref`.
+ * backbone. Names the attachment id so the model has a usable `media_ref`, and
+ * advertises the right tool for the media kind: `vlm_video_log` for videos, the
+ * image inspection tools otherwise.
  */
 export function renderMediaMarker(
   attachmentId: string,
   filename: string,
   kind: string,
 ): string {
+  const tools =
+    kind === "Video"
+      ? `call vlm_video_log with media_ref="${attachmentId}" to read it`
+      : `call vlm_ask / vlm_describe / vlm_ocr / vlm_detect ` +
+        `with media_ref="${attachmentId}" to inspect it`;
   return (
     `[${kind} attachment available — id="${attachmentId}", file "${filename}". ` +
-    `You cannot view it directly; call vlm_ask / vlm_describe / vlm_ocr / vlm_detect ` +
-    `with media_ref="${attachmentId}" to inspect it.]`
+    `You cannot view it directly; ${tools}.]`
   );
 }
 
 /**
- * Replace raw image blocks with attachment-id markers when the backbone lacks
+ * Replace raw media blocks with attachment-id markers when the backbone lacks
  * native vision. Returns the input array unchanged (same reference) when the
  * backbone is vision-capable or when there is nothing to replace, so a request
  * that needs no rewrite is not copied.
  *
- * Image blocks that carry no `_attachmentId` (e.g. tool-generated images) are
- * left intact: without an id there is no `media_ref` the model could pass to a
+ * Two block shapes are rewritten:
+ *  - `image` blocks (uploaded images), and
+ *  - `file` blocks that carry a video (uploaded `video/*` files reach the model
+ *    as a generic `file` block — see {@link isVideoFileBlock}). Without this the
+ *    video would arrive as an opaque file placeholder with no `media_ref`, so
+ *    the model could never call `vlm_video_log`.
+ *
+ * Non-video `file` blocks (PDFs, documents, …) are left intact — the backbone
+ * can read their `extracted_text`, and there is no `vlm_*` tool for them.
+ *
+ * Blocks that carry no `_attachmentId` (e.g. tool-generated images) are left
+ * intact: without an id there is no `media_ref` the model could pass to a
  * `vlm_*` tool, so dropping them would only lose information.
  */
 export function applyVisionPerceptionMarkers(
@@ -145,28 +182,30 @@ export function applyVisionPerceptionMarkers(
 ): Message[] {
   if (supportsVision) return messages;
 
-  const replaceableImage = (block: ContentBlock): block is ImageContent =>
-    block.type === "image" && typeof block._attachmentId === "string";
+  const replaceable = (
+    block: ContentBlock,
+  ): block is ImageContent | FileContent => {
+    if (block.type === "image") return typeof block._attachmentId === "string";
+    if (block.type === "file")
+      return typeof block._attachmentId === "string" && isVideoFileBlock(block);
+    return false;
+  };
 
-  const hasReplaceable = messages.some((msg) =>
-    msg.content.some(replaceableImage),
-  );
+  const hasReplaceable = messages.some((msg) => msg.content.some(replaceable));
   if (!hasReplaceable) return messages;
 
   return messages.map((msg) => {
-    if (!msg.content.some(replaceableImage)) return msg;
+    if (!msg.content.some(replaceable)) return msg;
     return {
       ...msg,
       content: msg.content.map((block) => {
-        if (!replaceableImage(block)) return block;
+        if (!replaceable(block)) return block;
         const id = block._attachmentId!;
+        const kind =
+          block.type === "image" ? mediaKind(block) : ("Video" as const);
         return {
           type: "text" as const,
-          text: renderMediaMarker(
-            id,
-            resolveAttachmentFilename(id),
-            mediaKind(block),
-          ),
+          text: renderMediaMarker(id, resolveAttachmentFilename(id), kind),
         };
       }),
     };
