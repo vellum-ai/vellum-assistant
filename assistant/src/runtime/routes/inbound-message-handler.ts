@@ -59,7 +59,6 @@ import {
 import {
   clearPayload,
   findMessageBySourceId,
-  linkMessage,
   recordInbound,
 } from "../../memory/delivery-crud.js";
 import { markProcessed } from "../../memory/delivery-status.js";
@@ -108,6 +107,10 @@ import { handleEditIntercept } from "./inbound-stages/edit-intercept.js";
 import { handleEscalationIntercept } from "./inbound-stages/escalation-intercept.js";
 import { handleGuardianActivationIntercept } from "./inbound-stages/guardian-activation-intercept.js";
 import { handleGuardianReplyIntercept } from "./inbound-stages/guardian-reply-intercept.js";
+import {
+  handleSlackReactionIntercept,
+  isSlackReactionEvent,
+} from "./inbound-stages/reaction-intercept.js";
 import { runSecretIngressCheck } from "./inbound-stages/secret-ingress-check.js";
 import { tryTranscribeAudioAttachments } from "./inbound-stages/transcribe-audio.js";
 import type { RouteHandlerArgs } from "./types.js";
@@ -401,6 +404,35 @@ export async function handleChannelInbound({
     externalMessageId,
   });
   if (guardianActivationResponse) return guardianActivationResponse;
+
+  // ── Slack reaction handling ──
+  // Reactions are passive channel signals — not messages, and not access
+  // attempts. Dispatch them to a dedicated interceptor BEFORE the message
+  // pipeline (ACL, admission floor, disk-pressure, conversation binding) so a
+  // 👍 never triggers a verification handshake or an access-request
+  // notification, and a stranger's reaction creates no conversation/binding.
+  // The interceptor drops strangers, records known contacts' reactions as
+  // transcript signals, and routes a guardian's reaction on an approval card
+  // through the canonical guardian decision pipeline. Reactions never drive an
+  // agent turn.
+  if (isSlackReactionEvent(body)) {
+    return handleSlackReactionIntercept({
+      callbackData: body.callbackData!,
+      sourceChannel,
+      sourceInterface,
+      conversationExternalId,
+      externalMessageId,
+      canonicalAssistantId,
+      rawSenderId,
+      canonicalSenderId,
+      actorDisplayName: body.actorDisplayName,
+      actorUsername: body.actorUsername,
+      replyCallbackUrl: body.replyCallbackUrl,
+      sourceMetadata: body.sourceMetadata,
+      slackChannelName,
+      approvalConversationGenerator,
+    });
+  }
 
   // ── Admission policy pre-computation ──
   // Resolve the effective policy before ACL so it can skip its hard-deny
@@ -897,121 +929,6 @@ export async function handleChannelInbound({
     };
   }
 
-  // ── Slack reaction handling ──
-  // Reactions arrive as regular `SlackInboundEvent`s with `callbackData`
-  // prefixed `reaction:` (added) or `reaction_removed:` (removed).
-  //
-  // Two paths from here:
-  //   1. Guardian approval-by-reaction. A `reaction:` (added) event from
-  //      the guardian on an active approval prompt is consumed by
-  //      `handleApprovalInterception` to apply the decision. In that case
-  //      we do NOT persist the reaction as a transcript line — resolved
-  //      guardian approval reactions have no transcript representation.
-  //   2. All other reactions (non-guardian, no pending approval, stale,
-  //      and any `reaction_removed:` event regardless of actor) fall
-  //      through to `persistSlackReactionAsMessage` so Slack transcript
-  //      rendering can surface them inline. Reactions never trigger an
-  //      agent response, so we short-circuit before escalation and
-  //      agent-loop dispatch in both cases.
-  if (isSlackReactionEvent(body)) {
-    // Approval interception runs only for reactions (added) — `reaction_removed`
-    // never expresses an approval intent, so un-reacting is left as a pure
-    // transcript signal. Gated by the same `replyCallbackUrl && !duplicate`
-    // preconditions used by the standard approval interception call below.
-    const isReactionAdded = body.callbackData?.startsWith("reaction:") === true;
-    if (isReactionAdded && replyCallbackUrl && !result.duplicate) {
-      const trustCtxForReaction: TrustContext = attachSlackRequesterTimezone(
-        resolveTrustContext({
-          assistantId: canonicalAssistantId,
-          sourceChannel,
-          conversationExternalId,
-          actorExternalId: rawSenderId,
-          actorUsername: body.actorUsername,
-          actorDisplayName: body.actorDisplayName,
-        }),
-        slackActorTimezone,
-      );
-
-      const approvalMessageTs =
-        typeof sourceMetadata?.messageId === "string"
-          ? sourceMetadata.messageId
-          : undefined;
-
-      const reactionApprovalResult = await handleApprovalInterception({
-        conversationId: result.conversationId,
-        callbackData: body.callbackData,
-        content: trimmedContent,
-        conversationExternalId,
-        sourceChannel,
-        actorExternalId: canonicalSenderId ?? rawSenderId,
-        replyCallbackUrl,
-        trustCtx: trustCtxForReaction,
-        assistantId: canonicalAssistantId,
-        approvalCopyGenerator,
-        approvalConversationGenerator,
-        approvalMessageTs,
-      });
-
-      // A real guardian decision was applied — short-circuit and skip the
-      // reaction-persistence path so we do not double-record it as a
-      // transcript line. All other interception outcomes (stale_ignored,
-      // non-guardian, no pending approval) fall through to persistence.
-      if (reactionApprovalResult.type === "guardian_decision_applied") {
-        return {
-          accepted: true,
-          duplicate: false,
-          eventId: result.eventId,
-          approval: reactionApprovalResult.type,
-        };
-      }
-    }
-
-    const reactedMessageTs =
-      typeof sourceMetadata?.messageId === "string"
-        ? sourceMetadata.messageId
-        : undefined;
-    if (!reactedMessageTs) {
-      log.debug(
-        { conversationId: result.conversationId, eventId: result.eventId },
-        "Skipping reaction persistence: missing sourceMetadata.messageId",
-      );
-      return {
-        accepted: result.accepted,
-        duplicate: result.duplicate,
-        eventId: result.eventId,
-      };
-    }
-
-    const threadTs =
-      typeof sourceMetadata?.threadId === "string"
-        ? sourceMetadata.threadId
-        : undefined;
-
-    try {
-      await persistSlackReactionAsMessage({
-        conversationId: result.conversationId,
-        conversationExternalId,
-        eventId: result.eventId,
-        callbackData: body.callbackData!,
-        actorDisplayName: body.actorDisplayName,
-        threadTs,
-        reactedMessageTs,
-        duplicate: result.duplicate,
-      });
-    } catch (err) {
-      log.error(
-        { err, conversationId: result.conversationId, eventId: result.eventId },
-        "Failed to persist Slack reaction event",
-      );
-    }
-
-    return {
-      accepted: result.accepted,
-      duplicate: result.duplicate,
-      eventId: result.eventId,
-    };
-  }
-
   // ── Ingress escalation ──
   const escalationResponse = handleEscalationIntercept({
     resolvedMember,
@@ -1472,117 +1389,6 @@ export async function handleChannelInbound({
     duplicate: result.duplicate,
     eventId: result.eventId,
   };
-}
-
-/**
- * Detect a Slack reaction event by inspecting the inbound payload's
- * `callbackData` prefix. The gateway encodes reactions as a unified
- * `SlackInboundEvent` with `callbackData` of the form
- * `reaction:<emoji>` (added) or `reaction_removed:<emoji>` (removed) —
- * see `gateway/src/slack/normalize.ts`. This helper centralizes that
- * convention so the daemon can route reactions to a dedicated persistence
- * branch instead of the agent-response pipeline.
- */
-export function isSlackReactionEvent(body: {
-  sourceChannel?: string;
-  callbackData?: string;
-}): boolean {
-  if (body.sourceChannel !== "slack") return false;
-  const cb = body.callbackData;
-  if (typeof cb !== "string") return false;
-  return cb.startsWith("reaction:") || cb.startsWith("reaction_removed:");
-}
-
-/**
- * Parse a reaction `callbackData` string into its op (added/removed) and
- * emoji name. Returns `null` when the input is not a reaction prefix or
- * when the emoji portion is empty.
- */
-export function parseSlackReactionCallbackData(
-  callbackData: string,
-): { op: "added" | "removed"; emoji: string } | null {
-  let op: "added" | "removed";
-  let emoji: string;
-  if (callbackData.startsWith("reaction_removed:")) {
-    op = "removed";
-    emoji = callbackData.slice("reaction_removed:".length);
-  } else if (callbackData.startsWith("reaction:")) {
-    op = "added";
-    emoji = callbackData.slice("reaction:".length);
-  } else {
-    return null;
-  }
-  if (emoji.length === 0) return null;
-  return { op, emoji };
-}
-
-/**
- * Persist a Slack reaction event as a `messages` row with `slackMeta`
- * envelope so the renderer can surface it inline in the chronological
- * transcript. Reactions do not trigger an agent response — the row is
- * written and the inbound event is linked, but the agent loop is not
- * dispatched.
- *
- * The caller is expected to have run `recordInbound` already so that
- * deduplication and conversation resolution have happened. Duplicate
- * inbound events are skipped here to keep persistence idempotent.
- */
-async function persistSlackReactionAsMessage(params: {
-  conversationId: string;
-  conversationExternalId: string;
-  eventId: string;
-  callbackData: string;
-  actorDisplayName?: string;
-  threadTs?: string;
-  reactedMessageTs: string;
-  duplicate: boolean;
-}): Promise<void> {
-  if (params.duplicate) return;
-
-  const parsed = parseSlackReactionCallbackData(params.callbackData);
-  if (!parsed) {
-    log.debug(
-      {
-        conversationId: params.conversationId,
-        callbackData: params.callbackData,
-      },
-      "Skipping reaction persistence: unparseable callbackData",
-    );
-    return;
-  }
-
-  const slackMeta: SlackMessageMetadata = {
-    source: "slack",
-    channelId: params.conversationExternalId,
-    channelTs: params.reactedMessageTs,
-    eventKind: "reaction",
-    ...(params.threadTs ? { threadTs: params.threadTs } : {}),
-    ...(params.actorDisplayName
-      ? { displayName: params.actorDisplayName }
-      : {}),
-    reaction: {
-      emoji: parsed.emoji,
-      targetChannelTs: params.reactedMessageTs,
-      op: parsed.op,
-      ...(params.actorDisplayName
-        ? { actorDisplayName: params.actorDisplayName }
-        : {}),
-    },
-  };
-
-  // Sentinel content — Slack transcript renderers read `slackMeta` to format
-  // the reaction line; the literal text is never displayed to the model.
-  const persisted = await addMessage(
-    params.conversationId,
-    "user",
-    "[reaction]",
-    {
-      metadata: { slackMeta: writeSlackMetadata(slackMeta) },
-      skipIndexing: true,
-    },
-  );
-  linkMessage(params.eventId, persisted.id);
-  markProcessed(params.eventId);
 }
 
 /**

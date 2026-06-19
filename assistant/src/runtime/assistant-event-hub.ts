@@ -40,6 +40,7 @@ export function capabilityForMessageType(
   return HOST_PREFIX_TO_CAPABILITY[stem];
 }
 import { appendEventToStream } from "../signals/event-stream.js";
+import { IntegrityError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import type { AssistantEvent } from "./assistant-event.js";
 import { buildAssistantEvent } from "./assistant-event.js";
@@ -757,9 +758,22 @@ async function createCanonicalRequestForConfirmation(
       });
     }
   } catch (err) {
-    log.debug(
-      { err, conversationId },
-      "Failed to create canonical request from broadcast",
-    );
+    if (err instanceof IntegrityError) {
+      // The confirmation could not be promoted to a canonical guardian request
+      // (e.g. its trust context resolved no guardianPrincipalId). Channel
+      // guardian decisions — reactions, buttons, and text — all route through
+      // the canonical pipeline, so without this record none of them can resolve
+      // the confirmation. Surface it rather than swallowing: for a guardian's
+      // own confirmation a bound principal should always be present.
+      log.warn(
+        { err, conversationId, requestId: msg.requestId },
+        "Could not create canonical guardian request for confirmation; channel guardian decisions will not work for it",
+      );
+    } else {
+      log.debug(
+        { err, conversationId },
+        "Failed to create canonical request from broadcast",
+      );
+    }
   }
 }

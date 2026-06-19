@@ -11,12 +11,13 @@ import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
 import { remoteGatewayPublicPathPrefix } from "@/lib/auth/remote-gateway-session";
 import {
   isLocalMode,
+  isPlatformDisabled,
   isRemoteGatewayMode,
   getSelectedAssistant,
 } from "@/lib/local-mode";
 import {
   readTosAccepted,
-  readAiDataConsent,
+  readPrivacyConsent,
   readAnalyticsConsentCurrent,
   readDiagnosticsConsentCurrent,
 } from "@/domains/onboarding/prefs";
@@ -67,6 +68,7 @@ export function buildNavigationState(
   });
   return {
     isLocalMode: isLocalMode(),
+    isPlatformDisabled: isPlatformDisabled(),
     isRemoteGateway,
     remoteGatewayPublicPathPrefix: isRemoteGateway
       ? remoteGatewayPublicPathPrefix()
@@ -83,7 +85,7 @@ export function buildNavigationState(
     isAuthenticated: isAuthenticated(sessionStatus) || canAccessApp,
     platformSession,
     tosAccepted: readTosAccepted(),
-    aiDataConsent: readAiDataConsent(),
+    privacyConsent: readPrivacyConsent(),
     analyticsConsentCurrent: readAnalyticsConsentCurrent(),
     diagnosticsConsentCurrent: readDiagnosticsConsentCurrent(),
     ...overrides,

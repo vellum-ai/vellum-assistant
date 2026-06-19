@@ -187,10 +187,7 @@ describe("service communication matrix", () => {
      * Add to this list — with a comment — whenever a new file legitimately
      * matches the proxy patterns but is NOT a callsite.
      */
-    const ALLOWLIST = new Set<string>([
-      // Reads/writes config.json locally; never proxies to assistant.
-      "gateway/src/http/routes/privacy-config.ts",
-    ]);
+    const ALLOWLIST = new Set<string>([]);
 
     // Collect all callerGlobs from gateway->assistant entries.
     const gatewayToAssistantEntries = MATRIX_ENTRIES.filter(

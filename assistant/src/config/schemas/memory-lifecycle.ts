@@ -133,13 +133,9 @@ export const MemoryCleanupConfigSchema = z
       .nonnegative(
         "memory.cleanup.llmRequestLogRetentionMs must be non-negative",
       )
-      // Upper bound must match gateway MAX_LLM_REQUEST_LOG_RETENTION_MS in
-      // gateway/src/http/routes/privacy-config.ts. If a manually edited
-      // config.json sets a value larger than this, the gateway GET would
-      // return it and the macOS picker would snap it to its largest known
-      // option, and the next PATCH would silently truncate the value —
-      // causing quiet data loss. Enforcing the same cap here prevents the
-      // daemon from accepting out-of-range values in the first place.
+      // Cap retention at 365 days. Enforced daemon-side only: the cleanup jobs
+      // honor this bound, so a manually edited config.json with a larger value
+      // is rejected here rather than silently retained.
       .max(
         365 * 24 * 60 * 60 * 1000,
         "memory.cleanup.llmRequestLogRetentionMs must be <= 365 days in ms",

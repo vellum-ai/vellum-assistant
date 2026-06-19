@@ -16,19 +16,19 @@ import type {
 } from "@vellumai/plugin-api";
 import { RiskLevel } from "@vellumai/plugin-api";
 
+import { advisorEnabledForProfile } from "../advisor-gate.js";
 import { getCapture } from "../advisor-state-store.js";
 import { consultAdvisor } from "../consult.js";
 
 const advisorTool: ToolDefinition = {
   name: "advisor",
   description:
-    "Consult a stronger advisor model for detailed feedback and strategic guidance. " +
+    "Consult a stronger advisor model to shape your plan and get strategic guidance. " +
     "Takes NO parameters — your full conversation (the task, every tool call, and every " +
-    "result) is forwarded automatically. Call it at the moments where a second perspective " +
-    "matters most: when you're committing to an approach or interpretation, at a " +
-    "consequential decision or crossroads, when you're stuck, and once before declaring a " +
-    "task complete. Give it enough context to be useful — a concrete plan, a first attempt, " +
-    "or initial findings to react to — and call while there's still room to act on its advice.",
+    "result) is forwarded automatically. Call it BEFORE you start building: it can lay out " +
+    "a plan when you don't have one yet, or review and sharpen the plan you've already " +
+    "drafted. Also call it when you're stuck, when weighing a change in approach, and once " +
+    "before declaring a task complete. Give its guidance serious weight.",
   input_schema: { type: "object", properties: {}, additionalProperties: false },
   // Read-only advice; low risk so the consult isn't gated behind a prompt.
   defaultRiskLevel: RiskLevel.Low,
@@ -36,6 +36,16 @@ const advisorTool: ToolDefinition = {
     _input: Record<string, unknown>,
     ctx: ToolContext,
   ): Promise<ToolExecutionResult> {
+    // Defense-in-depth: the steering is already gated per profile, but a model
+    // could still call the tool. Honor the chat profile this turn runs under —
+    // the per-turn override (per-conversation / profile-session) when present,
+    // else the workspace active profile.
+    if (!advisorEnabledForProfile(ctx.overrideProfile ?? null)) {
+      return {
+        content: "(advisor is disabled for the active profile)",
+        isError: false,
+      };
+    }
     try {
       const capture = getCapture(ctx.conversationId);
       const advice = await consultAdvisor({

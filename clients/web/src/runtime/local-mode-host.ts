@@ -113,6 +113,66 @@ export function requiresGuardianReprovision(error: unknown): boolean {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Transport availability
+// ---------------------------------------------------------------------------
+
+/** Failure surfaced when no local-mode host backs this runtime. */
+const LOCAL_HOST_UNAVAILABLE_ERROR =
+  "The local assistant host isn't available here.";
+
+function readInjectedConfig(): { mode?: string } | undefined {
+  if (typeof window === "undefined") return undefined;
+  return (window as unknown as { __VELLUM_CONFIG__?: { mode?: string } })
+    .__VELLUM_CONFIG__;
+}
+
+/**
+ * Whether a local-mode host (the Electron IPC bridge, the Vite dev server, or
+ * the `vellum client` CLI server) backs this runtime and can serve
+ * `/assistant/__local/*`. The managed web build and the remote-web tunnel
+ * cannot, yet both still surface local / self-hosted assistants via the platform
+ * `is_local` flag — so callers and UI MUST consult this before offering a local
+ * action (wake / hatch / retire).
+ *
+ * Detected from the runtime config the capable hosts inject
+ * (`window.__VELLUM_CONFIG__`), excluding remote-gateway mode.
+ */
+export function isLocalModeHostAvailable(): boolean {
+  if (isElectron()) return true;
+  const config = readInjectedConfig();
+  if (!config) return false;
+  if (config.mode === "remote-gateway") return false;
+  return true;
+}
+
+/**
+ * POST a local-mode command and read back its `{ ok, ... }` result. Always
+ * resolves, never throws: an unavailable host (no request sent) and a non-JSON
+ * response both resolve to `{ ok: false }`.
+ */
+async function postLocalCommand<T extends { ok: boolean }>(
+  path: string,
+  body: unknown,
+  unavailableError: string,
+): Promise<T | { ok: false; error: string }> {
+  if (!isLocalModeHostAvailable()) {
+    return { ok: false, error: unavailableError };
+  }
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    return { ok: false, error: unavailableError };
+  }
+  const parsed = (await res.json().catch(() => null)) as T | null;
+  return parsed ?? { ok: false, error: unavailableError };
+}
+
 /**
  * Provision a local assistant for the requested species.
  *
@@ -130,12 +190,11 @@ export async function hatchLocalAssistant(
     return window.vellum!.localMode.hatch(species, remote);
   }
 
-  const res = await fetch("/assistant/__local/hatch", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ species, remote }),
-  });
-  return res.json() as Promise<LocalHatchResult>;
+  return postLocalCommand<LocalHatchResult>(
+    "/assistant/__local/hatch",
+    { species, remote },
+    LOCAL_HOST_UNAVAILABLE_ERROR,
+  );
 }
 
 /**
@@ -170,12 +229,11 @@ export async function saveLockfileAssistantHost(
     );
   }
 
-  const res = await fetch("/assistant/__local/lockfile", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ assistant, activeAssistant }),
-  });
-  return res.json() as Promise<LockfileWriteResult>;
+  return postLocalCommand<LockfileWriteResult>(
+    "/assistant/__local/lockfile",
+    { assistant, activeAssistant },
+    LOCAL_HOST_UNAVAILABLE_ERROR,
+  );
 }
 
 /**
@@ -196,12 +254,11 @@ export async function replacePlatformAssistantsHost(
     );
   }
 
-  const res = await fetch("/assistant/__local/lockfile", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ syncPlatform: true, platformAssistants, organizationId }),
-  });
-  return res.json() as Promise<LockfileWriteResult>;
+  return postLocalCommand<LockfileWriteResult>(
+    "/assistant/__local/lockfile",
+    { syncPlatform: true, platformAssistants, organizationId },
+    LOCAL_HOST_UNAVAILABLE_ERROR,
+  );
 }
 
 /**
@@ -215,12 +272,11 @@ export async function retireLocalAssistantHost(
     return window.vellum!.localMode.retire(assistantId);
   }
 
-  const res = await fetch("/assistant/__local/retire", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ assistantId }),
-  });
-  return res.json() as Promise<LocalRetireResult>;
+  return postLocalCommand<LocalRetireResult>(
+    "/assistant/__local/retire",
+    { assistantId },
+    LOCAL_HOST_UNAVAILABLE_ERROR,
+  );
 }
 
 /**
@@ -239,12 +295,11 @@ export async function sleepLocalAssistantHost(
     return sleep(assistantId);
   }
 
-  const res = await fetch("/assistant/__local/sleep", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ assistantId }),
-  });
-  return res.json() as Promise<LocalSleepResult>;
+  return postLocalCommand<LocalSleepResult>(
+    "/assistant/__local/sleep",
+    { assistantId },
+    LOCAL_HOST_UNAVAILABLE_ERROR,
+  );
 }
 
 /**
@@ -277,15 +332,11 @@ export async function wakeLocalAssistantHost(
     return wake(assistantId, options);
   }
 
-  const res = await fetch("/assistant/__local/wake", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      assistantId,
-      repairGuardian: options?.repairGuardian,
-    }),
-  });
-  return res.json() as Promise<LocalWakeResult>;
+  return postLocalCommand<LocalWakeResult>(
+    "/assistant/__local/wake",
+    { assistantId, repairGuardian: options?.repairGuardian },
+    "Wake failed. Try running vellum wake in your terminal.",
+  );
 }
 
 export async function getLocalAssistantStatusHost(
@@ -303,10 +354,23 @@ export async function getLocalAssistantStatusHost(
     return status(assistantId);
   }
 
-  const res = await fetch(
-    `/assistant/__local/status/${encodeURIComponent(assistantId)}`,
+  if (!isLocalModeHostAvailable()) {
+    return { ok: false, status: 0, error: LOCAL_HOST_UNAVAILABLE_ERROR };
+  }
+  let res: Response;
+  try {
+    res = await fetch(
+      `/assistant/__local/status/${encodeURIComponent(assistantId)}`,
+    );
+  } catch {
+    return { ok: false, status: 0, error: LOCAL_HOST_UNAVAILABLE_ERROR };
+  }
+  const parsed = (await res
+    .json()
+    .catch(() => null)) as LocalAssistantStatusResult | null;
+  return (
+    parsed ?? { ok: false, status: res.status, error: LOCAL_HOST_UNAVAILABLE_ERROR }
   );
-  return res.json() as Promise<LocalAssistantStatusResult>;
 }
 
 /**

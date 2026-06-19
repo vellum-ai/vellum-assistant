@@ -36,7 +36,7 @@ mock.module("@/lib/auth/gateway-session", () => ({
 // Consent prefs read storage; pin them so the access decision is isolated.
 mock.module("@/domains/onboarding/prefs", () => ({
   readTosAccepted: () => true,
-  readAiDataConsent: () => true,
+  readPrivacyConsent: () => true,
   readAnalyticsConsentCurrent: () => true,
   readDiagnosticsConsentCurrent: () => true,
 }));

@@ -1,4 +1,5 @@
 import type { LlmCatalogModel } from "@/assistant/llm-model-catalog";
+import { WEB_FETCH_PROVIDER_KEY_STORAGE } from "@/assistant/generated/web-fetch-provider-catalog.gen";
 import {
   WEB_SEARCH_PROVIDER_KEY_STORAGE,
 } from "@/assistant/generated/web-search-provider-catalog.gen";
@@ -141,4 +142,8 @@ export function getLongContextPricingHint(
  */
 export function getWebSearchProviderKeyStorage(provider: string): string {
   return WEB_SEARCH_PROVIDER_KEY_STORAGE[provider] ?? "";
+}
+
+export function getWebFetchProviderKeyStorage(provider: string): string {
+  return WEB_FETCH_PROVIDER_KEY_STORAGE[provider] ?? "";
 }

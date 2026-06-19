@@ -36,9 +36,13 @@ import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen";
 import { useConnectivityState } from "@/hooks/use-connectivity-state";
 import { useNetworkStatus } from "@/hooks/use-network-status";
+import { isCliWakeableAssistant } from "@/lib/local-mode";
 import { captureError } from "@/lib/sentry/capture-error";
 import { isElectron } from "@/runtime/is-electron";
-import { wakeLocalAssistantHost } from "@/runtime/local-mode-host";
+import {
+  isLocalModeHostAvailable,
+  wakeLocalAssistantHost,
+} from "@/runtime/local-mode-host";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { cn } from "@/utils/misc";
@@ -599,13 +603,30 @@ function useAssistantBannerConfig(): BannerConfig | null {
     };
   }
 
+  // A local / self-hosted assistant can surface where local-mode operations
+  // aren't available (managed web, remote-web tunnel). There's no transport to
+  // wake it from here, so the banner is informative and action-free.
+  if (!isLocalModeHostAvailable() && canWakeLocalHealth(localHealth)) {
+    return {
+      tone: "neutral",
+      title: "Your assistant runs locally",
+      icon: <Moon className="h-4 w-4" aria-hidden="true" />,
+      children:
+        "Open the Vellum desktop app or run vellum wake in your terminal to start it.",
+    };
+  }
+
   const effectiveLocalHealth =
     (isWakingLocalAssistant || isLocalWakeSettling) &&
     canWakeLocalHealth(localHealth)
       ? "starting"
       : localHealth;
+  // Only offer "Wake up" when the CLI can actually start this assistant —
+  // `vellum wake` works on plain local entries, not Docker/apple-container.
   const localWakeAction =
-    canWakeLocalHealth(effectiveLocalHealth) ? (
+    canWakeLocalHealth(effectiveLocalHealth) &&
+    !!activeAssistantId &&
+    isCliWakeableAssistant(activeAssistantId) ? (
       <Button
         variant="outlined"
         size="compact"

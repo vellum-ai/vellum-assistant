@@ -33,6 +33,42 @@ import {
 } from "./guardian-question-mode.js";
 import { nonEmpty, sanitizeIdentityField } from "./notification-utils.js";
 
+// ── Surface ids ──────────────────────────────────────────────────────────────
+
+/**
+ * `surfaceId` prefixes for the in-app approval cards. The full id is
+ * `${prefix}-${requestId}` (see {@link buildApprovalCardBlocks}). These are the
+ * single source of truth for the prefix, shared by the card builders below and
+ * by {@link approvalCardSurfaceId} so the withdrawal path can recompute the id.
+ */
+const ACCESS_REQUEST_SURFACE_PREFIX = "access-request";
+const TOOL_APPROVAL_SURFACE_PREFIX = "tool-approval";
+
+/**
+ * Resolve the `ui_surface` id for a guardian request's in-app approval card
+ * from its kind, or `null` for kinds that never render an approval card.
+ *
+ * The card is rendered once at notification time; when the request is later
+ * resolved from a different surface the withdrawal path recomputes the id here
+ * to complete that card. Keeping this beside the builders ensures the two stay
+ * in lockstep.
+ */
+export function approvalCardSurfaceId(
+  kind: string,
+  requestId: string,
+): string | null {
+  switch (kind) {
+    case "access_request":
+      return `${ACCESS_REQUEST_SURFACE_PREFIX}-${requestId}`;
+    case "tool_approval":
+    case "tool_grant_request":
+    case "pending_question":
+      return `${TOOL_APPROVAL_SURFACE_PREFIX}-${requestId}`;
+    default:
+      return null;
+  }
+}
+
 // ── Typed card data ─────────────────────────────────────────────────────────
 
 /** Resolved card data for an access-request notification. */
@@ -100,7 +136,7 @@ function resolveAccessRequestCard(
       : "No additional context available.";
 
   return {
-    surfaceIdPrefix: "access-request",
+    surfaceIdPrefix: ACCESS_REQUEST_SURFACE_PREFIX,
     cardTitle: "Access Request",
     requesterName: view.displayName,
     subtitle: "Requesting access to the assistant",
@@ -183,7 +219,7 @@ function extractToolApprovalCard(
   }
 
   return {
-    surfaceIdPrefix: "tool-approval",
+    surfaceIdPrefix: TOOL_APPROVAL_SURFACE_PREFIX,
     cardTitle: isGrant ? "Tool Grant Request" : "Tool Approval",
     requesterName: requester,
     subtitle: isGrant

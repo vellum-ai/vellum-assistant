@@ -36,10 +36,6 @@ import {
 import * as approvalMessageComposer from "../runtime/approval-message-composer.js";
 import * as gatewayClient from "../runtime/gateway-client.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
-import {
-  _clearApprovalPromptTsTrackerForTesting,
-  trackApprovalPromptTs,
-} from "../runtime/routes/approval-prompt-ts-tracker.js";
 import { handleApprovalInterception } from "../runtime/routes/guardian-approval-interception.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 
@@ -69,7 +65,6 @@ function resetTables(): void {
     /* tables may not exist yet */
   }
   pendingInteractions.clear();
-  _clearApprovalPromptTsTrackerForTesting();
 }
 
 function createTestGuardianApproval(
@@ -224,36 +219,9 @@ describe("guardian grant minting on tool-approval decisions", () => {
     composeSpy.mockRestore();
   });
 
-  test("guardian reaction white_check_mark maps to approve_once (legacy compat)", async () => {
-    const requestId = "req-grant-reaction-1";
-    createTestGuardianApproval(requestId, {
-      conversationId: CONVERSATION_ID,
-      channel: "slack",
-      guardianChatId: GUARDIAN_CHAT,
-    });
-    registerPendingInteraction(requestId, CONVERSATION_ID, TOOL_NAME);
-    const approvalMessageTs = "1700000000.000100";
-    trackApprovalPromptTs("slack", GUARDIAN_CHAT, approvalMessageTs);
-
-    const result = await handleApprovalInterception({
-      conversationId: "guardian-conv-1",
-      callbackData: "reaction:white_check_mark",
-      content: "",
-      conversationExternalId: GUARDIAN_CHAT,
-      sourceChannel: "slack",
-      actorExternalId: GUARDIAN_USER,
-      replyCallbackUrl: "https://gateway.test/deliver",
-      trustCtx: makeTrustContext(),
-      assistantId: ASSISTANT_ID,
-      approvalMessageTs,
-    });
-
-    // white_check_mark is mapped to approve_once (backward compat) — the
-    // pending approval is resolved and a grant is minted.
-    expect(result.handled).toBe(true);
-    expect(result.type).toBe("guardian_decision_applied");
-    expect(countGrants()).toBe(1);
-  });
+  // Reaction-based approvals are exercised against the canonical pipeline in
+  // slack-reaction-canonical-approval.test.ts — reactions route through
+  // routeGuardianReply, not handleApprovalInterception.
 
   // ── 2. approve_once for non-tool-approval does NOT mint a grant ──
 

@@ -16239,6 +16239,7 @@ paths:
                                           - brave
                                           - perplexity
                                           - tavily
+                                          - firecrawl
                                       resultCount:
                                         type: number
                                       durationMs:
@@ -16286,6 +16287,11 @@ paths:
                                         type: string
                                       finalUrl:
                                         type: string
+                                      provider:
+                                        type: string
+                                        enum:
+                                          - default
+                                          - firecrawl
                                       status:
                                         type: number
                                       contentType:
@@ -16621,6 +16627,7 @@ paths:
                                                   - brave
                                                   - perplexity
                                                   - tavily
+                                                  - firecrawl
                                               resultCount:
                                                 type: number
                                               durationMs:
@@ -16668,6 +16675,11 @@ paths:
                                                 type: string
                                               finalUrl:
                                                 type: string
+                                              provider:
+                                                type: string
+                                                enum:
+                                                  - default
+                                                  - firecrawl
                                               status:
                                                 type: number
                                               contentType:
@@ -28733,6 +28745,10 @@ components:
               anyOf:
                 - type: string
                 - type: "null"
+            advisorProfile:
+              anyOf:
+                - type: string
+                - type: "null"
             callSites:
               type: object
               propertyNames:
@@ -28759,6 +28775,16 @@ components:
           type: object
           properties:
             web-search:
+              anyOf:
+                - type: object
+                  properties:
+                    mode:
+                      $ref: "#/components/schemas/ServiceMode"
+                    provider:
+                      type: string
+                  additionalProperties: {}
+                - type: "null"
+            web-fetch:
               anyOf:
                 - type: object
                   properties:
@@ -28961,6 +28987,12 @@ components:
           anyOf:
             - anyOf:
                 - $ref: "#/components/schemas/ProfileStatus"
+                - type: "null"
+            - type: "null"
+        advisorEnabled:
+          anyOf:
+            - anyOf:
+                - type: boolean
                 - type: "null"
             - type: "null"
         mix:
@@ -29354,6 +29386,8 @@ components:
                 type: string
             activeProfile:
               type: string
+            advisorProfile:
+              type: string
             callSites:
               type: object
               propertyNames:
@@ -29497,6 +29531,14 @@ components:
           type: object
           properties:
             web-search:
+              type: object
+              properties:
+                mode:
+                  $ref: "#/components/schemas/ServiceMode"
+                provider:
+                  type: string
+              additionalProperties: {}
+            web-fetch:
               type: object
               properties:
                 mode:
@@ -29652,6 +29694,10 @@ components:
         status:
           anyOf:
             - $ref: "#/components/schemas/ProfileStatus"
+            - type: "null"
+        advisorEnabled:
+          anyOf:
+            - type: boolean
             - type: "null"
         mix:
           minItems: 2

@@ -78,6 +78,7 @@ export const LLMCallSiteEnum = z.enum([
   "meetConsentMonitor",
   "meetChatOpportunity",
   "inference",
+  "advisor",
   "trustRuleSuggestion",
   "homeGreeting",
   "homeSuggestedPrompts",
@@ -433,6 +434,13 @@ export const ProfileEntry = LLMConfigFragment.extend({
    */
   status: ProfileStatusSchema.nullable().optional(),
   /**
+   * Whether the advisor is active while this profile is the chat profile.
+   * Absent/null means enabled (default on); only an explicit `false` disables
+   * it. `.nullable()` matches `status`/`label` so the PUT route's "send null
+   * to clear" sentinel resets it back to the default-on state.
+   */
+  advisorEnabled: z.boolean().nullable().optional(),
+  /**
    * When present, this profile is a "mix": it carries no model config and
    * instead references a weighted list of standard profiles. The resolver
    * expands a mix by a seeded weighted pick (see `resolveCallSiteConfig`).
@@ -475,6 +483,11 @@ export const LLMSchema = z
     // schema level, so `LLMSchema.parse({})` yields an empty map.
     callSites: z.partialRecord(LLMCallSiteEnum, LLMCallSiteConfig).default({}),
     activeProfile: z.string().min(1).optional(),
+    // The profile the advisor consults (chosen under Models & Services). It is
+    // excluded from the chat-profile pickers so it can't be selected as the
+    // assistant's chat model. Absent falls back to the `advisor` call-site
+    // default (`quality-optimized`).
+    advisorProfile: z.string().min(1).optional(),
     // TTL bounds for inference profile sessions. `defaultTtlSeconds` is read by
     // the CLI to apply when `--ttl` is omitted; the daemon handler itself only
     // reads `maxTtlSeconds` (to clamp caller-supplied values).
@@ -506,6 +519,16 @@ export const LLMSchema = z
         code: "custom",
         path: ["activeProfile"],
         message: `Profile "${config.activeProfile}" referenced by llm.activeProfile is not defined in llm.profiles`,
+      });
+    }
+    if (
+      config.advisorProfile != null &&
+      !profileNames.has(config.advisorProfile)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["advisorProfile"],
+        message: `Profile "${config.advisorProfile}" referenced by llm.advisorProfile is not defined in llm.profiles`,
       });
     }
 

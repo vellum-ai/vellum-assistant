@@ -3,6 +3,7 @@ import { useEffect } from "react";
 
 import { LanguageModelCard } from "@/domains/settings/ai/language-model-card";
 import { WebSearchCard } from "@/domains/settings/ai/web-search-card";
+import { WebFetchCard } from "@/domains/settings/ai/web-fetch-card";
 import { EmailServiceCard } from "@/domains/settings/ai/email-service-card";
 import { ImageGenerationCard } from "@/domains/settings/ai/image-generation-card";
 import { TextToSpeechCard } from "@/domains/settings/ai/text-to-speech-card";
@@ -44,6 +45,7 @@ export function AiPage() {
 
       <LanguageModelCard />
       <WebSearchCard />
+      <WebFetchCard />
       <EmailServiceCard />
       <ImageGenerationCard />
       <TextToSpeechCard />

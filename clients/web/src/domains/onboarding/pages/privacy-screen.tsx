@@ -1,8 +1,10 @@
-import { EyeOff } from "lucide-react";
-import { useCallback, useEffect, type ReactNode } from "react";
+import { useCallback, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { SettingRow } from "@/components/setting-row";
+import {
+    AgreementsCard,
+    PrivacyPreferencesCard,
+} from "@/domains/onboarding/components/consent-controls";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { StepIndicatorDots } from "@/domains/onboarding/components/step-indicator-dots";
 import {
@@ -13,7 +15,7 @@ import {
     resolveOnboardingFunnelVariant,
 } from "@/domains/onboarding/funnel-events";
 import {
-    useAiDataConsent,
+    usePrivacyConsent,
     useShareAnalytics,
     useShareDiagnostics,
     useTosAccepted,
@@ -23,18 +25,8 @@ import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { saveConsent } from "@/utils/onboarding-cleanup";
-import { legalUrl, routes } from "@/utils/routes";
+import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
-import { Card } from "@vellumai/design-library/components/card";
-import { Checkbox } from "@vellumai/design-library/components/checkbox";
-
-// Consent checkboxes mirror the primary button: the checked fill uses
-// --primary-base and the check uses --content-inset (the on-primary
-// foreground). This stays correct in every theme — dark fill + white check in
-// light mode, white fill + dark check in dark mode — whereas the design
-// library's hardcoded white check vanishes on the near-white dark-mode fill.
-const CONSENT_CHECKBOX_CLASS =
-  "[&_button[data-state=checked]]:bg-[var(--primary-base)] [&_svg]:text-[var(--content-inset)]";
 
 export function PrivacyScreen() {
   const navigate = useNavigate();
@@ -49,7 +41,7 @@ export function PrivacyScreen() {
   const [shareAnalytics, setShareAnalyticsReal] = useShareAnalytics();
   const [shareDiagnostics, setShareDiagnosticsReal] = useShareDiagnostics();
   const [tosAccepted, setTosAcceptedReal] = useTosAccepted();
-  const [aiDataConsent, setAiDataConsentReal] = useAiDataConsent();
+  const [privacyConsent, setPrivacyConsentReal] = usePrivacyConsent();
   const hasPlatformSession = useHasPlatformSession();
 
   useEffect(() => {
@@ -63,7 +55,7 @@ export function PrivacyScreen() {
   const setShareAnalytics = isPreview ? noop : setShareAnalyticsReal;
   const setShareDiagnostics = isPreview ? noop : setShareDiagnosticsReal;
   const setTosAccepted = isPreview ? noop : setTosAcceptedReal;
-  const setAiDataConsent = isPreview ? noop : setAiDataConsentReal;
+  const setPrivacyConsent = isPreview ? noop : setPrivacyConsentReal;
 
   const onStart = useCallback(() => {
     if (isPreview) {
@@ -75,7 +67,7 @@ export function PrivacyScreen() {
       return;
     }
 
-    saveConsent({ userId, tos: tosAccepted, ai: aiDataConsent, shareAnalytics, shareDiagnostics, hasPlatformSession });
+    saveConsent({ userId, tos: tosAccepted, privacy: privacyConsent, shareAnalytics, shareDiagnostics, hasPlatformSession });
     if (!isNative) {
       const variant = resolveOnboardingFunnelVariant(preferredFunnelVariant);
       emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
@@ -90,7 +82,7 @@ export function PrivacyScreen() {
     const qs = params.toString();
     void navigate(`${routes.onboarding.hatching}${qs ? `?${qs}` : ""}`);
   }, [
-    aiDataConsent,
+    privacyConsent,
     hasPlatformSession,
     isNative,
     isPreview,
@@ -102,43 +94,6 @@ export function PrivacyScreen() {
     tosAccepted,
     userId,
   ]);
-
-  const tosLabel: ReactNode = (
-    <span className="text-body-medium-lighter text-[var(--content-default)]">
-      I agree to the{" "}
-      <a
-        href={legalUrl(routes.docs.legal.termsOfUse)}
-        target="_blank"
-        rel="noreferrer"
-        className="underline"
-      >
-        Terms of Service
-      </a>{" "}
-      and{" "}
-      <a
-        href={legalUrl(routes.docs.legal.privacyPolicy)}
-        target="_blank"
-        rel="noreferrer"
-        className="underline"
-      >
-        Privacy Policy
-      </a>
-    </span>
-  );
-
-  const aiConsentLabel: ReactNode = (
-    <span className="text-body-medium-lighter text-[var(--content-default)]">
-      I agree to the{" "}
-      <a
-        href={legalUrl(routes.docs.legal.dataSharing)}
-        target="_blank"
-        rel="noreferrer"
-        className="underline"
-      >
-        AI Data Sharing Policy
-      </a>
-    </span>
-  );
 
   return (
     <OnboardingLayout>
@@ -167,58 +122,25 @@ export function PrivacyScreen() {
           Settings.
         </p>
 
-        <Card
-          padding={electron ? "sm" : "md"}
+        <PrivacyPreferencesCard
+          electron={electron}
+          shareAnalytics={shareAnalytics}
+          shareDiagnostics={shareDiagnostics}
+          onShareAnalyticsChange={setShareAnalytics}
+          onShareDiagnosticsChange={setShareDiagnostics}
           className="mt-8 w-full"
           style={{ animation: "fadeInUp 0.5s ease-out 0.4s both" }}
-        >
-          <div className={`flex flex-col ${electron ? "gap-3" : "gap-4"}`}>
-            <SettingRow
-              label="Share Analytics"
-              helperText="Send anonymous product usage data."
-              checked={shareAnalytics}
-              onChange={setShareAnalytics}
-            />
-            <div className="h-px bg-[var(--surface-active)] dark:bg-[var(--surface-lift)]" />
-            <SettingRow
-              label="Share Diagnostics"
-              helperText="Send crash reports and performance metrics."
-              checked={shareDiagnostics}
-              onChange={setShareDiagnostics}
-            />
-            <div className="h-px bg-[var(--surface-active)] dark:bg-[var(--surface-lift)]" />
-            <div className="flex items-center gap-2 text-body-small-default text-[var(--content-tertiary)]">
-              <EyeOff className="h-4 w-4 shrink-0" />
-              <span>Your conversations and personal data are never included.</span>
-            </div>
-          </div>
-        </Card>
+        />
 
-        <div
-          className={`flex w-full items-start ${electron ? "mt-4" : "mt-6"}`}
-          style={{ animation: "fadeInUp 0.5s ease-out 0.45s both" }}
-        >
-          <Checkbox
-            checked={aiDataConsent}
-            onCheckedChange={(next) => setAiDataConsent(next === true)}
-            label={aiConsentLabel}
-            aria-label="I agree to the AI Data Sharing Policy"
-            className={CONSENT_CHECKBOX_CLASS}
-          />
-        </div>
-
-        <div
-          className={`flex w-full items-start ${electron ? "mt-2" : "mt-4"}`}
+        <AgreementsCard
+          electron={electron}
+          privacyConsent={privacyConsent}
+          tosAccepted={tosAccepted}
+          onPrivacyChange={setPrivacyConsent}
+          onTosChange={setTosAccepted}
+          className="mt-6 w-full"
           style={{ animation: "fadeInUp 0.5s ease-out 0.5s both" }}
-        >
-          <Checkbox
-            checked={tosAccepted}
-            onCheckedChange={(next) => setTosAccepted(next === true)}
-            label={tosLabel}
-            aria-label="I agree to the Terms of Service and Privacy Policy"
-            className={CONSENT_CHECKBOX_CLASS}
-          />
-        </div>
+        />
 
         <div
           className={`mt-8 flex w-full flex-col ${electron ? "gap-2.5" : "gap-2"}`}
@@ -228,7 +150,7 @@ export function PrivacyScreen() {
             variant="primary"
             size="regular"
             fullWidth
-            disabled={!tosAccepted || !aiDataConsent}
+            disabled={!tosAccepted || !privacyConsent}
             onClick={onStart}
             className={electron ? undefined : "h-11 text-base"}
           >

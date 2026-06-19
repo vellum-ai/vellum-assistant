@@ -18,6 +18,7 @@
  * clients polling prompts) observe the expired status directly.
  */
 
+import { withdrawGuardianRequestCards } from "../../approvals/guardian-card-withdrawal.js";
 import {
   listCanonicalGuardianRequests,
   resolveCanonicalGuardianRequest,
@@ -42,7 +43,7 @@ let sweepInProgress = false;
  * concurrent decision that wins the race is never overwritten by the
  * sweep.  Returns the count of requests transitioned to expired.
  */
-function sweepExpiredCanonicalGuardianRequests(): number {
+async function sweepExpiredCanonicalGuardianRequests(): Promise<number> {
   const pending = listCanonicalGuardianRequests({ status: "pending" });
   const now = Date.now();
   let expiredCount = 0;
@@ -71,6 +72,14 @@ function sweepExpiredCanonicalGuardianRequests(): number {
         },
         "Expired canonical guardian request via sweep",
       );
+
+      // Withdraw the now-stale approval cards on every surface. No origin
+      // channel — the expiry is system-driven, so all surfaces (including
+      // in-app) are withdrawn. Best-effort and non-throwing.
+      await withdrawGuardianRequestCards({
+        request: resolved,
+        status: "expired",
+      });
     }
   }
 
@@ -93,13 +102,13 @@ export function startCanonicalGuardianExpirySweep(): void {
   sweepTimer = setInterval(() => {
     if (sweepInProgress) return;
     sweepInProgress = true;
-    try {
-      sweepExpiredCanonicalGuardianRequests();
-    } catch (err) {
-      log.error({ err }, "Canonical guardian expiry sweep failed");
-    } finally {
-      sweepInProgress = false;
-    }
+    void sweepExpiredCanonicalGuardianRequests()
+      .catch((err) => {
+        log.error({ err }, "Canonical guardian expiry sweep failed");
+      })
+      .finally(() => {
+        sweepInProgress = false;
+      });
   }, SWEEP_INTERVAL_MS);
 }
 

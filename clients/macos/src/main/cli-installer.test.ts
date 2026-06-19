@@ -316,6 +316,7 @@ describe("ensureCliInstalled", () => {
 
     const promise = ensureCliInstalled();
 
+    existsSyncByPath[cliBinPath] = true;
     lastChild.emit("close", 0);
     await promise;
 
@@ -342,6 +343,7 @@ describe("ensureCliInstalled", () => {
     lastChild.emit("close", 1);
     // The retry spawns against the seeded frozen lockfile.
     await Promise.resolve();
+    existsSyncByPath[cliBinPath] = true;
     lastChild.emit("close", 0);
     await promise;
 
@@ -374,6 +376,7 @@ describe("ensureCliInstalled", () => {
     existsSyncDefault = false;
 
     const promise = ensureCliInstalled();
+    existsSyncByPath[cliBinPath] = true;
     lastChild.emit("close", 0);
     await promise;
 
@@ -436,6 +439,7 @@ describe("ensureCliInstalled", () => {
     readdirSyncReturn = [dirEntry("0.8.5"), dirEntry("latest")];
 
     const promise = ensureCliInstalled();
+    existsSyncByPath[cliBinPath] = true;
     lastChild.emit("close", 0);
     await promise;
 
@@ -456,6 +460,7 @@ describe("ensureCliInstalled", () => {
     // Only one spawn should have occurred.
     expect(spawnCalls).toHaveLength(1);
 
+    existsSyncByPath[cliBinPath] = true;
     lastChild.emit("close", 0);
     await Promise.all([p1, p2]);
   });
@@ -472,8 +477,48 @@ describe("ensureCliInstalled", () => {
     // Second attempt should spawn a new process.
     const p2 = ensureCliInstalled();
     expect(spawnCalls).toHaveLength(2);
+    existsSyncByPath[cliBinPath] = true;
     lastChild.emit("close", 0);
     await p2;
+  });
+
+  test("self-heals when the installed bin disappears mid-session", async () => {
+    existsSyncDefault = false;
+
+    // First install succeeds and links the bin.
+    const p1 = ensureCliInstalled();
+    existsSyncByPath[cliBinPath] = true;
+    lastChild.emit("close", 0);
+    await p1;
+    expect(spawnCalls).toHaveLength(1);
+
+    // node_modules gets clobbered mid-session — the bin is gone again.
+    delete existsSyncByPath[cliBinPath];
+
+    // A later call must reinstall rather than short-circuit on the resolved
+    // promise from the first install.
+    const p2 = ensureCliInstalled();
+    expect(spawnCalls).toHaveLength(2);
+    existsSyncByPath[cliBinPath] = true;
+    lastChild.emit("close", 0);
+    await p2;
+  });
+
+  test("throws when the install completes but links no bin", async () => {
+    existsSyncDefault = false;
+
+    const promise = ensureCliInstalled();
+    // bun exits 0 without ever creating node_modules/.bin/vellum.
+    lastChild.emit("close", 0);
+
+    await expect(promise).rejects.toThrow(/no vellum binary was found/);
+
+    // The lock is cleared, so a subsequent attempt reinstalls from scratch.
+    const retry = ensureCliInstalled();
+    expect(spawnCalls).toHaveLength(2);
+    existsSyncByPath[cliBinPath] = true;
+    lastChild.emit("close", 0);
+    await retry;
   });
 });
 

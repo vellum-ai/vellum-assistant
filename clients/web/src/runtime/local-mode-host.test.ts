@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Control the host branch directly so each case exercises one transport.
 let runningInElectron = false;
@@ -16,14 +16,27 @@ const {
   wakeLocalAssistantHost,
   getLocalAssistantStatusHost,
   fetchGuardianTokenHost,
+  isLocalModeHostAvailable,
 } = await import("./local-mode-host");
 
 const realFetch = globalThis.fetch;
+
+type WindowWithConfig = {
+  vellum?: unknown;
+  __VELLUM_CONFIG__?: { mode?: string };
+};
+
+beforeEach(() => {
+  // Injected config marks the web/dev branch as an available local-mode host,
+  // so the HTTP transport runs rather than short-circuiting.
+  (window as WindowWithConfig).__VELLUM_CONFIG__ = {};
+});
 
 afterEach(() => {
   runningInElectron = false;
   globalThis.fetch = realFetch;
   delete (window as { vellum?: unknown }).vellum;
+  delete (window as WindowWithConfig).__VELLUM_CONFIG__;
 });
 
 describe("hatchLocalAssistant", () => {
@@ -395,5 +408,85 @@ describe("fetchGuardianTokenHost", () => {
     expect(err).toBeInstanceOf(GuardianTokenError);
     expect((err as InstanceType<typeof GuardianTokenError>).status).toBe(500);
     expect((err as Error).message).toBe("refresh failed");
+  });
+});
+
+describe("isLocalModeHostAvailable", () => {
+  test("true on the Electron host regardless of injected config", () => {
+    runningInElectron = true;
+    delete (window as WindowWithConfig).__VELLUM_CONFIG__;
+    expect(isLocalModeHostAvailable()).toBe(true);
+  });
+
+  test("true on a web/dev host that injects runtime config", () => {
+    (window as WindowWithConfig).__VELLUM_CONFIG__ = {};
+    expect(isLocalModeHostAvailable()).toBe(true);
+  });
+
+  test("false on the managed static build (no injected config)", () => {
+    delete (window as WindowWithConfig).__VELLUM_CONFIG__;
+    expect(isLocalModeHostAvailable()).toBe(false);
+  });
+
+  test("false in remote-gateway mode — the ingress 404s /assistant/__local/*", () => {
+    (window as WindowWithConfig).__VELLUM_CONFIG__ = { mode: "remote-gateway" };
+    expect(isLocalModeHostAvailable()).toBe(false);
+  });
+});
+
+describe("web/dev transport resilience", () => {
+  // A non-JSON error body makes Response.json() throw; the seam resolves to
+  // `{ ok: false }` rather than letting it escape as a throw.
+  const nonJsonResponse = () =>
+    mock(async () => ({
+      status: 405,
+      json: async () => {
+        throw new SyntaxError("The string did not match the expected pattern.");
+      },
+    })) as unknown as typeof fetch;
+
+  test("wake returns a failure result instead of throwing on a non-JSON body", async () => {
+    globalThis.fetch = nonJsonResponse();
+    const result = await wakeLocalAssistantHost("a-1");
+    expect(result.ok).toBe(false);
+  });
+
+  test("wake short-circuits without a request when no local-mode host is available", async () => {
+    delete (window as WindowWithConfig).__VELLUM_CONFIG__;
+    const fetchMock = mock(async () => {
+      throw new Error("fetch must not run when the host is unavailable");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await wakeLocalAssistantHost("a-1");
+    expect(result.ok).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("wake returns a failure result when the fetch itself rejects", async () => {
+    globalThis.fetch = mock(async () => {
+      throw new TypeError("Load failed");
+    }) as unknown as typeof fetch;
+
+    const result = await wakeLocalAssistantHost("a-1");
+    expect(result.ok).toBe(false);
+  });
+
+  test("status returns a failure result instead of throwing on a non-JSON body", async () => {
+    globalThis.fetch = nonJsonResponse();
+    const result = await getLocalAssistantStatusHost("a-1");
+    expect(result.ok).toBe(false);
+  });
+
+  test("status short-circuits without a request when no local-mode host is available", async () => {
+    delete (window as WindowWithConfig).__VELLUM_CONFIG__;
+    const fetchMock = mock(async () => {
+      throw new Error("fetch must not run when the host is unavailable");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await getLocalAssistantStatusHost("a-1");
+    expect(result.ok).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
