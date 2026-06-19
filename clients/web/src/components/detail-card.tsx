@@ -5,7 +5,7 @@ import { Card, cn } from "@vellumai/design-library";
 export interface DetailCardProps {
   id?: string;
   title?: string;
-  subtitle?: string;
+  subtitle?: ReactNode;
   accessory?: ReactNode;
   compactAccessory?: boolean;
   children?: ReactNode;
