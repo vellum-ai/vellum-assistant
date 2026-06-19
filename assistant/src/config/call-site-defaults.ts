@@ -143,4 +143,12 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     effort: "low",
     thinking: { enabled: false },
   },
+  // One-shot multimodal tool call: no reasoning needed and the prompt never
+  // repeats, so skip thinking and prompt caching.
+  visionPerception: {
+    profile: "vision",
+    effort: "low",
+    thinking: { enabled: false },
+    disableCache: true,
+  },
 };

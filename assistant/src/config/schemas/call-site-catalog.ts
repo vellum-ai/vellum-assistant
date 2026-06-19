@@ -321,6 +321,13 @@ const CATALOG_RECORD: CatalogRecord = {
       "Generates contextual conversation-starter suggestions for the Home page.",
     domain: "ui",
   },
+  visionPerception: {
+    id: "visionPerception",
+    displayName: "Vision Perception",
+    description:
+      "Describes and answers questions about images and video frames using a multimodal model.",
+    domain: "skills",
+  },
 };
 
 // Source of truth for call-site display metadata. API responses and usage
