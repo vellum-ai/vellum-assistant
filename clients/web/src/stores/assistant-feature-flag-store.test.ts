@@ -4,8 +4,14 @@ const patchMock = mock((_request: unknown) =>
   Promise.resolve({ response: new Response(null, { status: 204 }) }),
 );
 
-mock.module("@/generated/api/client.gen", () => ({
-  client: { patch: patchMock },
+// Assistant-scoped flag writes MUST go through the gateway client
+// (`assistantFeatureFlagsPatch`), not the platform client. Routing them
+// through the platform client drops them on the runtime-proxy allowlist
+// and 404s for local/self-hosted assistants (non-UUID ids). Mocking the
+// gateway SDK here is the regression guard: if a write ever reverts to
+// the platform client, `patchMock` won't be hit and these tests fail.
+mock.module("@/generated/gateway/sdk.gen", () => ({
+  assistantFeatureFlagsPatch: patchMock,
 }));
 
 const toastErrorMock = mock((_message: string) => {});
@@ -39,7 +45,10 @@ describe("useAssistantFeatureFlagStore", () => {
     expect(store().selfIntroGreeting).toBe(true);
     const request = patchMock.mock.calls[0]?.[0];
     expect(request).toMatchObject({
-      url: "/v1/assistants/assistant-123/feature-flags/self-intro-greeting",
+      path: {
+        assistant_id: "assistant-123",
+        flag_key: "self-intro-greeting",
+      },
       body: { enabled: true },
       throwOnError: false,
     });
