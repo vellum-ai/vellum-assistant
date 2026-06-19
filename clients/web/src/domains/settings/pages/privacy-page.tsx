@@ -10,7 +10,10 @@ import { RiskToleranceSettings } from "@/domains/settings/components/risk-tolera
 import { TrustRules } from "@/domains/settings/components/trust-rules/trust-rules";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
+import {
+  useAuthStore,
+  useHasConfirmedPlatformSession,
+} from "@/stores/auth-store";
 import {
     getDeviceBool,
     getDeviceSetting,
@@ -42,10 +45,12 @@ export function PrivacyPage() {
   // `AccessConsentSetting` exactly.
   const platformGate = usePlatformGate({ platformHostedOnly: true });
   const channelTrustFloors = useAssistantFeatureFlagStore.use.channelTrustFloors();
-  const hasPlatformSession = useHasPlatformSession();
   // The Share toggles control telemetry (browser Sentry, daemon analytics) that
-  // only runs with a live platform session, so only surface them when there is
-  // one — matching the consent gate in `sentry-control.ts`.
+  // only runs with a probe-confirmed live platform session, so gate both the
+  // visibility and the consent write on it — matching `sentry-control.ts`. A
+  // believed offline restore (LUM-2412) is not live, so the toggles hide and a
+  // flip can't stamp version-currency offline.
+  const hasPlatformSession = useHasConfirmedPlatformSession();
   const showShareConsent = hasPlatformSession;
   const userId = useAuthStore.use.user()?.id ?? null;
   const [shareAnalytics, setShareAnalytics] = useState(

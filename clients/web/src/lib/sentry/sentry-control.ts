@@ -3,15 +3,16 @@ import * as Sentry from "@sentry/react";
 import { getDeviceBool, watchDeviceSetting } from "@/utils/device-settings";
 import { syncDiagnosticsToMain } from "@/runtime/diagnostics";
 import { useAuthStore } from "@/stores/auth-store";
-import { hasLivePlatformSession } from "@/stores/session-status";
+import { isConfirmedPlatformSession } from "@/stores/session-status";
 
 /**
  * Gates Sentry on BOTH the user's Share Diagnostics toggle
- * (`device:share_diagnostics`) AND a live platform session. Diagnostics are
- * recorded against a platform account, so an offline / self-hosted client with
- * no session stays fail-closed regardless of the device toggle — matching the
- * daemon's consent posture. The same gate drives the browser client and, via
- * `syncDiagnosticsToMain`, the Electron main-process client.
+ * (`device:share_diagnostics`) AND a probe-confirmed live platform session.
+ * Diagnostics are recorded against a platform account, so an offline /
+ * self-hosted client — including a believed offline restore (LUM-2412) that no
+ * live probe has revalidated — stays fail-closed regardless of the device
+ * toggle, matching the daemon's consent posture. The same gate drives the
+ * browser client and, via `syncDiagnosticsToMain`, the Electron main client.
  *
  * Strict opt-in semantics for the device toggle (when a session is live):
  *   - stored "true"  → Sentry ON  (explicit consent)
@@ -22,7 +23,9 @@ import { hasLivePlatformSession } from "@/stores/session-status";
  */
 
 export function diagnosticsConsentGranted(): boolean {
-  if (!hasLivePlatformSession(useAuthStore.getState().platformSession)) {
+  const { platformSession, platformSessionRestoredOffline } =
+    useAuthStore.getState();
+  if (!isConfirmedPlatformSession(platformSession, platformSessionRestoredOffline)) {
     return false;
   }
   return getDeviceBool("shareDiagnostics", false);
@@ -72,7 +75,13 @@ export function installSentryControlListeners(
   };
   const stopDeviceWatch = watchDeviceSetting("shareDiagnostics", sync);
   const stopSessionWatch = useAuthStore.subscribe((state, prevState) => {
-    if (state.platformSession !== prevState.platformSession) sync();
+    if (
+      state.platformSession !== prevState.platformSession ||
+      state.platformSessionRestoredOffline !==
+        prevState.platformSessionRestoredOffline
+    ) {
+      sync();
+    }
   });
   return () => {
     stopDeviceWatch();

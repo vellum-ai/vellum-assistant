@@ -6,12 +6,16 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 let deviceDiagnostics = false;
 let platformSession = "absent";
+let restoredOffline = false;
 let mockClient:
   | { getOptions: () => { enabled?: boolean }; close: () => Promise<boolean> }
   | undefined;
 let deviceWatchCallback: (() => void) | null = null;
 let authSubscriber:
-  | ((state: { platformSession: string }, prev: { platformSession: string }) => void)
+  | ((
+      state: { platformSession: string; platformSessionRestoredOffline: boolean },
+      prev: { platformSession: string; platformSessionRestoredOffline: boolean },
+    ) => void)
   | null = null;
 
 const initMock = mock((_opts: Record<string, unknown>) => {});
@@ -40,7 +44,10 @@ mock.module("@/runtime/diagnostics", () => ({
 
 mock.module("@/stores/auth-store", () => ({
   useAuthStore: {
-    getState: () => ({ platformSession }),
+    getState: () => ({
+      platformSession,
+      platformSessionRestoredOffline: restoredOffline,
+    }),
     subscribe: (cb: typeof authSubscriber) => {
       authSubscriber = cb;
       return () => {
@@ -62,6 +69,7 @@ beforeEach(() => {
   mockClient = undefined;
   deviceDiagnostics = false;
   platformSession = "absent";
+  restoredOffline = false;
   deviceWatchCallback = null;
   authSubscriber = null;
 });
@@ -73,8 +81,16 @@ describe("diagnosticsConsentGranted", () => {
     expect(diagnosticsConsentGranted()).toBe(false);
   });
 
-  test("true only with a live session and the toggle on", () => {
+  test("false for a believed offline restore even when present + toggle on", () => {
+    deviceDiagnostics = true;
     platformSession = "present";
+    restoredOffline = true;
+    expect(diagnosticsConsentGranted()).toBe(false);
+  });
+
+  test("true only with a confirmed-live session and the toggle on", () => {
+    platformSession = "present";
+    restoredOffline = false;
     deviceDiagnostics = true;
     expect(diagnosticsConsentGranted()).toBe(true);
     deviceDiagnostics = false;
@@ -90,7 +106,7 @@ describe("syncSentryClient consent gate", () => {
     expect(initMock).not.toHaveBeenCalled();
   });
 
-  test("live session + toggle on: inits the client enabled", () => {
+  test("confirmed-live session + toggle on: inits the client enabled", () => {
     deviceDiagnostics = true;
     platformSession = "present";
     syncSentryClient(OPTIONS);
@@ -147,7 +163,31 @@ describe("installSentryControlListeners drives the Electron main process", () =>
     initMock.mockReset();
     syncDiagnosticsToMainMock.mockReset();
     platformSession = "present";
-    authSubscriber?.({ platformSession: "present" }, { platformSession: "absent" });
+    authSubscriber?.(
+      { platformSession: "present", platformSessionRestoredOffline: false },
+      { platformSession: "absent", platformSessionRestoredOffline: false },
+    );
+
+    expect(initMock).toHaveBeenCalled();
+    expect(syncDiagnosticsToMainMock).toHaveBeenCalledWith(true);
+
+    stop();
+  });
+
+  test("a restored-offline → confirmed transition (present unchanged) re-syncs", () => {
+    deviceDiagnostics = true;
+    platformSession = "present";
+    restoredOffline = true; // believed offline restore: telemetry off
+    const stop = installSentryControlListeners(OPTIONS);
+
+    initMock.mockReset();
+    syncDiagnosticsToMainMock.mockReset();
+    // A live probe confirms the session: present is unchanged, only the marker flips.
+    restoredOffline = false;
+    authSubscriber?.(
+      { platformSession: "present", platformSessionRestoredOffline: false },
+      { platformSession: "present", platformSessionRestoredOffline: true },
+    );
 
     expect(initMock).toHaveBeenCalled();
     expect(syncDiagnosticsToMainMock).toHaveBeenCalledWith(true);
