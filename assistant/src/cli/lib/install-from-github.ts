@@ -112,6 +112,16 @@ export interface InstallPluginOptions {
   readonly force?: boolean;
   /** Git ref (branch, tag, SHA) to fetch from. Defaults to {@link DEFAULT_PLUGIN_REF}. */
   readonly ref?: string;
+  /**
+   * Materialize this exact plugin commit SHA instead of the pin the marketplace
+   * manifest records, while still resolving the plugin's owner/repo/path (and
+   * the curated adapter stub) from the manifest at {@link InstallPluginOptions.ref}.
+   * This is the CLI-only escape hatch for installing an unreviewed revision; the
+   * adapter stub therefore comes from the manifest's `ref`, not the override's
+   * era, so an adapted plugin may not reproduce a historical version faithfully.
+   * Unset for normal installs, which take the reviewed pin from the manifest.
+   */
+  readonly commitOverride?: string;
 }
 
 /** Dependencies injected by the caller. */
@@ -345,7 +355,13 @@ export async function installPlugin(
       "plugins/marketplace.json",
     );
   }
-  const ref = source.ref;
+  // A commit override installs a specific plugin revision while still taking
+  // owner/repo/path (and the adapter stub, via `marketplaceRef`) from the
+  // manifest; otherwise the reviewed pin from the manifest is materialized.
+  const effectiveSource: PluginFetchSource = opts.commitOverride
+    ? { ...source, ref: opts.commitOverride }
+    : source;
+  const ref = effectiveSource.ref;
 
   const pluginsDir = deps.workspacePluginsDir ?? getWorkspacePluginsDir();
   const target = join(pluginsDir, name);
@@ -377,7 +393,12 @@ export async function installPlugin(
   let committedAt: string | null = null;
   try {
     const materialized = await materializePluginTree(
-      { source, name, stubRef: marketplaceRef, destDir: stagingDir },
+      {
+        source: effectiveSource,
+        name,
+        stubRef: marketplaceRef,
+        destDir: stagingDir,
+      },
       deps,
     );
     fileCount = materialized.fileCount;
@@ -390,12 +411,12 @@ export async function installPlugin(
 
   if (fileCount === 0) {
     rmSync(stagingDir, { recursive: true, force: true });
-    throw new PluginNotFoundError(name, ref, sourceLabel(source));
+    throw new PluginNotFoundError(name, ref, sourceLabel(effectiveSource));
   }
 
   finalizeStagedInstall(stagingDir, {
     name,
-    source,
+    source: effectiveSource,
     ref,
     commit,
     committedAt,
