@@ -54,6 +54,7 @@ import {
 import { listAssistants } from "@/assistant/api";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
+import { unregisterFromRemotePush } from "@/runtime/push-registration";
 import { fetchConsent, patchConsent } from "@/domains/account/profile";
 import {
   restoreConsentForUser,
@@ -851,6 +852,10 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     }
 
     suppressPlatformProbe = true;
+    // Delete the APNs device token from the platform BEFORE clearing the
+    // session — the platform delete is authenticated by the still-valid
+    // session cookie. No-ops off native iOS. Best-effort: never blocks logout.
+    await unregisterFromRemotePush();
     try {
       await allauthLogout();
     } finally {
