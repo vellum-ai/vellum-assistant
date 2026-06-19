@@ -25,15 +25,19 @@ class TextTooLargeError extends Error {}
  * `fetch`), and daemon-backed attachments arrive as a `blob:` object URL the
  * modal already fetched.
  */
-async function loadText(url: string, signal: AbortSignal): Promise<string> {
+async function loadText(
+  url: string,
+  sizeBytes: number,
+  signal: AbortSignal,
+): Promise<string> {
+  // The attachment's size is already known, so gate on it directly rather than
+  // measuring the content — this also skips the read entirely for a file we
+  // already know is too big to preview inline.
+  if (sizeBytes > MAX_TEXT_PREVIEW_BYTES) {
+    throw new TextTooLargeError();
+  }
+
   if (url.startsWith("data:")) {
-    // A base64 data: URI is ~4/3 the size of its decoded bytes. Reject an
-    // oversized file by length first, so a multi-megabyte inline payload isn't
-    // decoded on the main thread only to be discarded — mirroring the
-    // `blob.size` gate on the fetch path below.
-    if ((url.length * 3) / 4 > MAX_TEXT_PREVIEW_BYTES) {
-      throw new TextTooLargeError();
-    }
     const bytes = dataUriToUint8Array(url);
     if (!bytes) throw new Error("Malformed data URI");
     return new TextDecoder().decode(bytes);
@@ -44,6 +48,8 @@ async function loadText(url: string, signal: AbortSignal): Promise<string> {
     throw new Error(`Failed to load file: ${response.status}`);
   }
   const blob = await response.blob();
+  // `sizeBytes` is optional upstream for file-backed attachments, so re-check
+  // the fetched blob's exact size as the authoritative backstop.
   if (blob.size > MAX_TEXT_PREVIEW_BYTES) {
     throw new TextTooLargeError();
   }
@@ -54,6 +60,7 @@ interface TextPreviewProps {
   url: string;
   filename: string;
   mimeType: string;
+  sizeBytes: number;
 }
 
 type LoadState =
@@ -67,7 +74,12 @@ type LoadState =
  * renders as monospace source. Content sits on a themed surface so it stays
  * legible on the modal's dark backdrop across light, dark, and velvet themes.
  */
-export function TextPreview({ url, filename, mimeType }: TextPreviewProps) {
+export function TextPreview({
+  url,
+  filename,
+  mimeType,
+  sizeBytes,
+}: TextPreviewProps) {
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
   // Read the local URL straight into component state. This is deliberately not
@@ -79,7 +91,7 @@ export function TextPreview({ url, filename, mimeType }: TextPreviewProps) {
     const controller = new AbortController();
     setState({ status: "loading" });
 
-    loadText(url, controller.signal)
+    loadText(url, sizeBytes, controller.signal)
       .then((text) => {
         if (!controller.signal.aborted) setState({ status: "ready", text });
       })
@@ -96,7 +108,7 @@ export function TextPreview({ url, filename, mimeType }: TextPreviewProps) {
       });
 
     return () => controller.abort();
-  }, [url]);
+  }, [url, sizeBytes]);
 
   const handleDownload = async () => {
     const { saveFile } = await import("@/runtime/native-file");

@@ -73,6 +73,7 @@ describe("TextPreview", () => {
         url={dataUri("text/markdown", "# Decoded\n\nfrom a data URI")}
         filename="notes.md"
         mimeType="text/markdown"
+        sizeBytes={128}
       />,
     );
 
@@ -81,13 +82,13 @@ describe("TextPreview", () => {
     );
   });
 
-  test("shows the too-large fallback for an oversized inline file", async () => {
-    const oversized = "a".repeat(MAX_TEXT_PREVIEW_BYTES + 1024);
+  test("shows the too-large fallback when the known size exceeds the cap", async () => {
     const { findByText } = render(
       <TextPreview
-        url={dataUri("text/plain", oversized)}
+        url="data:text/plain;base64,AAAA"
         filename="big.txt"
         mimeType="text/plain"
+        sizeBytes={MAX_TEXT_PREVIEW_BYTES + 1}
       />,
     );
 
