@@ -4,8 +4,7 @@ import type { SentryFlavor } from "@/lib/sentry/flavor";
 
 /**
  * `SentryFlavor` backed by `@sentry/react`, the browser SDK used on the web
- * app and the Electron renderer. Behavior mirrors the inlined init/close that
- * previously lived in `sentry-control.ts`.
+ * app and the Electron renderer.
  */
 export const reactFlavor: SentryFlavor = {
   init(options) {

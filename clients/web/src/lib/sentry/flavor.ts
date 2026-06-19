@@ -18,13 +18,9 @@ export interface SentryFlavor {
 }
 
 /**
- * Pick the Sentry flavor for the current runtime.
- *
- * For now this always returns the `@sentry/react` flavor — the only surface
- * shipping the browser SDK today (web + Electron renderer). Later PRs add
- * branches here for the Electron renderer (IPC bridge) and the Capacitor
- * native platform; insert those `isElectron()` / `isNativePlatform()` checks
- * above the react fallback.
+ * Pick the Sentry flavor for the current runtime. The single place host-based
+ * selection lives; returns the `@sentry/react` flavor for the browser SDK
+ * surfaces (web + Electron renderer).
  */
 export function selectSentryFlavor(): SentryFlavor {
   return reactFlavor;
