@@ -82,6 +82,7 @@ import vlmAskTool from "./vision-perception/tools/vlm-ask.js";
 import vlmDescribeTool from "./vision-perception/tools/vlm-describe.js";
 import vlmDetectTool from "./vision-perception/tools/vlm-detect.js";
 import vlmOcrTool from "./vision-perception/tools/vlm-ocr.js";
+import vlmVideoLogTool from "./vision-perception/tools/vlm-video-log.js";
 
 /**
  * `compaction` — compaction is implemented in `compaction/compact.ts` as
@@ -364,6 +365,7 @@ export const visionPerceptionPlugin: Plugin = {
     finalizeTool(vlmDescribeTool, "vlm_describe"),
     finalizeTool(vlmOcrTool, "vlm_ocr"),
     finalizeTool(vlmDetectTool, "vlm_detect"),
+    finalizeTool(vlmVideoLogTool, "vlm_video_log"),
   ],
 };
 

@@ -1,11 +1,11 @@
 /**
- * Resolve a vision media reference (an attachment id) into a provider
- * `ImageContent` block.
+ * Resolve a vision media reference (an attachment id) into provider content.
  *
- * Reads the attachment row and bytes from the assistant's own attachment store,
- * validates that the reference points to an existing IMAGE (videos and other
- * kinds are rejected), and runs the bytes through `optimizeImageForTransport`
- * before building the base64 image block the vision call site sends.
+ * Reads the attachment row and bytes from the assistant's own attachment store.
+ * Images resolve to a single optimized `ImageContent` block via
+ * {@link resolveVisionMedia}; videos resolve to a set of timestamped keyframes
+ * via {@link resolveVisionVideo} (delegating to `video-frames.ts`). Other kinds
+ * are rejected.
  *
  * The attachment store is imported in-tree (relative) rather than from
  * `@vellumai/plugin-api`, which does not export it.
@@ -17,6 +17,12 @@ import {
   getAttachmentContent,
 } from "../../../../memory/attachments-store.js";
 import type { ImageContent } from "../../../../providers/types.js";
+import {
+  type SampledVideo,
+  sampleVideoFrames,
+  type SampleVideoOptions,
+  VideoFramesError,
+} from "./video-frames.js";
 
 /**
  * Raised when a media reference cannot be resolved to a usable image — the
@@ -89,4 +95,43 @@ export async function resolveVisionMedia(
     kind: row.kind,
     filename: row.originalFilename,
   };
+}
+
+/**
+ * Resolve a video attachment id to a set of timestamped keyframes plus its
+ * metadata. Delegates frame extraction to `video-frames.ts`, which relies on
+ * ffmpeg/ffprobe and fails gracefully when those are unavailable. Throws
+ * {@link VisionMediaError} on a missing / non-video reference, and re-raises a
+ * {@link VideoFramesError} as a {@link VisionMediaError} so callers convert
+ * either into a single `{ isError: true }` result.
+ */
+export async function resolveVisionVideo(
+  mediaRef: string,
+  options?: SampleVideoOptions,
+): Promise<{ video: SampledVideo; filename: string }> {
+  const ref = mediaRef?.trim();
+  if (!ref) {
+    throw new VisionMediaError("No media reference was provided.");
+  }
+
+  const row = getAttachmentById(ref);
+  if (!row) {
+    throw new VisionMediaError(`No attachment found for media_ref "${ref}".`);
+  }
+  if (row.kind !== "video") {
+    throw new VisionMediaError(
+      `Attachment "${ref}" is a ${row.kind}, not a video. ` +
+        "Only videos can be read by vlm_video_log.",
+    );
+  }
+
+  try {
+    const video = await sampleVideoFrames(ref, options);
+    return { video, filename: row.originalFilename };
+  } catch (err) {
+    if (err instanceof VideoFramesError) {
+      throw new VisionMediaError(err.message);
+    }
+    throw err;
+  }
 }

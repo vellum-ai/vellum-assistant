@@ -53,6 +53,7 @@ let attachmentBytes: Record<string, Buffer> = {};
 mock.module("../../../../memory/attachments-store.js", () => ({
   getAttachmentById: (id: string) => attachmentRows[id] ?? null,
   getAttachmentContent: (id: string) => attachmentBytes[id] ?? null,
+  getFilePathForAttachment: () => null,
 }));
 
 const vlmAskTool = (await import("../tools/vlm-ask.js")).default;

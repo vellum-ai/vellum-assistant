@@ -49,6 +49,7 @@ export const VLM_TOOL_NAMES: ReadonlySet<string> = new Set([
   "vlm_describe",
   "vlm_ocr",
   "vlm_detect",
+  "vlm_video_log",
 ]);
 
 /** Whether `name` is one of the plugin's vision tools. */
@@ -115,17 +116,23 @@ function resolveAttachmentFilename(attachmentId: string): string {
 
 /**
  * Render the text marker that replaces a raw media block for a non-vision
- * backbone. Names the attachment id so the model has a usable `media_ref`.
+ * backbone. Names the attachment id so the model has a usable `media_ref`, and
+ * advertises the right tool for the media kind: `vlm_video_log` for videos, the
+ * image inspection tools otherwise.
  */
 export function renderMediaMarker(
   attachmentId: string,
   filename: string,
   kind: string,
 ): string {
+  const tools =
+    kind === "Video"
+      ? `call vlm_video_log with media_ref="${attachmentId}" to read it`
+      : `call vlm_ask / vlm_describe / vlm_ocr / vlm_detect ` +
+        `with media_ref="${attachmentId}" to inspect it`;
   return (
     `[${kind} attachment available — id="${attachmentId}", file "${filename}". ` +
-    `You cannot view it directly; call vlm_ask / vlm_describe / vlm_ocr / vlm_detect ` +
-    `with media_ref="${attachmentId}" to inspect it.]`
+    `You cannot view it directly; ${tools}.]`
   );
 }
 
