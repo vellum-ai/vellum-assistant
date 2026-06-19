@@ -80,6 +80,8 @@ import visionPerceptionPreModelCall from "./vision-perception/hooks/pre-model-ca
 import visionPerceptionPkg from "./vision-perception/package.json" with { type: "json" };
 import vlmAskTool from "./vision-perception/tools/vlm-ask.js";
 import vlmDescribeTool from "./vision-perception/tools/vlm-describe.js";
+import vlmDetectTool from "./vision-perception/tools/vlm-detect.js";
+import vlmOcrTool from "./vision-perception/tools/vlm-ocr.js";
 
 /**
  * `compaction` — compaction is implemented in `compaction/compact.ts` as
@@ -360,6 +362,8 @@ export const visionPerceptionPlugin: Plugin = {
   tools: [
     finalizeTool(vlmAskTool, "vlm_ask"),
     finalizeTool(vlmDescribeTool, "vlm_describe"),
+    finalizeTool(vlmOcrTool, "vlm_ocr"),
+    finalizeTool(vlmDetectTool, "vlm_detect"),
   ],
 };
 
