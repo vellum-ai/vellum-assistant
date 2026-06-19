@@ -8,6 +8,7 @@
 import { z } from "zod";
 
 import { findConversation } from "../../daemon/conversation-registry.js";
+import { HostBrowserProxy } from "../../daemon/host-browser-proxy.js";
 import { getCdpClient } from "../../tools/browser/cdp-client/factory.js";
 import {
   clearPinnedTab,
@@ -50,6 +51,14 @@ async function handleBrowserTabs({ body = {} }: RouteHandlerArgs) {
   } as unknown as ToolContext;
 
   const cdpOptions = { mode: "extension" as const, targetClientId };
+
+  // Every tabs command pins extension mode. Absorb a brief extension SSE
+  // reconnect blip so a flapping connection doesn't surface as a hard
+  // "no Chrome Extension connected" error.
+  await HostBrowserProxy.instance.waitForExtensionClient(
+    context.sourceActorPrincipalId,
+    targetClientId,
+  );
 
   if (command === "list") {
     const cdp = getCdpClient(context, cdpOptions);
