@@ -1,12 +1,17 @@
 import * as Sentry from "@sentry/react";
 
 import { getDeviceBool, watchDeviceSetting } from "@/utils/device-settings";
+import { useAuthStore } from "@/stores/auth-store";
+import { hasLivePlatformSession } from "@/stores/session-status";
 
 /**
- * Gates the browser-side Sentry client on the user's Share Diagnostics
- * toggle (`device:share_diagnostics`), matching the macOS app's behavior.
+ * Gates the browser-side Sentry client on BOTH the user's Share Diagnostics
+ * toggle (`device:share_diagnostics`) AND a live platform session. Diagnostics
+ * are recorded against a platform account, so an offline / self-hosted client
+ * with no session stays fail-closed regardless of the device toggle — matching
+ * the daemon's consent posture.
  *
- * Strict opt-in semantics:
+ * Strict opt-in semantics for the device toggle (when a session is live):
  *   - stored "true"  → Sentry ON  (explicit consent)
  *   - stored "false" → Sentry OFF (explicit opt-out)
  *   - absent         → Sentry OFF (no consent on record yet)
@@ -15,6 +20,9 @@ import { getDeviceBool, watchDeviceSetting } from "@/utils/device-settings";
  */
 
 function readConsent(): boolean {
+  if (!hasLivePlatformSession(useAuthStore.getState().platformSession)) {
+    return false;
+  }
   return getDeviceBool("shareDiagnostics", false);
 }
 
@@ -46,17 +54,26 @@ export function syncSentryClient(options: Sentry.BrowserOptions): void {
 }
 
 /**
- * Install listeners so the Sentry client turns on/off whenever the user
- * flips the Share Diagnostics toggle — covering cross-tab writes (via the
- * native `storage` event) and same-tab writes (via the custom event
- * dispatched by `setLocalSetting`).
+ * Install listeners so the Sentry client turns on/off whenever the gate
+ * changes: the user flipping the Share Diagnostics toggle (cross-tab via the
+ * native `storage` event, same-tab via the custom event from `setLocalSetting`)
+ * or the platform session transitioning in/out of "present".
  *
  * Returns a cleanup function that removes both listeners.
  */
 export function installSentryControlListeners(
   options: Sentry.BrowserOptions,
 ): () => void {
-  return watchDeviceSetting("shareDiagnostics", () => {
+  const stopDeviceWatch = watchDeviceSetting("shareDiagnostics", () => {
     syncSentryClient(options);
   });
+  const stopSessionWatch = useAuthStore.subscribe((state, prevState) => {
+    if (state.platformSession !== prevState.platformSession) {
+      syncSentryClient(options);
+    }
+  });
+  return () => {
+    stopDeviceWatch();
+    stopSessionWatch();
+  };
 }

@@ -9,7 +9,6 @@ import { BiometricSettingsCard } from "@/domains/settings/components/biometric-s
 import { RiskToleranceSettings } from "@/domains/settings/components/risk-tolerance-settings";
 import { TrustRules } from "@/domains/settings/components/trust-rules/trust-rules";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
-import { isPlatformDisabled } from "@/lib/local-mode";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
 import {
@@ -44,10 +43,10 @@ export function PrivacyPage() {
   const platformGate = usePlatformGate({ platformHostedOnly: true });
   const channelTrustFloors = useAssistantFeatureFlagStore.use.channelTrustFloors();
   const hasPlatformSession = useHasPlatformSession();
-  // Share consent is a platform-account concern: only surface the toggles when
-  // there's a live session to record against, mirroring the navigation-resolver
-  // `requireConsent` predicate. Offline/self-hosted, telemetry is fail-closed.
-  const showShareConsent = !isPlatformDisabled() && hasPlatformSession;
+  // The Share toggles control telemetry (browser Sentry, daemon analytics) that
+  // only runs with a live platform session, so only surface them when there is
+  // one — matching the consent gate in `sentry-control.ts`.
+  const showShareConsent = hasPlatformSession;
   const userId = useAuthStore.use.user()?.id ?? null;
   const [shareAnalytics, setShareAnalytics] = useState(
     () => getDeviceBool("shareAnalytics", true),
