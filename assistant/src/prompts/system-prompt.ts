@@ -274,7 +274,7 @@ export function maybeReseedBootstrap(templateFileName: string): boolean {
  * Marking happens here — at the single point where the bootstrap selection is
  * known — so it lands BEFORE the agent loop resolves tools and BEFORE the model
  * can call the emit tool on the first activation-rail turn. (`resolveTools`
- * runs before `resolveSystemPrompt` in the loop, so the system-prompt build is
+ * runs before the system-prompt build in the loop, so the system-prompt build is
  * too late to be the *only* marking site.) The marker write is best-effort and
  * idempotent (`markActivationSession` swallows errors and dedups on the PK), so
  * calling this from both `setOnboardingContext` and `buildSystemPrompt` is safe.

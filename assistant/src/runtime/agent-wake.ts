@@ -606,13 +606,14 @@ export async function wakeAgentForOpportunity(
     });
 
     // Apply the caller's persona override for the duration of the run. The
-    // wake's agent loop builds the system prompt through the conversation's
-    // resolveSystemPrompt callback, which reads this field; cleared (below,
-    // before drainQueue) so a queued user turn never builds its prompt under
-    // the wake's override. Assigned only AFTER the profile/config reads above
-    // — those can throw, and they run before the try/finally that clears the
-    // override, so an earlier assignment would strand the override on the
-    // cached Conversation and corrupt every later prompt build on it.
+    // prompt is built once before `agentLoop.run()` (via
+    // `conversation.buildCurrentSystemPrompt()`), which reads this field;
+    // cleared (below, before drainQueue) so a queued user turn never builds
+    // its prompt under the wake's override. Assigned only AFTER the
+    // profile/config reads above — those can throw, and they run before the
+    // try/finally that clears the override, so an earlier assignment would
+    // strand the override on the cached Conversation and corrupt every later
+    // prompt build on it.
     if (opts.personaOverride) {
       conversation.wakePersonaOverride = opts.personaOverride;
     }
@@ -1156,6 +1157,13 @@ export async function wakeAgentForOpportunity(
             maxInputTokens: effectiveContextWindow.maxInputTokens,
             overflowRecovery: { enabled: false, safetyMarginRatio: 0 },
           }),
+          // Resolve the system prompt once before the run — the loop does
+          // not re-resolve mid-loop. `wakePersonaOverride` (if set above)
+          // is baked into the prompt at this point.
+          systemPrompt: conversation.buildCurrentSystemPrompt(),
+          ...(conversation.modelOverride
+            ? { model: conversation.modelOverride }
+            : {}),
         }));
       } catch (err) {
         // An over-window throw on a compaction-suppressed wake is the

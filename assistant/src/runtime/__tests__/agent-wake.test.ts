@@ -52,8 +52,8 @@ interface WakeConversationProbe {
     allowedTools?: string[];
     /**
      * `conversation.wakePersonaOverride` as observed at run start — the
-     * field the conversation's resolveSystemPrompt callback reads when
-     * building the wake's system prompt.
+     * field `buildCurrentSystemPrompt` reads when building the wake's
+     * system prompt before `agentLoop.run()`.
      */
     personaOverride?: unknown;
     order: number;
@@ -693,8 +693,8 @@ describe("wakeAgentForOpportunity", () => {
     );
 
     expect(result.invoked).toBe(true);
-    // The override was live on the conversation when the loop ran — the
-    // resolveSystemPrompt callback reads this field at prompt-build time.
+    // The override was live on the conversation when the loop ran —
+    // `buildCurrentSystemPrompt` reads this field before `agentLoop.run()`.
     expect(conversation.runCalls[0]!.personaOverride).toEqual(override);
     // Applied exactly once and cleared before the wake released the
     // conversation, so a queued user turn can't build under it.

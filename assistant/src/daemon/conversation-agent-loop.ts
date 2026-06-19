@@ -980,6 +980,8 @@ export async function runAgentLoopImpl(
           compactInPlace,
           isNonInteractive,
           modelProfileKey,
+          systemPrompt: ctx.buildCurrentSystemPrompt(),
+          ...(ctx.modelOverride ? { model: ctx.modelOverride } : {}),
         }),
         abortController.signal,
         watchdogMs,
