@@ -5,14 +5,12 @@ import { Database } from "bun:sqlite";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { getLogger } from "../util/logger.js";
-import { ensureDataDir, getDbPath, getLogsDbPath } from "../util/platform.js";
+import { getLogsDbPath } from "../util/logs-db-path.js";
+import { ensureDataDir, getDbPath } from "../util/platform.js";
 import { clearStoredDb, getStoredDb, setStoredDb } from "./db-singleton.js";
 import * as schema from "./schema.js";
 
 export type DrizzleDb = ReturnType<typeof drizzle<typeof schema>>;
-
-const log = getLogger("db-connection");
 
 /**
  * Schema name under which the secondary append-only database file
@@ -37,6 +35,10 @@ export const LOGS_DB_SCHEMA = "logs";
  * file) must not take down the main database. We log and continue in line with
  * the daemon's "never block startup on a subsystem failure" policy; append-only
  * tables are simply unavailable until the next successful open.
+ *
+ * The logger is pulled in lazily (dynamic import) only on the error path. This
+ * file is intentionally kept import-light — see `db-singleton.ts` — so it does
+ * not take a static dependency on the logger (and transitively on pino).
  */
 function attachLogsDb(sqlite: Database): void {
   const logsPath = getLogsDbPath();
@@ -47,9 +49,11 @@ function attachLogsDb(sqlite: Database): void {
     sqlite.exec(`PRAGMA ${LOGS_DB_SCHEMA}.journal_mode=WAL`);
     sqlite.exec(`PRAGMA ${LOGS_DB_SCHEMA}.synchronous=FULL`);
   } catch (err) {
-    log.error(
-      { err, logsPath },
-      "Failed to ATTACH logs database; append-only log tables will be unavailable",
+    void import("../util/logger.js").then(({ getLogger }) =>
+      getLogger("db-connection").error(
+        { err, logsPath },
+        "Failed to ATTACH logs database; append-only log tables will be unavailable",
+      ),
     );
   }
 }

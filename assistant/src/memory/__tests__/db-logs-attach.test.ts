@@ -22,7 +22,7 @@ import { removeTestDbFiles } from "../../__tests__/assert-not-live-db.js";
 const { getSqlite, LOGS_DB_SCHEMA } = await import("../db-connection.js");
 const { initializeDb } = await import("../db-init.js");
 const { runAsyncSqlite } = await import("../db-async-query.js");
-const { getLogsDbPath } = await import("../../util/platform.js");
+const { getLogsDbPath } = await import("../../util/logs-db-path.js");
 const { findSqlite3 } = await import("../../util/sqlite3-runtime.js");
 
 initializeDb();

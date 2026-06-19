@@ -178,18 +178,6 @@ export function getDbPath(): string {
 }
 
 /**
- * Path to the secondary SQLite file that houses heavy append-only tables
- * (LLM request logs, and other log/event tables over time). It lives in the
- * same `data/db` directory as the main DB and is ATTACHed to the daemon's
- * connection as the `logs` schema (see `memory/db-connection.ts`). Splitting
- * these tables into their own file keeps the main DB — and its WAL — small and
- * lets the two files VACUUM/checkpoint independently.
- */
-export function getLogsDbPath(): string {
-  return join(getDataDir(), "db", "assistant-logs.db");
-}
-
-/**
  * Returns the directory where logs live: `<dataDir>/logs/`. Files rotate
  * daily (`assistant-YYYY-MM-DD.log`), so callers ask for the directory and
  * let the logger own the filename.

@@ -28,7 +28,8 @@ import { Database } from "bun:sqlite";
 
 import type { Command } from "commander";
 
-import { getDbPath, getLogsDbPath } from "../../../util/platform.js";
+import { getLogsDbPath } from "../../../util/logs-db-path.js";
+import { getDbPath } from "../../../util/platform.js";
 import { red } from "../../lib/cli-colors.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 import {
