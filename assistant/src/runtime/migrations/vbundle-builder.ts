@@ -11,7 +11,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
-  createReadStream,
   createWriteStream,
   existsSync,
   lstatSync,
@@ -21,7 +20,7 @@ import {
   readSync,
   realpathSync,
 } from "node:fs";
-import { stat, unlink } from "node:fs/promises";
+import { type FileHandle, open, stat, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
@@ -886,9 +885,10 @@ export function walkDirectoryForMetadata(
 }
 
 /**
- * Compute SHA-256 hex digest of a file by streaming — never buffers the
- * entire file in memory. When `size` is provided, only hashes the first
- * `size` bytes to match what will be archived in the tar entry.
+ * Compute SHA-256 hex digest of a file by reading it in bounded chunks —
+ * never buffers the entire file in memory. When `size` is provided, only
+ * hashes the first `size` bytes to match what will be archived in the tar
+ * entry.
  */
 async function computeFileSha256(
   filePath: string,
@@ -896,11 +896,29 @@ async function computeFileSha256(
 ): Promise<string> {
   const hash = createHash("sha256");
   if (size === 0) return hash.digest("hex");
-  const streamOpts =
-    size !== undefined ? { start: 0, end: size - 1 } : undefined;
-  const stream = createReadStream(filePath, streamOpts);
-  for await (const chunk of stream) {
-    hash.update(chunk);
+
+  // Read through an explicitly-managed FileHandle rather than
+  // `createReadStream` so the descriptor is always released in `finally`.
+  // This pass walks every file in the workspace; relying on stream
+  // auto-close left one descriptor open per file under Bun, which is what
+  // exhausted the daemon's file-descriptor limit (EMFILE) between restarts.
+  // A bounded read loop keeps peak memory flat regardless of file size.
+  const readChunkBytes = 64 * 1024;
+  const handle = await open(filePath, "r");
+  try {
+    const chunk = Buffer.allocUnsafe(readChunkBytes);
+    let position = 0;
+    for (;;) {
+      const remaining = size !== undefined ? size - position : Infinity;
+      if (remaining <= 0) break;
+      const toRead = Math.min(chunk.length, remaining);
+      const { bytesRead } = await handle.read(chunk, 0, toRead, position);
+      if (bytesRead === 0) break;
+      hash.update(chunk.subarray(0, bytesRead));
+      position += bytesRead;
+    }
+  } finally {
+    await handle.close();
   }
   return hash.digest("hex");
 }
@@ -1056,21 +1074,33 @@ async function* generateTarStream(
       // alignment. The WAL checkpoint before export is the primary
       // consistency mechanism for the database.
       let bytesWritten = 0;
-      if (file.size > 0) {
+      if (entrySize > 0) {
+        // Managed FileHandle (not `createReadStream`) so the descriptor is
+        // released in `finally` even when the consumer abandons the generator
+        // mid-file. Each read uses a fresh buffer so a yielded chunk is never
+        // overwritten by the next read before the consumer drains it.
+        let handle: FileHandle | undefined;
         try {
-          const stream = createReadStream(file.diskPath, {
-            start: 0,
-            end: file.size - 1,
-          });
-          for await (const chunk of stream) {
-            const data =
-              chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
-            bytesWritten += data.length;
-            yield data;
+          handle = await open(file.diskPath, "r");
+          const readChunkBytes = 64 * 1024;
+          while (bytesWritten < entrySize) {
+            const toRead = Math.min(readChunkBytes, entrySize - bytesWritten);
+            const buf = Buffer.allocUnsafe(toRead);
+            const { bytesRead } = await handle.read(
+              buf,
+              0,
+              toRead,
+              bytesWritten,
+            );
+            if (bytesRead === 0) break;
+            bytesWritten += bytesRead;
+            yield bytesRead === buf.length ? buf : buf.subarray(0, bytesRead);
           }
         } catch {
           // File was deleted or rotated between passes — emit zeros for
           // the full declared size so the tar structure stays valid
+        } finally {
+          if (handle) await handle.close();
         }
       }
 
