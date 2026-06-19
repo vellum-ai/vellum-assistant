@@ -36,6 +36,8 @@ const MODEL = {
 
 interface FieldOverrides {
   visibility: ProfileParamVisibility;
+  isReadOnly?: boolean;
+  topPReadOnly?: boolean;
   maxTokens?: number | null;
   contextWindowMaxInputTokens?: number | null;
   onMaxTokensChange?: (v: number | null) => void;
@@ -53,7 +55,8 @@ function renderParams(overrides: FieldOverrides) {
   return render(
     <ProfileAdvancedParams
       visibility={overrides.visibility}
-      isReadOnly={false}
+      isReadOnly={overrides.isReadOnly ?? false}
+      topPReadOnly={overrides.topPReadOnly}
       model="claude-opus-4"
       selectedModel={overrides.selectedModel ?? MODEL}
       defaultMaxOutputTokens={overrides.defaultMaxOutputTokens}
@@ -478,5 +481,42 @@ describe("ProfileAdvancedParams Top P control", () => {
     fireEvent.keyDown(screen.getByRole("slider"), { key: "ArrowRight" });
 
     expect(onTopPChange).toHaveBeenCalled();
+  });
+
+  test("topPReadOnly overrides isReadOnly to keep the Top P control editable", () => {
+    // GIVEN the params locked read-only EXCEPT Top P (managed view mode)
+    const onTopPEnabledChange = mock();
+    renderParams({
+      visibility: topPOnly,
+      isReadOnly: true,
+      topPReadOnly: false,
+      onTopPEnabledChange,
+    });
+
+    // THEN the Top P toggle is enabled despite isReadOnly...
+    const toggle = screen.getByRole("switch", {
+      name: "Top P",
+    }) as HTMLButtonElement;
+    expect(toggle.disabled).toBe(false);
+
+    // ...and toggling it still fires the change handler.
+    fireEvent.click(toggle);
+    expect(onTopPEnabledChange).toHaveBeenLastCalledWith(true);
+  });
+
+  test("falls back to isReadOnly for Top P when topPReadOnly is omitted", () => {
+    // GIVEN read-only params with no topPReadOnly override
+    const onTopPEnabledChange = mock();
+    renderParams({
+      visibility: topPOnly,
+      isReadOnly: true,
+      onTopPEnabledChange,
+    });
+
+    // THEN the Top P toggle inherits the locked read-only state.
+    const toggle = screen.getByRole("switch", {
+      name: "Top P",
+    }) as HTMLButtonElement;
+    expect(toggle.disabled).toBe(true);
   });
 });

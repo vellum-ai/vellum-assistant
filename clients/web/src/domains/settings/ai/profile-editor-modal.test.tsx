@@ -237,6 +237,32 @@ function renderEdit(
   );
 }
 
+/** Render the editor in view mode for a managed (platform-seeded) profile. */
+function renderView(
+  initialValues: Record<string, unknown>,
+  onSave: (
+    name: string,
+    entry: unknown,
+    options?: { mode?: "merge" | "replace" },
+  ) => Promise<void> = () => Promise.resolve(),
+) {
+  return render(
+    <Wrapper>
+      <ProfileEditorModal
+        isOpen
+        mode="view"
+        profileName={(initialValues.name as string) ?? "balanced"}
+        initialValues={initialValues as never}
+        existingNames={[(initialValues.name as string) ?? "balanced"]}
+        connections={[makeConnection("anthropic-personal")]}
+        assistantId={ASSISTANT_ID}
+        onSave={onSave}
+        onCancel={() => {}}
+      />
+    </Wrapper>,
+  );
+}
+
 /** The Top P toggle is a switch labelled (via aria-labelledby) "Top P". */
 function topPSwitch(): HTMLElement {
   const sw = Array.from(
@@ -600,5 +626,73 @@ describe("ProfileEditorModal — Top P wiring", () => {
       expect(saveCalls.length).toBe(1);
     });
     expect(saveCalls[0].entry.topP).toBeNull();
+  });
+
+  describe("managed profile in view mode", () => {
+    // A managed (platform-seeded) Balanced profile. Anthropic opus →
+    // visibility.topP is true, so the Top P control renders even in view mode.
+    const managedProfile = {
+      name: "balanced",
+      label: "Balanced",
+      provider: "anthropic",
+      model: "claude-opus-4-8",
+      source: "managed",
+    };
+
+    test("the Top P control is editable even though the modal is read-only", () => {
+      renderView(managedProfile);
+
+      // The Top P toggle stays interactive while the rest of the editor is
+      // locked (provider/model dropdowns are disabled in view mode).
+      expect((topPSwitch() as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    test("enabling Top P arms the otherwise close-only Save button", () => {
+      renderView(managedProfile);
+
+      // View mode opens with Save disabled (no policy fields touched yet).
+      expect(getSaveBtn().disabled).toBe(true);
+
+      // Turning Top P on is a tracked view-mode change → Save unlocks.
+      fireEvent.click(topPSwitch());
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+
+    test("saving sends topP in a merge entry without seed-owned fields", async () => {
+      const saveCalls: {
+        name: string;
+        entry: Record<string, unknown>;
+        options?: { mode?: "merge" | "replace" };
+      }[] = [];
+      const onSave = (
+        name: string,
+        entry: unknown,
+        options?: { mode?: "merge" | "replace" },
+      ) => {
+        saveCalls.push({
+          name,
+          entry: entry as Record<string, unknown>,
+          options,
+        });
+        return Promise.resolve();
+      };
+
+      renderView(managedProfile, onSave);
+
+      // Enable Top P, then save.
+      fireEvent.click(topPSwitch());
+      fireEvent.click(getSaveBtn());
+
+      await waitFor(() => {
+        expect(saveCalls.length).toBe(1);
+      });
+      // The merge entry carries the new topP number...
+      expect(saveCalls[0].entry.topP).toBe(0.95);
+      expect(typeof saveCalls[0].entry.topP).toBe("number");
+      // ...as a deep-merge so seed-owned fields are never sent.
+      expect(saveCalls[0].options?.mode).toBe("merge");
+      expect(saveCalls[0].entry.provider).toBeUndefined();
+      expect(saveCalls[0].entry.model).toBeUndefined();
+    });
   });
 });
