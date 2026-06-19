@@ -25,12 +25,15 @@ import {
   type CanonicalGuardianRequest,
   createCanonicalGuardianDelivery,
   createCanonicalGuardianRequest,
+  getPendingCanonicalRequestByDestinationMessage,
   listCanonicalGuardianDeliveries,
 } from "../memory/canonical-guardian-store.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import { recordCanonicalChannelDelivery } from "../notifications/canonical-delivery-recorder.js";
-import type { NotificationDeliveryResult } from "../notifications/types.js";
+import {
+  recordApprovalCardDelivery,
+  recordGuardianRequestDeliveries,
+} from "../notifications/canonical-delivery-recorder.js";
 
 initializeDb();
 
@@ -232,28 +235,161 @@ describe("withdrawGuardianRequestCards", () => {
   });
 });
 
-describe("recordCanonicalChannelDelivery", () => {
+describe("recordApprovalCardDelivery", () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test("records a channel card with its addressing and status", () => {
+    const req = makeRequest();
+    const delivery = recordApprovalCardDelivery({
+      requestId: req.id,
+      channel: "slack",
+      chatId: "C1",
+      messageId: "1700000000.0001",
+      status: "sent",
+    });
+    expect(delivery?.destinationChannel).toBe("slack");
+    expect(delivery?.destinationChatId).toBe("C1");
+    expect(delivery?.destinationMessageId).toBe("1700000000.0001");
+    expect(delivery?.status).toBe("sent");
+  });
+
+  test("records a vellum card addressed by conversation id, defaulting to pending", () => {
+    const req = makeRequest();
+    const delivery = recordApprovalCardDelivery({
+      requestId: req.id,
+      channel: "vellum",
+      conversationId: "conv-x",
+    });
+    expect(delivery?.destinationConversationId).toBe("conv-x");
+    expect(delivery?.destinationChatId).toBeNull();
+    expect(delivery?.status).toBe("pending");
+  });
+
+  test("lets a Slack reaction resolve back to its request (LUM-2502)", () => {
+    // A delivered Slack approval card must be addressable by (channel, chat, ts)
+    // so an emoji reaction on it resolves to the right request rather than
+    // silently falling through to transcript persistence.
+    const req = makeRequest();
+    recordApprovalCardDelivery({
+      requestId: req.id,
+      channel: "slack",
+      chatId: "C-guardian",
+      messageId: "1700000000.5678",
+      status: "sent",
+    });
+
+    const resolved = getPendingCanonicalRequestByDestinationMessage(
+      "slack",
+      "C-guardian",
+      "1700000000.5678",
+    );
+    expect(resolved?.id).toBe(req.id);
+  });
+});
+
+describe("recordGuardianRequestDeliveries", () => {
   beforeEach(() => {
     resetTables();
     withdrawSlackApprovalCard.mockClear();
   });
 
-  test("captures the channel-native message id so the card can be withdrawn", async () => {
+  test("records each delivery with addressing + status and returns the vellum id", () => {
     const req = makeRequest();
-    const result: NotificationDeliveryResult = {
-      channel: "slack",
-      destination: "C999",
-      status: "sent",
-      messageId: "1700000000.1234",
-    };
+    const vellumId = recordGuardianRequestDeliveries({
+      requestId: req.id,
+      deliveryResults: [
+        {
+          channel: "vellum",
+          destination: "",
+          status: "sent",
+          conversationId: "conv-1",
+        },
+        {
+          channel: "slack",
+          destination: "C999",
+          status: "sent",
+          messageId: "1700000000.1234",
+        },
+      ],
+    });
 
-    const delivery = recordCanonicalChannelDelivery(req.id, result);
+    const deliveries = listCanonicalGuardianDeliveries(req.id);
+    expect(deliveries).toHaveLength(2);
+    const vellum = deliveries.find((d) => d.destinationChannel === "vellum");
+    const slack = deliveries.find((d) => d.destinationChannel === "slack");
+    expect(vellumId).toBe(vellum?.id);
+    expect(vellum?.destinationConversationId).toBe("conv-1");
+    expect(vellum?.status).toBe("sent");
+    expect(slack?.destinationChatId).toBe("C999");
+    expect(slack?.destinationMessageId).toBe("1700000000.1234");
+    expect(slack?.status).toBe("sent");
+  });
 
-    expect(delivery.destinationChannel).toBe("slack");
-    expect(delivery.destinationChatId).toBe("C999");
-    expect(delivery.destinationMessageId).toBe("1700000000.1234");
+  test("reuses a pre-created vellum row instead of creating a second", () => {
+    const req = makeRequest();
+    const pre = recordApprovalCardDelivery({
+      requestId: req.id,
+      channel: "vellum",
+      conversationId: "conv-1",
+    });
 
-    // End-to-end: the recorded delivery is now editable by the withdrawal path.
+    const vellumId = recordGuardianRequestDeliveries({
+      requestId: req.id,
+      deliveryResults: [
+        {
+          channel: "vellum",
+          destination: "",
+          status: "sent",
+          conversationId: "conv-1",
+        },
+      ],
+      vellumDeliveryId: pre?.id,
+    });
+
+    expect(vellumId).toBe(pre?.id);
+    const deliveries = listCanonicalGuardianDeliveries(req.id);
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0].status).toBe("sent");
+  });
+
+  test("marks a non-sent delivery result as failed (status now tracked for all producers)", () => {
+    const req = makeRequest();
+    recordGuardianRequestDeliveries({
+      requestId: req.id,
+      deliveryResults: [
+        { channel: "slack", destination: "C1", status: "failed" },
+      ],
+    });
+    const [delivery] = listCanonicalGuardianDeliveries(req.id);
+    expect(delivery.status).toBe("failed");
+  });
+
+  test("omits chat id when the channel destination is empty", () => {
+    const req = makeRequest();
+    recordGuardianRequestDeliveries({
+      requestId: req.id,
+      deliveryResults: [{ channel: "slack", destination: "", status: "sent" }],
+    });
+    const [delivery] = listCanonicalGuardianDeliveries(req.id);
+    expect(delivery.destinationChatId).toBeNull();
+  });
+
+  test("records a Slack delivery the withdrawal path can then edit in place", async () => {
+    const req = makeRequest();
+    recordGuardianRequestDeliveries({
+      requestId: req.id,
+      deliveryResults: [
+        {
+          channel: "slack",
+          destination: "C999",
+          status: "sent",
+          messageId: "1700000000.1234",
+        },
+      ],
+    });
+
     await withdrawGuardianRequestCards({
       request: req,
       status: "approved",
@@ -263,16 +399,5 @@ describe("recordCanonicalChannelDelivery", () => {
     expect((params as { messageTs?: string }).messageTs).toBe(
       "1700000000.1234",
     );
-  });
-
-  test("omits chat id when the destination is empty", () => {
-    const req = makeRequest();
-    const delivery = recordCanonicalChannelDelivery(req.id, {
-      channel: "slack",
-      destination: "",
-      status: "sent",
-    });
-    expect(delivery.destinationChatId).toBeNull();
-    expect(listCanonicalGuardianDeliveries(req.id)).toHaveLength(1);
   });
 });

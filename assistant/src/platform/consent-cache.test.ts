@@ -47,7 +47,9 @@ mock.module("../util/logger.js", () => ({
 
 import {
   __setCachedShareAnalyticsForTest,
+  __setCachedShareDiagnosticsForTest,
   getCachedShareAnalytics,
+  getCachedShareDiagnostics,
   refreshConsentCache,
   startConsentRefresh,
   stopConsentRefresh,
@@ -66,6 +68,7 @@ describe("consent-cache", () => {
     createCallCount = 0;
     mockLegacyTelemetryOptOut = false;
     __setCachedShareAnalyticsForTest(false);
+    __setCachedShareDiagnosticsForTest(false);
   });
 
   afterEach(async () => {
@@ -155,5 +158,54 @@ describe("consent-cache", () => {
     startConsentRefresh();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(getCachedShareAnalytics()).toBe(true);
+  });
+
+  // share_diagnostics tracks the same refresh as share_analytics; Sentry's
+  // beforeSend re-reads it per event so a revocation is honored within a cycle.
+  test("diagnostics defaults to false before any refresh", () => {
+    expect(getCachedShareDiagnostics()).toBe(false);
+  });
+
+  test("diagnostics becomes true after a fetch reporting shareDiagnostics: true", async () => {
+    mockClient = makeClient({ shareAnalytics: false, shareDiagnostics: true });
+    await refreshConsentCache();
+    expect(getCachedShareDiagnostics()).toBe(true);
+  });
+
+  test("a later fetch reporting shareDiagnostics: false honors the revocation", async () => {
+    mockClient = makeClient({ shareAnalytics: false, shareDiagnostics: true });
+    await refreshConsentCache();
+    expect(getCachedShareDiagnostics()).toBe(true);
+
+    mockClient = makeClient({ shareAnalytics: false, shareDiagnostics: false });
+    await refreshConsentCache();
+    expect(getCachedShareDiagnostics()).toBe(false);
+  });
+
+  test("a null diagnostics fetch keeps the last known value", async () => {
+    mockClient = makeClient({ shareAnalytics: false, shareDiagnostics: true });
+    await refreshConsentCache();
+    expect(getCachedShareDiagnostics()).toBe(true);
+
+    mockClient = makeClient(null);
+    await refreshConsentCache();
+    expect(getCachedShareDiagnostics()).toBe(true);
+  });
+
+  test("a missing client flips a prior diagnostics opt-in back to false", async () => {
+    __setCachedShareDiagnosticsForTest(true);
+    mockClient = null;
+    await refreshConsentCache();
+    expect(getCachedShareDiagnostics()).toBe(false);
+  });
+
+  test("a client without a resolvable assistant identity fails diagnostics closed", async () => {
+    __setCachedShareDiagnosticsForTest(true);
+    mockClient = makeClient(
+      { shareAnalytics: false, shareDiagnostics: true },
+      "",
+    );
+    await refreshConsentCache();
+    expect(getCachedShareDiagnostics()).toBe(false);
   });
 });

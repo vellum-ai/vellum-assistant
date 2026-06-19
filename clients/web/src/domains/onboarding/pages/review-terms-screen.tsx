@@ -1,12 +1,16 @@
-import { useCallback, useState, type ReactNode } from "react";
+import { ShieldCheck } from "lucide-react";
+import { useCallback, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { SettingRow } from "@/components/setting-row";
+import {
+    AgreementsCard,
+    PrivacyPreferencesCard,
+} from "@/domains/onboarding/components/consent-controls";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import {
-    useAiDataConsent,
     useAnalyticsConsentCurrent,
     useDiagnosticsConsentCurrent,
+    usePrivacyConsent,
     useShareAnalytics,
     useShareDiagnostics,
     useTosAccepted,
@@ -16,12 +20,8 @@ import { isElectron } from "@/runtime/is-electron";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
 import { saveConsent } from "@/utils/onboarding-cleanup";
 import { sanitizeReturnTo } from "@/utils/return-to";
-import { legalUrl, routes } from "@/utils/routes";
+import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
-import { Checkbox } from "@vellumai/design-library/components/checkbox";
-
-const CONSENT_CHECKBOX_CLASS =
-  "[&_button[data-state=checked]]:bg-[var(--primary-base)] [&_svg]:text-[var(--content-inset)]";
 
 export function ReviewTermsScreen() {
   const navigate = useNavigate();
@@ -32,7 +32,7 @@ export function ReviewTermsScreen() {
   const hasPlatformSession = useHasPlatformSession();
 
   const [tosAccepted, setTosAccepted] = useTosAccepted();
-  const [aiDataConsent, setAiDataConsent] = useAiDataConsent();
+  const [privacyConsent, setPrivacyConsent] = usePrivacyConsent();
   const [shareAnalytics, setShareAnalytics] = useShareAnalytics();
   const [shareDiagnostics, setShareDiagnostics] = useShareDiagnostics();
   const [analyticsConsentCurrent] = useAnalyticsConsentCurrent();
@@ -42,18 +42,43 @@ export function ReviewTermsScreen() {
   // here to address. Gating render on live values would unmount a checkbox the
   // instant it's checked, so the user never sees the checked state.
   const [tosStaleAtMount] = useState(() => !tosAccepted);
-  const [aiStaleAtMount] = useState(() => !aiDataConsent);
+  const [privacyStaleAtMount] = useState(() => !privacyConsent);
   const [analyticsStaleAtMount] = useState(() => !analyticsConsentCurrent);
   const [diagnosticsStaleAtMount] = useState(() => !diagnosticsConsentCurrent);
-  const onlyTogglesStaleAtMount = !tosStaleAtMount && !aiStaleAtMount;
+
+  // Direct navigation to this route with everything already current would
+  // otherwise render an empty page. Treat that as a full review surface: show
+  // every section so the page is meaningful and re-confirmable.
+  const nothingStaleAtMount =
+    !tosStaleAtMount &&
+    !privacyStaleAtMount &&
+    !analyticsStaleAtMount &&
+    !diagnosticsStaleAtMount;
+  const showTos = tosStaleAtMount || nothingStaleAtMount;
+  const showPrivacy = privacyStaleAtMount || nothingStaleAtMount;
+  const showAnalytics = analyticsStaleAtMount || nothingStaleAtMount;
+  const showDiagnostics = diagnosticsStaleAtMount || nothingStaleAtMount;
+  const onlyTogglesStaleAtMount =
+    !nothingStaleAtMount && !tosStaleAtMount && !privacyStaleAtMount;
+
+  const heading = nothingStaleAtMount
+    ? "Terms & privacy"
+    : onlyTogglesStaleAtMount
+      ? "Review your privacy preferences"
+      : "Updated terms";
+  const subheading = nothingStaleAtMount
+    ? "Review your terms and privacy preferences anytime."
+    : onlyTogglesStaleAtMount
+      ? "Confirm your privacy preferences to continue."
+      : "We've updated our terms. Please review and accept to continue.";
 
   const onContinue = useCallback(() => {
-    saveConsent({ userId, tos: tosAccepted, ai: aiDataConsent, shareAnalytics, shareDiagnostics, hasPlatformSession });
+    saveConsent({ userId, tos: tosAccepted, privacy: privacyConsent, shareAnalytics, shareDiagnostics, hasPlatformSession });
 
     const destination = sanitizeReturnTo(searchParams.get("returnTo"), routes.assistant);
     void navigate(destination, { replace: true });
   }, [
-    aiDataConsent,
+    privacyConsent,
     hasPlatformSession,
     navigate,
     searchParams,
@@ -68,125 +93,69 @@ export function ReviewTermsScreen() {
     hardNavigate(routes.account.login);
   }, [logout]);
 
-  const tosLabel: ReactNode = (
-    <span className="text-body-medium-lighter text-[var(--content-default)]">
-      I agree to the{" "}
-      <a
-        href={legalUrl(routes.docs.legal.termsOfUse)}
-        target="_blank"
-        rel="noreferrer"
-        className="underline"
-      >
-        Terms of Service
-      </a>{" "}
-      and{" "}
-      <a
-        href={legalUrl(routes.docs.legal.privacyPolicy)}
-        target="_blank"
-        rel="noreferrer"
-        className="underline"
-      >
-        Privacy Policy
-      </a>
-    </span>
-  );
-
-  const aiConsentLabel: ReactNode = (
-    <span className="text-body-medium-lighter text-[var(--content-default)]">
-      I agree to the{" "}
-      <a
-        href={legalUrl(routes.docs.legal.dataSharing)}
-        target="_blank"
-        rel="noreferrer"
-        className="underline"
-      >
-        AI Data Sharing Policy
-      </a>
-    </span>
-  );
-
   // Only the legal checkboxes shown at mount gate Continue, driven by their
   // live checked values. Toggles never block — off is a valid choice.
   const continueDisabled =
-    (tosStaleAtMount && !tosAccepted) || (aiStaleAtMount && !aiDataConsent);
+    (showTos && !tosAccepted) || (showPrivacy && !privacyConsent);
 
   return (
     <OnboardingLayout showCreatureFooter={false}>
       <div
         className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-4 electron-prechat-type" : "px-6 py-16"} text-[var(--content-default)]`}
       >
-        <h1
-          className={electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}
-          style={{ animation: "fadeInUp 0.5s ease-out 0.1s both" }}
+        <div
+          className="flex h-12 w-12 items-center justify-center rounded-full border border-[var(--border-subtle)] bg-[var(--surface-lift)]"
+          style={{ animation: "fadeInUp 0.5s ease-out 0.05s both" }}
         >
-          {onlyTogglesStaleAtMount ? "Review your privacy preferences" : "Updated Terms"}
+          <ShieldCheck
+            className="h-6 w-6 text-[var(--content-secondary)]"
+            strokeWidth={1.75}
+          />
+        </div>
+        <h1
+          className={`mt-5 ${electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}`}
+          style={{ animation: "fadeInUp 0.5s ease-out 0.12s both" }}
+        >
+          {heading}
         </h1>
         <p
-          className={`text-center text-body-medium-lighter text-[var(--content-tertiary)] ${electron ? "mt-3.5" : "mt-4"}`}
-          style={{ animation: "fadeInUp 0.5s ease-out 0.3s both" }}
+          className={`text-center text-body-medium-lighter text-[var(--content-tertiary)] ${electron ? "mt-3" : "mt-3.5"}`}
+          style={{ animation: "fadeInUp 0.5s ease-out 0.2s both" }}
         >
-          {onlyTogglesStaleAtMount
-            ? "We've updated our privacy preferences. Please review them to continue."
-            : "We've updated our terms. Please review and re-accept to continue."}
+          {subheading}
         </p>
 
-        {(analyticsStaleAtMount || diagnosticsStaleAtMount) && (
-          <div
-            className="mt-8 flex w-full flex-col gap-4"
-            style={{ animation: "fadeInUp 0.5s ease-out 0.4s both" }}
-          >
-            {analyticsStaleAtMount && (
-              <SettingRow
-                label="Share Analytics"
-                helperText="Send anonymous product usage data."
-                checked={shareAnalytics}
-                onChange={setShareAnalytics}
-              />
-            )}
-            {diagnosticsStaleAtMount && (
-              <SettingRow
-                label="Share Diagnostics"
-                helperText="Send crash reports and performance metrics."
-                checked={shareDiagnostics}
-                onChange={setShareDiagnostics}
-              />
-            )}
-          </div>
+        {(showAnalytics || showDiagnostics) && (
+          <PrivacyPreferencesCard
+            electron={electron}
+            showAnalytics={showAnalytics}
+            showDiagnostics={showDiagnostics}
+            shareAnalytics={shareAnalytics}
+            shareDiagnostics={shareDiagnostics}
+            onShareAnalyticsChange={setShareAnalytics}
+            onShareDiagnosticsChange={setShareDiagnostics}
+            className="mt-9 w-full"
+            style={{ animation: "fadeInUp 0.5s ease-out 0.28s both" }}
+          />
         )}
 
-        {aiStaleAtMount && (
-          <div
-            className="mt-8 flex w-full items-start"
-            style={{ animation: "fadeInUp 0.5s ease-out 0.45s both" }}
-          >
-            <Checkbox
-              checked={aiDataConsent}
-              onCheckedChange={(next) => setAiDataConsent(next === true)}
-              label={aiConsentLabel}
-              aria-label="I agree to the AI Data Sharing Policy"
-              className={CONSENT_CHECKBOX_CLASS}
-            />
-          </div>
-        )}
-
-        {tosStaleAtMount && (
-          <div
-            className={`flex w-full items-start ${electron ? "mt-2" : "mt-4"}`}
-            style={{ animation: "fadeInUp 0.5s ease-out 0.5s both" }}
-          >
-            <Checkbox
-              checked={tosAccepted}
-              onCheckedChange={(next) => setTosAccepted(next === true)}
-              label={tosLabel}
-              aria-label="I agree to the Terms of Service and Privacy Policy"
-              className={CONSENT_CHECKBOX_CLASS}
-            />
-          </div>
+        {(showPrivacy || showTos) && (
+          <AgreementsCard
+            electron={electron}
+            showPrivacy={showPrivacy}
+            showTos={showTos}
+            privacyConsent={privacyConsent}
+            tosAccepted={tosAccepted}
+            onPrivacyChange={setPrivacyConsent}
+            onTosChange={setTosAccepted}
+            className="mt-6 w-full"
+            style={{ animation: "fadeInUp 0.5s ease-out 0.36s both" }}
+          />
         )}
 
         <div
-          className={`mt-8 flex w-full flex-col ${electron ? "gap-2.5" : "gap-2"}`}
-          style={{ animation: "fadeInUp 0.5s ease-out 0.5s both" }}
+          className={`mt-9 flex w-full flex-col ${electron ? "gap-2.5" : "gap-2"}`}
+          style={{ animation: "fadeInUp 0.5s ease-out 0.44s both" }}
         >
           <Button
             variant="primary"

@@ -59,7 +59,8 @@ import {
   persistConsentForUser,
   persistToggleConsent,
   resolveServerConsent,
-  CONSENT_VERSION,
+  TOS_CONSENT_VERSION,
+  PRIVACY_CONSENT_VERSION,
 } from "@/utils/onboarding-cleanup";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 import {
@@ -269,7 +270,7 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       // first would overwrite those keys with the empty server values before the
       // fallback below reads them.
       let tos = resolved.tos;
-      let ai = resolved.ai;
+      let privacy = resolved.privacy;
       let analyticsCurrent = resolved.analyticsCurrent;
       let diagnosticsCurrent = resolved.diagnosticsCurrent;
 
@@ -280,25 +281,25 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
         const deviceConsent = restoreConsentForUser(nextUserId);
         analyticsCurrent = deviceConsent.analyticsCurrent;
         diagnosticsCurrent = deviceConsent.diagnosticsCurrent;
-        if (deviceConsent.tos && deviceConsent.ai) {
+        if (deviceConsent.tos && deviceConsent.privacy) {
           tos = true;
-          ai = true;
+          privacy = true;
           // Backfill the server from the device acks. Stamp any toggle version
           // whose device ack is current AND send the device share value so the
           // next fetch can't overwrite a device opt-out with the API default.
           void patchConsent({
-            tos_accepted_version: CONSENT_VERSION,
-            privacy_policy_accepted_version: CONSENT_VERSION,
-            ai_data_sharing_accepted_version: CONSENT_VERSION,
+            tos_accepted_version: TOS_CONSENT_VERSION,
+            privacy_policy_accepted_version: PRIVACY_CONSENT_VERSION,
+            ai_data_sharing_accepted_version: PRIVACY_CONSENT_VERSION,
             ...(analyticsCurrent
               ? {
-                  share_analytics_accepted_version: CONSENT_VERSION,
+                  share_analytics_accepted_version: PRIVACY_CONSENT_VERSION,
                   share_analytics: store.shareAnalytics,
                 }
               : {}),
             ...(diagnosticsCurrent
               ? {
-                  share_diagnostics_accepted_version: CONSENT_VERSION,
+                  share_diagnostics_accepted_version: PRIVACY_CONSENT_VERSION,
                   share_diagnostics: store.shareDiagnostics,
                 }
               : {}),
@@ -307,10 +308,10 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       }
 
       store.setTosAccepted(tos);
-      store.setAiDataConsent(ai);
+      store.setPrivacyConsent(privacy);
       store.setAnalyticsConsentCurrent(analyticsCurrent);
       store.setDiagnosticsConsentCurrent(diagnosticsCurrent);
-      persistConsentForUser(nextUserId, tos, ai);
+      persistConsentForUser(nextUserId, tos, privacy);
       persistToggleConsent(nextUserId, { analyticsCurrent, diagnosticsCurrent });
       syncOrganizationState(nextUserId);
       return;
@@ -322,7 +323,7 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
   const consent = restoreConsentForUser(nextUserId);
   const store = useOnboardingStore.getState();
   store.setTosAccepted(consent.tos);
-  store.setAiDataConsent(consent.ai);
+  store.setPrivacyConsent(consent.privacy);
   store.setAnalyticsConsentCurrent(consent.analyticsCurrent);
   store.setDiagnosticsConsentCurrent(consent.diagnosticsCurrent);
   syncOrganizationState(nextUserId);

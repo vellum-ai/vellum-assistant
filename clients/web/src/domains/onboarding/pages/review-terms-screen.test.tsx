@@ -11,7 +11,7 @@ mock.module("react-router", () => ({
 
 // Prefs hooks — mutable per-test so we can model each staleness combination.
 let tosAccepted = true;
-let aiDataConsent = true;
+let privacyConsent = true;
 let shareAnalytics = true;
 let shareDiagnostics = true;
 let analyticsConsentCurrent = true;
@@ -19,8 +19,8 @@ let diagnosticsConsentCurrent = true;
 const setTosAccepted = mock((next: boolean) => {
   tosAccepted = next;
 });
-const setAiDataConsent = mock((next: boolean) => {
-  aiDataConsent = next;
+const setPrivacyConsent = mock((next: boolean) => {
+  privacyConsent = next;
 });
 const setShareAnalytics = mock((next: boolean) => {
   shareAnalytics = next;
@@ -30,7 +30,7 @@ const setShareDiagnostics = mock((next: boolean) => {
 });
 mock.module("@/domains/onboarding/prefs", () => ({
   useTosAccepted: () => [tosAccepted, setTosAccepted],
-  useAiDataConsent: () => [aiDataConsent, setAiDataConsent],
+  usePrivacyConsent: () => [privacyConsent, setPrivacyConsent],
   useShareAnalytics: () => [shareAnalytics, setShareAnalytics],
   useShareDiagnostics: () => [shareDiagnostics, setShareDiagnostics],
   useAnalyticsConsentCurrent: () => [analyticsConsentCurrent, mock(() => {})],
@@ -112,8 +112,8 @@ const { ReviewTermsScreen } = await import(
   "@/domains/onboarding/pages/review-terms-screen"
 );
 
-const TOS_LABEL = "I agree to the Terms of Service and Privacy Policy";
-const AI_LABEL = "I agree to the AI Data Sharing Policy";
+const TOS_LABEL = "I agree to the Terms of Service";
+const AI_LABEL = "I agree to the Privacy and AI Data Sharing Policy";
 
 function continueButton(): HTMLButtonElement {
   return screen.getByText("Continue") as HTMLButtonElement;
@@ -126,13 +126,30 @@ describe("ReviewTermsScreen", () => {
     setShareAnalytics.mockClear();
     searchParamsValue = new URLSearchParams();
     tosAccepted = true;
-    aiDataConsent = true;
+    privacyConsent = true;
     shareAnalytics = true;
     shareDiagnostics = true;
     analyticsConsentCurrent = true;
     diagnosticsConsentCurrent = true;
   });
   afterEach(cleanup);
+
+  test("nothing stale (direct navigation) renders all sections and enables Continue", () => {
+    // All consent current — e.g. the user typed /assistant/review-terms directly.
+    render(<ReviewTermsScreen />);
+
+    // Every section is shown rather than an empty page.
+    expect(screen.getByLabelText(TOS_LABEL)).toBeTruthy();
+    expect(screen.getByLabelText(AI_LABEL)).toBeTruthy();
+    expect(screen.getAllByRole("switch").length).toBe(2);
+    // Copy is the neutral review variant, not the "we've updated" wording.
+    expect(screen.getByText("Terms & privacy")).toBeTruthy();
+    expect(
+      screen.getByText("Review your terms and privacy preferences anytime."),
+    ).toBeTruthy();
+    // Already-accepted consent means Continue is enabled immediately.
+    expect(continueButton().disabled).toBe(false);
+  });
 
   test("toggle-only staleness renders the toggle, no legal checkboxes, and Continue enabled", () => {
     analyticsConsentCurrent = false; // analytics stale; tos/ai current
@@ -185,17 +202,17 @@ describe("ReviewTermsScreen", () => {
     expect(continueButton().disabled).toBe(false);
   });
 
-  test("heading stays on 'Updated Terms' after the last legal box is checked", () => {
-    tosAccepted = false; // tos stale -> "Updated Terms" heading
+  test("heading stays on 'Updated terms' after the last legal box is checked", () => {
+    tosAccepted = false; // tos stale -> "Updated terms" heading
     const { rerender } = render(<ReviewTermsScreen />);
 
-    expect(screen.getByText("Updated Terms")).toBeTruthy();
+    expect(screen.getByText("Updated terms")).toBeTruthy();
 
     fireEvent.click(screen.getByLabelText(TOS_LABEL));
     rerender(<ReviewTermsScreen />);
 
     // Heading must not flip mid-flow once the box is checked.
-    expect(screen.getByText("Updated Terms")).toBeTruthy();
+    expect(screen.getByText("Updated terms")).toBeTruthy();
     expect(screen.queryByText("Review your privacy preferences")).toBeNull();
   });
 });
