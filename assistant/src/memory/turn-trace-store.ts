@@ -1,8 +1,9 @@
-import { and, asc, eq, gt, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, lt, lte, or, sql } from "drizzle-orm";
 
 import { findConversation } from "../daemon/conversation-registry.js";
 import type {
   TurnTrace,
+  TurnTraceBatchInfo,
   TurnTraceMessage,
   TurnTraceToolCall,
 } from "../telemetry/types.js";
@@ -281,10 +282,133 @@ function queryTurnToolCalls(
 }
 
 /**
+ * `created_at` of the first assistant message strictly after the given user
+ * row, by the same `(created_at, id)` cursor used elsewhere. This is the
+ * response that "answers" the row — for a batched non-owner row it is the
+ * shared response written after the LAST batched user row. `null` when no
+ * assistant message follows (a user message that received no response).
+ */
+function firstAssistantAfter(boundary: TurnTraceBoundary): number | null {
+  const db = getDb();
+  const row = db
+    .select({ createdAt: messages.createdAt })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, boundary.conversationId),
+        eq(messages.role, "assistant"),
+        or(
+          gt(messages.createdAt, boundary.userMessageCreatedAt),
+          and(
+            eq(messages.createdAt, boundary.userMessageCreatedAt),
+            gt(messages.id, boundary.userMessageId),
+          ),
+        ),
+      ),
+    )
+    .orderBy(asc(messages.createdAt), asc(messages.id))
+    .limit(1)
+    .get();
+  return row?.createdAt ?? null;
+}
+
+/**
+ * `created_at` of the last assistant message strictly before the given user
+ * row. Marks the start boundary of this turn's batch run (the previous turn's
+ * response). `null` when no assistant precedes (start of conversation).
+ */
+function lastAssistantBefore(boundary: TurnTraceBoundary): number | null {
+  const db = getDb();
+  const row = db
+    .select({ createdAt: messages.createdAt })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, boundary.conversationId),
+        eq(messages.role, "assistant"),
+        or(
+          lt(messages.createdAt, boundary.userMessageCreatedAt),
+          and(
+            eq(messages.createdAt, boundary.userMessageCreatedAt),
+            sql`${messages.id} < ${boundary.userMessageId}`,
+          ),
+        ),
+      ),
+    )
+    .orderBy(desc(messages.createdAt), desc(messages.id))
+    .limit(1)
+    .get();
+  return row?.createdAt ?? null;
+}
+
+/**
+ * Resolve whether a turn is part of a coalesced batch (its response is shared
+ * with adjacent user messages), and if so describe the batch.
+ *
+ * `drainBatch` persists every batched user row, then runs ONE shared response
+ * attributed to the LAST batched user row. So a batch is a contiguous run of
+ * real user rows with NO assistant message between them, terminated by the
+ * shared response. The batch run for a given row is the real user rows whose
+ * `created_at` falls strictly between the previous assistant response and the
+ * response that answers this row. The run's last row is the response owner.
+ *
+ * Returns `null` for ordinary (non-batched) turns: a run of one user row, or a
+ * settled turn whose user message received no response.
+ */
+function resolveBatchInfo(
+  boundary: TurnTraceBoundary,
+): TurnTraceBatchInfo | null {
+  const respAt = firstAssistantAfter(boundary);
+  if (respAt == null) {
+    // No assistant response follows this user row — not a coalesced batch.
+    return null;
+  }
+  const prevRespAt = lastAssistantBefore(boundary);
+
+  const db = getDb();
+  const conds = [
+    eq(messages.conversationId, boundary.conversationId),
+    eq(messages.role, "user"),
+    realUserTurnContentFilter("messages"),
+    lt(messages.createdAt, respAt),
+  ];
+  if (prevRespAt != null) {
+    conds.push(gt(messages.createdAt, prevRespAt));
+  }
+  const runRows = db
+    .select({ id: messages.id })
+    .from(messages)
+    .where(and(...conds))
+    .orderBy(asc(messages.createdAt), asc(messages.id))
+    .all();
+
+  // A run of a single user row is an ordinary turn, not a batch.
+  if (runRows.length < 2) return null;
+
+  const memberIds = runRows.map((r) => r.id);
+  const ownerId = memberIds[memberIds.length - 1];
+  return {
+    role: boundary.userMessageId === ownerId ? "owner" : "member",
+    batch_size: memberIds.length,
+    member_user_message_ids: memberIds,
+    response_owner_turn_id: ownerId,
+  };
+}
+
+/**
  * Assemble the full transcript for one turn: the user message, the assistant
  * response message(s), any intervening tool-result rows, and the tool
  * invocations recorded for the turn — bounded to the window between this real
  * user turn and the next one.
+ *
+ * Batch handling: the daemon coalesces queued user messages into one shared
+ * response attributed to the LAST batched user row (`drainBatch`). The shared
+ * response is only inside that owner turn's window, so for a head/middle batch
+ * member the window legitimately holds just its own user row — the trace would
+ * otherwise look responseless. {@link resolveBatchInfo} detects the batch and
+ * stamps a self-describing `batch` marker on every batched turn (owner +
+ * members) pointing at the response owner, so the shared response is attributed
+ * exactly once (on the owner) and never silently dropped or duplicated.
  *
  * Read-only; touches only existing tables (`messages`, `tool_invocations`), so
  * no migration is involved. Caller is responsible for the consent gate and the
@@ -293,10 +417,12 @@ function queryTurnToolCalls(
  */
 export function assembleTurnTrace(boundary: TurnTraceBoundary): TurnTrace {
   const nextTurn = nextRealUserTurn(boundary);
+  const batch = resolveBatchInfo(boundary);
   return {
     schema_version: 1,
     messages: queryTurnMessages(boundary, nextTurn),
     tool_calls: queryTurnToolCalls(boundary, nextTurn),
+    ...(batch ? { batch } : {}),
   };
 }
 
