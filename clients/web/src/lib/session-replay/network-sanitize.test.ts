@@ -22,14 +22,22 @@ describe("sanitizeReplayRequest", () => {
     });
   });
 
-  test("strips tokens from the url and referrer", () => {
+  test("redacts every query-param value (keys kept) in url and referrer", () => {
     const out = sanitizeReplayRequest({
-      url: "https://api.vellum.ai/x?access_token=secret&page=2",
+      // `q` is generic user content (search text), not credential-looking.
+      url: "https://api.vellum.ai/v1/search/global?q=secret%20text&page=2",
       referrer: "https://app.vellum.ai/cb?code=abc",
     });
-    expect(out.url).toContain("access_token=%5BREDACTED%5D");
-    expect(out.url).toContain("page=2");
-    expect(out.referrer).toContain("code=%5BREDACTED%5D");
+    expect(out.url).toBe(
+      "https://api.vellum.ai/v1/search/global?q=%5BREDACTED%5D&page=%5BREDACTED%5D",
+    );
+    expect(out.referrer).toBe("https://app.vellum.ai/cb?code=%5BREDACTED%5D");
+  });
+
+  test("leaves a query-less url untouched", () => {
+    expect(sanitizeReplayRequest({ url: "https://api.vellum.ai/x" }).url).toBe(
+      "https://api.vellum.ai/x",
+    );
   });
 
   test("redacts any request body wholesale", () => {
@@ -60,7 +68,7 @@ describe("sanitizeReplayResponse", () => {
       "X-Request-Id": "abc",
     });
     expect(out.body).toBe("[REDACTED]");
-    expect(out.url).toContain("token=%5BREDACTED%5D");
+    expect(out.url).toBe("https://api.vellum.ai/me?token=%5BREDACTED%5D");
   });
 });
 

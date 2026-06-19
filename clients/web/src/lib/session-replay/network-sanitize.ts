@@ -6,13 +6,15 @@
  *
  * Scrubbed surfaces:
  *  - headers      — auth/cookie headers redacted by name
- *  - url/referrer — tokens stripped from query + fragment (reuses `sanitizeUrl`)
+ *  - url/referrer — every query-param VALUE redacted (keys kept) plus any
+ *                   parametric fragment. Like bodies, query params can carry
+ *                   arbitrary user content under generic keys (e.g. `?q=<search>`),
+ *                   so all values are redacted rather than only credential ones.
  *  - body         — request/response bodies are redacted wholesale. Payloads can
  *                   carry credentials/PII under arbitrary keys (e.g. POST
  *                   /v1/secrets sends the raw secret under a generic `value`),
  *                   so nothing is recorded until we introduce a real allowlist.
  */
-import { sanitizeUrl } from "@/lib/sentry/url-sanitize";
 
 const REDACTED = "[REDACTED]";
 
@@ -78,13 +80,44 @@ function scrubBody(body: unknown): unknown {
   return body == null ? body : REDACTED;
 }
 
+/**
+ * Redact every query-param value (keys kept) and any parametric fragment from a
+ * URL, preserving scheme/host/path. Handles absolute, protocol-relative, and
+ * path-relative URLs; returns the input unchanged when it has no query/fragment
+ * or cannot be parsed.
+ */
+function sanitizeReplayUrl(url: string): string {
+  if (!url.includes("?") && !url.includes("#")) return url;
+  try {
+    const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(url);
+    const isProtocolRelative = !hasScheme && url.startsWith("//");
+    const base = hasScheme ? undefined : "https://placeholder.invalid";
+    const parsed = new URL(url, base);
+    for (const key of [...parsed.searchParams.keys()]) {
+      parsed.searchParams.set(key, REDACTED);
+    }
+    // A parametric fragment (OAuth implicit flow: #access_token=…) is redacted
+    // wholesale rather than parsed.
+    if (parsed.hash.includes("=")) parsed.hash = `#${REDACTED}`;
+    if (hasScheme) return parsed.toString();
+    if (isProtocolRelative) {
+      return `//${parsed.host}${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
+    return parsed.pathname + parsed.search + parsed.hash;
+  } catch {
+    return url;
+  }
+}
+
 export function sanitizeReplayRequest(
   request: SessionReplayNetworkRequest,
 ): SessionReplayNetworkRequest {
   return {
     ...request,
-    url: request.url ? sanitizeUrl(request.url) : request.url,
-    referrer: request.referrer ? sanitizeUrl(request.referrer) : request.referrer,
+    url: request.url ? sanitizeReplayUrl(request.url) : request.url,
+    referrer: request.referrer
+      ? sanitizeReplayUrl(request.referrer)
+      : request.referrer,
     headers: scrubHeaders(request.headers),
     body: scrubBody(request.body),
   };
@@ -95,7 +128,7 @@ export function sanitizeReplayResponse(
 ): SessionReplayNetworkResponse {
   return {
     ...response,
-    url: response.url ? sanitizeUrl(response.url) : response.url,
+    url: response.url ? sanitizeReplayUrl(response.url) : response.url,
     headers: scrubHeaders(response.headers),
     body: scrubBody(response.body),
   };
