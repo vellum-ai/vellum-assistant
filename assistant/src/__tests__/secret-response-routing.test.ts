@@ -106,6 +106,41 @@ describe("secret response routing", () => {
     await promise;
   });
 
+  test("prompt registers public secretDetails without the value", async () => {
+    const promise = prompter.prompt(
+      "github",
+      "token",
+      "GitHub Token",
+      "desc",
+      "placeholder",
+      "session-1",
+      "Push commits",
+      ["git_push"],
+      ["github.com"],
+    );
+    const msg = broadcastedMessages[0] as SecretRequestEvent;
+    const entry = _piStore.get(msg.requestId) as {
+      kind: string;
+      secretDetails?: Record<string, unknown>;
+    };
+    expect(entry.kind).toBe("secret");
+    expect(entry.secretDetails).toMatchObject({
+      service: "github",
+      field: "token",
+      label: "GitHub Token",
+      description: "desc",
+      placeholder: "placeholder",
+      purpose: "Push commits",
+      allowedTools: ["git_push"],
+      allowedDomains: ["github.com"],
+    });
+    // SECURITY: the secret value is never part of the registered metadata.
+    expect(JSON.stringify(entry.secretDetails)).not.toContain("test-value");
+    // Clean up
+    prompter.resolveSecret(msg.requestId, undefined);
+    await promise;
+  });
+
   test("resolveSecret for unknown requestId is a no-op", () => {
     // Should not throw
     prompter.resolveSecret("unknown-id", "value", "store");
