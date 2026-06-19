@@ -20,6 +20,7 @@ import {
     setDeviceSetting,
 } from "@/utils/device-settings";
 import { savePreferenceToggle } from "@/utils/onboarding-cleanup";
+import { legalUrl, routes } from "@/utils/routes";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 
 const RETENTION_OPTIONS: { value: string; label: string }[] = [
@@ -87,13 +88,31 @@ export function PrivacyPage() {
       <TrustRules />
       {channelTrustFloors && <ChannelPolicyCard />}
       <RiskToleranceSettings />
-      <DetailCard title="Privacy">
+      <DetailCard
+        title="Privacy"
+        subtitle={
+          hasPlatformSession ? (
+            <>
+              View details about what data we collect and how it's used in our{" "}
+              <a
+                href={legalUrl(routes.docs.legal.privacyPolicy)}
+                target="_blank"
+                rel="noreferrer"
+                className="underline"
+              >
+                privacy policy
+              </a>
+              .
+            </>
+          ) : undefined
+        }
+      >
         <div className="space-y-4">
           {showShareConsent && (
             <>
               <SettingRow
                 label="Share Analytics"
-                helperText="Send anonymous product usage data."
+                helperText="Send aggregated product usage data"
                 checked={shareAnalytics}
                 onChange={handleAnalyticsToggle}
                 variant="toggle-trailing"
@@ -101,7 +120,7 @@ export function PrivacyPage() {
               <Divider />
               <SettingRow
                 label="Share Diagnostics"
-                helperText="Send crash reports and performance metrics."
+                helperText="Send crash reports, conversation traces, and session replay data"
                 checked={shareDiagnostics}
                 onChange={handleDiagnosticsToggle}
                 variant="toggle-trailing"
