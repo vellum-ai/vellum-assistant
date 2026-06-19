@@ -72,4 +72,10 @@ interface Window {
    * (see `session-replay-provider.ts`).
    */
   _lrAsyncScript?: string;
+  /**
+   * SDK-defined config object the session-replay recorder reads at boot. We set
+   * `statsURL` on it to route the stats beacon through our first-party proxy —
+   * the data endpoint has an init option but the beacon does not.
+   */
+  __SDKCONFIG__?: { statsURL?: string; serverURL?: string };
 }

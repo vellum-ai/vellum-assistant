@@ -71,6 +71,10 @@ describe("replay provider (first-party proxy, lazy load)", () => {
     expect(options.rootHostname).toBe(".vellum.ai");
     expect(options.network).toBe(NETWORK);
 
+    // The stats beacon (no init option) is routed through the proxy via the
+    // SDK config object, so it never POSTs to the vendor host directly.
+    expect(window.__SDKCONFIG__?.statsURL).toBe(`${BASE}/_sr/ingest/s`);
+
     // shouldSendData reflects live consent, re-checked before every upload.
     const shouldSendData = options.shouldSendData as () => boolean;
     expect(shouldSendData()).toBe(true);
