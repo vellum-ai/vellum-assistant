@@ -16,6 +16,16 @@ export interface ImageContent {
     media_type: string;
     data: string;
   };
+  /**
+   * Internal id linking this block to a row in the attachments table.
+   * Set when the image block originates from a persisted user-message
+   * attachment so downstream consumers (vision-perception media markers,
+   * DB joins, inline-chip positioning) can correlate the block back to its
+   * attachment id and surface a usable `media_ref`. Providers reconstruct the
+   * wire image block from `source` alone, so this field is never forwarded to
+   * the model.
+   */
+  _attachmentId?: string;
 }
 
 export interface FileContent {

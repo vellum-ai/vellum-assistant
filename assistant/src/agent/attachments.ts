@@ -26,6 +26,7 @@ export function attachmentsToContentBlocks(
           media_type: mediaType,
           data,
         },
+        ...(attachment.id ? { _attachmentId: attachment.id } : {}),
       } as ContentBlock;
     }
 

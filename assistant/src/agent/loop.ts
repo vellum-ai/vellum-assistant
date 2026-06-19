@@ -27,6 +27,10 @@ import type {
 } from "../plugin-api/types.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
+import {
+  applyVisionPerceptionMarkers,
+  resolveBackboneSupportsVision,
+} from "../plugins/defaults/vision-perception/hooks/pre-model-call.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { CompactionCircuitEvent } from "../plugins/types.js";
 import { normalizeThinkingConfigForWire } from "../providers/thinking-config.js";
@@ -1346,7 +1350,18 @@ export class AgentLoop {
         // Sanitize the outbound history right before sending: drop accumulated
         // media, collapse old AX-tree snapshots, and convert historical
         // web-search results to text. See {@link preModelCallSanitize}.
-        const providerHistory = preModelCallSanitize(history);
+        // Then, for a backbone that lacks native vision, replace each uploaded
+        // image with a marker naming its attachment id so the model never
+        // receives raw bytes it cannot read and instead reaches for the vlm_*
+        // tools (no-op for vision-capable backbones — feature stays inert).
+        const providerHistory = applyVisionPerceptionMarkers(
+          preModelCallSanitize(history),
+          resolveBackboneSupportsVision({
+            callSite: callSite ?? null,
+            overrideProfile: effectiveOverrideProfile ?? null,
+            selectionSeed: this.conversationId ?? null,
+          }),
+        );
 
         // A `pre-model-call` hook (below) can defer this turn's assistant
         // output; when set, the live text stream is held so an
