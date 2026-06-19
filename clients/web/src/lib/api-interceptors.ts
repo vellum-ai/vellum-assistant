@@ -81,6 +81,12 @@ const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>([
   // platform client, so it must be forwarded to the gateway in local /
   // self-hosted mode like any other runtime route.
   "events",
+  // User-defined route handlers (`/v1/x/*`). Sandboxed apps reach their
+  // backend handlers through the platform client (the sandbox fetch
+  // proxy in `useSandboxFetchProxy`, gated to `/v1/x/` paths), so these
+  // must be forwarded to the gateway in local / self-hosted mode rather
+  // than falling through to the platform proxy.
+  "x",
 ]);
 
 const ASSISTANT_PATH_RE =

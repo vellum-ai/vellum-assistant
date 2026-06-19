@@ -275,6 +275,23 @@ describe("api-interceptors / self-hosted rewriting", () => {
     expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
   });
 
+  test("rewrites user-defined route handler (`/x/`) calls to the ingress", async () => {
+    // Sandboxed apps POST to their backend handlers under `/v1/x/*`
+    // through the platform client; in local / self-hosted mode these
+    // must route to the gateway rather than fall through to the
+    // platform proxy.
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    const userRoutePath = `/v1/assistants/${SELF_HOSTED_ID}/x/us-vs-the-world`;
+    const input = new Request(`https://platform.test${userRoutePath}`, {
+      method: "POST",
+    });
+    const output = await requestInterceptor(input);
+    const outUrl = new URL(output.url);
+    expect(outUrl.origin).toBe(INGRESS);
+    expect(outUrl.pathname).toBe(userRoutePath);
+    expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
+  });
+
   test("prepends the ingress path prefix when the ingress URL has a path", async () => {
     const prefixedIngress = "http://localhost:3000/__gateway/20100";
     setSelfHostedConnection({ url: prefixedIngress, token: ACTOR_TOKEN });
