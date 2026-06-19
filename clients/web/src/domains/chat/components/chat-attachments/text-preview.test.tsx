@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, render, waitFor } from "@testing-library/react";
 
 import {
+  MAX_TEXT_PREVIEW_BYTES,
   TextPreview,
   TextPreviewBody,
 } from "@/domains/chat/components/chat-attachments/text-preview";
@@ -78,5 +79,18 @@ describe("TextPreview", () => {
     await waitFor(() =>
       expect(container.querySelector("h1")?.textContent).toBe("Decoded"),
     );
+  });
+
+  test("shows the too-large fallback for an oversized inline file", async () => {
+    const oversized = "a".repeat(MAX_TEXT_PREVIEW_BYTES + 1024);
+    const { findByText } = render(
+      <TextPreview
+        url={dataUri("text/plain", oversized)}
+        filename="big.txt"
+        mimeType="text/plain"
+      />,
+    );
+
+    expect(await findByText("File too large to preview inline.")).toBeDefined();
   });
 });

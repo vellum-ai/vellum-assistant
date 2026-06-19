@@ -27,9 +27,15 @@ class TextTooLargeError extends Error {}
  */
 async function loadText(url: string, signal: AbortSignal): Promise<string> {
   if (url.startsWith("data:")) {
+    // A base64 data: URI is ~4/3 the size of its decoded bytes. Reject an
+    // oversized file by length first, so a multi-megabyte inline payload isn't
+    // decoded on the main thread only to be discarded — mirroring the
+    // `blob.size` gate on the fetch path below.
+    if ((url.length * 3) / 4 > MAX_TEXT_PREVIEW_BYTES) {
+      throw new TextTooLargeError();
+    }
     const bytes = dataUriToUint8Array(url);
     if (!bytes) throw new Error("Malformed data URI");
-    if (bytes.length > MAX_TEXT_PREVIEW_BYTES) throw new TextTooLargeError();
     return new TextDecoder().decode(bytes);
   }
 
