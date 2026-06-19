@@ -106,30 +106,37 @@ function nextRealUserTurn(
  * full transcript is durably persisted — so its trace can be assembled without
  * risk of capturing a partial mid-turn snapshot.
  *
- * A turn is complete when EITHER:
- *  - a later real user turn exists in the same conversation (turns are
- *    serialized per conversation, so a successor's user message can only land
- *    after this turn's loop has finished), OR
- *  - this is the latest real user turn AND its live conversation is not
- *    currently processing. `Conversation.isProcessing()` is flipped to `false`
- *    in the agent-loop `finally` *after* the awaited turn-boundary commit, so a
- *    non-processing conversation has no in-flight turn and this turn's rows are
- *    settled. A conversation absent from the live registry (evicted, or never
- *    loaded this process) has no in-flight turn either, so it reads as settled.
+ * A turn is settled iff its live conversation is not actively processing.
+ * `Conversation.isProcessing()` is flipped to `false` in the agent-loop
+ * `finally` *after* the awaited turn-boundary commit, so a non-processing
+ * conversation has no in-flight response and all of its persisted turn rows are
+ * durable. A conversation absent from the live registry (evicted, or never
+ * loaded this process) has no in-flight turn either, so it reads as settled —
+ * including after a restart, where a turn that was mid-flight when the process
+ * died reads as settled because no more rows are coming.
  *
- * Deliberately does NOT require a successor turn: gating purely on "a next user
- * turn exists" would defer the final turn of every conversation forever (it
- * never gets a successor). The idle check settles the final turn once its own
- * response finishes.
+ * Why this gates on processing for EVERY turn, not just the latest: a
+ * "successor real user turn exists ⟹ settled" shortcut is unsound in the
+ * batched-message path. When queued messages drain as a batch, `drainBatch`
+ * (daemon/conversation-process.ts) persists the head user row AND the tail user
+ * rows up front, then runs ONE shared `runAgentLoop` whose response is
+ * broadcast to all of them. So the batched HEAD turn has a later real user row
+ * (a tail) while the shared response and its tool calls are still in flight —
+ * the shortcut would mark the head settled and ship a trace missing the shared
+ * response, never retried. Gating on `isProcessing()` defers the head (and any
+ * backlog) until the shared response completes and the conversation goes idle.
+ *
+ * Turns are serialized per conversation and `isProcessing()` is per-response,
+ * so the conversation is idle between turns and completed past turns settle
+ * promptly; the only cost is that a just-finished turn waits for the current
+ * response when one started before it could be reported — minimal latency,
+ * preferred over shipping a partial trace.
  *
  * The `isProcessing()` read relies on the daemon's in-memory state, so the
  * reporter and the agent loop share one process (they do — both live in the
- * daemon). After a restart the registry is empty, so any turn that was mid-flight
- * when the process died reads as settled; that is its genuinely final state
- * (no more rows are coming), and re-tracing later could not recover more.
+ * daemon).
  */
 export function isTurnSettled(boundary: TurnTraceBoundary): boolean {
-  if (nextRealUserTurn(boundary) !== null) return true;
   return findConversation(boundary.conversationId)?.isProcessing() !== true;
 }
 

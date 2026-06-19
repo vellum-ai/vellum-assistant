@@ -506,27 +506,78 @@ describe("assembleBoundedTurnTrace", () => {
 });
 
 describe("isTurnSettled", () => {
-  test("settled when a later real user turn exists, regardless of processing state", () => {
+  test("batched head with a later real user row is NOT settled while the conversation is processing", () => {
+    // Batched-message path: drainBatch persists the head user row AND the tail
+    // user row(s) up front, then runs ONE shared response. So the head has a
+    // later real user turn while the shared response is still in flight — it
+    // must NOT be treated as settled (the old "successor exists" shortcut would
+    // have shipped a partial trace for the head).
     const conv = createConversation({ conversationType: "standard" });
     insertMessage(conv.id, {
       id: "m-user-1",
       role: "user",
-      content: [{ type: "text", text: "first" }],
+      content: [{ type: "text", text: "head of batch" }],
       createdAt: 1000,
     });
     insertMessage(conv.id, {
       id: "m-user-2",
       role: "user",
-      content: [{ type: "text", text: "second" }],
+      content: [{ type: "text", text: "tail of batch" }],
       createdAt: 2000,
     });
-    // Even if the conversation is currently processing (the second turn), the
-    // FIRST turn is settled because a later real user turn already landed.
+    // Shared response still generating.
     mockLiveConversation = { isProcessing: () => true };
+    expect(isTurnSettled(boundary(conv.id, "m-user-1", 1000))).toBe(false);
+    // The tail (latest turn) is likewise deferred while processing.
+    expect(isTurnSettled(boundary(conv.id, "m-user-2", 2000))).toBe(false);
+  });
+
+  test("the batched head settles once the shared response completes (conversation idle)", () => {
+    const conv = createConversation({ conversationType: "standard" });
+    insertMessage(conv.id, {
+      id: "m-user-1",
+      role: "user",
+      content: [{ type: "text", text: "head of batch" }],
+      createdAt: 1000,
+    });
+    insertMessage(conv.id, {
+      id: "m-user-2",
+      role: "user",
+      content: [{ type: "text", text: "tail of batch" }],
+      createdAt: 2000,
+    });
+    // Shared response finished -> conversation idle -> both turns settle.
+    mockLiveConversation = { isProcessing: () => false };
+    expect(isTurnSettled(boundary(conv.id, "m-user-1", 1000))).toBe(true);
+    expect(isTurnSettled(boundary(conv.id, "m-user-2", 2000))).toBe(true);
+  });
+
+  test("a completed earlier turn defers while a later turn's response is in flight, then settles when idle", () => {
+    // Serialized (non-batch) path: T1 finished, T2 now generating. Gating on
+    // isProcessing() defers T1 until the conversation goes idle. This is a
+    // latency cost, not data loss — T1 traces completely once T2 finishes.
+    const conv = createConversation({ conversationType: "standard" });
+    insertMessage(conv.id, {
+      id: "m-user-1",
+      role: "user",
+      content: [{ type: "text", text: "first (done)" }],
+      createdAt: 1000,
+    });
+    insertMessage(conv.id, {
+      id: "m-user-2",
+      role: "user",
+      content: [{ type: "text", text: "second (generating)" }],
+      createdAt: 2000,
+    });
+    mockLiveConversation = { isProcessing: () => true };
+    expect(isTurnSettled(boundary(conv.id, "m-user-1", 1000))).toBe(false);
+
+    // Conversation goes idle -> the earlier turn settles promptly.
+    mockLiveConversation = { isProcessing: () => false };
     expect(isTurnSettled(boundary(conv.id, "m-user-1", 1000))).toBe(true);
   });
 
-  test("a tool-result role=user row does not count as a later turn (turn still settled via idle)", () => {
+  test("settledness follows the conversation's processing state regardless of intervening tool-result rows", () => {
     const conv = createConversation({ conversationType: "standard" });
     insertMessage(conv.id, {
       id: "m-user-1",
@@ -534,15 +585,17 @@ describe("isTurnSettled", () => {
       content: [{ type: "text", text: "do a thing" }],
       createdAt: 1000,
     });
-    // Tool-result row persisted as role="user" — excluded by the real-user-turn
-    // filter, so it is NOT a successor turn.
+    // Tool-result row persisted as role="user" — part of this turn's response.
     insertMessage(conv.id, {
       id: "m-toolresult",
       role: "user",
       content: [{ type: "tool_result", tool_use_id: "tu-x", content: "done" }],
       createdAt: 1100,
     });
-    // Conversation no longer processing -> the latest real turn is settled.
+    // Still generating -> not settled.
+    mockLiveConversation = { isProcessing: () => true };
+    expect(isTurnSettled(boundary(conv.id, "m-user-1", 1000))).toBe(false);
+    // Response finished -> settled.
     mockLiveConversation = { isProcessing: () => false };
     expect(isTurnSettled(boundary(conv.id, "m-user-1", 1000))).toBe(true);
   });
