@@ -218,6 +218,7 @@ export function createToolExecutor(
       isPlatformHosted: getIsPlatform(),
       transportInterface: ctx.transportInterface,
       overrideProfile: ctx.currentTurnOverrideProfile,
+      invokingCallSite: ctx.currentCallSite ?? "mainAgent",
       attribution: resolveConversationAttribution(ctx),
       onToolLifecycleEvent: handleToolLifecycleEvent,
       sendToClient: (msg) => {

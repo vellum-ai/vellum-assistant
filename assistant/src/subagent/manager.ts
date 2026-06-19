@@ -237,10 +237,17 @@ export class SubagentManager {
         config.systemPromptOverride ??
         buildSubagentSystemPrompt({ ...config, id: subagentId }, role);
     }
-    const maxTokens = resolveCallSiteConfig(
-      "subagentSpawn",
-      appConfig.llm,
-    ).maxTokens;
+    // Resolve under the same profile the run will use (forwarded via
+    // `SubagentConfig`) so the constructed conversation's default token cap
+    // matches the inherited profile rather than the static `subagentSpawn`
+    // default. Per-call routing re-resolves the model anyway; this keeps the
+    // initial value consistent.
+    const maxTokens = resolveCallSiteConfig("subagentSpawn", appConfig.llm, {
+      ...(config.overrideProfile
+        ? { overrideProfile: config.overrideProfile }
+        : {}),
+      ...(config.forceOverrideProfile ? { forceOverrideProfile: true } : {}),
+    }).maxTokens;
     const workingDir = getSandboxWorkingDir();
 
     // ── Initialise state ────────────────────────────────────────────
