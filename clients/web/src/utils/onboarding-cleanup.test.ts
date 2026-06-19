@@ -298,6 +298,24 @@ describe("persistToggleConsent + restoreConsentForUser round-trip", () => {
     expect(localStorage.getItem(privacyKey)).toBe("true");
     expect(localStorage.getItem(legacyAiKey)).toBeNull();
   });
+
+  test("migrates legacy unversioned ToS but forces privacy re-review", () => {
+    // A pre-versioning user with only the legacy active keys. ToS is unchanged
+    // so it migrates as current; the unversioned privacy consent predates the
+    // current privacy version, so it must NOT be promoted as current.
+    localStorage.setItem("vellum:onboarding:tosAccepted", "true");
+    localStorage.setItem("vellum:onboarding:aiDataConsent", "true");
+    const privacyKey = `device:consent:privacy:v${PRIVACY_CONSENT_VERSION}:user-1`;
+    const tosKey = `device:consent:tos:v${TOS_CONSENT_VERSION}:user-1`;
+
+    const r = restoreConsentForUser("user-1");
+
+    expect(r.tos).toBe(true);
+    expect(r.privacy).toBe(false);
+    // ToS is promoted; privacy is not stamped current.
+    expect(localStorage.getItem(tosKey)).toBe("true");
+    expect(localStorage.getItem(privacyKey)).toBe("false");
+  });
 });
 
 describe("saveConsent", () => {

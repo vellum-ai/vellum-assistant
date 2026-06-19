@@ -79,12 +79,17 @@ export function restoreConsentForUser(
 
     // One-time migration: users who accepted before the per-user device
     // key change still have consent in the legacy vellum: active keys.
-    // Promote to the new keys so they aren't re-prompted.
+    // Promote ToS so they aren't re-prompted — its version is unchanged, so the
+    // legacy acceptance is still current. The legacy privacy key is unversioned
+    // and predates the current privacy version, so promoting it would stamp
+    // stale consent as current (and let the empty-server fallback backfill it)
+    // without showing the updated privacy checkbox. Force privacy through
+    // re-review instead.
     const legacyTos = getLocalBool("vellum:onboarding:tosAccepted", false);
     const legacyPrivacy = getLocalBool("vellum:onboarding:aiDataConsent", false);
     if (legacyTos || legacyPrivacy) {
-      persistConsentForUser(userId, legacyTos, legacyPrivacy);
-      return { tos: legacyTos, privacy: legacyPrivacy, analyticsCurrent, diagnosticsCurrent };
+      persistConsentForUser(userId, legacyTos, false);
+      return { tos: legacyTos, privacy: false, analyticsCurrent, diagnosticsCurrent };
     }
 
     return { tos: false, privacy: false, analyticsCurrent, diagnosticsCurrent };
