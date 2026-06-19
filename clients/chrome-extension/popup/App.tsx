@@ -171,12 +171,15 @@ export function App() {
 
   const handleSelfHosted = useCallback(() => {
     setMode('self-hosted');
-    sendMessage({ type: 'set-mode', mode: 'self-hosted' });
     setScreen({ name: 'main' });
-    // Attempt the connection immediately (mirrors the cloud path). If the
-    // default gateway is unreachable, health flips to error and the
-    // Advanced gateway editor auto-expands so the user can fix the URL.
-    sendMessage({ type: 'connect' });
+    // Await the mode write before connecting: a fire-and-forget connect can
+    // race the set-mode storage write and make doConnect() read a stale
+    // mode (e.g. a prior "cloud"), taking the wrong branch. Connecting here
+    // mirrors the cloud path; a failed default-gateway attempt flips health
+    // to error, which auto-expands the Advanced gateway editor.
+    sendMessage({ type: 'set-mode', mode: 'self-hosted' }).then(() => {
+      sendMessage({ type: 'connect' });
+    });
   }, []);
 
   const handleSelectAssistant = useCallback(
