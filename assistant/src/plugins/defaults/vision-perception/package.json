@@ -1,0 +1,19 @@
+{
+  "name": "default-vision-perception",
+  "version": "1.0.0",
+  "description": "First-party default plugin that adds vision tools (`vlm_ask`, `vlm_describe`): the model resolves a provided image attachment by id and sends it to a vision-capable inference profile to read it or answer questions about it. Gated behind the `vision-perception` feature flag.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20.12.0"
+  },
+  "peerDependencies": {
+    "@vellumai/plugin-api": "^0.8.0"
+  },
+  "vellumPlugin": {
+    "requiresFlag": [
+      "vision-perception"
+    ]
+  }
+}

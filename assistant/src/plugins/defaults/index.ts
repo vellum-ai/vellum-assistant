@@ -76,6 +76,9 @@ import toolErrorPostToolUse from "./tool-error/hooks/post-tool-use.js";
 import toolErrorPkg from "./tool-error/package.json" with { type: "json" };
 import toolResultTruncatePostToolUse from "./tool-result-truncate/hooks/post-tool-use.js";
 import toolResultTruncatePkg from "./tool-result-truncate/package.json" with { type: "json" };
+import visionPerceptionPkg from "./vision-perception/package.json" with { type: "json" };
+import vlmAskTool from "./vision-perception/tools/vlm-ask.js";
+import vlmDescribeTool from "./vision-perception/tools/vlm-describe.js";
 
 /**
  * `compaction` — compaction is implemented in `compaction/compact.ts` as
@@ -329,6 +332,28 @@ export const defaultAdvisorPlugin: Plugin = {
 };
 
 /**
+ * `vision-perception` — adds the model-visible `vlm_ask` and `vlm_describe`
+ * tools. The model passes a provided image's attachment id; the plugin resolves
+ * it to an image block and sends it, with the question or a description prompt,
+ * to the `visionPerception` call site (a vision-capable inference profile)
+ * routed through the assistant's own inference. The whole plugin is gated behind
+ * the `vision-perception` feature flag — `bootstrapPlugins` skips it (no tool
+ * contributions) when the flag is off. `finalizeTool` fills each tool's defaults
+ * so it satisfies `Tool`.
+ */
+export const visionPerceptionPlugin: Plugin = {
+  manifest: {
+    name: visionPerceptionPkg.name,
+    version: visionPerceptionPkg.version,
+    requiresFlag: ["vision-perception"],
+  },
+  tools: [
+    finalizeTool(vlmAskTool, "vlm_ask"),
+    finalizeTool(vlmDescribeTool, "vlm_describe"),
+  ],
+};
+
+/**
  * Full set of first-party default plugins. Used by
  * {@link registerDefaultPlugins} to drive the registration loop; the array
  * order is the registration order, which fixes hook-chain order (defaults run
@@ -352,6 +377,7 @@ function getAllDefaultPlugins(): readonly Plugin[] {
     // Registered last so its capture hooks observe the fully-processed turn
     // (memory injections, history repair) that the executor actually sees.
     defaultAdvisorPlugin,
+    visionPerceptionPlugin,
   ];
 }
 
