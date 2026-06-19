@@ -828,7 +828,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       replyCtx({
         messageText: "approve",
         conversationId: "conv-guardian-conversation",
-        pendingRequestIds: [req.id],
+        pendingScope: { mode: "scoped", requestIds: [req.id] },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -857,7 +857,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       replyCtx({
         messageText: "ok, what is this for?",
         conversationId: "conv-guardian-conversation",
-        pendingRequestIds: [req.id],
+        pendingScope: { mode: "scoped", requestIds: [req.id] },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -870,7 +870,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
     expect(unchanged!.status).toBe("pending");
   });
 
-  test("explicit empty pendingRequestIds hint stays fail-closed for desktop actors", async () => {
+  test("explicit blocked scope stays fail-closed for desktop actors", async () => {
     createCanonicalGuardianRequest({
       kind: "tool_approval",
       sourceType: "channel",
@@ -887,7 +887,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
         messageText: "approve",
         actor: trustedActor(),
         conversationId: "conv-unrelated",
-        pendingRequestIds: [],
+        pendingScope: { mode: "blocked" },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -895,6 +895,38 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
     expect(result.consumed).toBe(false);
     expect(result.type).toBe("not_consumed");
     expect(result.decisionApplied).toBe(false);
+  });
+
+  test("explicit request code still resolves under a blocked scope (cross-chat carve-out)", async () => {
+    // The Slack cross-chat guard blocks identity fallback, but an explicit
+    // request code carries its own target and must still resolve — otherwise a
+    // guardian could not approve-by-code from a chat where no card was delivered.
+    const req = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      conversationId: "conv-other",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      requestCode: "ABC123",
+      toolName: "shell",
+      expiresAt: Date.now() + 60_000,
+    });
+    registerPendingToolApprovalInteraction(req.id, "conv-other", "shell");
+
+    const result = await routeGuardianReply(
+      replyCtx({
+        messageText: "ABC123 approve",
+        actor: trustedActor(),
+        conversationId: "conv-unrelated",
+        pendingScope: { mode: "blocked" },
+        approvalConversationGenerator: undefined,
+      }),
+    );
+
+    expect(result.consumed).toBe(true);
+    expect(result.requestId).toBe(req.id);
+    expect(result.decisionApplied).toBe(true);
+    expect(getCanonicalGuardianRequest(req.id)!.status).toBe("approved");
   });
 
   test("multiple hinted pending requests with plain-text approve returns disambiguation", async () => {
@@ -924,7 +956,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       replyCtx({
         messageText: "approve",
         conversationId: "conv-guardian-conversation",
-        pendingRequestIds: [req1.id, req2.id],
+        pendingScope: { mode: "scoped", requestIds: [req1.id, req2.id] },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -977,7 +1009,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       replyCtx({
         messageText: "yes approve it",
         conversationId: "conv-1",
-        pendingRequestIds: [req1.id, req2.id],
+        pendingScope: { mode: "scoped", requestIds: [req1.id, req2.id] },
         approvalConversationGenerator: mockGenerator as any,
       }),
     );
@@ -1031,7 +1063,10 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       replyCtx({
         messageText: "approve",
         conversationId: "conv-guardian-conversation",
-        pendingRequestIds: [answerRequest.id, approvalRequest.id],
+        pendingScope: {
+          mode: "scoped",
+          requestIds: [answerRequest.id, approvalRequest.id],
+        },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -1075,7 +1110,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       replyCtx({
         messageText: "yes",
         conversationId: "conv-1",
-        pendingRequestIds: [req.id],
+        pendingScope: { mode: "scoped", requestIds: [req.id] },
         approvalConversationGenerator: mockGenerator as any,
       }),
     );
@@ -1104,7 +1139,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       replyCtx({
         messageText: "go for it",
         conversationId: "conv-1",
-        pendingRequestIds: [req.id],
+        pendingScope: { mode: "scoped", requestIds: [req.id] },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -1117,7 +1152,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
     expect(resolved!.status).toBe("approved");
   });
 
-  test("code-based routing is constrained to caller-provided pendingRequestIds scope", async () => {
+  test("code-based routing is constrained to caller-provided scope", async () => {
     const inScope = createCanonicalGuardianRequest({
       kind: "tool_approval",
       sourceType: "channel",
@@ -1145,7 +1180,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       replyCtx({
         messageText: "222BBB approve",
         conversationId: "conv-guardian-conversation",
-        pendingRequestIds: [inScope.id],
+        pendingScope: { mode: "scoped", requestIds: [inScope.id] },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -1438,7 +1473,7 @@ describe("routing invariant: directResolve interactions resolve via guardian dec
 describe("routing invariant: destination hints do not bypass tool_approval principal binding", () => {
   beforeEach(() => resetTables());
 
-  test("explicit pendingRequestIds still fail closed when guardianPrincipalId does not match", async () => {
+  test("explicit scope still fails closed when guardianPrincipalId does not match", async () => {
     // Voice-originated tool approval with a different principal than the actor.
     const req = createCanonicalGuardianRequest({
       kind: "tool_approval",
@@ -1452,15 +1487,15 @@ describe("routing invariant: destination hints do not bypass tool_approval princ
     });
     registerPendingToolApprovalInteraction(req.id, "conv-voice-1", "shell");
 
-    // The channel inbound router would compute pendingRequestIds from
-    // delivery-scoped lookup and pass them here. Simulate that.
+    // The channel inbound router would compute the pending scope from
+    // delivery-scoped lookup and pass it here. Simulate that.
     const result = await routeGuardianReply(
       replyCtx({
         messageText: "approve",
         channel: "telegram",
         actor: guardianActor({ guardianPrincipalId: "different-principal" }),
         conversationId: "conv-guardian-chat",
-        pendingRequestIds: [req.id],
+        pendingScope: { mode: "scoped", requestIds: [req.id] },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -1486,7 +1521,7 @@ describe("routing invariant: destination hints do not bypass tool_approval princ
       expiresAt: Date.now() + 60_000,
     });
 
-    // No pendingRequestIds passed — identity-based fallback uses
+    // No pendingScope passed — identity-based fallback uses
     // actor.actorExternalUserId which does not match any request's
     // guardianExternalUserId (since it's null).
     const result = await routeGuardianReply(
@@ -1495,7 +1530,7 @@ describe("routing invariant: destination hints do not bypass tool_approval princ
         channel: "telegram",
         actor: guardianActor({ actorExternalUserId: "guardian-tg-user" }),
         conversationId: "conv-guardian-chat",
-        // pendingRequestIds: undefined — no delivery hints
+        // pendingScope omitted — no delivery hints
         approvalConversationGenerator: undefined,
       }),
     );
@@ -1534,7 +1569,7 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
       replyCtx({
         messageText: "open invite flow",
         conversationId: "conv-guardian-conversation",
-        pendingRequestIds: [req.id],
+        pendingScope: { mode: "scoped", requestIds: [req.id] },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -1569,7 +1604,7 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
         replyCtx({
           messageText: phrase,
           conversationId: "conv-test",
-          pendingRequestIds: [req.id],
+          pendingScope: { mode: "scoped", requestIds: [req.id] },
           approvalConversationGenerator: undefined,
         }),
       );
@@ -1595,7 +1630,7 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
       replyCtx({
         messageText: "open invite flow",
         conversationId: "conv-guardian-conversation",
-        pendingRequestIds: [req.id],
+        pendingScope: { mode: "scoped", requestIds: [req.id] },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -1625,7 +1660,7 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
       replyCtx({
         messageText: "A00B01 approve",
         conversationId: "conv-guardian-conversation",
-        pendingRequestIds: [req.id],
+        pendingScope: { mode: "scoped", requestIds: [req.id] },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -1655,7 +1690,7 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
       channel: "vellum",
       actor: trustedActor({ channel: "vellum" }),
       conversationId: "conv-guardian-conversation",
-      pendingRequestIds: [req.id],
+      pendingScope: { mode: "scoped", requestIds: [req.id] },
       approvalConversationGenerator: undefined,
     });
 
@@ -1694,7 +1729,7 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
       channel: "vellum",
       actor: trustedActor({ channel: "vellum" }),
       conversationId: "conv-guardian-conversation",
-      pendingRequestIds: [req.id],
+      pendingScope: { mode: "scoped", requestIds: [req.id] },
       approvalConversationGenerator: approvalConversationGenerator as any,
     });
 
@@ -1746,7 +1781,7 @@ describe("routing invariant: expired requests are excluded from pending discover
       replyCtx({
         messageText: "approve",
         conversationId: "conv-guardian-conversation",
-        pendingRequestIds: [expired.id, active.id],
+        pendingScope: { mode: "scoped", requestIds: [expired.id, active.id] },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -1781,7 +1816,7 @@ describe("routing invariant: expired requests are excluded from pending discover
       replyCtx({
         messageText: "`approve`",
         conversationId: "conv-guardian-conversation",
-        pendingRequestIds: [req.id],
+        pendingScope: { mode: "scoped", requestIds: [req.id] },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -1821,7 +1856,10 @@ describe("routing invariant: expired requests are excluded from pending discover
       replyCtx({
         messageText: "approve",
         conversationId: "conv-guardian-conversation",
-        pendingRequestIds: [expired1.id, expired2.id],
+        pendingScope: {
+          mode: "scoped",
+          requestIds: [expired1.id, expired2.id],
+        },
         approvalConversationGenerator: undefined,
       }),
     );
