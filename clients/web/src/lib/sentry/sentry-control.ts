@@ -2,17 +2,27 @@ import type { BrowserOptions } from "@sentry/react";
 
 import { selectSentryFlavor } from "@/lib/sentry/flavor";
 import { getDeviceBool, watchDeviceSetting } from "@/utils/device-settings";
+import { syncDiagnosticsToMain } from "@/runtime/diagnostics";
+import { useAuthStore } from "@/stores/auth-store";
+import { isConfirmedPlatformSession } from "@/stores/session-status";
 
 /**
- * Gates the browser-side Sentry client on the effective diagnostics-reporting
- * gate (`device:diagnostics_reporting`), matching the macOS app's behavior.
+ * Gates the browser-side Sentry client on BOTH the effective diagnostics-
+ * reporting gate (`device:diagnostics_reporting`) AND a probe-confirmed live
+ * platform session.
  *
- * The gate is the saved Share Diagnostics preference AND a current privacy-
- * consent version, so a stale-version record stops reporting until re-accept
- * without losing the saved opt-in. It is written by the consent-resolution
- * paths (`setDiagnosticsReportingGate`).
+ * The reporting gate is the saved Share Diagnostics preference AND a current
+ * privacy-consent version, so a stale-version record stops reporting until
+ * re-accept without losing the saved opt-in. It is written by the consent-
+ * resolution paths (`setDiagnosticsReportingGate`).
  *
- * Strict opt-in semantics:
+ * Diagnostics are recorded against a platform account, so an offline /
+ * self-hosted client — including a believed offline restore (LUM-2412) that no
+ * live probe has revalidated — stays fail-closed regardless of the device
+ * gate, matching the daemon's consent posture. The same composed gate drives
+ * the browser client and, via `syncDiagnosticsToMain`, the Electron main client.
+ *
+ * Strict opt-in semantics for the reporting gate (when a session is live):
  *   - stored "true"  → Sentry ON  (current consent)
  *   - stored "false" → Sentry OFF (opt-out or stale version)
  *   - absent         → Sentry OFF (no consent on record yet)
@@ -23,7 +33,18 @@ import { getDeviceBool, watchDeviceSetting } from "@/utils/device-settings";
  * Reference: https://docs.sentry.io/platforms/javascript/guides/react/configuration/options/
  */
 
-function readConsent(): boolean {
+/**
+ * The composed diagnostics gate: a probe-confirmed live platform session AND
+ * the effective diagnostics-reporting gate (preference && version-current).
+ */
+export function diagnosticsConsentGranted(): boolean {
+  const { platformSession, platformSessionRestoredOffline } =
+    useAuthStore.getState();
+  if (
+    !isConfirmedPlatformSession(platformSession, platformSessionRestoredOffline)
+  ) {
+    return false;
+  }
   return getDeviceBool("diagnosticsReporting", false);
 }
 
@@ -44,7 +65,7 @@ function tryClose(): void {
  */
 export function syncSentryClient(options: BrowserOptions): void {
   if (!options.dsn) return;
-  if (readConsent()) {
+  if (diagnosticsConsentGranted()) {
     tryInit(options);
   } else {
     tryClose();
@@ -52,17 +73,33 @@ export function syncSentryClient(options: BrowserOptions): void {
 }
 
 /**
- * Install listeners so the Sentry client turns on/off whenever the effective
- * reporting gate changes — covering cross-tab writes (via the native `storage`
- * event) and same-tab writes (via the custom event dispatched by
- * `setLocalSetting`).
+ * Install listeners so both Sentry clients (browser + Electron main) re-apply
+ * the composed gate whenever an input changes: the effective reporting gate
+ * (`device:diagnostics_reporting`, cross-tab via the native `storage` event,
+ * same-tab via the custom event from `setLocalSetting`) or the platform session
+ * transitioning in/out of a confirmed-live state.
  *
  * Returns a cleanup function that removes both listeners.
  */
 export function installSentryControlListeners(
   options: BrowserOptions,
 ): () => void {
-  return watchDeviceSetting("diagnosticsReporting", () => {
+  const sync = () => {
     syncSentryClient(options);
+    syncDiagnosticsToMain(diagnosticsConsentGranted());
+  };
+  const stopDeviceWatch = watchDeviceSetting("diagnosticsReporting", sync);
+  const stopSessionWatch = useAuthStore.subscribe((state, prevState) => {
+    if (
+      state.platformSession !== prevState.platformSession ||
+      state.platformSessionRestoredOffline !==
+        prevState.platformSessionRestoredOffline
+    ) {
+      sync();
+    }
   });
+  return () => {
+    stopDeviceWatch();
+    stopSessionWatch();
+  };
 }

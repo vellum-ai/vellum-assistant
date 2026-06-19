@@ -30,9 +30,17 @@ let lastRefreshAt = 0;
  * state unchanged.
  */
 export async function refreshDiagnosticsConsent(): Promise<void> {
-  if (!useAuthStore.getState().user) return;
+  // Capture the authenticated user BEFORE the await so we can detect a
+  // logout/account-switch that races the in-flight fetch.
+  const userIdBefore = useAuthStore.getState().user?.id;
+  if (!userIdBefore) return;
   try {
-    const resolved = resolveServerConsent(await fetchConsent());
+    const consent = await fetchConsent();
+    // The user may have logged out or switched accounts while the fetch was in
+    // flight. Applying a stale response would re-enable reporting after logout
+    // or overwrite the next user's setting, so discard it.
+    if (useAuthStore.getState().user?.id !== userIdBefore) return;
+    const resolved = resolveServerConsent(consent);
     applyResolvedDiagnosticsConsent(
       {
         shareDiagnostics: resolved.shareDiagnostics,

@@ -21,6 +21,7 @@ import {
   isSessionSettled,
   isSettledSessionRejection,
   hasLivePlatformSession,
+  isConfirmedPlatformSession,
   type PlatformSessionStatus,
   type SessionStatus,
 } from "@/stores/session-status";
@@ -120,6 +121,10 @@ interface AuthState {
   sessionStatus: SessionStatus;
   user: AuthUser | null;
   platformSession: PlatformSessionStatus;
+  // True while `platformSession: "present"` is a believed offline restore
+  // (LUM-2412) rather than a session a live probe confirmed. Telemetry gates on
+  // a confirmed-live session, so it must not treat the restored state as live.
+  platformSessionRestoredOffline: boolean;
 }
 
 interface AuthActions {
@@ -174,6 +179,8 @@ const authenticatedPlatformUser = (
     sessionStatus: "authenticated",
     user,
     platformSession: "present",
+    // Confirmed by a live probe; `restoreOfflineSession` overrides this to true.
+    platformSessionRestoredOffline: false,
   };
 };
 
@@ -230,7 +237,10 @@ async function restoreOfflineSession(set: AuthSet): Promise<boolean> {
   // Consent/org sync falls back to device-cached keys when the server
   // fetch fails (it will, offline) — same continuity as an online boot.
   await syncUserScopedState(cached.id);
-  set(authenticatedPlatformUser(cached));
+  set({
+    ...authenticatedPlatformUser(cached),
+    platformSessionRestoredOffline: true,
+  });
   return true;
 }
 
@@ -437,7 +447,11 @@ function probePlatformSession(
           }
         }
         if (isStale()) return;
-        set({ platformSession: "present", ...userUpdate });
+        set({
+          platformSession: "present",
+          platformSessionRestoredOffline: false,
+          ...userUpdate,
+        });
       } else if (options.clearOnFailure) {
         set({ platformSession: "absent" });
       }
@@ -520,6 +534,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
   sessionStatus: "initializing",
   user: null,
   platformSession: "unknown",
+  platformSessionRestoredOffline: false,
 
   initSession: async () => {
     if (isRemoteGatewayMode()) {
@@ -870,6 +885,17 @@ export const useIsSessionInitializing = (): boolean =>
 
 export const useHasPlatformSession = (): boolean =>
   hasLivePlatformSession(useAuthStore.use.platformSession());
+
+/**
+ * A platform session a live probe confirmed — excludes the believed offline
+ * restore (LUM-2412). Telemetry consent gates on this, not the routing-oriented
+ * {@link useHasPlatformSession}, so it never enables offline.
+ */
+export const useHasConfirmedPlatformSession = (): boolean =>
+  isConfirmedPlatformSession(
+    useAuthStore.use.platformSession(),
+    useAuthStore.use.platformSessionRestoredOffline(),
+  );
 
 /**
  * Subscribe to app-resume signals on the layout-scoped event bus and to

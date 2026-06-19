@@ -120,7 +120,10 @@ import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { getPersistedSeq } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { routeGuardianReply } from "../guardian-reply-router.js";
+import {
+  type GuardianPendingScope,
+  routeGuardianReply,
+} from "../guardian-reply-router.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
 import type {
   ApprovalConversationGenerator,
@@ -486,12 +489,14 @@ async function tryConsumeCanonicalGuardianReply(params: {
     sourceChannel,
     conversation,
   );
-  // Always pass the hints array (even when empty) so
-  // findPendingCanonicalRequests respects the in-memory staleness filter
-  // applied by collectCanonicalGuardianRequestHintIds. Converting empty
-  // hints to `undefined` caused the router to fall through to raw DB
-  // queries that rediscovered stale canonical requests.
-  const pendingRequestIds = pendingRequestHintIds;
+  // An empty hint set is `blocked`, not absence: the in-memory staleness
+  // filter in collectCanonicalGuardianRequestHintIds found no live requests,
+  // so the router must not fall back to identity/DB lookup (which rediscovered
+  // stale canonical requests). A non-empty set scopes resolution to it.
+  const pendingScope: GuardianPendingScope =
+    pendingRequestHintIds.length > 0
+      ? { mode: "scoped", requestIds: pendingRequestHintIds }
+      : { mode: "blocked" };
 
   const routerResult = await routeGuardianReply({
     messageText: trimmedContent,
@@ -503,7 +508,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
       guardianPrincipalId: verifiedActorPrincipalId,
     },
     conversationId,
-    pendingRequestIds,
+    pendingScope,
     approvalConversationGenerator,
     emissionContext: {
       source: "inline_nl",

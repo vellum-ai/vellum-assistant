@@ -25,7 +25,6 @@
  */
 
 import { setDeviceBool } from "@/utils/device-settings";
-import { syncDiagnosticsToMain } from "@/runtime/diagnostics";
 
 export interface ResolvedDiagnosticsConsent {
   /** The server's `share_diagnostics` value; `null` when unknown/absent. */
@@ -37,13 +36,15 @@ export interface ResolvedDiagnosticsConsent {
 }
 
 /**
- * Write the effective Sentry reporting gate: the `diagnosticsReporting` device
- * bool AND the main-process diagnostics sync, both with the same effective
- * value. This is the single writer of the gate.
+ * Write the effective Sentry reporting gate (`diagnosticsReporting` device
+ * bool). The Electron main mirror is NOT synced here: the `sentry-control`
+ * watcher reacts to this device-setting change and pushes the
+ * platform-session-composed value (`diagnosticsConsentGranted()`) to main, so a
+ * device gate that is `true` without a confirmed live session never enables the
+ * main client. Syncing the raw gate here would race that composed write.
  */
 export function setDiagnosticsReportingGate(enabled: boolean): void {
   setDeviceBool("diagnosticsReporting", enabled);
-  syncDiagnosticsToMain(enabled);
 }
 
 /**

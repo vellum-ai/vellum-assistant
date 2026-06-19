@@ -490,6 +490,8 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
     expect(useAuthStore.getState().user?.id).toBe("user-1");
     expect(useAuthStore.getState().platformSession).toBe("present");
+    // A live probe confirmed it — not a believed offline restore.
+    expect(useAuthStore.getState().platformSessionRestoredOffline).toBe(false);
   });
 
   test("initSession uses server consent when server has a consent record", async () => {
@@ -1036,6 +1038,8 @@ describe("offline session restore (LUM-2412)", () => {
     // probe runs offline to settle an "unknown" — so the restore settles
     // "present" (believed state); reconnect revalidation corrects it.
     expect(useAuthStore.getState().platformSession).toBe("present");
+    // ...but it is flagged as a believed restore, so telemetry stays fail-closed.
+    expect(useAuthStore.getState().platformSessionRestoredOffline).toBe(true);
   });
 
   test("transport-failed boot (proxy 502) with token + snapshot settles authenticated from cache", async () => {
