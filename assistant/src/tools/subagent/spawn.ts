@@ -100,17 +100,18 @@ export async function executeSubagentSpawn(
   // `SubagentManager.spawn` passes it into the subagent's `runAgentLoop` as
   // `options.overrideProfile`.
   //
-  // Resolution order: an explicit spawn-time profile, then the per-turn
-  // `context.overrideProfile` (per-conversation override or tool-routed
-  // switch), then a row read, then the profile the invoking turn actually
-  // resolved to. `context.attribution` mirrors the full resolver precedence —
-  // including a configured `llm.callSites.<callSite>.profile`, which
-  // `resolveDefaultProfileKey` alone does NOT capture — so the child matches
-  // the profile that ran the parent turn even when it came from a call-site
-  // override. `resolvedMixArm` pins the exact arm a mix profile expanded to
-  // (the child would otherwise re-expand under its own seed). The trailing
-  // `resolveDefaultProfileKey` is a fallback for spawns with no attribution
-  // (e.g. outside an agent-loop turn).
+  // After an explicit spawn-time profile, the authoritative source is
+  // `context.attribution` — the profile the invoking turn ACTUALLY resolved
+  // to. It already folds in the per-turn override (per-conversation or
+  // tool-routed), the workspace `activeProfile`, and any configured
+  // `llm.callSites.<callSite>.profile`, and `resolvedMixArm` is the exact arm a
+  // mix expanded to under the PARENT's selection seed. Prefer it so the child
+  // runs what the parent ran — in particular, leading with `resolvedMixArm`
+  // (ahead of the raw override below, which holds only the mix NAME) stops the
+  // child from re-expanding the mix under its own seed and drifting to a
+  // different arm. The `context.overrideProfile` / row-read /
+  // `resolveDefaultProfileKey` chain is the fallback for spawns with no
+  // attribution (e.g. tool calls outside an agent-loop turn).
   //
   // The inherited profile is forwarded NON-forced, so an explicit
   // `llm.callSites.subagentSpawn` profile still wins; an explicit
@@ -119,14 +120,11 @@ export async function executeSubagentSpawn(
   // subagent conversation and for tool calls outside an agent-loop turn.)
   let inheritedOverrideProfile = requestedOverrideProfile;
   if (inheritedOverrideProfile === undefined) {
-    const invokerResolvedProfile =
+    const inheritedCandidate =
       context.attribution?.resolvedMixArm ??
       context.attribution?.appliedProfile ??
-      undefined;
-    const inheritedCandidate =
       context.overrideProfile ??
       getConversationOverrideProfile(context.conversationId) ??
-      invokerResolvedProfile ??
       resolveDefaultProfileKey(
         context.invokingCallSite ?? "mainAgent",
         getConfig().llm,
