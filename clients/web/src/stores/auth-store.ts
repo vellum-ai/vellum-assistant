@@ -64,7 +64,10 @@ import {
   PRIVACY_CONSENT_VERSION,
 } from "@/utils/onboarding-cleanup";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
-import { applyResolvedDiagnosticsConsent } from "@/lib/consent/diagnostics-consent";
+import {
+  applyResolvedDiagnosticsConsent,
+  setDiagnosticsReportingGate,
+} from "@/lib/consent/diagnostics-consent";
 import {
   clearOrganization,
   useOrganizationStore,
@@ -301,6 +304,12 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
         const deviceConsent = restoreConsentForUser(nextUserId);
         analyticsCurrent = deviceConsent.analyticsCurrent;
         diagnosticsCurrent = deviceConsent.diagnosticsCurrent;
+        // The chokepoint above closed the reporting gate because the server has
+        // no record yet. Reopen it from the device-confirmed consent so an
+        // opted-in user whose acceptance lives only in the per-device cache
+        // isn't left with Sentry disabled. The live-session requirement still
+        // applies via sentry-control's composed gate.
+        setDiagnosticsReportingGate(store.shareDiagnostics && diagnosticsCurrent);
         if (deviceConsent.tos && deviceConsent.privacy) {
           tos = true;
           privacy = true;
