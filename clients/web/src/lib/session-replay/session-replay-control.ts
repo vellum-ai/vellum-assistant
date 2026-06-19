@@ -67,6 +67,9 @@ function tryInit(config: SessionReplayConfig): void {
     release: config.release,
     surface: config.surface,
     base: config.base,
+    // Live gate the SDK re-checks before every upload — a mid-session revoke
+    // stops ingestion even though the recorder can't be un-init'd.
+    shouldSendData: sessionReplayConsentGranted,
   });
   identifySessionReplayUser(config.surface);
 }

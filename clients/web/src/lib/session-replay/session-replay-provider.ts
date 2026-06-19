@@ -21,6 +21,12 @@ export interface SessionReplayInitOptions {
    * endpoint are served from here via the platform's reverse-proxy rewrites.
    */
   base: string;
+  /**
+   * Live consent gate the SDK calls before every upload. The recorder can't be
+   * un-init'd mid-page, so this — not `stop()` — is what halts ingestion the
+   * instant consent is revoked. Returns the current composed consent.
+   */
+  shouldSendData: () => boolean;
 }
 
 /** Metadata about the authenticated platform user attached to a recording. */
@@ -54,21 +60,31 @@ export interface SessionReplayProvider {
  *
  * Owns lifecycle state so the control layer stays stateless (mirroring the
  * Sentry flavor's `getClientEnabled()`). The SDK cannot be fully un-init'd
- * mid-page, so `stop` is best-effort — a hard reset only takes effect on the
- * next reload (per the `stop` contract above).
+ * mid-page, so ingestion is gated live on consent via `shouldSendData` — `stop`
+ * stays best-effort (it flips `active`, halting re-identify) and a hard reset
+ * of the in-memory recorder only takes effect on the next reload.
  */
 const replayProvider: SessionReplayProvider = (() => {
   let active = false;
+  // `replaySdk.init` is one-shot — re-running it can't cleanly re-init the
+  // recorder, so a revoke→re-grant within a page must not call it again.
+  let started = false;
   return {
     init(appId, options) {
-      // Must be set before init so the SDK loads the recorder from our proxy.
-      window._lrAsyncScript = `${options.base}/_sr/cdn/logger.min.js`;
-      replaySdk.init(appId, {
-        serverURL: `${options.base}/_sr/ingest/i`,
-        release: options.release,
-        // Share the recording session across Vellum subdomains.
-        rootHostname: import.meta.env.VITE_ROOT_HOSTNAME ?? ".vellum.ai",
-      });
+      if (!started) {
+        // Must be set before init so the SDK loads the recorder from our proxy.
+        window._lrAsyncScript = `${options.base}/_sr/cdn/logger.min.js`;
+        replaySdk.init(appId, {
+          serverURL: `${options.base}/_sr/ingest/i`,
+          release: options.release,
+          // Share the recording session across Vellum subdomains.
+          rootHostname: import.meta.env.VITE_ROOT_HOSTNAME ?? ".vellum.ai",
+          // Live consent gate: evaluated before every upload, so a mid-session
+          // opt-out halts ingestion immediately rather than at next reload.
+          shouldSendData: options.shouldSendData,
+        });
+        started = true;
+      }
       active = true;
       if (import.meta.env.DEV) {
         console.debug("[session-replay] init", {

@@ -19,23 +19,25 @@ const BASE = "https://app.example.com";
 beforeEach(() => {
   initMock.mockClear();
   identifyMock.mockClear();
-  delete window._lrAsyncScript;
-  if (provider.isActive()) provider.stop();
 });
 
-describe("replay provider (first-party proxy)", () => {
-  test("init points the recorder script and ingest at our own origin", () => {
+// The provider is a module singleton with one-shot init, so these tests run as
+// an ordered sequence: the first `init` primes the SDK for the rest.
+describe("replay provider (first-party proxy, singleton lifecycle)", () => {
+  test("init points recorder + ingest at our origin and wires the consent gate", () => {
+    let consent = true;
     provider.init("app-123", {
       environment: "test",
       release: "1.2.3",
       surface: "web",
       base: BASE,
+      shouldSendData: () => consent,
     });
 
     // Recorder script served first-party (set before init).
     expect(window._lrAsyncScript).toBe(`${BASE}/_sr/cdn/logger.min.js`);
 
-    // Ingest server routed through our proxy; no vendor host leaks.
+    // Ingest routed through our proxy; no vendor host leaks.
     expect(initMock).toHaveBeenCalledTimes(1);
     const [appId, options] = initMock.mock.calls[0]!;
     expect(appId).toBe("app-123");
@@ -44,14 +46,34 @@ describe("replay provider (first-party proxy)", () => {
     // Defaults to the apex root hostname when VITE_ROOT_HOSTNAME is unset.
     expect(options.rootHostname).toBe(".vellum.ai");
     expect(provider.isActive()).toBe(true);
+
+    // The SDK re-checks shouldSendData before every upload, so a mid-session
+    // revoke halts ingestion live rather than at next reload.
+    const shouldSendData = options.shouldSendData as () => boolean;
+    expect(shouldSendData()).toBe(true);
+    consent = false;
+    expect(shouldSendData()).toBe(false);
+  });
+
+  test("init is one-shot: a revoke→re-grant within a page does not re-init", () => {
+    provider.stop();
+    expect(provider.isActive()).toBe(false);
+
+    provider.init("app-123", {
+      environment: "test",
+      surface: "web",
+      base: BASE,
+      shouldSendData: () => true,
+    });
+
+    // Re-running init must not call the SDK again — the recorder can't be
+    // cleanly re-init'd mid-page; consent gating is what (un)pauses uploads.
+    expect(initMock).not.toHaveBeenCalled();
+    // ...but the provider counts as active again so re-identify can fire.
+    expect(provider.isActive()).toBe(true);
   });
 
   test("identify forwards only defined traits plus surface", () => {
-    provider.init("app-123", {
-      environment: "test",
-      surface: "macos",
-      base: BASE,
-    });
     provider.identify("u1", {
       name: "Alice Smith",
       email: "alice@example.com",

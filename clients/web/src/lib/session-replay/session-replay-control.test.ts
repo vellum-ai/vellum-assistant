@@ -140,6 +140,8 @@ describe("syncSessionReplay", () => {
       release: "1.2.3",
       surface: "web",
       base: "https://app.example.com",
+      // Live consent gate handed to the SDK (same ref as the exported gate).
+      shouldSendData: sessionReplayConsentGranted,
     });
     expect(stopMock).not.toHaveBeenCalled();
   });
