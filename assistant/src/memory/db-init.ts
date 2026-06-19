@@ -197,6 +197,7 @@ import {
   migrateRenameVerificationSessionIdColumn,
   migrateRenameVerificationTable,
   migrateRenameVoiceToPhone,
+  migrateRewriteBalancedEconomyProfilePins,
   migrateScheduleCapabilities,
   migrateScheduleDefaultNoReuseConversation,
   migrateScheduleDescription,
@@ -529,6 +530,7 @@ export function initializeDb(): void {
     migrateWorkflowJournalLeafTokens,
     migrateDropExternalUserId,
     dropApprovalPromptTsTrackerTable,
+    migrateRewriteBalancedEconomyProfilePins,
   ];
 
   // Run each migration step, catching and logging individual failures so one

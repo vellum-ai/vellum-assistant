@@ -480,9 +480,11 @@ describe("loadConfig startup behavior", () => {
       "anthropic-personal",
     );
     // Managed profiles exist as well.
-    expect(config.llm.profiles.balanced?.model).toBe("claude-sonnet-4-6");
+    expect(config.llm.profiles.balanced?.model).toBe(
+      "accounts/fireworks/models/minimax-m3",
+    );
     expect(config.llm.profiles.balanced?.provider_connection).toBe(
-      "anthropic-managed",
+      "fireworks-managed",
     );
 
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
@@ -491,7 +493,9 @@ describe("loadConfig startup behavior", () => {
       model: "claude-opus-4-7",
     });
     expect(raw.llm.activeProfile).toBe("custom-balanced");
-    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+    expect(raw.llm.profiles.balanced.model).toBe(
+      "accounts/fireworks/models/minimax-m3",
+    );
   });
 
   test("on-platform hatch seeds only managed profiles", () => {
@@ -519,9 +523,11 @@ describe("loadConfig startup behavior", () => {
     const config = loadConfig();
 
     expect(config.llm.activeProfile).toBe("balanced");
-    expect(config.llm.profiles.balanced?.model).toBe("claude-sonnet-4-6");
+    expect(config.llm.profiles.balanced?.model).toBe(
+      "accounts/fireworks/models/minimax-m3",
+    );
     expect(config.llm.profiles.balanced?.provider_connection).toBe(
-      "anthropic-managed",
+      "fireworks-managed",
     );
     // No user profiles created on platform.
     expect(config.llm.profiles["custom-balanced"]).toBeUndefined();
@@ -563,10 +569,10 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles["custom-balanced"].provider_connection).toBe(
       "anthropic-personal",
     );
-    // Managed balanced profile is seeded for anthropic-managed.
-    expect(raw.llm.profiles.balanced.provider).toBe("anthropic");
+    // Managed balanced profile is seeded for fireworks-managed (MiniMax M3).
+    expect(raw.llm.profiles.balanced.provider).toBe("fireworks");
     expect(raw.llm.profiles.balanced.provider_connection).toBe(
-      "anthropic-managed",
+      "fireworks-managed",
     );
   });
 
@@ -600,9 +606,9 @@ describe("loadConfig startup behavior", () => {
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
     // On-platform: no user profiles created, active resets to managed balanced.
     expect(raw.llm.activeProfile).toBe("balanced");
-    expect(raw.llm.profiles.balanced.provider).toBe("anthropic");
+    expect(raw.llm.profiles.balanced.provider).toBe("fireworks");
     expect(raw.llm.profiles.balanced.provider_connection).toBe(
-      "anthropic-managed",
+      "fireworks-managed",
     );
     // The old custom-balanced is preserved on disk but no longer active.
     expect(raw.llm.profiles["custom-balanced"].provider).toBe("openai");
@@ -654,10 +660,10 @@ describe("loadConfig startup behavior", () => {
       "gpt-5.4-nano",
     );
 
-    // Managed profiles are also seeded (balanced uses Anthropic).
-    expect(raw.llm.profiles.balanced.provider).toBe("anthropic");
+    // Managed profiles are also seeded (balanced uses Fireworks/MiniMax M3).
+    expect(raw.llm.profiles.balanced.provider).toBe("fireworks");
     expect(raw.llm.profiles.balanced.provider_connection).toBe(
-      "anthropic-managed",
+      "fireworks-managed",
     );
     expect(raw.llm.profiles.balanced.source).toBe("managed");
     expect(raw.llm.profiles["quality-optimized"].provider).toBe("anthropic");
@@ -685,9 +691,11 @@ describe("loadConfig startup behavior", () => {
     mergeDefaultConfigAndSeedInferenceProfiles();
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+    expect(raw.llm.profiles.balanced.model).toBe(
+      "accounts/fireworks/models/minimax-m3",
+    );
     expect(raw.llm.profiles.balanced.provider_connection).toBe(
-      "anthropic-managed",
+      "fireworks-managed",
     );
     expect(raw.llm.activeProfile).toBe("balanced");
   });
@@ -717,10 +725,12 @@ describe("loadConfig startup behavior", () => {
     mergeDefaultConfigAndSeedInferenceProfiles();
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
-    expect(raw.llm.profiles.balanced.maxTokens).toBe(16000);
+    expect(raw.llm.profiles.balanced.model).toBe(
+      "accounts/fireworks/models/minimax-m3",
+    );
+    expect(raw.llm.profiles.balanced.maxTokens).toBe(32000);
     expect(raw.llm.profiles.balanced.provider_connection).toBe(
-      "anthropic-managed",
+      "fireworks-managed",
     );
     expect(raw.llm.activeProfile).toBe("balanced");
   });
@@ -750,7 +760,9 @@ describe("loadConfig startup behavior", () => {
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
     // Content refreshes from the template...
-    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+    expect(raw.llm.profiles.balanced.model).toBe(
+      "accounts/fireworks/models/minimax-m3",
+    );
     // ...but the user's label and status overrides are preserved.
     expect(raw.llm.profiles.balanced.label).toBe("My Default");
     expect(raw.llm.profiles.balanced.status).toBe("disabled");
@@ -778,7 +790,9 @@ describe("loadConfig startup behavior", () => {
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
     // Model still gets the new template value (provider-controlled).
-    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+    expect(raw.llm.profiles.balanced.model).toBe(
+      "accounts/fireworks/models/minimax-m3",
+    );
     // But the user's label override is preserved across the reseed.
     expect(raw.llm.profiles.balanced.label).toBe("My Default");
   });
@@ -806,7 +820,9 @@ describe("loadConfig startup behavior", () => {
 
     expect(raw.llm.profiles.balanced.status).toBe("disabled");
     // Model still refreshes — only label/status are user-owned.
-    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+    expect(raw.llm.profiles.balanced.model).toBe(
+      "accounts/fireworks/models/minimax-m3",
+    );
   });
 
   test("off-platform reseed preserves an explicit null label (user cleared it)", () => {
@@ -847,7 +863,9 @@ describe("loadConfig startup behavior", () => {
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
     expect(raw.llm.profiles.balanced.label).toBe("Balanced (Managed)");
-    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+    expect(raw.llm.profiles.balanced.model).toBe(
+      "accounts/fireworks/models/minimax-m3",
+    );
     // Status is unset by default — must not appear as `undefined`.
     expect("status" in raw.llm.profiles.balanced).toBe(false);
   });
@@ -933,18 +951,20 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles.balanced.maxTokens).toBeUndefined();
     expect(raw.llm.profiles.balanced.thinking).toBeUndefined();
 
-    // Next boot, no overlay: content reconciles to the anthropic-managed code
+    // Next boot, no overlay: content reconciles to the fireworks-managed code
     // template; only the overlay-set label is carried across.
     mergeDefaultConfigAndSeedInferenceProfiles();
 
     const afterRestart = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
     expect(afterRestart.llm.activeProfile).toBe("balanced");
-    expect(afterRestart.llm.profiles.balanced.provider).toBe("anthropic");
+    expect(afterRestart.llm.profiles.balanced.provider).toBe("fireworks");
     expect(afterRestart.llm.profiles.balanced.provider_connection).toBe(
-      "anthropic-managed",
+      "fireworks-managed",
     );
-    expect(afterRestart.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
-    expect(afterRestart.llm.profiles.balanced.maxTokens).toBe(16000);
+    expect(afterRestart.llm.profiles.balanced.model).toBe(
+      "accounts/fireworks/models/minimax-m3",
+    );
+    expect(afterRestart.llm.profiles.balanced.maxTokens).toBe(32000);
     expect(afterRestart.llm.profiles.balanced.thinking).toEqual({
       enabled: true,
       streamThinking: true,
@@ -989,7 +1009,9 @@ describe("loadConfig startup behavior", () => {
     // Off-platform hatch: user profiles are active.
     expect(raw.llm.activeProfile).toBe("custom-balanced");
     expect(raw.llm.profiles["custom-balanced"].provider).toBe("anthropic");
-    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+    expect(raw.llm.profiles.balanced.model).toBe(
+      "accounts/fireworks/models/minimax-m3",
+    );
   });
 
   test("still quarantines corrupt JSON", () => {
@@ -1133,7 +1155,7 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
 
     expect(raw.llm.activeProfile).toBe("balanced");
     expect(raw.llm.profiles.balanced.provider_connection).toBe(
-      "anthropic-managed",
+      "fireworks-managed",
     );
     expect("status" in raw.llm.profiles.balanced).toBe(false);
     // Connections exist (status is no longer a connection-level concept).
