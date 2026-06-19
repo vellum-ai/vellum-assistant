@@ -3,17 +3,19 @@
  *
  * Three values are cached, all refreshed from the same owner-consent fetch:
  *  - `share_analytics`: gates usage telemetry collection.
- *  - `share_diagnostics`: gates crash diagnostics (read by Sentry `beforeSend`).
- *  - `diagnostics_trace_collection_enabled`: gates attaching per-turn PII traces
- *    to telemetry. Server-derived (LD flag + `share_diagnostics` +
- *    privacy-policy version, folded by the platform).
+ *  - `share_diagnostics`: gates crash diagnostics (read by Sentry `beforeSend`),
+ *    and composes the per-turn trace-collection gate alongside the
+ *    `trace-collection` feature flag.
+ *  - `share_diagnostics_accepted_version`: the consent version the owner
+ *    accepted; the disclosing-version half of the trace-collection gate (see
+ *    telemetry/trace-collection-policy.ts).
  *
  * Hot-path gates (record-time telemetry writes, Sentry `beforeSend`) need a
  * synchronous, I/O-free read, so this module owns the values and refreshes them
  * periodically in the background. Default-off until the first successful fetch:
  * an absent session, a disabled platform, or a transient fetch failure all leave
- * the values untouched (initial `false`), so we never report analytics, send
- * crash diagnostics, or attach a trace without a confirmed opt-in.
+ * the values untouched (initial `false`), so we never report analytics or send
+ * crash diagnostics without a confirmed opt-in.
  */
 
 import { getConfigReadOnly } from "../config/loader.js";
@@ -26,7 +28,7 @@ const REFRESH_INTERVAL_MS = 5 * 60_000; // refresh consent every 5 min
 
 let cachedShareAnalytics = false; // default-off until first success
 let cachedShareDiagnostics = false; // default-off until first success
-let cachedDiagnosticsTraceCollectionEnabled = false; // default-off until first success
+let cachedShareDiagnosticsVersion = ""; // "" fails the trace disclosure gate
 // Fail-closed marker for a workspace that locally opted out of usage data
 // before telemetry moved to platform `share_analytics` consent (migration 106).
 // While set, telemetry stays off regardless of platform consent. Cleared by a
@@ -55,14 +57,12 @@ export function getCachedShareDiagnostics(): boolean {
 }
 
 /**
- * Synchronous hot-path accessor for the owner's diagnostics trace-collection
- * eligibility. Never does I/O; `false` until a successful refresh proves
- * otherwise. Independent of the legacy analytics opt-out marker: the telemetry
- * flush already refuses to send anything when `getCachedShareAnalytics()` is
- * false, so this answers only "did the owner consent to trace collection."
+ * Synchronous hot-path accessor for the owner's accepted diagnostics-consent
+ * version ("YYYY-MM-DD", or "" until a successful refresh / if never accepted).
+ * The disclosing-version half of the per-turn trace-collection gate.
  */
-export function getCachedDiagnosticsTraceCollectionEnabled(): boolean {
-  return cachedDiagnosticsTraceCollectionEnabled;
+export function getCachedShareDiagnosticsVersion(): string {
+  return cachedShareDiagnosticsVersion;
 }
 
 /**
@@ -81,7 +81,7 @@ export async function refreshConsentCache(): Promise<void> {
   if (!client) {
     setCachedShareAnalytics(false);
     setCachedShareDiagnostics(false);
-    setCachedDiagnosticsTraceCollectionEnabled(false);
+    setCachedShareDiagnosticsVersion("");
     return;
   }
 
@@ -89,7 +89,7 @@ export async function refreshConsentCache(): Promise<void> {
   if (!client.platformAssistantId) {
     setCachedShareAnalytics(false);
     setCachedShareDiagnostics(false);
-    setCachedDiagnosticsTraceCollectionEnabled(false);
+    setCachedShareDiagnosticsVersion("");
     return;
   }
 
@@ -97,9 +97,7 @@ export async function refreshConsentCache(): Promise<void> {
   if (consent) {
     setCachedShareAnalytics(consent.shareAnalytics);
     setCachedShareDiagnostics(consent.shareDiagnostics);
-    setCachedDiagnosticsTraceCollectionEnabled(
-      consent.diagnosticsTraceCollectionEnabled,
-    );
+    setCachedShareDiagnosticsVersion(consent.shareDiagnosticsAcceptedVersion);
   }
 }
 
@@ -123,13 +121,13 @@ function setCachedShareDiagnostics(value: boolean): void {
   }
 }
 
-function setCachedDiagnosticsTraceCollectionEnabled(value: boolean): void {
-  if (value !== cachedDiagnosticsTraceCollectionEnabled) {
+function setCachedShareDiagnosticsVersion(value: string): void {
+  if (value !== cachedShareDiagnosticsVersion) {
     log.debug(
-      { from: cachedDiagnosticsTraceCollectionEnabled, to: value },
-      "diagnostics_trace_collection_enabled consent changed",
+      { from: cachedShareDiagnosticsVersion, to: value },
+      "share_diagnostics_accepted_version changed",
     );
-    cachedDiagnosticsTraceCollectionEnabled = value;
+    cachedShareDiagnosticsVersion = value;
   }
 }
 
@@ -170,9 +168,7 @@ export function __setCachedShareDiagnosticsForTest(value: boolean): void {
   cachedShareDiagnostics = value;
 }
 
-/** Test-only: override the cached trace-collection value without a refresh. */
-export function __setCachedDiagnosticsTraceCollectionEnabledForTest(
-  value: boolean,
-): void {
-  cachedDiagnosticsTraceCollectionEnabled = value;
+/** Test-only: override the cached diagnostics-consent version directly. */
+export function __setCachedShareDiagnosticsVersionForTest(value: string): void {
+  cachedShareDiagnosticsVersion = value;
 }

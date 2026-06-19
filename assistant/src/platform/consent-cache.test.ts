@@ -46,26 +46,26 @@ mock.module("../util/logger.js", () => ({
 // ---------------------------------------------------------------------------
 
 import {
-  __setCachedDiagnosticsTraceCollectionEnabledForTest,
   __setCachedShareAnalyticsForTest,
   __setCachedShareDiagnosticsForTest,
-  getCachedDiagnosticsTraceCollectionEnabled,
+  __setCachedShareDiagnosticsVersionForTest,
   getCachedShareAnalytics,
   getCachedShareDiagnostics,
+  getCachedShareDiagnosticsVersion,
   refreshConsentCache,
   startConsentRefresh,
   stopConsentRefresh,
 } from "./consent-cache.js";
 
 /**
- * Build a mock owner consent. `diagnosticsTraceCollectionEnabled` defaults to
- * `false` so existing share_analytics-focused cases don't have to spell it out.
+ * Build a mock owner consent. Fields default to `false` so existing
+ * share_analytics-focused cases don't have to spell them out.
  */
 function makeConsent(overrides: Partial<OwnerConsent> = {}): OwnerConsent {
   return {
     shareAnalytics: false,
     shareDiagnostics: false,
-    diagnosticsTraceCollectionEnabled: false,
+    shareDiagnosticsAcceptedVersion: "",
     ...overrides,
   };
 }
@@ -84,7 +84,7 @@ describe("consent-cache", () => {
     mockLegacyTelemetryOptOut = false;
     __setCachedShareAnalyticsForTest(false);
     __setCachedShareDiagnosticsForTest(false);
-    __setCachedDiagnosticsTraceCollectionEnabledForTest(false);
+    __setCachedShareDiagnosticsVersionForTest("");
   });
 
   afterEach(async () => {
@@ -148,94 +148,6 @@ describe("consent-cache", () => {
     mockClient = makeClient(makeConsent({ shareDiagnostics: true }));
     await refreshConsentCache();
     expect(getCachedShareAnalytics()).toBe(false);
-  });
-
-  // -------------------------------------------------------------------------
-  // diagnostics trace-collection consent
-  // -------------------------------------------------------------------------
-
-  test("diagnostics trace collection defaults to false before any refresh", () => {
-    expect(getCachedDiagnosticsTraceCollectionEnabled()).toBe(false);
-  });
-
-  test("becomes true after a fetch reporting diagnosticsTraceCollectionEnabled: true", async () => {
-    mockClient = makeClient(
-      makeConsent({
-        shareAnalytics: true,
-        diagnosticsTraceCollectionEnabled: true,
-      }),
-    );
-    await refreshConsentCache();
-    expect(getCachedDiagnosticsTraceCollectionEnabled()).toBe(true);
-  });
-
-  test("trace collection is independent of share_analytics", async () => {
-    // The owner can have analytics on but trace collection off, or vice
-    // versa — they are separate consent dimensions on the same payload.
-    mockClient = makeClient(
-      makeConsent({
-        shareAnalytics: false,
-        diagnosticsTraceCollectionEnabled: true,
-      }),
-    );
-    await refreshConsentCache();
-    expect(getCachedShareAnalytics()).toBe(false);
-    expect(getCachedDiagnosticsTraceCollectionEnabled()).toBe(true);
-  });
-
-  test("a fetch reporting diagnosticsTraceCollectionEnabled: false turns the trace cache off", async () => {
-    __setCachedDiagnosticsTraceCollectionEnabledForTest(true);
-    mockClient = makeClient(
-      makeConsent({ diagnosticsTraceCollectionEnabled: false }),
-    );
-    await refreshConsentCache();
-    expect(getCachedDiagnosticsTraceCollectionEnabled()).toBe(false);
-  });
-
-  test("a null fetch keeps the last known trace-collection value", async () => {
-    mockClient = makeClient(
-      makeConsent({ diagnosticsTraceCollectionEnabled: true }),
-    );
-    await refreshConsentCache();
-    expect(getCachedDiagnosticsTraceCollectionEnabled()).toBe(true);
-
-    // Transient failure: consent endpoint returns null — keep the opt-in.
-    mockClient = makeClient(null);
-    await refreshConsentCache();
-    expect(getCachedDiagnosticsTraceCollectionEnabled()).toBe(true);
-  });
-
-  test("a missing client flips a prior trace opt-in back to false", async () => {
-    __setCachedDiagnosticsTraceCollectionEnabledForTest(true);
-    mockClient = null;
-    await refreshConsentCache();
-    expect(getCachedDiagnosticsTraceCollectionEnabled()).toBe(false);
-  });
-
-  test("a client without a resolvable assistant identity fails the trace gate closed", async () => {
-    __setCachedDiagnosticsTraceCollectionEnabledForTest(true);
-    mockClient = makeClient(
-      makeConsent({ diagnosticsTraceCollectionEnabled: true }),
-      "",
-    );
-    await refreshConsentCache();
-    expect(getCachedDiagnosticsTraceCollectionEnabled()).toBe(false);
-  });
-
-  test("the legacy analytics opt-out marker does NOT gate the trace accessor", async () => {
-    // The trace accessor answers only "did the owner consent to trace
-    // collection." The flush-level share_analytics gate (which IS subject to
-    // the legacy marker) is what enforces the global telemetry off-switch.
-    mockLegacyTelemetryOptOut = true;
-    mockClient = makeClient(
-      makeConsent({
-        shareAnalytics: true,
-        diagnosticsTraceCollectionEnabled: true,
-      }),
-    );
-    await refreshConsentCache();
-    expect(getCachedShareAnalytics()).toBe(false);
-    expect(getCachedDiagnosticsTraceCollectionEnabled()).toBe(true);
   });
 
   test("startConsentRefresh is idempotent and runs an immediate refresh", async () => {
@@ -305,5 +217,51 @@ describe("consent-cache", () => {
     mockClient = makeClient(makeConsent({ shareDiagnostics: true }), "");
     await refreshConsentCache();
     expect(getCachedShareDiagnostics()).toBe(false);
+  });
+
+  test("caches the accepted diagnostics-consent version from a successful fetch", async () => {
+    mockClient = makeClient(
+      makeConsent({
+        shareDiagnostics: true,
+        shareDiagnosticsAcceptedVersion: "2026-06-18",
+      }),
+    );
+    await refreshConsentCache();
+    expect(getCachedShareDiagnosticsVersion()).toBe("2026-06-18");
+  });
+
+  test("a missing client clears a prior cached diagnostics version", async () => {
+    __setCachedShareDiagnosticsVersionForTest("2026-06-18");
+    mockClient = null;
+    await refreshConsentCache();
+    expect(getCachedShareDiagnosticsVersion()).toBe("");
+  });
+
+  test("a client without a resolvable assistant identity clears the diagnostics version", async () => {
+    __setCachedShareDiagnosticsVersionForTest("2026-06-18");
+    mockClient = makeClient(
+      makeConsent({
+        shareDiagnostics: true,
+        shareDiagnosticsAcceptedVersion: "2026-06-18",
+      }),
+      "",
+    );
+    await refreshConsentCache();
+    expect(getCachedShareDiagnosticsVersion()).toBe("");
+  });
+
+  test("a null fetch keeps the last known diagnostics version", async () => {
+    mockClient = makeClient(
+      makeConsent({
+        shareDiagnostics: true,
+        shareDiagnosticsAcceptedVersion: "2026-06-18",
+      }),
+    );
+    await refreshConsentCache();
+    expect(getCachedShareDiagnosticsVersion()).toBe("2026-06-18");
+
+    mockClient = makeClient(null);
+    await refreshConsentCache();
+    expect(getCachedShareDiagnosticsVersion()).toBe("2026-06-18");
   });
 });

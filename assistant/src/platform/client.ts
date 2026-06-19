@@ -20,14 +20,12 @@ export interface OwnerConsent {
   shareAnalytics: boolean;
   shareDiagnostics: boolean;
   /**
-   * Server-derived eligibility for diagnostics *trace* collection (full
-   * per-turn transcripts). The platform folds the diagnostics LaunchDarkly
-   * flag, the owner's `share_diagnostics` toggle, and a privacy-policy-version
-   * check into this single boolean — the daemon never evaluates the flag
-   * itself. Fail-closed: `false` unless the platform sends an explicit boolean
-   * `true` (an absent field or a non-boolean value yields `false`).
+   * Version of the diagnostics-sharing consent the owner accepted
+   * ("YYYY-MM-DD", or "" if never accepted). Composes the per-turn
+   * trace-collection gate: traces are only collected once this is >= the
+   * disclosing version (see telemetry/trace-collection-policy.ts).
    */
-  diagnosticsTraceCollectionEnabled: boolean;
+  shareDiagnosticsAcceptedVersion: string;
 }
 
 export class VellumPlatformClient {
@@ -151,7 +149,7 @@ export class VellumPlatformClient {
       const body = (await res.json()) as {
         share_analytics?: unknown;
         share_diagnostics?: unknown;
-        diagnostics_trace_collection_enabled?: unknown;
+        share_diagnostics_accepted_version?: unknown;
       };
       if (
         typeof body.share_analytics !== "boolean" ||
@@ -164,13 +162,12 @@ export class VellumPlatformClient {
       return {
         shareAnalytics: body.share_analytics,
         shareDiagnostics: body.share_diagnostics,
-        // Fail closed: only an explicit boolean `true` enables trace
-        // collection; an absent field or a non-boolean value yields `false`.
-        // This field is validated independently of the `share_*` checks above,
-        // so a payload that carries the share toggles but omits this field
-        // still yields a usable consent object (with trace collection off).
-        diagnosticsTraceCollectionEnabled:
-          body.diagnostics_trace_collection_enabled === true,
+        // Back-compat: an older platform that doesn't return this field yields
+        // "" → fails the trace-collection version gate → fail-closed (no trace).
+        shareDiagnosticsAcceptedVersion:
+          typeof body.share_diagnostics_accepted_version === "string"
+            ? body.share_diagnostics_accepted_version
+            : "",
       };
     } catch (err) {
       log.debug({ err }, "owner-consent fetch failed — treating as unknown");
