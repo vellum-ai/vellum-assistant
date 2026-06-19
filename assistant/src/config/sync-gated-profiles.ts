@@ -134,6 +134,10 @@ function enableProfile(
   return changed;
 }
 
+// `MixSchema = z.array(MixArmSchema).min(2)` in schemas/llm.ts: mixes require
+// >= 2 arms. A mix that drops below this is invalid and cannot be kept.
+const MIX_MIN_ARMS = 2;
+
 function disableProfile(
   llm: Record<string, unknown>,
   profiles: Record<string, Record<string, unknown>>,
@@ -144,13 +148,42 @@ function disableProfile(
 
   delete profiles[OS_BETA_PROFILE_KEY];
 
-  const orderIndex = profileOrder.indexOf(OS_BETA_PROFILE_KEY);
-  if (orderIndex >= 0) profileOrder.splice(orderIndex, 1);
+  // The removal closure: every name here is absent from `profiles` once the
+  // closure settles, so the written config can never reference one. A mix that
+  // loses arms below the >= 2 minimum is itself invalid, so it joins the set
+  // and the loop runs to a fixpoint to resolve any references that cascade.
+  const removed = new Set<string>([OS_BETA_PROFILE_KEY]);
+  let cascading = true;
+  while (cascading) {
+    cascading = false;
+    for (const [name, profile] of Object.entries(profiles)) {
+      if (removed.has(name)) continue;
+      if (!Array.isArray(profile.mix)) continue;
+      const arms = profile.mix as unknown[];
+      const kept = arms.filter((arm) => {
+        const armProfile = readObject(arm)?.profile;
+        return typeof armProfile !== "string" || !removed.has(armProfile);
+      });
+      if (kept.length === arms.length) continue;
+      if (kept.length >= MIX_MIN_ARMS) {
+        profile.mix = kept;
+      } else {
+        delete profiles[name];
+        removed.add(name);
+      }
+      cascading = true;
+    }
+  }
 
-  if (llm.activeProfile === OS_BETA_PROFILE_KEY) {
+  llm.profileOrder = profileOrder.filter((name) => !removed.has(name));
+
+  if (typeof llm.activeProfile === "string" && removed.has(llm.activeProfile)) {
     llm.activeProfile = "balanced";
   }
-  if (llm.advisorProfile === OS_BETA_PROFILE_KEY) {
+  if (
+    typeof llm.advisorProfile === "string" &&
+    removed.has(llm.advisorProfile)
+  ) {
     if (readObject(profiles["quality-optimized"]) !== null) {
       llm.advisorProfile = "quality-optimized";
     } else {
@@ -158,17 +191,19 @@ function disableProfile(
     }
   }
 
-  // Removing a flag-gated profile also drops it from any user mix arms so the
-  // config stays loadable — `LLMSchema.superRefine` rejects a mix arm naming a
-  // missing profile.
-  for (const profile of Object.values(profiles)) {
-    if (!Array.isArray(profile.mix)) continue;
-    const arms = profile.mix as Array<Record<string, unknown>>;
-    const kept = arms.filter(
-      (arm) => readObject(arm)?.profile !== OS_BETA_PROFILE_KEY,
-    );
-    if (kept.length !== arms.length) {
-      profile.mix = kept;
+  // Clear any call-site `profile` reference to a removed profile; other override
+  // fields on the entry stay intact (an empty override object is valid).
+  const callSites = readObject(llm.callSites);
+  if (callSites) {
+    for (const entry of Object.values(callSites)) {
+      const site = readObject(entry);
+      if (
+        site &&
+        typeof site.profile === "string" &&
+        removed.has(site.profile)
+      ) {
+        delete site.profile;
+      }
     }
   }
 

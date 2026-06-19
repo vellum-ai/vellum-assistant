@@ -58,6 +58,7 @@ afterAll(() => {
 
 import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
 import { invalidateConfigCache } from "../loader.js";
+import { LLMSchema } from "../schemas/llm.js";
 import { seedInferenceProfiles } from "../seed-inference-profiles.js";
 import { reconcileFlagGatedProfiles } from "../sync-gated-profiles.js";
 
@@ -179,7 +180,7 @@ describe("reconcileFlagGatedProfiles", () => {
     expect(reconcileFlagGatedProfiles()).toBe(false);
   });
 
-  test("flag off scrubs os-beta from user mix arms and preserves the rest", () => {
+  test("flag off scrubs os-beta from user mix arms, keeping >= 2-arm mixes", () => {
     process.env.IS_PLATFORM = "true";
     seedBalancedConfig();
     setOverridesForTesting({ "os-beta": true });
@@ -191,6 +192,7 @@ describe("reconcileFlagGatedProfiles", () => {
       label: "My Mix",
       mix: [
         { profile: "balanced", weight: 70 },
+        { profile: "quality-optimized", weight: 20 },
         { profile: "os-beta", weight: 30 },
       ],
     };
@@ -204,12 +206,123 @@ describe("reconcileFlagGatedProfiles", () => {
     const after = readConfig();
     expect(after.llm.profiles["os-beta"]).toBeUndefined();
     const mix = after.llm.profiles["my-mix"]!;
-    expect(mix.mix).toEqual([{ profile: "balanced", weight: 70 }]);
+    expect(mix.mix).toEqual([
+      { profile: "balanced", weight: 70 },
+      { profile: "quality-optimized", weight: 20 },
+    ]);
     expect(mix.source).toBe("user");
     expect(mix.label).toBe("My Mix");
 
     invalidateConfigCache();
     expect(reconcileFlagGatedProfiles()).toBe(false);
+  });
+
+  test("flag off removes a two-arm mix that loses os-beta and repoints refs", () => {
+    process.env.IS_PLATFORM = "true";
+    seedBalancedConfig();
+    setOverridesForTesting({ "os-beta": true });
+    reconcileFlagGatedProfiles();
+
+    const raw = readConfig();
+    raw.llm.profiles["experiment"] = {
+      source: "user",
+      label: "Experiment",
+      mix: [
+        { profile: "balanced", weight: 50 },
+        { profile: "os-beta", weight: 50 },
+      ],
+    };
+    raw.llm.profileOrder.push("experiment");
+    raw.llm.activeProfile = "experiment";
+    raw.llm.advisorProfile = "os-beta";
+    (raw.llm as Record<string, unknown>).callSites = {
+      mainAgent: { profile: "experiment" },
+    };
+    writeConfig(raw);
+    invalidateConfigCache();
+
+    setOverridesForTesting({ "os-beta": false });
+    expect(reconcileFlagGatedProfiles()).toBe(true);
+
+    const after = readConfig();
+    expect(after.llm.profiles["os-beta"]).toBeUndefined();
+    expect(after.llm.profiles["experiment"]).toBeUndefined();
+    expect(after.llm.profileOrder.includes("os-beta")).toBe(false);
+    expect(after.llm.profileOrder.includes("experiment")).toBe(false);
+    expect(after.llm.activeProfile).toBe("balanced");
+    expect(after.llm.advisorProfile).toBe("quality-optimized");
+    expect(
+      (
+        after.llm as unknown as Record<
+          string,
+          Record<string, Record<string, unknown>>
+        >
+      ).callSites.mainAgent.profile,
+    ).toBeUndefined();
+
+    expect(LLMSchema.safeParse(after.llm).success).toBe(true);
+  });
+
+  test("flag off shortens a three-arm mix to two surviving arms", () => {
+    process.env.IS_PLATFORM = "true";
+    seedBalancedConfig();
+    setOverridesForTesting({ "os-beta": true });
+    reconcileFlagGatedProfiles();
+
+    const raw = readConfig();
+    raw.llm.profiles["blend"] = {
+      source: "user",
+      label: "Blend",
+      mix: [
+        { profile: "balanced", weight: 40 },
+        { profile: "os-beta", weight: 30 },
+        { profile: "quality-optimized", weight: 30 },
+      ],
+    };
+    raw.llm.profileOrder.push("blend");
+    writeConfig(raw);
+    invalidateConfigCache();
+
+    setOverridesForTesting({ "os-beta": false });
+    expect(reconcileFlagGatedProfiles()).toBe(true);
+
+    const after = readConfig();
+    expect(after.llm.profiles["os-beta"]).toBeUndefined();
+    expect(after.llm.profiles["blend"]!.mix).toEqual([
+      { profile: "balanced", weight: 40 },
+      { profile: "quality-optimized", weight: 30 },
+    ]);
+
+    expect(LLMSchema.safeParse(after.llm).success).toBe(true);
+  });
+
+  test("flag off clears a call-site profile reference to os-beta", () => {
+    process.env.IS_PLATFORM = "true";
+    seedBalancedConfig();
+    setOverridesForTesting({ "os-beta": true });
+    reconcileFlagGatedProfiles();
+
+    const raw = readConfig();
+    (raw.llm as Record<string, unknown>).callSites = {
+      advisor: { profile: "os-beta", temperature: 0.3 },
+    };
+    writeConfig(raw);
+    invalidateConfigCache();
+
+    setOverridesForTesting({ "os-beta": false });
+    expect(reconcileFlagGatedProfiles()).toBe(true);
+
+    const after = readConfig();
+    const advisor = (
+      after.llm as unknown as Record<
+        string,
+        Record<string, Record<string, unknown>>
+      >
+    ).callSites.advisor;
+    expect(advisor.profile).toBeUndefined();
+    expect(advisor.temperature).toBe(0.3);
+
+    expect(LLMSchema.safeParse(after.llm).success).toBe(true);
   });
 
   test("a user-owned os-beta profile is never touched", () => {
