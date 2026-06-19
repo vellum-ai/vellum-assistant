@@ -692,6 +692,41 @@ describe("Subagent spawn success and failure", () => {
     }
   });
 
+  test("spawn pins the resolved mix arm even when the mix was chosen via a per-turn override", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "inherit-mixoverride-id";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "Mix override child", objective: "Do it" },
+        makeContext("sess-inherit-mixoverride", {
+          sendToClient: () => {},
+          invokingCallSite: "mainAgent",
+          // The per-turn override selected a mix, so overrideProfile holds the
+          // mix NAME; attribution carries the arm the PARENT expanded it to.
+          // The arm must win — forwarding the raw mix name would let the child
+          // re-expand to a different arm under its own seed.
+          overrideProfile: "experiment-mix",
+          attribution: {
+            appliedProfile: "experiment-mix",
+            resolvedMixArm: "quality-optimized",
+          },
+        }),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(capturedConfig!.overrideProfile).toBe("quality-optimized");
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
   test("spawn returns error for unknown inference_profile", async () => {
     const manager = getSubagentManager();
     const originalSpawn = manager.spawn.bind(manager);
