@@ -1,11 +1,3 @@
-import type { BrowserOptions } from "@sentry/react";
-
-import { selectSentryFlavor } from "@/lib/sentry/flavor";
-import { getDeviceBool, watchDeviceSetting } from "@/utils/device-settings";
-import { syncDiagnosticsToMain } from "@/runtime/diagnostics";
-import { useAuthStore } from "@/stores/auth-store";
-import { isConfirmedPlatformSession } from "@/stores/session-status";
-
 /**
  * Gates the browser-side Sentry client on BOTH the effective diagnostics-
  * reporting gate (`device:diagnostics_reporting`) AND a probe-confirmed live
@@ -28,25 +20,21 @@ import { isConfirmedPlatformSession } from "@/stores/session-status";
  *   - absent         → Sentry OFF (no consent on record yet)
  *
  * SDK access is dispatched through `selectSentryFlavor()` so each surface
- * (web/electron renderer, capacitor) can supply its own implementation.
+ * (web/electron renderer, capacitor) can supply its own implementation. The
+ * composed gate itself lives in `consent-gate.ts` so the capacitor flavor's
+ * native `beforeSend` reads the same source without an import cycle.
  *
  * Reference: https://docs.sentry.io/platforms/javascript/guides/react/configuration/options/
  */
+import type { BrowserOptions } from "@sentry/react";
 
-/**
- * The composed diagnostics gate: a probe-confirmed live platform session AND
- * the effective diagnostics-reporting gate (preference && version-current).
- */
-export function diagnosticsConsentGranted(): boolean {
-  const { platformSession, platformSessionRestoredOffline } =
-    useAuthStore.getState();
-  if (
-    !isConfirmedPlatformSession(platformSession, platformSessionRestoredOffline)
-  ) {
-    return false;
-  }
-  return getDeviceBool("diagnosticsReporting", false);
-}
+import { selectSentryFlavor } from "@/lib/sentry/flavor";
+import { diagnosticsConsentGranted } from "@/lib/sentry/consent-gate";
+import { watchDeviceSetting } from "@/utils/device-settings";
+import { syncDiagnosticsToMain } from "@/runtime/diagnostics";
+import { useAuthStore } from "@/stores/auth-store";
+
+export { diagnosticsConsentGranted };
 
 function tryInit(options: BrowserOptions): void {
   const flavor = selectSentryFlavor();

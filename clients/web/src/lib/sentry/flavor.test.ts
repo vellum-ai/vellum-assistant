@@ -7,6 +7,11 @@ mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => nativePlatform,
 }));
 mock.module("@/runtime/is-electron", () => ({ isElectron: () => electron }));
+// flavor-capacitor's beforeSend reads the composed gate; stub it so importing
+// the capacitor flavor here does not drag in the auth store's runtime deps.
+mock.module("@/lib/sentry/consent-gate", () => ({
+  diagnosticsConsentGranted: () => false,
+}));
 
 const { selectSentryFlavor } = await import("@/lib/sentry/flavor");
 const { reactFlavor } = await import("@/lib/sentry/flavor-react");
