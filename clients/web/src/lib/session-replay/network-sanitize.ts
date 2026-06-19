@@ -4,10 +4,13 @@
  * sanitizer receives the record and returns a scrubbed copy (or `null` to drop
  * it entirely — unused here; we scrub in place rather than drop).
  *
- * Three surfaces are scrubbed:
+ * Scrubbed surfaces:
  *  - headers      — auth/cookie headers redacted by name
  *  - url/referrer — tokens stripped from query + fragment (reuses `sanitizeUrl`)
- *  - body         — known sensitive keys redacted recursively in structured bodies
+ *  - body         — request/response bodies are redacted wholesale. Payloads can
+ *                   carry credentials/PII under arbitrary keys (e.g. POST
+ *                   /v1/secrets sends the raw secret under a generic `value`),
+ *                   so nothing is recorded until we introduce a real allowlist.
  */
 import { sanitizeUrl } from "@/lib/sentry/url-sanitize";
 
@@ -24,24 +27,6 @@ const SENSITIVE_HEADERS = new Set([
   "x-csrf-token",
   "x-xsrf-token",
   "x-session-token",
-]);
-
-// Body keys (lowercased) redacted wherever they appear in a structured body.
-const SENSITIVE_BODY_KEYS = new Set([
-  "access_token",
-  "api_key",
-  "apikey",
-  "authorization",
-  "client_secret",
-  "code",
-  "id_token",
-  "password",
-  "private_key",
-  "pwd",
-  "refresh_token",
-  "secret",
-  "session",
-  "token",
 ]);
 
 export interface SessionReplayNetworkRequest {
@@ -88,46 +73,9 @@ function scrubHeaders(
   return changed ? out : headers;
 }
 
-/**
- * Recursively redact sensitive keys in a structured body. Strings are parsed as
- * JSON when possible (a stringified payload may carry credentials) and otherwise
- * left untouched. Returns the original reference when nothing changed.
- */
+/** Redact a body wholesale when present; leave an absent body untouched. */
 function scrubBody(body: unknown): unknown {
-  if (typeof body === "string") {
-    try {
-      const parsed: unknown = JSON.parse(body);
-      const scrubbed = scrubBody(parsed);
-      return scrubbed === parsed ? body : JSON.stringify(scrubbed);
-    } catch {
-      return body;
-    }
-  }
-  if (Array.isArray(body)) {
-    let changed = false;
-    const out = body.map((value) => {
-      const scrubbed = scrubBody(value);
-      if (scrubbed !== value) changed = true;
-      return scrubbed;
-    });
-    return changed ? out : body;
-  }
-  if (body && typeof body === "object") {
-    let changed = false;
-    const out: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(body)) {
-      if (SENSITIVE_BODY_KEYS.has(key.toLowerCase())) {
-        out[key] = REDACTED;
-        changed = true;
-      } else {
-        const scrubbed = scrubBody(value);
-        if (scrubbed !== value) changed = true;
-        out[key] = scrubbed;
-      }
-    }
-    return changed ? out : body;
-  }
-  return body;
+  return body == null ? body : REDACTED;
 }
 
 export function sanitizeReplayRequest(

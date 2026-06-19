@@ -32,47 +32,26 @@ describe("sanitizeReplayRequest", () => {
     expect(out.referrer).toContain("code=%5BREDACTED%5D");
   });
 
-  test("redacts sensitive keys in an object body, recursively", () => {
-    const out = sanitizeReplayRequest({
-      body: {
-        password: "p",
-        nested: { refresh_token: "r", keep: 1 },
-        list: [{ secret: "s" }],
-      },
-    });
-    expect(out.body).toEqual({
-      password: "[REDACTED]",
-      nested: { refresh_token: "[REDACTED]", keep: 1 },
-      list: [{ secret: "[REDACTED]" }],
-    });
+  test("redacts any request body wholesale", () => {
+    expect(
+      sanitizeReplayRequest({
+        body: { type: "credential", name: "n", value: "raw-secret" },
+      }).body,
+    ).toBe("[REDACTED]");
+    expect(sanitizeReplayRequest({ body: "plain text" }).body).toBe("[REDACTED]");
   });
 
-  test("redacts sensitive keys inside a JSON string body", () => {
-    const out = sanitizeReplayRequest({
-      body: JSON.stringify({ token: "t", q: "ok" }),
-    });
-    expect(out.body).toBe(JSON.stringify({ token: "[REDACTED]", q: "ok" }));
-  });
-
-  test("leaves non-sensitive data untouched (same body reference)", () => {
-    const body = { q: "hello" };
-    const out = sanitizeReplayRequest({
-      url: "https://api.vellum.ai/x?page=2",
-      headers: { "Content-Type": "application/json" },
-      body,
-    });
-    expect(out.url).toBe("https://api.vellum.ai/x?page=2");
-    expect(out.headers).toEqual({ "Content-Type": "application/json" });
-    expect(out.body).toBe(body);
+  test("leaves an absent body untouched", () => {
+    expect(sanitizeReplayRequest({ url: "https://api.vellum.ai/x" }).body).toBeUndefined();
   });
 });
 
 describe("sanitizeReplayResponse", () => {
-  test("redacts sensitive headers, body keys, and url tokens", () => {
+  test("redacts sensitive headers, body, and url tokens", () => {
     const out = sanitizeReplayResponse({
       status: 200,
       headers: { "Set-Cookie": "s=1", "X-Request-Id": "abc" },
-      body: { id_token: "j", ok: true },
+      body: { ok: true },
       url: "https://api.vellum.ai/me?token=z",
     });
     expect(out.status).toBe(200);
@@ -80,7 +59,7 @@ describe("sanitizeReplayResponse", () => {
       "Set-Cookie": "[REDACTED]",
       "X-Request-Id": "abc",
     });
-    expect(out.body).toEqual({ id_token: "[REDACTED]", ok: true });
+    expect(out.body).toBe("[REDACTED]");
     expect(out.url).toContain("token=%5BREDACTED%5D");
   });
 });
