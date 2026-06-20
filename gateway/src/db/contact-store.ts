@@ -97,10 +97,24 @@ export class ContactStore {
   // from assistant (dual-write gap) also yields null info fields + a warning.
 
   /**
-   * List all contacts with channels (gateway) joined to info fields
-   * (assistant). Ordered by createdAt desc, mirroring `listContacts()`.
+   * List contacts with channels (gateway) joined to info fields (assistant).
+   *
+   * Supports the same filter params as the daemon's handleListContacts:
+   * limit, role, contactType. Search-style filters (query, channelAddress,
+   * channelType) are NOT supported here — callers that need those should
+   * fall back to the proxy path until a gateway-native search is built.
+   *
+   * Ordering mirrors the daemon: guardian role first, then updatedAt desc.
    */
-  async listContactsWithInfo(): Promise<ContactWithInfo[]> {
+  async listContactsWithInfo(opts?: {
+    limit?: number;
+    role?: string;
+    contactType?: string;
+  }): Promise<ContactWithInfo[]> {
+    const effectiveLimit = Math.min(opts?.limit ?? 50, 200);
+    const conditions = [];
+    if (opts?.role) conditions.push(eq(contacts.role, opts.role));
+
     const rows = this.db
       .select({ contact: contacts, channel: contactChannels })
       .from(contacts)
@@ -108,16 +122,28 @@ export class ContactStore {
         contactChannels,
         eq(contactChannels.contactId, contacts.id),
       )
+      .where(conditions.length === 1 ? conditions[0] : undefined)
       .orderBy(
-        desc(contacts.createdAt),
+        sql`${contacts.role} = 'guardian' DESC`,
+        desc(contacts.updatedAt),
         // Primary channel first, then by creation time — mirrors the daemon
         // (assistant/src/contacts/contact-store.ts:141) and readAssistantContact.
         sql`${contactChannels.isPrimary} DESC`,
         contactChannels.createdAt,
       )
+      .limit(effectiveLimit)
       .all();
 
-    return this.joinInfoIntoContacts(rows);
+    let joined = await this.joinInfoIntoContacts(rows);
+
+    // Post-filter by contactType (assistant-owned, not in gateway DB).
+    if (opts?.contactType) {
+      joined = joined.filter(
+        (c) => c.contactType === opts.contactType,
+      );
+    }
+
+    return joined;
   }
 
   /**
