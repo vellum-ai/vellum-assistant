@@ -558,23 +558,30 @@ export const SUBAGENT_ONLY_TOOL_NAMES = new Set<string>([
  * `toolsDisabledDepth`, and disk-pressure cleanup restrictions.
  *
  * `routedOverrideProfile` (when not `undefined`) is the inference profile a
- * `pre-model-call` model-router resolved for THIS turn, used in place of
- * `ctx.currentTurnOverrideProfile` for the profile-dependent gates (advisor,
- * vlm_*) so the offered tool surface reflects the backbone that actually runs
- * — not the pre-routing profile. `null` means "router resolved no override"
- * (use the workspace active profile); `undefined` means "no router decision"
- * (fall back to the per-turn override the conversation carries). The agent
- * loop passes it after the hook chain resolves; every other caller omits it.
+ * `pre-model-call` model-router resolved for THIS turn. It is consulted only by
+ * the vlm_* gate, whose backbone capability is re-resolved per provider call so
+ * the offered vision tools match the model that actually runs — not the
+ * pre-routing profile. `null` means "router resolved no override" (use the
+ * workspace active profile); `undefined` means "no router decision" (fall back
+ * to the per-turn override the conversation carries). The agent loop passes it
+ * after the hook chain resolves; every other caller omits it.
+ *
+ * The advisor gate is intentionally NOT routed: the advisor's steering
+ * (`pre-model-call`) and execution (`ctx.overrideProfile`) paths still key on
+ * the pre-routing per-turn override, so its wire gate must stay on the same
+ * profile to avoid offering a tool that no-ops on call (or steering for a tool
+ * the wire hid). Plumbing the routed profile through those paths is a separate
+ * change.
  */
 export function isToolActiveForContext(
   name: string,
   ctx: SkillProjectionContext,
   routedOverrideProfile?: string | null,
 ): boolean {
-  // Profile the per-turn profile-dependent gates (advisor, vlm_*) resolve the
-  // backbone from. A router decision (even an explicit `null`) wins over the
-  // conversation's per-turn override; absent any decision the override holds.
-  const effectiveOverrideProfile =
+  // Profile the vlm_* gate resolves the backbone from. A router decision (even
+  // an explicit `null`) wins over the conversation's per-turn override; absent
+  // any decision the override holds.
+  const vlmOverrideProfile =
     routedOverrideProfile !== undefined
       ? routedOverrideProfile
       : (ctx.currentTurnOverrideProfile ?? null);
@@ -627,9 +634,11 @@ export function isToolActiveForContext(
     // Gated per chat-profile (`ProfileEntry.advisorEnabled`): when the resolved
     // profile disables the advisor, omit the tool from the wire list so the
     // model never sees a tool it can only no-op on. Resolves the profile the
-    // same way the advisor's execution-time guard does — the router's decision
-    // for this turn when present, else the per-turn override / active profile.
-    return advisorEnabledForProfile(effectiveOverrideProfile);
+    // same way the advisor's execution-time guard and steering hook do — the
+    // per-turn override, else the active profile. Deliberately NOT routed (see
+    // the function doc): the wire gate must match steering + execution, which
+    // both still read the pre-routing profile.
+    return advisorEnabledForProfile(ctx.currentTurnOverrideProfile ?? null);
   }
   if (isVlmToolName(name)) {
     // The plugin now registers unconditionally (its tools are always in the
@@ -648,7 +657,7 @@ export function isToolActiveForContext(
 
     const resolution = {
       callSite: ctx.currentCallSite ?? null,
-      overrideProfile: effectiveOverrideProfile,
+      overrideProfile: vlmOverrideProfile,
       selectionSeed: ctx.conversationId ?? null,
     };
 

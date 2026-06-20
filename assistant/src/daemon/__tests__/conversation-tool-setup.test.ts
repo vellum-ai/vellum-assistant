@@ -825,7 +825,10 @@ describe("isToolActiveForContext — vlm_* gate keys on the routed profile", () 
     expect(backboneResolutionProfiles).toEqual(["balanced"]);
   });
 
-  test("the advisor gate also keys on the routed profile when one is forwarded", () => {
+  test("the advisor gate is NOT routed — it stays on the per-turn override even when a routed profile is forwarded", () => {
+    // The advisor's steering hook and execution-time guard both key on the
+    // pre-routing profile, so the wire gate must too: routing it would expose a
+    // tool that no-ops on call (or hide one the model was steered toward).
     advisorGateResult = true;
     advisorGateProfiles.length = 0;
     isToolActiveForContext(
@@ -833,6 +836,6 @@ describe("isToolActiveForContext — vlm_* gate keys on the routed profile", () 
       makeCtx({ currentTurnOverrideProfile: "balanced" }),
       "routed-profile",
     );
-    expect(advisorGateProfiles).toEqual(["routed-profile"]);
+    expect(advisorGateProfiles).toEqual(["balanced"]);
   });
 });
