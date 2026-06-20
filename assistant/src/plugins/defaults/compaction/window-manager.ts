@@ -35,8 +35,8 @@ import type {
   Provider,
   ToolDefinition,
 } from "../../../providers/types.js";
-import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { findConversationOrSubagent } from "../../../daemon/conversation-registry.js";
+import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { getLogger } from "../../../util/logger.js";
 import {
   createInitialReducerState,
