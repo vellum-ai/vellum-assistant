@@ -62,10 +62,29 @@ let contactStoreUpsertMock: ReturnType<typeof mock<UpsertFn>> = mock(async () =>
   created: false,
 }));
 
+type ListFn = (opts?: {
+  limit?: number;
+  role?: string;
+}) => Promise<typeof DEFAULT_MOCK_CONTACT[]>;
+let contactStoreListMock: ReturnType<typeof mock<ListFn>> = mock(async () => []);
+
+type GetFn = (contactId: string) => Promise<typeof DEFAULT_MOCK_CONTACT | null>;
+let contactStoreGetMock: ReturnType<typeof mock<GetFn>> = mock(async () => null);
+
 mock.module("../db/contact-store.js", () => ({
   ContactStore: class MockContactStore {
     upsertContact(...args: Parameters<UpsertFn>) {
       return contactStoreUpsertMock(...args);
+    }
+    async listContactsWithInfo(opts?: {
+      limit?: number;
+      role?: string;
+      contactType?: string;
+    }) {
+      return contactStoreListMock(opts);
+    }
+    async getContactWithInfo(contactId: string) {
+      return contactStoreGetMock(contactId);
     }
   },
 }));
@@ -110,6 +129,8 @@ afterEach(() => {
     contact: DEFAULT_MOCK_CONTACT,
     created: false,
   }));
+  contactStoreListMock = mock(async () => []);
+  contactStoreGetMock = mock(async () => null);
 });
 
 describe("contacts control-plane proxy", () => {
@@ -125,9 +146,15 @@ describe("contacts control-plane proxy", () => {
 
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
 
+    // Use ?query= to force proxy fallback (list is now gateway-native for
+    // non-search queries).
     await handler.handleListContacts(
-      new Request("http://localhost:7830/v1/contacts?limit=10"),
+      new Request("http://localhost:7830/v1/contacts?limit=10&query=alice"),
     );
+    // GetContact falls back to proxy when the store throws; seed a throw.
+    contactStoreGetMock = mock(async () => {
+      throw new Error("force proxy fallback");
+    });
     await handler.handleGetContact(
       new Request("http://localhost:7830/v1/contacts/ct_1"),
       "ct_1",
@@ -145,7 +172,7 @@ describe("contacts control-plane proxy", () => {
     );
 
     expect(captured).toEqual([
-      "http://localhost:7821/v1/contacts?limit=10",
+      "http://localhost:7821/v1/contacts?limit=10&query=alice",
       "http://localhost:7821/v1/contacts/ct_1",
       "http://localhost:7821/v1/contacts/merge",
       "http://localhost:7821/v1/contact-channels/ch_1",
@@ -271,8 +298,9 @@ describe("contacts control-plane proxy", () => {
     });
 
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    // Use ?query= to force proxy fallback path (list is gateway-native otherwise).
     const res = await handler.handleListContacts(
-      new Request("http://localhost:7830/v1/contacts"),
+      new Request("http://localhost:7830/v1/contacts?query=test"),
     );
 
     expect(res.status).toBe(502);
@@ -293,7 +321,7 @@ describe("contacts control-plane proxy", () => {
 
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleListContacts(
-      new Request("http://localhost:7830/v1/contacts"),
+      new Request("http://localhost:7830/v1/contacts?query=test"),
     );
 
     expect(res.status).toBe(200);
@@ -316,7 +344,7 @@ describe("contacts control-plane proxy", () => {
 
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleListContacts(
-      new Request("http://localhost:7830/v1/contacts"),
+      new Request("http://localhost:7830/v1/contacts?query=test"),
     );
 
     expect(res.status).toBe(200);
@@ -595,5 +623,258 @@ describe("handleUpsertContact (gateway-native)", () => {
     ];
     expect(params.assistantMetadata?.species).toBe("vellum");
     expect(params.assistantMetadata?.metadata?.assistantId).toBe("asst_123");
+  });
+});
+
+describe("handleListContacts (gateway-native)", () => {
+  test("returns contacts from gateway-native read", async () => {
+    const mockContacts = [
+      { ...DEFAULT_MOCK_CONTACT, id: "c1", displayName: "Alice" },
+      { ...DEFAULT_MOCK_CONTACT, id: "c2", displayName: "Bob" },
+    ];
+    contactStoreListMock = mock(async () => mockContacts);
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts"),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.contacts).toHaveLength(2);
+    expect(body.contacts[0].id).toBe("c1");
+    expect(body.contacts[0].displayName).toBe("Alice");
+    // Compat: externalUserId = address on each channel.
+    // (DEFAULT_MOCK_CONTACT has empty channels, so this is vacuous here.)
+    expect(contactStoreListMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("falls back to proxy for contactType filter (assistant-owned field)", async () => {
+    fetchMock = mock(
+      async () =>
+        new Response(JSON.stringify({ ok: true, contacts: [] }), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts?contactType=human"),
+    );
+
+    expect(contactStoreListMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("falls back to proxy for search-style queries (query param)", async () => {
+    fetchMock = mock(
+      async () =>
+        new Response(JSON.stringify({ ok: true, contacts: [] }), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts?query=alice"),
+    );
+
+    expect(contactStoreListMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("falls back to proxy for channelAddress search", async () => {
+    fetchMock = mock(
+      async () =>
+        new Response(JSON.stringify({ ok: true, contacts: [] }), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    await handler.handleListContacts(
+      new Request(
+        "http://localhost:7830/v1/contacts?channelAddress=alice@example.com",
+      ),
+    );
+
+    expect(contactStoreListMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("returns 400 for invalid contactType", async () => {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts?contactType=robot"),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message).toMatch(/contactType/);
+    expect(contactStoreListMock).not.toHaveBeenCalled();
+  });
+
+  test("falls back to proxy on gateway-native read error", async () => {
+    contactStoreListMock = mock(async () => {
+      throw new Error("gateway DB unavailable");
+    });
+    fetchMock = mock(
+      async () =>
+        new Response(JSON.stringify({ ok: true, contacts: [] }), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts"),
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(200);
+  });
+
+  test("includes externalUserId compat field on channels", async () => {
+    const mockContact = {
+      ...DEFAULT_MOCK_CONTACT,
+      id: "c1",
+      channels: [
+        {
+          id: "ch1",
+          contactId: "c1",
+          type: "telegram",
+          address: "@alice",
+          isPrimary: true,
+          externalChatId: "12345",
+          status: "active",
+          policy: "allow",
+          verifiedAt: null,
+          verifiedVia: null,
+          inviteId: null,
+          revokedReason: null,
+          blockedReason: null,
+          lastSeenAt: null,
+          interactionCount: 0,
+          lastInteraction: null,
+          createdAt: 100,
+          updatedAt: null,
+        },
+      ],
+    };
+    contactStoreListMock = mock(async () => [mockContact]);
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts"),
+    );
+
+    const body = await res.json();
+    expect(body.contacts[0].channels[0].externalUserId).toBe("@alice");
+  });
+});
+
+describe("handleGetContact (gateway-native)", () => {
+  test("returns contact from gateway-native read", async () => {
+    const mockContact = {
+      ...DEFAULT_MOCK_CONTACT,
+      id: "c1",
+      displayName: "Alice",
+    };
+    contactStoreGetMock = mock(async () => mockContact);
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleGetContact(
+      new Request("http://localhost:7830/v1/contacts/c1"),
+      "c1",
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.contact.id).toBe("c1");
+    expect(body.contact.displayName).toBe("Alice");
+    expect(contactStoreGetMock).toHaveBeenCalledWith("c1");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("returns 404 when contact not found", async () => {
+    contactStoreGetMock = mock(async () => null);
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleGetContact(
+      new Request("http://localhost:7830/v1/contacts/nope"),
+      "nope",
+    );
+
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.error.code).toBe("NOT_FOUND");
+  });
+
+  test("includes assistantMetadata with contactId for assistant contactType", async () => {
+    const mockContact = {
+      ...DEFAULT_MOCK_CONTACT,
+      id: "c1",
+      contactType: "assistant",
+      assistantMetadata: { species: "vellum", metadata: { assistantId: "asst_1" } },
+    };
+    contactStoreGetMock = mock(async () => mockContact);
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleGetContact(
+      new Request("http://localhost:7830/v1/contacts/c1"),
+      "c1",
+    );
+
+    const body = await res.json();
+    expect(body.assistantMetadata).toEqual({
+      contactId: "c1",
+      species: "vellum",
+      metadata: { assistantId: "asst_1" },
+    });
+  });
+
+  test("omits assistantMetadata for human contactType", async () => {
+    const mockContact = {
+      ...DEFAULT_MOCK_CONTACT,
+      id: "c1",
+      contactType: "human",
+      assistantMetadata: null,
+    };
+    contactStoreGetMock = mock(async () => mockContact);
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleGetContact(
+      new Request("http://localhost:7830/v1/contacts/c1"),
+      "c1",
+    );
+
+    const body = await res.json();
+    expect(body.assistantMetadata).toBeUndefined();
+  });
+
+  test("falls back to proxy on gateway-native read error", async () => {
+    contactStoreGetMock = mock(async () => {
+      throw new Error("gateway DB unavailable");
+    });
+    fetchMock = mock(
+      async () =>
+        new Response(
+          JSON.stringify({ ok: true, contact: DEFAULT_MOCK_CONTACT }),
+          { headers: { "content-type": "application/json" } },
+        ),
+    );
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleGetContact(
+      new Request("http://localhost:7830/v1/contacts/c1"),
+      "c1",
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(200);
   });
 });

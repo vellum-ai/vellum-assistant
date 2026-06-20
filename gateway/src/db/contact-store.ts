@@ -9,6 +9,11 @@ import {
 } from "./assistant-db-proxy.js";
 import { type GatewayDb, getGatewayDb } from "./connection.js";
 import { contacts, contactChannels } from "./schema.js";
+import {
+  type ContactInfoFields,
+  emptyContactInfo,
+  fetchInfoForContacts,
+} from "./contacts-info-joiner.js";
 import { getLogger } from "../logger.js";
 import { canonicalizeInboundIdentity } from "../verification/identity.js";
 
@@ -76,6 +81,214 @@ export class ContactStore {
       .where(eq(contactChannels.contactId, contactId))
       .orderBy(contactChannels.createdAt)
       .all();
+  }
+
+  // ── Gateway-native read with assistant info join ────────────────────────
+  //
+  // These methods read the ACL shape (contacts + contact_channels) from the
+  // gateway DB and join the informational shape (notes, userFile, contactType,
+  // assistant_contact_metadata) from the assistant DB in a single batched
+  // query. Trust signals (interactionCount, lastInteraction, role) are
+  // derived from gateway rows only — the assistant copy is not trusted for
+  // ACL-relevant fields.
+  //
+  // Soft-fail: if the assistant DB read throws, info fields become null and
+  // the ACL shape is still returned. A contact present in gateway but missing
+  // from assistant (dual-write gap) also yields null info fields + a warning.
+
+  /**
+   * List contacts with channels (gateway) joined to info fields (assistant).
+   *
+   * Supports the same filter params as the daemon's handleListContacts:
+   * limit, role, contactType. Search-style filters (query, channelAddress,
+   * channelType) are NOT supported here — callers that need those should
+   * fall back to the proxy path until a gateway-native search is built.
+   *
+   * Ordering mirrors the daemon: guardian role first, then updatedAt desc.
+   */
+  async listContactsWithInfo(opts?: {
+    limit?: number;
+    role?: string;
+  }): Promise<ContactWithInfo[]> {
+    const effectiveLimit = Math.min(opts?.limit ?? 50, 200);
+    const conditions = [];
+    if (opts?.role) conditions.push(eq(contacts.role, opts.role));
+
+    // Step 1: Select contact IDs with the limit applied to CONTACTS (not
+    // joined channel rows). The daemon path limits contact rows before
+    // fetching channels — we match that to avoid returning fewer contacts
+    // than expected when contacts have multiple channels.
+    const contactRows = this.db
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(conditions.length === 1 ? conditions[0] : undefined)
+      .orderBy(
+        sql`${contacts.role} = 'guardian' DESC`,
+        desc(contacts.updatedAt),
+      )
+      .limit(effectiveLimit)
+      .all();
+
+    if (contactRows.length === 0) return [];
+    const contactIds = contactRows.map((r) => r.id);
+
+    // Step 2: Fetch contacts + their channels (no limit — all channels for
+    // the selected contacts).
+    const rows = this.db
+      .select({ contact: contacts, channel: contactChannels })
+      .from(contacts)
+      .leftJoin(
+        contactChannels,
+        eq(contactChannels.contactId, contacts.id),
+      )
+      .where(
+        sql`${contacts.id} IN (${sql.join(
+          contactIds.map((id) => sql`${id}`),
+          sql`, `,
+        )})`,
+      )
+      .orderBy(
+        sql`${contacts.role} = 'guardian' DESC`,
+        desc(contacts.updatedAt),
+        // Primary channel first, then by creation time — mirrors the daemon
+        // (assistant/src/contacts/contact-store.ts:141) and readAssistantContact.
+        sql`${contactChannels.isPrimary} DESC`,
+        contactChannels.createdAt,
+      )
+      .all();
+
+    return this.joinInfoIntoContacts(rows);
+  }
+
+  /**
+   * Get a single contact with channels + info. Returns null if the contact is
+   * not in the gateway DB.
+   */
+  async getContactWithInfo(
+    contactId: string,
+  ): Promise<ContactWithInfo | null> {
+    const rows = this.db
+      .select({ contact: contacts, channel: contactChannels })
+      .from(contacts)
+      .leftJoin(
+        contactChannels,
+        eq(contactChannels.contactId, contacts.id),
+      )
+      .where(eq(contacts.id, contactId))
+      .orderBy(
+        // Primary channel first, then by creation time — mirrors the daemon
+        // (assistant/src/contacts/contact-store.ts:141) and readAssistantContact.
+        sql`${contactChannels.isPrimary} DESC`,
+        contactChannels.createdAt,
+      )
+      .all();
+
+    if (rows.length === 0) return null;
+    const joined = await this.joinInfoIntoContacts(rows);
+    return joined[0] ?? null;
+  }
+
+  /**
+   * Group gateway contact+channel rows by contact, fetch info for all contact
+   * IDs in one batch, and merge. Soft-fails on assistant DB error.
+   */
+  private async joinInfoIntoContacts(
+    rows: { contact: Contact; channel: ContactChannel | null }[],
+  ): Promise<ContactWithInfo[]> {
+    // Group channels by contact, preserving first-seen contact order.
+    const orderedIds: string[] = [];
+    const byId = new Map<string, { contact: Contact; channels: ContactChannel[] }>();
+    for (const row of rows) {
+      const id = row.contact.id;
+      if (!byId.has(id)) {
+        orderedIds.push(id);
+        byId.set(id, { contact: row.contact, channels: [] });
+      }
+      if (row.channel) {
+        byId.get(id)!.channels.push(row.channel);
+      }
+    }
+
+    let infoMap: Map<string, ContactInfoFields>;
+    try {
+      infoMap = await fetchInfoForContacts(orderedIds);
+    } catch (err) {
+      log.warn(
+        { err, count: orderedIds.length },
+        "listContactsWithInfo: assistant DB info read failed; returning ACL-only shape",
+      );
+      infoMap = new Map();
+    }
+
+    return orderedIds.map((id) => {
+      const { contact, channels } = byId.get(id)!;
+      const info = infoMap.get(id) ?? emptyContactInfo();
+      if (!infoMap.has(id) && orderedIds.length > 0) {
+        // Contact exists in gateway but not assistant DB — dual-write gap.
+        // (Only log once would be nicer, but per-contact visibility matters.)
+        log.warn(
+          { contactId: id },
+          "joinInfoIntoContacts: contact missing from assistant DB (dual-write gap); info fields null",
+        );
+      }
+      return this.composeContactWithInfo(contact, channels, info);
+    });
+  }
+
+  /**
+   * Compose the public ContactWithInfo shape from gateway ACL rows + assistant
+   * info fields. interactionCount/lastInteraction are derived from gateway
+   * channels (trust signals live in gateway per the split).
+   */
+  private composeContactWithInfo(
+    contact: Contact,
+    channels: ContactChannel[],
+    info: ContactInfoFields,
+  ): ContactWithInfo {
+    const interactionCount = channels.reduce(
+      (sum, ch) => sum + (ch.interactionCount ?? 0),
+      0,
+    );
+    const lastInteraction =
+      channels.reduce(
+        (max, ch) => Math.max(max, ch.lastInteraction ?? 0),
+        0,
+      ) || null;
+
+    return {
+      id: contact.id,
+      displayName: contact.displayName,
+      role: contact.role,
+      principalId: contact.principalId,
+      createdAt: contact.createdAt,
+      updatedAt: contact.updatedAt,
+      channels: channels.map((ch) => ({
+        id: ch.id,
+        contactId: ch.contactId,
+        type: ch.type,
+        address: ch.address,
+        isPrimary: ch.isPrimary,
+        externalChatId: ch.externalChatId,
+        status: ch.status,
+        policy: ch.policy,
+        verifiedAt: ch.verifiedAt,
+        verifiedVia: ch.verifiedVia,
+        inviteId: ch.inviteId,
+        revokedReason: ch.revokedReason,
+        blockedReason: ch.blockedReason,
+        lastSeenAt: ch.lastSeenAt,
+        interactionCount: ch.interactionCount,
+        lastInteraction: ch.lastInteraction,
+        createdAt: ch.createdAt,
+        updatedAt: ch.updatedAt,
+      })),
+      interactionCount,
+      lastInteraction,
+      notes: info.notes,
+      userFile: info.userFile,
+      contactType: info.contactType,
+      assistantMetadata: info.assistantMetadata,
+    };
   }
 
   /**
@@ -974,6 +1187,35 @@ export interface ContactWithChannels {
   interactionCount: number;
   lastInteraction: number | null;
   channels: ContactChannelShape[];
+}
+
+/**
+ * Gateway-native contact shape: ACL fields (gateway DB) joined to assistant-
+ * owned info fields. The info fields are nullable because the assistant DB may
+ * be unreachable (soft-fail) or the contact may be absent from it (dual-write
+ * gap) — in either case the ACL shape is still servable. `interactionCount`
+ * and `lastInteraction` are derived from gateway channels (trust signals live
+ * in gateway per the split). `assistantMetadata` is present only for assistant-
+ * species contacts with a metadata row.
+ */
+export interface ContactWithInfo {
+  id: string;
+  displayName: string;
+  role: string;
+  principalId: string | null;
+  createdAt: number;
+  updatedAt: number;
+  channels: ContactChannelShape[];
+  interactionCount: number;
+  lastInteraction: number | null;
+  // assistant-owned info fields (null in degraded mode)
+  notes: string | null;
+  userFile: string | null;
+  contactType: string | null;
+  assistantMetadata: {
+    species: string;
+    metadata: Record<string, unknown> | null;
+  } | null;
 }
 
 interface AssistantContactRow {
