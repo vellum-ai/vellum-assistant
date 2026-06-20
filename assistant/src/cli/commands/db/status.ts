@@ -29,6 +29,7 @@ import { Database } from "bun:sqlite";
 import type { Command } from "commander";
 
 import { getLogsDbPath } from "../../../util/logs-db-path.js";
+import { getMemoryDbPath } from "../../../util/memory-db-path.js";
 import { getDbPath } from "../../../util/platform.js";
 import { red } from "../../lib/cli-colors.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
@@ -83,6 +84,14 @@ interface StatusReport {
    */
   logsFile?: FileFacts;
   logsDb?: DbFacts | null;
+  /**
+   * The secondary memory database (`assistant-memory.db`). Like `logsFile`, it
+   * is omitted from the report until the file exists on disk — it is created
+   * the first time the daemon opens (and ATTACHes) the DB, so a fresh install
+   * that has never run the daemon won't have one.
+   */
+  memoryFile?: FileFacts;
+  memoryDb?: DbFacts | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -320,6 +329,13 @@ function renderHuman(report: StatusReport): string {
     out += renderDbBlock(report.logsFile, report.logsDb ?? null);
   }
 
+  // The secondary memory file is likewise only reported once it exists.
+  if (report.memoryFile?.exists) {
+    out += "\n";
+    out += "Memory database (high-churn memory tables)\n";
+    out += renderDbBlock(report.memoryFile, report.memoryDb ?? null);
+  }
+
   return out;
 }
 
@@ -390,7 +406,25 @@ export function registerDbStatus(parent: Command): void {
         }
       }
 
-      const report: StatusReport = { file, db, logsFile, logsDb };
+      // Same best-effort probe for the secondary memory DB.
+      const memoryFile = readFileFacts(getMemoryDbPath());
+      let memoryDb: DbFacts | null = null;
+      if (memoryFile.exists) {
+        try {
+          memoryDb = readDbFacts(memoryFile.path);
+        } catch {
+          memoryDb = null;
+        }
+      }
+
+      const report: StatusReport = {
+        file,
+        db,
+        logsFile,
+        logsDb,
+        memoryFile,
+        memoryDb,
+      };
       if (shouldOutputJson(this)) {
         writeOutput(this, report);
       } else {

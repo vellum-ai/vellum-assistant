@@ -6,6 +6,7 @@ import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { getLogsDbPath } from "../util/logs-db-path.js";
+import { getMemoryDbPath } from "../util/memory-db-path.js";
 import { ensureDataDir, getDbPath } from "../util/platform.js";
 import { clearStoredDb, getStoredDb, setStoredDb } from "./db-singleton.js";
 import * as schema from "./schema.js";
@@ -53,6 +54,53 @@ function attachLogsDb(sqlite: Database): void {
       getLogger("db-connection").error(
         { err, logsPath },
         "Failed to ATTACH logs database; append-only log tables will be unavailable",
+      ),
+    );
+  }
+}
+
+/**
+ * Schema name under which the secondary memory database file
+ * (`assistant-memory.db`) is ATTACHed to the main connection. High-churn memory
+ * tables (starting with `memory_jobs`) live in this separate file but remain
+ * queryable — and joinable against main-schema tables — over the single daemon
+ * connection. Because no such table exists in the `main` schema once a table is
+ * relocated, an unqualified reference (e.g. `memory_jobs`) resolves to the
+ * attached copy.
+ */
+export const MEMORY_DB_SCHEMA = "memory";
+
+/**
+ * ATTACH the secondary memory database to an open connection and apply its
+ * per-database PRAGMAs.
+ *
+ * `journal_mode` and `synchronous` are per-database settings, so they must be
+ * set against the attached schema explicitly — the PRAGMAs run on `main` before
+ * the attach do not carry over. `busy_timeout`, `foreign_keys`, `cache_size`,
+ * and `temp_store` are connection-wide and already configured on the connection.
+ *
+ * Best-effort: a failure here (e.g. a filesystem permission problem on the new
+ * file) must not take down the main database. We log and continue in line with
+ * the daemon's "never block startup on a subsystem failure" policy; relocated
+ * memory tables are simply unavailable until the next successful open.
+ *
+ * The logger is pulled in lazily (dynamic import) only on the error path. This
+ * file is intentionally kept import-light — see `db-singleton.ts` — so it does
+ * not take a static dependency on the logger (and transitively on pino).
+ */
+function attachMemoryDb(sqlite: Database): void {
+  const memoryPath = getMemoryDbPath();
+  try {
+    // Escape single quotes for the SQL string literal (paths can contain them).
+    const escaped = memoryPath.replace(/'/g, "''");
+    sqlite.exec(`ATTACH DATABASE '${escaped}' AS ${MEMORY_DB_SCHEMA}`);
+    sqlite.exec(`PRAGMA ${MEMORY_DB_SCHEMA}.journal_mode=WAL`);
+    sqlite.exec(`PRAGMA ${MEMORY_DB_SCHEMA}.synchronous=FULL`);
+  } catch (err) {
+    void import("../util/logger.js").then(({ getLogger }) =>
+      getLogger("db-connection").error(
+        { err, memoryPath },
+        "Failed to ATTACH memory database; relocated memory tables will be unavailable",
       ),
     );
   }
@@ -130,6 +178,7 @@ export function getDb(): DrizzleDb {
   sqlite.exec("PRAGMA cache_size=-256000");
   sqlite.exec("PRAGMA temp_store=MEMORY");
   attachLogsDb(sqlite);
+  attachMemoryDb(sqlite);
   const db = drizzle(sqlite, { schema });
   setStoredDb(db, () => sqlite.close());
   return db;
