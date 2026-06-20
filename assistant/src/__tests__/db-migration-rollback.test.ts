@@ -1038,7 +1038,7 @@ describe("rollbackMemoryMigration", () => {
     expect(cp1000!.value).toBe("1");
   });
 
-  test("clears forward-step checkpoints so a re-upgrade re-applies a rolled-back registry-backed step", () => {
+  test("clears forward-step checkpoints so a re-upgrade re-applies a rolled-back registry-backed step", async () => {
     /**
      * A registry-backed migration that is also a named forward step is tracked
      * in both the registry checkpoint (via withCrashRecovery) and the runner's
@@ -1083,7 +1083,7 @@ describe("rollbackMemoryMigration", () => {
     });
 
     // AND the step has run once through the runner, recording both checkpoints.
-    runMigrationSteps(db, [migrateTestStepRollback]);
+    await runMigrationSteps(db, [migrateTestStepRollback]);
     expect(hasTable()).toBe(true);
     expect(
       raw
@@ -1098,7 +1098,7 @@ describe("rollbackMemoryMigration", () => {
     expect(hasTable()).toBe(false);
 
     // WHEN the runner executes the forward steps again on a later upgrade.
-    runMigrationSteps(db, [migrateTestStepRollback]);
+    await runMigrationSteps(db, [migrateTestStepRollback]);
 
     // THEN the rolled-back step re-applies instead of being skipped.
     expect(hasTable()).toBe(true);

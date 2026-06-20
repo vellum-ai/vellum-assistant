@@ -7,8 +7,16 @@ const log = getLogger("db-init");
 /**
  * A single forward migration step, identified for checkpointing and logging by
  * its `.name`. Anonymous steps (empty `.name`) cannot be tracked and always run.
+ *
+ * A step may be synchronous or return a promise. The runner awaits an async
+ * step to completion before checkpointing it and moving on, so ordering is
+ * preserved exactly as for sync steps: step N+1 never starts — and is never
+ * skipped via checkpoint — until step N has fully finished. This lets a step
+ * that drains a large backfill in `await`ed batches run without blocking the
+ * thread between batches while still guaranteeing later migrations observe its
+ * completed result.
  */
-export type MigrationStep = (database: DrizzleDb) => void;
+export type MigrationStep = (database: DrizzleDb) => void | Promise<void>;
 
 export interface MigrationRunResult {
   /** Steps whose body threw. */
@@ -103,7 +111,8 @@ export function recoverCrashedMigrations(database: DrizzleDb): string[] {
  * Run the ordered list of forward migration steps against the database, each at
  * most once across boots.
  *
- * A step's name is recorded in `memory_checkpoints` after its body completes; on
+ * A step's name is recorded in `memory_checkpoints` after its body completes —
+ * for an async step, after its returned promise resolves; on
  * later boots an applied step is skipped instead of re-executed. This turns the
  * unconditional ~200-step re-probe — which floors daemon startup at tens of
  * seconds on a fully-migrated database — into a single bookkeeping read.
@@ -121,10 +130,10 @@ export function recoverCrashedMigrations(database: DrizzleDb): string[] {
  * not prevent independent later ones from succeeding; a failed step is not
  * checkpointed and is retried on the next boot.
  */
-export function runMigrationSteps(
+export async function runMigrationSteps(
   database: DrizzleDb,
   steps: MigrationStep[],
-): MigrationRunResult {
+): Promise<MigrationRunResult> {
   const raw = getSqliteFrom(database);
 
   ensureCheckpointsTable(raw);
@@ -158,7 +167,13 @@ export function runMigrationSteps(
 
     try {
       log.debug({ migration: name }, `Starting migration: ${name}`);
-      step(database);
+      // Await only steps that actually return a promise, so a list of purely
+      // synchronous steps runs to completion without yielding the thread — and
+      // an async step is fully drained before it is checkpointed below.
+      const result = step(database);
+      if (result instanceof Promise) {
+        await result;
+      }
       log.debug({ migration: name }, `Migration succeeded: ${name}`);
       if (checkpointable) {
         markApplied.run(`${STEP_CHECKPOINT_PREFIX}${name}`, Date.now());

@@ -19,7 +19,7 @@ function createTestDb() {
 }
 
 describe("runMigrationSteps — checkpointing", () => {
-  test("does not re-execute a step that was already applied on a prior run", () => {
+  test("does not re-execute a step that was already applied on a prior run", async () => {
     /**
      * Booting an already-migrated database must not re-run forward migration
      * steps. With true checkpointing each step's body executes at most once
@@ -43,16 +43,16 @@ describe("runMigrationSteps — checkpointing", () => {
 
     // AND a database that has already been migrated once
     const db = createTestDb();
-    runMigrationSteps(db, steps);
+    await runMigrationSteps(db, steps);
 
     // WHEN the same steps run again against the already-migrated database
-    runMigrationSteps(db, steps);
+    await runMigrationSteps(db, steps);
 
     // THEN no step body executes a second time
     expect(calls).toEqual({ a: 1, b: 1, c: 1 });
   });
 
-  test("records step completions in the shared memory_checkpoints ledger", () => {
+  test("records step completions in the shared memory_checkpoints ledger", async () => {
     /**
      * Step bookkeeping lives in the same memory_checkpoints table the registry
      * uses, under the `step:` namespace — one ledger for all applied state.
@@ -60,7 +60,7 @@ describe("runMigrationSteps — checkpointing", () => {
 
     // GIVEN a single named step
     const db = createTestDb();
-    runMigrationSteps(db, [
+    await runMigrationSteps(db, [
       function dummyMigrationA() {
         // no-op
       },
@@ -75,7 +75,7 @@ describe("runMigrationSteps — checkpointing", () => {
     expect(row?.value).toBe("1");
   });
 
-  test("runs a newly appended step on a later boot while skipping applied ones", () => {
+  test("runs a newly appended step on a later boot while skipping applied ones", async () => {
     /**
      * Checkpointing must not block migrations added in a later release: an
      * already-applied step is skipped, but a brand-new step still runs.
@@ -90,7 +90,7 @@ describe("runMigrationSteps — checkpointing", () => {
       calls.b++;
     };
     const db = createTestDb();
-    runMigrationSteps(db, [stepA, stepB]);
+    await runMigrationSteps(db, [stepA, stepB]);
 
     // AND a third step appended to the list
     const stepC: MigrationStep = function dummyMigrationC() {
@@ -98,13 +98,13 @@ describe("runMigrationSteps — checkpointing", () => {
     };
 
     // WHEN the expanded list runs against the already-migrated database
-    runMigrationSteps(db, [stepA, stepB, stepC]);
+    await runMigrationSteps(db, [stepA, stepB, stepC]);
 
     // THEN only the newly appended step executes
     expect(calls).toEqual({ a: 1, b: 1, c: 1 });
   });
 
-  test("recovers crashed migrations before running steps", () => {
+  test("recovers crashed migrations before running steps", async () => {
     /**
      * runMigrationSteps clears stalled `started`/`rolling_back` checkpoints
      * before the loop so a migration interrupted mid-flight re-runs this boot.
@@ -121,7 +121,7 @@ describe("runMigrationSteps — checkpointing", () => {
     );
 
     // WHEN the runner executes
-    runMigrationSteps(db, [
+    await runMigrationSteps(db, [
       function dummyMigrationA() {
         // no-op
       },
@@ -136,7 +136,7 @@ describe("runMigrationSteps — checkpointing", () => {
     expect(row).toBeNull();
   });
 
-  test("does not checkpoint a failed step so it retries on the next boot", () => {
+  test("does not checkpoint a failed step so it retries on the next boot", async () => {
     /**
      * A step whose body throws is reported in `failed` and left uncheckpointed,
      * so the next boot retries it instead of silently skipping it.
@@ -153,21 +153,21 @@ describe("runMigrationSteps — checkpointing", () => {
       },
     ];
     const db = createTestDb();
-    const first = runMigrationSteps(db, steps);
+    const first = await runMigrationSteps(db, steps);
 
     // AND the first run reports the failure
     expect(first.failed).toEqual(["flakyStep"]);
 
     // WHEN the step runs again on the next boot
-    const second = runMigrationSteps(db, steps);
+    const second = await runMigrationSteps(db, steps);
 
     // THEN it retries, succeeds, and is then checkpointed
     expect(calls.flaky).toBe(2);
     expect(second.failed).toEqual([]);
-    expect(runMigrationSteps(db, steps).skipped).toEqual(["flakyStep"]);
+    expect((await runMigrationSteps(db, steps)).skipped).toEqual(["flakyStep"]);
   });
 
-  test("clearMigrationStepCheckpoints forces every step to re-run", () => {
+  test("clearMigrationStepCheckpoints forces every step to re-run", async () => {
     /**
      * Clearing the step namespace (as rollback does) makes the next run
      * re-execute and re-record all steps.
@@ -181,14 +181,87 @@ describe("runMigrationSteps — checkpointing", () => {
       },
     ];
     const db = createTestDb();
-    runMigrationSteps(db, steps);
+    await runMigrationSteps(db, steps);
     expect(calls.a).toBe(1);
 
     // WHEN the step checkpoints are cleared
     clearMigrationStepCheckpoints(db);
 
     // THEN the next run re-executes the step
-    runMigrationSteps(db, steps);
+    await runMigrationSteps(db, steps);
     expect(calls.a).toBe(2);
+  });
+
+  test("awaits an async step to completion before running or checkpointing the next", async () => {
+    /**
+     * An async step must be fully drained before the runner advances: ordering
+     * is the invariant later migrations rely on (step N+1 may assume N's result
+     * is true), and the step is checkpointed only after its promise resolves so
+     * a crash mid-drain leaves it uncheckpointed and retryable rather than
+     * recorded as done.
+     */
+
+    // GIVEN an async step that records its completion order only after yielding,
+    // followed by a sync step that records when it starts
+    const order: string[] = [];
+    const steps: MigrationStep[] = [
+      async function asyncDrainStep() {
+        await Promise.resolve();
+        order.push("async-done");
+      },
+      function followingStep() {
+        order.push("following-start");
+      },
+    ];
+    const db = createTestDb();
+
+    // WHEN the runner executes both steps
+    const result = await runMigrationSteps(db, steps);
+
+    // THEN the async step finishes before the next step starts
+    expect(order).toEqual(["async-done", "following-start"]);
+
+    // AND both steps are checkpointed, so a later boot skips them
+    expect(result.failed).toEqual([]);
+    expect((await runMigrationSteps(db, steps)).skipped).toEqual([
+      "asyncDrainStep",
+      "followingStep",
+    ]);
+  });
+
+  test("a rejected async step is reported failed and left uncheckpointed", async () => {
+    /**
+     * A step whose promise rejects must be treated exactly like a synchronous
+     * throw: reported in `failed`, not checkpointed, and retried next boot.
+     */
+
+    // GIVEN an async step that rejects on its first run and resolves afterwards
+    const calls = { flaky: 0 };
+    const steps: MigrationStep[] = [
+      async function flakyAsyncStep() {
+        calls.flaky++;
+        await Promise.resolve();
+        if (calls.flaky === 1) {
+          throw new Error("transient async failure");
+        }
+      },
+    ];
+    const db = createTestDb();
+
+    // WHEN it runs and rejects
+    const first = await runMigrationSteps(db, steps);
+
+    // THEN the rejection is reported and the step is not checkpointed
+    expect(first.failed).toEqual(["flakyAsyncStep"]);
+
+    // WHEN it runs again on the next boot
+    const second = await runMigrationSteps(db, steps);
+
+    // THEN it retries, resolves, and is then checkpointed
+    expect(calls.flaky).toBe(2);
+    expect(second.failed).toEqual([]);
+    expect((await runMigrationSteps(db, steps)).skipped).toEqual([
+      "flakyAsyncStep",
+    ]);
   });
 });

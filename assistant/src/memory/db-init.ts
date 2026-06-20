@@ -332,7 +332,7 @@ function saveTemplate(): void {
 
 // ---------------------------------------------------------------------------
 
-export function initializeDb(): void {
+export async function initializeDb(): Promise<void> {
   if (process.env.BUN_TEST === "1" && tryRestoreTemplate()) {
     return;
   }
@@ -595,7 +595,7 @@ export function initializeDb(): void {
   // broken migration doesn't prevent independent later ones from succeeding.
   // The runner creates the checkpoint ledger, recovers crashed migrations, then
   // records each step so an already-migrated database skips it on later boots.
-  const { failed, skipped } = runMigrationSteps(database, migrationSteps);
+  const { failed, skipped } = await runMigrationSteps(database, migrationSteps);
 
   log.debug(
     {
