@@ -24,10 +24,12 @@ import {
 import type { ImageContent, Message } from "../../../../providers/types.js";
 import type { ToolContext } from "../../../../tools/types.js";
 import { resolveVisionMedia } from "./media-source.js";
+import {
+  isVisionPerceptionProviderAvailable,
+  VISION_CALL_SITE,
+} from "./vision-capability.js";
 
-// Dedicated vision call site. Its profile (a vision-capable model) is resolved
-// by the LLM config layer when the `vision-perception` feature flag is on.
-const VISION_CALL_SITE = "visionPerception" as const;
+export { VISION_CALL_SITE };
 
 const VISION_SYSTEM_PROMPT =
   "You are a vision assistant. Examine the provided image carefully and respond " +
@@ -45,6 +47,19 @@ export async function sendVisionMessage(
   systemPrompt: string,
   ctx: ToolContext,
 ): Promise<string> {
+  // Execution guard (mirrors the tool-offering gate): never send image/video
+  // frames unless the visionPerception call site resolves to an enabled,
+  // vision-capable model. In BYOK installs the managed `vision` profile is seeded
+  // disabled, so the call site can strip back to the user's (possibly non-vision)
+  // active profile — refuse rather than send media a model cannot read. The tool
+  // executors convert this throw into a clear `{ isError: true }` result.
+  if (!isVisionPerceptionProviderAvailable()) {
+    throw new Error(
+      "vision perception is unavailable: the visionPerception profile does not " +
+        "resolve to an enabled vision-capable model",
+    );
+  }
+
   const provider = await getConfiguredProvider(VISION_CALL_SITE);
   if (!provider) {
     throw new Error("no vision inference provider is configured");

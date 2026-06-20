@@ -36,12 +36,11 @@ mock.module("../../../../memory/attachments-store.js", () => ({
 const {
   applyVisionPerceptionMarkers,
   resolveBackboneSupportsVision,
-  resolveBackboneSupportsVideo,
   isVlmToolName,
 } = await import("../hooks/pre-model-call.js");
 
-// Vision-capable (anthropic/claude-opus-4-8) and non-vision
-// (fireworks/glm-5p2) catalog entries.
+// Vision-capable (anthropic/claude-opus-4-8) and text-only (fireworks/glm-5p2)
+// catalog entries.
 const VISION_MODEL = { provider: "anthropic", model: "claude-opus-4-8" };
 const NON_VISION_MODEL = {
   provider: "fireworks",
@@ -81,14 +80,9 @@ const resolutionOpts = {
 
 const gate = () => resolveBackboneSupportsVision(resolutionOpts);
 
-// Per-modality support object for `applyVisionPerceptionMarkers`, resolved the
-// same way the agent loop does (image gate via supportsVision, video gate via
-// supportsVideo — always false today so an image-vision backbone still gets
-// video markers).
-const support = () => ({
-  supportsVision: resolveBackboneSupportsVision(resolutionOpts),
-  supportsVideo: resolveBackboneSupportsVideo(resolutionOpts),
-});
+// Single supportsVision decision passed to `applyVisionPerceptionMarkers`,
+// resolved the same way the agent loop does.
+const supportsVision = () => resolveBackboneSupportsVision(resolutionOpts);
 
 beforeEach(() => {
   flagEnabled = true;
@@ -101,41 +95,63 @@ beforeEach(() => {
 });
 
 describe("vision-capable backbone keeps the feature inert", () => {
-  test("vlm_* tools are not offered and media blocks pass through unchanged", () => {
+  test("vlm_* tools are not offered and ALL media blocks pass through unchanged", () => {
     resolvedProviderModel = { ...VISION_MODEL };
 
     // Tool gate: a vision-capable backbone reports supportsVision === true,
-    // which the tool resolver reads as "omit the vlm_* tools".
+    // which the tool resolver reads as "omit all the vlm_* tools".
     expect(gate()).toBe(true);
     expect(isVlmToolName("vlm_ask")).toBe(true);
+    expect(isVlmToolName("vlm_video_log")).toBe(true);
 
-    // Media passes through untouched (same reference, raw image preserved).
+    // Image media passes through untouched (same reference, raw image preserved).
     const messages = [imageMessage("att-1")];
-    const out = applyVisionPerceptionMarkers(messages, support());
+    const out = applyVisionPerceptionMarkers(messages, supportsVision());
     expect(out).toBe(messages);
     expect(out[0].content[1]).toMatchObject({ type: "image" });
   });
+
+  test("video media ALSO passes through unchanged on a vision-capable backbone (single gate)", () => {
+    // Reverts the per-modality video carve-out: a vision-capable backbone is
+    // fully inert, so an uploaded video is NOT rewritten into a marker.
+    resolvedProviderModel = { ...VISION_MODEL };
+    expect(gate()).toBe(true);
+
+    const messages = [
+      fileMessage({
+        source: {
+          type: "base64",
+          media_type: "video/mp4",
+          data: "AAAA",
+          filename: "clip.mp4",
+        },
+        _attachmentId: "vid-1",
+      }),
+    ];
+    const out = applyVisionPerceptionMarkers(messages, supportsVision());
+    expect(out).toBe(messages);
+    expect(out[0].content.some((b) => b.type === "file")).toBe(true);
+  });
 });
 
-describe("non-vision backbone surfaces a usable media_ref", () => {
+describe("text-only backbone surfaces a usable media_ref", () => {
   test("image block becomes a marker whose media_ref is the attachment id; tools stay offered", () => {
     resolvedProviderModel = { ...NON_VISION_MODEL };
 
-    // Tool gate: a non-vision backbone reports supportsVision === false, which
+    // Tool gate: a text-only backbone reports supportsVision === false, which
     // the tool resolver reads as "offer the vlm_* tools".
     expect(gate()).toBe(false);
 
     const out = applyVisionPerceptionMarkers(
       [imageMessage("att-1")],
-      support(),
+      supportsVision(),
     );
     const blocks = out[0].content;
 
     // The raw image is gone; the model never receives image bytes.
     expect(blocks.some((b) => b.type === "image")).toBe(false);
 
-    // A text marker replaced it, carrying the attachment id as media_ref
-    // (closes Codex P1: the uploaded image exposes a usable media_ref).
+    // A text marker replaced it, carrying the attachment id as media_ref.
     const marker = blocks.find(
       (b) => b.type === "text" && b.text.includes("id="),
     );
@@ -146,9 +162,7 @@ describe("non-vision backbone surfaces a usable media_ref", () => {
     expect(text).toContain('file "photo.png"');
     expect(text).toContain("vlm_ask");
   });
-});
 
-describe("non-vision backbone surfaces uploaded videos", () => {
   test("a video file block becomes a marker advertising vlm_video_log", () => {
     resolvedProviderModel = { ...NON_VISION_MODEL };
 
@@ -164,7 +178,7 @@ describe("non-vision backbone surfaces uploaded videos", () => {
           _attachmentId: "vid-1",
         }),
       ],
-      support(),
+      supportsVision(),
     );
     const blocks = out[0].content;
 
@@ -198,7 +212,7 @@ describe("non-vision backbone surfaces uploaded videos", () => {
           _attachmentId: "vid-1",
         }),
       ],
-      support(),
+      supportsVision(),
     );
     const blocks = out[0].content;
     expect(blocks.some((b) => b.type === "file")).toBe(false);
@@ -223,94 +237,49 @@ describe("non-vision backbone surfaces uploaded videos", () => {
         _attachmentId: "doc-1",
       }),
     ];
-    const out = applyVisionPerceptionMarkers(messages, support());
+    const out = applyVisionPerceptionMarkers(messages, supportsVision());
     // No rewrite was needed, so the same array reference comes back and the file
     // block survives intact.
     expect(out).toBe(messages);
     expect(out[0].content[1]).toMatchObject({ type: "file" });
   });
-
-  test("an image-vision backbone still gets a vlm_video_log marker for video (Fix #2 per-modality gating)", () => {
-    // An image-vision backbone (supportsVision === true) cannot process native
-    // video, so the video file block must STILL become a vlm_video_log marker
-    // even though images would pass through. resolveBackboneSupportsVideo is
-    // false for every catalog model today.
-    resolvedProviderModel = { ...VISION_MODEL };
-    expect(gate()).toBe(true); // image vision native
-    expect(support().supportsVideo).toBe(false); // video not native
-
-    const messages = [
-      fileMessage({
-        source: {
-          type: "base64",
-          media_type: "video/mp4",
-          data: "AAAA",
-          filename: "clip.mp4",
-        },
-        _attachmentId: "vid-1",
-      }),
-    ];
-    const out = applyVisionPerceptionMarkers(messages, support());
-
-    // The raw video file block is gone; a vlm_video_log marker replaces it.
-    expect(out[0].content.some((b) => b.type === "file")).toBe(false);
-    const marker = out[0].content.find(
-      (b) => b.type === "text" && b.text.includes("vlm_video_log"),
-    );
-    expect(marker).toBeDefined();
-    expect((marker as { text: string }).text).toContain('media_ref="vid-1"');
-  });
-
-  test("an image-vision backbone passes IMAGE blocks through untouched (Fix #2)", () => {
-    // Images are native for a vision-capable backbone, so an image block is left
-    // intact even though video would be rewritten on the same backbone.
-    resolvedProviderModel = { ...VISION_MODEL };
-    const messages = [imageMessage("att-1")];
-    const out = applyVisionPerceptionMarkers(messages, support());
-    expect(out).toBe(messages);
-    expect(out[0].content.some((b) => b.type === "image")).toBe(true);
-  });
 });
 
 describe("no media attachments", () => {
-  test("non-vision backbone leaves an attachment-free request unchanged", () => {
+  test("text-only backbone leaves an attachment-free request unchanged", () => {
     resolvedProviderModel = { ...NON_VISION_MODEL };
     const messages: Message[] = [
       { role: "user", content: [{ type: "text", text: "hello" }] },
     ];
-    const out = applyVisionPerceptionMarkers(messages, support());
+    const out = applyVisionPerceptionMarkers(messages, supportsVision());
     expect(out).toBe(messages);
   });
 
   test("an image block without an attachment id is left intact (no usable media_ref)", () => {
     resolvedProviderModel = { ...NON_VISION_MODEL };
     const messages = [imageMessage()];
-    const out = applyVisionPerceptionMarkers(messages, support());
+    const out = applyVisionPerceptionMarkers(messages, supportsVision());
     expect(out).toBe(messages);
     expect(out[0].content[1]).toMatchObject({ type: "image" });
   });
 });
 
 describe("feature flag gating", () => {
-  test("flag off makes a non-vision backbone report inert (supportsVision true)", () => {
+  test("flag off makes a text-only backbone report inert (supportsVision true)", () => {
     flagEnabled = false;
     resolvedProviderModel = { ...NON_VISION_MODEL };
     expect(gate()).toBe(true);
-    // Flag off → BOTH modalities report inert, so the video tool/marker path is
-    // also suppressed (not just images).
-    expect(resolveBackboneSupportsVideo(resolutionOpts)).toBe(true);
 
     // With the gate inert, media passes through and no marker is injected.
     const messages = [imageMessage("att-1")];
-    expect(applyVisionPerceptionMarkers(messages, support())).toBe(messages);
+    expect(applyVisionPerceptionMarkers(messages, supportsVision())).toBe(
+      messages,
+    );
   });
 
-  test("flag on keeps video inert (no native-video model) but engages images for a non-vision backbone", () => {
+  test("flag on engages the feature for a text-only backbone", () => {
     flagEnabled = true;
     resolvedProviderModel = { ...NON_VISION_MODEL };
-    // No catalog model is natively video-capable, so video support is false
-    // whenever the flag is on (the video tool/marker stay active).
-    expect(resolveBackboneSupportsVideo(resolutionOpts)).toBe(false);
     expect(gate()).toBe(false);
   });
 });

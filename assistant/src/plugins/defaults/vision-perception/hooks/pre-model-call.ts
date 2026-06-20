@@ -1,17 +1,21 @@
 /**
  * `pre-model-call` gating for vision perception.
  *
- * Vision perception only engages for backbones that lack native image/video
- * support. The gate is evaluated per turn against the *resolved* model:
+ * This entire feature is a crutch for a text-only backbone (today the only such
+ * catalog model is GLM 5.2, `supportsVision: false`). It engages on a SINGLE
+ * capability gate — the resolved backbone's `supportsVision` — and is fully inert
+ * for every vision-capable model. The gate is evaluated per turn against the
+ * *resolved* model:
  *
- * - **Vision-capable backbone:** the feature is fully inert. The `vlm_*` tools
- *   are removed from the offered tool list (see {@link VLM_TOOL_NAMES}, gated in
- *   `daemon/conversation-tool-setup.ts`) and media blocks pass through to the
- *   model unchanged.
- * - **Non-vision backbone:** an uploaded image must never reach the model as raw
- *   bytes. Each media block on the outbound request is replaced with a text
- *   marker that names the attachment id, so the model can read it by calling a
- *   `vlm_*` tool with `media_ref="<id>"`. The `vlm_*` tools stay offered.
+ * - **Vision-capable backbone (`supportsVision === true`):** the feature is fully
+ *   inert. The `vlm_*` tools are removed from the offered tool list (see
+ *   {@link VLM_TOOL_NAMES}, gated in `daemon/conversation-tool-setup.ts`) and ALL
+ *   media blocks (image and video) pass through to the model unchanged.
+ * - **Text-only backbone (`supportsVision === false`):** an uploaded image/video
+ *   must never reach the model as raw bytes. Each media block on the outbound
+ *   request is replaced with a text marker that names the attachment id, so the
+ *   model can read it by calling a `vlm_*` tool with `media_ref="<id>"`. The
+ *   `vlm_*` tools stay offered.
  *
  * The runtime `PreModelCallContext` carries neither the outbound message list
  * nor the offered tools, so the two mutations are driven from the per-turn paths
@@ -39,54 +43,25 @@ import type {
 } from "../../../../providers/types.js";
 
 /**
- * The model-visible IMAGE-inspection tools the plugin contributes. Gated on the
- * backbone's native *image* vision (`supportsVision`): a backbone that can see
- * images itself reads uploaded images directly, so these are dead weight and
- * omitted for it.
+ * Names of every model-visible vision tool the plugin contributes. Kept here so
+ * the offered-tool gate (which omits them all when the backbone sees natively)
+ * and the media marker (which names them as the way to inspect an attachment)
+ * share one source of truth. ALL of these gate together on the single
+ * `supportsVision` capability — there is no per-modality (image vs video) split:
+ * the feature is offered as a whole for a text-only backbone and withheld as a
+ * whole for a vision-capable one.
  */
-export const VLM_IMAGE_TOOL_NAMES: ReadonlySet<string> = new Set([
+export const VLM_TOOL_NAMES: ReadonlySet<string> = new Set([
   "vlm_ask",
   "vlm_describe",
   "vlm_ocr",
   "vlm_detect",
-]);
-
-/**
- * The model-visible VIDEO-inspection tool. Gated on native *video* support, not
- * `supportsVision`: an image-vision backbone still cannot process `video/*`
- * (the provider serializers render video files as text placeholders, not native
- * video), so it must keep this tool. No catalog model supports native video
- * through our pipeline today, so it is offered whenever the feature is active —
- * see {@link resolveBackboneSupportsVideo}.
- */
-export const VLM_VIDEO_TOOL_NAMES: ReadonlySet<string> = new Set([
   "vlm_video_log",
-]);
-
-/**
- * Names of every model-visible vision tool the plugin contributes. Kept here so
- * the offered-tool gate (which omits them per-modality) and the media marker
- * (which names them as the way to inspect an attachment) share one source of
- * truth, independent of which subset of tools is currently registered.
- */
-export const VLM_TOOL_NAMES: ReadonlySet<string> = new Set([
-  ...VLM_IMAGE_TOOL_NAMES,
-  ...VLM_VIDEO_TOOL_NAMES,
 ]);
 
 /** Whether `name` is one of the plugin's vision tools. */
 export function isVlmToolName(name: string): boolean {
   return VLM_TOOL_NAMES.has(name);
-}
-
-/** Whether `name` is one of the plugin's IMAGE-inspection tools. */
-export function isVlmImageToolName(name: string): boolean {
-  return VLM_IMAGE_TOOL_NAMES.has(name);
-}
-
-/** Whether `name` is the plugin's VIDEO-inspection tool. */
-export function isVlmVideoToolName(name: string): boolean {
-  return VLM_VIDEO_TOOL_NAMES.has(name);
 }
 
 export interface BackboneResolutionOpts {
@@ -116,15 +91,15 @@ function resolveBackboneCatalogModel(opts: BackboneResolutionOpts) {
 }
 
 /**
- * Resolve whether the backbone that will serve a turn natively supports IMAGE
- * vision, reading `supportsVision` from the model catalog. Unknown (provider,
- * model) pairs fail open to `true` — matching `GET /v1/config`'s per-profile
- * enrichment — so custom or unlisted models keep native image handling and the
- * feature stays inert for them.
+ * Resolve whether the backbone that will serve a turn natively supports vision,
+ * reading `supportsVision` from the model catalog. Unknown (provider, model)
+ * pairs fail open to `true` — matching `GET /v1/config`'s per-profile enrichment
+ * — so custom or unlisted models keep native media handling and the feature
+ * stays inert for them.
  *
  * Returns `true` (feature inert) whenever the `vision-perception` flag is off,
  * so callers gate uniformly on this one predicate: a vision-capable result means
- * "leave images intact and don't offer the image vlm_* tools".
+ * "leave media intact and don't offer the vlm_* tools".
  */
 export function resolveBackboneSupportsVision(
   opts: BackboneResolutionOpts,
@@ -140,41 +115,6 @@ export function resolveBackboneSupportsVision(
   }
 }
 
-/**
- * Resolve whether the backbone that will serve a turn natively supports VIDEO.
- *
- * There is no `supportsVideo` capability in the catalog today and no catalog
- * model can process `video/*` natively through our pipeline (the provider
- * serializers render video files as text placeholders), so this is always
- * `false` while the feature is active: `vlm_video_log` and the video marker
- * stay available even on an image-vision backbone.
- *
- * Returns `true` (feature inert) whenever the `vision-perception` flag is off,
- * mirroring {@link resolveBackboneSupportsVision}.
- *
- * If a natively-video-capable model is ever added, give the catalog a
- * `supportsVideo` field and return it here (fail open to `false` for unknown
- * models, since native video remains the rare case) so the video tool/marker
- * become inert for those backbones exactly as the image path does today.
- */
-export function resolveBackboneSupportsVideo(
-  // Unused today — kept so callers thread the same resolution opts as the image
-  // gate and the extension point (a future `supportsVideo` catalog read) is
-  // already wired. See the doc above.
-  _opts: BackboneResolutionOpts,
-): boolean {
-  try {
-    // Flag off → inert (mirrors the image gate). With the flag on, no catalog
-    // model is natively video-capable, so the video tool/marker stay active.
-    return isVisionPerceptionEnabled(getConfig()) ? false : true;
-  } catch {
-    // A config-read failure leaves the video path active (fail closed toward
-    // "the model can't read video natively"), matching the marker rewrite's
-    // intent that raw video never silently reach a model that can't read it.
-    return false;
-  }
-}
-
 /** Human-readable media kind for the marker text. */
 function mediaKind(block: ImageContent): "Image" | "Video" {
   return block.source.media_type.startsWith("video/") ? "Video" : "Image";
@@ -184,7 +124,7 @@ function mediaKind(block: ImageContent): "Image" | "Video" {
  * Whether a `file` block carries a video the model can't read inline. Inline
  * uploads of `video/*` reach the model as a {@link FileContent} block (only
  * `image/*` becomes an {@link ImageContent} — see `agent/attachments.ts`), so a
- * non-vision backbone needs that block rewritten into a `vlm_video_log` marker
+ * text-only backbone needs that block rewritten into a `vlm_video_log` marker
  * too. Detected by the block's own `media_type` first (no DB hit), falling back
  * to the attachment row's `kind` for blocks whose declared MIME is generic.
  */
@@ -209,7 +149,7 @@ function resolveAttachmentFilename(attachmentId: string): string {
 }
 
 /**
- * Render the text marker that replaces a raw media block for a non-vision
+ * Render the text marker that replaces a raw media block for a text-only
  * backbone. Names the attachment id so the model has a usable `media_ref`, and
  * advertises the right tool for the media kind: `vlm_video_log` for videos, the
  * image inspection tools otherwise.
@@ -231,34 +171,15 @@ export function renderMediaMarker(
 }
 
 /**
- * Per-modality gating for the marker rewrite. A modality's media is replaced
- * with an attachment-id marker only when the backbone CANNOT process that
- * modality natively, so an image-vision backbone (image native, video not) gets
- * raw images through but a video marker for any uploaded video.
- */
-export interface VisionPerceptionModalitySupport {
-  /** The backbone natively reads IMAGES (`supportsVision`). */
-  supportsVision: boolean;
-  /** The backbone natively reads VIDEO (always `false` today — see
-   * {@link resolveBackboneSupportsVideo}). */
-  supportsVideo: boolean;
-}
-
-/**
- * Replace raw media blocks with attachment-id markers, PER MODALITY, when the
- * backbone lacks native support for that modality. Returns the input array
- * unchanged (same reference) when nothing needs replacing, so a request that
- * needs no rewrite is not copied.
+ * Replace raw media blocks (images AND videos) with attachment-id markers when
+ * the backbone cannot see media natively. Returns the input array unchanged
+ * (same reference) when nothing needs replacing, so a request that needs no
+ * rewrite is not copied.
  *
- * Modalities are gated independently:
- *  - IMAGE media (an `image` block with an `image/*` media_type) is replaced
- *    only when `supportsVision` is false.
- *  - VIDEO media (a `file` block carrying a video — see {@link isVideoFileBlock}
- *    — or, defensively, an `image` block with a `video/*` media_type) is
- *    replaced only when `supportsVideo` is false. An image-vision backbone still
- *    cannot process `video/*` natively (the provider serializers render it as a
- *    text placeholder), so the video still becomes a `vlm_video_log` marker even
- *    though images pass through.
+ * Single gate: `supportsVision === true` → fully inert, every media block passes
+ * through. `supportsVision === false` → both image media (an `image` block) and
+ * video media (a `file` block carrying a video — see {@link isVideoFileBlock} —
+ * or, defensively, an `image` block with a `video/*` media_type) become markers.
  *
  * Non-video `file` blocks (PDFs, documents, …) are left intact — the backbone
  * can read their `extracted_text`, and there is no `vlm_*` tool for them.
@@ -269,14 +190,14 @@ export interface VisionPerceptionModalitySupport {
  */
 export function applyVisionPerceptionMarkers(
   messages: Message[],
-  support: VisionPerceptionModalitySupport,
+  supportsVision: boolean,
 ): Message[] {
-  const { supportsVision, supportsVideo } = support;
-  // Both modalities native → feature fully inert, nothing to rewrite.
-  if (supportsVision && supportsVideo) return messages;
+  // Vision-capable backbone → feature fully inert, nothing to rewrite.
+  if (supportsVision) return messages;
 
-  // Classify a block's modality (or null when it is not replaceable media).
-  const modalityOf = (block: ContentBlock): "Image" | "Video" | null => {
+  // A block is replaced (with the marker for its media kind) only when it is
+  // replaceable media carrying an attachment id.
+  const replaceableKind = (block: ContentBlock): "Image" | "Video" | null => {
     if (block.type === "image") {
       if (typeof block._attachmentId !== "string") return null;
       return mediaKind(block); // "Image" or "Video" (defensive video/* image)
@@ -285,14 +206,6 @@ export function applyVisionPerceptionMarkers(
       if (typeof block._attachmentId !== "string") return null;
       return isVideoFileBlock(block) ? "Video" : null;
     }
-    return null;
-  };
-
-  // A block is replaced only when its modality is NOT natively supported.
-  const replaceableKind = (block: ContentBlock): "Image" | "Video" | null => {
-    const modality = modalityOf(block);
-    if (modality === "Image") return supportsVision ? null : "Image";
-    if (modality === "Video") return supportsVideo ? null : "Video";
     return null;
   };
 
