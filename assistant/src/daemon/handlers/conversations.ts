@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 
+import { peekAcpSessionManager } from "../../acp/index.js";
 import { clearAll, getConversation } from "../../memory/conversation-crud.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
@@ -106,6 +107,12 @@ export function cancelGeneration(conversationId: string): boolean {
   // being cancelled, so enqueuing synthetic messages would trigger
   // unwanted model activity after the user pressed stop.
   getSubagentManager().abortAllForParent(conversationId);
+  // Cancel any in-flight ACP agent sessions this conversation spawned, for the
+  // same reason: a backgrounded ACP prompt would otherwise keep running (and
+  // holding a child process) past the stop and, on completion, enqueue a
+  // follow-up message back into the conversation the user just cancelled. Peek
+  // the singleton so a conversation that never used ACP doesn't spin one up.
+  peekAcpSessionManager()?.cancelForParent(conversationId);
   // The processing flag is cleared by the in-flight turn's `finally`, not here.
   // Abort propagates into the provider call and tool execution (and is backed
   // by the agent loop's abort watchdog), so the turn reaches its `finally`
