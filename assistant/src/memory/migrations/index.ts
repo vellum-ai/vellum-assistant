@@ -1,3 +1,4 @@
+export { migrateCoreTables } from "./000-core-tables.js";
 export { migrateJobDeferrals } from "./001-job-deferrals.js";
 export { migrateToolInvocationsFk } from "./002-tool-invocations-fk.js";
 export { migrateMemoryFtsBackfill } from "./003-memory-fts-backfill.js";
@@ -43,10 +44,9 @@ export { createActorTokenRecordsTable } from "./038-actor-token-records.js";
 export { createActorRefreshTokenRecordsTable } from "./039-actor-refresh-token-records.js";
 export { migrateInviteCodeHashColumn } from "./040-invite-code-hash-column.js";
 export { createApprovalPromptTsTrackerTable } from "./041-approval-prompt-ts-tracker.js";
-export { createCoreTables } from "./100-core-tables.js";
 export { createWatchersAndLogsTables } from "./101-watchers-and-logs.js";
 export { addCoreColumns } from "./102-alter-table-columns.js";
-export { runComplexMigrations } from "./103-complex-migrations.js";
+export { complexMigrationSteps } from "./103-complex-migrations.js";
 export { createCoreIndexes } from "./104-core-indexes.js";
 export { createContactsAndTriageTables } from "./105-contacts-and-triage.js";
 export { createCallSessionsTables } from "./106-call-sessions.js";
@@ -56,7 +56,7 @@ export { createExternalConversationBindingsTables } from "./109-external-convers
 export { createChannelGuardianTables } from "./110-channel-guardian.js";
 export { createMediaAssetsTables } from "./111-media-assets.js";
 export { createAssistantInboxTables } from "./112-assistant-inbox.js";
-export { runLateMigrations } from "./113-late-migrations.js";
+export { lateMigrationSteps } from "./113-late-migrations.js";
 export { createNotificationTables } from "./114-notifications.js";
 export { createSequenceTables } from "./115-sequences.js";
 export { createMessagesFts } from "./116-messages-fts.js";
@@ -294,8 +294,8 @@ export {
   type MigrationRegistryEntry,
   type MigrationValidationResult,
 } from "./registry.js";
+export { recoverCrashedMigrations } from "./run-migrations.js";
 export {
-  recoverCrashedMigrations,
   rollbackMemoryMigration,
   validateMigrationState,
   withCrashRecovery,

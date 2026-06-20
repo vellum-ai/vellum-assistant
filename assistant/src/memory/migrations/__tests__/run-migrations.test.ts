@@ -104,31 +104,36 @@ describe("runMigrationSteps — checkpointing", () => {
     expect(calls).toEqual({ a: 1, b: 1, c: 1 });
   });
 
-  test("always re-runs steps named in alwaysRun", () => {
+  test("recovers crashed migrations before running steps", () => {
     /**
-     * Crash recovery and registry aggregators must execute on every boot, so
-     * steps in `alwaysRun` are never checkpointed and never skipped.
+     * runMigrationSteps clears stalled `started`/`rolling_back` checkpoints
+     * before the loop so a migration interrupted mid-flight re-runs this boot.
      */
 
-    // GIVEN one checkpointed step and one always-run step
-    const calls = { once: 0, always: 0 };
-    const steps: MigrationStep[] = [
-      function checkpointedStep() {
-        calls.once++;
-      },
-      function alwaysRunStep() {
-        calls.always++;
-      },
-    ];
+    // GIVEN a database with a stalled registry checkpoint left by a crash
     const db = createTestDb();
-    const alwaysRun = new Set(["alwaysRunStep"]);
-    runMigrationSteps(db, steps, { alwaysRun });
+    const raw = getSqliteFrom(db);
+    raw.run(
+      `CREATE TABLE IF NOT EXISTS memory_checkpoints (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)`,
+    );
+    raw.run(
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('migration_stalled_v1', 'started', 0)`,
+    );
 
-    // WHEN the same steps run again
-    runMigrationSteps(db, steps, { alwaysRun });
+    // WHEN the runner executes
+    runMigrationSteps(db, [
+      function dummyMigrationA() {
+        // no-op
+      },
+    ]);
 
-    // THEN the checkpointed step runs once but the always-run step runs each boot
-    expect(calls).toEqual({ once: 1, always: 2 });
+    // THEN the stalled checkpoint has been cleared so its migration can re-run
+    const row = raw
+      .query(
+        `SELECT 1 FROM memory_checkpoints WHERE key = 'migration_stalled_v1'`,
+      )
+      .get();
+    expect(row).toBeNull();
   });
 
   test("does not checkpoint a failed step so it retries on the next boot", () => {
