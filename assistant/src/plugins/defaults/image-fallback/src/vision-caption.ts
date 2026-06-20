@@ -10,13 +10,12 @@
 
 import type { ImageContent, PluginLogger } from "@vellumai/plugin-api";
 
-import { doesSupportVision } from "../../../../plugin-api/vision-support.js";
 import { getModelProfiles } from "../../../../plugin-api/model-profiles.js";
+import { doesSupportVision } from "../../../../plugin-api/vision-support.js";
 import {
   extractAllText,
   getConfiguredProvider,
 } from "../../../../providers/provider-send-message.js";
-
 import {
   getCachedCaption,
   imageHash,

@@ -31,9 +31,8 @@ import type {
   UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
 
-import { doesSupportVision } from "../../../../plugin-api/vision-support.js";
 import { getModelProfiles } from "../../../../plugin-api/model-profiles.js";
-
+import { doesSupportVision } from "../../../../plugin-api/vision-support.js";
 import { captionImage, findVisionProfile } from "../src/vision-caption.js";
 
 const userPromptSubmit: PluginHookFn<UserPromptSubmitContext> = async (ctx) => {
