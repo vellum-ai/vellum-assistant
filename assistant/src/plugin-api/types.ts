@@ -121,13 +121,6 @@ export interface ModelProfileInfo {
    * rather than at a single fixed model.
    */
   readonly isMix: boolean;
-  /**
-   * Whether the profile's model can process image input, resolved from the
-   * model catalog. Defaults to `true` (fail-open) for models not in the
-   * catalog, matching the config GET route's enrichment logic. A plugin that
-   * gates image processing on this field avoids hardcoding model names.
-   */
-  readonly supportsVision: boolean;
 }
 
 // ─── Shutdown context ────────────────────────────────────────────────────────
