@@ -97,10 +97,43 @@ export class ContactStore {
   // from assistant (dual-write gap) also yields null info fields + a warning.
 
   /**
-   * List all contacts with channels (gateway) joined to info fields
-   * (assistant). Ordered by createdAt desc, mirroring `listContacts()`.
+   * List contacts with channels (gateway) joined to info fields (assistant).
+   *
+   * Supports the same filter params as the daemon's handleListContacts:
+   * limit, role, contactType. Search-style filters (query, channelAddress,
+   * channelType) are NOT supported here — callers that need those should
+   * fall back to the proxy path until a gateway-native search is built.
+   *
+   * Ordering mirrors the daemon: guardian role first, then updatedAt desc.
    */
-  async listContactsWithInfo(): Promise<ContactWithInfo[]> {
+  async listContactsWithInfo(opts?: {
+    limit?: number;
+    role?: string;
+  }): Promise<ContactWithInfo[]> {
+    const effectiveLimit = Math.min(opts?.limit ?? 50, 200);
+    const conditions = [];
+    if (opts?.role) conditions.push(eq(contacts.role, opts.role));
+
+    // Step 1: Select contact IDs with the limit applied to CONTACTS (not
+    // joined channel rows). The daemon path limits contact rows before
+    // fetching channels — we match that to avoid returning fewer contacts
+    // than expected when contacts have multiple channels.
+    const contactRows = this.db
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(conditions.length === 1 ? conditions[0] : undefined)
+      .orderBy(
+        sql`${contacts.role} = 'guardian' DESC`,
+        desc(contacts.updatedAt),
+      )
+      .limit(effectiveLimit)
+      .all();
+
+    if (contactRows.length === 0) return [];
+    const contactIds = contactRows.map((r) => r.id);
+
+    // Step 2: Fetch contacts + their channels (no limit — all channels for
+    // the selected contacts).
     const rows = this.db
       .select({ contact: contacts, channel: contactChannels })
       .from(contacts)
@@ -108,8 +141,15 @@ export class ContactStore {
         contactChannels,
         eq(contactChannels.contactId, contacts.id),
       )
+      .where(
+        sql`${contacts.id} IN (${sql.join(
+          contactIds.map((id) => sql`${id}`),
+          sql`, `,
+        )})`,
+      )
       .orderBy(
-        desc(contacts.createdAt),
+        sql`${contacts.role} = 'guardian' DESC`,
+        desc(contacts.updatedAt),
         // Primary channel first, then by creation time — mirrors the daemon
         // (assistant/src/contacts/contact-store.ts:141) and readAssistantContact.
         sql`${contactChannels.isPrimary} DESC`,

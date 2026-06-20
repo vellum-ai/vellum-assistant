@@ -15,7 +15,7 @@ import {
   assistantDbRun,
 } from "../../db/assistant-db-proxy.js";
 import { getGatewayDb } from "../../db/connection.js";
-import { ContactStore } from "../../db/contact-store.js";
+import { ContactStore, type ContactWithInfo } from "../../db/contact-store.js";
 import { contacts } from "../../db/schema.js";
 import { fetchImpl } from "../../fetch.js";
 import { ipcCallAssistant } from "../../ipc/assistant-client.js";
@@ -28,6 +28,58 @@ const log = getLogger("contacts-control-plane-proxy");
 // ---------------------------------------------------------------------------
 
 const VALID_CONTACT_TYPES = ["human", "assistant"] as const;
+
+// ---------------------------------------------------------------------------
+// ContactWithInfo -> ContactPayload mapping (gateway-native read path)
+// ---------------------------------------------------------------------------
+
+/**
+ * Map a gateway-native ContactWithInfo to the wire ContactPayload shape the
+ * UI expects (matching assistant/src/daemon/message-types/contacts.ts).
+ *
+ * Includes the `withChannelCompat` transform: older macOS clients expect
+ * `externalUserId` on each channel (= address). The guardian-name override
+ * (`withGuardianNameOverride`) is not applied — it reads the guardian persona
+ * file which is assistant-side state, not available to the gateway process.
+ */
+function toContactPayload(c: ContactWithInfo): Record<string, unknown> {
+  return {
+    id: c.id,
+    displayName: c.displayName,
+    role: c.role,
+    notes: c.notes,
+    contactType: c.contactType,
+    principalId: c.principalId,
+    userFile: c.userFile,
+    createdAt: c.createdAt,
+    updatedAt: c.updatedAt,
+    interactionCount: c.interactionCount,
+    lastInteraction: c.lastInteraction,
+    assistantMetadata: c.assistantMetadata,
+    channels: c.channels.map((ch) => ({
+      id: ch.id,
+      contactId: ch.contactId,
+      type: ch.type,
+      address: ch.address,
+      isPrimary: ch.isPrimary,
+      externalChatId: ch.externalChatId,
+      // Compat: externalUserId = address for older macOS clients.
+      externalUserId: ch.address,
+      status: ch.status,
+      policy: ch.policy,
+      verifiedAt: ch.verifiedAt,
+      verifiedVia: ch.verifiedVia,
+      inviteId: ch.inviteId,
+      revokedReason: ch.revokedReason,
+      blockedReason: ch.blockedReason,
+      lastSeenAt: ch.lastSeenAt,
+      interactionCount: ch.interactionCount,
+      lastInteraction: ch.lastInteraction,
+      createdAt: ch.createdAt,
+      updatedAt: ch.updatedAt,
+    })),
+  };
+}
 const VALID_ASSISTANT_SPECIES = ["vellum"] as const;
 const VALID_CHANNEL_STATUSES = [
   "active",
@@ -123,9 +175,63 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
 
   return {
     // ── Contact CRUD ──
+    /**
+     * GET /v1/contacts — gateway-native contact list.
+     *
+     * Reads ACL shape from gateway DB + info shape from assistant DB (single
+     * batched join). Falls back to the daemon proxy for search-style queries
+     * (query, channelAddress, channelType) which require searchContacts logic
+     * not yet implemented in the gateway.
+     *
+     * Supported natively: limit, role, contactType.
+     */
     async handleListContacts(req: Request): Promise<Response> {
       const url = new URL(req.url);
-      return forward(req, "/v1/contacts", url.search);
+      const limit = Number(url.searchParams.get("limit") ?? 50);
+      const role = url.searchParams.get("role") ?? undefined;
+      const contactType = url.searchParams.get("contactType") ?? undefined;
+      const query = url.searchParams.get("query") ?? undefined;
+      const channelAddress = url.searchParams.get("channelAddress") ?? undefined;
+      const channelType = url.searchParams.get("channelType") ?? undefined;
+
+      // Validate contactType before any proxy fallback.
+      if (contactType && !VALID_CONTACT_TYPES.includes(contactType as never)) {
+        return Response.json(
+          {
+            error: {
+              code: "BAD_REQUEST",
+              message: `Invalid contactType "${contactType}". Must be one of: ${VALID_CONTACT_TYPES.join(", ")}`,
+            },
+          },
+          { status: 400 },
+        );
+      }
+
+      // Search-style queries and contactType filter go through the daemon.
+      // contactType is an assistant-owned field — the gateway can't filter
+      // it without an assistant DB round-trip. The daemon handles it natively.
+      if (query || channelAddress || channelType || contactType) {
+        return forward(req, "/v1/contacts", url.search);
+      }
+
+      try {
+        const store = new ContactStore();
+        const contacts = await store.listContactsWithInfo({
+          limit,
+          role: role ?? undefined,
+        });
+        log.info(
+          { count: contacts.length, role, contactType, limit },
+          "list_contacts: handled natively",
+        );
+        return Response.json({
+          ok: true,
+          contacts: contacts.map(toContactPayload),
+        });
+      } catch (err) {
+        log.error({ err }, "list_contacts: gateway-native read failed, falling back to proxy");
+        return forward(req, "/v1/contacts", url.search);
+      }
     },
 
     /**
@@ -368,8 +474,48 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       return Response.json({ ok: true, contact });
     },
 
+    /**
+     * GET /v1/contacts/:id — gateway-native single contact read.
+     *
+     * Reads ACL shape from gateway DB + info shape from assistant DB. Falls
+     * back to the daemon proxy if the gateway-native read throws.
+     */
     async handleGetContact(req: Request, contactId: string): Promise<Response> {
-      return forward(req, `/v1/contacts/${contactId}`);
+      try {
+        const store = new ContactStore();
+        const contact = await store.getContactWithInfo(contactId);
+        if (!contact) {
+          return Response.json(
+            {
+              error: {
+                code: "NOT_FOUND",
+                message: `Contact "${contactId}" not found`,
+              },
+            },
+            { status: 404 },
+          );
+        }
+        log.info({ contactId }, "get_contact: handled natively");
+
+        // Match the daemon's response shape: { ok, contact, assistantMetadata }
+        const payload = toContactPayload(contact);
+        const assistantMetadata =
+          contact.contactType === "assistant" && contact.assistantMetadata
+            ? {
+                contactId: contact.id,
+                species: contact.assistantMetadata.species,
+                metadata: contact.assistantMetadata.metadata,
+              }
+            : undefined;
+        return Response.json({
+          ok: true,
+          contact: payload,
+          assistantMetadata: assistantMetadata ?? undefined,
+        });
+      } catch (err) {
+        log.error({ err, contactId }, "get_contact: gateway-native read failed, falling back to proxy");
+        return forward(req, `/v1/contacts/${contactId}`);
+      }
     },
 
     async handleDeleteContact(contactId: string): Promise<Response> {
