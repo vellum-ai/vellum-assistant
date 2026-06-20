@@ -18,23 +18,45 @@
  * cached entry.
  */
 
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+import { getConfig } from "../config/loader.js";
+import { registerShutdownHook } from "../daemon/shutdown-registry.js";
+import { HOOKS } from "../plugin-api/constants.js";
+import type {
+  PluginHookFn,
+  PluginInitContext,
+  PluginShutdownContext,
+} from "../plugin-api/types.js";
 import {
-  type SurfaceFile,
+  registerPluginTools,
+  unregisterPluginTools,
+} from "../tools/registry.js";
+import { finalizeTool } from "../tools/tool-defaults.js";
+import type { Tool, ToolDefinition } from "../tools/types.js";
+import { getLogger } from "../util/logger.js";
+import { getWorkspaceDir, getWorkspacePluginsDir } from "../util/platform.js";
+import { APP_VERSION } from "../version.js";
+import {
   deriveToolName,
   importDefault,
   listSurfaceDir,
   parsePluginManifest,
 } from "./external-plugin-loader.js";
-import { getLogger } from "../util/logger.js";
-import { getWorkspacePluginsDir } from "../util/platform.js";
-import type { Plugin, PluginHookFn, PluginHooks } from "./types.js";
-import { finalizeTool } from "../tools/tool-defaults.js";
-import type { Tool, ToolDefinition } from "../tools/types.js";
+
+// Re-export for type compat — consumers that import PluginHookFn from
+// the mtime cache module still resolve.
+export type { PluginHookFn } from "./types.js";
 
 const log = getLogger("plugin-mtime-cache");
+
+/**
+ * Import timeout for surface file imports. Set by `populateCacheAtBoot` from
+ * the value passed by `loadUserPlugins`, and used by `getUserHooksFor` and
+ * `reconcilePluginTools` for runtime re-imports. Defaults to 10s.
+ */
+let importTimeoutMs = 10_000;
 
 // ─── Cache entries ───────────────────────────────────────────────────────────
 
@@ -155,8 +177,11 @@ export async function getUserHooksFor<TCtx = unknown>(
     }
 
     try {
-      const hook = await importWithDedup<PluginHookFn>(hookFile.path);
-      if (typeof hook !== "function") {
+      const hook = await importWithTimeout<PluginHookFn>(
+        hookFile.path,
+        importTimeoutMs,
+      );
+      if (hook === undefined || typeof hook !== "function") {
         log.error(
           { plugin: pluginName, hook: hookName, path: hookFile.path },
           `hook ${hookName} default export must be a function (got ${typeof hook}) — skipping`,
@@ -223,8 +248,15 @@ async function reconcilePluginTools(
     }
 
     try {
-      const toolSpec = await importWithDedup<ToolDefinition>(file.path);
-      if (toolSpec === null || typeof toolSpec !== "object") {
+      const toolSpec = await importWithTimeout<ToolDefinition>(
+        file.path,
+        importTimeoutMs,
+      );
+      if (
+        toolSpec === undefined ||
+        toolSpec === null ||
+        typeof toolSpec !== "object"
+      ) {
         log.error(
           { plugin: pluginName, tool: toolName, path: file.path },
           `tool default export must be an object — skipping`,
@@ -369,6 +401,39 @@ async function evictAll(): Promise<void> {
 // ─── Import dedup ────────────────────────────────────────────────────────────
 
 /**
+ * Import a module's default export with a timeout. If the import doesn't
+ * resolve within `timeoutMs`, logs a warning and returns `undefined` so
+ * a hanging plugin module doesn't block daemon startup indefinitely.
+ */
+async function importWithTimeout<T>(
+  filePath: string,
+  timeoutMs: number,
+): Promise<T | undefined> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timeoutSentinel = Symbol("import-timeout");
+    const importPromise = importWithDedup<T>(filePath);
+    const timeoutPromise = new Promise<typeof timeoutSentinel>((resolve) => {
+      timeoutHandle = setTimeout(() => resolve(timeoutSentinel), timeoutMs);
+    });
+    const result = await Promise.race([importPromise, timeoutPromise]);
+    if (result === timeoutSentinel) {
+      importPromise.catch(() => {
+        /* swallow — late rejection from abandoned import */
+      });
+      log.warn(
+        { filePath, timeoutMs },
+        `Import timed out after ${timeoutMs}ms — skipping surface`,
+      );
+      return undefined;
+    }
+    return result as T;
+  } finally {
+    if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+  }
+}
+
+/**
  * Import a module's default export, deduplicating concurrent imports for
  * the same file path. This prevents two readers from triggering duplicate
  * `import()` calls when they request the same surface simultaneously.
@@ -392,31 +457,54 @@ async function importWithDedup<T>(filePath: string): Promise<T> {
 // ─── Boot population ─────────────────────────────────────────────────────────
 
 /**
- * Populate the cache at boot by scanning the plugins directory once and
- * importing all surfaces. Called by `loadUserPlugins()` during daemon
- * startup.
+ * Plugins that were fully activated at boot (tools registered + init hook
+ * run). Used by the shutdown hook to tear down only what was actually
+ * brought up.
+ */
+const activatedPlugins: Array<{ name: string }> = [];
+
+/**
+ * Populate the cache at boot by scanning the plugins directory once,
+ * importing all surfaces, registering tools into the tool registry,
+ * running `init` hooks, and installing a shutdown hook.
  *
- * After this call, `getUserHooksFor()` and `getCachedUserTools()` will
- * return the same results without re-importing (mtimes match). Subsequent
- * reads detect changes via mtime comparison.
+ * This replaces the old `loadExternalPlugin` → `registerPlugin` →
+ * `bootstrapPlugins` path for user plugins. Instead of registering whole
+ * `Plugin` objects into the plugin registry, we register individual tools
+ * into the tool registry and cache hooks by mtime. The `init` and
+ * `shutdown` hooks are still run exactly once per boot, preserving the
+ * activation lifecycle that plugins rely on.
+ *
+ * Called by `loadUserPlugins()` during daemon startup.
  */
 export async function populateCacheAtBoot(
-  _opts: { importTimeoutMs?: number } = {},
+  opts: { importTimeoutMs?: number } = {},
 ): Promise<void> {
+  if (opts.importTimeoutMs !== undefined) {
+    importTimeoutMs = opts.importTimeoutMs;
+  }
+
   await scanPlugins();
 
-  // Pre-import all hooks so the first turn doesn't pay the import cost.
+  const shutdownContext: PluginShutdownContext = {
+    assistantVersion: APP_VERSION,
+  };
+
   for (const [pluginDir, pluginName] of discoveredPluginDirs) {
+    // Pre-import all hooks so the first turn doesn't pay the import cost.
     const hooksDir = join(pluginDir, "hooks");
-    const surfaceFiles = listSurfaceDir(hooksDir);
-    for (const file of surfaceFiles) {
+    const hookFiles = listSurfaceDir(hooksDir);
+    for (const file of hookFiles) {
       const key = hookKey(pluginName, file.name);
       const currentMtime = getMtime(file.path);
       if (currentMtime === 0) continue;
 
       try {
-        const hook = await importWithDedup<PluginHookFn>(file.path);
-        if (typeof hook === "function") {
+        const hook = await importWithTimeout<PluginHookFn>(
+          file.path,
+          importTimeoutMs,
+        );
+        if (hook !== undefined && typeof hook === "function") {
           hookCache.set(key, { hook, sourceMtime: currentMtime });
         }
       } catch (err) {
@@ -426,7 +514,93 @@ export async function populateCacheAtBoot(
         );
       }
     }
+
+    // Register user plugin tools into the global tool registry so
+    // `getAllTools()` and `getTool()` can find them. Tools were already
+    // imported and cached by `reconcilePluginTools` during `scanPlugins`.
+    const pluginTools = Array.from(toolCache.values())
+      .filter((c) => c.pluginName === pluginName)
+      .map((c) => c.tool);
+    if (pluginTools.length > 0) {
+      try {
+        registerPluginTools(pluginName, pluginTools);
+        log.info(
+          { plugin: pluginName, count: pluginTools.length },
+          "user plugin tools registered",
+        );
+      } catch (err) {
+        log.error(
+          { err, plugin: pluginName },
+          `Failed to register tools for user plugin ${pluginName}`,
+        );
+      }
+    }
+
+    // Run the `init` hook if present.
+    const initHookEntry = hookCache.get(hookKey(pluginName, HOOKS.INIT));
+    if (initHookEntry !== undefined) {
+      try {
+        const initContext: PluginInitContext = {
+          config: getConfig().plugins?.[pluginName],
+          credentials: {},
+          logger: log.child({ plugin: pluginName }),
+          pluginStorageDir: ensurePluginStorageDir(pluginName),
+          assistantVersion: APP_VERSION,
+        };
+        await initHookEntry.hook(initContext);
+        log.info({ plugin: pluginName }, "user plugin initialized");
+      } catch (err) {
+        log.error(
+          { err, plugin: pluginName },
+          `User plugin ${pluginName} init() failed — continuing`,
+        );
+      }
+    }
+
+    activatedPlugins.push({ name: pluginName });
   }
+
+  // Register a single shutdown hook that walks all activated user plugins
+  // in reverse order, unregistering tools and running shutdown hooks.
+  const shutdownSnapshot = [...activatedPlugins];
+  registerShutdownHook("user-plugins", async (reason) => {
+    for (let i = shutdownSnapshot.length - 1; i >= 0; i--) {
+      const { name } = shutdownSnapshot[i]!;
+
+      // Unregister tools before running shutdown so onShutdown sees a
+      // clean model-visible surface.
+      try {
+        unregisterPluginTools(name);
+      } catch (err) {
+        log.warn(
+          { err, plugin: name, reason },
+          "user plugin tool unregister failed (continuing)",
+        );
+      }
+
+      // Run the `shutdown` hook if present.
+      const shutdownHookEntry = hookCache.get(hookKey(name, HOOKS.SHUTDOWN));
+      if (shutdownHookEntry !== undefined) {
+        try {
+          await shutdownHookEntry.hook(shutdownContext);
+        } catch (err) {
+          log.warn(
+            { err, plugin: name, reason },
+            "user plugin shutdown hook failed (continuing)",
+          );
+        }
+      }
+    }
+  });
+}
+
+/**
+ * Ensure `<workspaceDir>/plugins-data/<name>/` exists and return its path.
+ */
+function ensurePluginStorageDir(pluginName: string): string {
+  const dir = join(getWorkspaceDir(), "plugins-data", pluginName);
+  mkdirSync(dir, { recursive: true });
+  return dir;
 }
 
 // ─── Test hooks ──────────────────────────────────────────────────────────────
@@ -446,6 +620,7 @@ export function resetPluginCacheForTests(): void {
   toolCache.clear();
   inflight.clear();
   discoveredPluginDirs.clear();
+  activatedPlugins.length = 0;
 }
 
 /**

@@ -19,12 +19,12 @@
  * Design doc: `.private/plans/agent-plugin-system.md`.
  */
 
+import { getUserHooksFor } from "./mtime-cache.js";
 import {
   type Plugin,
   PluginExecutionError,
   type PluginHookFn,
 } from "./types.js";
-import { getUserHooksFor } from "./mtime-cache.js";
 
 // ─── Internal state ──────────────────────────────────────────────────────────
 

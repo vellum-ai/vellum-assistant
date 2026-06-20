@@ -7,7 +7,7 @@
  * cache miss (changed mtime → re-import), plugin deletion (eviction),
  * and hook collection across multiple plugins.
  */
-import { mkdirSync, rmSync, writeFileSync, utimesSync } from "node:fs";
+import { mkdirSync, rmSync, utimesSync,writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -20,12 +20,12 @@ import {
 } from "bun:test";
 
 import {
+  _inspectHookCacheForTests,
+  _inspectToolCacheForTests,
   getCachedUserTools,
   getUserHooksFor,
   populateCacheAtBoot,
   resetPluginCacheForTests,
-  _inspectHookCacheForTests,
-  _inspectToolCacheForTests,
 } from "../plugins/mtime-cache.js";
 
 // ─── Test fixtures ───────────────────────────────────────────────────────────
