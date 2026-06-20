@@ -39,6 +39,7 @@ import { type FSWatcher, mkdirSync, readdirSync, watch } from "node:fs";
 
 import { getRegisteredPlugin } from "../plugins/registry.js";
 import { DebouncerMap } from "../util/debounce.js";
+import { attachFsWatcherErrorHandler } from "../util/fs-watcher-error.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspacePluginsDir } from "../util/platform.js";
 import { reregisterExternalPlugin } from "./external-plugins-bootstrap.js";
@@ -267,6 +268,10 @@ export class PluginSourceWatcher {
           });
         },
       );
+      // Recursive watches over plugin trees (incl. node_modules) can exhaust
+      // the inotify watch limit and emit ENOSPC asynchronously. Without an
+      // 'error' listener that unhandled emitter error crashes the daemon.
+      attachFsWatcherErrorHandler(this.watcher, log, pluginsDir);
       log.info({ pluginsDir }, "Plugin source watcher started");
     } catch (err) {
       log.warn(
