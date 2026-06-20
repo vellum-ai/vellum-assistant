@@ -965,6 +965,10 @@ export async function runAgentLoopImpl(
       compactInPlace = false,
     ): Promise<Message[]> => {
       const watchdogMs = ctx.abortWatchdogMs ?? ABORT_WATCHDOG_MS;
+      // Sync the loop's system prompt before run — one turn == one prompt,
+      // no mid-loop re-resolution (cache-bust risk). The conversation owns
+      // the prompt lifecycle; the loop just holds the value.
+      ctx.agentLoop.systemPrompt = ctx.buildCurrentSystemPrompt();
       const { history, exitReason, newMessages } = await withAbortWatchdog(
         ctx.agentLoop.run({
           messages: msgs,
@@ -981,7 +985,6 @@ export async function runAgentLoopImpl(
           compactInPlace,
           isNonInteractive,
           modelProfileKey,
-          systemPrompt: ctx.buildCurrentSystemPrompt(),
           ...(ctx.modelOverride ? { model: ctx.modelOverride } : {}),
         }),
         abortController.signal,

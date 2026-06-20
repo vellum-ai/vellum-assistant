@@ -501,14 +501,6 @@ export interface AgentLoopRunOptions {
   signal?: AbortSignal;
   requestId: string;
   /**
-   * System prompt for this run, resolved by the caller (Conversation) before
-   * invoking the loop. One turn == one agent loop == one system prompt; the
-   * prompt is NOT re-resolved mid-loop (that would bust the provider's
-   * prefix cache). When omitted, falls back to the constructor's
-   * {@link AgentLoopConstructorOptions.systemPrompt}.
-   */
-  systemPrompt?: string;
-  /**
    * Explicit model override (provider/model string) for every LLM call in
    * this run. When omitted, the model is resolved through the normal
    * call-site / profile resolution path.
@@ -662,7 +654,7 @@ export interface AgentLoopConstructorOptions {
 
 export class AgentLoop {
   private provider: Provider;
-  private systemPrompt: string;
+  systemPrompt: string;
   private config: AgentLoopConfig;
   private tools: ToolDefinition[];
   private resolveTools: ((history: Message[]) => ToolDefinition[]) | null;
@@ -912,14 +904,8 @@ export class AgentLoop {
       compactInPlace = false,
       isNonInteractive = false,
       modelProfileKey = null,
-      systemPrompt: runSystemPrompt,
       model: runModel,
     } = options;
-    // Resolve the system prompt once per run — the caller (Conversation)
-    // builds it before invoking the loop. Re-resolving mid-loop would bust
-    // the provider's prefix cache. Falls back to the constructor seed when
-    // the caller doesn't supply one.
-    const resolvedSystemPrompt = runSystemPrompt ?? this.systemPrompt;
     let history = [...messages];
     // Index into `history` where this run's appended output begins. It starts
     // after the input and resets to the new base whenever the loop rewrites the
@@ -1227,12 +1213,11 @@ export class AgentLoop {
           ? this.resolveTools(history)
           : this.tools;
 
-        // System prompt and model are resolved once per run (by the caller),
-        // not per-LLM-call — re-resolving mid-loop would bust the provider's
-        // prefix cache.
-        const turnSystemPrompt = resolvedSystemPrompt;
-        const turnModel = runModel;
-
+        // System prompt and model are resolved once per run — the caller
+        // sets `this.systemPrompt` before invoking the loop, and `model`
+        // arrives as a run option. Re-resolving mid-loop would bust the
+        // provider's prefix cache.
+        //
         // Field precedence (highest wins):
         //   1. Per-run explicit (`runModel`)
         //   2. Call-site resolved values (filled by
@@ -1256,8 +1241,8 @@ export class AgentLoop {
           providerConfig.max_tokens = this.config.maxTokens;
         }
 
-        if (turnModel) {
-          providerConfig.model = turnModel;
+        if (runModel) {
+          providerConfig.model = runModel;
         }
 
         if (!callSite) {
@@ -1351,7 +1336,7 @@ export class AgentLoop {
           currentTools.length > 0 ? estimateToolsTokens(currentTools) : 0;
         const preSendEstimatedTokens = estimatePromptTokensRaw(
           history,
-          turnSystemPrompt,
+          this.systemPrompt,
           {
             providerName: getCalibrationProviderKey(this.provider),
             toolTokenBudget,
@@ -1383,7 +1368,7 @@ export class AgentLoop {
         // type through unchanged.
         const providerOptions: SendMessageOptions = {
           tools: currentTools.length > 0 ? currentTools : undefined,
-          systemPrompt: turnSystemPrompt,
+          systemPrompt: this.systemPrompt,
           config: providerConfig,
           onEvent: (event) => {
             if (event.type === "text_delta") {
