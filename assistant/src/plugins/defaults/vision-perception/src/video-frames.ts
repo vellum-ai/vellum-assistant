@@ -33,6 +33,7 @@ import {
   FFPROBE_TIMEOUT_MS,
   spawnWithTimeout,
 } from "../../../../util/spawn.js";
+import { toImageBlock } from "./image-block.js";
 
 const log = getLogger("vision-perception-video-frames");
 
@@ -55,8 +56,16 @@ export interface SampledFrame {
   block: ImageContent;
 }
 
-/** Sampling strategies the tool exposes. */
-export type SampleStrategy = "keyframes" | "uniform_1hz" | "uniform_4hz";
+/** Sampling strategies the tool exposes (single source for the type, the tool's
+ * runtime validation list, and its input-schema enum). */
+export const SAMPLE_STRATEGIES = [
+  "keyframes",
+  "uniform_1hz",
+  "uniform_4hz",
+] as const;
+
+/** A sampling strategy the tool exposes. */
+export type SampleStrategy = (typeof SAMPLE_STRATEGIES)[number];
 
 /** Why and how the frame set was capped, so the tool never truncates silently. */
 export interface FramesTruncation {
@@ -316,14 +325,7 @@ export async function sampleVideoFrames(
       const optimized = optimizeImageForTransport(base64, "image/jpeg");
       frames.push({
         t_seconds: round1(t),
-        block: {
-          type: "image",
-          source: {
-            type: "base64",
-            media_type: optimized.mediaType,
-            data: optimized.data,
-          },
-        },
+        block: toImageBlock(optimized),
       });
     }
 

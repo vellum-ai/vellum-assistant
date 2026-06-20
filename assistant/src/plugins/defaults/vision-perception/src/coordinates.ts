@@ -14,8 +14,8 @@
  */
 
 import { parseImageDimensions } from "../../../../context/image-dimensions.js";
+import type { ImageContent } from "../../../../providers/types.js";
 import { parseJsonSafe } from "../../../../util/json.js";
-import { resolveVisionMedia } from "./media-source.js";
 
 /** The fixed scale the grounding tools normalize boxes onto. */
 export const COORD_SCALE = 1000;
@@ -27,16 +27,17 @@ export type BBox = [number, number, number, number];
 export type ImageSize = [number, number];
 
 /**
- * Resolve a media reference's real pixel dimensions, reading the same attachment
- * bytes the vision call uses. Returns `[0, 0]` when the dimensions can't be
- * parsed (an unrecognized or truncated format) — callers still get a usable
- * result, just without a pixel-mapping anchor. Throws only what
- * `resolveVisionMedia` throws (a missing / non-image reference), which the tools
- * convert into `{ isError: true }`.
+ * Read an already-resolved image block's real pixel dimensions. Returns
+ * `[0, 0]` when the dimensions can't be parsed (an unrecognized or truncated
+ * format) — callers still get a usable result, just without a pixel-mapping
+ * anchor. Lets the grounding tools resolve the attachment once (for both the
+ * model send and the echoed size) instead of reading the bytes twice.
  */
-export async function resolveImageSize(mediaRef: string): Promise<ImageSize> {
-  const media = await resolveVisionMedia(mediaRef);
-  const dims = parseImageDimensions(media.block.source.data, media.mimeType);
+export function imageSizeFromBlock(
+  block: ImageContent,
+  mimeType: string,
+): ImageSize {
+  const dims = parseImageDimensions(block.source.data, mimeType);
   return dims ? [dims.width, dims.height] : [0, 0];
 }
 
@@ -96,22 +97,6 @@ export function normalizeBox(raw: unknown): BBox | null {
 
   const [a, b, c, d] = scaled.map(clampCoord);
   return [Math.min(a, c), Math.min(b, d), Math.max(a, c), Math.max(b, d)];
-}
-
-/**
- * Normalize a list of raw boxes, dropping any that aren't valid 4-tuples.
- * `imageSize` is accepted for interface symmetry with callers that thread the
- * echoed size through; normalization itself is size-independent because the
- * contract is a fixed 0–1000 scale.
- */
-export function normalizeBoxes(raw: unknown, _imageSize: ImageSize): BBox[] {
-  if (!Array.isArray(raw)) return [];
-  const out: BBox[] = [];
-  for (const candidate of raw) {
-    const box = normalizeBox(candidate);
-    if (box) out.push(box);
-  }
-  return out;
 }
 
 /**

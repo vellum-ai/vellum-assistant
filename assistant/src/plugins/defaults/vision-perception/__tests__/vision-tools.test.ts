@@ -112,6 +112,36 @@ describe("vlm_ask tool", () => {
     expect(text).toEqual({ type: "text", text: "What is in this image?" });
   });
 
+  test("threads a region into the prompt on the 0-1000 scale", async () => {
+    await vlmAskTool.execute?.(
+      {
+        media_ref: "att-1",
+        question: "What does the sign say?",
+        region: [100, 200, 300, 400],
+      },
+      ctx,
+    );
+
+    const sent = sendMessageArgs?.messages;
+    const text = sent?.[0].content.find((b) => b.type === "text");
+    expect(text?.type).toBe("text");
+    const promptText = text?.type === "text" ? text.text : "";
+    expect(promptText).toContain("What does the sign say?");
+    expect(promptText).toContain("[x0,y0,x1,y1]=[100, 200, 300, 400]");
+    expect(promptText).toContain("0–1000 normalized scale");
+  });
+
+  test("omits the region clause when no region is provided", async () => {
+    await vlmAskTool.execute?.(
+      { media_ref: "att-1", question: "What is in this image?" },
+      ctx,
+    );
+
+    const sent = sendMessageArgs?.messages;
+    const text = sent?.[0].content.find((b) => b.type === "text");
+    expect(text).toEqual({ type: "text", text: "What is in this image?" });
+  });
+
   test("returns isError (no throw) for a missing media_ref", async () => {
     const result = await vlmAskTool.execute?.(
       { media_ref: "does-not-exist", question: "?" },

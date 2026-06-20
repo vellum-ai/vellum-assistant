@@ -19,14 +19,15 @@ import type {
 } from "@vellumai/plugin-api";
 import { RiskLevel } from "@vellumai/plugin-api";
 
-import { callVisionModel } from "../src/call-vision-model.js";
+import { callVisionModelWithBlock } from "../src/call-vision-model.js";
 import {
   type BBox,
   type ImageSize,
+  imageSizeFromBlock,
   normalizeBox,
   parseModelJson,
-  resolveImageSize,
 } from "../src/coordinates.js";
+import { resolveVisionMedia } from "../src/media-source.js";
 
 interface OcrBlock {
   text: string;
@@ -118,9 +119,10 @@ const vlmOcrTool: ToolDefinition = {
       const region = normalizeBox(input.region);
       const layout = input.layout === true;
 
-      const imageSize = await resolveImageSize(mediaRef);
+      const media = await resolveVisionMedia(mediaRef);
+      const imageSize = imageSizeFromBlock(media.block, media.mimeType);
       const prompt = buildOcrPrompt(region, layout);
-      const answer = await callVisionModel(mediaRef, prompt, ctx);
+      const answer = await callVisionModelWithBlock(media.block, prompt, ctx);
 
       const result: OcrResult = layout
         ? parseLayout(answer, imageSize)

@@ -18,6 +18,20 @@ import type {
 import { RiskLevel } from "@vellumai/plugin-api";
 
 import { callVisionModel } from "../src/call-vision-model.js";
+import { type BBox, normalizeBox } from "../src/coordinates.js";
+
+/**
+ * Build the question prompt, appending a region constraint when the caller
+ * narrows the answer to a sub-rectangle. The region is the normalized
+ * `[x0, y0, x1, y1]` box on the 0–1000 grounding scale the vision tools share.
+ */
+function buildAskPrompt(question: string, region: BBox | null): string {
+  if (!region) return question;
+  return (
+    `${question} Restrict your answer to the region ` +
+    `[x0,y0,x1,y1]=[${region.join(", ")}] on a 0–1000 normalized scale.`
+  );
+}
 
 const vlmAskTool: ToolDefinition = {
   name: "vlm_ask",
@@ -42,7 +56,9 @@ const vlmAskTool: ToolDefinition = {
     try {
       const mediaRef = String(input.media_ref ?? "");
       const question = String(input.question ?? "");
-      const content = await callVisionModel(mediaRef, question, ctx);
+      const region = normalizeBox(input.region);
+      const prompt = buildAskPrompt(question, region);
+      const content = await callVisionModel(mediaRef, prompt, ctx);
       return { content, isError: false };
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);

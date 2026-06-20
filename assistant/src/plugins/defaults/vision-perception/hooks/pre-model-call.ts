@@ -25,10 +25,10 @@
 
 import type { PluginHookFn, PreModelCallContext } from "@vellumai/plugin-api";
 
-import { isAssistantFeatureFlagEnabled } from "../../../../config/assistant-feature-flags.js";
 import { resolveCallSiteConfig } from "../../../../config/llm-resolver.js";
 import { getConfig } from "../../../../config/loader.js";
 import type { LLMCallSite } from "../../../../config/schemas/llm.js";
+import { isVisionPerceptionEnabled } from "../../../../config/vision-perception-flag.js";
 import { getAttachmentById } from "../../../../memory/attachments-store.js";
 import { PROVIDER_CATALOG } from "../../../../providers/model-catalog.js";
 import type {
@@ -78,7 +78,7 @@ export function resolveBackboneSupportsVision(opts: {
 }): boolean {
   try {
     const config = getConfig();
-    if (!isAssistantFeatureFlagEnabled("vision-perception", config)) {
+    if (!isVisionPerceptionEnabled(config)) {
       return true;
     }
     const { llm } = config;
