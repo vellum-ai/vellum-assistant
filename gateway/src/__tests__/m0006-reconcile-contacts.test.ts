@@ -343,6 +343,21 @@ describe("m0006-reconcile-contacts-from-assistant", () => {
     expect(ids).toEqual(["gw-ch"]); // only the original gateway channel
   });
 
+  test("dedupes assistant channels with same (type, address) case-variant", async () => {
+    // Assistant DB itself has two rows for the same actor with case variants.
+    seedAssistantContact({ id: "c1" });
+    seedAssistantChannel({ id: "ch-upper", contactId: "c1", type: "telegram" });
+    fakeAssistantDb.channels.get("ch-upper")!.address = "User123";
+    seedAssistantChannel({ id: "ch-lower", contactId: "c1", type: "telegram" });
+    fakeAssistantDb.channels.get("ch-lower")!.address = "user123";
+
+    await m0006Up();
+
+    // Only one of the two case-variant channels should be inserted.
+    const ids = gatewayChannelIds().sort();
+    expect(ids.length).toBe(1);
+  });
+
   test("mixed scenario: some contacts in gateway, some missing, with channels", async () => {
     // Contact in both DBs
     seedGatewayContact({ id: "shared" });
