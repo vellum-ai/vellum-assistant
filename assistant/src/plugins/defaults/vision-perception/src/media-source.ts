@@ -15,6 +15,7 @@ import { optimizeImageForTransport } from "../../../../agent/image-optimize.js";
 import {
   getAttachmentById,
   getAttachmentContent,
+  isAttachmentInConversation,
 } from "../../../../memory/attachments-store.js";
 import type { ImageContent } from "../../../../providers/types.js";
 import { toImageBlock } from "./image-block.js";
@@ -45,17 +46,38 @@ export interface ResolvedVisionMedia {
 }
 
 /**
+ * Reject a model-supplied `media_ref` that is not linked to the current
+ * conversation. `media_ref` is supplied by the model, so a crafted or
+ * previously-seen id from ANOTHER conversation/channel must never resolve to
+ * bytes — that would be a cross-conversation data leak. Fails closed: bytes are
+ * only read once the id is confirmed to belong to {@link conversationId}.
+ */
+function assertMediaRefInConversation(
+  ref: string,
+  conversationId: string,
+): void {
+  if (!isAttachmentInConversation(ref, conversationId)) {
+    throw new VisionMediaError(`No attachment found for media_ref "${ref}".`);
+  }
+}
+
+/**
  * Resolve an attachment id to an optimized `ImageContent` block plus its
- * metadata. Throws {@link VisionMediaError} on a missing / non-image / unreadable
- * reference.
+ * metadata. The `conversationId` (from the tool's `ToolContext`) scopes the
+ * lookup: an id not linked to the current conversation is rejected before any
+ * bytes are read. Throws {@link VisionMediaError} on a missing / non-image /
+ * unreadable / out-of-conversation reference.
  */
 export async function resolveVisionMedia(
   mediaRef: string,
+  conversationId: string,
 ): Promise<ResolvedVisionMedia> {
   const ref = mediaRef?.trim();
   if (!ref) {
     throw new VisionMediaError("No media reference was provided.");
   }
+
+  assertMediaRefInConversation(ref, conversationId);
 
   const row = getAttachmentById(ref);
   if (!row) {
@@ -91,20 +113,26 @@ export async function resolveVisionMedia(
 
 /**
  * Resolve a video attachment id to a set of timestamped keyframes plus its
- * metadata. Delegates frame extraction to `video-frames.ts`, which relies on
- * ffmpeg/ffprobe and fails gracefully when those are unavailable. Throws
- * {@link VisionMediaError} on a missing / non-video reference, and re-raises a
+ * metadata. The `conversationId` (from the tool's `ToolContext`) scopes the
+ * lookup: an id not linked to the current conversation is rejected before any
+ * bytes are read or frames are sampled. Delegates frame extraction to
+ * `video-frames.ts`, which relies on ffmpeg/ffprobe and fails gracefully when
+ * those are unavailable. Throws {@link VisionMediaError} on a missing /
+ * non-video / out-of-conversation reference, and re-raises a
  * {@link VideoFramesError} as a {@link VisionMediaError} so callers convert
  * either into a single `{ isError: true }` result.
  */
 export async function resolveVisionVideo(
   mediaRef: string,
+  conversationId: string,
   options?: SampleVideoOptions,
 ): Promise<{ video: SampledVideo; filename: string }> {
   const ref = mediaRef?.trim();
   if (!ref) {
     throw new VisionMediaError("No media reference was provided.");
   }
+
+  assertMediaRefInConversation(ref, conversationId);
 
   const row = getAttachmentById(ref);
   if (!row) {

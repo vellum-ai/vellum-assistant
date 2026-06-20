@@ -20,10 +20,9 @@ import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { advisorEnabledForProfile } from "../plugins/defaults/advisor/advisor-gate.js";
 import {
+  isVisionPerceptionActiveForTurn,
   isVlmToolName,
-  resolveBackboneSupportsVision,
 } from "../plugins/defaults/vision-perception/hooks/pre-model-call.js";
-import { isVisionPerceptionProviderAvailable } from "../plugins/defaults/vision-perception/src/vision-capability.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
@@ -661,20 +660,19 @@ export function isToolActiveForContext(
       selectionSeed: ctx.conversationId ?? null,
     };
 
-    // Single capability gate: the whole feature is a crutch for a text-only
-    // backbone, so ALL vlm_* tools (vlm_ask/describe/ocr/detect/video_log) are
-    // offered together only when the resolved backbone cannot see media natively
-    // (`supportsVision === false`) — and withheld together for any vision-capable
-    // backbone. Resolves the backbone the same way dispatch does (the router's
-    // decision for this turn, else the per-turn override / call-site default).
-    if (resolveBackboneSupportsVision(resolution)) return false;
-
-    // BYOK guard: only offer the tools when the visionPerception call site
-    // actually resolves to an enabled, vision-capable provider/model. In BYOK
-    // installs the managed `vision` profile is seeded disabled, so the call site
-    // can strip back to the user's (possibly non-vision) active profile — never
-    // offer a tool that would send image frames to a model that can't read them.
-    return isVisionPerceptionProviderAvailable();
+    // Shared activation predicate (also gates the agent loop's media-marker
+    // rewrite, so the tool offer and the marker injection can never drift): the
+    // whole feature is a crutch for a text-only backbone, so ALL vlm_* tools
+    // (vlm_ask/describe/ocr/detect/video_log) are offered together only when the
+    // resolved backbone cannot see media natively AND the visionPerception call
+    // site resolves to an enabled, vision-capable provider/model. The latter
+    // is the BYOK guard: in BYOK installs the managed `vision` profile is seeded
+    // disabled, so the call site can strip back to the user's (possibly
+    // non-vision) active profile — never offer a tool that would send image
+    // frames to a model that can't read them. Resolves the backbone the same way
+    // dispatch does (the router's decision for this turn, else the per-turn
+    // override / call-site default).
+    return isVisionPerceptionActiveForTurn(resolution);
   }
   if (UI_SURFACE_TOOL_NAMES.has(name)) {
     if (

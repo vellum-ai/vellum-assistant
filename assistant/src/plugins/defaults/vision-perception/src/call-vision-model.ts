@@ -106,6 +106,6 @@ export async function callVisionModel(
   prompt: string,
   ctx: ToolContext,
 ): Promise<string> {
-  const media = await resolveVisionMedia(mediaRef);
+  const media = await resolveVisionMedia(mediaRef, ctx.conversationId);
   return callVisionModelWithBlock(media.block, prompt, ctx);
 }

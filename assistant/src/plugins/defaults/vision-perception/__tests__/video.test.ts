@@ -52,10 +52,15 @@ interface FakeRow {
 }
 
 let attachmentRows: Record<string, FakeRow> = {};
+// Maps attachment id -> the conversation it is linked to. The video resolver
+// enforces this access-control scope before sampling any frames.
+let attachmentConversations: Record<string, string> = {};
 mock.module("../../../../memory/attachments-store.js", () => ({
   getAttachmentById: (id: string) => attachmentRows[id] ?? null,
   getAttachmentContent: () => null,
   getFilePathForAttachment: () => null,
+  isAttachmentInConversation: (id: string, conversationId: string) =>
+    attachmentConversations[id] === conversationId,
 }));
 
 let sendMessageArgs: { messages: Message[]; options: unknown } | null = null;
@@ -110,6 +115,8 @@ beforeEach(() => {
       kind: "image",
     },
   };
+  // Both fixtures are linked to the current conversation ("c1") by default.
+  attachmentConversations = { "vid-1": "c1", "img-1": "c1" };
 });
 
 describe("vlm_video_log tool", () => {
@@ -228,6 +235,31 @@ describe("vlm_video_log tool", () => {
     const result = await vlmVideoLogTool.execute?.({ media_ref: "vid-1" }, ctx);
 
     expect(result?.isError).toBe(true);
+  });
+
+  test("resolves a video linked to the current conversation", async () => {
+    sampleResult = { duration_s: 4, frames: [fixtureFrame(0)] };
+    responseText = JSON.stringify({ segments: [] });
+
+    const result = await vlmVideoLogTool.execute?.({ media_ref: "vid-1" }, ctx);
+
+    expect(result?.isError).toBe(false);
+    expect(sendMessageArgs).not.toBeNull();
+  });
+
+  test("rejects a video id linked to a DIFFERENT conversation, sampling no frames", async () => {
+    // The video row exists, but the link points at another conversation. The
+    // resolver must reject before any frames are sampled or sent.
+    attachmentConversations = { "vid-1": "other-conv" };
+    sampleResult = { duration_s: 4, frames: [fixtureFrame(0)] };
+    responseText = JSON.stringify({ segments: [] });
+
+    const result = await vlmVideoLogTool.execute?.({ media_ref: "vid-1" }, ctx);
+
+    expect(result?.isError).toBe(true);
+    expect(result?.content).toContain("No attachment found");
+    // Fail closed: no frames sampled, nothing sent to the vision model.
+    expect(sendMessageArgs).toBeNull();
   });
 });
 

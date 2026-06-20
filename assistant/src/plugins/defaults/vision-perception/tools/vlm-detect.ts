@@ -121,7 +121,7 @@ const vlmDetectTool: ToolDefinition = {
         ? input.targets.filter((t): t is string => typeof t === "string")
         : [];
 
-      const media = await resolveVisionMedia(mediaRef);
+      const media = await resolveVisionMedia(mediaRef, ctx.conversationId);
       const imageSize = imageSizeFromBlock(media.block, media.mimeType);
       const prompt = buildDetectPrompt(targets);
       const answer = await callVisionModelWithBlock(media.block, prompt, ctx);

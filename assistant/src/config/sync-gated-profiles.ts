@@ -221,7 +221,14 @@ function disableProfile(
     }
   }
 
-  llm.profileOrder = profileOrder.filter((name) => !removed.has(name));
+  // Filter in place so `llm.profileOrder` and the caller's `profileOrder`
+  // reference stay the same array across the reconcile loop. Reassigning to a
+  // fresh filtered copy would leave the loop holding the pre-removal snapshot,
+  // so a later removal in the same pass (both gated profiles present, both flags
+  // off) would filter the stale order and reintroduce an already-deleted name.
+  const survivors = profileOrder.filter((name) => !removed.has(name));
+  profileOrder.length = 0;
+  profileOrder.push(...survivors);
 
   if (typeof llm.activeProfile === "string" && removed.has(llm.activeProfile)) {
     llm.activeProfile = "balanced";

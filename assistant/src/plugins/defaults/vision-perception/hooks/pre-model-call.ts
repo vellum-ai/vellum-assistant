@@ -41,6 +41,7 @@ import type {
   ImageContent,
   Message,
 } from "../../../../providers/types.js";
+import { isVisionPerceptionProviderAvailable } from "../src/vision-capability.js";
 
 /**
  * Names of every model-visible vision tool the plugin contributes. Kept here so
@@ -113,6 +114,33 @@ export function resolveBackboneSupportsVision(
     // Fail open: never let a resolution error strip media from a request.
     return true;
   }
+}
+
+/**
+ * The single predicate both per-turn vision-perception gates key on: the
+ * `vlm_*` tools are offered, AND uploaded media is rewritten into `media_ref`
+ * markers, only when this returns `true`.
+ *
+ * Two conditions must both hold, so the two gates can never drift:
+ *  1. the resolved backbone cannot see media natively
+ *     (`!resolveBackboneSupportsVision`, which already folds in the
+ *     `vision-perception` flag), and
+ *  2. the `visionPerception` call site resolves to an enabled, vision-capable
+ *     provider ({@link isVisionPerceptionProviderAvailable}).
+ *
+ * When (2) is false (e.g. BYOK with the managed `vision` profile disabled) the
+ * tools are withheld; stripping media here too would otherwise hand the model
+ * markers pointing at tools it was never offered — neither raw media nor a way
+ * to read it. Returns `false` so the request is left for the provider to handle
+ * as it otherwise would.
+ */
+export function isVisionPerceptionActiveForTurn(
+  opts: BackboneResolutionOpts,
+): boolean {
+  return (
+    !resolveBackboneSupportsVision(opts) &&
+    isVisionPerceptionProviderAvailable()
+  );
 }
 
 /** Human-readable media kind for the marker text. */

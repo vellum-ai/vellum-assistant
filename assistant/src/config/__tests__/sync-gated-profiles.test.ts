@@ -422,6 +422,40 @@ describe("reconcileFlagGatedProfiles", () => {
     expect(after.llm.profileOrder.includes("vision")).toBe(false);
   });
 
+  test("both gated profiles present + both flags off → neither name remains in profileOrder", () => {
+    // Regression: the reconcile loop captured `profileOrder` once and reassigned
+    // `llm.profileOrder` to a filtered COPY on each `disableProfile` call, so the
+    // loop kept holding the pre-removal snapshot. With BOTH managed profiles
+    // present and BOTH flags off, the second removal filtered the stale snapshot
+    // and reintroduced the first-deleted name. After the fix, removals filter the
+    // live order in place, so neither name survives.
+    process.env.IS_PLATFORM = "true";
+    seedBalancedConfig();
+    setOverridesForTesting({ "os-beta": true, "vision-perception": true });
+    expect(reconcileFlagGatedProfiles()).toBe(true);
+    invalidateConfigCache();
+
+    // Both managed profiles are materialized and ordered.
+    const seeded = readConfig();
+    expect(seeded.llm.profiles["os-beta"]).toBeDefined();
+    expect(seeded.llm.profiles["vision"]).toBeDefined();
+    expect(seeded.llm.profileOrder.includes("os-beta")).toBe(true);
+    expect(seeded.llm.profileOrder.includes("vision")).toBe(true);
+
+    // Both flags flip off in the same reconcile pass.
+    setOverridesForTesting({ "os-beta": false, "vision-perception": false });
+    expect(reconcileFlagGatedProfiles()).toBe(true);
+
+    const after = readConfig();
+    expect(after.llm.profiles["os-beta"]).toBeUndefined();
+    expect(after.llm.profiles["vision"]).toBeUndefined();
+    // Neither deleted name may linger in the order (the bug reintroduced one).
+    expect(after.llm.profileOrder.includes("os-beta")).toBe(false);
+    expect(after.llm.profileOrder.includes("vision")).toBe(false);
+
+    expect(LLMSchema.safeParse(after.llm).success).toBe(true);
+  });
+
   test("a user-owned vision profile is never touched", () => {
     process.env.IS_PLATFORM = "true";
     writeConfig({
