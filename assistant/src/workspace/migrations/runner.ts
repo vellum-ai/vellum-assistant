@@ -75,10 +75,21 @@ function saveCheckpoints(
   renameSync(tmpPath, path);
 }
 
+/** Counts from a single {@link runWorkspaceMigrations} sweep, for the caller to
+ *  fold into its own startup log. `failed` covers both migrations that threw
+ *  this run and pre-existing non-retryable `failed` checkpoints — kept separate
+ *  from `skipped` so the summary surfaces them instead of masking them as
+ *  "already applied". */
+export type WorkspaceMigrationSummary = {
+  applied: number;
+  skipped: number;
+  failed: number;
+};
+
 export async function runWorkspaceMigrations(
   workspaceDir: string,
   migrations: WorkspaceMigration[],
-): Promise<void> {
+): Promise<WorkspaceMigrationSummary> {
   const migrationsById = new Map<string, WorkspaceMigration>();
   for (const m of migrations) {
     if (migrationsById.has(m.id)) {
@@ -123,14 +134,22 @@ export async function runWorkspaceMigrations(
 
   let appliedCount = 0;
   let skippedCount = 0;
+  let failedCount = 0;
 
   for (const migration of migrations) {
-    if (checkpoints.applied[migration.id]) {
-      skippedCount++;
+    const existing = checkpoints.applied[migration.id];
+    if (existing) {
+      // A non-retryable failed checkpoint left over from a prior run still
+      // satisfies this guard; count it as failed rather than skipped so the
+      // summary keeps surfacing it.
+      if (existing.status === "failed") {
+        failedCount++;
+      } else {
+        skippedCount++;
+      }
       continue;
     }
 
-    appliedCount++;
     log.info(
       `Running workspace migration: ${migration.id} — ${migration.description}`,
     );
@@ -154,6 +173,7 @@ export async function runWorkspaceMigrations(
         status: "failed",
       };
       saveCheckpoints(workspaceDir, checkpoints);
+      failedCount++;
       continue;
     }
 
@@ -163,11 +183,8 @@ export async function runWorkspaceMigrations(
       status: "completed",
     };
     saveCheckpoints(workspaceDir, checkpoints);
+    appliedCount++;
   }
-
-  log.info(
-    `Workspace migrations complete: ${appliedCount} applied, ${skippedCount} skipped (already applied)`,
-  );
 
   // First-boot sweep finished cleanly — clear the flag so future runs (and
   // future seeding migrations added later) treat the workspace as an upgrade.
@@ -177,6 +194,8 @@ export async function runWorkspaceMigrations(
     checkpoints.isNewWorkspace = false;
     saveCheckpoints(workspaceDir, checkpoints);
   }
+
+  return { applied: appliedCount, skipped: skippedCount, failed: failedCount };
 }
 
 /**
