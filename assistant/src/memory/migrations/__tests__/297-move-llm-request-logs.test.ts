@@ -36,6 +36,16 @@ function tableSchemas(name: string): string[] {
     .map((r) => r.schema);
 }
 
+function stagingExists(table: string): boolean {
+  return (
+    getSqlite()
+      .query(
+        `SELECT name FROM main.sqlite_master WHERE type='table' AND name = ?`,
+      )
+      .get(`${table}__relocating`) != null
+  );
+}
+
 describe("migration 297 — llm_request_logs lives in the logs database", () => {
   test("after init, the table is in logs and not in main", () => {
     expect(tableSchemas("llm_request_logs")).toEqual([LOGS_DB_SCHEMA]);
@@ -66,12 +76,12 @@ describe("migration 297 — llm_request_logs lives in the logs database", () => 
     expect(inLogs?.c).toBe(1);
   });
 
-  test("relocates rows from a main-DB table and drops it", () => {
+  test("relocates rows from a main-DB table and drops it", async () => {
     const sqlite = getSqlite();
 
-    // Simulate the shadow that createWatchersAndLogsTables recreates each boot:
-    // a main-DB table with a row, alongside the logs copy.
+    // Simulate a populated pre-relocation main-DB table alongside the logs copy.
     sqlite.exec(`DROP TABLE IF EXISTS ${LOGS_DB_SCHEMA}.llm_request_logs`);
+    sqlite.exec(`DROP TABLE IF EXISTS main.llm_request_logs__relocating`);
     sqlite.exec(`
       CREATE TABLE main.llm_request_logs (
         id TEXT PRIMARY KEY,
@@ -89,10 +99,13 @@ describe("migration 297 — llm_request_logs lives in the logs database", () => 
       `INSERT INTO main.llm_request_logs (id, conversation_id, request_payload, response_payload, created_at, provider) VALUES ('legacy-1', 'conv-legacy', '{}', '{}', 123, 'openai')`,
     );
 
-    migrateMoveLlmRequestLogsToLogsDb(getDb());
+    // The migration stages the populated table aside and drains it inline,
+    // copying the rows into logs and dropping the staging table before it
+    // resolves.
+    await migrateMoveLlmRequestLogsToLogsDb(getDb());
 
-    // Main copy gone, logs copy has the row.
     expect(tableSchemas("llm_request_logs")).toEqual([LOGS_DB_SCHEMA]);
+    expect(stagingExists("llm_request_logs")).toBe(false);
     const moved = sqlite
       .query<
         { conversation_id: string; provider: string },
@@ -114,13 +127,14 @@ describe("migration 297 — llm_request_logs lives in the logs database", () => 
     expect(indexes).toContain("idx_llm_request_logs_conv_created");
   });
 
-  test("copies a legacy base-only table, NULL-filling newer columns", () => {
+  test("copies a legacy base-only table, NULL-filling newer columns", async () => {
     const sqlite = getSqlite();
 
     // A workspace upgrading from a build that predates the
     // message_id/provider/agent_loop_exit_reason/call_site columns: the main
     // table has only the original base columns.
     sqlite.exec(`DROP TABLE IF EXISTS ${LOGS_DB_SCHEMA}.llm_request_logs`);
+    sqlite.exec(`DROP TABLE IF EXISTS main.llm_request_logs__relocating`);
     sqlite.exec(`
       CREATE TABLE main.llm_request_logs (
         id TEXT PRIMARY KEY,
@@ -134,8 +148,8 @@ describe("migration 297 — llm_request_logs lives in the logs database", () => 
       `INSERT INTO main.llm_request_logs (id, conversation_id, request_payload, response_payload, created_at) VALUES ('base-1', 'conv-base', '{}', '{}', 7)`,
     );
 
-    // Must not throw on the absent columns.
-    migrateMoveLlmRequestLogsToLogsDb(getDb());
+    // Must not throw on the absent columns: the drain NULL-fills them.
+    await migrateMoveLlmRequestLogsToLogsDb(getDb());
 
     expect(tableSchemas("llm_request_logs")).toEqual([LOGS_DB_SCHEMA]);
     const moved = sqlite

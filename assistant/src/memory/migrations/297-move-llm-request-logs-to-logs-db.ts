@@ -3,28 +3,11 @@ import {
   getSqliteFrom,
   LOGS_DB_SCHEMA,
 } from "../db-connection.js";
-
-/**
- * Column names of `llm_request_logs`, in a fixed order used for the
- * cross-database copy. Listed explicitly (rather than `SELECT *`) so the copy
- * is insensitive to the physical column order of the `main` table, which varies
- * with the historical sequence of `ALTER TABLE ... ADD COLUMN` migrations.
- *
- * The first columns are the original base columns; the rest were added by later
- * column migrations.
- */
-const COLUMN_NAMES = [
-  "id",
-  "conversation_id",
-  "message_id",
-  "provider",
-  "request_payload",
-  "response_payload",
-  "created_at",
-  "agent_loop_exit_reason",
-  "call_site",
-];
-const COLUMNS = COLUMN_NAMES.join(", ");
+import {
+  drainStagedTable,
+  isSchemaAttached,
+  stageTableForRelocation,
+} from "../relocation.js";
 
 const CREATE_TABLE = (schema: string): string => /*sql*/ `
   CREATE TABLE IF NOT EXISTS ${schema}.llm_request_logs (
@@ -58,42 +41,6 @@ function createIndexes(raw: ReturnType<typeof getSqliteFrom>, schema: string) {
   );
 }
 
-function tableExists(
-  raw: ReturnType<typeof getSqliteFrom>,
-  schema: string,
-): boolean {
-  return (
-    raw
-      .query(
-        `SELECT name FROM ${schema}.sqlite_master WHERE type='table' AND name='llm_request_logs'`,
-      )
-      .get() != null
-  );
-}
-
-/**
- * Copy every row of `llm_request_logs` from `main` into the `logs` database,
- * substituting `NULL` for any target column missing in the source. The newer
- * columns (message_id/provider/agent_loop_exit_reason/call_site) are all
- * nullable, so NULL is correct for a legacy row that predates them.
- */
-function copyRowsFromMain(raw: ReturnType<typeof getSqliteFrom>): void {
-  const presentColumns = new Set(
-    (
-      raw
-        .query(`SELECT name FROM pragma_table_info('llm_request_logs', 'main')`)
-        .all() as Array<{ name: string }>
-    ).map((r) => r.name),
-  );
-  const selectList = COLUMN_NAMES.map((c) =>
-    presentColumns.has(c) ? c : "NULL",
-  ).join(", ");
-  raw.exec(/*sql*/ `
-    INSERT OR IGNORE INTO ${LOGS_DB_SCHEMA}.llm_request_logs (${COLUMNS})
-    SELECT ${selectList} FROM main.llm_request_logs
-  `);
-}
-
 /**
  * Keep `llm_request_logs` housed in the attached append-only `logs` database
  * (`assistant-logs.db`) rather than the main DB. Keeping this heavy table — and
@@ -103,28 +50,32 @@ function copyRowsFromMain(raw: ReturnType<typeof getSqliteFrom>): void {
  * used by the Drizzle store resolves to the attached copy, so query code is
  * unchanged.
  *
- * This step is idempotent and runs on every startup (it is not checkpoint-
- * gated). It must, because the earlier `createWatchersAndLogsTables` migration
- * recreates an empty `main.llm_request_logs` on every boot via
- * `CREATE TABLE IF NOT EXISTS`; this step re-relocates and drops that shadow so
- * the unqualified name keeps resolving to `logs`.
+ * The move is incremental: this step does metadata-only work — create the table
+ * in `logs`, rename any populated `main.llm_request_logs` aside to
+ * `llm_request_logs__relocating` — then drains the staged rows into `logs` in
+ * awaited batches (see `relocation.ts`), keeping the event loop responsive
+ * between batches rather than stalling it with a one-shot `INSERT … SELECT` +
+ * `DROP` of a multi-GB table.
  *
- * Ordering within the step matters:
- *   1. Create the table in `logs` (safe whether or not `main` has it).
- *   2. If `main` still has the table, copy its rows over (`INSERT OR IGNORE` on
- *      the id PK, so a re-run is a no-op) and drop it.
- *   3. Create the indexes — only now is `main` guaranteed not to shadow the
- *      table, so the unqualified reference resolves to `logs`.
+ * Idempotent and safe to re-run: `stageTableForRelocation` drops a freshly
+ * recreated empty shadow, renames a populated table only once, and leaves an
+ * in-flight staging table alone; `drainStagedTable` resumes from the remaining
+ * rows. Bails out (retrying next boot) if the `logs` database failed to attach.
  */
-export function migrateMoveLlmRequestLogsToLogsDb(database: DrizzleDb): void {
+export async function migrateMoveLlmRequestLogsToLogsDb(
+  database: DrizzleDb,
+): Promise<void> {
   const raw = getSqliteFrom(database);
+
+  if (!isSchemaAttached(raw, LOGS_DB_SCHEMA)) return;
 
   raw.exec(CREATE_TABLE(LOGS_DB_SCHEMA));
 
-  if (tableExists(raw, "main")) {
-    copyRowsFromMain(raw);
-    raw.exec(`DROP TABLE main.llm_request_logs`);
-  }
+  const needsDrain = stageTableForRelocation(raw, "llm_request_logs");
 
+  // Only now is `main` guaranteed not to shadow the table, so the unqualified
+  // reference in CREATE INDEX resolves to `logs`.
   createIndexes(raw, LOGS_DB_SCHEMA);
+
+  if (needsDrain) await drainStagedTable("llm_request_logs");
 }
