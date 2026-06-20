@@ -38,6 +38,7 @@ import { UserError } from "../util/errors.js";
 import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import { getLogsDbPath } from "../util/logs-db-path.js";
+import { getMemoryDbPath } from "../util/memory-db-path.js";
 import { getConversationsDir } from "../util/platform.js";
 import { createRowMapper } from "../util/row-mapper.js";
 import {
@@ -2165,7 +2166,9 @@ export async function clearAll(): Promise<{
   await runOrThrow("DELETE FROM memory_segments");
   await runOrThrow("DELETE FROM memory_summaries");
   await runOrThrow("DELETE FROM memory_embeddings");
-  await runOrThrow("DELETE FROM memory_jobs");
+  // memory_jobs lives in the attached memory database; point the sqlite3
+  // subprocess at that file (the in-process fallback resolves it via ATTACH).
+  await runOrThrow("DELETE FROM memory_jobs", { dbPath: getMemoryDbPath() });
   await runOrThrow("DELETE FROM memory_checkpoints");
   // llm_request_logs lives in the attached logs database; point the sqlite3
   // subprocess at that file (the in-process fallback resolves it via ATTACH).
