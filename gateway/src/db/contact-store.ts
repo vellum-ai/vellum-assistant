@@ -174,6 +174,8 @@ export class ContactStore {
       joined = joined.filter(
         (c) => c.contactType === opts.contactType,
       );
+      // Clamp to the original requested limit after post-filtering.
+      joined = joined.slice(0, effectiveLimit);
     }
 
     return joined;

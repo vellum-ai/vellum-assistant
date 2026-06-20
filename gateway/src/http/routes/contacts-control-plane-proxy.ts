@@ -39,9 +39,8 @@ const VALID_CONTACT_TYPES = ["human", "assistant"] as const;
  *
  * Includes the `withChannelCompat` transform: older macOS clients expect
  * `externalUserId` on each channel (= address). The guardian-name override
- * (`withGuardianNameOverride`) is intentionally NOT applied here — it reads
- * the guardian persona file which is assistant-side state. That override is
- * a UX nicety, not ACL-relevant, and can be added in a follow-up if needed.
+ * (`withGuardianNameOverride`) is not applied — it reads the guardian persona
+ * file which is assistant-side state, not available to the gateway process.
  */
 function toContactPayload(c: ContactWithInfo): Record<string, unknown> {
   return {
