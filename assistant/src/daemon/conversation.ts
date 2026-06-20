@@ -976,6 +976,18 @@ export class Conversation {
           const meta = JSON.parse(m.metadata);
           const isTail = index === arr.length - 1;
 
+          // `<non_interactive_context>` is the only rehydrated block that
+          // APPENDS to the tail (live injection appends it in Step 3), so it
+          // must land after the original content. Apply it first — before the
+          // prepends below — so the prepends stack in front of it and it stays
+          // last, matching the live layout.
+          if (!isTail && typeof meta.nonInteractiveContextBlock === "string") {
+            content = [
+              ...content,
+              { type: "text" as const, text: meta.nonInteractiveContextBlock },
+            ];
+          }
+
           // Rehydrate in reverse injection order (innermost block first)
           // so the resulting layout matches `applyRuntimeInjections`'s
           // after-memory-prefix splices in ascending injector order
@@ -1086,9 +1098,30 @@ export class Conversation {
             ];
           }
 
+          // `<channel_capabilities>` lands just below `<turn_context>`: live
+          // injection prepends it (Step 3) before the prepend-user-tail chain
+          // blocks (Step 4), so it must be prepended BEFORE turnContextBlock
+          // here to land one slot deeper than `<turn_context>`.
+          if (!isTail && typeof meta.channelCapabilitiesBlock === "string") {
+            content = [
+              { type: "text" as const, text: meta.channelCapabilitiesBlock },
+              ...content,
+            ];
+          }
+
           if (!isTail && typeof meta.turnContextBlock === "string") {
             content = [
               { type: "text" as const, text: meta.turnContextBlock },
+              ...content,
+            ];
+          }
+
+          // `<background_turn>` lands between `<workspace>` and `<turn_context>`
+          // (injector order 15, between workspace 10 and unified-turn-context
+          // 20), so prepend it AFTER turnContextBlock and BEFORE workspaceBlock.
+          if (!isTail && typeof meta.backgroundTurnBlock === "string") {
+            content = [
+              { type: "text" as const, text: meta.backgroundTurnBlock },
               ...content,
             ];
           }
