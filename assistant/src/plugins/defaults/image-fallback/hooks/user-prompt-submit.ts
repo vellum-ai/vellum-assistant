@@ -7,11 +7,9 @@
  * The hook runs once per user turn, after the assistant assembles
  * `latestMessages` and before they flow into `agentLoop.run()`. It:
  *
- * 1. Reads the effective profile from `ctx.modelProfile` (always populated
- *    when a profile is configured, unlike `modelProfileKey` which is null
- *    when the profile is unchanged since the last turn) and checks
- *    `doesSupportVision`. If the model already handles images, the hook is
- *    a no-op.
+ * 1. Resolves the active profile from `modelProfileKey` (or the workspace's
+ *    active profile when the key is `null`) and checks `doesSupportVision`.
+ *    If the model already handles images, the hook is a no-op.
  * 2. Finds a vision-capable profile for captioning via `findVisionProfile`.
  *    If none exists, images are replaced with a fail-open placeholder so the
  *    model at least knows an image was present.
@@ -30,6 +28,7 @@
 
 import {
   doesSupportVision,
+  getModelProfiles,
   type ImageContent,
   type PluginHookFn,
   type UserPromptSubmitContext,
@@ -39,12 +38,18 @@ import { persistImage } from "../src/image-persist.js";
 import { captionImage, findVisionProfile } from "../src/vision-caption.js";
 
 const userPromptSubmit: PluginHookFn<UserPromptSubmitContext> = async (ctx) => {
-  // Use the effective profile (always populated when a profile is configured),
-  // not modelProfileKey which is null on later turns of a pinned conversation.
-  if (ctx.modelProfile == null) return;
+  // Resolve the active profile from modelProfileKey, falling back to the
+  // workspace's active profile when the key is null (profile unchanged since
+  // the last notified turn).
+  const profiles = getModelProfiles();
+  const activeProfile =
+    ctx.modelProfileKey != null
+      ? profiles.find((p) => p.key === ctx.modelProfileKey)
+      : profiles.find((p) => p.isActive);
+  if (activeProfile == null) return;
 
   // If the active model already supports vision, nothing to do.
-  if (doesSupportVision(ctx.modelProfile)) return;
+  if (doesSupportVision(activeProfile)) return;
 
   // Find a vision-capable profile for captioning.
   const visionProfileKey = findVisionProfile();

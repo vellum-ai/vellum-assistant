@@ -33,7 +33,7 @@ mock.module("@vellumai/plugin-api", () => ({
 }));
 
 // Mock the image-persist module to avoid filesystem side effects in tests.
-let mockPersistPath: string | null = "/workspace/attachments/mock-hash.png";
+let mockPersistPath: string | null = "/workspace/data/attachments/mock-hash.png";
 mock.module("../src/image-persist.js", () => ({
   persistImage: () => mockPersistPath,
 }));
@@ -91,7 +91,6 @@ function makeCtx(
     conversationId: "c1",
     userMessageId: "m1",
     requestId: "r1",
-    modelProfile: profile("text-only"),
     modelProfileKey: "text-only",
     isNonInteractive: false,
     prompt: "What is in this image?",
@@ -114,7 +113,7 @@ beforeEach(() => {
     content: [{ type: "text", text: "A red chart showing Q3 revenue." }],
   };
   providerResolves = true;
-  mockPersistPath = "/workspace/attachments/mock-hash.png";
+  mockPersistPath = "/workspace/data/attachments/mock-hash.png";
   resetCaptionCacheForTests();
 });
 
@@ -133,7 +132,6 @@ describe("image-fallback user-prompt-submit hook", () => {
     const messages = [imageMsg()];
     const ctx = makeCtx({ latestMessages: messages, isNonInteractive: true });
     await userPromptSubmit(ctx);
-    // Image should still be captioned — no silent background failures.
     expect(ctx.latestMessages[0].content[0].type).toBe("text");
     expect((ctx.latestMessages[0].content[0] as { text: string }).text).toContain(
       "[Image:",
@@ -155,7 +153,7 @@ describe("image-fallback user-prompt-submit hook", () => {
     const ctx = makeCtx({ latestMessages: messages });
     await userPromptSubmit(ctx);
     const text = (ctx.latestMessages[0].content[0] as { text: string }).text;
-    expect(text).toContain("(saved to /workspace/attachments/");
+    expect(text).toContain("(saved to /workspace/data/attachments/");
   });
 
   test("works without a saved path when persist fails", async () => {
@@ -274,25 +272,13 @@ describe("image-fallback user-prompt-submit hook", () => {
     );
   });
 
-  test("uses ctx.modelProfile directly (not modelProfileKey)", async () => {
-    // Simulate a pinned conversation: modelProfileKey is null (unchanged),
-    // but modelProfile is the effective text-only profile.
+  test("resolves active profile via isActive when modelProfileKey is null", async () => {
     const messages = [imageMsg()];
-    const ctx = makeCtx({
-      latestMessages: messages,
-      modelProfileKey: null,
-      modelProfile: profile("text-only"),
-    });
+    const ctx = makeCtx({ latestMessages: messages, modelProfileKey: null });
     await userPromptSubmit(ctx);
-    // Should still caption because modelProfile is text-only.
+    // The active profile is "text-only" (isActive: true), which doesn't support
+    // vision, so images should be captioned.
     expect(ctx.latestMessages[0].content[0].type).toBe("text");
-  });
-
-  test("skips when ctx.modelProfile is null", async () => {
-    const messages = [imageMsg()];
-    const ctx = makeCtx({ latestMessages: messages, modelProfile: null });
-    await userPromptSubmit(ctx);
-    expect(ctx.latestMessages[0].content[0].type).toBe("image");
   });
 });
 

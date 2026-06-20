@@ -47,7 +47,6 @@ import historyRepairStop from "./history-repair/hooks/stop.js";
 import historyRepairUserPromptSubmit from "./history-repair/hooks/user-prompt-submit.js";
 import historyRepairPkg from "./history-repair/package.json" with { type: "json" };
 import { resetRepairStateStoreForTests } from "./history-repair/repair-state-store.js";
-import imageFallbackInit from "./image-fallback/hooks/init.js";
 import imageFallbackUserPromptSubmit from "./image-fallback/hooks/user-prompt-submit.js";
 import imageFallbackPkg from "./image-fallback/package.json" with { type: "json" };
 import { resetCaptionCacheForTests } from "./image-fallback/src/caption-cache.js";
@@ -95,7 +94,6 @@ export const defaultImageFallbackPlugin: Plugin = {
     version: imageFallbackPkg.version,
   },
   hooks: {
-    init: imageFallbackInit,
     "user-prompt-submit": imageFallbackUserPromptSubmit,
   },
 };

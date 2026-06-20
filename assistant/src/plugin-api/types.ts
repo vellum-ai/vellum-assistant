@@ -184,17 +184,6 @@ export interface UserPromptSubmitContext {
    */
   readonly requestId: string;
   /**
-   * The effective inference profile for this turn, always populated when a
-   * profile is configured (unlike {@link modelProfileKey}, which is `null`
-   * when the profile is unchanged since the last turn). `null` only when no
-   * profile can be resolved at all. Hooks that need to inspect the active
-   * model's capabilities (e.g. checking vision support) should read this
-   * field rather than resolving from {@link modelProfileKey}, which is a
-   * notification key that may be `null` on later turns of a pinned
-   * conversation.
-   */
-  readonly modelProfile: ModelProfileInfo | null;
-  /**
    * Active inference profile key to surface in this turn's context, or `null`
    * when the profile is unchanged since the one last announced to the model.
    * Hooks that emit the `model_profile` grounding line resolve the
