@@ -352,15 +352,19 @@ export const defaultAdvisorPlugin: Plugin = {
  * the flag arrived late or flipped on at runtime, while the marker logic + vision
  * profile activated — so instead the tools are gated DYNAMICALLY per turn.
  *
- * The feature only engages for backbones that lack native vision: the per-turn
- * tool gate (`isToolActiveForContext`) checks `isVisionPerceptionEnabled` AND
- * per-modality vision capability — flag off → tools never offered (marker inert,
- * profile handled separately by reconcile); flag on at runtime → the next turn
- * offers the tools with no restart. For non-vision backbones the outbound request
- * swaps each uploaded image for a marker naming its attachment id (a usable
- * `media_ref`); image and video gate independently (an image-vision backbone
- * still gets a `vlm_video_log` marker for uploaded video). The `pre-model-call`
- * hook is the home for that gating logic (see `hooks/pre-model-call.ts`).
+ * The feature only engages for a text-only backbone — today GLM 5.2, the sole
+ * catalog model without native vision. The per-turn tool gate
+ * (`isToolActiveForContext`) offers the `vlm_*` tools only when
+ * `isVisionPerceptionEnabled` is true, the resolved backbone has
+ * `supportsVision === false`, AND `visionPerception` resolves to an enabled
+ * vision-capable provider (`isVisionPerceptionProviderAvailable`). Flag off →
+ * tools never offered (marker inert; profile handled separately by reconcile);
+ * flag on at runtime → the next turn offers the tools with no restart. A
+ * vision-capable backbone is left fully inert (all media passes through
+ * untouched); for a text-only backbone the outbound request swaps each uploaded
+ * image and video for a marker naming its attachment id (a usable `media_ref`).
+ * The `pre-model-call` hook is the home for that gating logic (see
+ * `hooks/pre-model-call.ts`).
  */
 export const visionPerceptionPlugin: Plugin = {
   manifest: {
