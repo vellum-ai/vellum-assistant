@@ -162,7 +162,7 @@ export const OS_BETA_PROFILE_TEMPLATE: ManagedProfileTemplate = {
 };
 
 export const VISION_PROFILE_KEY = "vision";
-export const VISION_PERCEPTION_FLAG_KEY = "vision-perception";
+export { VISION_PERCEPTION_FLAG_KEY } from "./vision-perception-flag.js";
 
 /**
  * Flag-gated managed profile backing the `visionPerception` call site. NOT in
