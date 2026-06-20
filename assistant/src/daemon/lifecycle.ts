@@ -410,7 +410,7 @@ export async function runDaemon(): Promise<void> {
     // remains reachable for health checks and diagnostics.
     let dbReady = false;
     try {
-      initializeDb();
+      await initializeDb();
       dbReady = true;
       log.info("Daemon startup: DB initialized");
     } catch (err) {
