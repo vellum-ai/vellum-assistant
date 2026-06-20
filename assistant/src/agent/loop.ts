@@ -626,7 +626,10 @@ export interface AgentLoopConstructorOptions {
   config?: Partial<AgentLoopConfig>;
   tools?: ToolDefinition[];
   toolExecutor?: LoopToolExecutor;
-  resolveTools?: (history: Message[]) => ToolDefinition[];
+  resolveTools?: (
+    history: Message[],
+    routedOverrideProfile?: string | null,
+  ) => ToolDefinition[];
   resolveSystemPrompt?: (history: Message[]) => ResolvedSystemPrompt;
   /**
    * Conversation this loop drives. Scopes the loop-held compaction circuit
@@ -651,7 +654,12 @@ export class AgentLoop {
   private systemPrompt: string;
   private config: AgentLoopConfig;
   private tools: ToolDefinition[];
-  private resolveTools: ((history: Message[]) => ToolDefinition[]) | null;
+  private resolveTools:
+    | ((
+        history: Message[],
+        routedOverrideProfile?: string | null,
+      ) => ToolDefinition[])
+    | null;
   private resolveSystemPrompt:
     | ((history: Message[]) => ResolvedSystemPrompt)
     | null;
@@ -1205,12 +1213,6 @@ export class AgentLoop {
           }
         }
 
-        // Resolve tools for this turn: use the dynamic resolver if provided,
-        // otherwise fall back to the static tool list.
-        const currentTools = this.resolveTools
-          ? this.resolveTools(history)
-          : this.tools;
-
         // Resolve system prompt, per-turn maxTokens, and model
         const resolved = this.resolveSystemPrompt
           ? this.resolveSystemPrompt(history)
@@ -1315,6 +1317,86 @@ export class AgentLoop {
           }
         }
 
+        // A `pre-model-call` hook (below) can defer this turn's assistant
+        // output; when set, the live text stream is held so a
+        // `post-model-call` hook can emit the finalized (transformed) text
+        // instead. Reset per model call. Declared before the hook runs so the
+        // streaming `onEvent` closure (built after) reads the resolved value.
+        let deferAssistantOutput = false;
+
+        // Set once any visible assistant text reaches the client live this
+        // model call. A deferred turn holds the live stream and a turn the
+        // model leaves visibly empty streams nothing, so this stays false for
+        // both — letting the loop surface the finalized text exactly once when
+        // the client would otherwise see nothing.
+        let streamedVisibleText = false;
+
+        // Run the `pre-model-call` hook chain BEFORE resolving the offered
+        // tools and the media-marker rewrite below, so both observe the FINAL
+        // backbone: a model-router hook can re-route this call's inference
+        // profile, and the vision feature's two gates (offer the vlm_* tools;
+        // strip media to `media_ref` markers) must key on the model that
+        // actually runs, not the pre-routing profile. Let plugins edit the
+        // outbound system prompt and opt this call into deferred output
+        // streaming. Runs for every provider call; hooks self-gate on call
+        // site / conversation. Fail-open: a throwing hook leaves the request
+        // unchanged and streaming live.
+        let turnSystemPromptForCall: string | undefined = turnSystemPrompt;
+        try {
+          const preModelCtx: PreModelCallContext = {
+            conversationId: this.conversationId,
+            callSite: callSite ?? null,
+            systemPrompt: turnSystemPrompt ?? null,
+            modelProfile: effectiveOverrideProfile ?? null,
+            deferAssistantOutput: false,
+            logger: rlog,
+          };
+          const finalPreModelCtx = await runHook(
+            HOOKS.PRE_MODEL_CALL,
+            preModelCtx,
+          );
+          turnSystemPromptForCall = finalPreModelCtx.systemPrompt ?? undefined;
+          // Route this call to the hook's chosen inference profile. The
+          // resolver layers `llm.profiles[overrideProfile]` at the top of
+          // precedence for the user-facing call, so a model router can pick
+          // the profile per message; clearing it drops any seeded override.
+          const hookModelProfile = finalPreModelCtx.modelProfile?.trim();
+          if (hookModelProfile) {
+            providerConfig.overrideProfile = hookModelProfile;
+            if (forceOverrideProfile) {
+              providerConfig.forceOverrideProfile = true;
+            }
+          } else {
+            delete providerConfig.overrideProfile;
+            delete providerConfig.forceOverrideProfile;
+          }
+          // The hook owns the policy (it sees `callSite`/conversation and
+          // self-gates); the loop honors whatever it decides.
+          deferAssistantOutput = finalPreModelCtx.deferAssistantOutput;
+        } catch (preModelCallError) {
+          rlog.error(
+            { err: preModelCallError },
+            "pre-model-call hook failed — proceeding with the original request",
+          );
+        }
+
+        // The inference profile this call resolved to AFTER the hook chain —
+        // the hook's choice when it routed, else the call's seeded override.
+        // Both vision gates below (tool offer + marker rewrite) and the tool
+        // resolver key on this so they reflect the backbone that actually
+        // runs. `string | null`: `null` means "no override, use the workspace
+        // active profile" — distinct from `undefined` ("no router decision").
+        const routedOverrideProfile: string | null =
+          (providerConfig.overrideProfile as string | undefined) ?? null;
+
+        // Resolve tools for this turn: use the dynamic resolver if provided,
+        // otherwise fall back to the static tool list. Passing the routed
+        // profile gates the per-turn profile-dependent tools (vlm_*, advisor)
+        // on the FINAL backbone.
+        const currentTools = this.resolveTools
+          ? this.resolveTools(history, routedOverrideProfile)
+          : this.tools;
+
         // Rate-limit consecutive LLM calls to prevent spin when tools return instantly
         const minInterval = this.config.minTurnIntervalMs ?? 0;
         if (minInterval > 0 && lastLlmCallTime > 0) {
@@ -1355,18 +1437,12 @@ export class AgentLoop {
         // media natively (`supportsVision === false`), so the model never
         // receives raw bytes it cannot read and instead reaches for the vlm_*
         // tools. A vision-capable backbone leaves all media intact (inert).
-        //
-        // TODO(vision-perception): this resolves `supportsVision` from
-        // `effectiveOverrideProfile`, computed BEFORE the pre-model-call hooks
-        // below run. A model-router hook can re-route `ctx.modelProfile`
-        // afterwards, so the marker decision can diverge from the FINAL routed
-        // backbone. Moving this rewrite after the hook chain needs a larger loop
-        // restructure (the rewrite feeds `providerHistory` into the same call the
-        // hooks decorate) — deferred. Same limitation applies to the wire tool
-        // gate in conversation-tool-setup.ts, fixed before the hooks run.
+        // Keyed on the routed profile resolved above so the marker decision
+        // matches the FINAL backbone the `pre-model-call` hook chain selected.
+        // Operates on a fresh sanitized COPY — durable history is never mutated.
         const visionMarkerOpts = {
           callSite: callSite ?? null,
-          overrideProfile: effectiveOverrideProfile ?? null,
+          overrideProfile: routedOverrideProfile,
           selectionSeed: this.conversationId ?? null,
         };
         const providerHistory = applyVisionPerceptionMarkers(
@@ -1374,25 +1450,12 @@ export class AgentLoop {
           resolveBackboneSupportsVision(visionMarkerOpts),
         );
 
-        // A `pre-model-call` hook (below) can defer this turn's assistant
-        // output; when set, the live text stream is held so an
-        // `post-model-call` hook can emit the finalized (transformed) text
-        // instead. Reset per model call.
-        let deferAssistantOutput = false;
-
-        // Set once any visible assistant text reaches the client live this
-        // model call. A deferred turn holds the live stream and a turn the
-        // model leaves visibly empty streams nothing, so this stays false for
-        // both — letting the loop surface the finalized text exactly once when
-        // the client would otherwise see nothing.
-        let streamedVisibleText = false;
-
         // The `onEvent` wrapping below applies sensitive-output placeholder
         // substitution to streamed text while forwarding every other event
         // type through unchanged.
         const providerOptions: SendMessageOptions = {
           tools: currentTools.length > 0 ? currentTools : undefined,
-          systemPrompt: turnSystemPrompt,
+          systemPrompt: turnSystemPromptForCall,
           config: providerConfig,
           onEvent: (event) => {
             if (event.type === "text_delta") {
@@ -1455,49 +1518,6 @@ export class AgentLoop {
           },
           signal,
         };
-
-        // Let plugins edit the outbound request and opt this call into deferred
-        // output streaming. Runs for every provider call; hooks self-gate on
-        // call site / conversation. Fail-open: a throwing hook leaves the
-        // request unchanged and streaming live.
-        try {
-          const preModelCtx: PreModelCallContext = {
-            conversationId: this.conversationId,
-            callSite: callSite ?? null,
-            systemPrompt: providerOptions.systemPrompt ?? null,
-            modelProfile: effectiveOverrideProfile ?? null,
-            deferAssistantOutput: false,
-            logger: rlog,
-          };
-          const finalPreModelCtx = await runHook(
-            HOOKS.PRE_MODEL_CALL,
-            preModelCtx,
-          );
-          providerOptions.systemPrompt =
-            finalPreModelCtx.systemPrompt ?? undefined;
-          // Route this call to the hook's chosen inference profile. The
-          // resolver layers `llm.profiles[overrideProfile]` at the top of
-          // precedence for the user-facing call, so a model router can pick
-          // the profile per message; clearing it drops any seeded override.
-          const hookModelProfile = finalPreModelCtx.modelProfile?.trim();
-          if (hookModelProfile) {
-            providerConfig.overrideProfile = hookModelProfile;
-            if (forceOverrideProfile) {
-              providerConfig.forceOverrideProfile = true;
-            }
-          } else {
-            delete providerConfig.overrideProfile;
-            delete providerConfig.forceOverrideProfile;
-          }
-          // The hook owns the policy (it sees `callSite`/conversation and
-          // self-gates); the loop honors whatever it decides.
-          deferAssistantOutput = finalPreModelCtx.deferAssistantOutput;
-        } catch (preModelCallError) {
-          rlog.error(
-            { err: preModelCallError },
-            "pre-model-call hook failed — proceeding with the original request",
-          );
-        }
 
         // Announce the LLM-call boundary so downstream handlers (the
         // daemon's persistence pipeline) can reserve an empty assistant row
