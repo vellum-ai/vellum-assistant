@@ -74,6 +74,19 @@ export interface RunAsyncSqliteOptions {
    * correct file regardless of this option.
    */
   dbPath?: string;
+  /**
+   * Extra databases to `ATTACH` before running `sql`, used for cross-database
+   * statements (e.g. copying rows from `main` into an attached file). Only the
+   * `sqlite3-cli` backend uses this — it opens a fresh connection that has no
+   * attachments, so each entry is emitted as an `ATTACH DATABASE '<path>' AS
+   * <alias>` prefix. The in-process fallback runs on the daemon connection,
+   * which already has the logs/memory databases attached, so it ignores this.
+   *
+   * Reference tables by their **unqualified** name in `sql`: on both backends a
+   * table that exists in exactly one schema resolves unambiguously, so the
+   * alias chosen here does not have to match the daemon's schema name.
+   */
+  attach?: ReadonlyArray<{ path: string; alias: string }>;
 }
 
 let warnedAboutFallback = false;
@@ -87,9 +100,15 @@ export async function runAsyncSqlite(
     forced === "in-process-blocking" ? undefined : findSqlite3();
 
   if (sqlite3Path && forced !== "in-process-blocking") {
+    const attachPrefix = (options.attach ?? [])
+      .map(
+        (a) =>
+          `ATTACH DATABASE '${a.path.replace(/'/g, "''")}' AS ${a.alias};\n`,
+      )
+      .join("");
     return runViaCli(
       sqlite3Path,
-      sql,
+      attachPrefix + sql,
       options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       options.dbPath ?? getDbPath(),
     );
@@ -109,6 +128,24 @@ export async function runAsyncSqlite(
 /** For tests: reset the once-only fallback warning. */
 export function _resetFallbackWarning(): void {
   warnedAboutFallback = false;
+}
+
+/**
+ * Parse the integer printed by a trailing `SELECT changes();` in the SQL run
+ * through {@link runAsyncSqlite}. Both backends surface it the same way: the
+ * `sqlite3` CLI prints a bare integer line, and the in-process fallback
+ * synthesizes one. Tolerates blank/incidental lines by scanning from the end
+ * for the last numeric line; returns 0 when nothing parseable is found, which
+ * callers treat as "no rows affected".
+ */
+export function parseChangesFromStdout(stdout: string | undefined): number {
+  if (!stdout) return 0;
+  const lines = stdout.split(/\r?\n/).filter((s) => s.trim().length > 0);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const n = parseInt(lines[i].trim(), 10);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return 0;
 }
 
 async function runViaCli(
