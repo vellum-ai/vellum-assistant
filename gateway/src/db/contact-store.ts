@@ -115,6 +115,26 @@ export class ContactStore {
     const conditions = [];
     if (opts?.role) conditions.push(eq(contacts.role, opts.role));
 
+    // Step 1: Select contact IDs with the limit applied to CONTACTS (not
+    // joined channel rows). The daemon path limits contact rows before
+    // fetching channels — we match that to avoid returning fewer contacts
+    // than expected when contacts have multiple channels.
+    const contactRows = this.db
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(conditions.length === 1 ? conditions[0] : undefined)
+      .orderBy(
+        sql`${contacts.role} = 'guardian' DESC`,
+        desc(contacts.updatedAt),
+      )
+      .limit(effectiveLimit)
+      .all();
+
+    if (contactRows.length === 0) return [];
+    const contactIds = contactRows.map((r) => r.id);
+
+    // Step 2: Fetch contacts + their channels (no limit — all channels for
+    // the selected contacts).
     const rows = this.db
       .select({ contact: contacts, channel: contactChannels })
       .from(contacts)
@@ -122,7 +142,12 @@ export class ContactStore {
         contactChannels,
         eq(contactChannels.contactId, contacts.id),
       )
-      .where(conditions.length === 1 ? conditions[0] : undefined)
+      .where(
+        sql`${contacts.id} IN (${sql.join(
+          contactIds.map((id) => sql`${id}`),
+          sql`, `,
+        )})`,
+      )
       .orderBy(
         sql`${contacts.role} = 'guardian' DESC`,
         desc(contacts.updatedAt),
@@ -131,7 +156,6 @@ export class ContactStore {
         sql`${contactChannels.isPrimary} DESC`,
         contactChannels.createdAt,
       )
-      .limit(effectiveLimit)
       .all();
 
     let joined = await this.joinInfoIntoContacts(rows);
