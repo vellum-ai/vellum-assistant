@@ -119,11 +119,18 @@ export async function runWorkspaceMigrations(
     }
   }
 
+  log.info(`Running workspace migrations (${migrations.length} registered)`);
+
+  let appliedCount = 0;
+  let skippedCount = 0;
+
   for (const migration of migrations) {
     if (checkpoints.applied[migration.id]) {
+      skippedCount++;
       continue;
     }
 
+    appliedCount++;
     log.info(
       `Running workspace migration: ${migration.id} — ${migration.description}`,
     );
@@ -157,6 +164,10 @@ export async function runWorkspaceMigrations(
     };
     saveCheckpoints(workspaceDir, checkpoints);
   }
+
+  log.info(
+    `Workspace migrations complete: ${appliedCount} applied, ${skippedCount} skipped (already applied)`,
+  );
 
   // First-boot sweep finished cleanly — clear the flag so future runs (and
   // future seeding migrations added later) treat the workspace as an upgrade.

@@ -123,6 +123,35 @@ describe("runWorkspaceMigrations", () => {
     expect(m2.run).toHaveBeenCalledTimes(1);
   });
 
+  test("logs a summary before and after the migration sweep", async () => {
+    // One already applied, one new — exercises both applied and skipped counts.
+    mockCheckpointContents = JSON.stringify({
+      applied: {
+        "001": { appliedAt: "2025-01-01T00:00:00.000Z", status: "completed" },
+      },
+    });
+
+    const m1 = makeMigration("001");
+    const m2 = makeMigration("002");
+
+    await runWorkspaceMigrations(WORKSPACE_DIR, [m1, m2]);
+
+    // One info log before all migrations, naming how many are registered.
+    expect(logInfoFn).toHaveBeenCalledWith(
+      "Running workspace migrations (2 registered)",
+    );
+
+    // One info log for the new migration that actually ran.
+    expect(logInfoFn).toHaveBeenCalledWith(
+      expect.stringContaining("Running workspace migration: 002"),
+    );
+
+    // A final summary log reporting applied vs skipped counts.
+    expect(logInfoFn).toHaveBeenCalledWith(
+      "Workspace migrations complete: 1 applied, 1 skipped (already applied)",
+    );
+  });
+
   test("writes checkpoint after each migration", async () => {
     const m1 = makeMigration("001");
     const m2 = makeMigration("002");
