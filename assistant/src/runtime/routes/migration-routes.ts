@@ -24,7 +24,12 @@ import { getPlatformAssistantId } from "../../config/env.js";
 import { invalidateConfigCache } from "../../config/loader.js";
 import { getAssistantName } from "../../daemon/identity-helpers.js";
 import { runAsyncSqlite } from "../../memory/db-async-query.js";
-import { getDb, resetDb } from "../../memory/db-connection.js";
+import {
+  getDb,
+  getLogsSqlite,
+  getMemorySqlite,
+  resetDb,
+} from "../../memory/db-connection.js";
 import { validateMigrationState } from "../../memory/migrations/validate-migration-state.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
@@ -38,7 +43,6 @@ import {
   upsertCredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
 import { getLogger } from "../../util/logger.js";
-import { getLogsDbPath } from "../../util/logs-db-path.js";
 import { getWorkspaceDir, getWorkspaceHooksDir } from "../../util/platform.js";
 import { APP_VERSION } from "../../version.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
@@ -153,31 +157,42 @@ export async function reconcileVellumMetadataFromCes(warningSink: {
 const log = getLogger("migration-routes");
 
 /**
- * Flush both database files' WALs before an export copies them. The bundle
+ * Flush each database file's WAL before an export copies them. The bundle
  * walker includes `*.db` but skips `*.db-wal`, so committed frames still sitting
  * in a WAL would be missing from the bundle.
  *
- * Dispatched through `runAsyncSqlite` so the flush runs in a sqlite3 subprocess
- * where available — a multi-GB WAL flush would otherwise stall the event loop.
- * The in-process fallback runs on the daemon connection, where one unqualified
- * checkpoint already covers every attached database; the subprocess opens a
- * single file, so we issue a second checkpoint targeting the logs file. FULL
- * (not TRUNCATE) writes committed frames back to the main file, which is all the
- * copy needs.
+ * The main DB is flushed through `runAsyncSqlite` so the (potentially multi-GB)
+ * flush runs in a sqlite3 subprocess where available rather than stalling the
+ * event loop. The dedicated logs/memory connections are checkpointed in-process
+ * on their own handles — they are small and the daemon already holds them open.
+ * FULL (not TRUNCATE) writes committed frames back to the main file, which is
+ * all the copy needs.
  */
 async function checkpointDbsForExport(): Promise<void> {
-  const targets: Array<{ label: string; dbPath?: string }> = [
-    { label: "main" },
-    { label: "logs", dbPath: getLogsDbPath() },
-  ];
-  for (const { label, dbPath } of targets) {
-    const result = await runAsyncSqlite(
-      "PRAGMA wal_checkpoint(FULL)",
-      dbPath ? { dbPath } : undefined,
+  const mainResult = await runAsyncSqlite("PRAGMA wal_checkpoint(FULL)");
+  if (!mainResult.ok) {
+    log.warn(
+      { error: mainResult.error, backend: mainResult.backend, db: "main" },
+      "WAL checkpoint failed — exporting without checkpoint",
     );
-    if (!result.ok) {
+  }
+
+  for (const [label, sqlite] of [
+    ["logs", getLogsSqlite()],
+    ["memory", getMemorySqlite()],
+  ] as const) {
+    if (!sqlite) {
       log.warn(
-        { error: result.error, backend: result.backend, db: label },
+        { db: label },
+        "Dedicated database unavailable — exporting without checkpoint",
+      );
+      continue;
+    }
+    try {
+      sqlite.exec("PRAGMA wal_checkpoint(FULL)");
+    } catch (err) {
+      log.warn(
+        { err, db: label },
         "WAL checkpoint failed — exporting without checkpoint",
       );
     }

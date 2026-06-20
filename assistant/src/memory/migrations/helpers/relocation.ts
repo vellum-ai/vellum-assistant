@@ -10,21 +10,21 @@ import {
 const log = getLogger("memory-db");
 
 /**
- * Incremental relocation of a heavy table out of the main DB and into an
- * attached file (`assistant-logs.db` / `assistant-memory.db`).
+ * Incremental relocation of a heavy table out of the main DB and into its
+ * own file (`assistant-logs.db` / `assistant-memory.db`).
  *
  * A one-shot `INSERT … SELECT` + `DROP TABLE` of a multi-GB table on the daemon
  * connection would pin the write lock and block the event loop for minutes.
  * Instead a relocation runs as an async migration step in two parts:
  *
  *   1. {@link stageTableForRelocation} renames the source table in `main` aside
- *      to `<table>__relocating` (instant, metadata-only). Once `main` no longer
- *      has `<table>`, the unqualified name resolves to the attached copy, so
- *      live reads/writes route correctly immediately.
- *   2. {@link drainStagedTable} copies the staged rows into the target in
+ *      to `<table>__relocating` (instant, metadata-only), so live reads/writes
+ *      route to the dedicated connection's copy immediately.
+ *   2. {@link drainStagedTable} copies the staged rows into the target file in
  *      bounded batches and truncates them from the staging table as it goes,
- *      then drops it. Each batch runs off the connection via `runAsyncSqlite`,
- *      so the event loop is free between batches; the migration `await`s it to
+ *      then drops it. Each batch runs through `runAsyncSqlite`, which opens the
+ *      target file directly (the sqlite3 subprocess ATTACHes it), so the work
+ *      is independent of the daemon connection; the migration `await`s it to
  *      completion before checkpointing, so later startup work observes the
  *      finished move.
  *
@@ -65,14 +65,6 @@ export interface RelocationSpec {
    * row; unlisted columns copy as-is (or NULL when absent from the source).
    */
   columnExpr?: Record<string, string>;
-}
-
-/** True if `schema` is currently ATTACHed to the connection. */
-export function isSchemaAttached(raw: Database, schema: string): boolean {
-  const rows = raw
-    .query<{ name: string }, []>("PRAGMA database_list")
-    .all() as Array<{ name: string }>;
-  return rows.some((r) => r.name === schema);
 }
 
 function tableExistsInMain(raw: Database, name: string): boolean {

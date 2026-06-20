@@ -14,7 +14,7 @@ import {
   getMessages,
   wipeConversation,
 } from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
+import { getDb, getLogsDb, getMemoryDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 
@@ -28,9 +28,10 @@ describe("wipeConversation", () => {
     db.run(`DELETE FROM memory_segments`);
     db.run(`DELETE FROM memory_summaries`);
     db.run(`DELETE FROM memory_embeddings`);
-    db.run(`DELETE FROM memory_jobs`);
+    // memory_jobs / llm_request_logs live in their own dedicated connections.
+    getMemoryDb()!.run(`DELETE FROM memory_jobs`);
     db.run(`DELETE FROM tool_invocations`);
-    db.run(`DELETE FROM llm_request_logs`);
+    getLogsDb()!.run(`DELETE FROM llm_request_logs`);
     db.run(`DELETE FROM messages`);
     db.run(`DELETE FROM conversations`);
   });
@@ -98,9 +99,9 @@ describe("wipeConversation", () => {
       skipIndexing: true,
     });
 
-    // Clear any jobs that might have been created by prior operations
-    const db = getDb();
-    db.run(`DELETE FROM memory_jobs`);
+    // Clear any jobs that might have been created by prior operations.
+    // memory_jobs lives in the dedicated memory connection.
+    getMemoryDb()!.run(`DELETE FROM memory_jobs`);
 
     enqueueMemoryJob("graph_extract", { conversationId: conv.id });
     enqueueMemoryJob("build_conversation_summary", {
@@ -110,7 +111,7 @@ describe("wipeConversation", () => {
     const result = wipeConversation(conv.id);
 
     const raw = (
-      getDb() as unknown as {
+      getMemoryDb() as unknown as {
         $client: import("bun:sqlite").Database;
       }
     ).$client;

@@ -67,7 +67,7 @@ const tmpWorkspace = mkdtempSync(
 const previousWorkspaceEnv = process.env.VELLUM_WORKSPACE_DIR;
 process.env.VELLUM_WORKSPACE_DIR = tmpWorkspace;
 
-import { getDb } from "../db-connection.js";
+import { getMemoryDb } from "../db-connection.js";
 import { initializeDb } from "../db-init.js";
 import { enqueueMemoryJob } from "../jobs-store.js";
 import { runMemoryJobsOnce } from "../jobs-worker.js";
@@ -89,7 +89,7 @@ describe("graph_trigger_embed under memory v2", () => {
   });
 
   beforeEach(() => {
-    getDb().run("DELETE FROM memory_jobs");
+    getMemoryDb()!.run("DELETE FROM memory_jobs");
     triggerHandlerCalls = 0;
     _resetQdrantBreaker();
   });
@@ -103,7 +103,7 @@ describe("graph_trigger_embed under memory v2", () => {
 
     expect(triggerHandlerCalls).toBe(1);
 
-    const rows = getDb()
+    const rows = getMemoryDb()!
       .select()
       .from(memoryJobs)
       .where(eq(memoryJobs.id, jobId))

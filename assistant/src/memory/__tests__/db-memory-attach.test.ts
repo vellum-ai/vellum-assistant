@@ -1,15 +1,15 @@
 /**
- * Tests for the secondary memory database file wiring (infra PR).
+ * Tests for the dedicated memory database connection.
  *
  * What this locks in:
- *   1. Opening the connection ATTACHes `assistant-memory.db` as the `memory`
- *      schema and creates the file on disk.
- *   2. The attached schema runs in WAL mode (its own `-wal`, independent of
- *      the main DB) — the regression that lets a high-churn table (the
- *      `memory_jobs` queue) bloat the *main* WAL is exactly what this split
- *      exists to prevent.
- *   3. A table created in the `memory` schema lives in the separate file, not
- *      in `main` — proving the physical split rather than just an alias.
+ *   1. Opening the memory connection creates `assistant-memory.db` on disk and
+ *      runs it in WAL mode (its own `-wal`, independent of the main DB) — the
+ *      regression that lets a high-churn table (the `memory_jobs` queue) bloat
+ *      the *main* WAL is exactly what this split exists to prevent.
+ *   2. The main connection no longer ATTACHes the memory file: there is no
+ *      `memory` schema on its `database_list`.
+ *   3. `memory_jobs` lives in the dedicated memory connection, not in the main
+ *      connection — proving the physical split.
  *   4. `runAsyncSqlite({ dbPath })` targets the given file via the sqlite3
  *      CLI backend, leaving the main DB untouched.
  */
@@ -20,7 +20,7 @@ import { describe, expect, test } from "bun:test";
 
 import { removeTestDbFiles } from "../../__tests__/assert-not-live-db.js";
 
-const { getSqlite, MEMORY_DB_SCHEMA } = await import("../db-connection.js");
+const { getSqlite, getMemorySqlite } = await import("../db-connection.js");
 const { initializeDb } = await import("../db-init.js");
 const { runAsyncSqlite } = await import("../db-async-query.js");
 const { getMemoryDbPath } = await import("../../util/memory-db-path.js");
@@ -30,54 +30,41 @@ initializeDb();
 
 const sqlite3Available = findSqlite3() !== undefined;
 
-describe("memory database attachment", () => {
-  test("ATTACHes the memory file as the memory schema and creates it on disk", () => {
-    // Touch the connection so the attach runs.
-    getSqlite();
+describe("memory database connection", () => {
+  test("opens the memory file and creates it on disk in WAL mode", () => {
+    const memory = getMemorySqlite();
+    expect(memory).not.toBeNull();
     expect(existsSync(getMemoryDbPath())).toBe(true);
 
-    const attached = getSqlite()
-      .query<{ name: string; file: string }, []>("PRAGMA database_list")
-      .all();
-    const memoryEntry = attached.find((e) => e.name === MEMORY_DB_SCHEMA);
-    expect(memoryEntry).toBeDefined();
-    expect(memoryEntry?.file).toBe(getMemoryDbPath());
-  });
-
-  test("the attached schema runs in WAL mode", () => {
-    const mode = getSqlite()
-      .query<
-        { journal_mode: string },
-        []
-      >(`PRAGMA ${MEMORY_DB_SCHEMA}.journal_mode`)
+    const mode = memory!
+      .query<{ journal_mode: string }, []>("PRAGMA journal_mode")
       .get();
     expect(mode?.journal_mode).toBe("wal");
   });
 
-  test("a table created in the memory schema lives in the memory file, not main", () => {
-    const sqlite = getSqlite();
-    sqlite.exec(
-      `CREATE TABLE IF NOT EXISTS ${MEMORY_DB_SCHEMA}.attach_probe (id INTEGER PRIMARY KEY)`,
-    );
-    try {
-      const inMemory = sqlite
-        .query<
-          { name: string },
-          []
-        >(`SELECT name FROM ${MEMORY_DB_SCHEMA}.sqlite_master WHERE name = 'attach_probe'`)
-        .get();
-      expect(inMemory?.name).toBe("attach_probe");
+  test("the main connection does not attach the memory file", () => {
+    const attached = getSqlite()
+      .query<{ name: string }, []>("PRAGMA database_list")
+      .all();
+    expect(attached.some((e) => e.name === "memory")).toBe(false);
+  });
 
-      const inMain = sqlite
-        .query<
-          { name: string },
-          []
-        >(`SELECT name FROM main.sqlite_master WHERE name = 'attach_probe'`)
-        .get();
-      expect(inMain).toBeNull();
-    } finally {
-      sqlite.exec(`DROP TABLE ${MEMORY_DB_SCHEMA}.attach_probe`);
-    }
+  test("memory_jobs lives in the memory connection, not main", () => {
+    const inMemory = getMemorySqlite()!
+      .query<
+        { name: string },
+        []
+      >(`SELECT name FROM sqlite_master WHERE type='table' AND name='memory_jobs'`)
+      .get();
+    expect(inMemory?.name).toBe("memory_jobs");
+
+    const inMain = getSqlite()
+      .query<
+        { name: string },
+        []
+      >(`SELECT name FROM main.sqlite_master WHERE name='memory_jobs'`)
+      .get();
+    expect(inMain).toBeNull();
   });
 
   test.if(sqlite3Available)(

@@ -1,15 +1,20 @@
 /**
- * Holds the assistant DB connection singleton and its close callback.
+ * Holds the assistant DB connection singletons and their close callbacks.
  *
- * Lives in its own module (rather than alongside the resolver in
- * `db-connection.ts`) so test code can reset the singleton without
+ * Three connections live here under the same `globalThis.vellumAssistant`
+ * namespace, keyed by slot: the `main` daemon connection, the `logs`
+ * connection (`assistant-logs.db`), and the `memory` connection
+ * (`assistant-memory.db`). Each is opened lazily by `db-connection.ts`.
+ *
+ * Lives in its own module (rather than alongside the resolvers in
+ * `db-connection.ts`) so test code can reset the singletons without
  * importing `db-connection.ts` — which transitively pulls
  * `drizzle-orm/bun-sqlite`. Stdlib-only by design: this file must remain
  * safe to import from the test preload's load-time chain, where a broken
  * `node_modules` symlink has historically tripped the env override
  * (see DB ghost #3, /workspace/journal/2026-05-25-db-ghost-3-recovery.md).
  *
- * State is held on `globalThis.vellumAssistant.dbSingleton` so test
+ * State is held on `globalThis.vellumAssistant.dbSingletons` so test
  * helpers in `__tests__/` can read/write it WITHOUT importing this
  * module — they declare the same slot shape locally and access the
  * globalThis namespace directly. See
@@ -21,50 +26,71 @@
  * parameter on `getStoredDb<DrizzleDb>()`.
  *
  * Consumers:
- *   - `db-connection.ts` (opens/owns the connection)
- *   - production callers that need to close the active connection
+ *   - `db-connection.ts` (opens/owns the connections)
+ *   - production callers that need to close the active connections
  *     (migration routes, vbundle import, backup/restore, daemon shutdown)
  *   - `__tests__/db-test-helpers.ts` (per-test reset, via globalThis)
  */
+
+/** Which connection a slot holds. */
+export type DbSlotKey = "main" | "logs" | "memory";
 
 type DbSlot = {
   db: unknown;
   closer: (() => void) | null;
 };
 
+type DbSlots = Record<DbSlotKey, DbSlot>;
+
 type VellumAssistantNamespace = {
-  dbSingleton?: DbSlot;
+  dbSingletons?: DbSlots;
 };
 
-function slot(): DbSlot {
-  const g = globalThis as { vellumAssistant?: VellumAssistantNamespace };
-  const ns = (g.vellumAssistant ??= {});
-  return (ns.dbSingleton ??= { db: null, closer: null });
+function emptySlot(): DbSlot {
+  return { db: null, closer: null };
 }
 
-/** Read the current singleton, narrowed to `T`. `null` means not yet opened. */
-export function getStoredDb<T>(): T | null {
-  return slot().db as T | null;
+function slots(): DbSlots {
+  const g = globalThis as { vellumAssistant?: VellumAssistantNamespace };
+  const ns = (g.vellumAssistant ??= {});
+  return (ns.dbSingletons ??= {
+    main: emptySlot(),
+    logs: emptySlot(),
+    memory: emptySlot(),
+  });
+}
+
+function slot(key: DbSlotKey): DbSlot {
+  return slots()[key];
+}
+
+/** Read the current singleton for `key`, narrowed to `T`. `null` means not yet opened. */
+export function getStoredDb<T>(key: DbSlotKey): T | null {
+  return slot(key).db as T | null;
 }
 
 /**
  * Store a freshly-opened connection and the closer to run on
- * `clearStoredDb()`. The closer must be self-contained — it is invoked
+ * `clearStoredDb(key)`. The closer must be self-contained — it is invoked
  * inside a try/catch, so partial failures are swallowed (best-effort
  * close on shutdown / restore paths).
  */
-export function setStoredDb<T>(newDb: T, close: () => void): void {
-  const s = slot();
+export function setStoredDb<T>(
+  key: DbSlotKey,
+  newDb: T,
+  close: () => void,
+): void {
+  const s = slot(key);
   s.db = newDb;
   s.closer = close;
 }
 
 /**
- * Close the active connection (if any) via the stored closer, then drop
- * both. Idempotent: safe to call when no connection is stored.
+ * Close the active connection for `key` (if any) via the stored closer,
+ * then drop both. Idempotent: safe to call when no connection is stored.
  */
-export function clearStoredDb(): void {
-  const s = slot();
+export function clearStoredDb(key: DbSlotKey): void {
+  const s = slot(key);
   if (s.closer) {
     try {
       s.closer();

@@ -3,12 +3,12 @@ import { join } from "node:path";
 import { getDataDir } from "./platform.js";
 
 /**
- * Path to the secondary SQLite file that houses heavy append-only tables
+ * Path to the dedicated SQLite file that houses heavy append-only tables
  * (LLM request logs, and other log/event tables over time). It lives in the
- * same `data/db` directory as the main DB and is ATTACHed to the daemon's
- * connection as the `logs` schema (see `memory/db-connection.ts`). Splitting
- * these tables into their own file keeps the main DB — and its WAL — small and
- * lets the two files VACUUM/checkpoint independently.
+ * same `data/db` directory as the main DB and is opened on its own connection
+ * (see `getLogsDb()` in `memory/db-connection.ts`). Splitting these tables into
+ * their own file keeps the main DB — and its WAL — small and lets the two files
+ * VACUUM/checkpoint independently.
  *
  * Kept in its own leaf module rather than alongside `getDbPath()` in
  * `platform.ts`: `platform.ts` is imported very early and widely, and adding an

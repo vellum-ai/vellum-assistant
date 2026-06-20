@@ -202,7 +202,8 @@ afterAll(() => {
   rmSync(tmpWorkspace, { recursive: true, force: true });
 });
 
-const { getDb } = await import("../../db-connection.js");
+const { getDb, getMemoryDb, getMemorySqlite } =
+  await import("../../db-connection.js");
 const { resetDbForTesting } =
   await import("../../../__tests__/db-test-helpers.js");
 const { initializeDb } = await import("../../db-init.js");
@@ -259,14 +260,11 @@ beforeEach(() => {
   // so explicitly truncate every table this suite writes to. Without this,
   // a row written by an earlier test (e.g. an activation_state for
   // `conv-with-state`) leaks into the next test and breaks isolation.
-  for (const table of [
-    "activation_state",
-    "memory_jobs",
-    "messages",
-    "conversations",
-  ]) {
+  for (const table of ["activation_state", "messages", "conversations"]) {
     rawExec(`DELETE FROM ${table}`);
   }
+  // memory_jobs lives in the dedicated memory connection.
+  getMemorySqlite()!.run("DELETE FROM memory_jobs");
   // Reset memory dir so each test starts with a clean concepts/edges set.
   rmSync(join(tmpWorkspace, "memory", "concepts"), {
     recursive: true,
@@ -354,7 +352,7 @@ describe("memoryV2ReembedJob", () => {
     // runs in isolation (or before such tests) the rows do land. Either
     // way, the return value is the canonical contract — the row lookup is
     // belt-and-suspenders.
-    const rows = getDb().select().from(memoryJobs).all();
+    const rows = getMemoryDb()!.select().from(memoryJobs).all();
     if (rows.length > 0) {
       expect(rows).toHaveLength(2);
       const slugs = rows.map((row) => JSON.parse(row.payload).slug);
@@ -388,7 +386,7 @@ describe("memoryV2ReembedJob", () => {
 
     await memoryV2ReembedJob(makeJob("memory_v2_reembed"), TEST_CONFIG);
 
-    const rows = getDb().select().from(memoryJobs).all();
+    const rows = getMemoryDb()!.select().from(memoryJobs).all();
     if (rows.length > 0) {
       const slugs = rows.map((row) => JSON.parse(row.payload).slug);
       for (const reserved of [
