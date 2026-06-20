@@ -193,6 +193,15 @@ export async function up(): Promise<MigrationResult> {
       );
       const txn = gwDb.transaction(() => {
         for (const ch of missingChannels) {
+          // Track the key we're about to insert so that if the assistant DB
+          // itself has duplicate case-variants (e.g. "U123" and "u123"), only
+          // the first is accepted. Without this, both would pass the filter
+          // and the case-sensitive unique index would allow both, undoing
+          // m0005's case-insensitive dedupe.
+          const key = `${ch.type}|${ch.address.toLowerCase()}`;
+          if (gatewayChannelKeys.has(key)) continue;
+          gatewayChannelKeys.add(key);
+
           insertChannel.run(
             ch.id,
             ch.contact_id,
