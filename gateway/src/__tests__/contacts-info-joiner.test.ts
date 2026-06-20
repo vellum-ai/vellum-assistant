@@ -85,8 +85,6 @@ mock.module("../db/assistant-db-proxy.js", () => ({
   assistantDbExec: mock(async () => undefined),
 }));
 
-import { eq } from "drizzle-orm";
-
 import { ContactStore } from "../db/contact-store.js";
 import {
   initGatewayDb,
