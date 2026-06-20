@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
+import { getLogsDbPath } from "../util/logs-db-path.js";
 import { ensureDataDir, getDbPath } from "../util/platform.js";
 import { backfillAppConversationIds } from "./app-store.js";
 import { getDb, getSqlite } from "./db-connection.js";
@@ -154,6 +155,7 @@ import {
   migrateMessagesConversationCreatedAtIndex,
   migrateMessagesFtsBackfill,
   migrateMessagesRoleCreatedAtIndex,
+  migrateMoveLlmRequestLogsToLogsDb,
   migrateNormalizePhoneIdentities,
   migrateNormalizeSlackExternalContent,
   migrateNormalizeUserFileByPrincipal,
@@ -265,12 +267,31 @@ function getTemplateDbPath(): string {
   );
 }
 
+/**
+ * Template path for the attached `logs` database, kept alongside the main
+ * template. Both files must be captured/restored together: the migrated state
+ * now spans two files (llm_request_logs and its indexes live in `logs`), so
+ * restoring only the main DB would leave a fresh, empty logs DB with no
+ * `llm_request_logs` table.
+ */
+function getLogsTemplateDbPath(): string {
+  return `${getTemplateDbPath()}.logs`;
+}
+
 function tryRestoreTemplate(): boolean {
   const templatePath = getTemplateDbPath();
   if (!existsSync(templatePath)) return false;
   // getDb() hasn't run yet, so the data directory may not exist.
   ensureDataDir();
   copyFileSync(templatePath, getDbPath());
+  // Restore the attached logs DB before getDb() opens (and ATTACHes) it, so the
+  // relocated llm_request_logs table is present. Older templates may predate
+  // the split; the hash includes the migration files, so a stale template
+  // without this sibling won't be reused — but guard anyway.
+  const logsTemplate = getLogsTemplateDbPath();
+  if (existsSync(logsTemplate)) {
+    copyFileSync(logsTemplate, getLogsDbPath());
+  }
   // Open the pre-migrated copy — getDb() will set PRAGMAs but skip migrations.
   getDb();
   return true;
@@ -278,12 +299,18 @@ function tryRestoreTemplate(): boolean {
 
 function saveTemplate(): void {
   try {
-    // Flush WAL to main DB file before copying.
+    // Flush each DB's WAL to its main file before copying.
     getSqlite().exec("PRAGMA wal_checkpoint(TRUNCATE)");
-    const tmpFile = `${getTemplateDbPath()}.${process.pid}`;
-    copyFileSync(getDbPath(), tmpFile);
-    // Atomic rename — safe even with parallel test workers.
-    renameSync(tmpFile, getTemplateDbPath());
+    getSqlite().exec("PRAGMA logs.wal_checkpoint(TRUNCATE)");
+
+    const mainTmp = `${getTemplateDbPath()}.${process.pid}`;
+    copyFileSync(getDbPath(), mainTmp);
+    const logsTmp = `${getLogsTemplateDbPath()}.${process.pid}`;
+    copyFileSync(getLogsDbPath(), logsTmp);
+
+    // Atomic renames — safe even with parallel test workers.
+    renameSync(mainTmp, getTemplateDbPath());
+    renameSync(logsTmp, getLogsTemplateDbPath());
   } catch {
     // Best effort — next file will just run migrations normally.
   }
@@ -531,6 +558,7 @@ export function initializeDb(): void {
     migrateDropExternalUserId,
     dropApprovalPromptTsTrackerTable,
     migrateRewriteBalancedEconomyProfilePins,
+    migrateMoveLlmRequestLogsToLogsDb,
   ];
 
   // Run each migration step, catching and logging individual failures so one

@@ -37,6 +37,7 @@ import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { UserError } from "../util/errors.js";
 import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
+import { getLogsDbPath } from "../util/logs-db-path.js";
 import { getConversationsDir } from "../util/platform.js";
 import { createRowMapper } from "../util/row-mapper.js";
 import {
@@ -2140,8 +2141,11 @@ export async function clearAll(): Promise<{
   // Each DELETE goes through `runAsyncSqlite`. The original code threw
   // on rawExec failure; mirror that here by throwing when the async
   // result reports `ok: false`, so the route handler still returns 500.
-  const runOrThrow = async (sql: string): Promise<void> => {
-    const result = await runAsyncSqlite(sql);
+  const runOrThrow = async (
+    sql: string,
+    options?: { dbPath?: string },
+  ): Promise<void> => {
+    const result = await runAsyncSqlite(sql, options);
     if (!result.ok) {
       throw new Error(
         `clearAll: \`${sql}\` failed (${result.backend}): ${result.error ?? "unknown"}`,
@@ -2163,7 +2167,9 @@ export async function clearAll(): Promise<{
   await runOrThrow("DELETE FROM memory_embeddings");
   await runOrThrow("DELETE FROM memory_jobs");
   await runOrThrow("DELETE FROM memory_checkpoints");
-  await runOrThrow("DELETE FROM llm_request_logs");
+  // llm_request_logs lives in the attached logs database; point the sqlite3
+  // subprocess at that file (the in-process fallback resolves it via ATTACH).
+  await runOrThrow("DELETE FROM llm_request_logs", { dbPath: getLogsDbPath() });
   await runOrThrow("DELETE FROM llm_usage_events");
   await runOrThrow("DELETE FROM message_attachments");
   await runOrThrow("DELETE FROM attachments");

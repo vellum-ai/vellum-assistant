@@ -1,5 +1,6 @@
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
+import { getLogsDbPath } from "../../util/logs-db-path.js";
 import { runAsyncSqlite } from "../db-async-query.js";
 import { getDb } from "../db-connection.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
@@ -49,9 +50,14 @@ export async function pruneOldLlmRequestLogsJob(
   // fallback backend in `db-async-query.ts` synthesizes the same shape
   // by capturing `changes()` atomically after `exec()`. Both backends
   // end up on the parser path below.
+  // llm_request_logs lives in the attached logs database. Point the sqlite3
+  // subprocess at that file directly (it can't see the daemon connection's
+  // ATTACH); the in-process fallback runs on the daemon connection, where the
+  // unqualified name already resolves to the attached table.
   const result = await runAsyncSqlite(
     `DELETE FROM llm_request_logs WHERE rowid IN (SELECT rowid FROM llm_request_logs WHERE created_at < ${cutoffMs} LIMIT ${PRUNE_LOG_BATCH_LIMIT});
 SELECT changes();`,
+    { dbPath: getLogsDbPath() },
   );
   if (!result.ok) {
     log.warn(
