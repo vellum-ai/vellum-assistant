@@ -73,6 +73,10 @@ let backboneSupportsVision = false;
 // Whether the visionPerception call site resolves to an enabled vision-capable
 // provider (false in the BYOK-disabled-vision-profile case).
 let visionProviderAvailable = true;
+// Records the `overrideProfile` every `resolveBackboneSupportsVision` call sees,
+// so a test can assert which profile the vlm_* gate resolved the backbone from
+// (the routed profile when the loop forwards one, else the per-turn override).
+const backboneResolutionProfiles: (string | null)[] = [];
 
 // Only the flag predicate is stubbed (it ignores its config argument), so the
 // real `getConfig()` runs untouched and other importers of config/loader keep
@@ -89,7 +93,12 @@ mock.module(
   "../../plugins/defaults/vision-perception/hooks/pre-model-call.js",
   () => ({
     ...realPreModelCall,
-    resolveBackboneSupportsVision: () => backboneSupportsVision,
+    resolveBackboneSupportsVision: (opts: {
+      overrideProfile: string | null;
+    }) => {
+      backboneResolutionProfiles.push(opts.overrideProfile);
+      return backboneSupportsVision;
+    },
   }),
 );
 // Stub the BYOK availability check (the visionPerception provider resolution).
@@ -127,6 +136,7 @@ beforeEach(() => {
   visionFlagEnabled = true;
   backboneSupportsVision = false;
   visionProviderAvailable = true;
+  backboneResolutionProfiles.length = 0;
 });
 
 describe("isToolActiveForContext — Slack task_progress UI exception", () => {
@@ -787,5 +797,42 @@ describe("isToolActiveForContext — vlm_* BYOK provider guard", () => {
     for (const name of ALL_VLM_TOOLS) {
       expect(isToolActiveForContext(name, ctx)).toBe(false);
     }
+  });
+});
+
+describe("isToolActiveForContext — vlm_* gate keys on the routed profile", () => {
+  test("a routed override profile is forwarded to the backbone resolver over the per-turn override", () => {
+    // The loop passes the FINAL post-pre-model-call profile as the third arg.
+    // The vlm_* gate must resolve the backbone from THAT, not the conversation's
+    // pre-routing per-turn override.
+    backboneSupportsVision = false;
+    const ctx = makeCtx({ currentTurnOverrideProfile: "balanced" });
+    isToolActiveForContext("vlm_ask", ctx, "glm-text-only");
+    expect(backboneResolutionProfiles).toEqual(["glm-text-only"]);
+  });
+
+  test("an explicit null routed profile (router resolved no override) wins over the per-turn override", () => {
+    backboneSupportsVision = false;
+    const ctx = makeCtx({ currentTurnOverrideProfile: "vision" });
+    isToolActiveForContext("vlm_ask", ctx, null);
+    expect(backboneResolutionProfiles).toEqual([null]);
+  });
+
+  test("omitting the routed profile falls back to the per-turn override", () => {
+    backboneSupportsVision = false;
+    const ctx = makeCtx({ currentTurnOverrideProfile: "balanced" });
+    isToolActiveForContext("vlm_ask", ctx);
+    expect(backboneResolutionProfiles).toEqual(["balanced"]);
+  });
+
+  test("the advisor gate also keys on the routed profile when one is forwarded", () => {
+    advisorGateResult = true;
+    advisorGateProfiles.length = 0;
+    isToolActiveForContext(
+      "advisor",
+      makeCtx({ currentTurnOverrideProfile: "balanced" }),
+      "routed-profile",
+    );
+    expect(advisorGateProfiles).toEqual(["routed-profile"]);
   });
 });

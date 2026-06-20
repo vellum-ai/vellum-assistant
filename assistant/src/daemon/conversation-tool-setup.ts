@@ -556,11 +556,28 @@ export const SUBAGENT_ONLY_TOOL_NAMES = new Set<string>([
  * current turn. This helper mirrors the filtering applied by
  * `createResolveToolsCallback` — including the subagent allowlist,
  * `toolsDisabledDepth`, and disk-pressure cleanup restrictions.
+ *
+ * `routedOverrideProfile` (when not `undefined`) is the inference profile a
+ * `pre-model-call` model-router resolved for THIS turn, used in place of
+ * `ctx.currentTurnOverrideProfile` for the profile-dependent gates (advisor,
+ * vlm_*) so the offered tool surface reflects the backbone that actually runs
+ * — not the pre-routing profile. `null` means "router resolved no override"
+ * (use the workspace active profile); `undefined` means "no router decision"
+ * (fall back to the per-turn override the conversation carries). The agent
+ * loop passes it after the hook chain resolves; every other caller omits it.
  */
 export function isToolActiveForContext(
   name: string,
   ctx: SkillProjectionContext,
+  routedOverrideProfile?: string | null,
 ): boolean {
+  // Profile the per-turn profile-dependent gates (advisor, vlm_*) resolve the
+  // backbone from. A router decision (even an explicit `null`) wins over the
+  // conversation's per-turn override; absent any decision the override holds.
+  const effectiveOverrideProfile =
+    routedOverrideProfile !== undefined
+      ? routedOverrideProfile
+      : (ctx.currentTurnOverrideProfile ?? null);
   // Execution-gate-mode wakes pin the client-context inputs so the wire tool
   // surface matches the SOURCE conversation's live turns rather than the
   // fork's clientless hydration (see {@link WakeToolContextPin}). When the
@@ -610,11 +627,9 @@ export function isToolActiveForContext(
     // Gated per chat-profile (`ProfileEntry.advisorEnabled`): when the resolved
     // profile disables the advisor, omit the tool from the wire list so the
     // model never sees a tool it can only no-op on. Resolves the profile the
-    // same way the advisor's execution-time guard does (the per-turn override,
-    // else the active profile). The wire list is fixed before PRE_MODEL_CALL
-    // hooks run, so a hook that re-routes the profile mid-turn (the model-router
-    // lever on `PreModelCallContext.modelProfile`) is not reflected here.
-    return advisorEnabledForProfile(ctx.currentTurnOverrideProfile ?? null);
+    // same way the advisor's execution-time guard does — the router's decision
+    // for this turn when present, else the per-turn override / active profile.
+    return advisorEnabledForProfile(effectiveOverrideProfile);
   }
   if (isVlmToolName(name)) {
     // The plugin now registers unconditionally (its tools are always in the
@@ -633,7 +648,7 @@ export function isToolActiveForContext(
 
     const resolution = {
       callSite: ctx.currentCallSite ?? null,
-      overrideProfile: ctx.currentTurnOverrideProfile ?? null,
+      overrideProfile: effectiveOverrideProfile,
       selectionSeed: ctx.conversationId ?? null,
     };
 
@@ -641,8 +656,8 @@ export function isToolActiveForContext(
     // backbone, so ALL vlm_* tools (vlm_ask/describe/ocr/detect/video_log) are
     // offered together only when the resolved backbone cannot see media natively
     // (`supportsVision === false`) — and withheld together for any vision-capable
-    // backbone. Resolves the backbone the same way dispatch does (the per-turn
-    // override, else the active profile / call-site default).
+    // backbone. Resolves the backbone the same way dispatch does (the router's
+    // decision for this turn, else the per-turn override / call-site default).
     if (resolveBackboneSupportsVision(resolution)) return false;
 
     // BYOK guard: only offer the tools when the visionPerception call site
@@ -738,7 +753,12 @@ export function isToolActiveForContext(
 export function createResolveToolsCallback(
   toolDefs: ToolDefinition[],
   ctx: SkillProjectionContext,
-): ((history: Message[]) => ToolDefinition[]) | undefined {
+):
+  | ((
+      history: Message[],
+      routedOverrideProfile?: string | null,
+    ) => ToolDefinition[])
+  | undefined {
   if (toolDefs.length === 0) return undefined;
 
   // Separate the initial tool defs into core (stable) and MCP (dynamic).
@@ -755,7 +775,13 @@ export function createResolveToolsCallback(
     "Conversation tool resolver initialized",
   );
 
-  return (history: Message[]) => {
+  // `routedOverrideProfile`, when supplied by the agent loop after the
+  // `pre-model-call` hook chain runs, is the inference profile a model-router
+  // resolved for this turn. It replaces `ctx.currentTurnOverrideProfile` for
+  // the profile-dependent wire gates (advisor, vlm_*) so the offered tools
+  // reflect the backbone that actually runs. `undefined` (every other caller)
+  // keeps the conversation's per-turn override.
+  return (history: Message[], routedOverrideProfile?: string | null) => {
     // When tools are explicitly disabled (e.g. during pointer generation),
     // return an empty tool list so the LLM never sees tool definitions and
     // keep the allowlist empty so no tool execution can slip through.
@@ -768,7 +794,7 @@ export function createResolveToolsCallback(
     // irrelevant to this turn (e.g. UI tools when no client is connected)
     // are omitted from the definitions sent to the provider.
     const filteredCoreDefs = coreToolDefs.filter((d) =>
-      isToolActiveForContext(d.name, ctx),
+      isToolActiveForContext(d.name, ctx, routedOverrideProfile),
     );
 
     // When the conversation is acting as a subagent, restrict core tools to
