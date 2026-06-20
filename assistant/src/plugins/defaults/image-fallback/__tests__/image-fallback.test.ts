@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type {
   ImageContent,
   Message,
+  ModelProfileInfo,
   UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
 
@@ -10,46 +11,36 @@ import type {
 
 // Control doesSupportVision per-profile from the test.
 let visionProfiles: Set<string>;
-mock.module("../../../../plugin-api/vision-support.js", () => ({
-  doesSupportVision: (profile: { key: string }) =>
-    visionProfiles.has(profile.key),
-}));
-
-// Control the profiles the hook sees.
-type MockProfile = {
-  key: string;
-  label: string;
-  description: string;
-  isActive: boolean;
-  isDisabled: boolean;
-  isMix: boolean;
-};
-let mockProfiles: MockProfile[];
-mock.module("../../../../plugin-api/model-profiles.js", () => ({
-  getModelProfiles: () => mockProfiles,
-}));
-
-// Control provider resolution while keeping extractAllText real.
+let mockProfiles: ModelProfileInfo[];
 let sendMessageResponse = {
   content: [{ type: "text", text: "A red chart showing Q3 revenue." }],
 };
 let providerResolves = true;
+
 const fakeProvider = {
   name: "mock-vision-provider",
   async sendMessage() {
     return sendMessageResponse;
   },
 };
-const realPsm = await import("../../../../providers/provider-send-message.js");
-mock.module("../../../../providers/provider-send-message.js", () => ({
-  ...realPsm,
+
+// Mock @vellumai/plugin-api — only the runtime handles the plugin imports.
+// `extractAllText` stays real (imported from the relative path, not plugin-api).
+mock.module("@vellumai/plugin-api", () => ({
+  doesSupportVision: (profile: ModelProfileInfo) => visionProfiles.has(profile.key),
+  getModelProfiles: () => mockProfiles,
   getConfiguredProvider: async () => (providerResolves ? fakeProvider : null),
+}));
+
+// Mock the image-persist module to avoid filesystem side effects in tests.
+let mockPersistPath: string | null = "/workspace/attachments/mock-hash.png";
+mock.module("../src/image-persist.js", () => ({
+  persistImage: () => mockPersistPath,
 }));
 
 // ─── Imports (after mocks are registered) ───────────────────────────────────
 
-const userPromptSubmit = (await import("../hooks/user-prompt-submit.js"))
-  .default;
+const userPromptSubmit = (await import("../hooks/user-prompt-submit.js")).default;
 const { findVisionProfile } = await import("../src/vision-caption.js");
 const { resetCaptionCacheForTests } = await import("../src/caption-cache.js");
 
@@ -62,6 +53,21 @@ const logger = {
   debug() {},
   warnOnce() {},
 };
+
+function profile(
+  key: string,
+  overrides: Partial<ModelProfileInfo> = {},
+): ModelProfileInfo {
+  return {
+    key,
+    label: key,
+    description: null,
+    isActive: false,
+    isDisabled: false,
+    isMix: false,
+    ...overrides,
+  };
+}
 
 function imageBlock(data = "base64data"): ImageContent {
   return {
@@ -85,6 +91,7 @@ function makeCtx(
     conversationId: "c1",
     userMessageId: "m1",
     requestId: "r1",
+    modelProfile: profile("text-only"),
     modelProfileKey: "text-only",
     isNonInteractive: false,
     prompt: "What is in this image?",
@@ -100,41 +107,20 @@ function makeCtx(
 beforeEach(() => {
   visionProfiles = new Set<string>(["vision-profile"]);
   mockProfiles = [
-    {
-      key: "text-only",
-      label: "Text Only",
-      description: "",
-      isActive: true,
-      isDisabled: false,
-      isMix: false,
-    },
-    {
-      key: "vision-profile",
-      label: "Vision",
-      description: "",
-      isActive: false,
-      isDisabled: false,
-      isMix: false,
-    },
+    profile("text-only", { label: "Text Only", isActive: true }),
+    profile("vision-profile", { label: "Vision" }),
   ];
   sendMessageResponse = {
     content: [{ type: "text", text: "A red chart showing Q3 revenue." }],
   };
   providerResolves = true;
+  mockPersistPath = "/workspace/attachments/mock-hash.png";
   resetCaptionCacheForTests();
 });
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe("image-fallback user-prompt-submit hook", () => {
-  test("skips when isNonInteractive is true", async () => {
-    const messages = [imageMsg()];
-    const ctx = makeCtx({ latestMessages: messages, isNonInteractive: true });
-    await userPromptSubmit(ctx);
-    // Image block should remain unchanged.
-    expect(ctx.latestMessages[0].content[0].type).toBe("image");
-  });
-
   test("is a no-op when the active model supports vision", async () => {
     visionProfiles = new Set(["text-only"]); // active profile supports vision
     const messages = [imageMsg()];
@@ -143,14 +129,43 @@ describe("image-fallback user-prompt-submit hook", () => {
     expect(ctx.latestMessages[0].content[0].type).toBe("image");
   });
 
+  test("does not gate on isNonInteractive — captions even for background runs", async () => {
+    const messages = [imageMsg()];
+    const ctx = makeCtx({ latestMessages: messages, isNonInteractive: true });
+    await userPromptSubmit(ctx);
+    // Image should still be captioned — no silent background failures.
+    expect(ctx.latestMessages[0].content[0].type).toBe("text");
+    expect((ctx.latestMessages[0].content[0] as { text: string }).text).toContain(
+      "[Image:",
+    );
+  });
+
   test("replaces image blocks with captions when active model is text-only", async () => {
     const messages = [imageMsg("img1")];
     const ctx = makeCtx({ latestMessages: messages });
     await userPromptSubmit(ctx);
     expect(ctx.latestMessages[0].content[0].type).toBe("text");
-    expect(
-      (ctx.latestMessages[0].content[0] as { text: string }).text,
-    ).toContain("[Image: A red chart showing Q3 revenue.]");
+    expect((ctx.latestMessages[0].content[0] as { text: string }).text).toContain(
+      "[Image: A red chart showing Q3 revenue.]",
+    );
+  });
+
+  test("references the saved image path in the caption text", async () => {
+    const messages = [imageMsg("img1")];
+    const ctx = makeCtx({ latestMessages: messages });
+    await userPromptSubmit(ctx);
+    const text = (ctx.latestMessages[0].content[0] as { text: string }).text;
+    expect(text).toContain("(saved to /workspace/attachments/");
+  });
+
+  test("works without a saved path when persist fails", async () => {
+    mockPersistPath = null;
+    const messages = [imageMsg("img1")];
+    const ctx = makeCtx({ latestMessages: messages });
+    await userPromptSubmit(ctx);
+    const text = (ctx.latestMessages[0].content[0] as { text: string }).text;
+    expect(text).toContain("[Image: A red chart showing Q3 revenue.]");
+    expect(text).not.toContain("(saved to");
   });
 
   test("preserves non-image blocks and captions only images", async () => {
@@ -170,9 +185,9 @@ describe("image-fallback user-prompt-submit hook", () => {
       "Look at this:",
     );
     expect(ctx.latestMessages[0].content[1].type).toBe("text");
-    expect(
-      (ctx.latestMessages[0].content[1] as { text: string }).text,
-    ).toContain("[Image:");
+    expect((ctx.latestMessages[0].content[1] as { text: string }).text).toContain(
+      "[Image:",
+    );
     expect((ctx.latestMessages[0].content[2] as { text: string }).text).toBe(
       "What do you see?",
     );
@@ -184,9 +199,9 @@ describe("image-fallback user-prompt-submit hook", () => {
     const ctx = makeCtx({ latestMessages: messages });
     await userPromptSubmit(ctx);
     expect(ctx.latestMessages[0].content[0].type).toBe("text");
-    expect(
-      (ctx.latestMessages[0].content[0] as { text: string }).text,
-    ).toContain("no vision-capable model");
+    expect((ctx.latestMessages[0].content[0] as { text: string }).text).toContain(
+      "no vision-capable model",
+    );
   });
 
   test("uses fail-open placeholder when provider resolution returns null", async () => {
@@ -195,9 +210,9 @@ describe("image-fallback user-prompt-submit hook", () => {
     const ctx = makeCtx({ latestMessages: messages });
     await userPromptSubmit(ctx);
     expect(ctx.latestMessages[0].content[0].type).toBe("text");
-    expect(
-      (ctx.latestMessages[0].content[0] as { text: string }).text,
-    ).toContain("captioning failed");
+    expect((ctx.latestMessages[0].content[0] as { text: string }).text).toContain(
+      "captioning failed",
+    );
   });
 
   test("caches captions — second call with same image does not invoke provider", async () => {
@@ -209,8 +224,10 @@ describe("image-fallback user-prompt-submit hook", () => {
         return sendMessageResponse;
       },
     };
-    mock.module("../../../../providers/provider-send-message.js", () => ({
-      ...realPsm,
+    // Override the mock to track calls.
+    mock.module("@vellumai/plugin-api", () => ({
+      doesSupportVision: (p: ModelProfileInfo) => visionProfiles.has(p.key),
+      getModelProfiles: () => mockProfiles,
       getConfiguredProvider: async () => trackingProvider,
     }));
 
@@ -226,10 +243,10 @@ describe("image-fallback user-prompt-submit hook", () => {
     expect(callCount).toBe(1); // still 1 — cache hit
 
     // Restore the original mock for other tests.
-    mock.module("../../../../providers/provider-send-message.js", () => ({
-      ...realPsm,
-      getConfiguredProvider: async () =>
-        providerResolves ? fakeProvider : null,
+    mock.module("@vellumai/plugin-api", () => ({
+      doesSupportVision: (p: ModelProfileInfo) => visionProfiles.has(p.key),
+      getModelProfiles: () => mockProfiles,
+      getConfiguredProvider: async () => (providerResolves ? fakeProvider : null),
     }));
   });
 
@@ -245,25 +262,37 @@ describe("image-fallback user-prompt-submit hook", () => {
     const ctx = makeCtx({ latestMessages: messages });
     await userPromptSubmit(ctx);
     expect(ctx.latestMessages[0].content[0].type).toBe("text");
-    expect(
-      (ctx.latestMessages[0].content[0] as { text: string }).text,
-    ).toContain("[Image:");
+    expect((ctx.latestMessages[0].content[0] as { text: string }).text).toContain(
+      "[Image:",
+    );
     expect(ctx.latestMessages[2].content[0].type).toBe("text");
-    expect(
-      (ctx.latestMessages[2].content[0] as { text: string }).text,
-    ).toContain("[Image:");
+    expect((ctx.latestMessages[2].content[0] as { text: string }).text).toContain(
+      "[Image:",
+    );
     expect((ctx.latestMessages[2].content[1] as { text: string }).text).toBe(
       "both?",
     );
   });
 
-  test("resolves active profile via isActive when modelProfileKey is null", async () => {
+  test("uses ctx.modelProfile directly (not modelProfileKey)", async () => {
+    // Simulate a pinned conversation: modelProfileKey is null (unchanged),
+    // but modelProfile is the effective text-only profile.
     const messages = [imageMsg()];
-    const ctx = makeCtx({ latestMessages: messages, modelProfileKey: null });
+    const ctx = makeCtx({
+      latestMessages: messages,
+      modelProfileKey: null,
+      modelProfile: profile("text-only"),
+    });
     await userPromptSubmit(ctx);
-    // The active profile is "text-only" (isActive: true), which doesn't support
-    // vision, so images should be captioned.
+    // Should still caption because modelProfile is text-only.
     expect(ctx.latestMessages[0].content[0].type).toBe("text");
+  });
+
+  test("skips when ctx.modelProfile is null", async () => {
+    const messages = [imageMsg()];
+    const ctx = makeCtx({ latestMessages: messages, modelProfile: null });
+    await userPromptSubmit(ctx);
+    expect(ctx.latestMessages[0].content[0].type).toBe("image");
   });
 });
 
@@ -274,22 +303,8 @@ describe("findVisionProfile", () => {
 
   test("skips disabled vision profiles", () => {
     mockProfiles = [
-      {
-        key: "text-only",
-        label: "Text",
-        description: "",
-        isActive: true,
-        isDisabled: false,
-        isMix: false,
-      },
-      {
-        key: "vision-profile",
-        label: "Vision",
-        description: "",
-        isActive: false,
-        isDisabled: true,
-        isMix: false,
-      },
+      profile("text-only", { label: "Text", isActive: true }),
+      profile("vision-profile", { label: "Vision", isDisabled: true }),
     ];
     expect(findVisionProfile()).toBeNull();
   });

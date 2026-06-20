@@ -8,14 +8,15 @@
  * outgoing message history.
  */
 
-import type { ImageContent, PluginLogger } from "@vellumai/plugin-api";
-
-import { getModelProfiles } from "../../../../plugin-api/model-profiles.js";
-import { doesSupportVision } from "../../../../plugin-api/vision-support.js";
 import {
-  extractAllText,
+  doesSupportVision,
   getConfiguredProvider,
-} from "../../../../providers/provider-send-message.js";
+  getModelProfiles,
+  type ImageContent,
+  type PluginLogger,
+} from "@vellumai/plugin-api";
+
+import { extractAllText } from "../../../../providers/provider-send-message.js";
 import {
   getCachedCaption,
   imageHash,
@@ -29,8 +30,7 @@ const CAPTION_SYSTEM_PROMPT =
   "Focus on the key visual content, text, charts, or UI elements that would be " +
   "relevant for a text-based assistant to understand and reason about.";
 
-const CAPTION_USER_PROMPT =
-  "Describe this image concisely for a text-only assistant.";
+const CAPTION_USER_PROMPT = "Describe this image concisely for a text-only assistant.";
 
 /**
  * Find a vision-capable, enabled profile key for captioning.
@@ -71,7 +71,7 @@ export async function captionImage(
   }
 
   try {
-    const provider = await getConfiguredProvider("inference", {
+    const provider = await getConfiguredProvider("vision", {
       overrideProfile: profileKey,
       forceOverrideProfile: true,
     });
@@ -93,7 +93,7 @@ export async function captionImage(
       {
         systemPrompt: CAPTION_SYSTEM_PROMPT,
         config: {
-          callSite: "inference",
+          callSite: "vision",
           overrideProfile: profileKey,
           forceOverrideProfile: true,
           tool_choice: { type: "none" },
@@ -108,10 +108,7 @@ export async function captionImage(
       return caption;
     }
 
-    logger.warn(
-      { plugin: "image-fallback" },
-      "Vision captioning returned empty text",
-    );
+    logger.warn({ plugin: "image-fallback" }, "Vision captioning returned empty text");
     return null;
   } catch (err) {
     logger.warn(

@@ -66,7 +66,10 @@ import {
 } from "../memory/llm-request-log-store.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
 import { HOOKS } from "../plugin-api/constants.js";
-import type { UserPromptSubmitContext } from "../plugin-api/types.js";
+import type {
+  ModelProfileInfo,
+  UserPromptSubmitContext,
+} from "../plugin-api/types.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
@@ -842,6 +845,26 @@ export async function runAgentLoopImpl(
       effectiveProfileKey != null && effectiveProfileKey !== lastNotified
         ? effectiveProfileKey
         : null;
+
+    // Build the effective profile info for hooks that need to inspect the
+    // active model's capabilities (e.g. vision support). Unlike
+    // `modelProfileKey` (a notification key that is null when the profile is
+    // unchanged), this is always populated with the turn's effective profile.
+    const profileEntry =
+      effectiveProfileKey != null
+        ? config.llm.profiles?.[effectiveProfileKey]
+        : undefined;
+    const modelProfile: ModelProfileInfo | null =
+      effectiveProfileKey != null
+        ? {
+            key: effectiveProfileKey,
+            label: profileEntry?.label ?? effectiveProfileKey,
+            description: profileEntry?.description ?? null,
+            isActive: effectiveProfileKey === config.llm.activeProfile,
+            isDisabled: profileEntry?.status === "disabled",
+            isMix: profileEntry?.mix != null,
+          }
+        : null;
     // The key is threaded as plain turn data to the user-prompt-submit and
     // post-compaction hooks, which render the `Label (model)` line from it
     // themselves.
@@ -875,6 +898,7 @@ export async function runAgentLoopImpl(
       originalMessages: ctx.messages,
       latestMessages: ctx.messages,
       logger: rlog,
+      modelProfile,
       modelProfileKey,
       isNonInteractive,
     };
