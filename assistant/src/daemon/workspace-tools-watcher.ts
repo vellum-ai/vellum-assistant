@@ -23,9 +23,9 @@
  * the world: "given what's on disk right now for `<stem>.*`, what
  * registry state should the assistant be in?"
  *
- * This is the same eventual-consistency pattern as
- * `plugin-source-watcher.ts` — the watcher exists to KICK the
- * reconciler, not to be the source of truth about what changed.
+ * This is the same eventual-consistency pattern the plugin mtime cache
+ * uses — the watcher exists to KICK the reconciler, not to be the
+ * source of truth about what changed.
  *
  * ## Lifecycle position
  *

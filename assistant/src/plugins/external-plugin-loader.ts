@@ -120,6 +120,14 @@ function deriveToolName(toolFileBaseName: string): string {
 /**
  * Dynamic-import `absolutePath` and return its default export. Throws when
  * the module has no default export — callers attribute the error.
+ *
+ * Note: Bun caches dynamic `import()` by URL and does not bust on query
+ * string or hash changes. This means hot-reload of hook *content* within
+ * the same process is a known limitation — the plugin object is rebuilt
+ * but the imported module may be stale. The old PluginSourceWatcher had
+ * the same limitation. A process restart picks up all changes. If Bun
+ * adds cache-busting support in the future, appending `?t=<mtime>` to
+ * the URL would make hot-reload work transparently.
  */
 async function importDefault<T>(absolutePath: string): Promise<T> {
   const url = pathToFileURL(absolutePath).href;
