@@ -79,9 +79,12 @@ describe("getLinkedAttachmentIdsForMessage + rehydrateAttachmentIds", () => {
       PNG_1X1,
     );
 
-    // Reload side: the ordered link list comes back position-ordered.
-    const ids = getLinkedAttachmentIdsForMessage(persisted.id);
-    expect(ids).toEqual([a0.id, a1.id]);
+    // Reload side: the positioned link list comes back position-ordered.
+    const links = getLinkedAttachmentIdsForMessage(persisted.id);
+    expect(links).toEqual([
+      { position: 0, attachmentId: a0.id },
+      { position: 1, attachmentId: a1.id },
+    ]);
 
     // Simulate the reloaded in-memory message (parsed from JSON, no ids), then
     // rehydrate.
@@ -99,9 +102,71 @@ describe("getLinkedAttachmentIdsForMessage + rehydrateAttachmentIds", () => {
         },
       ],
     };
-    rehydrateAttachmentIds(reloaded, ids);
+    rehydrateAttachmentIds(reloaded, links);
 
     expect((reloaded.content[1] as ImageContent)._attachmentId).toBe(a0.id);
+    expect((reloaded.content[2] as ImageContent)._attachmentId).toBe(a1.id);
+  });
+
+  test("sparse: skipped first upload keeps the second id on the SECOND block", async () => {
+    // Reproduces the Codex P2: a message with two media blocks where the FIRST
+    // attachment was skipped at upload time (unsupported/dangerous MIME or no
+    // data) so it has NO message_attachments row, and only the SECOND was
+    // stored — linked at position 1, mirroring the live persist loop which keeps
+    // advancing its index across the skipped upload.
+    resetTables();
+    const conv = createConversation();
+
+    const persisted = await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([
+        { type: "text", text: "two images, first one skipped" },
+        {
+          type: "image",
+          source: { type: "base64", media_type: "image/png", data: PNG_1X1 },
+        },
+        {
+          type: "image",
+          source: { type: "base64", media_type: "image/png", data: PNG_1X1 },
+        },
+      ]),
+      { skipIndexing: true },
+    );
+
+    // Only the SECOND attachment is stored, at position 1 (gap at position 0).
+    const a1 = attachInlineAttachmentToMessage(
+      persisted.id,
+      1,
+      "second.png",
+      "image/png",
+      PNG_1X1,
+    );
+
+    // The link list is sparse: a single entry at position 1, gap preserved.
+    const links = getLinkedAttachmentIdsForMessage(persisted.id);
+    expect(links).toEqual([{ position: 1, attachmentId: a1.id }]);
+
+    const reloaded: Message = {
+      role: "user",
+      content: [
+        { type: "text", text: "two images, first one skipped" },
+        {
+          type: "image",
+          source: { type: "base64", media_type: "image/png", data: PNG_1X1 },
+        },
+        {
+          type: "image",
+          source: { type: "base64", media_type: "image/png", data: PNG_1X1 },
+        },
+      ],
+    };
+    rehydrateAttachmentIds(reloaded, links);
+
+    // The id must land on the SECOND media block (its real upload), and the
+    // first must stay untagged. A compacted id-only list would have wrongly put
+    // a1.id on the first block, so its media_ref would point at the wrong image.
+    expect((reloaded.content[1] as ImageContent)._attachmentId).toBeUndefined();
     expect((reloaded.content[2] as ImageContent)._attachmentId).toBe(a1.id);
   });
 

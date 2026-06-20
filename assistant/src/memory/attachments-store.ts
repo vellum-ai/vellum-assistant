@@ -1057,11 +1057,32 @@ export function getAttachmentMetadataForMessage(
   return results;
 }
 
+/** A linked attachment paired with its stored `message_attachments.position`. */
+export interface PositionedAttachmentLink {
+  /**
+   * The `message_attachments.position` for this link — the media-block ordinal
+   * the live persist path tagged via `backfillAttachmentId`. Gaps are preserved
+   * (a skipped/unindexed upload leaves no row), so callers must place ids by
+   * this value rather than by sequential index.
+   */
+  position: number;
+  attachmentId: string;
+}
+
 /**
- * Return the attachment ids linked to a message, ordered by `position` — the
- * same order in which {@link attachmentsToContentBlocks} appended the image/
- * file content blocks. No file data or metadata is read, so this is cheap
- * enough to call for every persisted user message on conversation reload.
+ * Return the attachments linked to a message as `{ position, attachmentId }`
+ * pairs, ordered by `position` — where `position` is the media-block ordinal the
+ * live persist path used (see {@link backfillAttachmentId}). No file data or
+ * metadata is read, so this is cheap enough to call for every persisted user
+ * message on conversation reload.
+ *
+ * Gaps are preserved: at upload time an attachment can be skipped (unsupported
+ * MIME, dangerous extension, or empty data) while its media block still persists
+ * in the message JSON, so `message_attachments` is sparse and its `position`
+ * values may not be contiguous. The reload-side rehydration
+ * ({@link rehydrateAttachmentIds}) relies on the exact `position` to tag the
+ * correct media block, identical to the live path — a compacted id-only list
+ * would misalign every block after a skipped upload.
  *
  * Used to rehydrate `_attachmentId` onto image/file content blocks when a
  * conversation is loaded from the DB: the persisted message JSON never carries
@@ -1069,16 +1090,24 @@ export function getAttachmentMetadataForMessage(
  * media markers would have no `media_ref` to surface for an inline upload after
  * a daemon restart or conversation eviction.
  */
-export function getLinkedAttachmentIdsForMessage(messageId: string): string[] {
+export function getLinkedAttachmentIdsForMessage(
+  messageId: string,
+): PositionedAttachmentLink[] {
   const db = getDb();
   return db
-    .select({ attachmentId: messageAttachments.attachmentId })
+    .select({
+      attachmentId: messageAttachments.attachmentId,
+      position: messageAttachments.position,
+    })
     .from(messageAttachments)
     .where(eq(messageAttachments.messageId, messageId))
     .orderBy(messageAttachments.position)
     .all()
-    .map((link) => link.attachmentId)
-    .filter((id): id is string => id != null);
+    .flatMap((link) =>
+      link.attachmentId != null
+        ? [{ position: link.position, attachmentId: link.attachmentId }]
+        : [],
+    );
 }
 
 /**

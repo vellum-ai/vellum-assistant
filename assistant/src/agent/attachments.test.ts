@@ -71,7 +71,10 @@ describe("rehydrateAttachmentIds", () => {
       role: "user",
       content: [{ type: "text", text: "look" }, imageBlock(), imageBlock()],
     };
-    rehydrateAttachmentIds(message, ["att-0", "att-1"]);
+    rehydrateAttachmentIds(message, [
+      { position: 0, attachmentId: "att-0" },
+      { position: 1, attachmentId: "att-1" },
+    ]);
     expect((message.content[1] as ImageContent)._attachmentId).toBe("att-0");
     expect((message.content[2] as ImageContent)._attachmentId).toBe("att-1");
   });
@@ -85,8 +88,11 @@ describe("rehydrateAttachmentIds", () => {
       role: "user",
       content: [{ type: "text", text: "look" }, imageBlock(), fileBlock()],
     };
-    // Reload path: rehydrate from the ordered id list.
-    rehydrateAttachmentIds(reloaded, ["att-0", "vid-0"]);
+    // Reload path: rehydrate from the positioned link list.
+    rehydrateAttachmentIds(reloaded, [
+      { position: 0, attachmentId: "att-0" },
+      { position: 1, attachmentId: "vid-0" },
+    ]);
     // Live path: backfill each index individually.
     backfillAttachmentId(liveBackfilled, 0, "att-0");
     backfillAttachmentId(liveBackfilled, 1, "vid-0");
@@ -99,24 +105,57 @@ describe("rehydrateAttachmentIds", () => {
     );
   });
 
+  test("places ids by stored position when an earlier upload was skipped (sparse)", () => {
+    // Two media blocks persist, but the FIRST attachment was skipped at upload
+    // time (unsupported MIME / no data), so message_attachments only has a row
+    // for the second block, stored at position 1. The reload path must match the
+    // live backfillAttachmentId(message, 1, ...) placement exactly.
+    const reloaded: Message = {
+      role: "user",
+      content: [{ type: "text", text: "look" }, imageBlock(), imageBlock()],
+    };
+    const liveBackfilled: Message = {
+      role: "user",
+      content: [{ type: "text", text: "look" }, imageBlock(), imageBlock()],
+    };
+    // Sparse link list: only position 1 has a row (gap at position 0).
+    rehydrateAttachmentIds(reloaded, [{ position: 1, attachmentId: "att-1" }]);
+    backfillAttachmentId(liveBackfilled, 1, "att-1");
+
+    // The SECOND media block gets the id; the first stays untagged — and the
+    // reload placement is byte-for-byte identical to the live path.
+    expect((reloaded.content[1] as ImageContent)._attachmentId).toBeUndefined();
+    expect((reloaded.content[2] as ImageContent)._attachmentId).toBe("att-1");
+    expect((reloaded.content[1] as ImageContent)._attachmentId).toBe(
+      (liveBackfilled.content[1] as ImageContent)._attachmentId,
+    );
+    expect((reloaded.content[2] as ImageContent)._attachmentId).toBe(
+      (liveBackfilled.content[2] as ImageContent)._attachmentId,
+    );
+  });
+
   test("never overwrites an id already present on a block", () => {
     const block = imageBlock();
     block._attachmentId = "already-set";
     const message: Message = { role: "user", content: [block] };
-    rehydrateAttachmentIds(message, ["att-0"]);
+    rehydrateAttachmentIds(message, [{ position: 0, attachmentId: "att-0" }]);
     expect(block._attachmentId).toBe("already-set");
   });
 
-  test("is a no-op for an empty id list", () => {
+  test("is a no-op for an empty link list", () => {
     const block = imageBlock();
     const message: Message = { role: "user", content: [block] };
     rehydrateAttachmentIds(message, []);
     expect(block._attachmentId).toBeUndefined();
   });
 
-  test("ignores extra ids when there are fewer media blocks", () => {
+  test("ignores positions with no matching media block", () => {
     const message: Message = { role: "user", content: [imageBlock()] };
-    rehydrateAttachmentIds(message, ["att-0", "att-1", "vid-0"]);
+    rehydrateAttachmentIds(message, [
+      { position: 0, attachmentId: "att-0" },
+      { position: 1, attachmentId: "att-1" },
+      { position: 2, attachmentId: "vid-0" },
+    ]);
     expect((message.content[0] as ImageContent)._attachmentId).toBe("att-0");
   });
 });
@@ -129,7 +168,7 @@ describe("reloaded inline upload still yields a media_ref marker", () => {
       role: "user",
       content: [{ type: "text", text: "what is this?" }, imageBlock()],
     };
-    rehydrateAttachmentIds(reloaded, ["att-0"]);
+    rehydrateAttachmentIds(reloaded, [{ position: 0, attachmentId: "att-0" }]);
 
     // Non-vision backbone: image is rewritten into an attachment-id marker.
     const out = applyVisionPerceptionMarkers([reloaded], {
@@ -153,7 +192,7 @@ describe("reloaded inline upload still yields a media_ref marker", () => {
       role: "user",
       content: [{ type: "text", text: "summarize" }, fileBlock("video/mp4")],
     };
-    rehydrateAttachmentIds(reloaded, ["vid-0"]);
+    rehydrateAttachmentIds(reloaded, [{ position: 0, attachmentId: "vid-0" }]);
 
     const out = applyVisionPerceptionMarkers([reloaded], {
       supportsVision: false,
