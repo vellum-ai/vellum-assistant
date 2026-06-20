@@ -108,7 +108,13 @@ export class ContactStore {
         contactChannels,
         eq(contactChannels.contactId, contacts.id),
       )
-      .orderBy(desc(contacts.createdAt), contactChannels.createdAt)
+      .orderBy(
+        desc(contacts.createdAt),
+        // Primary channel first, then by creation time — mirrors the daemon
+        // (assistant/src/contacts/contact-store.ts:141) and readAssistantContact.
+        sql`${contactChannels.isPrimary} DESC`,
+        contactChannels.createdAt,
+      )
       .all();
 
     return this.joinInfoIntoContacts(rows);
@@ -129,7 +135,12 @@ export class ContactStore {
         eq(contactChannels.contactId, contacts.id),
       )
       .where(eq(contacts.id, contactId))
-      .orderBy(contactChannels.createdAt)
+      .orderBy(
+        // Primary channel first, then by creation time — mirrors the daemon
+        // (assistant/src/contacts/contact-store.ts:141) and readAssistantContact.
+        sql`${contactChannels.isPrimary} DESC`,
+        contactChannels.createdAt,
+      )
       .all();
 
     if (rows.length === 0) return null;

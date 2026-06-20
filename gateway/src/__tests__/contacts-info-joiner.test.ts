@@ -239,6 +239,25 @@ describe("fetchInfoForContacts", () => {
     });
   });
 
+  test("does not emit assistantMetadata for human contactType with stale species row", async () => {
+    // A contact that was once assistant but is now human may have a stale
+    // assistant_contact_metadata row. The joiner must NOT emit metadata for
+    // human contacts (matches daemon contract).
+    fakeAssistantDb.info.set("c1", {
+      id: "c1",
+      notes: null,
+      user_file: null,
+      contact_type: "human",
+      species: "vellum", // stale row
+      metadata: JSON.stringify({ model: "opus" }),
+    });
+
+    const result = await fetchInfoForContacts(["c1"]);
+    const c1 = result.get("c1")!;
+    expect(c1.contactType).toBe("human");
+    expect(c1.assistantMetadata).toBeNull();
+  });
+
   test("rethrows when assistantDbQuery throws (caller soft-fails)", async () => {
     fakeAssistantDb.throwOnQuery = true;
     await expect(fetchInfoForContacts(["c1"])).rejects.toThrow(
@@ -349,6 +368,41 @@ describe("ContactStore.listContactsWithInfo", () => {
     expect(result[0].channels).toHaveLength(2);
     expect(result[0].interactionCount).toBe(5);
     expect(result[0].lastInteraction).toBe(500);
+  });
+
+  test("primary channel appears first regardless of creation order", async () => {
+    seedGatewayContact({ id: "c1" });
+    // Non-primary channel created first.
+    seedGatewayChannel({ id: "ch-old", contactId: "c1", createdAt: 100 });
+    // Primary channel created later — should still appear first.
+    const db = getGatewayDb();
+    db.insert(contactChannels)
+      .values({
+        id: "ch-primary",
+        contactId: "c1",
+        type: "telegram",
+        address: "addr-primary",
+        isPrimary: true,
+        externalChatId: null,
+        status: "active",
+        policy: "allow",
+        verifiedAt: null,
+        verifiedVia: null,
+        inviteId: null,
+        revokedReason: null,
+        blockedReason: null,
+        lastSeenAt: null,
+        interactionCount: 0,
+        lastInteraction: null,
+        createdAt: 200,
+        updatedAt: null,
+      })
+      .run();
+    seedAssistantInfo({ id: "c1", contactType: "human" });
+
+    const result = await new ContactStore().listContactsWithInfo();
+    expect(result[0].channels[0].id).toBe("ch-primary");
+    expect(result[0].channels[1].id).toBe("ch-old");
   });
 });
 

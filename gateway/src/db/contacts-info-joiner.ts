@@ -94,8 +94,11 @@ export async function fetchInfoForContacts(
       notes: row.notes ?? null,
       userFile: row.userFile ?? null,
       contactType: row.contactType ?? null,
+      // Gate metadata on contactType === "assistant" to match the daemon's
+      // contract (assistant/src/runtime/routes/contact-routes.ts:187). A
+      // stale metadata row on a human contact is not emitted.
       assistantMetadata:
-        row.species != null
+        row.contactType === "assistant" && row.species != null
           ? { species: row.species, metadata: parsedMetadata }
           : null,
     };
