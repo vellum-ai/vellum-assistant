@@ -57,6 +57,7 @@ import {
   loadSingleWorkspaceTool,
 } from "../tools/workspace-tools/loader.js";
 import { DebouncerMap } from "../util/debounce.js";
+import { attachFsWatcherErrorHandler } from "../util/fs-watcher-error.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceToolsDir } from "../util/platform.js";
 
@@ -154,6 +155,9 @@ export class WorkspaceToolsWatcher {
           });
         },
       );
+      // Async FSWatcher errors (e.g. ENOSPC, ENXIO) arrive as an 'error' event;
+      // without a listener they crash the daemon. Degrade to a dead watcher.
+      attachFsWatcherErrorHandler(this.watcher, log, toolsDir);
       log.info({ toolsDir }, "Workspace tools watcher started");
     } catch (err) {
       log.warn(

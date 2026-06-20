@@ -19,7 +19,13 @@ let capturedWatchCallback:
   | ((eventType: string, filename: string | null) => void)
   | null = null;
 let mockWatchShouldThrow = false;
-const mockWatcher = { close: mock(() => {}) };
+let capturedErrorHandler: ((err: unknown) => void) | null = null;
+const mockWatcher = {
+  close: mock(() => {}),
+  on: mock((event: string, handler: (err: unknown) => void) => {
+    if (event === "error") capturedErrorHandler = handler;
+  }),
+};
 
 const mockWatch = mock(
   (
@@ -90,8 +96,10 @@ describe("PluginSourceWatcher", () => {
   beforeEach(() => {
     PluginSourceWatcher.resetForTests();
     capturedWatchCallback = null;
+    capturedErrorHandler = null;
     mockWatchShouldThrow = false;
     mockWatcher.close.mockClear();
+    mockWatcher.on.mockClear();
     mockWatch.mockClear();
     mockRereadirSync.mockClear();
     mockGetRegisteredPlugin.mockClear();
@@ -238,6 +246,30 @@ describe("PluginSourceWatcher", () => {
       mockWatcher,
     );
     expect(capturedWatchCallback).toBe(firstCallback);
+  });
+
+  /**
+   * REGRESSION: a recursive watch over a large plugin tree (node_modules)
+   * can exhaust the inotify watch limit and emit ENOSPC asynchronously as an
+   * 'error' event. An FSWatcher with no 'error' listener rethrows, which
+   * becomes an uncaughtException and crashes the daemon (CrashLoopBackOff).
+   * The watcher must register an 'error' handler that swallows it.
+   */
+  test("attaches an 'error' handler that does not rethrow on async ENOSPC", () => {
+    const watcher = PluginSourceWatcher.getInstance();
+    watcher.start();
+
+    expect(capturedErrorHandler).not.toBeNull();
+    const enospc = Object.assign(
+      new Error("ENOSPC: no space left on device, watch"),
+      {
+        code: "ENOSPC",
+        errno: -28,
+        syscall: "watch",
+      },
+    );
+    // Must not throw — the daemon stays up, the watcher just stops delivering.
+    expect(() => capturedErrorHandler!(enospc)).not.toThrow();
   });
 
   test("singleton instance is shared across calls", () => {
