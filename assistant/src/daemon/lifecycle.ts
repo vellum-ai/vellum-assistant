@@ -432,8 +432,14 @@ export async function runDaemon(): Promise<void> {
     }
 
     if (dbReady) {
-      await runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
-      log.info("Daemon startup: workspace migrations complete");
+      const migrationSummary = await runWorkspaceMigrations(
+        getWorkspaceDir(),
+        WORKSPACE_MIGRATIONS,
+      );
+      log.info(
+        migrationSummary,
+        "Daemon startup: workspace migrations complete",
+      );
 
       // Seed canonical inference provider_connections and backfill any legacy
       // profiles that pre-date the connection field. Runs after workspace
