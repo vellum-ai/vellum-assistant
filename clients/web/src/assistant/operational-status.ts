@@ -25,6 +25,8 @@ import {
   useActiveAssistantIsPlatformHosted,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
+import { recordLifecycleDiagnostic } from "@/lib/diagnostics";
+import { getSSEConnectedSnapshot } from "@/stores/sse-connected-store";
 
 /** Re-export generated types under their legacy names for consumers. */
 export type AssistantOperationalState = OperationalStatusStateEnum;
@@ -62,6 +64,47 @@ function canPollOperationalStatus({
 }
 
 /**
+ * Transition dedupe so a steady poll (every 5–30s) doesn't flood the
+ * lifecycle ring. We record only when the `state:detail_state` signature
+ * changes for a given assistant — one entry per genuine transition.
+ */
+const lastStatusSignatureByAssistant = new Map<string, string>();
+
+/**
+ * Record an operational-status transition into the durable lifecycle
+ * diagnostics ring so the support-feedback export captures *why* the
+ * banner changed — the platform only returns this over the wire, it is
+ * never otherwise persisted client-side, and the assistant pod itself
+ * has no knowledge of the control-plane → vembda status query.
+ *
+ * Crucially, `sseConnected` is the data-plane signal at the instant of
+ * the control-plane read: `state: "unreachable"` while SSE is connected
+ * is the split-brain fingerprint — the pod's events are flowing, but the
+ * status pipeline (control plane → vembda) couldn't confirm reachability
+ * (e.g. `detail_state: "vembda_unreachable"`).
+ */
+function recordOperationalStatusTransition(
+  assistantId: string,
+  status: OperationalStatus | null,
+): void {
+  const signature = status
+    ? `${status.state}:${status.detail_state ?? ""}`
+    : "absent";
+  if (lastStatusSignatureByAssistant.get(assistantId) === signature) return;
+  lastStatusSignatureByAssistant.set(assistantId, signature);
+  recordLifecycleDiagnostic("operational_status", {
+    assistantId,
+    state: status?.state ?? null,
+    detailState: status?.detail_state ?? null,
+    reason: status?.detail?.reason ?? null,
+    message: status?.detail?.message ?? null,
+    healthzOk: status?.runtime?.healthz_ok ?? null,
+    podPhase: status?.pod?.pod_phase ?? null,
+    sseConnected: getSSEConnectedSnapshot(),
+  });
+}
+
+/**
  * Fetch operational status, returning `null` for 403 (forbidden) and 404
  * (not found) responses which are expected non-error states.
  */
@@ -78,12 +121,15 @@ async function fetchOperationalStatus(
 
   if (!response || !response.ok) {
     if (response?.status === 403 || response?.status === 404) {
+      recordOperationalStatusTransition(assistantId, null);
       return null;
     }
     throw error ?? new Error("Failed to fetch assistant operational status");
   }
 
-  return data ?? null;
+  const status = data ?? null;
+  recordOperationalStatusTransition(assistantId, status);
+  return status;
 }
 
 export function useAssistantOperationalStatus(assistantId: string | null) {

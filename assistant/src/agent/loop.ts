@@ -395,6 +395,17 @@ export type AgentEvent =
        */
       type: "agent_loop_exit";
       reason: AgentLoopExitReason;
+    }
+  | {
+      /**
+       * Emitted when the `pre-model-call` hook chain mutates the system
+       * prompt for the current call — i.e. `finalPreModelCtx.systemPrompt`
+       * differs from the value the loop handed the hook. Carries the
+       * post-hook string so consumers can observe exactly what the provider
+       * received.
+       */
+      type: "system_prompt_changed";
+      systemPrompt: string;
     };
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
@@ -1343,6 +1354,13 @@ export class AgentLoop {
         // unchanged and streaming live.
         let turnSystemPromptForCall: string | undefined = turnSystemPrompt;
         try {
+          // Capture the pre-hook prompt into a separate binding BEFORE running
+          // the hook. The change comparison below must read this, not
+          // preModelCtx.systemPrompt — a hook may mutate the context object in
+          // place (returning the same reference), which would make
+          // preModelCtx.systemPrompt already reflect the change and hide the
+          // diff. `turnSystemPrompt` is a value-copied local, so it is immune.
+          const preHookSystemPrompt = turnSystemPrompt ?? null;
           const preModelCtx: PreModelCallContext = {
             conversationId: this.conversationId,
             callSite: callSite ?? null,
@@ -1355,6 +1373,17 @@ export class AgentLoop {
             HOOKS.PRE_MODEL_CALL,
             preModelCtx,
           );
+          // Emit a changed event when the hook mutated the prompt, comparing
+          // against the captured pre-hook value (see note above).
+          if (
+            typeof finalPreModelCtx.systemPrompt === "string" &&
+            finalPreModelCtx.systemPrompt !== preHookSystemPrompt
+          ) {
+            await onEvent({
+              type: "system_prompt_changed",
+              systemPrompt: finalPreModelCtx.systemPrompt,
+            });
+          }
           turnSystemPromptForCall = finalPreModelCtx.systemPrompt ?? undefined;
           // Route this call to the hook's chosen inference profile. The
           // resolver layers `llm.profiles[overrideProfile]` at the top of

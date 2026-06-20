@@ -65,7 +65,6 @@ import {
   getMessagesAfter,
   resolveOverrideProfile,
 } from "./conversation-crud.js";
-import { isBackgroundConversationType } from "./conversation-types.js";
 import {
   enqueueMemoryJob,
   type MemoryJob,
@@ -314,14 +313,13 @@ async function runForkBasedRetrospective(
       // {@link WakeToolContextPin}.
       toolGateMode: "execution" as const,
       toolContextPin,
-      // Reproduce the source's turn block for message-tier cache-prefix
-      // parity: background/scheduled sources ran non-interactive live turns
-      // (which carry `<background_turn>`), so the fork must run non-interactive
-      // too. Standard/user sources ran interactive (no `<background_turn>`), so
-      // the fork stays interactive — preserving their existing byte parity.
-      isNonInteractive: isBackgroundConversationType(
-        sourceConversation.conversationType,
-      ),
+      // Message-tier cache-prefix parity — reproducing the source's
+      // `<background_turn>` / `<channel_capabilities>` / `<non_interactive_context>`
+      // blocks — is handled by metadata rehydration, not by re-running runtime
+      // injection on the fork: the source's live turns persist those blocks onto
+      // message metadata, the fork copies that metadata, and
+      // `Conversation.loadFromDb` rehydrates them byte-for-byte. The wake never
+      // re-runs the injection pipeline, so it needs no interactivity hint here.
       // Profile forcing (model/thinking/effort parity) is a separate concern
       // and stays keyed on `matchConversationProfile` via `matchedProfile`.
       ...(matchedProfile !== undefined
@@ -849,7 +847,7 @@ function buildForkInstruction({
     ? "Your review window is the full conversation above, ending just before this instruction message."
     : `Your review window starts at ${anchorDescription} and ends just before this instruction message. If you cannot locate that anchoring turn in your visible history (for example, it is behind the compaction summary), fail closed: review only the most recent visible messages after the summary, not the whole conversation.`;
 
-  return `This is an automated background memory pass over the conversation above — not a message from the user. Do not reply conversationally or in persona; just perform the review described here. Only the \`remember\` tool is available for this pass — any other tool call will be rejected, so don't attempt one.
+  return `This is an automated background memory pass over the conversation above — not a message from the user. Do not reply conversationally; just perform the review described here. Only the \`remember\` tool is available for this pass — any other tool call will be rejected, so don't attempt one.
 
 ${windowAnchor}
 

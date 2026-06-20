@@ -5,7 +5,11 @@ import { createElement, type ReactNode } from "react";
 
 import type { AssistantState } from "@/assistant/types";
 
-const sdkMock = mock(async () => ({
+const sdkMock = mock(async (): Promise<{
+  data: Record<string, unknown> | null;
+  error: unknown;
+  response: Response;
+}> => ({
   data: {
     state: "active",
     detail_state: "",
@@ -25,9 +29,21 @@ const sdkMock = mock(async () => ({
 const isLocalModeMock = mock(() => false);
 const isPlatformDisabledMock = mock(() => false);
 let isOrgReadyMock = true;
+const recordLifecycleDiagnosticMock = mock(
+  (_kind: string, _details: Record<string, unknown>) => {},
+);
+let sseConnectedSnapshotMock = false;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   assistantsOperationalStatusDetailRead: sdkMock,
+}));
+
+mock.module("@/lib/diagnostics", () => ({
+  recordLifecycleDiagnostic: recordLifecycleDiagnosticMock,
+}));
+
+mock.module("@/stores/sse-connected-store", () => ({
+  getSSEConnectedSnapshot: () => sseConnectedSnapshotMock,
 }));
 
 mock.module("@/lib/local-mode", () => ({
@@ -78,6 +94,8 @@ async function settleQueries() {
 
 beforeEach(() => {
   sdkMock.mockClear();
+  recordLifecycleDiagnosticMock.mockClear();
+  sseConnectedSnapshotMock = false;
   isLocalModeMock.mockImplementation(() => false);
   isPlatformDisabledMock.mockImplementation(() => false);
   isOrgReadyMock = true;
@@ -140,5 +158,84 @@ describe("useAssistantOperationalStatus", () => {
     await settleQueries();
 
     expect(sdkMock).not.toHaveBeenCalled();
+  });
+
+  test("records a vembda_unreachable transition with the live-SSE flag", async () => {
+    // GIVEN the data plane is healthy (events still flowing) but the
+    // control plane can't reach vembda to confirm status.
+    sseConnectedSnapshotMock = true;
+    sdkMock.mockImplementationOnce(async () => ({
+      data: {
+        state: "unreachable",
+        detail_state: "vembda_unreachable",
+        poll_after_ms: 10000,
+        updated_at: "2026-06-19T19:47:07Z",
+        state_started_at: null,
+        active_operation: null,
+        assistant: {
+          id: "assistant-platform",
+          status: "active",
+          machine_id: "m-1",
+          vembda_cluster_id: "vembda-assistant-0",
+        },
+        pod: {
+          statefulset_found: null,
+          spec_replicas: null,
+          ready_replicas: null,
+          pod_name: null,
+          pod_phase: null,
+          has_restart_history: false,
+          max_restart_count: null,
+          fatal_reason: null,
+        },
+        runtime: { healthz_ok: false, assistant_version: null, checked_at: null },
+        storage: null,
+        detail: {
+          reason: "vembda_unreachable",
+          message: "Could not reach vembda for assistant status.",
+        },
+      },
+      error: undefined,
+      response: new Response(null, { status: 200 }),
+    }));
+    setLifecycle({ kind: "active", isLocal: false });
+
+    renderHook(() => useAssistantOperationalStatus("assistant-platform"), {
+      wrapper,
+    });
+
+    await waitFor(() => {
+      expect(recordLifecycleDiagnosticMock).toHaveBeenCalledWith(
+        "operational_status",
+        expect.objectContaining({
+          state: "unreachable",
+          detailState: "vembda_unreachable",
+          reason: "vembda_unreachable",
+          message: "Could not reach vembda for assistant status.",
+          healthzOk: false,
+          sseConnected: true,
+        }),
+      );
+    });
+  });
+
+  test("does not re-record an unchanged operational status signature", async () => {
+    setLifecycle({ kind: "active", isLocal: false });
+
+    const { rerender } = renderHook(
+      () => useAssistantOperationalStatus("assistant-stable"),
+      { wrapper },
+    );
+
+    await waitFor(() => {
+      expect(recordLifecycleDiagnosticMock).toHaveBeenCalledTimes(1);
+    });
+
+    // A second resolve of the same active/"" signature must not append a
+    // duplicate lifecycle entry.
+    rerender();
+    await settleQueries();
+
+    expect(recordLifecycleDiagnosticMock).toHaveBeenCalledTimes(1);
   });
 });

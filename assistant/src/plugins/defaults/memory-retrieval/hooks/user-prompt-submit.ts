@@ -194,6 +194,9 @@ function persistInjectionBlocks(
     !blocks.pkbContextBlock &&
     !blocks.memoryV2StaticBlock &&
     !blocks.memoryV3InjectedBlock &&
+    !blocks.backgroundTurnBlock &&
+    !blocks.channelCapabilitiesBlock &&
+    !blocks.nonInteractiveContextBlock &&
     !removeV2Block
   ) {
     return;
@@ -228,6 +231,17 @@ function persistInjectionBlocks(
     }
     if (blocks.memoryV2StaticBlock) {
       metadataUpdates.memoryV2StaticBlock = blocks.memoryV2StaticBlock;
+    }
+    if (blocks.backgroundTurnBlock) {
+      metadataUpdates.backgroundTurnBlock = blocks.backgroundTurnBlock;
+    }
+    if (blocks.channelCapabilitiesBlock) {
+      metadataUpdates.channelCapabilitiesBlock =
+        blocks.channelCapabilitiesBlock;
+    }
+    if (blocks.nonInteractiveContextBlock) {
+      metadataUpdates.nonInteractiveContextBlock =
+        blocks.nonInteractiveContextBlock;
     }
     updateMessageMetadata(ctx.userMessageId, metadataUpdates);
   } catch (err) {
