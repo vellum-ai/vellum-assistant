@@ -30,6 +30,14 @@ mock.module("../../../../providers/provider-send-message.js", () => ({
   getConfiguredProvider: async () => fakeProvider,
 }));
 
+// The execution guard checks the visionPerception call site resolves to an
+// enabled vision-capable provider. Drive it per test (defaults available).
+let visionProviderAvailable = true;
+mock.module("../src/vision-capability.js", () => ({
+  isVisionPerceptionProviderAvailable: () => visionProviderAvailable,
+  VISION_CALL_SITE: "visionPerception",
+}));
+
 // A 1x1 PNG — small enough that `optimizeImageForTransport` returns it
 // unchanged, so the bytes flow through to the image block verbatim.
 const PNG_BYTES = Buffer.from(
@@ -64,6 +72,7 @@ const ctx = { conversationId: "c1" } as unknown as ToolContext;
 beforeEach(() => {
   sendMessageArgs = null;
   responseText = "A red bicycle leans against a brick wall.";
+  visionProviderAvailable = true;
   attachmentRows = {
     "att-1": {
       id: "att-1",
@@ -161,6 +170,21 @@ describe("vlm_ask tool", () => {
 
     expect(result?.isError).toBe(true);
     expect(result?.content).toContain("not an image");
+    expect(sendMessageArgs).toBeNull();
+  });
+
+  test("BYOK guard: returns isError and sends nothing when no vision-capable provider resolves", async () => {
+    // The visionPerception call site does not resolve to an enabled
+    // vision-capable model (BYOK with the managed vision profile disabled), so
+    // the execution guard refuses before any image bytes are sent.
+    visionProviderAvailable = false;
+    const result = await vlmAskTool.execute?.(
+      { media_ref: "att-1", question: "What is in this image?" },
+      ctx,
+    );
+
+    expect(result?.isError).toBe(true);
+    expect(result?.content).toContain("vision perception is unavailable");
     expect(sendMessageArgs).toBeNull();
   });
 });

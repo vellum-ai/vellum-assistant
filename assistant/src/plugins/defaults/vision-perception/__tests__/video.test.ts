@@ -80,6 +80,13 @@ mock.module("../../../../providers/provider-send-message.js", () => ({
   getConfiguredProvider: async () => fakeProvider,
 }));
 
+// The execution guard checks the visionPerception call site resolves to an
+// enabled vision-capable provider. Keep it available for these tests.
+mock.module("../src/vision-capability.js", () => ({
+  isVisionPerceptionProviderAvailable: () => true,
+  VISION_CALL_SITE: "visionPerception",
+}));
+
 const vlmVideoLogTool = (await import("../tools/vlm-video-log.js")).default;
 
 const ctx = { conversationId: "c1" } as unknown as ToolContext;

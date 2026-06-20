@@ -61,13 +61,18 @@ mock.module("../../plugins/defaults/advisor/advisor-gate.js", () => ({
   },
 }));
 
-// ── Vision-perception gate controls (Fix #2 + Fix #3) ──────────────────
-// The vlm_* tool gate reads the `vision-perception` flag and the backbone's
-// per-modality vision capability. Drive both with mutable test state.
+// ── Vision-perception gate controls ────────────────────────────────────
+// The whole feature is a crutch for a text-only backbone, gated on a SINGLE
+// capability (`supportsVision`) plus the `vision-perception` flag plus the BYOK
+// guard (visionPerception resolves to an enabled vision-capable provider). Drive
+// all three with mutable test state.
 let visionFlagEnabled = true;
-// Backbone native IMAGE vision (`supportsVision`). When true, the image tools
-// are omitted (the backbone can see images itself). Video is never native today.
+// Backbone native vision (`supportsVision`). When true, ALL vlm_* tools are
+// omitted (the backbone can see media itself).
 let backboneSupportsVision = false;
+// Whether the visionPerception call site resolves to an enabled vision-capable
+// provider (false in the BYOK-disabled-vision-profile case).
+let visionProviderAvailable = true;
 
 // Only the flag predicate is stubbed (it ignores its config argument), so the
 // real `getConfig()` runs untouched and other importers of config/loader keep
@@ -76,8 +81,8 @@ mock.module("../../config/vision-perception-flag.js", () => ({
   isVisionPerceptionEnabled: () => visionFlagEnabled,
   VISION_PERCEPTION_FLAG_KEY: "vision-perception",
 }));
-// Stub only the resolvers; keep the real name predicates (isVlm*ToolName) so the
-// gate's image/video routing is exercised against the actual tool-name sets.
+// Stub only the resolver; keep the real name predicate (isVlmToolName) so the
+// gate routing is exercised against the actual tool-name set.
 const realPreModelCall =
   await import("../../plugins/defaults/vision-perception/hooks/pre-model-call.js");
 mock.module(
@@ -85,8 +90,14 @@ mock.module(
   () => ({
     ...realPreModelCall,
     resolveBackboneSupportsVision: () => backboneSupportsVision,
-    // No catalog model is natively video-capable, mirroring production.
-    resolveBackboneSupportsVideo: () => false,
+  }),
+);
+// Stub the BYOK availability check (the visionPerception provider resolution).
+mock.module(
+  "../../plugins/defaults/vision-perception/src/vision-capability.js",
+  () => ({
+    isVisionPerceptionProviderAvailable: () => visionProviderAvailable,
+    VISION_CALL_SITE: "visionPerception",
   }),
 );
 
@@ -115,6 +126,7 @@ beforeEach(() => {
   mockClientCountByCapability.clear();
   visionFlagEnabled = true;
   backboneSupportsVision = false;
+  visionProviderAvailable = true;
 });
 
 describe("isToolActiveForContext — Slack task_progress UI exception", () => {
@@ -689,46 +701,49 @@ describe("HOST_TOOL_NAMES derivation", () => {
   });
 });
 
-const IMAGE_TOOLS = ["vlm_ask", "vlm_describe", "vlm_ocr", "vlm_detect"];
-const VIDEO_TOOL = "vlm_video_log";
+const ALL_VLM_TOOLS = [
+  "vlm_ask",
+  "vlm_describe",
+  "vlm_ocr",
+  "vlm_detect",
+  "vlm_video_log",
+];
 
-describe("isToolActiveForContext — vlm_* per-modality gating (Fix #2)", () => {
-  test("non-vision backbone: ALL vlm_* tools are offered (flag on)", () => {
+describe("isToolActiveForContext — vlm_* single capability gate", () => {
+  test("text-only backbone (GLM 5.2): ALL vlm_* tools are offered (flag on, provider available)", () => {
     backboneSupportsVision = false;
     const ctx = makeCtx();
-    for (const name of IMAGE_TOOLS) {
+    for (const name of ALL_VLM_TOOLS) {
       expect(isToolActiveForContext(name, ctx)).toBe(true);
     }
-    expect(isToolActiveForContext(VIDEO_TOOL, ctx)).toBe(true);
   });
 
-  test("image-vision backbone: IMAGE tools hidden, but vlm_video_log STILL offered", () => {
-    // An image-vision model reads images natively (image tools are dead weight)
-    // but cannot process native video, so vlm_video_log must stay available.
+  test("vision-capable backbone: ALL vlm_* tools hidden (incl. vlm_video_log)", () => {
+    // Single gate — a vision-capable backbone is fully inert, so the WHOLE
+    // feature is withheld (reverts the per-modality vlm_video_log carve-out).
     backboneSupportsVision = true;
     const ctx = makeCtx();
-    for (const name of IMAGE_TOOLS) {
+    for (const name of ALL_VLM_TOOLS) {
       expect(isToolActiveForContext(name, ctx)).toBe(false);
     }
-    expect(isToolActiveForContext(VIDEO_TOOL, ctx)).toBe(true);
   });
 });
 
-describe("isToolActiveForContext — vlm_* flag gating (Fix #3)", () => {
-  test("flag off: NO vlm_* tool is offered even on a non-vision backbone", () => {
+describe("isToolActiveForContext — vlm_* flag gating", () => {
+  test("flag off: NO vlm_* tool is offered even on a text-only backbone", () => {
     visionFlagEnabled = false;
     backboneSupportsVision = false;
     const ctx = makeCtx();
-    for (const name of [...IMAGE_TOOLS, VIDEO_TOOL]) {
+    for (const name of ALL_VLM_TOOLS) {
       expect(isToolActiveForContext(name, ctx)).toBe(false);
     }
   });
 
-  test("flag on: vlm_* tools are offered (subject to per-modality gating)", () => {
+  test("flag on: vlm_* tools are offered on a text-only backbone", () => {
     visionFlagEnabled = true;
     backboneSupportsVision = false;
     const ctx = makeCtx();
-    for (const name of [...IMAGE_TOOLS, VIDEO_TOOL]) {
+    for (const name of ALL_VLM_TOOLS) {
       expect(isToolActiveForContext(name, ctx)).toBe(true);
     }
   });
@@ -742,11 +757,35 @@ describe("isToolActiveForContext — vlm_* flag gating (Fix #3)", () => {
 
     visionFlagEnabled = false;
     expect(isToolActiveForContext("vlm_ask", ctx)).toBe(false);
-    expect(isToolActiveForContext(VIDEO_TOOL, ctx)).toBe(false);
+    expect(isToolActiveForContext("vlm_video_log", ctx)).toBe(false);
 
     // Flag flips on at runtime — same context, next turn.
     visionFlagEnabled = true;
     expect(isToolActiveForContext("vlm_ask", ctx)).toBe(true);
-    expect(isToolActiveForContext(VIDEO_TOOL, ctx)).toBe(true);
+    expect(isToolActiveForContext("vlm_video_log", ctx)).toBe(true);
+  });
+});
+
+describe("isToolActiveForContext — vlm_* BYOK provider guard", () => {
+  test("flag on + text-only backbone but visionPerception provider unavailable: NO vlm_* tool offered", () => {
+    // BYOK case: the managed `vision` profile is disabled, so the call site
+    // strips back to a non-vision provider. The tools must not be offered.
+    visionFlagEnabled = true;
+    backboneSupportsVision = false;
+    visionProviderAvailable = false;
+    const ctx = makeCtx();
+    for (const name of ALL_VLM_TOOLS) {
+      expect(isToolActiveForContext(name, ctx)).toBe(false);
+    }
+  });
+
+  test("provider availability only matters on a text-only backbone (vision-capable stays inert regardless)", () => {
+    visionFlagEnabled = true;
+    backboneSupportsVision = true;
+    visionProviderAvailable = true;
+    const ctx = makeCtx();
+    for (const name of ALL_VLM_TOOLS) {
+      expect(isToolActiveForContext(name, ctx)).toBe(false);
+    }
   });
 });

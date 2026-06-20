@@ -134,10 +134,7 @@ describe("Codex P2 — inline upload media_ref", () => {
     });
 
     // Simulate the outbound sanitization for a non-vision backbone.
-    const rewritten = applyVisionPerceptionMarkers(ctx.messages, {
-      supportsVision: false,
-      supportsVideo: false,
-    });
+    const rewritten = applyVisionPerceptionMarkers(ctx.messages, false);
     const userMsg = rewritten.at(-1)!;
     const marker = userMsg.content.find(
       (b) => b.type === "text" && b.text.includes('media_ref="att-0"'),

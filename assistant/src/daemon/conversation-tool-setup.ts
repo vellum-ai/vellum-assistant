@@ -20,12 +20,10 @@ import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { advisorEnabledForProfile } from "../plugins/defaults/advisor/advisor-gate.js";
 import {
-  isVlmImageToolName,
   isVlmToolName,
-  isVlmVideoToolName,
-  resolveBackboneSupportsVideo,
   resolveBackboneSupportsVision,
 } from "../plugins/defaults/vision-perception/hooks/pre-model-call.js";
+import { isVisionPerceptionProviderAvailable } from "../plugins/defaults/vision-perception/src/vision-capability.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
@@ -639,22 +637,20 @@ export function isToolActiveForContext(
       selectionSeed: ctx.conversationId ?? null,
     };
 
-    // Per-modality gating: vision perception only engages for backbones that
-    // lack native support for that modality. A vision-capable model reads
-    // uploaded images directly, so the IMAGE tools (vlm_ask/describe/ocr/detect)
-    // are dead weight and omitted. But an image-vision model still cannot
-    // process native video, so vlm_video_log stays offered unless the backbone
-    // has native VIDEO support (always false today — no catalog model does).
-    // Resolves the model the same way dispatch does (the per-turn override, else
-    // the active profile / call-site default).
-    if (isVlmImageToolName(name)) {
-      return !resolveBackboneSupportsVision(resolution);
-    }
-    if (isVlmVideoToolName(name)) {
-      return !resolveBackboneSupportsVideo(resolution);
-    }
-    // Defensive: an unclassified vlm_* tool falls back to the image gate.
-    return !resolveBackboneSupportsVision(resolution);
+    // Single capability gate: the whole feature is a crutch for a text-only
+    // backbone, so ALL vlm_* tools (vlm_ask/describe/ocr/detect/video_log) are
+    // offered together only when the resolved backbone cannot see media natively
+    // (`supportsVision === false`) — and withheld together for any vision-capable
+    // backbone. Resolves the backbone the same way dispatch does (the per-turn
+    // override, else the active profile / call-site default).
+    if (resolveBackboneSupportsVision(resolution)) return false;
+
+    // BYOK guard: only offer the tools when the visionPerception call site
+    // actually resolves to an enabled, vision-capable provider/model. In BYOK
+    // installs the managed `vision` profile is seeded disabled, so the call site
+    // can strip back to the user's (possibly non-vision) active profile — never
+    // offer a tool that would send image frames to a model that can't read them.
+    return isVisionPerceptionProviderAvailable();
   }
   if (UI_SURFACE_TOOL_NAMES.has(name)) {
     if (

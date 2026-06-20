@@ -29,6 +29,13 @@ mock.module("../../../../providers/provider-send-message.js", () => ({
   getConfiguredProvider: async () => fakeProvider,
 }));
 
+// The execution guard checks the visionPerception call site resolves to an
+// enabled vision-capable provider. Keep it available for these tests.
+mock.module("../src/vision-capability.js", () => ({
+  isVisionPerceptionProviderAvailable: () => true,
+  VISION_CALL_SITE: "visionPerception",
+}));
+
 // A 4x2 PNG so `parseImageDimensions` returns a non-trivial size we can assert
 // on. Small enough that `optimizeImageForTransport` leaves the bytes unchanged.
 const PNG_4x2 = (() => {

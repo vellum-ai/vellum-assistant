@@ -171,10 +171,7 @@ describe("reloaded inline upload still yields a media_ref marker", () => {
     rehydrateAttachmentIds(reloaded, [{ position: 0, attachmentId: "att-0" }]);
 
     // Non-vision backbone: image is rewritten into an attachment-id marker.
-    const out = applyVisionPerceptionMarkers([reloaded], {
-      supportsVision: false,
-      supportsVideo: false,
-    });
+    const out = applyVisionPerceptionMarkers([reloaded], false);
     const blocks = out[0].content;
 
     // Raw image gone; marker carries the rehydrated id as a usable media_ref.
@@ -194,10 +191,7 @@ describe("reloaded inline upload still yields a media_ref marker", () => {
     };
     rehydrateAttachmentIds(reloaded, [{ position: 0, attachmentId: "vid-0" }]);
 
-    const out = applyVisionPerceptionMarkers([reloaded], {
-      supportsVision: false,
-      supportsVideo: false,
-    });
+    const out = applyVisionPerceptionMarkers([reloaded], false);
     const blocks = out[0].content;
     expect(blocks.some((b) => b.type === "file")).toBe(false);
     const marker = blocks.find(
@@ -215,10 +209,7 @@ describe("reloaded inline upload still yields a media_ref marker", () => {
       content: [{ type: "text", text: "what is this?" }, imageBlock()],
     };
     const messages = [reloaded];
-    const out = applyVisionPerceptionMarkers(messages, {
-      supportsVision: false,
-      supportsVideo: false,
-    });
+    const out = applyVisionPerceptionMarkers(messages, false);
     // Same reference back — nothing was replaceable without an id, so the raw
     // image survives with no media_ref (this is what the rehydration fixes).
     expect(out).toBe(messages);
