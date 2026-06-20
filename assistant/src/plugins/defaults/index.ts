@@ -33,6 +33,8 @@ import advisorPreModelCall from "./advisor/hooks/pre-model-call.js";
 import advisorUserPromptSubmit from "./advisor/hooks/user-prompt-submit.js";
 import advisorPkg from "./advisor/package.json" with { type: "json" };
 import advisorTool from "./advisor/tools/advisor.js";
+import imageFallbackUserPromptSubmit from "./image-fallback/hooks/user-prompt-submit.js";
+import imageFallbackPkg from "./image-fallback/package.json" with { type: "json" };
 import compactionPkg from "./compaction/package.json" with { type: "json" };
 import emptyResponsePostModelCall from "./empty-response/hooks/post-model-call.js";
 import emptyResponseStop from "./empty-response/hooks/stop.js";
@@ -76,6 +78,24 @@ import toolErrorPostToolUse from "./tool-error/hooks/post-tool-use.js";
 import toolErrorPkg from "./tool-error/package.json" with { type: "json" };
 import toolResultTruncatePostToolUse from "./tool-result-truncate/hooks/post-tool-use.js";
 import toolResultTruncatePkg from "./tool-result-truncate/package.json" with { type: "json" };
+
+/**
+ * `image-fallback` — a `user-prompt-submit` hook that captions image blocks via
+ * a vision-capable profile when the active model is text-only, substituting the
+ * caption as a `[Image: <caption>]` text block so the model can still reason
+ * about the image's content. Self-gates on `isNonInteractive`; fail-open with a
+ * placeholder when no vision profile is configured or captioning fails. An
+ * in-memory content-hash cache avoids re-captioning the same image across turns.
+ */
+export const defaultImageFallbackPlugin: Plugin = {
+  manifest: {
+    name: imageFallbackPkg.name,
+    version: imageFallbackPkg.version,
+  },
+  hooks: {
+    "user-prompt-submit": imageFallbackUserPromptSubmit,
+  },
+};
 
 /**
  * `compaction` — compaction is implemented in `compaction/compact.ts` as
@@ -337,6 +357,7 @@ export const defaultAdvisorPlugin: Plugin = {
 function getAllDefaultPlugins(): readonly Plugin[] {
   return [
     defaultMemoryRetrievalPlugin,
+    defaultImageFallbackPlugin,
     defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,
     defaultMaxTokensContinuePlugin,
