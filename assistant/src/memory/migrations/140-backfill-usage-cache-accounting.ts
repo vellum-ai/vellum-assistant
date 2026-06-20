@@ -153,12 +153,10 @@ export function migrateBackfillUsageCacheAccounting(database: DrizzleDb): void {
         `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'llm_usage_events'`,
       )
       .get();
-    // llm_request_logs may live in the attached `logs` database rather than
-    // `main` (see migration 297), so probe with pragma_table_info, which
-    // resolves the name across attached schemas — `main.sqlite_master` would
-    // not see the relocated table.
     const requestLogsTableExists = raw
-      .query(`SELECT 1 FROM pragma_table_info('llm_request_logs') LIMIT 1`)
+      .query(
+        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'llm_request_logs'`,
+      )
       .get();
     if (!usageEventsTableExists || !requestLogsTableExists) return;
 

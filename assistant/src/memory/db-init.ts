@@ -332,11 +332,6 @@ export function initializeDb(): void {
     createCoreTables,
     recoverCrashedMigrations,
     createWatchersAndLogsTables,
-    // Relocate llm_request_logs into the attached `logs` database. Runs right
-    // after the (now llm_request_logs-free) core/log table creation and before
-    // the later llm_request_logs column-add migrations (184/252/264), which
-    // then see the relocated table and no-op.
-    migrateMoveLlmRequestLogsToLogsDb,
     addCoreColumns,
     runComplexMigrations,
     createCoreIndexes,
@@ -563,6 +558,7 @@ export function initializeDb(): void {
     migrateDropExternalUserId,
     dropApprovalPromptTsTrackerTable,
     migrateRewriteBalancedEconomyProfilePins,
+    migrateMoveLlmRequestLogsToLogsDb,
   ];
 
   // Run each migration step, catching and logging individual failures so one

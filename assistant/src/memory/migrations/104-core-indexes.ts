@@ -6,8 +6,9 @@ import { migrateDropActiveSearchIndex } from "./015-drop-active-search-index.js"
  * deduplication migration and its unique index.
  */
 export function createCoreIndexes(database: DrizzleDb): void {
-  // The llm_request_logs indexes live in the attached `logs` database and are
-  // created by migration 297 (move-llm-request-logs-to-logs-db).
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_request_logs_conv_created ON llm_request_logs(conversation_id, created_at)`,
+  );
   database.run(
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id)`,
   );

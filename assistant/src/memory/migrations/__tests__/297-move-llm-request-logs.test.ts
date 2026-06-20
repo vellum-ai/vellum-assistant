@@ -1,13 +1,17 @@
 /**
- * Tests for migration 297 — moving `llm_request_logs` into the attached
+ * Tests for migration 297 — keeping `llm_request_logs` in the attached
  * `logs` database.
  *
  * Covers:
  *   1. End state after a full initializeDb(): the table lives in `logs`, not
  *      `main`, and the Drizzle store round-trips against it.
- *   2. The data move itself: legacy rows in a `main.llm_request_logs` are
- *      copied into `logs` and the main-DB copy is dropped, with indexes built
- *      in `logs`.
+ *   2. The relocation itself: rows in a `main.llm_request_logs` are copied into
+ *      `logs` and the main-DB copy is dropped, with indexes built in `logs`.
+ *   3. A legacy base-only `main` table (predating the newer columns) is copied
+ *      without error, NULL-filling the absent columns.
+ *
+ * The step is idempotent and not checkpoint-gated, so each test can drive it
+ * directly without clearing any checkpoint.
  */
 import { describe, expect, test } from "bun:test";
 
@@ -20,8 +24,6 @@ const { recordRequestLog, getRequestLogById } =
   await import("../../llm-request-log-store.js");
 
 initializeDb();
-
-const CHECKPOINT_KEY = "migration_move_llm_request_logs_to_logs_db_v1";
 
 function tableSchemas(name: string): string[] {
   return getSqlite()
@@ -64,11 +66,11 @@ describe("migration 297 — llm_request_logs lives in the logs database", () => 
     expect(inLogs?.c).toBe(1);
   });
 
-  test("moves legacy rows from a main-DB table and drops it", () => {
+  test("relocates rows from a main-DB table and drops it", () => {
     const sqlite = getSqlite();
 
-    // Simulate a pre-move database: legacy table + row in main, no logs copy,
-    // checkpoint cleared so withCrashRecovery runs the body.
+    // Simulate the shadow that createWatchersAndLogsTables recreates each boot:
+    // a main-DB table with a row, alongside the logs copy.
     sqlite.exec(`DROP TABLE IF EXISTS ${LOGS_DB_SCHEMA}.llm_request_logs`);
     sqlite.exec(`
       CREATE TABLE main.llm_request_logs (
@@ -85,9 +87,6 @@ describe("migration 297 — llm_request_logs lives in the logs database", () => 
     `);
     sqlite.exec(
       `INSERT INTO main.llm_request_logs (id, conversation_id, request_payload, response_payload, created_at, provider) VALUES ('legacy-1', 'conv-legacy', '{}', '{}', 123, 'openai')`,
-    );
-    sqlite.exec(
-      `DELETE FROM memory_checkpoints WHERE key = '${CHECKPOINT_KEY}'`,
     );
 
     migrateMoveLlmRequestLogsToLogsDb(getDb());
@@ -113,23 +112,14 @@ describe("migration 297 — llm_request_logs lives in the logs database", () => 
     expect(indexes).toContain("idx_llm_request_logs_message_id");
     expect(indexes).toContain("idx_llm_request_logs_created_at");
     expect(indexes).toContain("idx_llm_request_logs_conv_created");
-
-    // Checkpoint recorded so the move won't re-run.
-    const ckpt = sqlite
-      .query<
-        { value: string },
-        []
-      >(`SELECT value FROM memory_checkpoints WHERE key = '${CHECKPOINT_KEY}'`)
-      .get();
-    expect(ckpt?.value).toBe("1");
   });
 
   test("copies a legacy base-only table, NULL-filling newer columns", () => {
     const sqlite = getSqlite();
 
-    // Simulate a workspace upgrading from a build that predates the
-    // message_id/provider/agent_loop_exit_reason/call_site column migrations:
-    // main.llm_request_logs has only the original base columns.
+    // A workspace upgrading from a build that predates the
+    // message_id/provider/agent_loop_exit_reason/call_site columns: the main
+    // table has only the original base columns.
     sqlite.exec(`DROP TABLE IF EXISTS ${LOGS_DB_SCHEMA}.llm_request_logs`);
     sqlite.exec(`
       CREATE TABLE main.llm_request_logs (
@@ -142,9 +132,6 @@ describe("migration 297 — llm_request_logs lives in the logs database", () => 
     `);
     sqlite.exec(
       `INSERT INTO main.llm_request_logs (id, conversation_id, request_payload, response_payload, created_at) VALUES ('base-1', 'conv-base', '{}', '{}', 7)`,
-    );
-    sqlite.exec(
-      `DELETE FROM memory_checkpoints WHERE key = '${CHECKPOINT_KEY}'`,
     );
 
     // Must not throw on the absent columns.

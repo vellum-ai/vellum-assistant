@@ -3,18 +3,15 @@ import {
   getSqliteFrom,
   LOGS_DB_SCHEMA,
 } from "../db-connection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
-
-const CHECKPOINT_KEY = "migration_move_llm_request_logs_to_logs_db_v1";
 
 /**
- * Columns of `llm_request_logs`, in a fixed order used for the cross-database
- * copy. Listed explicitly (rather than `SELECT *`) so the copy is insensitive
- * to the physical column order of the legacy `main` table, which varies with
- * the historical sequence of `ALTER TABLE ... ADD COLUMN` migrations.
+ * Column names of `llm_request_logs`, in a fixed order used for the
+ * cross-database copy. Listed explicitly (rather than `SELECT *`) so the copy
+ * is insensitive to the physical column order of the `main` table, which varies
+ * with the historical sequence of `ALTER TABLE ... ADD COLUMN` migrations.
  *
- * The first five are the original base columns (always present since the table
- * was first created); the rest were added by later column migrations.
+ * The first columns are the original base columns; the rest were added by later
+ * column migrations.
  */
 const COLUMN_NAMES = [
   "id",
@@ -75,91 +72,59 @@ function tableExists(
 }
 
 /**
- * Copy every row of `llm_request_logs` from `fromSchema` into `toSchema`.
- *
- * The SELECT side substitutes `NULL` for any target column missing in the
- * source. A workspace upgrading from a build that predates the
- * message_id/provider/agent_loop_exit_reason/call_site column migrations still
- * has the original base columns only; this migration runs before those
- * historical column-adders, so a plain `SELECT ${COLUMNS}` would throw on the
- * absent columns. The four newer columns are all nullable, so NULL is the
- * correct value for legacy rows.
+ * Copy every row of `llm_request_logs` from `main` into the `logs` database,
+ * substituting `NULL` for any target column missing in the source. The newer
+ * columns (message_id/provider/agent_loop_exit_reason/call_site) are all
+ * nullable, so NULL is correct for a legacy row that predates them.
  */
-function copyRows(
-  raw: ReturnType<typeof getSqliteFrom>,
-  fromSchema: string,
-  toSchema: string,
-): void {
+function copyRowsFromMain(raw: ReturnType<typeof getSqliteFrom>): void {
   const presentColumns = new Set(
     (
       raw
-        .query(`SELECT name FROM pragma_table_info('llm_request_logs', ?)`)
-        .all(fromSchema) as Array<{ name: string }>
+        .query(`SELECT name FROM pragma_table_info('llm_request_logs', 'main')`)
+        .all() as Array<{ name: string }>
     ).map((r) => r.name),
   );
   const selectList = COLUMN_NAMES.map((c) =>
     presentColumns.has(c) ? c : "NULL",
   ).join(", ");
   raw.exec(/*sql*/ `
-    INSERT OR IGNORE INTO ${toSchema}.llm_request_logs (${COLUMNS})
-    SELECT ${selectList} FROM ${fromSchema}.llm_request_logs
+    INSERT OR IGNORE INTO ${LOGS_DB_SCHEMA}.llm_request_logs (${COLUMNS})
+    SELECT ${selectList} FROM main.llm_request_logs
   `);
 }
 
 /**
- * Move `llm_request_logs` out of the main database and into the attached
- * append-only `logs` database (`assistant-logs.db`).
+ * Keep `llm_request_logs` housed in the attached append-only `logs` database
+ * (`assistant-logs.db`) rather than the main DB. Keeping this heavy table — and
+ * the request/response payloads it stores — in its own file stops it from
+ * bloating the main DB and its WAL, and lets the two files VACUUM and
+ * checkpoint independently. Once it lives only in `logs`, the unqualified name
+ * used by the Drizzle store resolves to the attached copy, so query code is
+ * unchanged.
  *
- * This is the first heavy, append-only table relocated under the DB-split
- * effort: keeping it in its own file stops its growth (and the request/response
- * payloads it stores) from bloating the main DB and its WAL, and lets the two
- * files VACUUM and checkpoint independently.
+ * This step is idempotent and runs on every startup (it is not checkpoint-
+ * gated). It must, because the earlier `createWatchersAndLogsTables` migration
+ * recreates an empty `main.llm_request_logs` on every boot via
+ * `CREATE TABLE IF NOT EXISTS`; this step re-relocates and drops that shadow so
+ * the unqualified name keeps resolving to `logs`.
  *
- * Once the table lives only in `logs`, the unqualified name used by the Drizzle
- * store (`llm_request_logs`) resolves to the attached copy — so query code is
- * unchanged. The legacy DDL for this table has been removed from the historical
- * migrations (101/104/179/212) so they no longer recreate an empty shadow copy
- * in `main`.
- *
- * Ordering within the migration matters:
- *   1. Create the table in `logs` (safe whether or not `main` still has it).
- *   2. If the legacy `main` table is present, copy its rows over and drop it.
- *      `INSERT OR IGNORE` (id is the PK) keeps the copy re-runnable if a prior
- *      attempt crashed after copying but before the drop committed.
+ * Ordering within the step matters:
+ *   1. Create the table in `logs` (safe whether or not `main` has it).
+ *   2. If `main` still has the table, copy its rows over (`INSERT OR IGNORE` on
+ *      the id PK, so a re-run is a no-op) and drop it.
  *   3. Create the indexes — only now is `main` guaranteed not to shadow the
- *      table, so the unqualified table reference resolves to `logs`. Building
- *      indexes after the bulk copy is also faster than maintaining them during
- *      the insert.
+ *      table, so the unqualified reference resolves to `logs`.
  */
 export function migrateMoveLlmRequestLogsToLogsDb(database: DrizzleDb): void {
-  withCrashRecovery(database, CHECKPOINT_KEY, () => {
-    const raw = getSqliteFrom(database);
-
-    raw.exec(CREATE_TABLE(LOGS_DB_SCHEMA));
-
-    if (tableExists(raw, "main")) {
-      copyRows(raw, "main", LOGS_DB_SCHEMA);
-      raw.exec(`DROP TABLE main.llm_request_logs`);
-    }
-
-    createIndexes(raw, LOGS_DB_SCHEMA);
-  });
-}
-
-/**
- * Reverse the move: recreate the table in `main`, copy rows back from `logs`,
- * and drop the `logs` copy. Best-effort — intended for rollback during
- * development, not routine operation.
- */
-export function downMoveLlmRequestLogsToLogsDb(database: DrizzleDb): void {
   const raw = getSqliteFrom(database);
 
-  raw.exec(CREATE_TABLE("main"));
+  raw.exec(CREATE_TABLE(LOGS_DB_SCHEMA));
 
-  if (tableExists(raw, LOGS_DB_SCHEMA)) {
-    copyRows(raw, LOGS_DB_SCHEMA, "main");
-    raw.exec(`DROP TABLE ${LOGS_DB_SCHEMA}.llm_request_logs`);
+  if (tableExists(raw, "main")) {
+    copyRowsFromMain(raw);
+    raw.exec(`DROP TABLE main.llm_request_logs`);
   }
 
-  createIndexes(raw, "main");
+  createIndexes(raw, LOGS_DB_SCHEMA);
 }

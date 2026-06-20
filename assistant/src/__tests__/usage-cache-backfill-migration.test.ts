@@ -96,9 +96,13 @@ function insertRequestLog(args: {
   createdAt: number;
   responsePayload: string;
 }): void {
+  // Migration 140 runs before the table is relocated to the logs database (297
+  // runs last), so it reads llm_request_logs from `main`. Seed there to mirror
+  // that ordering — the unqualified reads in the migration resolve to `main`
+  // when a same-named table is present there.
   rawRun(
     /*sql*/ `
-    INSERT INTO llm_request_logs (
+    INSERT INTO main.llm_request_logs (
       id,
       conversation_id,
       request_payload,
@@ -144,7 +148,18 @@ function foreignResponsePayload(): string {
 
 describe("migrateBackfillUsageCacheAccounting", () => {
   beforeEach(() => {
-    getSqlite().run(`DELETE FROM llm_request_logs`);
+    // Recreate the pre-relocation `main.llm_request_logs` that migration 140
+    // reads (the live DB keeps the table in the attached logs database).
+    getSqlite().exec(`
+      CREATE TABLE IF NOT EXISTS main.llm_request_logs (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        request_payload TEXT NOT NULL,
+        response_payload TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    `);
+    getSqlite().run(`DELETE FROM main.llm_request_logs`);
     getSqlite().run(`DELETE FROM llm_usage_events`);
     rawRun(`DELETE FROM memory_checkpoints WHERE key = ?`, CHECKPOINT_KEY);
     mockPricingOverrides = [];
