@@ -2,14 +2,12 @@
  * Tests for `db-maintenance.ts` (orchestration) and the underlying
  * `db-async-query.ts` abstraction.
  *
- * The contract this PR locks in:
- *   1. `runDbMaintenance` runs `VACUUM` through the async abstraction
- *      — when the `sqlite3` CLI is available, that means a subprocess
- *      and the daemon's main event loop keeps ticking. (The structural
- *      anti-block assertion lives in
- *      `db-async-query.test.ts`; here we focus on orchestration.)
- *   2. The subprocess actually shrinks the on-disk page count when
- *      there's reclaimable space.
+ * The contract this locks in:
+ *   1. `runDbMaintenance` runs `PRAGMA optimize` through the async
+ *      abstraction and then truncates the WAL on the daemon connection.
+ *      It intentionally does NOT run a full VACUUM (which in WAL mode
+ *      inflates the WAL to ~the DB size and needs ~2x the DB size free).
+ *   2. The truncating checkpoint shrinks the WAL file once it has grown.
  *   3. `maybeRunDbMaintenance` is genuinely async — callers can `await`
  *      it and observe completion.
  *   4. The 24 h interval guard short-circuits a recent re-run.
@@ -17,7 +15,7 @@
  * The per-file temp workspace is set up by `test-preload.ts`; tests just
  * dynamic-import the DB modules so they resolve paths under that temp dir.
  */
-import { Database } from "bun:sqlite";
+import { existsSync, statSync } from "node:fs";
 import { beforeEach, describe, expect, test } from "bun:test";
 
 const { getSqlite } = await import("../db-connection.js");
@@ -56,8 +54,9 @@ function insertMessage(role: "user" | "assistant", createdAt: number): void {
     .run(`msg-${createdAt}-${role}`, convId, role, "[]", createdAt);
 }
 
-/** Inflate the test DB with bloat that VACUUM can reclaim. */
-function inflateAndDelete(byteTarget: number): void {
+/** Pile writes into the WAL (without checkpointing) so a truncating
+ *  checkpoint has measurable work to do. */
+function inflateWal(byteTarget: number): void {
   const sqlite = getSqlite();
   sqlite.exec(
     "CREATE TABLE IF NOT EXISTS bloat (id INTEGER PRIMARY KEY, payload BLOB)",
@@ -72,11 +71,10 @@ function inflateAndDelete(byteTarget: number): void {
   for (let i = 0; i < rowsTarget; i++) {
     insert.run(payload);
   }
+  // Commit, but do not checkpoint — the frames stay in the WAL, leaving it at
+  // its high-water mark (a PASSIVE auto-checkpoint resets the WAL for reuse but
+  // never shrinks the file). Maintenance is what should truncate it.
   sqlite.exec("COMMIT");
-  sqlite.exec("DELETE FROM bloat");
-  sqlite.exec("DROP TABLE bloat");
-  // Force the WAL onto the main DB file so the bloat is visible on disk.
-  sqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)");
 }
 
 describe("maybeRunDbMaintenance", () => {
@@ -106,36 +104,30 @@ describe("maybeRunDbMaintenance", () => {
     expect(getMemoryCheckpoint(MAINTENANCE_CHECKPOINT_KEY)).toBe(String(now));
   });
 
-  test("VACUUM reclaims pages on a bloated DB", async () => {
+  test("truncates a bloated WAL", async () => {
     const sqlite = getSqlite();
     sqlite.exec("DROP TABLE IF EXISTS bloat");
     sqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)");
 
-    inflateAndDelete(8 * 1024 * 1024);
+    const walPath = `${getDbPath()}-wal`;
+    const walSize = (): number =>
+      existsSync(walPath) ? statSync(walPath).size : 0;
 
-    const dbPath = getDbPath();
-    // Read page_count from a fresh connection so we observe post-write
-    // ground truth without snapshot caching on the main test connection.
-    const readPageCount = (): number => {
-      const probe = new Database(dbPath, { readonly: true });
-      try {
-        return (
-          probe.query("PRAGMA page_count").get() as { page_count: number }
-        ).page_count;
-      } finally {
-        probe.close();
-      }
-    };
-    const pagesBefore = readPageCount();
+    inflateWal(4 * 1024 * 1024);
+    // Sanity: the writes really did grow the WAL on disk.
+    expect(walSize()).toBeGreaterThan(1024 * 1024);
 
     await maybeRunDbMaintenance();
 
-    const pagesAfter = readPageCount();
-    expect(pagesAfter).toBeLessThan(pagesBefore);
+    // Maintenance truncates the WAL back down (no VACUUM, so the data is folded
+    // into the main file rather than rebuilt).
+    expect(walSize()).toBeLessThan(64 * 1024);
+
+    sqlite.exec("DROP TABLE IF EXISTS bloat");
   }, 60_000);
 
   test("defers maintenance while the last user message is within the quiet period", async () => {
-    /** VACUUM must not fire while the user is active, so a recent user
+    /** Maintenance must not fire while the user is active, so a recent user
      *  message keeps maintenance deferred. */
     // GIVEN the user sent a message one minute ago (well within the quiet period)
     const now = Date.now();
