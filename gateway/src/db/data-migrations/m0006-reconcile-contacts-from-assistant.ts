@@ -1,24 +1,15 @@
 /**
- * One-time migration: reconcile contacts + contact_channels from the
- * assistant DB into the gateway DB for any rows that are missing.
+ * One-time migration: seed contacts + contact_channels into the gateway DB
+ * for any rows that exist in the assistant DB but are missing from the gateway.
  *
- * Context: the gateway became the ACL source of truth when `upsertContact`
- * gained its best-effort dual-write. But contacts created by other paths
- * (guardian-bootstrap raw SQL, invite redemption, pre-dual-write-era writes,
- * or any raw-SQL mutations that bypassed the gateway) may live only in the
- * assistant DB. Without this reconciliation, a gateway-native contact list
- * would silently drop those contacts — looking like data loss.
- *
- * This migration scans the assistant DB for contact IDs and channel IDs that
- * are absent from the gateway DB and seeds them. It copies ONLY ACL fields
- * (role, principalId, channel status/policy/verification). Informational
- * fields (notes, userFile, contactType, assistant_contact_metadata) are
- * intentionally NOT copied — they remain in the assistant DB per the ACL/info
- * split (see memory/concepts/decision/contact-data-split.md).
+ * Copies ONLY ACL fields (role, principalId, channel status/policy/verification).
+ * Informational fields (notes, userFile, contactType, assistant_contact_metadata)
+ * remain in the assistant DB per the ACL/info split (see
+ * memory/concepts/decision/contact-data-split.md and the comment block in
+ * schema.ts).
  *
  * Idempotent: uses INSERT OR IGNORE so existing gateway rows are never
- * overwritten. On a DB where all contacts are already in gateway, this is a
- * no-op. Safe to re-run.
+ * overwritten. Safe to re-run.
  */
 
 import { Database } from "bun:sqlite";
