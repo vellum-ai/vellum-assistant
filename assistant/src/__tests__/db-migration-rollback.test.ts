@@ -17,10 +17,22 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { type DrizzleDb, getSqliteFrom } from "../memory/db-connection.js";
-import { downJobDeferrals } from "../memory/migrations/001-job-deferrals.js";
-import { downMemoryEntityRelationDedup } from "../memory/migrations/004-entity-relation-dedup.js";
-import { downMemoryItemsFingerprintScopeUnique } from "../memory/migrations/005-fingerprint-scope-unique.js";
-import { downMemoryItemsScopeSaltedFingerprints } from "../memory/migrations/006-scope-salted-fingerprints.js";
+import {
+  downJobDeferrals,
+  migrateJobDeferrals,
+} from "../memory/migrations/001-job-deferrals.js";
+import {
+  downMemoryEntityRelationDedup,
+  migrateMemoryEntityRelationDedup,
+} from "../memory/migrations/004-entity-relation-dedup.js";
+import {
+  downMemoryItemsFingerprintScopeUnique,
+  migrateMemoryItemsFingerprintScopeUnique,
+} from "../memory/migrations/005-fingerprint-scope-unique.js";
+import {
+  downMemoryItemsScopeSaltedFingerprints,
+  migrateMemoryItemsScopeSaltedFingerprints,
+} from "../memory/migrations/006-scope-salted-fingerprints.js";
 import { downAssistantIdToSelf } from "../memory/migrations/007-assistant-id-to-self.js";
 import { downRemoveAssistantIdColumns } from "../memory/migrations/008-remove-assistant-id-columns.js";
 import { downLlmUsageEventsDropAssistantId } from "../memory/migrations/009-llm-usage-events-drop-assistant-id.js";
@@ -55,20 +67,18 @@ import { migrateDropCapabilityCardStateDown } from "../memory/migrations/176-dro
 import { migrateBackfillInlineAttachmentsToDiskDown } from "../memory/migrations/180-backfill-inline-attachments-to-disk.js";
 import { migrateRenameThreadStartersCheckpointsDown } from "../memory/migrations/181-rename-thread-starters-checkpoints.js";
 import { migrateBackfillAudioAttachmentMimeTypesDown } from "../memory/migrations/191-backfill-audio-attachment-mime-types.js";
+import { migrateLlmUsageAttribution } from "../memory/migrations/235-llm-usage-attribution.js";
 import {
-  migrateJobDeferrals,
-  migrateLlmUsageAttribution,
-  migrateMemoryEntityRelationDedup,
-  migrateMemoryItemsFingerprintScopeUnique,
-  migrateMemoryItemsScopeSaltedFingerprints,
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
   type MigrationValidationResult,
+} from "../memory/migrations/registry.js";
+import { runMigrationSteps } from "../memory/migrations/run-migrations.js";
+import {
   rollbackMemoryMigration,
   validateMigrationState,
   withCrashRecovery,
-} from "../memory/migrations/index.js";
-import { runMigrationSteps } from "../memory/migrations/run-migrations.js";
+} from "../memory/migrations/validate-migration-state.js";
 import * as schema from "../memory/schema.js";
 
 // ---------------------------------------------------------------------------
