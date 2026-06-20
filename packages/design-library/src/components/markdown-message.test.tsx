@@ -52,6 +52,34 @@ describe("MarkdownMessage", () => {
 
     expect(html).toContain("<ol");
     expect(html).not.toContain("start=");
+    // A contiguous list matches the auto-increment, so no item is pinned.
+    expect(html).not.toContain("value=");
+  });
+
+  test("ordered list with a skipped number renders the typed ordinals", () => {
+    // Replying to points 1, 2, 4, 5 (deliberately skipping 3) must not silently
+    // renumber to 1, 2, 3, 4. CommonMark drops the markers, so item 4 is pinned
+    // with <li value="4">; item 5 then follows naturally and needs no pin.
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "1. a\n2. b\n4. c\n5. d",
+      }),
+    );
+
+    expect(html).toContain('<li value="4"');
+    expect(html).not.toContain('value="3"');
+  });
+
+  test("ordered list that restarts mid-stream pins the lower number", () => {
+    // 1, 2, then a fresh 1 — the restart drops below the running count, so the
+    // third item is pinned back to <li value="1">.
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "1. a\n2. b\n1. c",
+      }),
+    );
+
+    expect(html).toContain('<li value="1"');
   });
 
   test("tables render with the body-small typography token", () => {
