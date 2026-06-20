@@ -28,6 +28,7 @@ import {
   estimatePromptTokens,
   estimateToolsTokens,
 } from "../../../context/token-estimator.js";
+import { findConversationOrSubagent } from "../../../daemon/conversation-registry.js";
 import type { InjectionMode } from "../../../daemon/conversation-runtime-assembly.js";
 import type {
   ContentBlock,
@@ -35,7 +36,6 @@ import type {
   Provider,
   ToolDefinition,
 } from "../../../providers/types.js";
-import { findConversationOrSubagent } from "../../../daemon/conversation-registry.js";
 import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { getLogger } from "../../../util/logger.js";
 import {
