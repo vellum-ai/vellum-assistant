@@ -341,9 +341,8 @@ export class ContactStore {
    *
    * Channel ID resolution: the caller may pass an assistant-side channel ID
    * (the UI gets these from `readAssistantContact`). If the ID isn't found
-   * in the gateway DB, we try to resolve it from the assistant DB by
+   * in the gateway DB, we resolve it from the assistant DB by
    * (contactId, type, address) and then find the matching gateway channel.
-   * This handles channels created before the dual-write ID-alignment fix.
    */
   async updateChannelStatus(
     channelId: string,
@@ -359,10 +358,8 @@ export class ContactStore {
       .where(eq(contactChannels.id, channelId))
       .get();
 
-    // If not found in the gateway DB, try resolving from the assistant DB.
-    // The UI may have an assistant-side ID (from readAssistantContact) that
-    // doesn't match the gateway ID for channels created before the
-    // dual-write ID-alignment fix.
+    // If not found in the gateway DB, resolve from the assistant DB by
+    // logical key (contactId, type, address) and find the matching gateway row.
     if (!gwChannel) {
       const assistantChannel = await assistantDbQuery<{
         contactId: string;
@@ -469,10 +466,34 @@ export class ContactStore {
     bind.push(String(Date.now()));
     bind.push(channelId);
 
-    await assistantDbRun(
+    const result = await assistantDbRun(
       `UPDATE contact_channels SET ${setClauses.join(", ")} WHERE id = ?`,
       bind,
     );
+
+    // Legacy channels may have a different assistant-side ID. If the ID-keyed
+    // update touched zero rows, resolve by (contactId, type, address) and
+    // retry so the assistant mirror stays consistent.
+    if (result.changes === 0) {
+      const gwChannel = this.db
+        .select()
+        .from(contactChannels)
+        .where(eq(contactChannels.id, channelId))
+        .get();
+      if (!gwChannel) return;
+
+      const logicalBind = bind.slice(0, -1); // drop the channelId
+      logicalBind.push(
+        gwChannel.contactId,
+        gwChannel.type,
+        gwChannel.address,
+      );
+      await assistantDbRun(
+        `UPDATE contact_channels SET ${setClauses.join(", ")}
+         WHERE contact_id = ? AND type = ? AND address = ? COLLATE NOCASE`,
+        logicalBind,
+      );
+    }
   }
 
   /**
@@ -1126,12 +1147,8 @@ export class ContactStore {
         );
         if (conflict.length) continue;
 
-        // Reuse the gateway channel ID so the two DBs stay in sync.
-        // Without this, the assistant and gateway DBs would have different
-        // UUIDs for the same logical channel, and a PATCH with an
-        // assistant-side ID would 404 in the gateway. m0006 reconciliation
-        // already copies assistant IDs into the gateway for pre-existing
-        // rows; this ensures new rows created via upsert stay aligned too.
+        // Reuse the gateway channel ID so assistant and gateway channel
+        // rows share the same UUID for the same logical channel.
         const gatewayChannel = this.db
           .select({ id: contactChannels.id })
           .from(contactChannels)

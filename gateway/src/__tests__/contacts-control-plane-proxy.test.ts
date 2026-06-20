@@ -21,8 +21,8 @@ mock.module("../fetch.js", () => ({
 type DbQueryFn = (sql: string, bind?: unknown[]) => Promise<Record<string, unknown>[]>;
 let assistantDbQueryMock: ReturnType<typeof mock<DbQueryFn>> = mock(async () => []);
 
-type DbRunFn = (sql: string, bind?: unknown[]) => Promise<void>;
-let assistantDbRunMock: ReturnType<typeof mock<DbRunFn>> = mock(async () => {});
+type DbRunFn = (sql: string, bind?: unknown[]) => Promise<{ changes: number; lastInsertRowid: number }>;
+let assistantDbRunMock: ReturnType<typeof mock<DbRunFn>> = mock(async () => ({ changes: 1, lastInsertRowid: 0 }));
 
 mock.module("../db/assistant-db-proxy.js", () => ({
   assistantDbQuery: (...args: Parameters<DbQueryFn>) => assistantDbQueryMock(...args),
@@ -154,7 +154,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
 afterEach(() => {
   fetchMock = mock(async () => new Response());
   assistantDbQueryMock = mock(async () => []);
-  assistantDbRunMock = mock(async () => {});
+  assistantDbRunMock = mock(async () => ({ changes: 1, lastInsertRowid: 0 }));
   ipcCallAssistantMock = mock(async () => ({}));
   contactStoreUpsertMock = mock(async () => ({
     contact: DEFAULT_MOCK_CONTACT,
