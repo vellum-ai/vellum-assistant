@@ -423,12 +423,9 @@ describe("reconcileFlagGatedProfiles", () => {
   });
 
   test("both gated profiles present + both flags off → neither name remains in profileOrder", () => {
-    // Regression: the reconcile loop captured `profileOrder` once and reassigned
-    // `llm.profileOrder` to a filtered COPY on each `disableProfile` call, so the
-    // loop kept holding the pre-removal snapshot. With BOTH managed profiles
-    // present and BOTH flags off, the second removal filtered the stale snapshot
-    // and reintroduced the first-deleted name. After the fix, removals filter the
-    // live order in place, so neither name survives.
+    // Removing both managed gated profiles in a single reconcile pass drops both
+    // names from `profileOrder`: each removal filters the live order, so the
+    // second removal sees the first removal's result and no deleted name lingers.
     process.env.IS_PLATFORM = "true";
     seedBalancedConfig();
     setOverridesForTesting({ "os-beta": true, "vision-perception": true });
@@ -449,7 +446,7 @@ describe("reconcileFlagGatedProfiles", () => {
     const after = readConfig();
     expect(after.llm.profiles["os-beta"]).toBeUndefined();
     expect(after.llm.profiles["vision"]).toBeUndefined();
-    // Neither deleted name may linger in the order (the bug reintroduced one).
+    // Neither removed name may linger in the order.
     expect(after.llm.profileOrder.includes("os-beta")).toBe(false);
     expect(after.llm.profileOrder.includes("vision")).toBe(false);
 

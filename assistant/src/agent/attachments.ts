@@ -65,13 +65,16 @@ function tagMediaBlockAtIndex(
   message: Message,
   mediaBlockIndex: number,
   attachmentId: string,
+  options?: { overwrite?: boolean },
 ): void {
   if (mediaBlockIndex < 0) return;
   let seen = 0;
   for (const block of message.content) {
     if (block.type !== "image" && block.type !== "file") continue;
     if (seen === mediaBlockIndex) {
-      if (!block._attachmentId) block._attachmentId = attachmentId;
+      if (options?.overwrite || !block._attachmentId) {
+        block._attachmentId = attachmentId;
+      }
       return;
     }
     seen++;
@@ -102,6 +105,28 @@ export function backfillAttachmentId(
   attachmentId: string,
 ): void {
   tagMediaBlockAtIndex(message, attachmentIndex, attachmentId);
+}
+
+/**
+ * Re-tag the in-memory content block for the `attachmentIndex`-th uploaded
+ * attachment with the conversation-scoped id, overwriting any existing id.
+ *
+ * When a previously-uploaded attachment is re-shared into a new conversation,
+ * linking it clones the row and mints a conversation-scoped id. The content
+ * block still carries the source id, which is not linked to the current
+ * conversation — a `media_ref` derived from it would fail the conversation-scope
+ * check. Overwriting the block with the scoped id keeps the surfaced
+ * `media_ref` resolvable in the current conversation. Unlike
+ * {@link backfillAttachmentId}, this overwrites rather than only filling a gap.
+ */
+export function retagAttachmentId(
+  message: Message,
+  attachmentIndex: number,
+  attachmentId: string,
+): void {
+  tagMediaBlockAtIndex(message, attachmentIndex, attachmentId, {
+    overwrite: true,
+  });
 }
 
 /** A linked attachment paired with its stored `message_attachments.position`. */
