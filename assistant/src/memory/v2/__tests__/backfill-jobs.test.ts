@@ -203,9 +203,8 @@ afterAll(() => {
 });
 
 const { getDb } = await import("../../db-connection.js");
-const { resetDbForTesting } = await import(
-  "../../../__tests__/db-test-helpers.js"
-);
+const { resetDbForTesting } =
+  await import("../../../__tests__/db-test-helpers.js");
 const { initializeDb } = await import("../../db-init.js");
 const { rawExec } = await import("../../raw-query.js");
 const { conversations, memoryJobs, messages } = await import("../../schema.js");
@@ -249,6 +248,10 @@ function makeJob(
   };
 }
 
+// The first `initializeDb()` in a fresh test process builds the migration
+// template by running every step; later calls restore it by file copy. That
+// cold build can exceed bun's default 5s hook timeout under CI load, so give
+// the hook generous headroom.
 beforeEach(() => {
   resetDbForTesting();
   initializeDb();
@@ -282,7 +285,7 @@ beforeEach(() => {
 
   migrationCalls.length = 0;
   migrationOutcome = { type: "ok" };
-});
+}, 30_000);
 
 // ---------------------------------------------------------------------------
 // memoryV2MigrateJob
