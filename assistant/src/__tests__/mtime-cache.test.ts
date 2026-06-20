@@ -1,11 +1,11 @@
 /**
- * Tests for the plugin mtime cache — the pull-based replacement for
+ * Tests for the per-surface mtime cache — the pull-based replacement for
  * PluginSourceWatcher.
  *
  * Each test materializes a synthetic plugin directory under a per-file
  * tempdir, then exercises observable behavior: cache hit (same mtime),
- * cache miss (changed mtime → rebuild), plugin deletion (eviction), and
- * concurrent-read deduplication.
+ * cache miss (changed mtime → re-import), plugin deletion (eviction),
+ * and hook collection across multiple plugins.
  */
 import { mkdirSync, rmSync, writeFileSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -20,20 +20,16 @@ import {
 } from "bun:test";
 
 import {
-  getAllPlugins,
-  getHooksForFromCache,
-  getPlugin,
+  getCachedUserTools,
+  getUserHooksFor,
+  populateCacheAtBoot,
   resetPluginCacheForTests,
-  _inspectCacheForTests,
+  _inspectHookCacheForTests,
+  _inspectToolCacheForTests,
 } from "../plugins/mtime-cache.js";
 
 // ─── Test fixtures ───────────────────────────────────────────────────────────
 
-/**
- * Root tempdir for all tests in this file. Each test gets its own plugin
- * directory underneath. We point `VELLUM_WORKSPACE_DIR` at this root so
- * `getWorkspacePluginsDir()` resolves to `<ROOT>/plugins/`.
- */
 const ROOT = join(
   tmpdir(),
   `vellum-mtime-cache-test-${process.pid}-${Date.now()}`,
@@ -63,6 +59,12 @@ function writeHook(dir: string, hookName: string, body: string): void {
   writeFileSync(join(hooksDir, `${hookName}.ts`), body);
 }
 
+function writeTool(dir: string, toolName: string, body: string): void {
+  const toolsDir = join(dir, "tools");
+  mkdirSync(toolsDir, { recursive: true });
+  writeFileSync(join(toolsDir, `${toolName}.ts`), body);
+}
+
 /**
  * Bump a file's mtime forward by ~2 seconds so the mtime cache detects a
  * change. Using utimesSync avoids race conditions with filesystem mtime
@@ -82,11 +84,6 @@ const SIMPLE_PKG = {
 
 // ─── Setup / teardown ────────────────────────────────────────────────────────
 
-/**
- * Point the workspace dir at our temp root so `getWorkspacePluginsDir()`
- * resolves to `<ROOT>/plugins/`. Must be set before any module that calls
- * `getWorkspacePluginsDir` is imported at runtime.
- */
 beforeAll(() => {
   process.env.VELLUM_WORKSPACE_DIR = ROOT;
 });
@@ -102,18 +99,23 @@ afterAll(() => {
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-describe("plugin mtime cache", () => {
-  test("getPlugin returns a plugin from a valid directory", async () => {
-    const dir = freshPluginDir("my-plugin");
-    writePackageJson(dir, { ...SIMPLE_PKG, name: "my-plugin" });
+describe("plugin mtime cache (per-surface)", () => {
+  test("populateCacheAtBoot discovers and caches hooks", async () => {
+    const dir = freshPluginDir("hook-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "hook-plugin" });
+    writeHook(
+      dir,
+      "user-prompt-submit",
+      `export default () => ({ count: 1 });`,
+    );
 
-    const plugin = await getPlugin("my-plugin");
-    expect(plugin).toBeDefined();
-    expect(plugin!.manifest.name).toBe("my-plugin");
-    expect(plugin!.manifest.version).toBe("1.0.0");
+    await populateCacheAtBoot();
+
+    const hooks = await getUserHooksFor("user-prompt-submit");
+    expect(hooks).toHaveLength(1);
   });
 
-  test("cache hit: second getPlugin call does not rebuild", async () => {
+  test("cache hit: same mtime does not re-import", async () => {
     const dir = freshPluginDir("cached-plugin");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "cached-plugin" });
     writeHook(
@@ -122,15 +124,20 @@ describe("plugin mtime cache", () => {
       `export default () => ({ count: 1 });`,
     );
 
-    const first = await getPlugin("cached-plugin");
-    expect(first).toBeDefined();
+    await populateCacheAtBoot();
 
-    // Same mtime → cache hit → same plugin reference.
-    const second = await getPlugin("cached-plugin");
-    expect(second).toBe(first);
+    const cacheBefore = _inspectHookCacheForTests();
+    expect(cacheBefore).toHaveLength(1);
+
+    // Read again — same mtime, no re-import.
+    await getUserHooksFor("user-prompt-submit");
+
+    const cacheAfter = _inspectHookCacheForTests();
+    expect(cacheAfter).toHaveLength(1);
+    expect(cacheAfter[0]?.sourceMtime).toBe(cacheBefore[0]?.sourceMtime);
   });
 
-  test("cache miss: editing a hook file triggers a rebuild", async () => {
+  test("cache miss: editing a hook file triggers re-import", async () => {
     const dir = freshPluginDir("rebuild-plugin");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "rebuild-plugin" });
     const hookFile = join(dir, "hooks", "user-prompt-submit.ts");
@@ -140,167 +147,160 @@ describe("plugin mtime cache", () => {
       `export default () => ({ count: 1 });`,
     );
 
-    const first = await getPlugin("rebuild-plugin");
-    expect(first).toBeDefined();
+    await populateCacheAtBoot();
+
+    const mtimeBefore = _inspectHookCacheForTests()[0]?.sourceMtime;
 
     // Touch the hook file to bump its mtime.
     touchFile(hookFile);
 
-    const second = await getPlugin("rebuild-plugin");
-    expect(second).toBeDefined();
-    // Different reference — the plugin was rebuilt.
-    expect(second).not.toBe(first);
+    // Read again — mtime changed, re-import.
+    await getUserHooksFor("user-prompt-submit");
+
+    const mtimeAfter = _inspectHookCacheForTests()[0]?.sourceMtime;
+    expect(mtimeAfter).not.toBe(mtimeBefore);
   });
 
-  test("plugin deletion: removing the directory evicts the cache entry", async () => {
+  test("plugin deletion: removing directory evicts cache entries", async () => {
     const dir = freshPluginDir("deletable-plugin");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "deletable-plugin" });
+    writeHook(
+      dir,
+      "user-prompt-submit",
+      `export default () => ({ count: 1 });`,
+    );
 
-    const plugin = await getPlugin("deletable-plugin");
-    expect(plugin).toBeDefined();
+    await populateCacheAtBoot();
+    expect(await getUserHooksFor("user-prompt-submit")).toHaveLength(1);
 
     // Delete the plugin directory.
     rmSync(dir, { recursive: true, force: true });
 
-    const result = await getPlugin("deletable-plugin");
-    expect(result).toBeUndefined();
+    // Read again — plugin gone, hooks evicted.
+    const hooks = await getUserHooksFor("user-prompt-submit");
+    expect(hooks).toHaveLength(0);
 
-    // Cache entry should be evicted.
-    const cacheState = _inspectCacheForTests();
+    const cacheState = _inspectHookCacheForTests();
     expect(
-      cacheState.find((c) => c.name === "deletable-plugin"),
+      cacheState.find((c) => c.key.startsWith("deletable-plugin/")),
     ).toBeUndefined();
   });
 
-  test("getAllPlugins returns all plugins on disk", async () => {
+  test("getUserHooksFor returns hooks from all plugins", async () => {
     const dir1 = freshPluginDir("plugin-a");
     writePackageJson(dir1, { ...SIMPLE_PKG, name: "plugin-a" });
-
-    const dir2 = freshPluginDir("plugin-b");
-    writePackageJson(dir2, { ...SIMPLE_PKG, name: "plugin-b" });
-
-    const plugins = await getAllPlugins();
-    expect(plugins).toHaveLength(2);
-    const names = plugins.map((p) => p.manifest.name).sort();
-    expect(names).toEqual(["plugin-a", "plugin-b"]);
-  });
-
-  test("getAllPlugins detects newly added plugin", async () => {
-    const dir1 = freshPluginDir("existing-plugin");
-    writePackageJson(dir1, { ...SIMPLE_PKG, name: "existing-plugin" });
-
-    await getAllPlugins();
-
-    // Add a new plugin directory.
-    const dir2 = freshPluginDir("new-plugin");
-    writePackageJson(dir2, { ...SIMPLE_PKG, name: "new-plugin" });
-
-    const plugins = await getAllPlugins();
-    expect(plugins).toHaveLength(2);
-    const names = plugins.map((p) => p.manifest.name).sort();
-    expect(names).toEqual(["existing-plugin", "new-plugin"]);
-  });
-
-  test("getAllPlugins evicts deleted plugins", async () => {
-    const dir1 = freshPluginDir("survivor");
-    writePackageJson(dir1, { ...SIMPLE_PKG, name: "survivor" });
-
-    const dir2 = freshPluginDir("doomed");
-    writePackageJson(dir2, { ...SIMPLE_PKG, name: "doomed" });
-
-    await getAllPlugins();
-    expect((await getAllPlugins()).length).toBe(2);
-
-    // Delete one plugin.
-    rmSync(dir2, { recursive: true, force: true });
-
-    const plugins = await getAllPlugins();
-    expect(plugins).toHaveLength(1);
-    expect(plugins[0]!.manifest.name).toBe("survivor");
-  });
-
-  test("getHooksForFromCache returns hooks from all plugins", async () => {
-    const dir1 = freshPluginDir("hook-plugin-a");
-    writePackageJson(dir1, { ...SIMPLE_PKG, name: "hook-plugin-a" });
     writeHook(
       dir1,
       "user-prompt-submit",
       `export default () => ({ source: "a" });`,
     );
 
-    const dir2 = freshPluginDir("hook-plugin-b");
-    writePackageJson(dir2, { ...SIMPLE_PKG, name: "hook-plugin-b" });
+    const dir2 = freshPluginDir("plugin-b");
+    writePackageJson(dir2, { ...SIMPLE_PKG, name: "plugin-b" });
     writeHook(
       dir2,
       "user-prompt-submit",
       `export default () => ({ source: "b" });`,
     );
 
-    const hooks = await getHooksForFromCache("user-prompt-submit");
+    await populateCacheAtBoot();
+
+    const hooks = await getUserHooksFor("user-prompt-submit");
     expect(hooks).toHaveLength(2);
   });
 
-  test("getHooksForFromCache returns empty array when no plugins have the hook", async () => {
+  test("getUserHooksFor returns empty array when no plugins have the hook", async () => {
     const dir = freshPluginDir("no-hook-plugin");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "no-hook-plugin" });
 
-    const hooks = await getHooksForFromCache("user-prompt-submit");
+    await populateCacheAtBoot();
+
+    const hooks = await getUserHooksFor("user-prompt-submit");
     expect(hooks).toHaveLength(0);
   });
 
-  test("getHooksForFromCache rebuilds plugin after hook file edit", async () => {
-    const dir = freshPluginDir("live-edit-plugin");
-    writePackageJson(dir, { ...SIMPLE_PKG, name: "live-edit-plugin" });
-    const hookFile = join(dir, "hooks", "user-prompt-submit.ts");
-    writeHook(
+  test("getUserHooksFor detects newly added plugin without restart", async () => {
+    const dir1 = freshPluginDir("existing-plugin");
+    writePackageJson(dir1, { ...SIMPLE_PKG, name: "existing-plugin" });
+    writeHook(dir1, "user-prompt-submit", `export default () => ({ v: 1 });`);
+
+    await populateCacheAtBoot();
+    expect(await getUserHooksFor("user-prompt-submit")).toHaveLength(1);
+
+    // Add a new plugin directory after boot.
+    const dir2 = freshPluginDir("new-plugin");
+    writePackageJson(dir2, { ...SIMPLE_PKG, name: "new-plugin" });
+    writeHook(dir2, "user-prompt-submit", `export default () => ({ v: 2 });`);
+
+    // The next read should pick it up.
+    const hooks = await getUserHooksFor("user-prompt-submit");
+    expect(hooks).toHaveLength(2);
+  });
+
+  test("tools are cached and returned via getCachedUserTools", async () => {
+    const dir = freshPluginDir("tool-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "tool-plugin" });
+    writeTool(
       dir,
-      "user-prompt-submit",
-      `export default () => ({ version: 1 });`,
+      "my-tool",
+      `export default { name: "my-tool", description: "test", parameters: { type: "object", properties: {} } };`,
     );
 
-    const hooksBefore = await getHooksForFromCache("user-prompt-submit");
-    expect(hooksBefore).toHaveLength(1);
+    await populateCacheAtBoot();
 
-    // Snapshot the mtime before the edit.
-    const cacheBefore = _inspectCacheForTests();
-    const mtimeBefore = cacheBefore.find(
-      (c) => c.name === "live-edit-plugin",
-    )?.sourceMtime;
+    const tools = getCachedUserTools();
+    expect(tools).toHaveLength(1);
+    expect(tools[0]?.name).toBe("my-tool");
+  });
 
-    // Edit the hook file — bump mtime.
-    writeFileSync(hookFile, `export default () => ({ version: 2 });`);
-    touchFile(hookFile);
+  test("editing a tool file triggers re-import on next scan", async () => {
+    const dir = freshPluginDir("tool-edit-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "tool-edit-plugin" });
+    const toolFile = join(dir, "tools", "my-tool.ts");
+    writeTool(
+      dir,
+      "my-tool",
+      `export default { name: "my-tool", description: "v1", parameters: { type: "object", properties: {} } };`,
+    );
 
-    // The mtime cache should detect the change and rebuild the plugin.
-    // The plugin object is rebuilt (new cache entry with new sourceMtime)
-    // even though Bun's import cache may return the old module — the
-    // rebuild itself is the observable behavior we verify here.
-    const hooksAfter = await getHooksForFromCache("user-prompt-submit");
-    expect(hooksAfter).toHaveLength(1);
+    await populateCacheAtBoot();
 
-    const cacheAfter = _inspectCacheForTests();
-    const mtimeAfter = cacheAfter.find(
-      (c) => c.name === "live-edit-plugin",
-    )?.sourceMtime;
+    const mtimeBefore = _inspectToolCacheForTests()[0]?.sourceMtime;
+
+    // Edit the tool file and bump mtime.
+    writeFileSync(
+      toolFile,
+      `export default { name: "my-tool", description: "v2", parameters: { type: "object", properties: {} } };`,
+    );
+    touchFile(toolFile);
+
+    // Trigger a scan by calling getUserHooksFor (which calls scanPlugins).
+    await getUserHooksFor("user-prompt-submit");
+
+    const mtimeAfter = _inspectToolCacheForTests()[0]?.sourceMtime;
     expect(mtimeAfter).not.toBe(mtimeBefore);
   });
 
   test("plugin with no package.json is skipped", async () => {
-    const dir = freshPluginDir("no-manifest");
+    freshPluginDir("no-manifest");
     // No package.json written.
 
-    const plugin = await getPlugin("no-manifest");
-    expect(plugin).toBeUndefined();
+    await populateCacheAtBoot();
+
+    const hooks = await getUserHooksFor("user-prompt-submit");
+    expect(hooks).toHaveLength(0);
   });
 
-  test("empty plugins directory returns empty array", async () => {
-    const plugins = await getAllPlugins();
-    expect(plugins).toHaveLength(0);
+  test("empty plugins directory returns empty arrays", async () => {
+    await populateCacheAtBoot();
+    expect(await getUserHooksFor("user-prompt-submit")).toHaveLength(0);
+    expect(getCachedUserTools()).toHaveLength(0);
   });
 
-  test("missing plugins directory returns empty array", async () => {
+  test("missing plugins directory returns empty arrays", async () => {
     rmSync(PLUGINS_DIR, { recursive: true, force: true });
-    const plugins = await getAllPlugins();
-    expect(plugins).toHaveLength(0);
+    await populateCacheAtBoot();
+    expect(await getUserHooksFor("user-prompt-submit")).toHaveLength(0);
+    expect(getCachedUserTools()).toHaveLength(0);
   });
 });

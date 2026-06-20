@@ -8,11 +8,14 @@
  * mutates the context in place (returning `void`) or returns a partial
  * context whose fields are merged onto the threaded value.
  *
+ * `getHooksFor` is now async — it pulls user-land hooks from the mtime
+ * cache (filesystem-as-truth) and default plugin hooks from the registry
+ * in a single unified call.
+ *
  * Design doc: `.private/plans/agent-plugin-system.md`.
  */
 
 import type { HookName } from "../plugin-api/constants.js";
-import { getHooksForFromCache } from "./mtime-cache.js";
 import { getHooksFor } from "./registry.js";
 
 // ─── Hook runner ────────────────────────────────────────────────────────────
@@ -25,10 +28,6 @@ import { getHooksFor } from "./registry.js";
  * overwrite the running context, every other field is preserved. The final
  * context after the chain settles is returned.
  *
- * User plugins are pulled from the mtime cache (filesystem-as-truth); the
- * cache transparently rebuilds stale plugins on read. First-party default
- * plugins are read from the registry (they have no on-disk sources).
- *
  * @param name        The hook identifier — pick one from {@link HOOKS}.
  * @param initialCtx  Context the first hook receives.
  * @returns The final context after the chain settles. Same reference as
@@ -39,15 +38,9 @@ export async function runHook<TCtx>(
   name: HookName,
   initialCtx: TCtx,
 ): Promise<TCtx> {
-  // Pull user plugin hooks from the mtime cache (triggers a freshness check
-  // via stat — sub-millisecond for a typical plugin set).
-  const userHooks = await getHooksForFromCache<TCtx>(name);
-  // First-party defaults still come from the registry.
-  const defaultHooks = getHooksFor<TCtx>(name);
-  const allHooks = [...defaultHooks, ...userHooks];
-
+  const hooks = await getHooksFor<TCtx>(name);
   let active = initialCtx;
-  for (const hook of allHooks) {
+  for (const hook of hooks) {
     const result = await hook(active);
     if (result !== undefined) {
       active = { ...active, ...result };

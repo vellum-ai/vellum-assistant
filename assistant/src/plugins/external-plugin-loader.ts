@@ -104,16 +104,16 @@ export interface LoadExternalPluginOptions {
  * Strip the npm scope from a package name. `@vellumai/simple-memory` →
  * `simple-memory`; an unscoped name passes through unchanged.
  */
-function stripScope(name: string): string {
+export function stripScope(name: string): string {
   const match = /^@[^/]+\/(.+)$/.exec(name);
   return match ? match[1]! : name;
 }
 
-function toToolNameSegment(value: string): string {
+export function toToolNameSegment(value: string): string {
   return value.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "tool";
 }
 
-function deriveToolName(toolFileBaseName: string): string {
+export function deriveToolName(toolFileBaseName: string): string {
   return toToolNameSegment(toolFileBaseName);
 }
 
@@ -122,14 +122,10 @@ function deriveToolName(toolFileBaseName: string): string {
  * the module has no default export — callers attribute the error.
  *
  * Note: Bun caches dynamic `import()` by URL and does not bust on query
- * string or hash changes. This means hot-reload of hook *content* within
- * the same process is a known limitation — the plugin object is rebuilt
- * but the imported module may be stale. The old PluginSourceWatcher had
- * the same limitation. A process restart picks up all changes. If Bun
- * adds cache-busting support in the future, appending `?t=<mtime>` to
- * the URL would make hot-reload work transparently.
+ * string or hash changes, so hot-reload of hook *content* within the same
+ * process is limited. A process restart picks up all changes.
  */
-async function importDefault<T>(absolutePath: string): Promise<T> {
+export async function importDefault<T>(absolutePath: string): Promise<T> {
   const url = pathToFileURL(absolutePath).href;
   const mod = (await import(url)) as { default?: T };
   if (mod.default === undefined) {
@@ -140,7 +136,7 @@ async function importDefault<T>(absolutePath: string): Promise<T> {
   return mod.default;
 }
 
-interface SurfaceFile {
+export interface SurfaceFile {
   /** Basename without `.js`/`.ts` extension. */
   readonly name: string;
   /** Absolute path on disk. */
@@ -156,7 +152,7 @@ interface SurfaceFile {
  * Used to walk both `hooks/` and `tools/` — neither surface needs
  * subdirectory recursion today, so this stays flat on purpose.
  */
-function listSurfaceDir(dir: string): SurfaceFile[] {
+export function listSurfaceDir(dir: string): SurfaceFile[] {
   if (!existsSync(dir) || !statSync(dir).isDirectory()) return [];
   const entries = readdirSync(dir);
   const byBase = new Map<string, string>();
@@ -381,4 +377,41 @@ export async function loadExternalPlugin(
       `Failed to register external plugin ${pluginDir}: ${message}`,
     );
   }
+}
+
+/**
+ * Parse a plugin's `package.json` manifest from disk. Returns the plugin
+ * name (scope-stripped) and version, or `undefined` when the file is
+ * missing, unparseable, or fails schema validation.
+ *
+ * Exported so the mtime cache can discover plugin identity without going
+ * through the full `buildExternalPlugin` path.
+ */
+export async function parsePluginManifest(
+  pluginDir: string,
+): Promise<{ name: string; version: string } | undefined> {
+  const pkgPath = join(pluginDir, "package.json");
+  let rawPkg: unknown;
+  try {
+    rawPkg = JSON.parse(await readFile(pkgPath, "utf8"));
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    log.error(
+      { err, pluginDir },
+      `package.json at ${pluginDir} could not be read or parsed: ${reason}`,
+    );
+    return undefined;
+  }
+  const parsed = PluginPackageJsonSchema.safeParse(rawPkg);
+  if (!parsed.success) {
+    log.error(
+      { err: parsed.error, pluginDir },
+      `package.json at ${pluginDir} failed schema validation: ${parsed.error.message}`,
+    );
+    return undefined;
+  }
+  const pkg: PluginPackageJson = parsed.data;
+  const name = stripScope(pkg.name);
+  const version = pkg.version && pkg.version.length > 0 ? pkg.version : "0.0.0";
+  return { name, version };
 }
