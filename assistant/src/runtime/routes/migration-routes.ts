@@ -38,6 +38,7 @@ import {
   upsertCredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
 import { getLogger } from "../../util/logger.js";
+import { getLogsDbPath } from "../../util/logs-db-path.js";
 import { getWorkspaceDir, getWorkspaceHooksDir } from "../../util/platform.js";
 import { APP_VERSION } from "../../version.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
@@ -150,6 +151,38 @@ export async function reconcileVellumMetadataFromCes(warningSink: {
 }
 
 const log = getLogger("migration-routes");
+
+/**
+ * Flush both database files' WALs before an export copies them. The bundle
+ * walker includes `*.db` but skips `*.db-wal`, so committed frames still sitting
+ * in a WAL would be missing from the bundle.
+ *
+ * Dispatched through `runAsyncSqlite` so the flush runs in a sqlite3 subprocess
+ * where available — a multi-GB WAL flush would otherwise stall the event loop.
+ * The in-process fallback runs on the daemon connection, where one unqualified
+ * checkpoint already covers every attached database; the subprocess opens a
+ * single file, so we issue a second checkpoint targeting the logs file. FULL
+ * (not TRUNCATE) writes committed frames back to the main file, which is all the
+ * copy needs.
+ */
+async function checkpointDbsForExport(): Promise<void> {
+  const targets: Array<{ label: string; dbPath?: string }> = [
+    { label: "main" },
+    { label: "logs", dbPath: getLogsDbPath() },
+  ];
+  for (const { label, dbPath } of targets) {
+    const result = await runAsyncSqlite(
+      "PRAGMA wal_checkpoint(FULL)",
+      dbPath ? { dbPath } : undefined,
+    );
+    if (!result.ok) {
+      log.warn(
+        { error: result.error, backend: result.backend, db: label },
+        "WAL checkpoint failed — exporting without checkpoint",
+      );
+    }
+  }
+}
 
 /**
  * Fields the export pipeline must populate on the v1 manifest.
@@ -353,28 +386,7 @@ export async function handleMigrationExport(
       ...manifestInputs,
       secretsRedacted,
       credentials,
-      checkpoint: async () => {
-        // Dispatch through `runAsyncSqlite` so the WAL checkpoint runs
-        // in a sqlite3 subprocess on hosts where it's available. A WAL
-        // flush on a multi-GB WAL file can otherwise stall the daemon's
-        // event loop for the full duration of the flush.
-        //
-        // FULL (not TRUNCATE): FULL blocks until every committed frame is
-        // written back to the main `.db` file, which is all the export
-        // needs since it copies that file. TRUNCATE additionally restarts
-        // the WAL and truncates it to zero bytes — extra work and blocking
-        // this path does not need.
-        const result = await runAsyncSqlite("PRAGMA wal_checkpoint(FULL)");
-        if (!result.ok) {
-          // Best-effort: if the DB can't be checkpointed (e.g. not a valid
-          // SQLite file, missing WAL, etc.) we still proceed with the export
-          // using whatever is on disk.
-          log.warn(
-            { error: result.error, backend: result.backend },
-            "WAL checkpoint failed — exporting without checkpoint",
-          );
-        }
-      },
+      checkpoint: checkpointDbsForExport,
     });
 
     cleanup = result.cleanup;
@@ -582,23 +594,7 @@ export async function handleMigrationExportToGcs({ body }: RouteHandlerArgs) {
           ...manifestInputs,
           secretsRedacted,
           credentials: collected.credentials,
-          checkpoint: async () => {
-            // Dispatch through `runAsyncSqlite` so the WAL checkpoint runs
-            // in a sqlite3 subprocess on hosts where it's available. A
-            // WAL flush on a multi-GB WAL file can otherwise stall the
-            // daemon's event loop for the full duration of the flush.
-            //
-            // FULL (not TRUNCATE): see the disk-export checkpoint above
-            // for rationale. assistant/AGENTS.md "SQLite WAL
-            // checkpointing".
-            const result = await runAsyncSqlite("PRAGMA wal_checkpoint(FULL)");
-            if (!result.ok) {
-              log.warn(
-                { error: result.error, backend: result.backend },
-                "WAL checkpoint failed — exporting without checkpoint",
-              );
-            }
-          },
+          checkpoint: checkpointDbsForExport,
         });
 
         cleanup = result.cleanup;

@@ -12,8 +12,11 @@ const CHECKPOINT_KEY = "migration_move_llm_request_logs_to_logs_db_v1";
  * copy. Listed explicitly (rather than `SELECT *`) so the copy is insensitive
  * to the physical column order of the legacy `main` table, which varies with
  * the historical sequence of `ALTER TABLE ... ADD COLUMN` migrations.
+ *
+ * The first five are the original base columns (always present since the table
+ * was first created); the rest were added by later column migrations.
  */
-const COLUMNS = [
+const COLUMN_NAMES = [
   "id",
   "conversation_id",
   "message_id",
@@ -23,7 +26,8 @@ const COLUMNS = [
   "created_at",
   "agent_loop_exit_reason",
   "call_site",
-].join(", ");
+];
+const COLUMNS = COLUMN_NAMES.join(", ");
 
 const CREATE_TABLE = (schema: string): string => /*sql*/ `
   CREATE TABLE IF NOT EXISTS ${schema}.llm_request_logs (
@@ -71,6 +75,38 @@ function tableExists(
 }
 
 /**
+ * Copy every row of `llm_request_logs` from `fromSchema` into `toSchema`.
+ *
+ * The SELECT side substitutes `NULL` for any target column missing in the
+ * source. A workspace upgrading from a build that predates the
+ * message_id/provider/agent_loop_exit_reason/call_site column migrations still
+ * has the original base columns only; this migration runs before those
+ * historical column-adders, so a plain `SELECT ${COLUMNS}` would throw on the
+ * absent columns. The four newer columns are all nullable, so NULL is the
+ * correct value for legacy rows.
+ */
+function copyRows(
+  raw: ReturnType<typeof getSqliteFrom>,
+  fromSchema: string,
+  toSchema: string,
+): void {
+  const presentColumns = new Set(
+    (
+      raw
+        .query(`SELECT name FROM pragma_table_info('llm_request_logs', ?)`)
+        .all(fromSchema) as Array<{ name: string }>
+    ).map((r) => r.name),
+  );
+  const selectList = COLUMN_NAMES.map((c) =>
+    presentColumns.has(c) ? c : "NULL",
+  ).join(", ");
+  raw.exec(/*sql*/ `
+    INSERT OR IGNORE INTO ${toSchema}.llm_request_logs (${COLUMNS})
+    SELECT ${selectList} FROM ${fromSchema}.llm_request_logs
+  `);
+}
+
+/**
  * Move `llm_request_logs` out of the main database and into the attached
  * append-only `logs` database (`assistant-logs.db`).
  *
@@ -102,10 +138,7 @@ export function migrateMoveLlmRequestLogsToLogsDb(database: DrizzleDb): void {
     raw.exec(CREATE_TABLE(LOGS_DB_SCHEMA));
 
     if (tableExists(raw, "main")) {
-      raw.exec(/*sql*/ `
-        INSERT OR IGNORE INTO ${LOGS_DB_SCHEMA}.llm_request_logs (${COLUMNS})
-        SELECT ${COLUMNS} FROM main.llm_request_logs
-      `);
+      copyRows(raw, "main", LOGS_DB_SCHEMA);
       raw.exec(`DROP TABLE main.llm_request_logs`);
     }
 
@@ -124,10 +157,7 @@ export function downMoveLlmRequestLogsToLogsDb(database: DrizzleDb): void {
   raw.exec(CREATE_TABLE("main"));
 
   if (tableExists(raw, LOGS_DB_SCHEMA)) {
-    raw.exec(/*sql*/ `
-      INSERT OR IGNORE INTO main.llm_request_logs (${COLUMNS})
-      SELECT ${COLUMNS} FROM ${LOGS_DB_SCHEMA}.llm_request_logs
-    `);
+    copyRows(raw, LOGS_DB_SCHEMA, "main");
     raw.exec(`DROP TABLE ${LOGS_DB_SCHEMA}.llm_request_logs`);
   }
 
