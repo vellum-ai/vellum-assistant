@@ -65,6 +65,9 @@ const usageGroupBreakdownSchema = z.object({
   totalCacheReadTokens: z.number(),
   totalEstimatedCostUsd: z.number(),
   eventCount: z.number(),
+  // Distinct conversation turns; populated only for the conversation grouping,
+  // null otherwise (and for the conversation "Other" bucket).
+  turnCount: z.number().nullable(),
 });
 
 const usageSeriesGroupValueSchema = z.object({
