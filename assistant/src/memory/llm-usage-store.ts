@@ -364,8 +364,8 @@ export interface UsageGroupBreakdown {
   totalEstimatedCostUsd: number;
   eventCount: number;
   /**
-   * Number of distinct conversation turns the group's LLM calls belong to,
-   * within the queried time range. Only populated when `groupBy ===
+   * Number of turns in the conversation — the count of eligible user messages
+   * (tool-result turns excluded). Only populated when `groupBy ===
    * "conversation"` (and `null` for that mode's "Other" bucket, which has no
    * parent conversation). `null` for every other grouping, where a turn count
    * has no well-defined meaning.
@@ -692,21 +692,22 @@ export function getUsageGroupBreakdown(
         COALESCE(SUM(e.cache_read_input_tokens), 0)      AS total_cache_read_tokens,
         COALESCE(SUM(e.estimated_cost_usd), 0)           AS total_estimated_cost_usd,
         COALESCE(SUM(COALESCE(e.llm_call_count, 1)), 0)  AS event_count,
-        -- Distinct conversation turns touched by these LLM calls. A turn is
-        -- identified by the count of eligible user messages up to each call's
-        -- created_at (mirrors the per-event turnIndex definition), so calls in
-        -- the same turn collapse to one. NULLIF drops the turn-0 "before the
-        -- first user message" bucket so pre-turn calls don't inflate the count.
-        -- NULL for the "Other" (no conversation) bucket.
+        -- Number of turns in the conversation: the count of eligible user
+        -- messages (tool-result turns excluded, mirroring the turnIndex
+        -- definition). Evaluated once per conversation group via the
+        -- idx_messages_conversation_id index rather than once per usage event,
+        -- so it stays cheap as call volume grows. NULL for the "Other" (no
+        -- conversation) bucket. Note: derived from surviving messages, so a
+        -- turn removed via Undo (deleteLastExchange) stops being counted even
+        -- though its billed usage still shows up in Cost/Tokens.
         CASE WHEN e.conversation_id IS NULL THEN NULL
-             ELSE COUNT(DISTINCT NULLIF((
+             ELSE (
                SELECT COUNT(*) FROM messages AS m2
                WHERE m2.conversation_id = e.conversation_id
                  AND m2.role = 'user'
                  AND m2.content NOT LIKE '%"type":"tool\\_result"%' ESCAPE '\\'
                  AND m2.content NOT LIKE '%"type":"web\\_search\\_tool\\_result"%' ESCAPE '\\'
-                 AND m2.created_at <= e.created_at
-             ), 0))
+             )
         END                                              AS turn_count
       FROM llm_usage_events e
       LEFT JOIN conversations c ON e.conversation_id = c.id

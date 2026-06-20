@@ -1306,25 +1306,28 @@ describe("getUsageGroupBreakdown", () => {
     expect(groups[0].totalOutputTokens).toBe(125);
     expect(groups[0].totalEstimatedCostUsd).toBeCloseTo(0.05);
     expect(groups[0].eventCount).toBe(2);
-    // No user messages were inserted, so every call is in the turn-0
-    // "before the first user message" bucket and contributes no turns.
+    // No user messages were inserted, so the conversation has zero turns.
     expect(groups[0].turnCount).toBe(0);
   });
 
-  test("counts distinct conversation turns when grouping by conversation", () => {
+  test("counts conversation turns from eligible user messages when grouping by conversation", () => {
     const db = getDb();
     const conversationId = "conv-turns-1";
     const now = Date.now();
     db.run(
       `INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('${conversationId}', 'Turn counting', ${now}, ${now})`,
     );
-    // Two user turns; the second turn has two LLM calls that must collapse
-    // into a single counted turn.
+    // Two user turns; the second turn has two LLM calls, but the count comes
+    // from the user messages (2), not the number of LLM calls (3).
     db.run(
       `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('u1', '${conversationId}', 'user', 'first', 500)`,
     );
     db.run(
       `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('u2', '${conversationId}', 'user', 'second', 2000)`,
+    );
+    // Tool-result user messages are not real turns and must be excluded.
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('tr1', '${conversationId}', 'user', '[{"type":"tool_result","tool_use_id":"x","content":""}]', 2100)`,
     );
     insertEventAt(1000, { conversationId, inputTokens: 100 });
     insertEventAt(2500, { conversationId, inputTokens: 100 });
