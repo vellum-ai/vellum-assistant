@@ -148,6 +148,13 @@ export const messageMetadataSchema = z
     nowScratchpadBlock: z.string().optional(),
     pkbContextBlock: z.string().optional(),
     memoryV2StaticBlock: z.string().optional(),
+    /** `<background_turn>` block (background/scheduled non-interactive turns),
+     *  rehydrated by `loadFromDb` for reload/fork prefix-cache parity. */
+    backgroundTurnBlock: z.string().optional(),
+    /** `<channel_capabilities>` block, rehydrated for the same reason. */
+    channelCapabilitiesBlock: z.string().optional(),
+    /** `<non_interactive_context>` block, rehydrated for the same reason. */
+    nonInteractiveContextBlock: z.string().optional(),
   })
   .passthrough();
 

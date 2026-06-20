@@ -681,13 +681,14 @@ export function stripNowScratchpad(messages: Message[]): Message[] {
 }
 
 /**
- * Prepend channel capability context to the last user message so the
- * model knows what the current channel can and cannot do.
+ * Build the `<channel_capabilities>` block text for the given capabilities, or
+ * `null` on the happy path (desktop, full capabilities, no special context)
+ * where no block is injected. Split from {@link injectChannelCapabilityContext}
+ * so callers can capture the exact injected text for metadata persistence.
  */
-export function injectChannelCapabilityContext(
-  message: Message,
+export function buildChannelCapabilityBlock(
   caps: ChannelCapabilities,
-): Message {
+): string | null {
   // Happy path: desktop with full capabilities and no special context — skip injection.
   if (
     caps.dashboardCapable &&
@@ -696,7 +697,7 @@ export function injectChannelCapabilityContext(
     !isGroupChatType(caps.chatType) &&
     caps.clientOS !== "macos"
   ) {
-    return message;
+    return null;
   }
 
   const lines: string[] = ["<channel_capabilities>"];
@@ -769,7 +770,16 @@ export function injectChannelCapabilityContext(
 
   lines.push("</channel_capabilities>");
 
-  const block = lines.join("\n");
+  return lines.join("\n");
+}
+
+/** Prepend the `<channel_capabilities>` block (if any) to a user message. */
+export function injectChannelCapabilityContext(
+  message: Message,
+  caps: ChannelCapabilities,
+): Message {
+  const block = buildChannelCapabilityBlock(caps);
+  if (block === null) return message;
   return {
     ...message,
     content: [{ type: "text", text: block }, ...message.content],
@@ -1513,6 +1523,14 @@ export function loadSlackActiveThreadFocusBlock(
 export type InjectionMode = "full" | "minimal";
 
 /**
+ * The `<non_interactive_context>` block appended on non-interactive turns.
+ * Module-scoped so `applyRuntimeInjections` both injects it and captures the
+ * exact text for metadata persistence from a single source of truth.
+ */
+export const NON_INTERACTIVE_CONTEXT_BLOCK =
+  "<non_interactive_context>\nNon-interactive scheduled task — do not ask for clarification or confirmation. Follow the instructions exactly using your best judgment. If recalled memory contains conflicting notes, prefer the explicit instruction in this message.\n</non_interactive_context>";
+
+/**
  * Per-turn injection bytes captured so `loadFromDb` can rehydrate historical
  * user messages byte-for-byte after a daemon restart or conversation
  * eviction. Persisting the exact injected text onto message metadata keeps
@@ -1527,6 +1545,27 @@ export interface RuntimeInjectionBlocks {
   nowScratchpadBlock?: string;
   pkbContextBlock?: string;
   memoryV2StaticBlock?: string;
+  /**
+   * The `<background_turn>` block the `background-turn` default injector
+   * attached this turn (background/scheduled non-interactive turns only).
+   * Persisted under `metadata.backgroundTurnBlock` so `loadFromDb` rehydrates
+   * it byte-for-byte on reload/fork — without it, a fork of a background
+   * source (memory retrospective) drops the block and breaks message-tier
+   * prefix-cache parity with the source's live turns.
+   */
+  backgroundTurnBlock?: string;
+  /**
+   * The `<channel_capabilities>` block injected this turn (non-default channel
+   * capabilities). Persisted under `metadata.channelCapabilitiesBlock` for the
+   * same reload/fork cache-parity reason as {@link backgroundTurnBlock}.
+   */
+  channelCapabilitiesBlock?: string;
+  /**
+   * The `<non_interactive_context>` block injected this turn (non-interactive
+   * turns only). Persisted under `metadata.nonInteractiveContextBlock` for the
+   * same reload/fork cache-parity reason as {@link backgroundTurnBlock}.
+   */
+  nonInteractiveContextBlock?: string;
   /**
    * UNWRAPPED inner text of the memory-v3 frozen net-new card block the v3
    * injector attached this turn, mirroring v2's unwrapped `memoryInjectedBlock`
@@ -2108,6 +2147,9 @@ export async function applyRuntimeInjections(
   let pkbSystemReminderCaptured: string | undefined;
   let memoryV2StaticCaptured: string | undefined;
   let memoryV3Captured: string | undefined;
+  let backgroundTurnCaptured: string | undefined;
+  let channelCapabilitiesCaptured: string | undefined;
+  let nonInteractiveContextCaptured: string | undefined;
   const initialTail = runMessages[runMessages.length - 1];
   const initialTailIsUser = !!initialTail && initialTail.role === "user";
   if (initialTailIsUser) {
@@ -2130,6 +2172,9 @@ export async function applyRuntimeInjections(
           break;
         case "memory-v2-static":
           memoryV2StaticCaptured = block.text;
+          break;
+        case "background-turn":
+          backgroundTurnCaptured = block.text;
           break;
         case MEMORY_V3_BLOCK_ID: {
           // The v3 frozen card block is persisted UNWRAPPED (the v2
@@ -2260,16 +2305,14 @@ export async function applyRuntimeInjections(
   if (isNonInteractive) {
     const userTail = result[result.length - 1];
     if (userTail && userTail.role === "user") {
+      nonInteractiveContextCaptured = NON_INTERACTIVE_CONTEXT_BLOCK;
       result = [
         ...result.slice(0, -1),
         {
           ...userTail,
           content: [
             ...userTail.content,
-            {
-              type: "text" as const,
-              text: "<non_interactive_context>\nNon-interactive scheduled task — do not ask for clarification or confirmation. Follow the instructions exactly using your best judgment. If recalled memory contains conflicting notes, prefer the explicit instruction in this message.\n</non_interactive_context>",
-            },
+            { type: "text" as const, text: NON_INTERACTIVE_CONTEXT_BLOCK },
           ],
         },
       ];
@@ -2310,10 +2353,21 @@ export async function applyRuntimeInjections(
   if (channelCapabilities) {
     const userTail = result[result.length - 1];
     if (userTail && userTail.role === "user") {
-      result = [
-        ...result.slice(0, -1),
-        injectChannelCapabilityContext(userTail, channelCapabilities),
-      ];
+      const channelCapabilityBlock =
+        buildChannelCapabilityBlock(channelCapabilities);
+      if (channelCapabilityBlock !== null) {
+        channelCapabilitiesCaptured = channelCapabilityBlock;
+        result = [
+          ...result.slice(0, -1),
+          {
+            ...userTail,
+            content: [
+              { type: "text" as const, text: channelCapabilityBlock },
+              ...userTail.content,
+            ],
+          },
+        ];
+      }
     }
   }
 
@@ -2372,6 +2426,9 @@ export async function applyRuntimeInjections(
       pkbContextBlock: pkbContextCaptured,
       memoryV2StaticBlock: memoryV2StaticCaptured,
       memoryV3InjectedBlock: memoryV3Captured,
+      backgroundTurnBlock: backgroundTurnCaptured,
+      channelCapabilitiesBlock: channelCapabilitiesCaptured,
+      nonInteractiveContextBlock: nonInteractiveContextCaptured,
       memoryV3Active,
       injectorChainBlock,
     },
