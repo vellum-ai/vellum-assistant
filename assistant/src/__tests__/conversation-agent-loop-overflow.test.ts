@@ -651,6 +651,9 @@ function makeCtx(
       assistantMessageChannel: "vellum" as const,
     }),
 
+    buildCurrentSystemPrompt: () => "system prompt",
+    modelOverride: undefined,
+
     graphMemory: {
       onCompacted: async () => {},
       prepareMemory: async () => ({

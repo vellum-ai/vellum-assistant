@@ -493,12 +493,6 @@ export function shouldCaptureAgentLoopError(err: Error): boolean {
   return true;
 }
 
-export interface ResolvedSystemPrompt {
-  systemPrompt: string;
-  maxTokens?: number;
-  model?: string;
-}
-
 export interface AgentLoopRunOptions {
   /** Input history the run starts from; the loop appends its output onto a copy. */
   messages: Message[];
@@ -506,6 +500,20 @@ export interface AgentLoopRunOptions {
   onEvent: (event: AgentEvent) => void | Promise<void>;
   signal?: AbortSignal;
   requestId: string;
+  /**
+   * System prompt for this run, resolved by the caller (Conversation) before
+   * invoking the loop. One turn == one agent loop == one system prompt; the
+   * prompt is NOT re-resolved mid-loop (that would bust the provider's
+   * prefix cache). When omitted, falls back to the constructor's
+   * {@link AgentLoopConstructorOptions.systemPrompt}.
+   */
+  systemPrompt?: string;
+  /**
+   * Explicit model override (provider/model string) for every LLM call in
+   * this run. When omitted, the model is resolved through the normal
+   * call-site / profile resolution path.
+   */
+  model?: string;
   onCheckpoint?: (
     checkpoint: CheckpointInfo,
   ) => CheckpointDecision | Promise<CheckpointDecision>;
@@ -634,7 +642,6 @@ export interface AgentLoopConstructorOptions {
   tools?: ToolDefinition[];
   toolExecutor?: LoopToolExecutor;
   resolveTools?: (history: Message[]) => ToolDefinition[];
-  resolveSystemPrompt?: (history: Message[]) => ResolvedSystemPrompt;
   /**
    * Conversation this loop drives. Scopes the loop-held compaction circuit
    * breaker and is the source of truth the loop's pipeline contexts and
@@ -659,9 +666,6 @@ export class AgentLoop {
   private config: AgentLoopConfig;
   private tools: ToolDefinition[];
   private resolveTools: ((history: Message[]) => ToolDefinition[]) | null;
-  private resolveSystemPrompt:
-    | ((history: Message[]) => ResolvedSystemPrompt)
-    | null;
   private toolExecutor: LoopToolExecutor | null;
 
   /**
@@ -692,7 +696,6 @@ export class AgentLoop {
       tools,
       toolExecutor,
       resolveTools,
-      resolveSystemPrompt,
       conversationId,
       resolveConversationDir,
     } = options;
@@ -701,7 +704,6 @@ export class AgentLoop {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.tools = tools ?? [];
     this.resolveTools = resolveTools ?? null;
-    this.resolveSystemPrompt = resolveSystemPrompt ?? null;
     this.toolExecutor = toolExecutor ?? null;
     this.conversationId = conversationId;
     this.resolveConversationDir = resolveConversationDir ?? null;
@@ -910,7 +912,14 @@ export class AgentLoop {
       compactInPlace = false,
       isNonInteractive = false,
       modelProfileKey = null,
+      systemPrompt: runSystemPrompt,
+      model: runModel,
     } = options;
+    // Resolve the system prompt once per run — the caller (Conversation)
+    // builds it before invoking the loop. Re-resolving mid-loop would bust
+    // the provider's prefix cache. Falls back to the constructor seed when
+    // the caller doesn't supply one.
+    const resolvedSystemPrompt = runSystemPrompt ?? this.systemPrompt;
     let history = [...messages];
     // Index into `history` where this run's appended output begins. It starts
     // after the input and resets to the new base whenever the loop rewrites the
@@ -1218,15 +1227,14 @@ export class AgentLoop {
           ? this.resolveTools(history)
           : this.tools;
 
-        // Resolve system prompt, per-turn maxTokens, and model
-        const resolved = this.resolveSystemPrompt
-          ? this.resolveSystemPrompt(history)
-          : null;
-        const turnSystemPrompt = resolved?.systemPrompt ?? this.systemPrompt;
-        const turnModel = resolved?.model;
+        // System prompt and model are resolved once per run (by the caller),
+        // not per-LLM-call — re-resolving mid-loop would bust the provider's
+        // prefix cache.
+        const turnSystemPrompt = resolvedSystemPrompt;
+        const turnModel = runModel;
 
         // Field precedence (highest wins):
-        //   1. Per-turn explicit (`resolved.maxTokens` / `resolved.model`)
+        //   1. Per-run explicit (`runModel`)
         //   2. Call-site resolved values (filled by
         //      `RetryProvider.normalizeSendMessageOptions` from
         //      `resolveCallSiteConfig(callSite, llm)`)
@@ -1244,9 +1252,7 @@ export class AgentLoop {
         // they always come from `this.config` regardless of `callSite`.
         const providerConfig: Record<string, unknown> = {};
 
-        if (resolved?.maxTokens !== undefined) {
-          providerConfig.max_tokens = resolved.maxTokens;
-        } else if (!callSite) {
+        if (!callSite) {
           providerConfig.max_tokens = this.config.maxTokens;
         }
 

@@ -15,7 +15,7 @@
  * - conversation-usage.ts        — recordUsage
  */
 
-import type { AgentLoopConfig, ResolvedSystemPrompt } from "../agent/loop.js";
+import type { AgentLoopConfig } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type { AssistantActivityStateEvent } from "../api/events/assistant-activity-state.js";
 import type {
@@ -537,6 +537,7 @@ export class Conversation {
   };
   public readonly traceEmitter: TraceEmitter;
   /** @internal */ hasSystemPromptOverride: boolean;
+  /** @internal */ modelOverride: string | undefined;
   /** @internal */ readonly graphMemory: ConversationGraphMemory;
   /** @internal */ activeContextNodeIds?: string[];
   /** @internal */ streamThinking: boolean;
@@ -666,34 +667,9 @@ export class Conversation {
     const hasSystemPromptOverride = systemPrompt !== buildSystemPrompt();
     this.hasSystemPromptOverride = hasSystemPromptOverride;
 
-    // If an explicit modelOverride is supplied, use it verbatim. Otherwise
-    // leave the model unset and let `RetryProvider`'s call-site resolver pick
-    // it up from `llm.default` / `llm.callSites.<id>` on every turn.
-    const resolvedModel: string | undefined = modelOverride;
-
-    const resolveSystemPromptCallback = (
-      _history: Message[],
-    ): ResolvedSystemPrompt => {
-      const resolved: ResolvedSystemPrompt = {
-        systemPrompt: this.hasSystemPromptOverride
-          ? systemPrompt
-          : buildSystemPrompt({
-              hasNoClient: this.hasNoClient,
-              trustContext: this.currentTurnTrustContext,
-              channelCapabilities: this.currentTurnChannelCapabilities,
-              personaOverride: this.wakePersonaOverride,
-              onboardingContext: this.getOnboardingContext(),
-              conversationId: this.conversationId,
-            }),
-      };
-      if (configuredMaxTokens !== undefined) {
-        resolved.maxTokens = configuredMaxTokens;
-      }
-      if (resolvedModel !== undefined) {
-        resolved.model = resolvedModel;
-      }
-      return resolved;
-    };
+    // Store the model override for per-run resolution. The loop receives it
+    // as a top-level `model` param on `run()`.
+    this.modelOverride = modelOverride;
 
     const fastModeEnabled = isAssistantFeatureFlagEnabled("fast-mode", config);
     const resolvedSpeed = speedOverride ?? resolvedMainAgent.speed;
@@ -726,7 +702,6 @@ export class Conversation {
       tools: toolDefs.length > 0 ? toolDefs : undefined,
       toolExecutor: toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,
-      resolveSystemPrompt: resolveSystemPromptCallback,
       resolveConversationDir: () => {
         const conv = getConversation(this.conversationId);
         if (!conv) return null;
@@ -738,7 +713,7 @@ export class Conversation {
     });
     createContextWindowManager({
       provider,
-      systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
+      systemPrompt: () => this.buildCurrentSystemPrompt(),
       config: initialContextWindowConfig,
       toolTokenBudget: this.agentLoop.getToolTokenBudget(),
       conversationId: this.conversationId,
@@ -799,6 +774,29 @@ export class Conversation {
     this.inferenceProfileExpiresAt = state.expiresAt;
   }
 
+  /**
+   * Build the system prompt for the current conversation state. When a
+   * system-prompt override was supplied at construction, use it as-is;
+   * otherwise rebuild the full prompt (picks up workspace file changes,
+   * live trust/channel context, persona overrides, onboarding context).
+   *
+   * Called by the caller before invoking `agentLoop.run()` — the loop
+   * itself never re-resolves the prompt mid-loop (re-resolving would bust
+   * the provider's prefix cache).
+   */
+  buildCurrentSystemPrompt(): string {
+    return this.hasSystemPromptOverride
+      ? this.systemPrompt
+      : buildSystemPrompt({
+          hasNoClient: this.hasNoClient,
+          trustContext: this.currentTurnTrustContext,
+          channelCapabilities: this.currentTurnChannelCapabilities,
+          personaOverride: this.wakePersonaOverride,
+          onboardingContext: this.getOnboardingContext(),
+          conversationId: this.conversationId,
+        });
+  }
+
   // ── Prompt Cache Warming ─────────────────────────────────────────
 
   /**
@@ -811,16 +809,7 @@ export class Conversation {
     const abort = new AbortController();
     this.cacheWarmAbort = abort;
 
-    const systemPrompt = this.hasSystemPromptOverride
-      ? this.systemPrompt
-      : buildSystemPrompt({
-          hasNoClient: this.hasNoClient,
-          trustContext: this.currentTurnTrustContext,
-          channelCapabilities: this.currentTurnChannelCapabilities,
-          personaOverride: this.wakePersonaOverride,
-          onboardingContext: this.getOnboardingContext(),
-          conversationId: this.conversationId,
-        });
+    const systemPrompt = this.buildCurrentSystemPrompt();
     const tools = getAllToolDefinitions();
     const provider = this.provider;
 

@@ -20,15 +20,11 @@ import type { Message, ProviderResponse } from "../providers/types.js";
 const captured: {
   callSite?: string;
   constructorMaxTokens?: unknown;
-  resolvedMaxTokens?: unknown;
-  resolvedHasMaxTokens?: boolean;
 } = {};
 
 function clearCaptured(): void {
   captured.callSite = undefined;
   captured.constructorMaxTokens = undefined;
-  captured.resolvedMaxTokens = undefined;
-  captured.resolvedHasMaxTokens = undefined;
 }
 
 mock.module("../util/logger.js", () => ({
@@ -207,14 +203,8 @@ mock.module("../agent/loop.js", () => ({
       provider?: unknown;
       systemPrompt?: string;
       config?: Record<string, unknown>;
-      resolveSystemPrompt?: (history: Message[]) => Record<string, unknown>;
     }) {
       captured.constructorMaxTokens = options?.config?.maxTokens;
-      const resolved = options?.resolveSystemPrompt?.([]);
-      captured.resolvedMaxTokens = resolved?.maxTokens;
-      captured.resolvedHasMaxTokens =
-        resolved !== undefined &&
-        Object.prototype.hasOwnProperty.call(resolved, "maxTokens");
     }
     getToolTokenBudget() {
       return 0;
@@ -381,8 +371,6 @@ describe("processMessage callSite threading", () => {
     await getOrCreateConversation("conv-store-default");
 
     expect(captured.constructorMaxTokens).toBeUndefined();
-    expect(captured.resolvedMaxTokens).toBeUndefined();
-    expect(captured.resolvedHasMaxTokens).toBe(false);
   });
 
   test("preserves explicit maxResponseTokens at conversation creation", async () => {
@@ -403,8 +391,6 @@ describe("processMessage callSite threading", () => {
     });
 
     expect(captured.constructorMaxTokens).toBe(1234);
-    expect(captured.resolvedMaxTokens).toBe(1234);
-    expect(captured.resolvedHasMaxTokens).toBe(true);
   });
 
   test("applies clientTimezone in the create and reuse transport metadata path", async () => {
