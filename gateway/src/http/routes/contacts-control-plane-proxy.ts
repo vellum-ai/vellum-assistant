@@ -194,12 +194,7 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       const channelAddress = url.searchParams.get("channelAddress") ?? undefined;
       const channelType = url.searchParams.get("channelType") ?? undefined;
 
-      // Search-style queries still go through the daemon until a
-      // gateway-native searchContacts is built.
-      if (query || channelAddress || channelType) {
-        return forward(req, "/v1/contacts", url.search);
-      }
-
+      // Validate contactType before any proxy fallback.
       if (contactType && !VALID_CONTACT_TYPES.includes(contactType as never)) {
         return Response.json(
           {
@@ -212,12 +207,18 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
         );
       }
 
+      // Search-style queries and contactType filter go through the daemon.
+      // contactType is an assistant-owned field — the gateway can't filter
+      // it without an assistant DB round-trip. The daemon handles it natively.
+      if (query || channelAddress || channelType || contactType) {
+        return forward(req, "/v1/contacts", url.search);
+      }
+
       try {
         const store = new ContactStore();
         const contacts = await store.listContactsWithInfo({
           limit,
           role: role ?? undefined,
-          contactType: contactType ?? undefined,
         });
         log.info(
           { count: contacts.length, role, contactType, limit },

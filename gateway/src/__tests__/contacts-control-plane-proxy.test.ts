@@ -65,7 +65,6 @@ let contactStoreUpsertMock: ReturnType<typeof mock<UpsertFn>> = mock(async () =>
 type ListFn = (opts?: {
   limit?: number;
   role?: string;
-  contactType?: string;
 }) => Promise<typeof DEFAULT_MOCK_CONTACT[]>;
 let contactStoreListMock: ReturnType<typeof mock<ListFn>> = mock(async () => []);
 
@@ -652,25 +651,21 @@ describe("handleListContacts (gateway-native)", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("passes limit, role, contactType filters to store", async () => {
-    contactStoreListMock = mock(async () => []);
+  test("falls back to proxy for contactType filter (assistant-owned field)", async () => {
+    fetchMock = mock(
+      async () =>
+        new Response(JSON.stringify({ ok: true, contacts: [] }), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
 
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
     await handler.handleListContacts(
-      new Request(
-        "http://localhost:7830/v1/contacts?limit=10&role=guardian&contactType=human",
-      ),
+      new Request("http://localhost:7830/v1/contacts?contactType=human"),
     );
 
-    expect(contactStoreListMock).toHaveBeenCalledTimes(1);
-    const opts = contactStoreListMock.mock.calls[0][0] as {
-      limit?: number;
-      role?: string;
-      contactType?: string;
-    };
-    expect(opts.limit).toBe(10);
-    expect(opts.role).toBe("guardian");
-    expect(opts.contactType).toBe("human");
+    expect(contactStoreListMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   test("falls back to proxy for search-style queries (query param)", async () => {

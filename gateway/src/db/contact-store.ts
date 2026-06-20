@@ -109,20 +109,10 @@ export class ContactStore {
   async listContactsWithInfo(opts?: {
     limit?: number;
     role?: string;
-    contactType?: string;
   }): Promise<ContactWithInfo[]> {
     const effectiveLimit = Math.min(opts?.limit ?? 50, 200);
     const conditions = [];
     if (opts?.role) conditions.push(eq(contacts.role, opts.role));
-
-    // When contactType filter is applied post-join (it's an assistant-owned
-    // field not in the gateway DB), we over-fetch to compensate for contacts
-    // that will be filtered out. Fetch up to 5x the requested limit, capped
-    // at 500, so contactType=assistant doesn't return an empty page when the
-    // first N contacts are all human.
-    const fetchLimit = opts?.contactType
-      ? Math.min(effectiveLimit * 5, 500)
-      : effectiveLimit;
 
     // Step 1: Select contact IDs with the limit applied to CONTACTS (not
     // joined channel rows). The daemon path limits contact rows before
@@ -136,7 +126,7 @@ export class ContactStore {
         sql`${contacts.role} = 'guardian' DESC`,
         desc(contacts.updatedAt),
       )
-      .limit(fetchLimit)
+      .limit(effectiveLimit)
       .all();
 
     if (contactRows.length === 0) return [];
@@ -167,18 +157,7 @@ export class ContactStore {
       )
       .all();
 
-    let joined = await this.joinInfoIntoContacts(rows);
-
-    // Post-filter by contactType (assistant-owned, not in gateway DB).
-    if (opts?.contactType) {
-      joined = joined.filter(
-        (c) => c.contactType === opts.contactType,
-      );
-      // Clamp to the original requested limit after post-filtering.
-      joined = joined.slice(0, effectiveLimit);
-    }
-
-    return joined;
+    return this.joinInfoIntoContacts(rows);
   }
 
   /**
