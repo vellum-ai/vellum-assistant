@@ -296,7 +296,7 @@ export class Conversation {
     outputTokens: 0,
     estimatedCost: 0,
   };
-  /** @internal */ readonly systemPrompt: string;
+  /** @internal */ systemPrompt: string;
   /** @internal */ contextCompactedMessageCount = 0;
   /** @internal */ contextCompactedAt: number | null = null;
   /** @internal */ contextSummary: string | null = null;
@@ -713,7 +713,6 @@ export class Conversation {
     });
     createContextWindowManager({
       provider,
-      systemPrompt: () => this.buildCurrentSystemPrompt(),
       config: initialContextWindowConfig,
       toolTokenBudget: this.agentLoop.getToolTokenBudget(),
       conversationId: this.conversationId,

@@ -30,6 +30,12 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
 }));
 
+mock.module("../daemon/conversation-registry.js", () => ({
+  findConversationOrSubagent: () => ({
+    systemPrompt: "you are a test assistant",
+  }),
+}));
+
 // ── Module-level mock state ───────────────────────────────────────────
 // The reducer call is captured so tests can assert which state and config the
 // manager fed in; the returned step is seeded per call so tests can drive the
@@ -145,7 +151,6 @@ function makeConfig(maxAttempts: number = 3) {
 function buildManager(maxAttempts: number = 3): ContextWindowManager {
   return new ContextWindowManager({
     provider: makeProvider(),
-    systemPrompt: "you are a test assistant",
     config: makeConfig(maxAttempts),
     conversationId: "conv-test",
   });
@@ -279,7 +284,6 @@ describe("ContextWindowManager.reduceOverflowOneRung", () => {
     ] as unknown as ToolDefinition[];
     const manager = new ContextWindowManager({
       provider: makeProvider(),
-      systemPrompt: "you are a test assistant",
       config: makeConfig(),
       conversationId: "conv-test",
       toolTokenBudget: 50,
