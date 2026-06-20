@@ -307,6 +307,13 @@ const CATALOG_RECORD: CatalogRecord = {
       "Stronger reviewer model consulted mid-task to shape or pressure-test the plan.",
     domain: "skills",
   },
+  vision: {
+    id: "vision",
+    displayName: "Vision",
+    description:
+      "Captions images via a vision-capable profile for text-only model fallback.",
+    domain: "skills",
+  },
   homeGreeting: {
     id: "homeGreeting",
     displayName: "Home Greeting",
