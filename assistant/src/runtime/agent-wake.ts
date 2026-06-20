@@ -1147,10 +1147,6 @@ export async function wakeAgentForOpportunity(
             maxInputTokens: effectiveContextWindow.maxInputTokens,
             overflowRecovery: { enabled: false, safetyMarginRatio: 0 },
           }),
-          // Resolve the system prompt once before the run — the loop does
-          // not re-resolve mid-loop. `wakePersonaOverride` (if set above)
-          // is baked into the prompt at this point.
-          systemPrompt: conversation.buildCurrentSystemPrompt(),
           ...(conversation.modelOverride
             ? { model: conversation.modelOverride }
             : {}),

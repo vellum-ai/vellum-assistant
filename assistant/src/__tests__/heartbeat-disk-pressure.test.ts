@@ -28,6 +28,7 @@ mock.module("../config/loader.js", () => ({
     },
     timeouts: {
       backgroundTurnTimeoutSec: 1800,
+      scheduleTurnTimeoutSec: 1800,
     },
   }),
   loadConfig: () => ({}),
