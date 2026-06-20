@@ -96,7 +96,7 @@ mock.module("../db/contact-store.js", () => ({
     async getContactWithInfo(contactId: string) {
       return contactStoreGetMock(contactId);
     }
-    updateChannelStatus(channelId: string, params: {
+    async updateChannelStatus(channelId: string, params: {
       status?: string;
       policy?: string;
       reason?: string | null;
@@ -1122,5 +1122,36 @@ describe("handleUpdateContactChannel (gateway-native)", () => {
     // Should still succeed — dual-write is best-effort.
     expect(res.status).toBe(200);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("resolves assistant-side channel ID to gateway channel (backward compat)", async () => {
+    // Simulate: store.updateChannelStatus gets an assistant-side ID that
+    // doesn't exist in the gateway DB. The real method resolves it via
+    // assistantDbQuery. Here we mock the store to return the resolved
+    // channel, confirming the handler correctly awaits the async call
+    // and returns 200 (not 404).
+    contactStoreUpdateChannelMock = mock(() => ({
+      ...MOCK_CHANNEL,
+      status: "revoked",
+    }));
+    contactStoreGetMock = mock(async () => ({
+      ...DEFAULT_MOCK_CONTACT,
+      id: "ct_mock",
+    }));
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpdateContactChannel(
+      new Request("http://localhost:7830/v1/contact-channels/asst-side-id", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "revoked" }),
+      }),
+      "asst-side-id",
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.contact.id).toBe("ct_mock");
   });
 });

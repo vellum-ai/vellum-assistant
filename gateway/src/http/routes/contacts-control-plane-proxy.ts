@@ -633,7 +633,7 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
 
       try {
         const store = new ContactStore();
-        const updated = store.updateChannelStatus(contactChannelId, {
+        const updated = await store.updateChannelStatus(contactChannelId, {
           status,
           policy,
           reason,

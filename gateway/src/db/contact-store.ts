@@ -330,7 +330,7 @@ export class ContactStore {
    * Update a channel's status and/or policy in the gateway DB, then
    * best-effort dual-write to the assistant DB.
    *
-   * Returns the updated channel, or null if not found in the gateway DB.
+   * Returns the updated channel, or null if not found in either DB.
    * Throws if a blocked channel is being revoked (caller maps to 409).
    *
    * `revokedReason` / `blockedReason` are set based on the new status:
@@ -338,25 +338,60 @@ export class ContactStore {
    *   - status="blocked" → blockedReason = reason ?? null, revokedReason = null
    *   - any other status → both reasons cleared to null
    *   - status unchanged → reasons left untouched (pass undefined)
+   *
+   * Channel ID resolution: the caller may pass an assistant-side channel ID
+   * (the UI gets these from `readAssistantContact`). If the ID isn't found
+   * in the gateway DB, we try to resolve it from the assistant DB by
+   * (contactId, type, address) and then find the matching gateway channel.
+   * This handles channels created before the dual-write ID-alignment fix.
    */
-  updateChannelStatus(
+  async updateChannelStatus(
     channelId: string,
     params: {
       status?: string;
       policy?: string;
       reason?: string | null;
     },
-  ): ContactChannel | null {
-    const existing = this.db
+  ): Promise<ContactChannel | null> {
+    let gwChannel = this.db
       .select()
       .from(contactChannels)
       .where(eq(contactChannels.id, channelId))
       .get();
 
-    if (!existing) return null;
+    // If not found in the gateway DB, try resolving from the assistant DB.
+    // The UI may have an assistant-side ID (from readAssistantContact) that
+    // doesn't match the gateway ID for channels created before the
+    // dual-write ID-alignment fix.
+    if (!gwChannel) {
+      const assistantChannel = await assistantDbQuery<{
+        contactId: string;
+        type: string;
+        address: string;
+      }>(
+        "SELECT contact_id AS contactId, type, address FROM contact_channels WHERE id = ?",
+        [channelId],
+      );
+      if (assistantChannel.length > 0) {
+        const { contactId, type, address } = assistantChannel[0];
+        gwChannel = this.db
+          .select()
+          .from(contactChannels)
+          .where(
+            and(
+              eq(contactChannels.contactId, contactId),
+              eq(contactChannels.type, type),
+              sql`${contactChannels.address} = ${address} COLLATE NOCASE`,
+            ),
+          )
+          .get();
+      }
+    }
+
+    if (!gwChannel) return null;
 
     // Guard: cannot revoke a blocked channel.
-    if (params.status === "revoked" && existing.status === "blocked") {
+    if (params.status === "revoked" && gwChannel.status === "blocked") {
       throw new CannotRevokeBlockedError(channelId);
     }
 
@@ -384,13 +419,13 @@ export class ContactStore {
     this.db
       .update(contactChannels)
       .set(updateSet)
-      .where(eq(contactChannels.id, channelId))
+      .where(eq(contactChannels.id, gwChannel.id))
       .run();
 
     return this.db
       .select()
       .from(contactChannels)
-      .where(eq(contactChannels.id, channelId))
+      .where(eq(contactChannels.id, gwChannel.id))
       .get()!;
   }
 
@@ -1091,6 +1126,25 @@ export class ContactStore {
         );
         if (conflict.length) continue;
 
+        // Reuse the gateway channel ID so the two DBs stay in sync.
+        // Without this, the assistant and gateway DBs would have different
+        // UUIDs for the same logical channel, and a PATCH with an
+        // assistant-side ID would 404 in the gateway. m0006 reconciliation
+        // already copies assistant IDs into the gateway for pre-existing
+        // rows; this ensures new rows created via upsert stay aligned too.
+        const gatewayChannel = this.db
+          .select({ id: contactChannels.id })
+          .from(contactChannels)
+          .where(
+            and(
+              eq(contactChannels.contactId, contactId),
+              eq(contactChannels.type, ch.type),
+              sql`${contactChannels.address} = ${ch.address} COLLATE NOCASE`,
+            ),
+          )
+          .get();
+        const channelId = gatewayChannel?.id ?? crypto.randomUUID();
+
         await assistantDbRun(
           `INSERT INTO contact_channels
              (id, contact_id, type, address, is_primary,
@@ -1098,7 +1152,7 @@ export class ContactStore {
               status, policy, interaction_count, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
           [
-            crypto.randomUUID(),
+            channelId,
             contactId,
             ch.type,
             ch.address,
