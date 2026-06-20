@@ -1,3 +1,4 @@
+import { getLogsDbPath } from "../../util/logs-db-path.js";
 import {
   type DrizzleDb,
   getSqliteFrom,
@@ -6,8 +7,26 @@ import {
 import {
   drainStagedTable,
   isSchemaAttached,
+  type RelocationSpec,
   stageTableForRelocation,
-} from "../relocation.js";
+} from "./helpers/relocation.js";
+
+/** How to drain `llm_request_logs` from `main` into the attached `logs` DB. */
+const RELOCATION: RelocationSpec = {
+  table: "llm_request_logs",
+  targetDbPath: getLogsDbPath,
+  columns: [
+    "id",
+    "conversation_id",
+    "message_id",
+    "provider",
+    "request_payload",
+    "response_payload",
+    "created_at",
+    "agent_loop_exit_reason",
+    "call_site",
+  ],
+};
 
 const CREATE_TABLE = (schema: string): string => /*sql*/ `
   CREATE TABLE IF NOT EXISTS ${schema}.llm_request_logs (
@@ -53,29 +72,38 @@ function createIndexes(raw: ReturnType<typeof getSqliteFrom>, schema: string) {
  * The move is incremental: this step does metadata-only work — create the table
  * in `logs`, rename any populated `main.llm_request_logs` aside to
  * `llm_request_logs__relocating` — then drains the staged rows into `logs` in
- * awaited batches (see `relocation.ts`), keeping the event loop responsive
- * between batches rather than stalling it with a one-shot `INSERT … SELECT` +
- * `DROP` of a multi-GB table.
+ * awaited batches (see `helpers/relocation.ts`), keeping the event loop
+ * responsive between batches rather than stalling it with a one-shot
+ * `INSERT … SELECT` + `DROP` of a multi-GB table.
  *
  * Idempotent and safe to re-run: `stageTableForRelocation` drops a freshly
  * recreated empty shadow, renames a populated table only once, and leaves an
  * in-flight staging table alone; `drainStagedTable` resumes from the remaining
- * rows. Bails out (retrying next boot) if the `logs` database failed to attach.
+ * rows.
+ *
+ * Throws (rather than returning) if the `logs` database is not attached, so the
+ * runner records the step as failed instead of applied — leaving it to retry on
+ * a later boot once the attach succeeds. The throw is caught per-step by the
+ * runner, so startup is not aborted.
  */
 export async function migrateMoveLlmRequestLogsToLogsDb(
   database: DrizzleDb,
 ): Promise<void> {
   const raw = getSqliteFrom(database);
 
-  if (!isSchemaAttached(raw, LOGS_DB_SCHEMA)) return;
+  if (!isSchemaAttached(raw, LOGS_DB_SCHEMA)) {
+    throw new Error(
+      "logs database not attached — deferring llm_request_logs relocation",
+    );
+  }
 
   raw.exec(CREATE_TABLE(LOGS_DB_SCHEMA));
 
-  const needsDrain = stageTableForRelocation(raw, "llm_request_logs");
+  const needsDrain = stageTableForRelocation(raw, RELOCATION.table);
 
   // Only now is `main` guaranteed not to shadow the table, so the unqualified
   // reference in CREATE INDEX resolves to `logs`.
   createIndexes(raw, LOGS_DB_SCHEMA);
 
-  if (needsDrain) await drainStagedTable("llm_request_logs");
+  if (needsDrain) await drainStagedTable(raw, RELOCATION);
 }

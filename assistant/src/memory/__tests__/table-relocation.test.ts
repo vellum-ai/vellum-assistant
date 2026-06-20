@@ -1,13 +1,16 @@
 /**
- * Tests for the incremental table-relocation engine (`relocation.ts`).
+ * Tests for the incremental table-relocation engine
+ * (`migrations/helpers/relocation.ts`), driven with migration 298's
+ * `MEMORY_JOBS_RELOCATION` spec.
  *
  * What this locks in:
  *   1. `stageTableForRelocation` drops an empty source, renames a populated
  *      one aside to `<table>__relocating`, and is idempotent across re-runs.
  *   2. `drainStagedTable` copies the rows worth keeping into the attached
- *      target, purges the rest without copying, and drops the staging table —
- *      so a heavy table moves in bounded awaited batches rather than one
- *      blocking shot.
+ *      target, purges the rest without copying, applies the spec's per-column
+ *      transforms (`running` → `pending`), and drops the staging table — so a
+ *      heavy table moves in bounded awaited batches rather than one blocking
+ *      shot.
  *
  * sqlite3 may not be on the host here, so the drain runs through the in-process
  * `runAsyncSqlite` fallback — which exercises the same cross-database SQL on the
@@ -18,7 +21,9 @@ import { describe, expect, test } from "bun:test";
 const { getSqlite, MEMORY_DB_SCHEMA } = await import("../db-connection.js");
 const { initializeDb } = await import("../db-init.js");
 const { drainStagedTable, stageTableForRelocation } =
-  await import("../relocation.js");
+  await import("../migrations/helpers/relocation.js");
+const { MEMORY_JOBS_RELOCATION } =
+  await import("../migrations/298-move-memory-jobs-to-memory-db.js");
 
 initializeDb();
 
@@ -99,13 +104,14 @@ describe("memory_jobs drain", () => {
     insert.run("seed-term-2", "completed");
     insert.run("seed-term-3", "failed");
 
-    await drainStagedTable("memory_jobs");
+    await drainStagedTable(sqlite, MEMORY_JOBS_RELOCATION);
 
     // Staging dropped.
     expect(existsInMain("memory_jobs__relocating")).toBe(false);
 
     // Exactly the three keepers landed in the memory database; the terminal
-    // rows were purged without being copied.
+    // rows were purged without being copied, and the in-flight `running` row
+    // was reset to `pending` so the worker can re-claim it in its new home.
     const kept = sqlite
       .query<
         { id: string; status: string },
@@ -115,7 +121,7 @@ describe("memory_jobs drain", () => {
     expect(kept).toEqual([
       { id: "seed-keep-1", status: "pending" },
       { id: "seed-keep-2", status: "pending" },
-      { id: "seed-keep-3", status: "running" },
+      { id: "seed-keep-3", status: "pending" },
     ]);
 
     // The keepers physically live in the memory database.
