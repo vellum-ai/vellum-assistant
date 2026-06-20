@@ -61,6 +61,35 @@ mock.module("../../plugins/defaults/advisor/advisor-gate.js", () => ({
   },
 }));
 
+// ── Vision-perception gate controls (Fix #2 + Fix #3) ──────────────────
+// The vlm_* tool gate reads the `vision-perception` flag and the backbone's
+// per-modality vision capability. Drive both with mutable test state.
+let visionFlagEnabled = true;
+// Backbone native IMAGE vision (`supportsVision`). When true, the image tools
+// are omitted (the backbone can see images itself). Video is never native today.
+let backboneSupportsVision = false;
+
+// Only the flag predicate is stubbed (it ignores its config argument), so the
+// real `getConfig()` runs untouched and other importers of config/loader keep
+// their full exports.
+mock.module("../../config/vision-perception-flag.js", () => ({
+  isVisionPerceptionEnabled: () => visionFlagEnabled,
+  VISION_PERCEPTION_FLAG_KEY: "vision-perception",
+}));
+// Stub only the resolvers; keep the real name predicates (isVlm*ToolName) so the
+// gate's image/video routing is exercised against the actual tool-name sets.
+const realPreModelCall =
+  await import("../../plugins/defaults/vision-perception/hooks/pre-model-call.js");
+mock.module(
+  "../../plugins/defaults/vision-perception/hooks/pre-model-call.js",
+  () => ({
+    ...realPreModelCall,
+    resolveBackboneSupportsVision: () => backboneSupportsVision,
+    // No catalog model is natively video-capable, mirroring production.
+    resolveBackboneSupportsVideo: () => false,
+  }),
+);
+
 // Dynamic imports after mock.module calls so the stubs take effect
 // before the modules under test are loaded.
 const { HOST_TOOL_NAMES, HOST_TOOL_TO_CAPABILITY, isToolActiveForContext } =
@@ -84,6 +113,8 @@ function makeCtx(
 
 beforeEach(() => {
   mockClientCountByCapability.clear();
+  visionFlagEnabled = true;
+  backboneSupportsVision = false;
 });
 
 describe("isToolActiveForContext — Slack task_progress UI exception", () => {
@@ -655,5 +686,67 @@ describe("HOST_TOOL_NAMES derivation", () => {
     // future addition to HOST_TOOL_NAMES without a matching capability entry
     // (or vice versa) would fail.
     expect(HOST_TOOL_NAMES.size).toBe(HOST_TOOL_TO_CAPABILITY.size);
+  });
+});
+
+const IMAGE_TOOLS = ["vlm_ask", "vlm_describe", "vlm_ocr", "vlm_detect"];
+const VIDEO_TOOL = "vlm_video_log";
+
+describe("isToolActiveForContext — vlm_* per-modality gating (Fix #2)", () => {
+  test("non-vision backbone: ALL vlm_* tools are offered (flag on)", () => {
+    backboneSupportsVision = false;
+    const ctx = makeCtx();
+    for (const name of IMAGE_TOOLS) {
+      expect(isToolActiveForContext(name, ctx)).toBe(true);
+    }
+    expect(isToolActiveForContext(VIDEO_TOOL, ctx)).toBe(true);
+  });
+
+  test("image-vision backbone: IMAGE tools hidden, but vlm_video_log STILL offered", () => {
+    // An image-vision model reads images natively (image tools are dead weight)
+    // but cannot process native video, so vlm_video_log must stay available.
+    backboneSupportsVision = true;
+    const ctx = makeCtx();
+    for (const name of IMAGE_TOOLS) {
+      expect(isToolActiveForContext(name, ctx)).toBe(false);
+    }
+    expect(isToolActiveForContext(VIDEO_TOOL, ctx)).toBe(true);
+  });
+});
+
+describe("isToolActiveForContext — vlm_* flag gating (Fix #3)", () => {
+  test("flag off: NO vlm_* tool is offered even on a non-vision backbone", () => {
+    visionFlagEnabled = false;
+    backboneSupportsVision = false;
+    const ctx = makeCtx();
+    for (const name of [...IMAGE_TOOLS, VIDEO_TOOL]) {
+      expect(isToolActiveForContext(name, ctx)).toBe(false);
+    }
+  });
+
+  test("flag on: vlm_* tools are offered (subject to per-modality gating)", () => {
+    visionFlagEnabled = true;
+    backboneSupportsVision = false;
+    const ctx = makeCtx();
+    for (const name of [...IMAGE_TOOLS, VIDEO_TOOL]) {
+      expect(isToolActiveForContext(name, ctx)).toBe(true);
+    }
+  });
+
+  test("flipping the flag at runtime flips tool availability on the next turn (no re-bootstrap)", () => {
+    // The gate reads the flag per call, so a runtime flip is reflected on the
+    // next turn with no plugin re-registration — the plugin is registered
+    // unconditionally and only the per-turn gate moves.
+    backboneSupportsVision = false;
+    const ctx = makeCtx();
+
+    visionFlagEnabled = false;
+    expect(isToolActiveForContext("vlm_ask", ctx)).toBe(false);
+    expect(isToolActiveForContext(VIDEO_TOOL, ctx)).toBe(false);
+
+    // Flag flips on at runtime — same context, next turn.
+    visionFlagEnabled = true;
+    expect(isToolActiveForContext("vlm_ask", ctx)).toBe(true);
+    expect(isToolActiveForContext(VIDEO_TOOL, ctx)).toBe(true);
   });
 });

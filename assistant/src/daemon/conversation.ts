@@ -15,6 +15,7 @@
  * - conversation-usage.ts        — recordUsage
  */
 
+import { rehydrateAttachmentIds } from "../agent/attachments.js";
 import type { AgentLoopConfig, ResolvedSystemPrompt } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type { AssistantActivityStateEvent } from "../api/events/assistant-activity-state.js";
@@ -44,6 +45,7 @@ import {
   ToolProfiler,
 } from "../events/tool-profiling-listener.js";
 import { registerToolTraceListener } from "../events/tool-trace-listener.js";
+import { getLinkedAttachmentIdsForMessage } from "../memory/attachments-store.js";
 import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import {
   getConversation,
@@ -968,6 +970,31 @@ export class Conversation {
       }
 
       content = reinjectImageSourcePaths(content, role, m.metadata);
+
+      // Rehydrate `_attachmentId` onto image/file blocks from the persisted
+      // message_attachments links. The id is minted only after persistence and
+      // backfilled onto the in-memory block at send time, so it is absent from
+      // the stored JSON — without this a reloaded inline upload (eviction,
+      // restart, fork) would have no `media_ref` for the vision-perception
+      // markers to surface on a non-vision backbone. Best-effort: a lookup
+      // failure must never fail the load. Only user messages carry uploaded
+      // attachments; assistant messages skip the DB hit. Runs after the source-
+      // path annotation above (which appends a trailing text block, so it does
+      // not shift the image/file-block indexing) and before any injection-block
+      // prepends below (also text-only).
+      if (role === "user") {
+        try {
+          rehydrateAttachmentIds(
+            { role, content },
+            getLinkedAttachmentIdsForMessage(m.id),
+          );
+        } catch (err) {
+          log.debug(
+            { conversationId: this.conversationId, messageId: m.id, err },
+            "Failed to rehydrate attachment ids on reload (non-fatal)",
+          );
+        }
+      }
 
       // Re-inject persisted injection blocks from metadata so it survives
       // conversation reloads (eviction, restart, fork).
