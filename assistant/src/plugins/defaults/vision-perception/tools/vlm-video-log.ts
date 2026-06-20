@@ -22,26 +22,16 @@ import type {
 } from "@vellumai/plugin-api";
 import { RiskLevel } from "@vellumai/plugin-api";
 
-import {
-  extractAllText,
-  getConfiguredProvider,
-} from "../../../../providers/provider-send-message.js";
 import type { Message } from "../../../../providers/types.js";
+import { sendVisionMessage } from "../src/call-vision-model.js";
 import { parseModelJson } from "../src/coordinates.js";
 import { resolveVisionVideo } from "../src/media-source.js";
-import type {
-  FramesTruncation,
-  SampledFrame,
-  SampleStrategy,
+import {
+  type FramesTruncation,
+  SAMPLE_STRATEGIES,
+  type SampledFrame,
+  type SampleStrategy,
 } from "../src/video-frames.js";
-
-const VISION_CALL_SITE = "visionPerception" as const;
-
-const SAMPLE_STRATEGIES: readonly SampleStrategy[] = [
-  "keyframes",
-  "uniform_1hz",
-  "uniform_4hz",
-];
 
 interface VideoSegment {
   t_start: number;
@@ -76,15 +66,18 @@ function buildVideoPrompt(query: string, frameCount: number): string {
   );
 }
 
-/** Build the user message: each frame as `[t=Ns]` text label followed by its image. */
-function buildFrameMessage(frames: SampledFrame[], query: string): Message {
+/** Build the message content: each frame as `[t=Ns]` text label followed by its image. */
+function buildFrameContent(
+  frames: SampledFrame[],
+  query: string,
+): Message["content"] {
   const content: Message["content"] = [];
   for (const frame of frames) {
     content.push({ type: "text", text: `[t=${frame.t_seconds}s]` });
     content.push(frame.block);
   }
   content.push({ type: "text", text: buildVideoPrompt(query, frames.length) });
-  return { role: "user", content };
+  return content;
 }
 
 function toSeconds(raw: unknown): number {
@@ -151,7 +144,7 @@ const vlmVideoLogTool: ToolDefinition = {
       query: { type: "string" },
       sample: {
         type: "string",
-        enum: ["keyframes", "uniform_1hz", "uniform_4hz"],
+        enum: [...SAMPLE_STRATEGIES],
       },
       window: {
         type: "array",
@@ -184,19 +177,10 @@ const vlmVideoLogTool: ToolDefinition = {
         ...(ctx.signal ? { signal: ctx.signal } : {}),
       });
 
-      const provider = await getConfiguredProvider(VISION_CALL_SITE);
-      if (!provider) {
-        throw new Error("no vision inference provider is configured");
-      }
+      const content = buildFrameContent(video.frames, query);
+      const answer = await sendVisionMessage(content, VIDEO_SYSTEM_PROMPT, ctx);
 
-      const message = buildFrameMessage(video.frames, query);
-      const response = await provider.sendMessage([message], {
-        systemPrompt: VIDEO_SYSTEM_PROMPT,
-        config: { callSite: VISION_CALL_SITE },
-        signal: ctx.signal,
-      });
-
-      const segments = parseSegments(extractAllText(response));
+      const segments = parseSegments(answer);
       const result: VideoLog = {
         duration_s: video.duration_s,
         segments,

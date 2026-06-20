@@ -17,6 +17,7 @@ import {
   getAttachmentContent,
 } from "../../../../memory/attachments-store.js";
 import type { ImageContent } from "../../../../providers/types.js";
+import { toImageBlock } from "./image-block.js";
 import {
   type SampledVideo,
   sampleVideoFrames,
@@ -80,17 +81,8 @@ export async function resolveVisionMedia(
     row.mimeType,
   );
 
-  const block: ImageContent = {
-    type: "image",
-    source: {
-      type: "base64",
-      media_type: optimized.mediaType,
-      data: optimized.data,
-    },
-  };
-
   return {
-    block,
+    block: toImageBlock(optimized),
     mimeType: optimized.mediaType,
     kind: row.kind,
     filename: row.originalFilename,

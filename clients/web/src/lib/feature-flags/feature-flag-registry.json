@@ -439,7 +439,7 @@
       "scope": "assistant",
       "key": "vision-perception",
       "label": "Vision Perception",
-      "description": "Qwen3-VL image/video perception tools",
+      "description": "Qwen 3.7 Plus image/video perception tools",
       "defaultEnabled": false
     }
   ]
