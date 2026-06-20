@@ -27120,6 +27120,10 @@ paths:
                           type: number
                         eventCount:
                           type: number
+                        turnCount:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                       required:
                         - group
                         - groupId
@@ -27129,6 +27133,7 @@ paths:
                         - totalCacheReadTokens
                         - totalEstimatedCostUsd
                         - eventCount
+                        - turnCount
                       additionalProperties: false
                     description: Grouped usage entries
                 required:
