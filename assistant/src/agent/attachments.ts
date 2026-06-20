@@ -79,6 +79,37 @@ export function backfillAttachmentId(
 }
 
 /**
+ * Rehydrate `_attachmentId` onto a message's image/file content blocks from the
+ * message's linked attachment ids (ordered by `position`).
+ *
+ * The persisted message JSON never carries `_attachmentId` — it is minted only
+ * after the message row exists and is then backfilled onto the *in-memory*
+ * block (see {@link backfillAttachmentId}), so a conversation reloaded from the
+ * DB (eviction, restart, fork) loses it. This reapplies the id at load time
+ * using the exact same image/file-block indexing {@link backfillAttachmentId}
+ * uses (the n-th media block gets the n-th linked attachment id), so the
+ * vision-perception markers can still surface a usable `media_ref` on a
+ * non-vision backbone after a reload.
+ *
+ * Mutates blocks in place. Blocks already carrying an id are left untouched, and
+ * the id list is consumed in block order — extra ids (e.g. tool-generated media
+ * with no persisted block) are ignored.
+ */
+export function rehydrateAttachmentIds(
+  message: Message,
+  orderedAttachmentIds: readonly string[],
+): void {
+  if (orderedAttachmentIds.length === 0) return;
+  let index = 0;
+  for (const block of message.content) {
+    if (block.type !== "image" && block.type !== "file") continue;
+    if (index >= orderedAttachmentIds.length) return;
+    if (!block._attachmentId) block._attachmentId = orderedAttachmentIds[index];
+    index++;
+  }
+}
+
+/**
  * Return a copy of the message with text annotations for image source paths.
  * The annotations are appended as a text content block so the LLM knows where
  * the images came from on disk. The caller should persist the ORIGINAL message

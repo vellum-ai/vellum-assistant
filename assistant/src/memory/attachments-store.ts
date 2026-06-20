@@ -1058,6 +1058,30 @@ export function getAttachmentMetadataForMessage(
 }
 
 /**
+ * Return the attachment ids linked to a message, ordered by `position` — the
+ * same order in which {@link attachmentsToContentBlocks} appended the image/
+ * file content blocks. No file data or metadata is read, so this is cheap
+ * enough to call for every persisted user message on conversation reload.
+ *
+ * Used to rehydrate `_attachmentId` onto image/file content blocks when a
+ * conversation is loaded from the DB: the persisted message JSON never carries
+ * the (later-minted) attachment id, so without this the vision-perception
+ * media markers would have no `media_ref` to surface for an inline upload after
+ * a daemon restart or conversation eviction.
+ */
+export function getLinkedAttachmentIdsForMessage(messageId: string): string[] {
+  const db = getDb();
+  return db
+    .select({ attachmentId: messageAttachments.attachmentId })
+    .from(messageAttachments)
+    .where(eq(messageAttachments.messageId, messageId))
+    .orderBy(messageAttachments.position)
+    .all()
+    .map((link) => link.attachmentId)
+    .filter((id): id is string => id != null);
+}
+
+/**
  * Lightweight existence check — queries only the attachment ID column
  * without reading file contents from disk.
  */

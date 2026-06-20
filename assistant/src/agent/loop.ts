@@ -29,6 +29,7 @@ import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import {
   applyVisionPerceptionMarkers,
+  resolveBackboneSupportsVideo,
   resolveBackboneSupportsVision,
 } from "../plugins/defaults/vision-perception/hooks/pre-model-call.js";
 import { runHook } from "../plugins/pipeline.js";
@@ -1350,17 +1351,23 @@ export class AgentLoop {
         // Sanitize the outbound history right before sending: drop accumulated
         // media, collapse old AX-tree snapshots, and convert historical
         // web-search results to text. See {@link preModelCallSanitize}.
-        // Then, for a backbone that lacks native vision, replace each uploaded
-        // image with a marker naming its attachment id so the model never
-        // receives raw bytes it cannot read and instead reaches for the vlm_*
-        // tools (no-op for vision-capable backbones — feature stays inert).
+        // Then, per modality, replace each uploaded image/video the backbone
+        // cannot process natively with a marker naming its attachment id, so the
+        // model never receives raw bytes it cannot read and instead reaches for
+        // the vlm_* tools. Image and video gate independently: an image-vision
+        // backbone passes images through but still gets a vlm_video_log marker
+        // for uploaded video (no catalog model reads native video today).
+        const visionMarkerOpts = {
+          callSite: callSite ?? null,
+          overrideProfile: effectiveOverrideProfile ?? null,
+          selectionSeed: this.conversationId ?? null,
+        };
         const providerHistory = applyVisionPerceptionMarkers(
           preModelCallSanitize(history),
-          resolveBackboneSupportsVision({
-            callSite: callSite ?? null,
-            overrideProfile: effectiveOverrideProfile ?? null,
-            selectionSeed: this.conversationId ?? null,
-          }),
+          {
+            supportsVision: resolveBackboneSupportsVision(visionMarkerOpts),
+            supportsVideo: resolveBackboneSupportsVideo(visionMarkerOpts),
+          },
         );
 
         // A `pre-model-call` hook (below) can defer this turn's assistant

@@ -340,22 +340,32 @@ export const defaultAdvisorPlugin: Plugin = {
  * tools. The model passes a provided image's attachment id; the plugin resolves
  * it to an image block and sends it, with the question or a description prompt,
  * to the `visionPerception` call site (a vision-capable inference profile)
- * routed through the assistant's own inference. The whole plugin is gated behind
- * the `vision-perception` feature flag — `bootstrapPlugins` skips it (no tool
- * contributions) when the flag is off. `finalizeTool` fills each tool's defaults
- * so it satisfies `Tool`.
+ * routed through the assistant's own inference. `finalizeTool` fills each tool's
+ * defaults so it satisfies `Tool`.
+ *
+ * Registration is UNCONDITIONAL — the manifest carries no `requiresFlag`, so
+ * `bootstrapPlugins` always registers the `vlm_*` tools into the catalog. This
+ * deliberately decouples registration from the `vision-perception` feature flag:
+ * the flag's gateway overrides load fire-and-forget after startup and a runtime
+ * flip only re-syncs tools/profiles, not default-plugin registration. Gating
+ * registration on the flag would leave the tools absent until a restart whenever
+ * the flag arrived late or flipped on at runtime, while the marker logic + vision
+ * profile activated — so instead the tools are gated DYNAMICALLY per turn.
  *
  * The feature only engages for backbones that lack native vision: the per-turn
- * tool gate omits the `vlm_*` tools for vision-capable models, and for non-vision
- * backbones the outbound request swaps each uploaded image for a marker naming
- * its attachment id (a usable `media_ref`). The `pre-model-call` hook is the
- * home for that gating logic (see `hooks/pre-model-call.ts`).
+ * tool gate (`isToolActiveForContext`) checks `isVisionPerceptionEnabled` AND
+ * per-modality vision capability — flag off → tools never offered (marker inert,
+ * profile handled separately by reconcile); flag on at runtime → the next turn
+ * offers the tools with no restart. For non-vision backbones the outbound request
+ * swaps each uploaded image for a marker naming its attachment id (a usable
+ * `media_ref`); image and video gate independently (an image-vision backbone
+ * still gets a `vlm_video_log` marker for uploaded video). The `pre-model-call`
+ * hook is the home for that gating logic (see `hooks/pre-model-call.ts`).
  */
 export const visionPerceptionPlugin: Plugin = {
   manifest: {
     name: visionPerceptionPkg.name,
     version: visionPerceptionPkg.version,
-    requiresFlag: ["vision-perception"],
   },
   hooks: {
     "pre-model-call": visionPerceptionPreModelCall,

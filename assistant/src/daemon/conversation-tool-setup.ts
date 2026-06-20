@@ -14,12 +14,16 @@ import {
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import { isVisionPerceptionEnabled } from "../config/vision-perception-flag.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { advisorEnabledForProfile } from "../plugins/defaults/advisor/advisor-gate.js";
 import {
+  isVlmImageToolName,
   isVlmToolName,
+  isVlmVideoToolName,
+  resolveBackboneSupportsVideo,
   resolveBackboneSupportsVision,
 } from "../plugins/defaults/vision-perception/hooks/pre-model-call.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
@@ -615,16 +619,42 @@ export function isToolActiveForContext(
     return advisorEnabledForProfile(ctx.currentTurnOverrideProfile ?? null);
   }
   if (isVlmToolName(name)) {
-    // Vision perception only engages for backbones that lack native vision:
-    // offer the `vlm_*` tools only when the resolved backbone can't see images
-    // itself. A vision-capable model reads uploaded media directly, so the tool
-    // would be dead weight — omit it. Resolves the model the same way dispatch
-    // does (the per-turn override, else the active profile / call-site default).
-    return !resolveBackboneSupportsVision({
+    // The plugin now registers unconditionally (its tools are always in the
+    // catalog) so a late/flipped `vision-perception` flag needs no restart —
+    // registration no longer gates the flag, the per-turn gate does. Flag off →
+    // never offer any vlm_* tool. Resolution failure fails closed here (hide
+    // the tool) rather than open, to avoid surfacing dead tools when config is
+    // unreadable.
+    let flagEnabled: boolean;
+    try {
+      flagEnabled = isVisionPerceptionEnabled(getConfig());
+    } catch {
+      flagEnabled = false;
+    }
+    if (!flagEnabled) return false;
+
+    const resolution = {
       callSite: ctx.currentCallSite ?? null,
       overrideProfile: ctx.currentTurnOverrideProfile ?? null,
       selectionSeed: ctx.conversationId ?? null,
-    });
+    };
+
+    // Per-modality gating: vision perception only engages for backbones that
+    // lack native support for that modality. A vision-capable model reads
+    // uploaded images directly, so the IMAGE tools (vlm_ask/describe/ocr/detect)
+    // are dead weight and omitted. But an image-vision model still cannot
+    // process native video, so vlm_video_log stays offered unless the backbone
+    // has native VIDEO support (always false today — no catalog model does).
+    // Resolves the model the same way dispatch does (the per-turn override, else
+    // the active profile / call-site default).
+    if (isVlmImageToolName(name)) {
+      return !resolveBackboneSupportsVision(resolution);
+    }
+    if (isVlmVideoToolName(name)) {
+      return !resolveBackboneSupportsVideo(resolution);
+    }
+    // Defensive: an unclassified vlm_* tool falls back to the image gate.
+    return !resolveBackboneSupportsVision(resolution);
   }
   if (UI_SURFACE_TOOL_NAMES.has(name)) {
     if (
