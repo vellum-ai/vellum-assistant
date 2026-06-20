@@ -203,5 +203,5 @@ async function pushBundleToUrl(
   const result = (await response.json()) as { id?: string; sessionId?: string };
   const runId = result.id ?? result.sessionId ?? sessionId;
   console.log(`Pushed session ${sessionId} → ${outUrl} (run id: ${runId})`);
-  console.log(`View at: ${outUrl.replace(/\/+$/, "")}/evals/${runId}`);
+  console.log(`View at: ${outUrl.replace(/\/+$/, "")}/evals/runs/${runId}`);
 }
