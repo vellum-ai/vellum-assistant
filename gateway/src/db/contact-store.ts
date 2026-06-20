@@ -115,6 +115,15 @@ export class ContactStore {
     const conditions = [];
     if (opts?.role) conditions.push(eq(contacts.role, opts.role));
 
+    // When contactType filter is applied post-join (it's an assistant-owned
+    // field not in the gateway DB), we over-fetch to compensate for contacts
+    // that will be filtered out. Fetch up to 5x the requested limit, capped
+    // at 500, so contactType=assistant doesn't return an empty page when the
+    // first N contacts are all human.
+    const fetchLimit = opts?.contactType
+      ? Math.min(effectiveLimit * 5, 500)
+      : effectiveLimit;
+
     // Step 1: Select contact IDs with the limit applied to CONTACTS (not
     // joined channel rows). The daemon path limits contact rows before
     // fetching channels — we match that to avoid returning fewer contacts
@@ -127,7 +136,7 @@ export class ContactStore {
         sql`${contacts.role} = 'guardian' DESC`,
         desc(contacts.updatedAt),
       )
-      .limit(effectiveLimit)
+      .limit(fetchLimit)
       .all();
 
     if (contactRows.length === 0) return [];

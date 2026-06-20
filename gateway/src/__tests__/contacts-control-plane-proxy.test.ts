@@ -819,7 +819,7 @@ describe("handleGetContact (gateway-native)", () => {
     expect(body.error.code).toBe("NOT_FOUND");
   });
 
-  test("includes assistantMetadata for assistant contactType", async () => {
+  test("includes assistantMetadata with contactId for assistant contactType", async () => {
     const mockContact = {
       ...DEFAULT_MOCK_CONTACT,
       id: "c1",
@@ -836,6 +836,7 @@ describe("handleGetContact (gateway-native)", () => {
 
     const body = await res.json();
     expect(body.assistantMetadata).toEqual({
+      contactId: "c1",
       species: "vellum",
       metadata: { assistantId: "asst_1" },
     });

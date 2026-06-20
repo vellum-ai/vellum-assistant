@@ -500,8 +500,12 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
         // Match the daemon's response shape: { ok, contact, assistantMetadata }
         const payload = toContactPayload(contact);
         const assistantMetadata =
-          contact.contactType === "assistant"
-            ? contact.assistantMetadata
+          contact.contactType === "assistant" && contact.assistantMetadata
+            ? {
+                contactId: contact.id,
+                species: contact.assistantMetadata.species,
+                metadata: contact.assistantMetadata.metadata,
+              }
             : undefined;
         return Response.json({
           ok: true,
