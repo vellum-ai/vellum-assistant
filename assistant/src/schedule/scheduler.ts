@@ -1,3 +1,4 @@
+import { getConfig } from "../config/loader.js";
 import {
   checkDiskPressureBackgroundGate,
   diskPressureBackgroundSkipLogFields,
@@ -84,14 +85,6 @@ const TICK_INTERVAL_MS = 15_000;
  * ≈ 5 minutes of total retry window.
  */
 const WAKE_MAX_RETRIES = 20;
-
-/**
- * Hard timeout for `talk`-mode scheduled jobs. Schedules can do
- * non-trivial work (research, summarize the day, etc.), so the cap is
- * generous; it exists primarily so a wedged turn cannot block the next
- * scheduler tick indefinitely. Mirrors the heartbeat/filing budgets.
- */
-const SCHEDULE_TALK_TIMEOUT_MS = 30 * 60 * 1000;
 
 /**
  * Apply retry policy on schedule-execution failure. Retries are scheduled by
@@ -718,7 +711,10 @@ export async function runScheduleDueWorkOnce(
         ...(job.inferenceProfile
           ? { overrideProfile: job.inferenceProfile }
           : {}),
-        timeoutMs: SCHEDULE_TALK_TIMEOUT_MS,
+        // Hard timeout for talk-mode scheduled turns: bounds a wedged turn so
+        // it cannot block the next scheduler tick. Configurable via
+        // timeouts.scheduleTurnTimeoutSec (default 1800s).
+        timeoutMs: getConfig().timeouts.scheduleTurnTimeoutSec * 1000,
         origin: "schedule",
         groupId: "system:scheduled",
         conversationType: "scheduled",

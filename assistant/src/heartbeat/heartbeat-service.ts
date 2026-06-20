@@ -46,7 +46,6 @@ const DEFAULT_CHECKLIST = `- Check in with yourself. Read NOW.md. Is it still ac
 
 const EARLY_HEARTBEAT_THRESHOLD = 3;
 const REENGAGEMENT_COOLDOWN_MS = 18 * 60 * 60 * 1000; // 18 hours
-const HEARTBEAT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 // Stripped-comment form of the guardian persona scaffold. Computed
 // once at module load because stripping comment lines is deterministic
@@ -774,8 +773,8 @@ export class HeartbeatService {
     //
     // The runner fires `onConversationCreated` synchronously after
     // bootstrap so the macOS sidebar gets the new conversation
-    // immediately rather than waiting up to HEARTBEAT_TIMEOUT_MS for
-    // the LLM turn to finish. If the model judges the run worth
+    // immediately rather than waiting up to the full background-turn timeout
+    // for the LLM turn to finish. If the model judges the run worth
     // surfacing to the guardian, it calls the `notifications` skill
     // directly — no in-band marker.
     let conversationId: string | undefined;
@@ -789,7 +788,7 @@ export class HeartbeatService {
         trustClass: "guardian",
       },
       callSite: "heartbeatAgent",
-      timeoutMs: HEARTBEAT_TIMEOUT_MS,
+      timeoutMs: getConfig().timeouts.backgroundTurnTimeoutSec * 1000,
       origin: "heartbeat",
       deferNotifications: true,
       onConversationCreated: (newConversationId) => {
