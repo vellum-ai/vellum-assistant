@@ -15,7 +15,11 @@ import {
   assistantDbRun,
 } from "../../db/assistant-db-proxy.js";
 import { getGatewayDb } from "../../db/connection.js";
-import { ContactStore, type ContactWithInfo } from "../../db/contact-store.js";
+import {
+  ContactStore,
+  CannotRevokeBlockedError,
+  type ContactWithInfo,
+} from "../../db/contact-store.js";
 import { contacts } from "../../db/schema.js";
 import { fetchImpl } from "../../fetch.js";
 import { ipcCallAssistant } from "../../ipc/assistant-client.js";
@@ -560,11 +564,163 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       return forward(req, "/v1/contacts/merge");
     },
 
+    /**
+     * PATCH /v1/contact-channels/:id — gateway-native channel status/policy
+     * update.
+     *
+     * Updates the channel in the gateway DB (ACL source of truth) and
+     * best-effort dual-writes to the assistant DB. Returns the parent
+     * contact via getContactWithInfo so the UI gets the full updated shape.
+     */
     async handleUpdateContactChannel(
       req: Request,
       contactChannelId: string,
     ): Promise<Response> {
-      return forward(req, `/v1/contact-channels/${contactChannelId}`);
+      let body: Record<string, unknown>;
+      try {
+        body = (await req.json()) as Record<string, unknown>;
+      } catch {
+        return Response.json(
+          {
+            error: {
+              code: "BAD_REQUEST",
+              message: "Request body must be valid JSON",
+            },
+          },
+          { status: 400 },
+        );
+      }
+
+      const status = body.status as string | undefined;
+      const policy = body.policy as string | undefined;
+      const reason = (body.reason as string | null | undefined) ?? null;
+
+      if (status !== undefined && !isChannelStatus(status)) {
+        return Response.json(
+          {
+            error: {
+              code: "BAD_REQUEST",
+              message: `Invalid status "${status}". Must be one of: ${VALID_CHANNEL_STATUSES.join(", ")}`,
+            },
+          },
+          { status: 400 },
+        );
+      }
+
+      if (policy !== undefined && !isChannelPolicy(policy)) {
+        return Response.json(
+          {
+            error: {
+              code: "BAD_REQUEST",
+              message: `Invalid policy "${policy}". Must be one of: ${VALID_CHANNEL_POLICIES.join(", ")}`,
+            },
+          },
+          { status: 400 },
+        );
+      }
+
+      if (status === undefined && policy === undefined) {
+        return Response.json(
+          {
+            error: {
+              code: "BAD_REQUEST",
+              message: "At least one of status or policy must be provided",
+            },
+          },
+          { status: 400 },
+        );
+      }
+
+      try {
+        const store = new ContactStore();
+        const updated = store.updateChannelStatus(contactChannelId, {
+          status,
+          policy,
+          reason,
+        });
+
+        if (!updated) {
+          return Response.json(
+            {
+              error: {
+                code: "NOT_FOUND",
+                message: `Channel "${contactChannelId}" not found`,
+              },
+            },
+            { status: 404 },
+          );
+        }
+
+        // Best-effort dual-write to assistant DB.
+        const dualWriteParams: {
+          status?: string;
+          policy?: string;
+          revokedReason?: string | null;
+          blockedReason?: string | null;
+        } = {};
+        if (status !== undefined) {
+          dualWriteParams.status = status;
+          dualWriteParams.revokedReason =
+            status === "revoked" ? reason : null;
+          dualWriteParams.blockedReason =
+            status === "blocked" ? reason : null;
+        }
+        if (policy !== undefined) dualWriteParams.policy = policy;
+
+        try {
+          await store.dualWriteChannelStatusToAssistantDb(
+            contactChannelId,
+            dualWriteParams,
+          );
+        } catch (err) {
+          log.warn(
+            { contactChannelId, err },
+            "update_channel: assistant DB dual-write failed (best-effort)",
+          );
+        }
+
+        // Emit contacts_changed so connected clients refresh.
+        void ipcCallAssistant("emit_event", {
+          body: { kind: "contacts_changed" },
+        } as unknown as Record<string, unknown>).catch(() => {});
+
+        // Return the parent contact with info join, matching the daemon's
+        // response shape.
+        const contact = await store.getContactWithInfo(updated.contactId);
+        log.info(
+          { contactChannelId, contactId: updated.contactId, status, policy },
+          "update_channel: handled natively",
+        );
+        return Response.json({
+          ok: true,
+          contact: contact ? toContactPayload(contact) : undefined,
+        });
+      } catch (err) {
+        if (err instanceof CannotRevokeBlockedError) {
+          return Response.json(
+            {
+              error: {
+                code: "CONFLICT",
+                message: err.message,
+              },
+            },
+            { status: 409 },
+          );
+        }
+        log.error(
+          { contactChannelId, err },
+          "update_channel: gateway-native update failed",
+        );
+        return Response.json(
+          {
+            error: {
+              code: "INTERNAL_ERROR",
+              message: "Failed to update channel",
+            },
+          },
+          { status: 500 },
+        );
+      }
     },
 
     /**

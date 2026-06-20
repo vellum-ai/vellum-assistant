@@ -327,6 +327,120 @@ export class ContactStore {
   }
 
   /**
+   * Update a channel's status and/or policy in the gateway DB, then
+   * best-effort dual-write to the assistant DB.
+   *
+   * Returns the updated channel, or null if not found in the gateway DB.
+   * Throws if a blocked channel is being revoked (caller maps to 409).
+   *
+   * `revokedReason` / `blockedReason` are set based on the new status:
+   *   - status="revoked" → revokedReason = reason ?? null, blockedReason = null
+   *   - status="blocked" → blockedReason = reason ?? null, revokedReason = null
+   *   - any other status → both reasons cleared to null
+   *   - status unchanged → reasons left untouched (pass undefined)
+   */
+  updateChannelStatus(
+    channelId: string,
+    params: {
+      status?: string;
+      policy?: string;
+      reason?: string | null;
+    },
+  ): ContactChannel | null {
+    const existing = this.db
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, channelId))
+      .get();
+
+    if (!existing) return null;
+
+    // Guard: cannot revoke a blocked channel.
+    if (params.status === "revoked" && existing.status === "blocked") {
+      throw new CannotRevokeBlockedError(channelId);
+    }
+
+    const now = Date.now();
+    const updateSet: Record<string, unknown> = { updatedAt: now };
+
+    if (params.status !== undefined) {
+      updateSet.status = params.status;
+      if (params.status === "revoked") {
+        updateSet.revokedReason = params.reason ?? null;
+        updateSet.blockedReason = null;
+      } else if (params.status === "blocked") {
+        updateSet.blockedReason = params.reason ?? null;
+        updateSet.revokedReason = null;
+      } else {
+        updateSet.revokedReason = null;
+        updateSet.blockedReason = null;
+      }
+    }
+
+    if (params.policy !== undefined) {
+      updateSet.policy = params.policy;
+    }
+
+    this.db
+      .update(contactChannels)
+      .set(updateSet)
+      .where(eq(contactChannels.id, channelId))
+      .run();
+
+    return this.db
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, channelId))
+      .get()!;
+  }
+
+  /**
+   * Best-effort dual-write of a channel status/policy update to the
+   * assistant DB. The gateway DB is the source of truth; the assistant
+   * copy is a best-effort mirror. Failures are logged, not thrown.
+   */
+  async dualWriteChannelStatusToAssistantDb(
+    channelId: string,
+    params: {
+      status?: string;
+      policy?: string;
+      revokedReason?: string | null;
+      blockedReason?: string | null;
+    },
+  ): Promise<void> {
+    const setClauses: string[] = [];
+    const bind: (string | null)[] = [];
+
+    if (params.status !== undefined) {
+      setClauses.push("status = ?");
+      bind.push(params.status);
+    }
+    if (params.policy !== undefined) {
+      setClauses.push("policy = ?");
+      bind.push(params.policy);
+    }
+    if (params.revokedReason !== undefined) {
+      setClauses.push("revoked_reason = ?");
+      bind.push(params.revokedReason);
+    }
+    if (params.blockedReason !== undefined) {
+      setClauses.push("blocked_reason = ?");
+      bind.push(params.blockedReason);
+    }
+
+    if (setClauses.length === 0) return;
+
+    setClauses.push("updated_at = ?");
+    bind.push(String(Date.now()));
+    bind.push(channelId);
+
+    await assistantDbRun(
+      `UPDATE contact_channels SET ${setClauses.join(", ")} WHERE id = ?`,
+      bind,
+    );
+  }
+
+  /**
    * Increment interaction count and set lastInteraction timestamp
    * (gateway DB only).
    */
@@ -1245,4 +1359,19 @@ interface AssistantContactRow {
   lastInteraction: number | null;
   channelCreatedAt: number | null;
   channelUpdatedAt: number | null;
+}
+
+/**
+ * Thrown by `updateChannelStatus` when the caller attempts to revoke a
+ * channel that is currently blocked. The caller maps this to HTTP 409.
+ */
+export class CannotRevokeBlockedError extends Error {
+  readonly channelId: string;
+  constructor(channelId: string) {
+    super(
+      "Cannot revoke a blocked channel. Unblock it first or leave it blocked.",
+    );
+    this.name = "CannotRevokeBlockedError";
+    this.channelId = channelId;
+  }
 }
