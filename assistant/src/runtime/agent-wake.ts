@@ -1121,10 +1121,6 @@ export async function wakeAgentForOpportunity(
 
       let updatedHistory: Message[];
       try {
-        // Sync the loop's system prompt before run — one turn == one prompt.
-        // `wakePersonaOverride` (if set above) is baked into the prompt here.
-        conversation.agentLoop.systemPrompt =
-          conversation.buildCurrentSystemPrompt();
         ({ history: updatedHistory } = await conversation.agentLoop.run({
           messages: runInput,
           onEvent,

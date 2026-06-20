@@ -654,7 +654,7 @@ export interface AgentLoopConstructorOptions {
 
 export class AgentLoop {
   private provider: Provider;
-  systemPrompt: string;
+  private systemPrompt: string;
   private config: AgentLoopConfig;
   private tools: ToolDefinition[];
   private resolveTools: ((history: Message[]) => ToolDefinition[]) | null;
@@ -906,6 +906,12 @@ export class AgentLoop {
       modelProfileKey = null,
       model: runModel,
     } = options;
+    // Snapshot the system prompt once per run. The instance field is mutable
+    // (the conversation may update it between turns), but a single run must
+    // use one consistent prompt — an aborted run left detached after the
+    // watchdog rejects must not pick up a later turn's prompt on its next
+    // provider call.
+    const runSystemPrompt = this.systemPrompt;
     let history = [...messages];
     // Index into `history` where this run's appended output begins. It starts
     // after the input and resets to the new base whenever the loop rewrites the
@@ -1213,11 +1219,6 @@ export class AgentLoop {
           ? this.resolveTools(history)
           : this.tools;
 
-        // System prompt and model are resolved once per run — the caller
-        // sets `this.systemPrompt` before invoking the loop, and `model`
-        // arrives as a run option. Re-resolving mid-loop would bust the
-        // provider's prefix cache.
-        //
         // Field precedence (highest wins):
         //   1. Per-run explicit (`runModel`)
         //   2. Call-site resolved values (filled by
@@ -1336,7 +1337,7 @@ export class AgentLoop {
           currentTools.length > 0 ? estimateToolsTokens(currentTools) : 0;
         const preSendEstimatedTokens = estimatePromptTokensRaw(
           history,
-          this.systemPrompt,
+          runSystemPrompt,
           {
             providerName: getCalibrationProviderKey(this.provider),
             toolTokenBudget,
@@ -1368,7 +1369,7 @@ export class AgentLoop {
         // type through unchanged.
         const providerOptions: SendMessageOptions = {
           tools: currentTools.length > 0 ? currentTools : undefined,
-          systemPrompt: this.systemPrompt,
+          systemPrompt: runSystemPrompt,
           config: providerConfig,
           onEvent: (event) => {
             if (event.type === "text_delta") {
