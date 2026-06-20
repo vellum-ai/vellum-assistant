@@ -1111,6 +1111,35 @@ export function getLinkedAttachmentIdsForMessage(
 }
 
 /**
+ * Whether an attachment is linked to a message in the given conversation.
+ *
+ * Access-control check for callers that resolve a model-supplied attachment id
+ * (e.g. the vision-perception `vlm_*` tools' `media_ref`): an attachment is only
+ * readable from the conversation it belongs to. A crafted id from another
+ * conversation/channel must not resolve to bytes. Uses an indexed `EXISTS`
+ * join so it stays cheap and never reads file contents.
+ *
+ * Returns `false` for an empty/missing id or one with no link to the
+ * conversation, so callers fail closed.
+ */
+export function isAttachmentInConversation(
+  attachmentId: string,
+  conversationId: string,
+): boolean {
+  if (!attachmentId || !conversationId) return false;
+  const row = rawGet<{ linked: number }>(
+    `SELECT 1 AS linked
+     FROM message_attachments ma
+     JOIN messages m ON m.id = ma.message_id
+     WHERE ma.attachment_id = ? AND m.conversation_id = ?
+     LIMIT 1`,
+    attachmentId,
+    conversationId,
+  );
+  return row != null;
+}
+
+/**
  * Lightweight existence check — queries only the attachment ID column
  * without reading file contents from disk.
  */

@@ -29,7 +29,7 @@ import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import {
   applyVisionPerceptionMarkers,
-  resolveBackboneSupportsVision,
+  isVisionPerceptionActiveForTurn,
 } from "../plugins/defaults/vision-perception/hooks/pre-model-call.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { CompactionCircuitEvent } from "../plugins/types.js";
@@ -1461,14 +1461,18 @@ export class AgentLoop {
         // Sanitize the outbound history right before sending: drop accumulated
         // media, collapse old AX-tree snapshots, and convert historical
         // web-search results to text. See {@link preModelCallSanitize}.
-        // Then, on a SINGLE capability gate, replace every uploaded image/video
-        // with a marker naming its attachment id when the backbone cannot see
-        // media natively (`supportsVision === false`), so the model never
-        // receives raw bytes it cannot read and instead reaches for the vlm_*
-        // tools. A vision-capable backbone leaves all media intact (inert).
-        // Keyed on the routed profile resolved above so the marker decision
-        // matches the FINAL backbone the `pre-model-call` hook chain selected.
-        // Operates on a fresh sanitized COPY — durable history is never mutated.
+        // Then, when vision perception is active for this turn, replace every
+        // uploaded image/video with a marker naming its attachment id, so the
+        // model never receives raw bytes it cannot read and instead reaches for
+        // the vlm_* tools. The activation predicate is shared with the tool gate
+        // ({@link isVisionPerceptionActiveForTurn}): markers are injected only
+        // when the backbone cannot see media natively AND the visionPerception
+        // call site resolves to an enabled vision-capable provider — so an
+        // unavailable provider never strips media and leaves the model with
+        // markers but no tools. Keyed on the routed profile resolved above so
+        // the decision matches the FINAL backbone the `pre-model-call` hook
+        // chain selected. Operates on a fresh sanitized COPY — durable history
+        // is never mutated.
         const visionMarkerOpts = {
           callSite: callSite ?? null,
           overrideProfile: routedOverrideProfile,
@@ -1476,7 +1480,7 @@ export class AgentLoop {
         };
         const providerHistory = applyVisionPerceptionMarkers(
           preModelCallSanitize(history),
-          resolveBackboneSupportsVision(visionMarkerOpts),
+          !isVisionPerceptionActiveForTurn(visionMarkerOpts),
         );
 
         // The `onEvent` wrapping below applies sensitive-output placeholder

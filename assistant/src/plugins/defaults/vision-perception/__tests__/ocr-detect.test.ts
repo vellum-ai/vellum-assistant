@@ -63,11 +63,16 @@ interface FakeRow {
 
 let attachmentRows: Record<string, FakeRow> = {};
 let attachmentBytes: Record<string, Buffer> = {};
+// Maps attachment id -> the conversation it is linked to. The resolver enforces
+// this access-control scope before reading any bytes.
+let attachmentConversations: Record<string, string> = {};
 
 mock.module("../../../../memory/attachments-store.js", () => ({
   getAttachmentById: (id: string) => attachmentRows[id] ?? null,
   getAttachmentContent: (id: string) => attachmentBytes[id] ?? null,
   getFilePathForAttachment: () => null,
+  isAttachmentInConversation: (id: string, conversationId: string) =>
+    attachmentConversations[id] === conversationId,
 }));
 
 const vlmOcrTool = (await import("../tools/vlm-ocr.js")).default;
@@ -92,6 +97,8 @@ beforeEach(() => {
     },
   };
   attachmentBytes = { "att-1": PNG_4x2, "att-doc": PNG_4x2 };
+  // Both fixtures are linked to the current conversation ("c1") by default.
+  attachmentConversations = { "att-1": "c1", "att-doc": "c1" };
 });
 
 describe("vlm_ocr tool", () => {
@@ -236,5 +243,22 @@ describe("vlm_detect tool", () => {
 
     expect(result?.isError).toBe(true);
     expect(result?.content).toContain("No attachment found");
+  });
+});
+
+describe("conversation isolation (cross-conversation media_ref)", () => {
+  test("vlm_ocr and vlm_detect reject an id linked to a DIFFERENT conversation", async () => {
+    // The attachment row + bytes exist, but the link points at another
+    // conversation. A model that supplies this crafted id must get an error.
+    attachmentConversations = { "att-1": "other-conv" };
+    responseText = '{"detections": []}';
+
+    const ocr = await vlmOcrTool.execute?.({ media_ref: "att-1" }, ctx);
+    expect(ocr?.isError).toBe(true);
+    expect(ocr?.content).toContain("No attachment found");
+
+    const detect = await vlmDetectTool.execute?.({ media_ref: "att-1" }, ctx);
+    expect(detect?.isError).toBe(true);
+    expect(detect?.content).toContain("No attachment found");
   });
 });

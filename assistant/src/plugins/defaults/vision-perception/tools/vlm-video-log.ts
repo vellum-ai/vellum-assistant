@@ -171,7 +171,7 @@ const vlmVideoLogTool: ToolDefinition = {
           : undefined;
       const window = parseWindow(input.window);
 
-      const { video } = await resolveVisionVideo(mediaRef, {
+      const { video } = await resolveVisionVideo(mediaRef, ctx.conversationId, {
         ...(sample ? { sample } : {}),
         ...(window ? { window } : {}),
         ...(ctx.signal ? { signal: ctx.signal } : {}),

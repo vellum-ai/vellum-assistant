@@ -33,9 +33,19 @@ mock.module("../../../../memory/attachments-store.js", () => ({
   getAttachmentById: (id: string) => attachmentRows[id] ?? null,
 }));
 
+// Whether the visionPerception call site resolves to an enabled vision-capable
+// provider. The shared `isVisionPerceptionActiveForTurn` predicate folds this in
+// alongside the backbone capability. Configurable per test.
+let visionProviderAvailable = true;
+mock.module("../src/vision-capability.js", () => ({
+  isVisionPerceptionProviderAvailable: () => visionProviderAvailable,
+  VISION_CALL_SITE: "visionPerception",
+}));
+
 const {
   applyVisionPerceptionMarkers,
   resolveBackboneSupportsVision,
+  isVisionPerceptionActiveForTurn,
   isVlmToolName,
 } = await import("../hooks/pre-model-call.js");
 
@@ -86,6 +96,7 @@ const supportsVision = () => resolveBackboneSupportsVision(resolutionOpts);
 
 beforeEach(() => {
   flagEnabled = true;
+  visionProviderAvailable = true;
   resolvedProviderModel = { ...VISION_MODEL };
   attachmentRows = {
     "att-1": { originalFilename: "photo.png", kind: "image" },
@@ -281,5 +292,44 @@ describe("feature flag gating", () => {
     flagEnabled = true;
     resolvedProviderModel = { ...NON_VISION_MODEL };
     expect(gate()).toBe(false);
+  });
+});
+
+// The single predicate both per-turn gates (tool offer + marker rewrite) share,
+// so they can never drift. Active only when the backbone is text-only AND the
+// visionPerception provider is available.
+describe("isVisionPerceptionActiveForTurn (shared gate)", () => {
+  const active = () => isVisionPerceptionActiveForTurn(resolutionOpts);
+
+  test("text-only backbone + provider available → active", () => {
+    resolvedProviderModel = { ...NON_VISION_MODEL };
+    visionProviderAvailable = true;
+    expect(active()).toBe(true);
+  });
+
+  test("text-only backbone + provider UNAVAILABLE → inactive (no markers, no tools)", () => {
+    resolvedProviderModel = { ...NON_VISION_MODEL };
+    visionProviderAvailable = false;
+    expect(active()).toBe(false);
+
+    // The marker rewrite is driven off `!active` as the loop passes it: with the
+    // feature inactive, media is left intact rather than stripped to a marker
+    // pointing at tools the model was never offered.
+    const messages = [imageMessage("att-1")];
+    expect(applyVisionPerceptionMarkers(messages, !active())).toBe(messages);
+    expect(messages[0].content[1]).toMatchObject({ type: "image" });
+  });
+
+  test("vision-capable backbone → inactive regardless of provider availability", () => {
+    resolvedProviderModel = { ...VISION_MODEL };
+    visionProviderAvailable = true;
+    expect(active()).toBe(false);
+  });
+
+  test("flag off → inactive even on a text-only backbone with provider available", () => {
+    flagEnabled = false;
+    resolvedProviderModel = { ...NON_VISION_MODEL };
+    visionProviderAvailable = true;
+    expect(active()).toBe(false);
   });
 });

@@ -33,7 +33,7 @@ mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => true,
 }));
 
-const { rehydrateAttachmentIds, backfillAttachmentId } =
+const { rehydrateAttachmentIds, backfillAttachmentId, retagAttachmentId } =
   await import("./attachments.js");
 const { applyVisionPerceptionMarkers } =
   await import("../plugins/defaults/vision-perception/hooks/pre-model-call.js");
@@ -157,6 +157,34 @@ describe("rehydrateAttachmentIds", () => {
       { position: 2, attachmentId: "vid-0" },
     ]);
     expect((message.content[0] as ImageContent)._attachmentId).toBe("att-0");
+  });
+});
+
+describe("retagAttachmentId vs backfillAttachmentId", () => {
+  test("retagAttachmentId overwrites an existing id (the conversation-scoped id)", () => {
+    const block = imageBlock();
+    block._attachmentId = "source-id";
+    const message: Message = { role: "user", content: [block] };
+
+    retagAttachmentId(message, 0, "scoped-id");
+    expect(block._attachmentId).toBe("scoped-id");
+  });
+
+  test("backfillAttachmentId leaves an existing id untouched (fills only a gap)", () => {
+    const block = imageBlock();
+    block._attachmentId = "source-id";
+    const message: Message = { role: "user", content: [block] };
+
+    backfillAttachmentId(message, 0, "scoped-id");
+    expect(block._attachmentId).toBe("source-id");
+  });
+
+  test("retagAttachmentId fills a gap when no id is present", () => {
+    const block = imageBlock();
+    const message: Message = { role: "user", content: [block] };
+
+    retagAttachmentId(message, 0, "scoped-id");
+    expect(block._attachmentId).toBe("scoped-id");
   });
 });
 

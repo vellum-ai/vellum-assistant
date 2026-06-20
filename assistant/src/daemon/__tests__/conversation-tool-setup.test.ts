@@ -85,20 +85,27 @@ mock.module("../../config/vision-perception-flag.js", () => ({
   isVisionPerceptionEnabled: () => visionFlagEnabled,
   VISION_PERCEPTION_FLAG_KEY: "vision-perception",
 }));
-// Stub only the resolver; keep the real name predicate (isVlmToolName) so the
-// gate routing is exercised against the actual tool-name set.
+// Stub the resolver and the shared activation predicate (the tool gate calls the
+// latter directly); keep the real name predicate (isVlmToolName) so the gate
+// routing is exercised against the actual tool-name set. The shared predicate is
+// modeled here exactly as production composes it: text-only backbone (`!supports
+// Vision`) AND the visionPerception provider available.
 const realPreModelCall =
   await import("../../plugins/defaults/vision-perception/hooks/pre-model-call.js");
+const resolveBackboneSupportsVisionStub = (opts: {
+  overrideProfile: string | null;
+}) => {
+  backboneResolutionProfiles.push(opts.overrideProfile);
+  return backboneSupportsVision;
+};
 mock.module(
   "../../plugins/defaults/vision-perception/hooks/pre-model-call.js",
   () => ({
     ...realPreModelCall,
-    resolveBackboneSupportsVision: (opts: {
+    resolveBackboneSupportsVision: resolveBackboneSupportsVisionStub,
+    isVisionPerceptionActiveForTurn: (opts: {
       overrideProfile: string | null;
-    }) => {
-      backboneResolutionProfiles.push(opts.overrideProfile);
-      return backboneSupportsVision;
-    },
+    }) => !resolveBackboneSupportsVisionStub(opts) && visionProviderAvailable,
   }),
 );
 // Stub the BYOK availability check (the visionPerception provider resolution).

@@ -52,16 +52,21 @@ interface FakeRow {
   kind: string;
 }
 
-// The store stub is configurable per-test: `attachmentRows` maps id -> row, and
-// `attachmentBytes` maps id -> bytes. A missing id resolves to null (mirroring
-// the real store's not-found behavior).
+// The store stub is configurable per-test: `attachmentRows` maps id -> row,
+// `attachmentBytes` maps id -> bytes, and `attachmentConversations` maps id ->
+// the conversation it is linked to (the access-control scope the resolver
+// enforces). A missing id resolves to null (mirroring the real store's
+// not-found behavior).
 let attachmentRows: Record<string, FakeRow> = {};
 let attachmentBytes: Record<string, Buffer> = {};
+let attachmentConversations: Record<string, string> = {};
 
 mock.module("../../../../memory/attachments-store.js", () => ({
   getAttachmentById: (id: string) => attachmentRows[id] ?? null,
   getAttachmentContent: (id: string) => attachmentBytes[id] ?? null,
   getFilePathForAttachment: () => null,
+  isAttachmentInConversation: (id: string, conversationId: string) =>
+    attachmentConversations[id] === conversationId,
 }));
 
 const vlmAskTool = (await import("../tools/vlm-ask.js")).default;
@@ -88,6 +93,9 @@ beforeEach(() => {
     },
   };
   attachmentBytes = { "att-1": PNG_BYTES, "att-doc": PNG_BYTES };
+  // Both fixtures are linked to the current conversation ("c1") by default, so
+  // the access-control check passes; per-test overrides exercise the rejection.
+  attachmentConversations = { "att-1": "c1", "att-doc": "c1" };
 });
 
 describe("vlm_ask tool", () => {
@@ -209,5 +217,48 @@ describe("vlm_describe tool", () => {
 
     expect(result?.isError).toBe(true);
     expect(result?.content).toContain("not an image");
+  });
+});
+
+describe("conversation isolation (cross-conversation media_ref)", () => {
+  test("resolves an attachment linked to the current conversation", async () => {
+    // att-1 belongs to "c1", which is ctx.conversationId — the read proceeds.
+    const result = await vlmAskTool.execute?.(
+      { media_ref: "att-1", question: "What is in this image?" },
+      ctx,
+    );
+
+    expect(result?.isError).toBe(false);
+    expect(sendMessageArgs).not.toBeNull();
+  });
+
+  test("rejects an attachment id linked to a DIFFERENT conversation, reading no bytes", async () => {
+    // The attachment row + bytes exist, but the link points at another
+    // conversation ("other-conv"). A model that supplies this crafted id must
+    // get an error and NO bytes may be read or sent.
+    attachmentConversations = { "att-1": "other-conv" };
+
+    const result = await vlmAskTool.execute?.(
+      { media_ref: "att-1", question: "What is in this image?" },
+      ctx,
+    );
+
+    expect(result?.isError).toBe(true);
+    expect(result?.content).toContain("No attachment found");
+    // Fail closed: the cross-conversation bytes never reach the vision model.
+    expect(sendMessageArgs).toBeNull();
+  });
+
+  test("rejects an unlinked attachment id across all image tools", async () => {
+    attachmentConversations = {};
+    for (const tool of [vlmAskTool, vlmDescribeTool]) {
+      sendMessageArgs = null;
+      const result = await tool.execute?.(
+        { media_ref: "att-1", question: "?" },
+        ctx,
+      );
+      expect(result?.isError).toBe(true);
+      expect(sendMessageArgs).toBeNull();
+    }
   });
 });

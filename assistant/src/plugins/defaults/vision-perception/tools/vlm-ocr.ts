@@ -119,7 +119,7 @@ const vlmOcrTool: ToolDefinition = {
       const region = normalizeBox(input.region);
       const layout = input.layout === true;
 
-      const media = await resolveVisionMedia(mediaRef);
+      const media = await resolveVisionMedia(mediaRef, ctx.conversationId);
       const imageSize = imageSizeFromBlock(media.block, media.mimeType);
       const prompt = buildOcrPrompt(region, layout);
       const answer = await callVisionModelWithBlock(media.block, prompt, ctx);

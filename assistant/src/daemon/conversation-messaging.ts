@@ -11,6 +11,7 @@ import {
   backfillAttachmentId,
   enrichMessageWithSourcePaths,
   type MessageAttachmentInput,
+  retagAttachmentId,
 } from "../agent/attachments.js";
 import { createUserMessage } from "../agent/message-types.js";
 import type {
@@ -580,7 +581,19 @@ export async function persistQueuedMessageBody(
         // re-uploading. This handles the case where data is empty because
         // the attachment content lives on disk.
         if (a.id && attachmentExists(a.id)) {
-          linkAttachmentToMessage(persistedUserMessage.id, a.id, i);
+          // Linking scopes the attachment to this conversation, cloning it
+          // (and minting a new id) when the source id belongs to another
+          // conversation. Backfill the scoped id onto the in-memory block so a
+          // media_ref the model surfaces resolves under the current
+          // conversation rather than the original (other-conversation) id.
+          const scopedId = linkAttachmentToMessage(
+            persistedUserMessage.id,
+            a.id,
+            i,
+          );
+          if (scopedId !== a.id) {
+            retagAttachmentId(llmMessage, i, scopedId);
+          }
           continue;
         }
 

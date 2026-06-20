@@ -29,6 +29,7 @@ import {
   getAttachmentsByIds,
   getAttachmentsForMessage,
   getFilePathForAttachment,
+  isAttachmentInConversation,
   isValidBase64,
   linkAttachmentToMessage,
   MAX_UPLOAD_BYTES,
@@ -464,6 +465,51 @@ describe("linkAttachmentToMessage + getAttachmentsForMessage", () => {
 
     const linked = getAttachmentsForMessage(msg.id);
     expect(linked).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isAttachmentInConversation — cross-conversation access-control check
+// ---------------------------------------------------------------------------
+
+describe("isAttachmentInConversation", () => {
+  beforeEach(resetTables);
+
+  test("returns true for an attachment linked to the given conversation", async () => {
+    const conv = createConversation();
+    const msg = await addMessage(conv.id, "user", "Here is a photo");
+    const stored = uploadAttachment("photo.png", "image/png", "iVBORw0K");
+    const linkedId = linkAttachmentToMessage(msg.id, stored.id, 0);
+
+    expect(isAttachmentInConversation(linkedId, conv.id)).toBe(true);
+  });
+
+  test("returns false for an attachment linked to a DIFFERENT conversation", async () => {
+    // An attachment that belongs to conversation A must not be readable when the
+    // caller is scoped to conversation B — the cross-conversation leak guard.
+    const convA = createConversation();
+    const msgA = await addMessage(convA.id, "user", "A's photo");
+    const stored = uploadAttachment("a.png", "image/png", "iVBORw0K");
+    const linkedId = linkAttachmentToMessage(msgA.id, stored.id, 0);
+
+    const convB = createConversation();
+
+    expect(isAttachmentInConversation(linkedId, convB.id)).toBe(false);
+  });
+
+  test("returns false for a staged (unlinked) attachment", () => {
+    const conv = createConversation();
+    // Uploaded but never linked to a message → not in any conversation.
+    const stored = uploadAttachment("staged.png", "image/png", "iVBORw0K");
+
+    expect(isAttachmentInConversation(stored.id, conv.id)).toBe(false);
+  });
+
+  test("returns false for a nonexistent id or empty inputs", async () => {
+    const conv = createConversation();
+    expect(isAttachmentInConversation("no-such-id", conv.id)).toBe(false);
+    expect(isAttachmentInConversation("", conv.id)).toBe(false);
+    expect(isAttachmentInConversation("some-id", "")).toBe(false);
   });
 });
 

@@ -26,8 +26,9 @@ import type {
 } from "../providers/types.js";
 import { createMockProvider, textResponse } from "./helpers/mock-provider.js";
 
-// Vision flag on; BYOK provider available — so the only lever left is the
-// resolved backbone's vision capability, which we drive per routed profile.
+// Vision flag on; BYOK provider availability is a per-test lever (defaults
+// available) so we can exercise the unavailable-provider gate too.
+let visionProviderAvailable = true;
 mock.module("../config/vision-perception-flag.js", () => ({
   isVisionPerceptionEnabled: () => true,
   VISION_PERCEPTION_FLAG_KEY: "vision-perception",
@@ -35,23 +36,30 @@ mock.module("../config/vision-perception-flag.js", () => ({
 mock.module(
   "../plugins/defaults/vision-perception/src/vision-capability.js",
   () => ({
-    isVisionPerceptionProviderAvailable: () => true,
+    isVisionPerceptionProviderAvailable: () => visionProviderAvailable,
     VISION_CALL_SITE: "visionPerception",
   }),
 );
 
 // Profile-driven backbone capability: "vision" → vision-capable (feature
-// inert), "glm-text-only" (and null/unknown) → text-only (feature engages).
-// Keep every other export of the module real so the marker rewrite and the
-// vlm_* name predicate run for real.
+// inert), "glm-text-only" (and null/unknown) → text-only. Both per-turn gates
+// (tool offer + marker rewrite) key on the shared `isVisionPerceptionActiveForTurn`
+// predicate, which we model here as "text-only backbone AND provider available"
+// — exactly the real composition. Keep every other export of the module real so
+// the marker rewrite and the vlm_* name predicate run for real.
 const realVisionModule =
   await import("../plugins/defaults/vision-perception/hooks/pre-model-call.js");
+const resolveBackboneSupportsVision = (opts: {
+  overrideProfile: string | null;
+}) => opts.overrideProfile === "vision";
 mock.module(
   "../plugins/defaults/vision-perception/hooks/pre-model-call.js",
   () => ({
     ...realVisionModule,
-    resolveBackboneSupportsVision: (opts: { overrideProfile: string | null }) =>
-      opts.overrideProfile === "vision",
+    resolveBackboneSupportsVision,
+    isVisionPerceptionActiveForTurn: (opts: {
+      overrideProfile: string | null;
+    }) => !resolveBackboneSupportsVision(opts) && visionProviderAvailable,
   }),
 );
 
@@ -133,6 +141,7 @@ function markerTextOf(messages: Message[]): string {
 
 describe("agent loop — vision gating uses the final routed profile", () => {
   beforeEach(() => {
+    visionProviderAvailable = true;
     resetPluginRegistryAndRegisterDefaults();
   });
 
@@ -238,5 +247,42 @@ describe("agent loop — vision gating uses the final routed profile", () => {
     expect(toolNames).toContain("vlm_ask");
     expect(imageBlocksOf(calls[0].messages)).toHaveLength(0);
     expect(markerTextOf(calls[0].messages)).toContain('media_ref="att-1"');
+  });
+
+  test("text-only backbone but provider UNAVAILABLE — vlm_* NOT offered AND no markers injected", async () => {
+    // BYOK with the managed vision profile disabled: the visionPerception call
+    // site does not resolve to an enabled vision-capable provider, so the tool
+    // offer is withheld. The marker rewrite must gate on the SAME predicate —
+    // otherwise the model would get a marker pointing at a tool it never got.
+    visionProviderAvailable = false;
+    const { provider, calls } = createMockProvider([textResponse("done")]);
+    const recorded: { routedProfile?: string | null } = {};
+
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "vision-routing-itest",
+      tools: ALL_TOOLS,
+      resolveTools: makeResolveTools(recorded),
+    });
+
+    await loop.run({
+      requestId: "req-4",
+      messages: [imageUserMessage()],
+      onEvent: () => {},
+      callSite: "mainAgent",
+      overrideProfile: "glm-text-only",
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    expect(calls).toHaveLength(1);
+    // Tool gate: vlm_* withheld because no vision-capable provider resolves.
+    const toolNames = (calls[0].tools ?? []).map((t) => t.name);
+    expect(toolNames).not.toContain("vlm_ask");
+    expect(toolNames).toContain("read_file");
+    // Marker rewrite stays in sync: the raw image is left intact (NOT stripped
+    // to a marker that would reference a tool the model was never offered).
+    expect(imageBlocksOf(calls[0].messages)).toHaveLength(1);
+    expect(markerTextOf(calls[0].messages)).not.toContain("media_ref");
   });
 });
