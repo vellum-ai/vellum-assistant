@@ -13,6 +13,7 @@ import { getLogger } from "../util/logger.js";
 import { getLogsDbPath } from "../util/logs-db-path.js";
 import { ensureDataDir, getDbPath } from "../util/platform.js";
 import { backfillAppConversationIds } from "./app-store.js";
+import { runAsyncSqlite } from "./db-async-query.js";
 import { getDb, getSqlite } from "./db-connection.js";
 import { migrateToolCreatedItems } from "./graph/bootstrap.js";
 import { migrateCoreTables } from "./migrations/000-core-tables.js";
@@ -332,9 +333,77 @@ function saveTemplate(): void {
 
 // ---------------------------------------------------------------------------
 
+/**
+ * Off-thread WAL checkpoint, run *before* the first in-process DB open.
+ *
+ * After an unclean shutdown (SIGKILL from OOM or a failed liveness probe) the
+ * WAL is never folded back into the main database — the graceful checkpoint in
+ * `shutdown-handlers.ts` is skipped — so it can grow to hundreds of MB across
+ * crash-restarts. The first in-process `getDb()` open then runs SQLite WAL
+ * recovery synchronously on the main thread (`bun:sqlite` is blocking),
+ * stalling the event loop — including `/healthz` — for the full multi-minute
+ * scan. That trips the liveness probe and crashloops the pod.
+ *
+ * Running `wal_checkpoint(TRUNCATE)` through the `sqlite3` subprocess
+ * (`runAsyncSqlite`) first performs that recovery + fold + truncate off the
+ * event loop, so the subsequent `getDb()` open finds an empty WAL and returns
+ * cheaply. We keep `runAsyncSqlite`'s long default timeout deliberately:
+ * because the checkpoint runs off the event loop it never blocks `/healthz`,
+ * so a large WAL is allowed to flush for as long as it needs rather than
+ * timing out and falling back to a blocking open.
+ *
+ * Best-effort and non-fatal: on any failure (no `sqlite3` binary, lock
+ * contention, timeout) we return and let the caller open normally — a blocking
+ * recovery, i.e. exactly the prior behavior, never worse. The caller skips
+ * this entirely in tests (see `initializeDb`): un-awaited test callers rely on
+ * the synchronous prefix of `initializeDb` creating the DB file before the
+ * first yield, so no `await` may precede `getDb()` there.
+ */
+export async function checkpointWalBeforeOpen(): Promise<void> {
+  const log = getLogger("db-init");
+  try {
+    const result = await runAsyncSqlite("PRAGMA wal_checkpoint(TRUNCATE)");
+    if (result.ok) {
+      log.info(
+        { backend: result.backend, elapsedMs: result.elapsedMs },
+        "Pre-open WAL checkpoint complete",
+      );
+    } else {
+      log.warn(
+        {
+          backend: result.backend,
+          elapsedMs: result.elapsedMs,
+          timedOut: result.timedOut,
+          error: result.error,
+        },
+        "Pre-open WAL checkpoint failed — proceeding to blocking open",
+      );
+    }
+  } catch (err) {
+    log.warn(
+      { err },
+      "Pre-open WAL checkpoint threw — proceeding to blocking open",
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+
 export async function initializeDb(): Promise<void> {
   if (process.env.BUN_TEST === "1" && tryRestoreTemplate()) {
     return;
+  }
+
+  // Fold any post-crash WAL back into the database off the main event loop
+  // before the first open, so a large WAL can't block /healthz through a
+  // synchronous in-process WAL recovery and trip the liveness probe.
+  //
+  // Guarded so it does not even *await* in tests: `bun test` (NODE_ENV=test)
+  // callers invoke initializeDb() un-awaited and depend on getDb() (below)
+  // creating the DB file during the synchronous prefix, before the first
+  // yield. Any await ahead of getDb() would defer that and break them.
+  if (process.env.BUN_TEST !== "1" && process.env.NODE_ENV !== "test") {
+    await checkpointWalBeforeOpen();
   }
 
   const log = getLogger("db-init");
