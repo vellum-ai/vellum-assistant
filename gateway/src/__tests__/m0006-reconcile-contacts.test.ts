@@ -298,6 +298,51 @@ describe("m0006-reconcile-contacts-from-assistant", () => {
     expect(result).toBe("skip");
   });
 
+  test("skips channels that conflict by (type, address) COLLATE NOCASE", async () => {
+    // Gateway has contact c1 + a channel with address "Addr-1" (mixed case).
+    seedGatewayContact({ id: "c1" });
+    getGatewayDb().$client
+      .prepare(
+        `INSERT INTO contact_channels
+           (id, contact_id, type, address, is_primary, external_chat_id,
+            status, policy, verified_at, verified_via, invite_id,
+            revoked_reason, blocked_reason, last_seen_at,
+            interaction_count, last_interaction, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "gw-ch",
+        "c1",
+        "telegram",
+        "Addr-1",
+        0,
+        null,
+        "active",
+        "allow",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        0,
+        null,
+        300,
+        null,
+      );
+    // Assistant has a different channel ID but same (type, address) lowercase.
+    seedAssistantContact({ id: "c1" });
+    seedAssistantChannel({ id: "asst-ch", contactId: "c1", type: "telegram" });
+    // Override the address to be lowercase variant.
+    fakeAssistantDb.channels.get("asst-ch")!.address = "addr-1";
+
+    await m0006Up();
+
+    // The assistant channel was NOT inserted (case-insensitive conflict).
+    const ids = gatewayChannelIds().sort();
+    expect(ids).toEqual(["gw-ch"]); // only the original gateway channel
+  });
+
   test("mixed scenario: some contacts in gateway, some missing, with channels", async () => {
     // Contact in both DBs
     seedGatewayContact({ id: "shared" });

@@ -148,18 +148,48 @@ export async function up(): Promise<MigrationResult> {
         .map((r) => (r as { id: string }).id),
     );
 
+    // ── 6b. Get existing (type, address) pairs from gateway ─────────────
+    // The gateway has a UNIQUE(type, address) index. An assistant channel may
+    // have a new ID but match an existing gateway channel by (type, address)
+    // under COLLATE NOCASE (the legacy lowercasing case). INSERT OR IGNORE
+    // would silently drop the row, but the gateway keeps its old ID —
+    // potentially orphaning the assistant channel's reference and reintroducing
+    // duplicate actors after m0005. We skip channels whose (type, address)
+    // already exists in gateway (case-insensitive) regardless of ID match.
+    const gatewayChannelKeys = new Set(
+      gwDb
+        .prepare(
+          "SELECT type || '|' || lower(address) AS key FROM contact_channels",
+        )
+        .all()
+        .map((r) => (r as { key: string }).key),
+    );
+
     // ── 7. Insert missing channels into gateway ──────────────────────────
     // Only insert channels whose parent contact now exists in gateway
     // (either it was already there or we just reconciled it above).
-    const missingChannels = assistantChannels.filter(
-      (ch) =>
-        !gatewayChannelIds.has(ch.id) &&
-        // Parent contact must exist in gateway — if the assistant has an
-        // orphaned channel with no matching contact, skip it rather than
-        // create a FK violation.
-        (gatewayContactIds.has(ch.contact_id) ||
-          missingContacts.some((c) => c.id === ch.contact_id)),
-    );
+    // Skip channels that already exist by (type, address) COLLATE NOCASE
+    // to avoid unique-index conflicts and duplicate actors.
+    const missingChannels = assistantChannels.filter((ch) => {
+      if (gatewayChannelIds.has(ch.id)) return false;
+      // Parent contact must exist in gateway — if the assistant has an
+      // orphaned channel with no matching contact, skip it rather than
+      // create a FK violation.
+      const parentInGateway =
+        gatewayContactIds.has(ch.contact_id) ||
+        missingContacts.some((c) => c.id === ch.contact_id);
+      if (!parentInGateway) return false;
+      // Skip if (type, address) already exists in gateway under COLLATE NOCASE.
+      const key = `${ch.type}|${ch.address.toLowerCase()}`;
+      if (gatewayChannelKeys.has(key)) {
+        log.info(
+          { channelId: ch.id, type: ch.type, address: ch.address },
+          "m0006: skipping channel — (type, address) already exists in gateway (case-insensitive match), avoiding unique-index conflict",
+        );
+        return false;
+      }
+      return true;
+    });
 
     if (missingChannels.length > 0) {
       const insertChannel = gwDb.prepare(
