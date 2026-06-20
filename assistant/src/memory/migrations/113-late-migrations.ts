@@ -1,4 +1,3 @@
-import type { DrizzleDb } from "../db-connection.js";
 import { migrateMemoryFtsBackfill } from "./003-memory-fts-backfill.js";
 import { migrateGuardianActionTables } from "./013-guardian-action-tables.js";
 import { migrateMemorySegmentsIndexes } from "./016-memory-segments-indexes.js";
@@ -10,21 +9,24 @@ import { migrateAddOriginInterface } from "./022-add-origin-interface.js";
 import { migrateMemoryItemSourcesIndexes } from "./023-memory-item-sources-indexes.js";
 import { migrateEmbeddingVectorBlob } from "./024-embedding-vector-blob.js";
 import { migrateEmbeddingsNullableVectorJson } from "./026a-embeddings-nullable-vector-json.js";
+import type { MigrationStep } from "./run-migrations.js";
 
 /**
  * Late-stage migrations that must run after all tables and indexes exist:
  * guardian action tables, FTS backfill, index migrations, and channel renames.
+ * Spread into the boot migration list so each runs — and is checkpointed — as
+ * its own step.
  */
-export function runLateMigrations(database: DrizzleDb): void {
-  migrateGuardianActionTables(database);
-  migrateMemoryFtsBackfill(database);
-  migrateMemorySegmentsIndexes(database);
-  migrateMemoryItemsIndexes(database);
-  migrateRemainingTableIndexes(database);
-  migrateRenameChannelToVellum(database);
-  migrateConversationStatusIndexes(database);
-  migrateAddOriginInterface(database);
-  migrateMemoryItemSourcesIndexes(database);
-  migrateEmbeddingVectorBlob(database);
-  migrateEmbeddingsNullableVectorJson(database);
-}
+export const lateMigrationSteps: MigrationStep[] = [
+  migrateGuardianActionTables,
+  migrateMemoryFtsBackfill,
+  migrateMemorySegmentsIndexes,
+  migrateMemoryItemsIndexes,
+  migrateRemainingTableIndexes,
+  migrateRenameChannelToVellum,
+  migrateConversationStatusIndexes,
+  migrateAddOriginInterface,
+  migrateMemoryItemSourcesIndexes,
+  migrateEmbeddingVectorBlob,
+  migrateEmbeddingsNullableVectorJson,
+];

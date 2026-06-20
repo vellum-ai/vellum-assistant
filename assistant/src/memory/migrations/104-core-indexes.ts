@@ -95,7 +95,7 @@ export function createCoreIndexes(database: DrizzleDb): void {
     /*sql*/ `DROP INDEX IF EXISTS idx_memory_embeddings_provider_model`,
   );
   // Ensure a unique constraint exists on (target_type, target_id, provider, model).
-  // New databases get this via the table-level UNIQUE in 100-core-tables.ts (autoindex),
+  // New databases get this via the table-level UNIQUE in 000-core-tables.ts (autoindex),
   // but for pre-100 databases where CREATE TABLE IF NOT EXISTS was a no-op, the autoindex
   // doesn't exist. Always create the named index — it's a no-op if it already exists and
   // harmless if an autoindex also covers these columns.

@@ -147,6 +147,8 @@ We have real users — maintain backwards compatibility for all interfaces, pers
 
 Migrations must be **idempotent** (safe to re-run if interrupted) and **append-only** (never reorder or remove existing entries). Test migrations — see `assistant/src/__tests__/workspace-migration-*.test.ts` and `assistant/src/__tests__/db-*.test.ts` for patterns. Flag breaking changes in PR descriptions. If a migration is infeasible, call it out explicitly for human review.
 
+DB migration steps registered in `db-init.ts` are checkpointed by function name in the shared `memory_checkpoints` ledger (under the `step:` namespace) and run at most once per database, so each step needs a stable, non-empty name. Add a new migration as its own entry in the list — groups like `complexMigrationSteps` / `lateMigrationSteps` are spread into the list so each member is checkpointed individually. Never hide a growing set of migrations behind a single stably-named wrapper function: once that name is checkpointed the whole group is skipped, so anything added to it later never runs. Crash recovery runs unconditionally inside `runMigrationSteps` before the step loop. Rolling a migration back (`rollbackMemoryMigration`) discards all `step:` checkpoints, so a later upgrade re-runs every step and restores any schema a `down()` reversed.
+
 ## Multi-Client Assistant State Sync
 
 Persisted assistant state that must converge across macOS, web/Capacitor iOS, and CLI should use the generic `sync_changed` invalidation contract instead of adding a new bespoke server message for each resource. The event payload is `{ type: "sync_changed", tags: [...] }`; tags describe which cached resource is stale, not the new value.

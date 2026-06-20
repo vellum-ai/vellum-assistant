@@ -17,6 +17,7 @@ import { getDb, getSqlite } from "./db-connection.js";
 import { migrateToolCreatedItems } from "./graph/bootstrap.js";
 import {
   addCoreColumns,
+  complexMigrationSteps,
   createActivationSessionsTable,
   createApprovalPromptTsTrackerTable,
   createAssistantInboxTables,
@@ -27,7 +28,6 @@ import {
   createContactsAndTriageTables,
   createConversationAttentionTables,
   createCoreIndexes,
-  createCoreTables,
   createExternalConversationBindingsTables,
   createFollowupsTables,
   createLifecycleEventsTable,
@@ -42,6 +42,7 @@ import {
   createTasksAndWorkItemsTables,
   createWatchersAndLogsTables,
   dropApprovalPromptTsTrackerTable,
+  lateMigrationSteps,
   migrate230AcpSessionHistory,
   migrate231RepairMemoryGraphEventDates,
   migrateA2ATasks,
@@ -87,6 +88,7 @@ import {
   migrateConversationsLastMessageAt,
   migrateConversationsSurfacedAt,
   migrateConversationsThreadTypeIndex,
+  migrateCoreTables,
   migrateCreateConversationGraphMemoryState,
   migrateCreateDocumentComments,
   migrateCreateDocumentConversations,
@@ -232,9 +234,6 @@ import {
   migrateWorkflowJournalLeafTokens,
   migrateWorkflowRuns,
   migrateWorkflowRunTrust,
-  recoverCrashedMigrations,
-  runComplexMigrations,
-  runLateMigrations,
   validateMigrationState,
 } from "./migrations/index.js";
 import { runMigrationSteps } from "./migrations/run-migrations.js";
@@ -329,11 +328,10 @@ export function initializeDb(): void {
   // Every migration step, in execution order. Each function accepts a
   // DrizzleDb and is identified by its .name.
   const migrationSteps = [
-    createCoreTables,
-    recoverCrashedMigrations,
+    migrateCoreTables,
     createWatchersAndLogsTables,
     addCoreColumns,
-    runComplexMigrations,
+    ...complexMigrationSteps,
     createCoreIndexes,
     createContactsAndTriageTables,
     createCallSessionsTables,
@@ -347,7 +345,7 @@ export function initializeDb(): void {
     migrateGuardianVerificationPurpose,
     createMediaAssetsTables,
     createAssistantInboxTables,
-    runLateMigrations,
+    ...lateMigrationSteps,
     migrateChannelInboundDeliveredSegments,
     migrateGuardianActionFollowup,
     migrateGuardianActionToolMetadata,
@@ -563,7 +561,17 @@ export function initializeDb(): void {
 
   // Run each migration step, catching and logging individual failures so one
   // broken migration doesn't prevent independent later ones from succeeding.
-  const { failed } = runMigrationSteps(database, migrationSteps);
+  // The runner creates the checkpoint ledger, recovers crashed migrations, then
+  // records each step so an already-migrated database skips it on later boots.
+  const { failed, skipped } = runMigrationSteps(database, migrationSteps);
+
+  log.debug(
+    {
+      ranCount: migrationSteps.length - skipped.length,
+      skipped: skipped.length,
+    },
+    `DB migration steps complete (${skipped.length} skipped via checkpoint)`,
+  );
 
   if (failed.length > 0) {
     log.error(
