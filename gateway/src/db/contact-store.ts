@@ -929,6 +929,129 @@ export class ContactStore {
     };
   }
 
+  /**
+   * Merge two contacts: move channels from donor to survivor, delete the
+   * donor. Notes concatenation is best-effort to the assistant DB.
+   *
+   * Gateway DB operations (channel move + donor delete) run in a single
+   * transaction. The assistant DB notes concat is best-effort: if it fails,
+   * the ACL state is still consistent (channels moved, donor gone) and the
+   * failure is logged. This is the same soft-fail pattern used for info
+   * reads throughout the contacts gateway.
+   *
+   * Returns the survivor contact with channels + info, or throws if either
+   * contact is not found in the gateway DB.
+   */
+  async mergeContacts(
+    keepId: string,
+    mergeId: string,
+  ): Promise<ContactWithInfo | null> {
+    if (keepId === mergeId) {
+      throw new MergeContactsError("Cannot merge a contact with itself");
+    }
+
+    const now = Date.now();
+
+    // Verify both contacts exist in the gateway DB before touching anything.
+    const keep = this.db
+      .select()
+      .from(contacts)
+      .where(eq(contacts.id, keepId))
+      .get();
+    if (!keep) {
+      throw new MergeContactsError(`Contact "${keepId}" not found`);
+    }
+
+    const merge = this.db
+      .select()
+      .from(contacts)
+      .where(eq(contacts.id, mergeId))
+      .get();
+    if (!merge) {
+      throw new MergeContactsError(`Contact "${mergeId}" not found`);
+    }
+
+    // Gateway DB transaction: move channels, delete donor.
+    this.db.transaction((tx) => {
+      const donorChannels = tx
+        .select()
+        .from(contactChannels)
+        .where(eq(contactChannels.contactId, mergeId))
+        .all();
+
+      for (const ch of donorChannels) {
+        // Skip channels that already exist on the survivor by logical key.
+        const exists = tx
+          .select()
+          .from(contactChannels)
+          .where(
+            and(
+              eq(contactChannels.contactId, keepId),
+              eq(contactChannels.type, ch.type),
+              sql`${contactChannels.address} = ${ch.address} COLLATE NOCASE`,
+            ),
+          )
+          .get();
+
+        if (!exists) {
+          tx.update(contactChannels)
+            .set({ contactId: keepId, updatedAt: now })
+            .where(eq(contactChannels.id, ch.id))
+            .run();
+        }
+      }
+
+      // Delete the donor (cascade removes remaining duplicate channels).
+      tx.delete(contacts).where(eq(contacts.id, mergeId)).run();
+    });
+
+    // Best-effort: concatenate notes in the assistant DB.
+    try {
+      await this.mergeNotesInAssistantDb(keepId, mergeId);
+    } catch (err) {
+      log.warn(
+        { keepId, mergeId, err },
+        "mergeContacts: assistant DB notes concat failed (best-effort)",
+      );
+    }
+
+    // Best-effort: delete the donor contact from the assistant DB.
+    try {
+      await assistantDbRun("DELETE FROM contacts WHERE id = ?", [mergeId]);
+    } catch (err) {
+      log.warn(
+        { mergeId, err },
+        "mergeContacts: assistant DB donor delete failed (best-effort)",
+      );
+    }
+
+    // Read back the survivor with info join.
+    return this.getContactWithInfo(keepId);
+  }
+
+  /**
+   * Concatenate notes from donor and survivor in the assistant DB.
+   * Best-effort — failures are logged by the caller.
+   */
+  private async mergeNotesInAssistantDb(
+    keepId: string,
+    mergeId: string,
+  ): Promise<void> {
+    const rows = await assistantDbQuery<{ id: string; notes: string | null }>(
+      "SELECT id, notes FROM contacts WHERE id IN (?, ?)",
+      [keepId, mergeId],
+    );
+    const keepNotes = rows.find((r) => r.id === keepId)?.notes ?? null;
+    const mergeNotes = rows.find((r) => r.id === mergeId)?.notes ?? null;
+    const combined =
+      [keepNotes, mergeNotes].filter(Boolean).join("\n") || null;
+
+    await assistantDbRun(
+      "UPDATE contacts SET notes = ?, updated_at = ? WHERE id = ?",
+      [combined, String(Date.now()), keepId],
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // Channel sync (gateway DB)
   // ---------------------------------------------------------------------------
@@ -1444,5 +1567,16 @@ export class CannotRevokeBlockedError extends Error {
     );
     this.name = "CannotRevokeBlockedError";
     this.channelId = channelId;
+  }
+}
+
+/**
+ * Thrown by `mergeContacts` for validation errors (self-merge, contact not
+ * found). The caller maps this to HTTP 400.
+ */
+export class MergeContactsError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MergeContactsError";
   }
 }
