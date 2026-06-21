@@ -8,7 +8,7 @@ import {
   assistantDbRun,
 } from "./assistant-db-proxy.js";
 import { type GatewayDb, getGatewayDb } from "./connection.js";
-import { contacts, contactChannels } from "./schema.js";
+import { contacts, contactChannels, ingressInvites } from "./schema.js";
 import {
   type ContactInfoFields,
   emptyContactInfo,
@@ -21,6 +21,7 @@ const log = getLogger("contact-store");
 
 export type Contact = typeof contacts.$inferSelect;
 export type ContactChannel = typeof contactChannels.$inferSelect;
+export type IngressInviteRow = typeof ingressInvites.$inferSelect;
 
 export class ContactStore {
   private injectedDb?: GatewayDb;
@@ -702,6 +703,142 @@ export class ContactStore {
     }
 
     return { channel: after, didWrite };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Ingress invites (gateway DB only)
+  // ---------------------------------------------------------------------------
+  //
+  // The gateway DB's ingress_invites table is the single source of truth for
+  // contact invites. These methods are pure gateway-DB data access — the
+  // assistant owns token generation/hashing (it supplies `id` and
+  // `inviteCodeHash`), and any soft-fail dual-write lives in the HTTP handlers.
+
+  listInvites(params: {
+    sourceChannel?: string;
+    status?: string;
+    contactId?: string;
+    limit?: number;
+    offset?: number;
+  }): IngressInviteRow[] {
+    const conditions = [];
+    if (params.sourceChannel !== undefined)
+      conditions.push(eq(ingressInvites.sourceChannel, params.sourceChannel));
+    if (params.status !== undefined)
+      conditions.push(eq(ingressInvites.status, params.status));
+    if (params.contactId !== undefined)
+      conditions.push(eq(ingressInvites.contactId, params.contactId));
+
+    return this.db
+      .select()
+      .from(ingressInvites)
+      .where(conditions.length ? and(...conditions) : undefined)
+      // Secondary sort on id keeps ordering (and offset pagination) stable when
+      // multiple invites share a createdAt millisecond.
+      .orderBy(desc(ingressInvites.createdAt), desc(ingressInvites.id))
+      .limit(params.limit ?? 100)
+      .offset(params.offset ?? 0)
+      .all();
+  }
+
+  createInvite(params: {
+    id: string;
+    sourceChannel: string;
+    inviteCodeHash: string;
+    contactId: string;
+    note?: string | null;
+    maxUses?: number;
+    expiresAt: number;
+  }): IngressInviteRow {
+    const now = Date.now();
+    return this.db
+      .insert(ingressInvites)
+      .values({
+        id: params.id,
+        sourceChannel: params.sourceChannel,
+        inviteCodeHash: params.inviteCodeHash,
+        note: params.note ?? null,
+        maxUses: params.maxUses ?? 1,
+        useCount: 0,
+        expiresAt: params.expiresAt,
+        status: "active",
+        contactId: params.contactId,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get();
+  }
+
+  /**
+   * Revoke an active invite. Idempotent: re-revoking a non-active invite
+   * returns the current row without error, and returns null only when the
+   * invite id doesn't exist.
+   */
+  revokeInvite(inviteId: string): IngressInviteRow | null {
+    const now = Date.now();
+    this.db
+      .update(ingressInvites)
+      .set({ status: "revoked", updatedAt: now })
+      .where(
+        and(
+          eq(ingressInvites.id, inviteId),
+          eq(ingressInvites.status, "active"),
+        ),
+      )
+      .run();
+
+    return this.getInviteById(inviteId);
+  }
+
+  /**
+   * Record a redemption against an active invite: bump useCount, stamp
+   * redeemedAt / redeemedBy*, and flip status to "redeemed" once useCount
+   * reaches maxUses. Gated on status="active" so a revoked (or already
+   * exhausted) invite can't be redeemed under a race — `updated` is false in
+   * that case.
+   */
+  recordInviteRedemption(params: {
+    inviteId: string;
+    redeemedByExternalUserId?: string | null;
+    redeemedByExternalChatId?: string | null;
+  }): { updated: boolean; row: IngressInviteRow | null } {
+    const now = Date.now();
+    // RETURNING lets us tell a gated-out update (no active row matched) from a
+    // successful one without depending on the driver's `changes` count.
+    const updated = this.db
+      .update(ingressInvites)
+      .set({
+        useCount: sql`${ingressInvites.useCount} + 1`,
+        redeemedAt: now,
+        redeemedByExternalUserId: params.redeemedByExternalUserId ?? null,
+        redeemedByExternalChatId: params.redeemedByExternalChatId ?? null,
+        status: sql`CASE WHEN ${ingressInvites.useCount} + 1 >= ${ingressInvites.maxUses} THEN 'redeemed' ELSE 'active' END`,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(ingressInvites.id, params.inviteId),
+          eq(ingressInvites.status, "active"),
+        ),
+      )
+      .returning()
+      .all();
+
+    return {
+      updated: updated.length > 0,
+      row: updated[0] ?? this.getInviteById(params.inviteId),
+    };
+  }
+
+  getInviteById(inviteId: string): IngressInviteRow | null {
+    return (
+      this.db
+        .select()
+        .from(ingressInvites)
+        .where(eq(ingressInvites.id, inviteId))
+        .get() ?? null
+    );
   }
 
   // ---------------------------------------------------------------------------
