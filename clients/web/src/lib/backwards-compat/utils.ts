@@ -38,6 +38,11 @@ import { whenStoreState } from "@/utils/when-store-state";
  * - Pre-release suffixes on the patch version are ignored: `0.8.5-rc.1`
  *   counts as `0.8.5`. Testers on RCs get the new path the moment the
  *   patch version bumps.
+ * - `dev` pre-releases (e.g. `0.10.0-dev.202606211252.5cf8576`) are
+ *   treated as one patch ahead of their base: `0.10.0-dev.x` compares
+ *   as `0.10.1`. Dev builds contain unreleased commits on top of the
+ *   base version, so they should light up features that will ship in
+ *   the next stable release.
  * - Unparseable versions (either side) return `false`.
  */
 export function useAssistantSupports(minVersion: string): boolean {
@@ -69,7 +74,16 @@ function supportsVersion(
   const parsed = parseSemver(version);
   const min = parseSemver(minVersion);
   if (!parsed || !min) return false;
-  return compareParsed({ ...parsed, pre: null }, min) >= 0;
+  // `dev` pre-releases (e.g. `0.10.0-dev.202606211252.5cf8576`) contain
+  // unreleased commits on top of the base version — treat them as one
+  // patch ahead so features targeting the next stable release light up
+  // for dev builds. Other pre-releases (rc, beta, alpha) are stripped
+  // to their base version per the existing convention.
+  const effective =
+    parsed.pre !== null && parsed.pre.startsWith("dev")
+      ? { ...parsed, patch: parsed.patch + 1, pre: null }
+      : { ...parsed, pre: null };
+  return compareParsed(effective, min) >= 0;
 }
 
 /**

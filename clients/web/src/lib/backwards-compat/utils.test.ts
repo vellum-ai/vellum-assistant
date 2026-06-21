@@ -66,6 +66,19 @@ describe("useAssistantSupports", () => {
     expect(check("v0.8.5", "0.8.5")).toBe(true);
     expect(check("v0.8.4", "0.8.5")).toBe(false);
   });
+
+  test("treats dev pre-releases as one patch ahead of base version", () => {
+    // Dev builds contain unreleased commits on top of the base version,
+    // so 0.10.0-dev.x should compare as 0.10.1 — lighting up features
+    // targeting the next stable release.
+    expect(check("0.10.0-dev.202606211252.5cf8576", "0.10.1")).toBe(true);
+    expect(check("0.10.0-dev.202606211252", "0.10.1")).toBe(true);
+    expect(check("0.10.0-dev", "0.10.1")).toBe(true);
+    // Still >= 0.10.0 as well.
+    expect(check("0.10.0-dev.1", "0.10.0")).toBe(true);
+    // A dev build of 0.10.1 should compare as 0.10.2, not 0.10.1.
+    expect(check("0.10.1-dev.1", "0.10.2")).toBe(true);
+  });
 });
 
 describe("whenAssistantVersionKnown", () => {
