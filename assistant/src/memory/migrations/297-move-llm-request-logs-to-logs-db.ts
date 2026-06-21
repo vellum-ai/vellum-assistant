@@ -58,11 +58,10 @@ function createIndexes(raw: Database) {
 
 /**
  * Create the `llm_request_logs` table and its indexes on the logs connection.
- * Idempotent (`IF NOT EXISTS`). Invoked both by this migration and synchronously
- * by `initializeDb` so the table exists as soon as the DB is initialized — the
- * dedicated connection itself performs no DDL on open.
+ * Idempotent (`IF NOT EXISTS`) — the dedicated connection itself performs no DDL
+ * on open, so this migration owns the schema.
  */
-export function ensureLlmRequestLogsSchema(logsRaw: Database): void {
+function ensureLlmRequestLogsSchema(logsRaw: Database): void {
   logsRaw.exec(CREATE_TABLE);
   createIndexes(logsRaw);
 }

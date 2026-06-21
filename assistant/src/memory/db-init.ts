@@ -256,14 +256,8 @@ import { migrateWorkflowJournalLeafTokens } from "./migrations/293-workflow-jour
 import { migrateDropExternalUserId } from "./migrations/294-drop-external-user-id.js";
 import { dropApprovalPromptTsTrackerTable } from "./migrations/295-drop-approval-prompt-ts-tracker.js";
 import { migrateRewriteBalancedEconomyProfilePins } from "./migrations/296-rewrite-balanced-economy-profile-pins.js";
-import {
-  ensureLlmRequestLogsSchema,
-  migrateMoveLlmRequestLogsToLogsDb,
-} from "./migrations/297-move-llm-request-logs-to-logs-db.js";
-import {
-  ensureMemoryJobsSchema,
-  migrateMoveMemoryJobsToMemoryDb,
-} from "./migrations/298-move-memory-jobs-to-memory-db.js";
+import { migrateMoveLlmRequestLogsToLogsDb } from "./migrations/297-move-llm-request-logs-to-logs-db.js";
+import { migrateMoveMemoryJobsToMemoryDb } from "./migrations/298-move-memory-jobs-to-memory-db.js";
 import { runMigrationSteps } from "./migrations/run-migrations.js";
 import { validateMigrationState } from "./migrations/validate-migration-state.js";
 
@@ -419,26 +413,8 @@ export async function checkpointWalBeforeOpen(): Promise<void> {
 
 // ---------------------------------------------------------------------------
 
-/**
- * Create the dedicated logs/memory schemas synchronously. Idempotent
- * (`CREATE … IF NOT EXISTS`). Runs as part of DB init — never on connection
- * open — so the tables exist as soon as `initializeDb()` returns, on both the
- * fresh-migration path and the test template-restore path, and regardless of
- * whether the caller awaits (the relocation steps 297/298 that also create them
- * are async). Best-effort: a connection that fails to open leaves its tables
- * unavailable, matching the daemon's "never block startup on a subsystem
- * failure" policy.
- */
-function ensureDedicatedSchemas(): void {
-  const logsRaw = getLogsSqlite();
-  if (logsRaw) ensureLlmRequestLogsSchema(logsRaw);
-  const memoryRaw = getMemorySqlite();
-  if (memoryRaw) ensureMemoryJobsSchema(memoryRaw);
-}
-
 export async function initializeDb(): Promise<void> {
   if (process.env.BUN_TEST === "1" && tryRestoreTemplate()) {
-    ensureDedicatedSchemas();
     return;
   }
 
@@ -713,10 +689,6 @@ export async function initializeDb(): Promise<void> {
   // broken migration doesn't prevent independent later ones from succeeding.
   // The runner creates the checkpoint ledger, recovers crashed migrations, then
   // records each step so an already-migrated database skips it on later boots.
-  // Create the dedicated logs/memory schemas up front, synchronously, before the
-  // (async) relocation steps run — see {@link ensureDedicatedSchemas}.
-  ensureDedicatedSchemas();
-
   const { failed, skipped } = await runMigrationSteps(database, migrationSteps);
 
   log.debug(
