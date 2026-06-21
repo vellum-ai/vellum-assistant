@@ -1,11 +1,13 @@
 /**
  * Unit tests for the CLI invite relay routes.
  *
- * The four CLI invite handlers (list/create/revoke/trigger_call) are thin
- * relays to the gateway IPC methods via `ipcCallPersistent`. These tests assert
- * each relays with the correct method + params, returns the parsed gateway
- * response, never writes the assistant invite store directly, and surfaces a
- * relayed IpcCallError with its statusCode. `invites_redeem` stays daemon-local.
+ * Three CLI invite handlers (list/create/revoke) are thin relays to the gateway
+ * IPC methods via `ipcCallPersistent`. These tests assert each relays with the
+ * correct method + params, returns the parsed gateway response, never writes the
+ * assistant invite store directly, and surfaces a relayed IpcCallError with its
+ * statusCode. `invites_redeem` and `invites_trigger_call` stay daemon-local: the
+ * gateway delegates the actual provider call to the daemon-local handler, so
+ * relaying it back would loop gateway→assistant→gateway.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -52,6 +54,18 @@ mock.module("../../../memory/invite-store.js", () => ({
   revokeInvite: inviteStoreCall,
 }));
 
+// `invites_trigger_call` is daemon-local: the handler invokes the local
+// `triggerInviteCall` provider logic directly (never `ipcCallPersistent`).
+let triggerInviteCallResult: unknown = { ok: true, data: { callSid: "CA000" } };
+const triggerInviteCallMock = mock(async (_id: string) => triggerInviteCallResult);
+
+const actualInviteService = await import("../../invite-service.js");
+
+mock.module("../../invite-service.js", () => ({
+  ...actualInviteService,
+  triggerInviteCall: triggerInviteCallMock,
+}));
+
 const {
   handleListInvites,
   handleCreateInvite,
@@ -67,6 +81,8 @@ describe("invite relay routes", () => {
     ipcError = undefined;
     ipcCallPersistentMock.mockClear();
     inviteStoreCall.mockClear();
+    triggerInviteCallResult = { ok: true, data: { callSid: "CA000" } };
+    triggerInviteCallMock.mockClear();
   });
 
   describe("handleListInvites", () => {
@@ -157,16 +173,31 @@ describe("invite relay routes", () => {
     });
   });
 
-  describe("handleTriggerInviteCall", () => {
-    test("relays invites_trigger_call and returns callSid", async () => {
-      ipcResult = { callSid: "CA123" };
+  describe("handleTriggerInviteCall (daemon-local carve-out)", () => {
+    test("invokes the local triggerInviteCall and does NOT relay to the gateway", async () => {
+      triggerInviteCallResult = { ok: true, data: { callSid: "CA123" } };
       const result = await handleTriggerInviteCall({ pathParams: { id: "i7" } });
 
-      expect(ipcCalls).toEqual([
-        { method: "invites_trigger_call", params: { id: "i7" } },
-      ]);
+      expect(triggerInviteCallMock).toHaveBeenCalledTimes(1);
+      expect(triggerInviteCallMock).toHaveBeenCalledWith("i7");
+      // Must NOT relay: relaying invites_trigger_call would loop
+      // gateway→assistant→gateway (the gateway calls THIS to place the call).
+      expect(ipcCalls).toEqual([]);
       expect(result).toEqual({ ok: true, callSid: "CA123" });
-      expect(inviteStoreCall).not.toHaveBeenCalled();
+    });
+
+    test("surfaces a failed provider call as a 400", async () => {
+      triggerInviteCallResult = { ok: false, error: "Invite not eligible" };
+
+      try {
+        await handleTriggerInviteCall({ pathParams: { id: "i7" } });
+        throw new Error("expected handler to throw");
+      } catch (err) {
+        const e = err as { statusCode?: number; message: string };
+        expect(e.message).toBe("Invite not eligible");
+        expect(e.statusCode).toBe(400);
+      }
+      expect(ipcCalls).toEqual([]);
     });
   });
 

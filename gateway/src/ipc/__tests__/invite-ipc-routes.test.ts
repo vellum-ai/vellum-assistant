@@ -1,6 +1,11 @@
 /**
  * Tests for the gateway invite CRUD IPC routes (invites_list / invites_create /
- * invites_revoke / invites_trigger_call).
+ * invites_revoke).
+ *
+ * `invites_trigger_call` is intentionally NOT a gateway IPC route: it stays
+ * daemon-local on the assistant. The gateway HTTP call path validates its row
+ * then delegates the provider call to the assistant via triggerInviteCallNative;
+ * relaying it over IPC would loop gateway→assistant→gateway.
  *
  * Each route is driven directly through its handler. The shared native
  * functions from the HTTP module are mocked so these tests focus on the IPC
@@ -35,11 +40,6 @@ let revokeInviteNativeMock: ReturnType<typeof mock<RevokeFn>> = mock(
   async () => ({ invite: { id: "inv_1", status: "revoked" } }),
 );
 
-type TriggerFn = (id: string) => Promise<{ callSid: string }>;
-let triggerInviteCallNativeMock: ReturnType<typeof mock<TriggerFn>> = mock(
-  async () => ({ callSid: "CA123" }),
-);
-
 mock.module("../../http/routes/contacts-control-plane-proxy.js", () => ({
   listInvitesNative: (...args: Parameters<ListFn>) =>
     listInvitesNativeMock(...args),
@@ -47,8 +47,6 @@ mock.module("../../http/routes/contacts-control-plane-proxy.js", () => ({
     createInviteNativeMock(...args),
   revokeInviteNative: (...args: Parameters<RevokeFn>) =>
     revokeInviteNativeMock(...args),
-  triggerInviteCallNative: (...args: Parameters<TriggerFn>) =>
-    triggerInviteCallNativeMock(...args),
 }));
 
 // ContactStore is only touched by the record_invite_redemption route; stub it
@@ -79,7 +77,6 @@ beforeEach(() => {
   revokeInviteNativeMock = mock(async () => ({
     invite: { id: "inv_1", status: "revoked" },
   }));
-  triggerInviteCallNativeMock = mock(async () => ({ callSid: "CA123" }));
 });
 
 describe("buildErrorResponse — typed-error envelope preservation", () => {
@@ -143,24 +140,22 @@ describe("buildErrorResponse — typed-error envelope preservation", () => {
 });
 
 describe("invite CRUD IPC routes registration", () => {
-  test("registers all four CRUD methods alongside record_invite_redemption", () => {
+  test("registers the three CRUD methods alongside record_invite_redemption", () => {
     const methods = inviteRoutes.map((r) => r.method);
     expect(methods).toContain("record_invite_redemption");
     expect(methods).toContain("invites_list");
     expect(methods).toContain("invites_create");
     expect(methods).toContain("invites_revoke");
-    expect(methods).toContain("invites_trigger_call");
     // No redeem IPC method — redemption stays on record_invite_redemption.
     expect(methods).not.toContain("invites_redeem");
+    // invites_trigger_call stays daemon-local on the assistant; relaying it
+    // here would loop gateway→assistant→gateway.
+    expect(methods).not.toContain("invites_trigger_call");
+    expect(inviteRoutes).toHaveLength(4);
   });
 
   test("every CRUD route carries a Zod param schema", () => {
-    for (const m of [
-      "invites_list",
-      "invites_create",
-      "invites_revoke",
-      "invites_trigger_call",
-    ]) {
+    for (const m of ["invites_list", "invites_create", "invites_revoke"]) {
       expect(route(m).schema).toBeDefined();
     }
   });
@@ -298,29 +293,5 @@ describe("invites_revoke", () => {
   test("throws on missing id (no native call)", async () => {
     await expect(route("invites_revoke").handler({})).rejects.toThrow();
     expect(revokeInviteNativeMock).not.toHaveBeenCalled();
-  });
-});
-
-describe("invites_trigger_call", () => {
-  test("requires a non-empty id", () => {
-    const schema = route("invites_trigger_call").schema;
-    expect(schema?.safeParse({ id: "inv_1" }).success).toBe(true);
-    expect(schema?.safeParse({}).success).toBe(false);
-  });
-
-  test("delegates to triggerInviteCallNative and returns { callSid }", async () => {
-    triggerInviteCallNativeMock = mock(async () => ({ callSid: "CA999" }));
-    const result = await route("invites_trigger_call").handler({ id: "inv_1" });
-    expect(result).toEqual({ callSid: "CA999" });
-    expect(triggerInviteCallNativeMock.mock.calls[0][0]).toBe("inv_1");
-  });
-
-  test("propagates a native error (e.g. invite not active)", async () => {
-    triggerInviteCallNativeMock = mock(async () => {
-      throw new Error('Invite "inv_1" is not active');
-    });
-    await expect(
-      route("invites_trigger_call").handler({ id: "inv_1" }),
-    ).rejects.toThrow(/not active/);
   });
 });

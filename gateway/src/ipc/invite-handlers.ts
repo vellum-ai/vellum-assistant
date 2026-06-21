@@ -30,11 +30,12 @@
  *     params : { id: string }
  *     returns: { invite: Record<string, unknown> }            (sanitized)
  *
- *   invites_trigger_call
- *     params : { id: string }
- *     returns: { callSid: string }
+ * (Note: invites_trigger_call is NOT relayed here — it stays daemon-local on the
+ * assistant. The gateway HTTP call path validates its row then delegates the
+ * provider call to the assistant via triggerInviteCallNative; relaying it back
+ * over IPC would loop gateway→assistant→gateway.)
  *
- * All four delegate to the SAME native functions the gateway HTTP invite
+ * All three delegate to the SAME native functions the gateway HTTP invite
  * handlers use (gateway/src/http/routes/contacts-control-plane-proxy.ts), which
  * throw InviteNativeError / IpcHandlerError on failure. The IPC server
  * stringifies a thrown error into the wire `error` field.
@@ -48,7 +49,6 @@ import {
   createInviteNative,
   listInvitesNative,
   revokeInviteNative,
-  triggerInviteCallNative,
 } from "../http/routes/contacts-control-plane-proxy.js";
 import type { IpcRoute } from "./server.js";
 
@@ -155,15 +155,6 @@ export const inviteRoutes: IpcRoute[] = [
     handler: async (params?: Record<string, unknown>) => {
       const { id } = InviteIdParamsSchema.parse(params);
       return await revokeInviteNative(id);
-    },
-  },
-  {
-    // Gate on active gateway row → relay the outbound call to the assistant.
-    method: "invites_trigger_call",
-    schema: InviteIdParamsSchema,
-    handler: async (params?: Record<string, unknown>) => {
-      const { id } = InviteIdParamsSchema.parse(params);
-      return await triggerInviteCallNative(id);
     },
   },
 ];

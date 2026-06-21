@@ -32,6 +32,7 @@ import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   redeemIngressInvite,
   redeemVoiceInviteCode,
+  triggerInviteCall,
 } from "../invite-service.js";
 import {
   BadRequestError,
@@ -341,17 +342,18 @@ export async function handleRedeemInvite(args: RouteHandlerArgs) {
   return handleRedeemTokenInvite(args);
 }
 
+// Stays daemon-local by design (like invites_redeem): the gateway's call path
+// validates its row then delegates the actual provider call to THIS handler via
+// ipcCallAssistant("invites_trigger_call"). Relaying back would loop
+// gateway→assistant→gateway. The provider call is a daemon capability.
 export async function handleTriggerInviteCall({
   pathParams = {},
 }: RouteHandlerArgs) {
-  try {
-    const result = (await ipcCallPersistent("invites_trigger_call", {
-      id: pathParams.id,
-    })) as { callSid: string };
-    return { ok: true, callSid: result.callSid };
-  } catch (err) {
-    rethrowGatewayError(err);
+  const result = await triggerInviteCall(pathParams.id);
+  if (!result.ok) {
+    throw new BadRequestError(result.error);
   }
+  return { ok: true, callSid: result.data.callSid };
 }
 
 // ---------------------------------------------------------------------------
