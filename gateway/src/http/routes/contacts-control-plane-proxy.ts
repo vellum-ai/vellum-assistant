@@ -209,16 +209,24 @@ async function revokeAssistantOnlyInviteNative(
   inviteId: string,
 ): Promise<{ invite: Record<string, unknown> }> {
   const now = Date.now();
-  // Best-effort: flip an ACTIVE row to revoked. A terminal row is untouched.
+  // Flip an ACTIVE row to revoked. A terminal row is untouched (0 rows
+  // affected, no throw → idempotent). A thrown write must NOT be swallowed:
+  // returning 200 with the still-active row would tell the guardian/CLI the
+  // invite was revoked while it stays redeemable via the legacy path.
   try {
     await assistantDbRun(
       "UPDATE assistant_ingress_invites SET status='revoked', updated_at=? WHERE id=? AND status='active'",
       [now, inviteId],
     );
   } catch (err) {
-    log.warn(
+    log.error(
       { err, inviteId },
-      "revoke_invite: assistant-only fallback UPDATE failed (best-effort)",
+      "revoke_invite: assistant-only fallback UPDATE failed",
+    );
+    throw new InviteNativeError(
+      `Failed to revoke invite "${inviteId}"`,
+      500,
+      "INTERNAL_ERROR",
     );
   }
 

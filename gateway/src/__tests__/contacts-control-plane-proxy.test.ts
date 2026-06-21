@@ -1928,6 +1928,97 @@ describe("handleRevokeInvite (gateway-native)", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  test("assistant-only revoke is idempotent on an already-terminal row (UPDATE no-ops, 200 terminal)", async () => {
+    // No gateway row. The UPDATE succeeds but affects 0 rows because the invite
+    // is already redeemed; the SELECT then returns the terminal row. This is the
+    // legitimate idempotent revoke — must stay 200 with the terminal state.
+    contactStoreRevokeInviteMock = mock(() => null);
+    assistantDbRunMock = mock(async () => ({ changes: 0, lastInsertRowid: 0 }));
+    assistantDbQueryMock = mock(async () => [
+      {
+        id: "inv_terminal",
+        sourceChannel: "telegram",
+        note: null,
+        maxUses: 1,
+        useCount: 1,
+        expiresAt: 4_000_000_000_000,
+        status: "redeemed",
+        redeemedByExternalUserId: "ext_1",
+        redeemedByExternalChatId: "chat_1",
+        redeemedAt: 3000000,
+        contactId: "ct_1",
+        createdAt: 1000000,
+        updatedAt: 2000000,
+        voiceCodeDigits: null,
+        friendName: null,
+        guardianName: null,
+        expectedExternalUserId: null,
+      },
+    ]);
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleRevokeInvite(
+      new Request("http://localhost:7830/v1/contacts/invites/inv_terminal", {
+        method: "DELETE",
+      }),
+      "inv_terminal",
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.invite.id).toBe("inv_terminal");
+    expect(body.invite.status).toBe("redeemed");
+  });
+
+  test("assistant-only revoke surfaces 500 when the fallback UPDATE throws (no false success)", async () => {
+    // No gateway row, so assistant_ingress_invites is the only store that can
+    // revoke. If the UPDATE write throws, the handler must NOT swallow it and
+    // return 200 with the still-active row — a guardian would believe the
+    // invite was revoked while it stays redeemable via the legacy path.
+    contactStoreRevokeInviteMock = mock(() => null);
+    assistantDbRunMock = mock(async () => {
+      throw new Error("assistant DB write failed");
+    });
+    // The SELECT would still find the row active — proving the write didn't land.
+    const assistantQuerySpy = mock(async () => [
+      {
+        id: "inv_assistant_only",
+        sourceChannel: "telegram",
+        note: null,
+        maxUses: 1,
+        useCount: 0,
+        expiresAt: 4_000_000_000_000,
+        status: "active",
+        redeemedByExternalUserId: null,
+        redeemedByExternalChatId: null,
+        redeemedAt: null,
+        contactId: "ct_1",
+        createdAt: 1000000,
+        updatedAt: 2000000,
+        voiceCodeDigits: null,
+        friendName: null,
+        guardianName: null,
+        expectedExternalUserId: null,
+      },
+    ]);
+    assistantDbQueryMock = assistantQuerySpy;
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleRevokeInvite(
+      new Request(
+        "http://localhost:7830/v1/contacts/invites/inv_assistant_only",
+        { method: "DELETE" },
+      ),
+      "inv_assistant_only",
+    );
+
+    expect(res.status).toBe(500);
+    expect((await res.json()).error.code).toBe("INTERNAL_ERROR");
+    // The handler must not have read back and returned the still-active row.
+    expect(assistantQuerySpy).not.toHaveBeenCalled();
+  });
+
   test("revoking a gateway-known invite uses the gateway path (no assistant fallback)", async () => {
     contactStoreRevokeInviteMock = mock(() => ({
       ...DEFAULT_INVITE,
