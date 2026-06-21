@@ -68,7 +68,6 @@ interface DbFacts {
   walAutocheckpoint: number;
   mmapSize: number;
   tableCount: number;
-  latestMigration: { key: string; updatedAtMs: number } | null;
   largest: { name: string; metric: number }[];
   sizingMethod: SizingMethod;
 }
@@ -76,6 +75,14 @@ interface DbFacts {
 interface StatusReport {
   file: FileFacts;
   db: DbFacts | null;
+  /**
+   * Cross-database migration state, read from the main DB's
+   * `memory_checkpoints` ledger. Because the secondary databases (logs,
+   * memory) are ATTACHed and managed by the same migration runner, the
+   * checkpoint ledger lives only in the main DB — this summary is the single
+   * source of truth for "what migration state is the workspace at?"
+   */
+  migration?: MigrationSummary;
   /**
    * The dedicated append-only database (`assistant-logs.db`). Omitted from the
    * report when the file does not exist yet — it is created the first time the
@@ -87,11 +94,24 @@ interface StatusReport {
   /**
    * The dedicated memory database (`assistant-memory.db`). Like `logsFile`, it
    * is omitted from the report until the file exists on disk — it is created
-   * the first time the daemon opens its connection, so a fresh install that has
-   * never run the daemon won't have one.
+   * the first time the daemon opens its connection, so a fresh install that
+   * has never run the daemon won't have one.
    */
   memoryFile?: FileFacts;
   memoryDb?: DbFacts | null;
+}
+
+interface MigrationSummary {
+  /** Latest registry-backed migration checkpoint key (without `migration_` prefix). */
+  latestKey: string | null;
+  /** Age of the latest checkpoint, in ms. */
+  latestUpdatedAtMs: number | null;
+  /** Count of `step:*` checkpoints with value='1'. */
+  appliedSteps: number;
+  /** Count of `migration_*` / `backfill_*` / `drop_*` checkpoints with value='1'. */
+  appliedRegistry: number;
+  /** Checkpoint keys still in 'started' or 'rolling_back' state (crash recovery). */
+  crashed: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -168,26 +188,6 @@ function readDbFacts(path: string): DbFacts {
         )
         .get()?.n ?? 0;
 
-    // Latest applied migration. The memory migration runner writes
-    // `migration_<name>` rows into `memory_checkpoints` with value='1' on
-    // success. If `memory_checkpoints` doesn't exist yet (pre-migration
-    // database), best-effort skip without erroring out.
-    let latestMigration: DbFacts["latestMigration"] = null;
-    try {
-      const row = db
-        .query<{ key: string; updated_at: number }, []>(
-          `SELECT key, updated_at FROM memory_checkpoints
-           WHERE key LIKE 'migration_%' AND value = '1'
-           ORDER BY updated_at DESC LIMIT 1`,
-        )
-        .get();
-      if (row) {
-        latestMigration = { key: row.key, updatedAtMs: row.updated_at };
-      }
-    } catch {
-      latestMigration = null;
-    }
-
     // Largest tables. Prefer `dbstat` when the runtime SQLite has it
     // compiled in (gives true byte sizes). Bun's bundled SQLite omits
     // dbstat, so we fall back to COUNT(*). Detect at runtime, not via
@@ -241,7 +241,6 @@ function readDbFacts(path: string): DbFacts {
       walAutocheckpoint,
       mmapSize,
       tableCount,
-      latestMigration,
       largest,
       sizingMethod,
     };
@@ -292,14 +291,6 @@ function renderDbBlock(file: FileFacts, db: DbFacts | null): string {
 
   out += "\n";
   out += row("Tables", String(db.tableCount));
-  if (db.latestMigration) {
-    out += row(
-      "Schema (last)",
-      `${db.latestMigration.key.replace(/^migration_/, "")}  (${formatAge(Date.now() - db.latestMigration.updatedAtMs)})`,
-    );
-  } else {
-    out += row("Schema (last)", "unknown");
-  }
 
   out += "\n";
   const sizingHeader =
@@ -334,6 +325,117 @@ function renderHuman(report: StatusReport): string {
     out += "\n";
     out += "Memory database (high-churn memory tables)\n";
     out += renderDbBlock(report.memoryFile, report.memoryDb ?? null);
+  }
+
+  // Cross-database migration summary — the checkpoint ledger lives only in
+  // the main DB, so this is a single block at the end covering all three.
+  out += renderSummary(report.migration);
+
+  return out;
+}
+
+/**
+ * Read cross-database migration state from the main DB's `memory_checkpoints`.
+ *
+ * The checkpoint ledger lives only in the main DB — secondary databases
+ * (logs, memory) are ATTACHed and managed by the same runner, so their
+ * migration state is tracked here. This is the single query point for
+ * "what schema version is the workspace at?"
+ */
+function readMigrationSummary(mainDbPath: string): MigrationSummary | null {
+  const db = new Database(mainDbPath, { readonly: true });
+  try {
+    // Latest registry-backed migration checkpoint.
+    let latestKey: string | null = null;
+    let latestUpdatedAtMs: number | null = null;
+    try {
+      const row = db
+        .query<{ key: string; updated_at: number }, []>(
+          `SELECT key, updated_at FROM memory_checkpoints
+           WHERE (key LIKE 'migration_%' OR key LIKE 'backfill_%' OR key LIKE 'drop_%')
+             AND value = '1'
+           ORDER BY updated_at DESC LIMIT 1`,
+        )
+        .get();
+      if (row) {
+        latestKey = row.key.replace(/^migration_/, "");
+        latestUpdatedAtMs = row.updated_at;
+      }
+    } catch {
+      // memory_checkpoints doesn't exist yet (pre-migration database).
+    }
+
+    // Count of step: checkpoints (step runner system).
+    let appliedSteps = 0;
+    try {
+      appliedSteps =
+        db
+          .query<{ n: number }, []>(
+            `SELECT COUNT(*) AS n FROM memory_checkpoints
+             WHERE key LIKE 'step:%' AND value = '1'`,
+          )
+          .get()?.n ?? 0;
+    } catch {
+      // No table yet.
+    }
+
+    // Count of registry-backed checkpoints.
+    let appliedRegistry = 0;
+    try {
+      appliedRegistry =
+        db
+          .query<{ n: number }, []>(
+            `SELECT COUNT(*) AS n FROM memory_checkpoints
+             WHERE (key LIKE 'migration_%' OR key LIKE 'backfill_%' OR key LIKE 'drop_%')
+               AND value = '1'`,
+          )
+          .get()?.n ?? 0;
+    } catch {
+      // No table yet.
+    }
+
+    // Crashed (started or rolling_back) checkpoints.
+    let crashed: string[] = [];
+    try {
+      crashed = (
+        db
+          .query<{ key: string }, []>(
+            `SELECT key FROM memory_checkpoints
+             WHERE value = 'started' OR value = 'rolling_back'`,
+          )
+          .all() as { key: string }[]
+      ).map((r) => r.key);
+    } catch {
+      // No table yet.
+    }
+
+    return { latestKey, latestUpdatedAtMs, appliedSteps, appliedRegistry, crashed };
+  } finally {
+    db.close();
+  }
+}
+
+function renderSummary(migration: MigrationSummary | undefined): string {
+  if (!migration) return "";
+
+  let out = "\nMigration summary (cross-database)\n";
+
+  if (migration.latestKey) {
+    const age = migration.latestUpdatedAtMs
+      ? formatAge(Date.now() - migration.latestUpdatedAtMs)
+      : "?";
+    out += row("Schema (last)", `${migration.latestKey}  (${age})`);
+  } else {
+    out += row("Schema (last)", "unknown");
+  }
+  out += row("Steps applied", String(migration.appliedSteps));
+  out += row("Registry applied", String(migration.appliedRegistry));
+
+  if (migration.crashed.length > 0) {
+    out += row(
+      "Crashed",
+      `${red(String(migration.crashed.length))}  (${migration.crashed.join(", ")})`,
+    );
   }
 
   return out;
@@ -417,9 +519,18 @@ export function registerDbStatus(parent: Command): void {
         }
       }
 
+      // Cross-database migration summary from the main DB's checkpoint ledger.
+      let migration: MigrationSummary | null = null;
+      try {
+        migration = readMigrationSummary(file.path);
+      } catch {
+        migration = null;
+      }
+
       const report: StatusReport = {
         file,
         db,
+        migration: migration ?? undefined,
         logsFile,
         logsDb,
         memoryFile,

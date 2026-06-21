@@ -696,14 +696,18 @@ export async function initializeDb(): Promise<void> {
   // broken migration doesn't prevent independent later ones from succeeding.
   // The runner creates the checkpoint ledger, recovers crashed migrations, then
   // records each step so an already-migrated database skips it on later boots.
-  const { failed, skipped } = await runMigrationSteps(database, migrationSteps);
+  const { applied, failed, skipped } = await runMigrationSteps(
+    database,
+    migrationSteps,
+  );
 
-  log.debug(
+  log.info(
     {
-      ranCount: migrationSteps.length - skipped.length,
+      applied: applied.length,
       skipped: skipped.length,
+      total: migrationSteps.length,
     },
-    `DB migration steps complete (${skipped.length} skipped via checkpoint)`,
+    `DB migration steps complete (${applied.length} applied, ${skipped.length} skipped via checkpoint)`,
   );
 
   if (failed.length > 0) {
