@@ -32,7 +32,7 @@ import {
   resolvePricingForUsageWithOverrides,
 } from "../util/pricing.js";
 
-initializeDb();
+await initializeDb();
 
 const CHECKPOINT_KEY = "migration_backfill_usage_cache_accounting_v1";
 

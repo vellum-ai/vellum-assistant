@@ -60,7 +60,7 @@ import {
   SYNTHETIC_OPENAI_PROJECT_KEY,
 } from "./secret-fixtures.js";
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers

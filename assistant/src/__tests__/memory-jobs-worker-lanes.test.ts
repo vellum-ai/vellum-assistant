@@ -118,8 +118,8 @@ import { _resetQdrantBreaker } from "../memory/qdrant-circuit-breaker.js";
 import { memoryJobs } from "../memory/schema.js";
 
 describe("memory jobs worker lane scheduling", () => {
-  beforeAll(() => {
-    initializeDb();
+  beforeAll(async () => {
+    await initializeDb();
   });
 
   beforeEach(() => {

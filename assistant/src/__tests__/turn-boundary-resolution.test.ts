@@ -27,7 +27,7 @@ import { getDb, getLogsDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { llmRequestLogs, toolInvocations } from "../memory/schema.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();

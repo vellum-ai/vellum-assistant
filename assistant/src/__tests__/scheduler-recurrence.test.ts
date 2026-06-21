@@ -60,7 +60,7 @@ import {
 import { startScheduler } from "../schedule/scheduler.js";
 import { createTask } from "../tasks/task-store.js";
 
-initializeDb();
+await initializeDb();
 
 /** Access the underlying bun:sqlite Database for raw parameterized queries. */
 function getRawDb(): import("bun:sqlite").Database {

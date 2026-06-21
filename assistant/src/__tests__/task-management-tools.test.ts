@@ -57,7 +57,7 @@ import {
   updateWorkItem,
 } from "../work-items/work-item-store.js";
 
-initializeDb();
+await initializeDb();
 
 const ctx: ToolContext = {
   workingDir: "/tmp",

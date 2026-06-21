@@ -33,7 +33,7 @@ import {
 import { migrateLlmRequestLogCallSite } from "../memory/migrations/264-llm-request-log-call-site.js";
 import { llmRequestLogs } from "../memory/schema.js";
 
-initializeDb();
+await initializeDb();
 
 // llm_request_logs lives in the dedicated logs connection.
 function resetLogs(): void {

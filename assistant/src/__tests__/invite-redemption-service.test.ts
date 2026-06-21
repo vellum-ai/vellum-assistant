@@ -26,7 +26,7 @@ import {
 } from "../runtime/invite-redemption-service.js";
 import { hashVoiceCode } from "../util/voice-code.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables() {
   getSqlite().run("DELETE FROM assistant_ingress_invites");

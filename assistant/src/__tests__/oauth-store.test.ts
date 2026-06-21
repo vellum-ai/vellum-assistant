@@ -72,7 +72,7 @@ import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 import { getMockFetchCalls, mockFetch, resetMockFetch } from "./mock-fetch.js";
 
-initializeDb();
+await initializeDb();
 
 /** Seed a minimal provider row for FK satisfaction. */
 function seedTestProvider(provider = "github"): void {

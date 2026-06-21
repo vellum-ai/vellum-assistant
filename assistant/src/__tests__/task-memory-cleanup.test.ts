@@ -66,8 +66,8 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
   const convId = "conv-task-cleanup";
   const otherConvId = "conv-other";
 
-  beforeAll(() => {
-    initializeDb();
+  beforeAll(async () => {
+    await initializeDb();
   });
 
   beforeEach(() => {

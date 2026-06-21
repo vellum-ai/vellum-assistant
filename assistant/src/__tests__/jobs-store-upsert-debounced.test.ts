@@ -21,8 +21,8 @@ import { enqueueMemoryJob, upsertDebouncedJob } from "../memory/jobs-store.js";
 import { memoryJobs } from "../memory/schema.js";
 
 describe("upsertDebouncedJob payload refresh", () => {
-  beforeAll(() => {
-    initializeDb();
+  beforeAll(async () => {
+    await initializeDb();
   });
 
   beforeEach(() => {

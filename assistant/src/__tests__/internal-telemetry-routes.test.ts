@@ -27,7 +27,7 @@ import { RouteError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/internal-telemetry-routes.js";
 import type { RouteHandlerArgs } from "../runtime/routes/types.js";
 
-initializeDb();
+await initializeDb();
 
 const route = ROUTES.find(
   (r) => r.operationId === "internal_telemetry_auth_fallback",

@@ -13,7 +13,7 @@ import { llmRequestLogs } from "../memory/schema.js";
 import { ROUTES } from "../runtime/routes/conversation-query-routes.js";
 import { NotFoundError } from "../runtime/routes/errors.js";
 
-initializeDb();
+await initializeDb();
 
 const llmContextRoute = ROUTES.find(
   (r) => r.method === "GET" && r.endpoint === "messages/:id/llm-context",
