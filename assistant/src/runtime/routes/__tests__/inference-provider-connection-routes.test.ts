@@ -40,7 +40,7 @@ import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
 // ── DB bootstrap ──────────────────────────────────────────────────────────────
 
-initializeDb();
+await initializeDb();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -157,7 +157,6 @@ describe("GET inference/provider-connections (list)", () => {
     )) as { connections: unknown[] };
     expect(result.connections).toEqual([]);
   });
-
 });
 
 // ── GET single ────────────────────────────────────────────────────────────────
@@ -186,7 +185,6 @@ describe("GET inference/provider-connections/:name (single)", () => {
       }),
     ).rejects.toBeInstanceOf(NotFoundError);
   });
-
 });
 
 // ── POST create ───────────────────────────────────────────────────────────────

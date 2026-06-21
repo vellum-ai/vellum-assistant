@@ -62,8 +62,8 @@ function makeJob(payload: Record<string, unknown>): MemoryJob {
 }
 
 describe("embedPkbFileJob", () => {
-  beforeAll(() => {
-    initializeDb();
+  beforeAll(async () => {
+    await initializeDb();
   });
 
   beforeEach(() => {
@@ -116,8 +116,8 @@ describe("embedPkbFileJob", () => {
 });
 
 describe("enqueuePkbIndexJob", () => {
-  beforeAll(() => {
-    initializeDb();
+  beforeAll(async () => {
+    await initializeDb();
   });
 
   beforeEach(() => {

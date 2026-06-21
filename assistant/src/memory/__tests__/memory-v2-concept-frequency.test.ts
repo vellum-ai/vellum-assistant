@@ -34,7 +34,7 @@ import { getConceptFrequencySummary } from "../memory-v2-concept-frequency.js";
 import { memoryV2ActivationLogs } from "../schema.js";
 import { sampleConfig } from "./fixtures/memory-v2-activation-fixtures.js";
 
-initializeDb();
+await initializeDb();
 
 const WORKSPACE = "/tmp/memory-v2-concept-frequency-test";
 

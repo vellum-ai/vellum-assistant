@@ -177,8 +177,11 @@ mock.module("../resolve-agent.js", () => ({
 import { installExecFileStub } from "./helpers/exec-file-stub.js";
 import { installWhichStub } from "./helpers/which-stub.js";
 
-const { execScripts, execFileMock, reset: resetExecStub } =
-  installExecFileStub();
+const {
+  execScripts,
+  execFileMock,
+  reset: resetExecStub,
+} = installExecFileStub();
 const which = installWhichStub();
 /** Fixed resolved `bun` path so install script keys are predictable. */
 const BUN_BIN = "/usr/local/bin/bun";
@@ -200,9 +203,10 @@ const { AcpResumeError, AcpSessionManager, AcpSessionNotFoundError } =
   await import("../session-manager.js");
 // Imported dynamically (after the exec/which stubs above) so auto-install.js
 // binds to the mocked node:child_process, exactly like session-manager.js.
-const { _resetAdapterInstallCacheForTests } = await import("../auto-install.js");
+const { _resetAdapterInstallCacheForTests } =
+  await import("../auto-install.js");
 
-initializeDb();
+await initializeDb();
 
 function countHistoryRows(): number {
   const row = getSqlite()
@@ -400,9 +404,9 @@ describe("AcpSessionManager.resumeFromHistory", () => {
       { sessionId: "proto-old", cwd: "/tmp/proj" },
     ]);
     // The SessionEntry command is the basename (resume hints gate on it).
-    expect(
-      internals(manager).sessions.get("installed-resume-1")!.command,
-    ).toBe("claude-agent-acp");
+    expect(internals(manager).sessions.get("installed-resume-1")!.command).toBe(
+      "claude-agent-acp",
+    );
   });
 
   test("missing adapter on resume: installs via sandboxed bun, then resumes against the real binary", async () => {
@@ -481,7 +485,9 @@ describe("AcpSessionManager.resumeFromHistory", () => {
 
     // prepareAgentEnv ran AFTER resolution, on the resolved real binary, and
     // injected the token at spawn time — the sole point the token is in scope.
-    expect(prepareAgentEnvCommands).toEqual(["/usr/local/bin/claude-agent-acp"]);
+    expect(prepareAgentEnvCommands).toEqual([
+      "/usr/local/bin/claude-agent-acp",
+    ]);
     expect(fake.config.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("should-not-leak");
   });
 
@@ -498,7 +504,10 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     execScripts.set(BUN_ADD_KEY, { error: new Error("network is down") });
 
     const manager = new AcpSessionManager(4);
-    const promise = manager.resumeFromHistory("resume-install-fail-1", () => {});
+    const promise = manager.resumeFromHistory(
+      "resume-install-fail-1",
+      () => {},
+    );
     await expect(promise).rejects.toThrow(/claude-agent-acp is not on PATH/);
     await expect(promise).rejects.toThrow(
       /auto-install failed: .*network is down/,
@@ -819,8 +828,10 @@ describe("AcpSessionManager.steerOrResume", () => {
 
     const manager = new AcpSessionManager(4);
     const sent: ServerMessage[] = [];
-    const first = manager.steerOrResume("sor-init-1", "first instruction", (msg) =>
-      sent.push(msg),
+    const first = manager.steerOrResume(
+      "sor-init-1",
+      "first instruction",
+      (msg) => sent.push(msg),
     );
 
     // Advance microtasks until the first call's resume has registered its

@@ -184,11 +184,11 @@ function makeJob(payload: Record<string, unknown>): MemoryJob {
   };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   resetDbForTesting();
   // The first run pays the full cold-start migration chain; bump the hook
   // timeout above bun's 5s default so the leading test doesn't flake in CI.
-  initializeDb();
+  await initializeDb();
   embedWithBackendCalls.length = 0;
   upsertCalls.length = 0;
   deleteCalls.length = 0;

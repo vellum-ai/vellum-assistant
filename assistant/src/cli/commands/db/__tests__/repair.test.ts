@@ -442,7 +442,7 @@ async function initSchema(): Promise<void> {
   clearStoredDb("memory");
 
   const { initializeDb } = await import("../../../../memory/db-init.js");
-  initializeDb();
+  await initializeDb();
   // Close the singletons so backfill can open its own handle without
   // collision. WAL allows concurrent handles but cleaner ownership avoids
   // test cross-talk through the in-process cache.

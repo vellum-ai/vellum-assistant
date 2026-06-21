@@ -84,7 +84,7 @@ const sampleConcepts: MemoryV2ConceptRowRecord[] = sharedSampleConcepts.slice(
   1,
 );
 
-initializeDb();
+await initializeDb();
 
 const llmContextRoute = ROUTES.find(
   (r) => r.method === "GET" && r.endpoint === "messages/:id/llm-context",

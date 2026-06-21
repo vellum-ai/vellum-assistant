@@ -241,7 +241,7 @@ import {
 } from "./activation-funnel.js";
 import { UsageTelemetryReporter } from "./usage-telemetry-reporter.js";
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers

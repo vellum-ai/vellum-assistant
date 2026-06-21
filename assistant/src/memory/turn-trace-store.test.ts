@@ -39,7 +39,7 @@ import {
   type TurnTraceBoundary,
 } from "./turn-trace-store.js";
 
-initializeDb();
+await initializeDb();
 
 function purge(): void {
   const db = getDb();

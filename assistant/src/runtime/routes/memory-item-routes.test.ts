@@ -180,8 +180,8 @@ function insertItem(opts: {
 // ---------------------------------------------------------------------------
 
 describe("Memory Item Routes", () => {
-  beforeAll(() => {
-    initializeDb();
+  beforeAll(async () => {
+    await initializeDb();
   });
 
   beforeEach(() => {
