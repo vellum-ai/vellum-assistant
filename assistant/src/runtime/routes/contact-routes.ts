@@ -8,6 +8,7 @@
  * they don't shadow more-specific sub-paths like contacts/invites.
  */
 
+import { IpcCallError } from "@vellumai/gateway-client/ipc-client";
 import { z } from "zod";
 
 import {
@@ -25,8 +26,6 @@ import type {
   ContactRole,
   ContactType,
 } from "../../contacts/types.js";
-import { IpcCallError } from "@vellumai/gateway-client/ipc-client";
-
 import { ipcCallPersistent } from "../../ipc/gateway-client.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";

@@ -37,14 +37,14 @@ mock.module("../calls/call-domain.js", () => ({
 import { upsertContact } from "../contacts/contact-store.js";
 import { getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import { handleRedeemInvite as _handleRedeemInvite } from "../runtime/routes/contact-routes.js";
-import { RouteError } from "../runtime/routes/errors.js";
 import {
   createIngressInvite,
   listIngressInvites,
   revokeIngressInvite,
   triggerInviteCall,
 } from "../runtime/invite-service.js";
+import { handleRedeemInvite as _handleRedeemInvite } from "../runtime/routes/contact-routes.js";
+import { RouteError } from "../runtime/routes/errors.js";
 
 /**
  * The CLI/HTTP create/list/revoke/trigger route handlers now relay to the
