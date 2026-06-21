@@ -2,11 +2,15 @@
  * Plugin hook runner.
  *
  * A "hook" is a named lifecycle event (`user-prompt-submit`, `post-tool-use`,
- * …) that every registered plugin may handle. The runner walks each plugin's
+ * ...) that every registered plugin may handle. The runner walks each plugin's
  * hook for a given event in registration order, threading a context value
  * through the chain so hooks can observe and transform it. A hook either
  * mutates the context in place (returning `void`) or returns a partial
  * context whose fields are merged onto the threaded value.
+ *
+ * `getHooksFor` is now async — it pulls user-land hooks from the mtime
+ * cache (filesystem-as-truth) and default plugin hooks from the registry
+ * in a single unified call.
  *
  * Design doc: `.private/plans/agent-plugin-system.md`.
  */
@@ -34,8 +38,9 @@ export async function runHook<TCtx>(
   name: HookName,
   initialCtx: TCtx,
 ): Promise<TCtx> {
+  const hooks = await getHooksFor<TCtx>(name);
   let active = initialCtx;
-  for (const hook of getHooksFor<TCtx>(name)) {
+  for (const hook of hooks) {
     const result = await hook(active);
     if (result !== undefined) {
       active = { ...active, ...result };
