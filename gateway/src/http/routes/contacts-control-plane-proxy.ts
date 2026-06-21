@@ -1062,8 +1062,12 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
         { inviteId: invite.id, contactId: input.contactId },
         "create_invite: handled natively",
       );
+      // The gateway row is the lifecycle source of truth, but the HTTP response
+      // must carry the assistant's minted one-time fields (voiceCode for phone;
+      // inviteCode/guardianInstruction/share/token for non-phone) — these are
+      // returned only at creation time and can never be fetched later.
       return Response.json(
-        { ok: true, invite, rawToken: mint.rawToken },
+        { ok: true, invite: mint.invite, rawToken: mint.rawToken },
         { status: 201 },
       );
     },
@@ -1110,18 +1114,30 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
             inviteId?: string;
           };
 
-          // Mirror the redemption into the gateway DB when an invite was
-          // actually consumed (voice "already_member" carries no inviteId).
+          // Record the redemption against the gateway's canonical invite row.
+          // The gateway lifecycle is authoritative: if the row is no longer
+          // active (revoked or exhausted — e.g. a revoke that soft-failed on
+          // the assistant mirror), recordInviteRedemption reports updated=false
+          // and we must NOT return success. Voice "already_member" carries no
+          // inviteId, so there's no gateway row to gate on.
           if (result.inviteId) {
-            try {
-              new ContactStore().recordInviteRedemption({
-                inviteId: result.inviteId,
-                redeemedByExternalUserId: input.callerExternalUserId,
-              });
-            } catch (err) {
-              log.warn(
-                { err, inviteId: result.inviteId },
-                "redeem_invite(voice): gateway DB redemption mirror failed (best-effort)",
+            const recorded = new ContactStore().recordInviteRedemption({
+              inviteId: result.inviteId,
+              redeemedByExternalUserId: input.callerExternalUserId,
+            });
+            if (!recorded.updated) {
+              log.error(
+                { inviteId: result.inviteId },
+                "redeem_invite(voice): gateway invite is no longer active (revoked/exhausted) — rejecting after assistant side effect",
+              );
+              return Response.json(
+                {
+                  error: {
+                    code: "CONFLICT",
+                    message: `Invite "${result.inviteId}" is no longer valid`,
+                  },
+                },
+                { status: 409 },
               );
             }
           }
@@ -1154,16 +1170,27 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
           invite: { id: string };
         };
 
-        try {
-          new ContactStore().recordInviteRedemption({
-            inviteId: result.invite.id,
-            redeemedByExternalUserId: input.externalUserId ?? null,
-            redeemedByExternalChatId: input.externalChatId ?? null,
-          });
-        } catch (err) {
-          log.warn(
-            { err, inviteId: result.invite.id },
-            "redeem_invite(token): gateway DB redemption mirror failed (best-effort)",
+        // The gateway invite row is authoritative on the redemption outcome:
+        // if it's no longer active (revoked or exhausted), reject rather than
+        // returning success on an assistant-only redemption.
+        const recorded = new ContactStore().recordInviteRedemption({
+          inviteId: result.invite.id,
+          redeemedByExternalUserId: input.externalUserId ?? null,
+          redeemedByExternalChatId: input.externalChatId ?? null,
+        });
+        if (!recorded.updated) {
+          log.error(
+            { inviteId: result.invite.id },
+            "redeem_invite(token): gateway invite is no longer active (revoked/exhausted) — rejecting after assistant side effect",
+          );
+          return Response.json(
+            {
+              error: {
+                code: "CONFLICT",
+                message: `Invite "${result.invite.id}" is no longer valid`,
+              },
+            },
+            { status: 409 },
           );
         }
 
@@ -1225,8 +1252,12 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       }
 
       try {
+        // `invites_trigger_call` is the shared assistant route handler
+        // (handleTriggerInviteCall), which reads the id from pathParams.id. The
+        // assistant IPC server spreads `params` directly into RouteHandlerArgs,
+        // so send it as pathParams — not body.
         const result = (await ipcCallAssistant("invites_trigger_call", {
-          body: { id: inviteId },
+          pathParams: { id: inviteId },
         } as unknown as Record<string, unknown>)) as { callSid: string };
         log.info(
           { inviteId, callSid: result.callSid },

@@ -1372,8 +1372,18 @@ describe("handleMergeContacts (gateway-native)", () => {
   });
 
 describe("handleCreateInvite (gateway-native)", () => {
-  test("mints, writes gateway DB, and returns 201 with rawToken", async () => {
-    const mintInvite = { id: "inv_1", sourceChannel: "telegram" };
+  test("returns the assistant's minted invite payload (one-time codes), not the gateway row", async () => {
+    // The minted payload carries creation-only fields (inviteCode/token/share)
+    // that the gateway row does NOT — these must reach the client.
+    const mintInvite = {
+      id: "inv_1",
+      sourceChannel: "telegram",
+      inviteCode: "123456",
+      guardianInstruction: "Share this code with them first.",
+      token: "raw-token-abc",
+      share: { url: "https://t.me/bot?start=abc", displayText: "Open invite" },
+      status: "active",
+    };
     ipcCallAssistantMock = mock(async (method: string) => {
       if (method === "invites_mint") {
         return {
@@ -1409,6 +1419,18 @@ describe("handleCreateInvite (gateway-native)", () => {
     expect(body.ok).toBe(true);
     expect(body.rawToken).toBe("raw-token-abc");
     expect(body.invite.id).toBe("inv_1");
+    // One-time creation fields must come from the mint payload — the gateway
+    // row (DEFAULT_INVITE) carries none of these.
+    expect(body.invite.inviteCode).toBe("123456");
+    expect(body.invite.token).toBe("raw-token-abc");
+    expect(body.invite.guardianInstruction).toBe(
+      "Share this code with them first.",
+    );
+    expect(body.invite.share).toEqual({
+      url: "https://t.me/bot?start=abc",
+      displayText: "Open invite",
+    });
+    // Gateway row is still written as the lifecycle source of truth.
     expect(contactStoreCreateInviteMock).toHaveBeenCalledTimes(1);
     const [createParams] = contactStoreCreateInviteMock.mock.calls[0] as [
       Record<string, unknown>,
@@ -1416,6 +1438,60 @@ describe("handleCreateInvite (gateway-native)", () => {
     expect(createParams.id).toBe("inv_1");
     expect(createParams.inviteCodeHash).toBe("hash_1");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("returns the minted voiceCode for phone invites", async () => {
+    const mintInvite = {
+      id: "inv_phone",
+      sourceChannel: "phone",
+      voiceCode: "987654",
+      voiceCodeDigits: 6,
+      status: "active",
+    };
+    ipcCallAssistantMock = mock(async (method: string) => {
+      if (method === "invites_mint") {
+        return {
+          ok: true,
+          invite: mintInvite,
+          // Voice invites never expose a token.
+          rawToken: undefined,
+          gateway: {
+            id: "inv_phone",
+            inviteCodeHash: "voicehash_1",
+            sourceChannel: "phone",
+            contactId: "ct_1",
+            note: null,
+            maxUses: 1,
+            expiresAt: 2000000,
+          },
+        };
+      }
+      return {};
+    });
+    contactStoreCreateInviteMock = mock(() => ({
+      ...DEFAULT_INVITE,
+      id: "inv_phone",
+      sourceChannel: "phone",
+    }));
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleCreateInvite(
+      new Request("http://localhost:7830/v1/contacts/invites", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          contactId: "ct_1",
+          sourceChannel: "phone",
+          expectedExternalUserId: "+15551234567",
+          friendName: "Sam",
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.invite.voiceCode).toBe("987654");
+    expect(body.invite.id).toBe("inv_phone");
   });
 
   test("returns 400 for invalid JSON body", async () => {
@@ -1804,16 +1880,20 @@ describe("handleRedeemInvite (gateway-native)", () => {
     expect(ipcCallAssistantMock).not.toHaveBeenCalled();
   });
 
-  test("still succeeds when the gateway redemption mirror soft-fails", async () => {
+  test("token path rejects with 409 when the gateway invite is no longer active", async () => {
+    // The assistant resolved the invite, but the gateway's canonical row is
+    // revoked/exhausted (recordInviteRedemption.updated === false). The
+    // gateway lifecycle is authoritative — do NOT return success.
     ipcCallAssistantMock = mock(async (method: string) => {
       if (method === "invites_redeem_token") {
         return { invite: { id: "inv_1" } };
       }
       return {};
     });
-    contactStoreRecordRedemptionMock = mock(() => {
-      throw new Error("gateway DB down");
-    });
+    contactStoreRecordRedemptionMock = mock(() => ({
+      updated: false,
+      row: null,
+    }));
 
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleRedeemInvite(
@@ -1824,8 +1904,43 @@ describe("handleRedeemInvite (gateway-native)", () => {
       }),
     );
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.ok).toBeUndefined();
+    expect(body.error.code).toBe("CONFLICT");
+    expect(contactStoreRecordRedemptionMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("voice path rejects with 409 when the gateway invite is no longer active", async () => {
+    ipcCallAssistantMock = mock(async (method: string) => {
+      if (method === "invites_redeem_voice") {
+        return { type: "redeemed", memberId: "mem_1", inviteId: "inv_1" };
+      }
+      return {};
+    });
+    contactStoreRecordRedemptionMock = mock(() => ({
+      updated: false,
+      row: null,
+    }));
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleRedeemInvite(
+      new Request("http://localhost:7830/v1/contacts/invites/redeem", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          code: "123456",
+          callerExternalUserId: "+15551234567",
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.ok).toBeUndefined();
+    expect(body.error.code).toBe("CONFLICT");
+    expect(contactStoreRecordRedemptionMock).toHaveBeenCalledTimes(1);
   });
 
   test("maps assistant redeem 400 (IpcHandlerError) to 400", async () => {
@@ -1875,9 +1990,11 @@ describe("handleCallInvite (gateway-native)", () => {
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.callSid).toBe("CA123");
+    // The id must land at pathParams.id on the assistant route handler
+    // (handleTriggerInviteCall reads pathParams.id, not body).
     expect(ipcCallAssistantMock.mock.calls[0]).toEqual([
       "invites_trigger_call",
-      { body: { id: "inv_1" } },
+      { pathParams: { id: "inv_1" } },
     ]);
     expect(fetchMock).not.toHaveBeenCalled();
   });
