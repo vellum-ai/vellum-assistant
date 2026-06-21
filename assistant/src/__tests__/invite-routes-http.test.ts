@@ -116,7 +116,7 @@ async function handleTriggerInviteCall(inviteId: string) {
   }
 }
 
-initializeDb();
+await initializeDb();
 
 /** Create a throwaway contact and return its ID, for use as the invite's contactId. */
 function createTargetContact(displayName = "Test Contact"): string {

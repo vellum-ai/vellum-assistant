@@ -40,7 +40,7 @@ import {
   updateSchedule,
 } from "../schedule/schedule-store.js";
 
-initializeDb();
+await initializeDb();
 
 /** Access the underlying bun:sqlite Database for raw parameterized queries. */
 function getRawDb(): import("bun:sqlite").Database {

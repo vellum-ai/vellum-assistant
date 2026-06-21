@@ -36,7 +36,7 @@ import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { mintToken } from "../runtime/auth/token-service.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 
-initializeDb();
+await initializeDb();
 
 const TEST_JWT = mintToken({
   aud: "vellum-daemon",

@@ -42,7 +42,7 @@ import type { Message } from "../providers/types.js";
 // `applyRuntimeInjections` self-resolves the Slack active-thread focus block
 // from the persisted message rows, so the schema must exist for Slack-channel
 // turns; with no seeded rows the focus loader resolves to null.
-initializeDb();
+await initializeDb();
 
 // `makeContext` and the workspace registry seed share this id so the
 // `workspace-context` injector resolves the seeded block for the turn.

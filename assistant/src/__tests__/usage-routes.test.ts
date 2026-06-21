@@ -16,7 +16,7 @@ import {
 import { BadRequestError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/usage-routes.js";
 
-initializeDb();
+await initializeDb();
 
 function clearUsageEvents() {
   getSqlite().run("DELETE FROM cron_runs");

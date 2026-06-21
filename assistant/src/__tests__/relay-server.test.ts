@@ -161,7 +161,9 @@ mock.module("../runtime/routes/inbound-stages/admission-policy.js", () => ({
       return {
         admitted: false,
         reason:
-          input.memberStatus === "blocked" ? "member_blocked" : "member_revoked",
+          input.memberStatus === "blocked"
+            ? "member_blocked"
+            : "member_revoked",
         shouldChallenge: false,
         effectivePolicy: input.policy,
       };
@@ -317,7 +319,7 @@ import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
-initializeDb();
+await initializeDb();
 
 // Activate the channel-admission-reader stub only while this file's tests run,
 // so the registered (process-global) mock delegates to the real module for

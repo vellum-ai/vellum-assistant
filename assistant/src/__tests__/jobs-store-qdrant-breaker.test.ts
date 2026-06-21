@@ -29,8 +29,8 @@ import {
 import { memoryJobs } from "../memory/schema.js";
 
 describe("claimMemoryJobs with Qdrant circuit breaker", () => {
-  beforeAll(() => {
-    initializeDb();
+  beforeAll(async () => {
+    await initializeDb();
   });
 
   beforeEach(() => {

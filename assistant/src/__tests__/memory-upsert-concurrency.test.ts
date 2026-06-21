@@ -66,7 +66,7 @@ import { indexMessageNow } from "../memory/indexer.js";
 import { conversations, memorySegments, messages } from "../memory/schema.js";
 
 // Initialize DB once for the entire file. Each test cleans its own tables.
-initializeDb();
+await initializeDb();
 
 function resetTables() {
   const db = getDb();

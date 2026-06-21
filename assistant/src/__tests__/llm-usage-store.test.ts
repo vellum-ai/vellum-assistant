@@ -21,7 +21,7 @@ import {
 import type { PricingResult, UsageEventInput } from "../usage/types.js";
 
 // Initialize db once before all tests
-initializeDb();
+await initializeDb();
 
 function makeInput(overrides?: Partial<UsageEventInput>): UsageEventInput {
   return {

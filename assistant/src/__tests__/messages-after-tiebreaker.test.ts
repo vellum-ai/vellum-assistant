@@ -14,7 +14,7 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { conversations, messages } from "../memory/schema.js";
 
-initializeDb();
+await initializeDb();
 
 const CONV_ID = "conv-tiebreaker";
 

@@ -19,7 +19,7 @@ import { createInvite, revokeInvite } from "../memory/invite-store.js";
 import { redeemVoiceInviteCode } from "../runtime/invite-redemption-service.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables() {
   getSqlite().run("DELETE FROM assistant_ingress_invites");
