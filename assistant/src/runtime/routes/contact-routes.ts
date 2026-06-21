@@ -221,8 +221,8 @@ function handleGetContact(contactId: string) {
 // ---------------------------------------------------------------------------
 
 // The gateway owns the canonical invite write path. These CLI handlers relay
-// to the gateway IPC methods via `ipcCallPersistent` and no longer touch the
-// assistant DB directly. (Redemption stays daemon-local — see the redeem route.)
+// to the gateway IPC methods via `ipcCallPersistent`; the assistant DB is
+// written only by the gateway. (Redemption stays daemon-local — see the redeem route.)
 
 export async function handleListInvites({ queryParams = {} }: RouteHandlerArgs) {
   try {
