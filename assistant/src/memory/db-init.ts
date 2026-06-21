@@ -311,22 +311,29 @@ function getMemoryTemplateDbPath(): string {
 
 function tryRestoreTemplate(): boolean {
   const templatePath = getTemplateDbPath();
-  if (!existsSync(templatePath)) return false;
+  const logsTemplate = getLogsTemplateDbPath();
+  const memoryTemplate = getMemoryTemplateDbPath();
+  // Restore only when ALL THREE templates are present. `saveTemplate()` renames
+  // them one at a time, so a parallel test worker can momentarily observe the
+  // main template without its logs/memory siblings. Restoring then would copy
+  // the main DB, leave the dedicated DBs as fresh empty files, and skip
+  // migrations — so the next `llm_request_logs`/`memory_jobs` access would fail
+  // with a missing-table error. Treating a partial set as "not ready" makes such
+  // a worker fall through to a full migrate, which creates every table.
+  if (
+    !existsSync(templatePath) ||
+    !existsSync(logsTemplate) ||
+    !existsSync(memoryTemplate)
+  ) {
+    return false;
+  }
   // getDb() hasn't run yet, so the data directory may not exist.
   ensureDataDir();
   copyFileSync(templatePath, getDbPath());
   // Restore the dedicated logs/memory DBs before their connections open, so the
-  // relocated tables are present. Older templates may predate the split; the
-  // hash includes the migration files, so a stale template without these
-  // siblings won't be reused — but guard anyway.
-  const logsTemplate = getLogsTemplateDbPath();
-  if (existsSync(logsTemplate)) {
-    copyFileSync(logsTemplate, getLogsDbPath());
-  }
-  const memoryTemplate = getMemoryTemplateDbPath();
-  if (existsSync(memoryTemplate)) {
-    copyFileSync(memoryTemplate, getMemoryDbPath());
-  }
+  // relocated tables are present.
+  copyFileSync(logsTemplate, getLogsDbPath());
+  copyFileSync(memoryTemplate, getMemoryDbPath());
   // Open the pre-migrated copy — getDb() will set PRAGMAs but skip migrations.
   getDb();
   return true;
