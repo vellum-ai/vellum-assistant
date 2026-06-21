@@ -16,6 +16,7 @@ mock.module("../security/secure-keys.js", () => ({
 }));
 
 import { upsertContact } from "../contacts/contact-store.js";
+import { handleMintInvite } from "../ipc/routes/invite-ipc-routes.js";
 import { getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
@@ -23,7 +24,6 @@ import {
   findById,
   hashToken,
 } from "../memory/invite-store.js";
-import { handleMintInvite } from "../ipc/routes/invite-ipc-routes.js";
 import {
   handleRedeemTokenInvite,
   handleRedeemVoiceInvite,

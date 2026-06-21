@@ -21,8 +21,8 @@ mock.module("../../../security/secure-keys.js", () => ({
   deleteSecureKeyAsync: async () => {},
 }));
 
-import { INVITE_IPC_METHODS } from "../invite-ipc-routes.js";
 import { ROUTES as contactRoutes } from "../../../runtime/routes/contact-routes.js";
+import { INVITE_IPC_METHODS } from "../invite-ipc-routes.js";
 import { routeDefinitionsToIpcMethods } from "../route-adapter.js";
 
 const INVITE_IPC_OPERATION_IDS = [
