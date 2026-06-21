@@ -5270,6 +5270,9 @@ paths:
                     properties: {}
                     additionalProperties: {}
                     description: Created invite
+                  rawToken:
+                    description: One-time raw invite token (returned at creation only)
+                    type: string
                 required:
                   - ok
                   - invite

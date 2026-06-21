@@ -38,57 +38,57 @@ import { upsertContact } from "../contacts/contact-store.js";
 import { getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
-  handleCreateInvite as _handleCreateInvite,
-  handleListInvites as _handleListInvites,
-  handleRedeemInvite as _handleRedeemInvite,
-  handleRevokeInvite as _handleRevokeInvite,
-  handleTriggerInviteCall as _handleTriggerInviteCall,
-} from "../runtime/routes/contact-routes.js";
+  createIngressInvite,
+  listIngressInvites,
+  revokeIngressInvite,
+  triggerInviteCall,
+} from "../runtime/invite-service.js";
+import { handleRedeemInvite as _handleRedeemInvite } from "../runtime/routes/contact-routes.js";
 import { RouteError } from "../runtime/routes/errors.js";
 
 /**
- * Compatibility wrappers: translate old handler call signatures into the new
- * RouteHandlerArgs pattern and wrap the result in a Response-like object so
- * existing test assertions (res.status / res.json()) keep working.
+ * The CLI/HTTP create/list/revoke/trigger route handlers now relay to the
+ * gateway (see invite-relay-routes.test.ts). The assistant-native invite logic
+ * those handlers used to call directly — and which the gateway still invokes via
+ * `invites_mint` + its native handlers — is exercised here against the assistant
+ * DB through the `invite-service` functions. Redemption stays daemon-local and is
+ * still driven through the route handler.
  */
 function fakeResponse(body: unknown, status = 200) {
   return { status, json: async () => body };
 }
 
 async function handleCreateInvite(req: Request) {
-  const body = (await req.json()) as Record<string, unknown>;
-  try {
-    const result = await _handleCreateInvite({ body });
-    return fakeResponse(result, 201);
-  } catch (err) {
-    if (err instanceof RouteError)
-      return fakeResponse({ ok: false, error: err.message }, err.statusCode);
-    throw err;
-  }
+  const body = (await req.json()) as Record<string, string | number>;
+  const result = await createIngressInvite({
+    sourceChannel: body.sourceChannel as string | undefined,
+    note: body.note as string | undefined,
+    maxUses: body.maxUses as number | undefined,
+    expiresInMs: body.expiresInMs as number | undefined,
+    contactName: body.contactName as string | undefined,
+    expectedExternalUserId: body.expectedExternalUserId as string | undefined,
+    voiceCodeDigits: body.voiceCodeDigits as number | undefined,
+    friendName: body.friendName as string | undefined,
+    guardianName: body.guardianName as string | undefined,
+    contactId: body.contactId as string,
+  });
+  if (!result.ok) return fakeResponse({ ok: false, error: result.error }, 400);
+  return fakeResponse({ ok: true, invite: result.data }, 201);
 }
 
 function handleListInvites(url: URL) {
-  const queryParams: Record<string, string> = {};
-  for (const [k, v] of url.searchParams.entries()) queryParams[k] = v;
-  try {
-    const result = _handleListInvites({ queryParams });
-    return fakeResponse(result);
-  } catch (err) {
-    if (err instanceof RouteError)
-      return fakeResponse({ ok: false, error: err.message }, err.statusCode);
-    throw err;
-  }
+  const result = listIngressInvites({
+    sourceChannel: url.searchParams.get("sourceChannel") ?? undefined,
+    status: url.searchParams.get("status") ?? undefined,
+  });
+  if (!result.ok) return fakeResponse({ ok: false, error: result.error }, 400);
+  return fakeResponse({ ok: true, invites: result.data });
 }
 
 function handleRevokeInvite(inviteId: string) {
-  try {
-    const result = _handleRevokeInvite({ pathParams: { id: inviteId } });
-    return fakeResponse(result);
-  } catch (err) {
-    if (err instanceof RouteError)
-      return fakeResponse({ ok: false, error: err.message }, err.statusCode);
-    throw err;
-  }
+  const result = revokeIngressInvite(inviteId);
+  if (!result.ok) return fakeResponse({ ok: false, error: result.error }, 404);
+  return fakeResponse({ ok: true, invite: result.data });
 }
 
 async function handleRedeemInvite(req: Request) {
@@ -104,16 +104,9 @@ async function handleRedeemInvite(req: Request) {
 }
 
 async function handleTriggerInviteCall(inviteId: string) {
-  try {
-    const result = await _handleTriggerInviteCall({
-      pathParams: { id: inviteId },
-    });
-    return fakeResponse(result);
-  } catch (err) {
-    if (err instanceof RouteError)
-      return fakeResponse({ ok: false, error: err.message }, err.statusCode);
-    throw err;
-  }
+  const result = await triggerInviteCall(inviteId);
+  if (!result.ok) return fakeResponse({ ok: false, error: result.error }, 400);
+  return fakeResponse({ ok: true, callSid: result.data.callSid });
 }
 
 await initializeDb();

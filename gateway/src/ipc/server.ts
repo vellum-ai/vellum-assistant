@@ -276,10 +276,10 @@ export class GatewayIpcServer {
     try {
       req = JSON.parse(line) as IpcRequest;
     } catch {
-      this.sendResponse(socket, {
-        id: "unknown",
-        error: "Invalid JSON",
-      });
+      this.sendResponse(
+        socket,
+        buildProtocolErrorResponse("unknown", "Invalid JSON", 400, "BAD_REQUEST"),
+      );
       return;
     }
 
@@ -297,19 +297,29 @@ export class GatewayIpcServer {
         typeof req.id === "string"
           ? req.id
           : "unknown";
-      this.sendResponse(socket, {
-        id,
-        error: "Missing 'id' or 'method' field",
-      });
+      this.sendResponse(
+        socket,
+        buildProtocolErrorResponse(
+          id,
+          "Missing 'id' or 'method' field",
+          400,
+          "BAD_REQUEST",
+        ),
+      );
       return;
     }
 
     const handler = this.methods.get(req.method);
     if (!handler) {
-      this.sendResponse(socket, {
-        id: req.id,
-        error: `Unknown method: ${req.method}`,
-      });
+      this.sendResponse(
+        socket,
+        buildProtocolErrorResponse(
+          req.id,
+          `Unknown method: ${req.method}`,
+          404,
+          "UNKNOWN_METHOD",
+        ),
+      );
       return;
     }
 
@@ -319,10 +329,15 @@ export class GatewayIpcServer {
     if (schema) {
       const result = schema.safeParse(req.params);
       if (!result.success) {
-        this.sendResponse(socket, {
-          id: req.id,
-          error: `Invalid params: ${result.error.message}`,
-        });
+        this.sendResponse(
+          socket,
+          buildProtocolErrorResponse(
+            req.id,
+            `Invalid params: ${result.error.message}`,
+            400,
+            "BAD_REQUEST",
+          ),
+        );
         return;
       }
       parsedParams = result.data as Record<string, unknown>;
@@ -374,6 +389,25 @@ export function getDefaultSocketPath(): string {
  * typed error) without importing or requiring a specific class. Plain
  * `Error`s serialize as before: just `{ id, error }`.
  */
+/**
+ * Build the IPC error envelope for an early-return PROTOCOL/VALIDATION
+ * failure — one detected before any handler runs (bad JSON, missing
+ * `id`/`method`, unknown method, Zod schema rejection).
+ *
+ * Stamps a `statusCode` + `errorCode` so the daemon relay
+ * (`PersistentIpcClient.call` → `IpcCallError` → `RouteError`) surfaces these
+ * as proper client 4xx instead of defaulting to 500. ADDITIVE: the `error`
+ * string is unchanged, so consumers reading only `error` keep working.
+ */
+export function buildProtocolErrorResponse(
+  id: string,
+  error: string,
+  statusCode: number,
+  errorCode: string,
+): IpcResponse {
+  return { id, error, statusCode, errorCode };
+}
+
 export function buildErrorResponse(id: string, err: unknown): IpcResponse {
   const response: IpcResponse = { id, error: String(err) };
   if (err && typeof err === "object") {

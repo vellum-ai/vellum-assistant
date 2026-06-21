@@ -8,6 +8,7 @@
  * they don't shadow more-specific sub-paths like contacts/invites.
  */
 
+import { IpcCallError } from "@vellumai/gateway-client/ipc-client";
 import { z } from "zod";
 
 import {
@@ -25,18 +26,38 @@ import type {
   ContactRole,
   ContactType,
 } from "../../contacts/types.js";
+import { ipcCallPersistent } from "../../ipc/gateway-client.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
-  createIngressInvite,
-  listIngressInvites,
   redeemIngressInvite,
   redeemVoiceInviteCode,
-  revokeIngressInvite,
   triggerInviteCall,
 } from "../invite-service.js";
-import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
+import {
+  BadRequestError,
+  ConflictError,
+  NotFoundError,
+  RouteError,
+} from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+
+/**
+ * Re-throw a relayed gateway `IpcCallError` as a `RouteError` so the IPC/HTTP
+ * adapters honor its statusCode/errorCode (4xx surfaces as 4xx, not a generic
+ * 500). Non-IpcCallError throws propagate unchanged.
+ */
+function rethrowGatewayError(err: unknown): never {
+  if (err instanceof IpcCallError) {
+    throw new RouteError(
+      err.message,
+      err.errorCode ?? "INTERNAL_ERROR",
+      err.statusCode ?? 500,
+      err.errorDetails,
+    );
+  }
+  throw err;
+}
 
 function withGuardianNameOverride<
   T extends { role: string; displayName: string },
@@ -199,45 +220,57 @@ function handleGetContact(contactId: string) {
 // Invite handlers (transport-agnostic)
 // ---------------------------------------------------------------------------
 
-export function handleListInvites({ queryParams = {} }: RouteHandlerArgs) {
-  const result = listIngressInvites({
-    sourceChannel: queryParams.sourceChannel,
-    status: queryParams.status,
-  });
+// The gateway owns the canonical invite write path. These CLI handlers relay
+// to the gateway IPC methods via `ipcCallPersistent`; the assistant DB is
+// written only by the gateway. (Redemption stays daemon-local — see the redeem route.)
 
-  if (!result.ok) {
-    throw new BadRequestError(result.error);
+export async function handleListInvites({ queryParams = {} }: RouteHandlerArgs) {
+  try {
+    const result = (await ipcCallPersistent("invites_list", {
+      ...(queryParams.sourceChannel
+        ? { sourceChannel: queryParams.sourceChannel }
+        : {}),
+      ...(queryParams.status ? { status: queryParams.status } : {}),
+    })) as { invites: Array<Record<string, unknown>> };
+    return { ok: true, invites: result.invites };
+  } catch (err) {
+    rethrowGatewayError(err);
   }
-  return { ok: true, invites: result.data };
 }
 
 export async function handleCreateInvite({ body = {} }: RouteHandlerArgs) {
-  const result = await createIngressInvite({
-    sourceChannel: body.sourceChannel as string | undefined,
-    note: body.note as string | undefined,
-    maxUses: body.maxUses as number | undefined,
-    expiresInMs: body.expiresInMs as number | undefined,
-    contactName: body.contactName as string | undefined,
-    expectedExternalUserId: body.expectedExternalUserId as string | undefined,
-    voiceCodeDigits: body.voiceCodeDigits as number | undefined,
-    friendName: body.friendName as string | undefined,
-    guardianName: body.guardianName as string | undefined,
-    contactId: body.contactId as string,
-  });
-
-  if (!result.ok) {
-    throw new BadRequestError(result.error);
+  try {
+    const result = (await ipcCallPersistent("invites_create", {
+      contactId: body.contactId as string,
+      sourceChannel: body.sourceChannel as string | undefined,
+      note: body.note as string | undefined,
+      maxUses: body.maxUses as number | undefined,
+      expiresInMs: body.expiresInMs as number | undefined,
+      contactName: body.contactName as string | undefined,
+      expectedExternalUserId: body.expectedExternalUserId as string | undefined,
+      voiceCodeDigits: body.voiceCodeDigits as number | undefined,
+      friendName: body.friendName as string | undefined,
+      guardianName: body.guardianName as string | undefined,
+    })) as { invite: Record<string, unknown>; rawToken?: string };
+    return {
+      ok: true,
+      invite: result.invite,
+      ...(result.rawToken ? { rawToken: result.rawToken } : {}),
+    };
+  } catch (err) {
+    rethrowGatewayError(err);
   }
-  return { ok: true, invite: result.data };
 }
 
-export function handleRevokeInvite({ pathParams = {} }: RouteHandlerArgs) {
-  const result = revokeIngressInvite(pathParams.id);
-
-  if (!result.ok) {
-    throw new NotFoundError(result.error);
+export async function handleRevokeInvite({ pathParams = {} }: RouteHandlerArgs) {
+  try {
+    const result = (await ipcCallPersistent("invites_revoke", {
+      id: pathParams.id,
+    })) as { invite: Record<string, unknown> };
+    return { ok: true, invite: result.invite };
+  } catch (err) {
+    rethrowGatewayError(err);
   }
-  return { ok: true, invite: result.data };
 }
 
 /**
@@ -309,6 +342,10 @@ export async function handleRedeemInvite(args: RouteHandlerArgs) {
   return handleRedeemTokenInvite(args);
 }
 
+// Stays daemon-local by design (like invites_redeem): the gateway's call path
+// validates its row then delegates the actual provider call to THIS handler via
+// ipcCallAssistant("invites_trigger_call"). Relaying back would loop
+// gateway→assistant→gateway. The provider call is a daemon capability.
 export async function handleTriggerInviteCall({
   pathParams = {},
 }: RouteHandlerArgs) {
@@ -445,6 +482,10 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       ok: z.boolean(),
       invite: z.object({}).passthrough().describe("Created invite"),
+      rawToken: z
+        .string()
+        .optional()
+        .describe("One-time raw invite token (returned at creation only)"),
     }),
     additionalResponses: {
       "400": {
@@ -453,6 +494,9 @@ export const ROUTES: RouteDefinition[] = [
     },
   },
   {
+    // Stays daemon-local by design: redemption is an inbound-channel path (not
+    // a CLI ACL surface), and the assistant redemption service already claims
+    // the gateway row by id via record_invite_redemption — relaying would loop.
     operationId: "invites_redeem",
     endpoint: "contacts/invites/redeem",
     method: "POST",
