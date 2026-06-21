@@ -55,6 +55,7 @@ import {
   type DbProxyTransactionParams,
   handleDbProxyTransaction,
 } from "./routes/db-proxy-transaction.js";
+import { INVITE_IPC_METHODS } from "./routes/invite-ipc-routes.js";
 import { routeDefinitionsToIpcMethods } from "./routes/route-adapter.js";
 import { ensureSocketPathFree } from "./socket-cleanup.js";
 import { resolveIpcSocketPath } from "./socket-path.js";
@@ -201,6 +202,13 @@ export class AssistantIpcServer {
     this.methods.set("db_proxy_transaction", (params) =>
       handleDbProxyTransaction(params as unknown as DbProxyTransactionParams),
     );
+
+    // IPC-only invite methods (see ipc/routes/invite-ipc-routes.ts). The
+    // gateway calls these back over IPC to mint tokens / redeem voice + token
+    // invites (assistant-owned secrets). No HTTP surface; never in ROUTES.
+    for (const [operationId, handler] of Object.entries(INVITE_IPC_METHODS)) {
+      this.methods.set(operationId, handler);
+    }
 
     this.methods.set("$cancel", (params) => {
       const targetId = (params as { targetId?: string }).targetId;

@@ -32,8 +32,7 @@ function resolveResponseStatus(
 export function routeDefinitionsToHTTPRoutes(
   routes: RouteDefinition[],
 ): HTTPRouteDefinition[] {
-  // ipcOnly routes have no HTTP surface — they are reachable only over IPC.
-  return routes.filter((r) => !r.ipcOnly).map((r) => ({
+  return routes.map((r) => ({
     endpoint: r.endpoint,
     method: r.method,
     operationId: r.operationId,

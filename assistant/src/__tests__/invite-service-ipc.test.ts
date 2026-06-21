@@ -23,8 +23,8 @@ import {
   findById,
   hashToken,
 } from "../memory/invite-store.js";
+import { handleMintInvite } from "../ipc/routes/invite-ipc-routes.js";
 import {
-  handleMintInvite,
   handleRedeemTokenInvite,
   handleRedeemVoiceInvite,
 } from "../runtime/routes/contact-routes.js";
