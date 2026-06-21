@@ -59,6 +59,189 @@ function sanitizeInviteRow<T extends { inviteCodeHash?: unknown }>(
   return rest;
 }
 
+/**
+ * Row shape read from the assistant `assistant_ingress_invites` table for the
+ * list merge. Deliberately omits every *_hash column so a code/token hash can
+ * never reach the wire (the gateway list never returns hashes).
+ */
+interface AssistantOnlyInviteRow {
+  id: string;
+  sourceChannel: string;
+  note: string | null;
+  maxUses: number;
+  useCount: number;
+  expiresAt: number;
+  status: string;
+  redeemedByExternalUserId: string | null;
+  redeemedByExternalChatId: string | null;
+  redeemedAt: number | null;
+  contactId: string | null;
+  createdAt: number;
+  updatedAt: number;
+  voiceCodeDigits: number | null;
+  friendName: string | null;
+  guardianName: string | null;
+  expectedExternalUserId: string | null;
+}
+
+/**
+ * Query assistant-only ingress invites (those without a gateway row) for the
+ * list merge. Applies the SAME sourceChannel/status filters the gateway list
+ * uses and excludes any id already present in the gateway result set (gateway
+ * is the lifecycle source of truth and wins on dedupe). Returns rows mapped
+ * into the gateway list response shape, already sanitized (no hash columns are
+ * selected). Throws on DB error so the caller can soft-fail to gateway-only.
+ */
+async function listAssistantOnlyInvites(
+  query: { sourceChannel?: string; status?: string },
+  gatewayIds: Set<string>,
+): Promise<Array<Record<string, unknown>>> {
+  const conditions: string[] = [];
+  const params: Array<string | number> = [];
+  if (query.sourceChannel !== undefined) {
+    conditions.push("source_channel = ?");
+    params.push(query.sourceChannel);
+  }
+  if (query.status !== undefined) {
+    conditions.push("status = ?");
+    params.push(query.status);
+  }
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  const rows = await assistantDbQuery<AssistantOnlyInviteRow>(
+    `SELECT id,
+            source_channel              AS sourceChannel,
+            note,
+            max_uses                    AS maxUses,
+            use_count                   AS useCount,
+            expires_at                  AS expiresAt,
+            status,
+            redeemed_by_external_user_id AS redeemedByExternalUserId,
+            redeemed_by_external_chat_id AS redeemedByExternalChatId,
+            redeemed_at                 AS redeemedAt,
+            contact_id                  AS contactId,
+            created_at                  AS createdAt,
+            updated_at                  AS updatedAt,
+            voice_code_digits           AS voiceCodeDigits,
+            friend_name                 AS friendName,
+            guardian_name               AS guardianName,
+            expected_external_user_id   AS expectedExternalUserId
+       FROM assistant_ingress_invites
+       ${where}`,
+    params,
+  );
+
+  return rows
+    .filter((r) => !gatewayIds.has(r.id))
+    .map((r) => {
+      const {
+        voiceCodeDigits,
+        friendName,
+        guardianName,
+        expectedExternalUserId,
+        ...invite
+      } = r;
+      // No *_hash column is selected, so there's no code hash to strip — the
+      // sanitizeInviteRow invariant is satisfied at the query boundary.
+      return {
+        ...invite,
+        ...(voiceCodeDigits != null ? { voiceCodeDigits } : {}),
+        ...(friendName ? { friendName } : {}),
+        ...(guardianName ? { guardianName } : {}),
+        ...(expectedExternalUserId ? { expectedExternalUserId } : {}),
+      };
+    });
+}
+
+/**
+ * Revoke an invite that exists only in the assistant DB (no gateway row).
+ *
+ * Flips an active row to revoked, then SELECTs the row to distinguish
+ * "absent" (→ 404) from "present but already terminal" (→ success with the
+ * row's resulting state). Returns the sanitized invite shape on success.
+ * Idempotent: re-revoking an already-terminal invite returns success.
+ */
+async function revokeAssistantOnlyInvite(inviteId: string): Promise<Response> {
+  const now = Date.now();
+  // Best-effort: flip an ACTIVE row to revoked. A terminal row is untouched.
+  try {
+    await assistantDbRun(
+      "UPDATE assistant_ingress_invites SET status='revoked', updated_at=? WHERE id=? AND status='active'",
+      [now, inviteId],
+    );
+  } catch (err) {
+    log.warn(
+      { err, inviteId },
+      "revoke_invite: assistant-only fallback UPDATE failed (best-effort)",
+    );
+  }
+
+  // Re-read to determine existence and the resulting status.
+  const found = await assistantDbQuery<AssistantOnlyInviteRow>(
+    `SELECT id,
+            source_channel              AS sourceChannel,
+            note,
+            max_uses                    AS maxUses,
+            use_count                   AS useCount,
+            expires_at                  AS expiresAt,
+            status,
+            redeemed_by_external_user_id AS redeemedByExternalUserId,
+            redeemed_by_external_chat_id AS redeemedByExternalChatId,
+            redeemed_at                 AS redeemedAt,
+            contact_id                  AS contactId,
+            created_at                  AS createdAt,
+            updated_at                  AS updatedAt,
+            voice_code_digits           AS voiceCodeDigits,
+            friend_name                 AS friendName,
+            guardian_name               AS guardianName,
+            expected_external_user_id   AS expectedExternalUserId
+       FROM assistant_ingress_invites
+      WHERE id = ?`,
+    [inviteId],
+  );
+
+  const row = found[0];
+  if (!row) {
+    // Absent from BOTH the gateway and the assistant DB.
+    return Response.json(
+      {
+        error: {
+          code: "NOT_FOUND",
+          message: `Invite "${inviteId}" not found`,
+        },
+      },
+      { status: 404 },
+    );
+  }
+
+  void ipcCallAssistant("emit_event", {
+    body: { kind: "contacts_changed" },
+  } as unknown as Record<string, unknown>).catch(() => {});
+
+  const {
+    voiceCodeDigits,
+    friendName,
+    guardianName,
+    expectedExternalUserId,
+    ...invite
+  } = row;
+  log.info(
+    { inviteId, status: row.status },
+    "revoke_invite: handled via assistant-only fallback",
+  );
+  return Response.json({
+    ok: true,
+    invite: {
+      // No *_hash column is selected, so there's no code hash to strip.
+      ...invite,
+      ...(voiceCodeDigits != null ? { voiceCodeDigits } : {}),
+      ...(friendName ? { friendName } : {}),
+      ...(guardianName ? { guardianName } : {}),
+      ...(expectedExternalUserId ? { expectedExternalUserId } : {}),
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // ContactWithInfo -> ContactPayload mapping (gateway-native read path)
 // ---------------------------------------------------------------------------
@@ -940,10 +1123,31 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
           }
         }
 
-        const invites = rows.map((r) => ({
+        const invites: Array<Record<string, unknown>> = rows.map((r) => ({
           ...sanitizeInviteRow(r),
           ...(voiceById.get(r.id) ?? {}),
         }));
+
+        // Belt-and-suspenders for the transitional window: invites created via
+        // the assistant IPC/CLI `invites_create` path write only the assistant
+        // DB (no gateway row), so they're invisible to this list until the
+        // m0007 backfill (one-time) or the CLI create flip. Merge in any
+        // assistant-only rows the gateway hasn't seen, applying the SAME
+        // filters and sanitization. Gateway wins on id (lifecycle truth).
+        try {
+          const gatewayIds = new Set(rows.map((r) => r.id));
+          const assistantOnly = await listAssistantOnlyInvites(
+            query,
+            gatewayIds,
+          );
+          for (const inv of assistantOnly) invites.push(inv);
+        } catch (err) {
+          log.warn(
+            { err },
+            "list_invites: assistant-only merge query failed; returning gateway rows only",
+          );
+        }
+
         log.info(
           { count: invites.length, ...query },
           "list_invites: handled natively",
@@ -1271,15 +1475,12 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       try {
         const invite = new ContactStore().revokeInvite(inviteId);
         if (!invite) {
-          return Response.json(
-            {
-              error: {
-                code: "NOT_FOUND",
-                message: `Invite "${inviteId}" not found`,
-              },
-            },
-            { status: 404 },
-          );
+          // No gateway row. The invite may still exist assistant-only (created
+          // via the IPC/CLI path before the m0007 backfill or the CLI flip).
+          // Fall back to revoking the assistant row directly so guardians can
+          // still manage it from the gateway surface. 404 only when the invite
+          // is absent from BOTH stores.
+          return await revokeAssistantOnlyInvite(inviteId);
         }
 
         // Best-effort mirror into the assistant DB. revokeInvite() only flips an
