@@ -46,7 +46,7 @@ describe("parseCreateInviteBody", () => {
       maxUses: 3,
       expiresInMs: 60_000,
       contactName: "Alice",
-      expectedExternalUserId: "+15551234567",
+      expectedExternalUserId: "+12025550100",
       voiceCodeDigits: 4,
       friendName: "Bob",
       guardianName: "Carol",
@@ -105,7 +105,7 @@ describe("parseRedeemInviteBody", () => {
   it("discriminates the voice-code path", () => {
     const result = parseRedeemInviteBody({
       code: "1234",
-      callerExternalUserId: "+15551234567",
+      callerExternalUserId: "+12025550101",
       assistantId: "asst-1",
     });
     expect(result.ok).toBe(true);
@@ -113,7 +113,7 @@ describe("parseRedeemInviteBody", () => {
       expect(result.value.kind).toBe("voice");
       if (result.value.kind === "voice") {
         expect(result.value.code).toBe("1234");
-        expect(result.value.callerExternalUserId).toBe("+15551234567");
+        expect(result.value.callerExternalUserId).toBe("+12025550101");
       }
     }
   });
