@@ -18,6 +18,7 @@ import { getGatewayDb } from "../../db/connection.js";
 import {
   ContactStore,
   CannotRevokeBlockedError,
+  MergeContactsError,
   type ContactWithInfo,
 } from "../../db/contact-store.js";
 import { contacts } from "../../db/schema.js";
@@ -560,8 +561,89 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       return new Response(null, { status: 204 });
     },
 
+    /**
+     * POST /v1/contacts/merge — gateway-native contact merge.
+     *
+     * Moves channels from donor to survivor, deletes the donor in the
+     * gateway DB (single transaction), then best-effort concatenates notes
+     * and deletes the donor in the assistant DB. Returns the survivor
+     * contact with channels + info.
+     *
+     * No proxy fallback: the body is already consumed by req.json(), and
+     * falling back to the daemon would create split-brain (daemon moves
+     * channels in assistant DB while gateway DB is stale).
+     */
     async handleMergeContacts(req: Request): Promise<Response> {
-      return forward(req, "/v1/contacts/merge");
+      let body: Record<string, unknown>;
+      try {
+        body = (await req.json()) as Record<string, unknown>;
+      } catch {
+        return Response.json(
+          {
+            error: {
+              code: "BAD_REQUEST",
+              message: "Request body must be valid JSON",
+            },
+          },
+          { status: 400 },
+        );
+      }
+
+      const keepId = body.keepId as string | undefined;
+      const mergeId = body.mergeId as string | undefined;
+
+      if (!keepId || !mergeId) {
+        return Response.json(
+          {
+            error: {
+              code: "BAD_REQUEST",
+              message: "keepId and mergeId are required",
+            },
+          },
+          { status: 400 },
+        );
+      }
+
+      try {
+        const store = new ContactStore();
+        const contact = await store.mergeContacts(keepId, mergeId);
+
+        // Emit contacts_changed so connected clients refresh.
+        void ipcCallAssistant("emit_event", {
+          body: { kind: "contacts_changed" },
+        } as unknown as Record<string, unknown>).catch(() => {});
+
+        log.info({ keepId, mergeId }, "merge_contacts: handled natively");
+        return Response.json({
+          ok: true,
+          contact: contact ? toContactPayload(contact) : undefined,
+        });
+      } catch (err) {
+        if (err instanceof MergeContactsError) {
+          return Response.json(
+            {
+              error: {
+                code: "BAD_REQUEST",
+                message: err.message,
+              },
+            },
+            { status: 400 },
+          );
+        }
+        log.error(
+          { keepId, mergeId, err },
+          "merge_contacts: gateway-native merge failed",
+        );
+        return Response.json(
+          {
+            error: {
+              code: "INTERNAL_ERROR",
+              message: "Failed to merge contacts",
+            },
+          },
+          { status: 500 },
+        );
+      }
     },
 
     /**

@@ -81,6 +81,9 @@ let contactStoreUpdateChannelMock: ReturnType<typeof mock<UpdateChannelFn>> = mo
 type DualWriteChannelFn = (channelId: string, params: Record<string, unknown>) => Promise<void>;
 let contactStoreDualWriteChannelMock: ReturnType<typeof mock<DualWriteChannelFn>> = mock(async () => {});
 
+type MergeFn = (keepId: string, mergeId: string) => Promise<typeof DEFAULT_MOCK_CONTACT | null>;
+let contactStoreMergeMock: ReturnType<typeof mock<MergeFn>> = mock(async () => null);
+
 mock.module("../db/contact-store.js", () => ({
   ContactStore: class MockContactStore {
     upsertContact(...args: Parameters<UpsertFn>) {
@@ -109,6 +112,9 @@ mock.module("../db/contact-store.js", () => ({
     ) {
       return contactStoreDualWriteChannelMock(channelId, params);
     }
+    async mergeContacts(keepId: string, mergeId: string) {
+      return contactStoreMergeMock(keepId, mergeId);
+    }
   },
   CannotRevokeBlockedError: class CannotRevokeBlockedError extends Error {
     readonly channelId: string;
@@ -116,6 +122,12 @@ mock.module("../db/contact-store.js", () => ({
       super("Cannot revoke a blocked channel. Unblock it first or leave it blocked.");
       this.name = "CannotRevokeBlockedError";
       this.channelId = channelId;
+    }
+  },
+  MergeContactsError: class MergeContactsError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = "MergeContactsError";
     }
   },
 }));
@@ -164,6 +176,7 @@ afterEach(() => {
   contactStoreGetMock = mock(async () => null);
   contactStoreUpdateChannelMock = mock(() => null);
   contactStoreDualWriteChannelMock = mock(async () => {});
+  contactStoreMergeMock = mock(async () => null);
 });
 
 describe("contacts control-plane proxy", () => {
@@ -192,16 +205,10 @@ describe("contacts control-plane proxy", () => {
       new Request("http://localhost:7830/v1/contacts/ct_1"),
       "ct_1",
     );
-    await handler.handleMergeContacts(
-      new Request("http://localhost:7830/v1/contacts/merge", {
-        method: "POST",
-      }),
-    );
 
     expect(captured).toEqual([
       "http://localhost:7821/v1/contacts?limit=10&query=alice",
       "http://localhost:7821/v1/contacts/ct_1",
-      "http://localhost:7821/v1/contacts/merge",
     ]);
   });
 
@@ -1155,3 +1162,181 @@ describe("handleUpdateContactChannel (gateway-native)", () => {
     expect(body.contact.id).toBe("ct_mock");
   });
 });
+describe("handleMergeContacts (gateway-native)", () => {
+  test("merges contacts natively and returns survivor", async () => {
+    contactStoreMergeMock = mock(async () => ({
+      ...DEFAULT_MOCK_CONTACT,
+      id: "ct_keep",
+    }));
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleMergeContacts(
+      new Request("http://localhost:7830/v1/contacts/merge", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ keepId: "ct_keep", mergeId: "ct_merge" }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.contact.id).toBe("ct_keep");
+    expect(contactStoreMergeMock).toHaveBeenCalledTimes(1);
+    expect(contactStoreMergeMock.mock.calls[0][0]).toBe("ct_keep");
+    expect(contactStoreMergeMock.mock.calls[0][1]).toBe("ct_merge");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("returns 400 when keepId is missing", async () => {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleMergeContacts(
+      new Request("http://localhost:7830/v1/contacts/merge", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mergeId: "ct_merge" }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message).toMatch(/keepId and mergeId/);
+    expect(contactStoreMergeMock).not.toHaveBeenCalled();
+  });
+
+  test("returns 400 when mergeId is missing", async () => {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleMergeContacts(
+      new Request("http://localhost:7830/v1/contacts/merge", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ keepId: "ct_keep" }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    expect(contactStoreMergeMock).not.toHaveBeenCalled();
+  });
+
+  test("returns 400 for self-merge", async () => {
+    const { MergeContactsError } = await import("../db/contact-store.js");
+    contactStoreMergeMock = mock(async () => {
+      throw new MergeContactsError("Cannot merge a contact with itself");
+    });
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleMergeContacts(
+      new Request("http://localhost:7830/v1/contacts/merge", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ keepId: "ct_1", mergeId: "ct_1" }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message).toMatch(/self/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("returns 400 when contact not found", async () => {
+    const { MergeContactsError } = await import("../db/contact-store.js");
+    contactStoreMergeMock = mock(async () => {
+      throw new MergeContactsError('Contact "ct_x" not found');
+    });
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleMergeContacts(
+      new Request("http://localhost:7830/v1/contacts/merge", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ keepId: "ct_keep", mergeId: "ct_x" }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.message).toMatch(/not found/);
+  });
+
+  test("returns 400 for invalid JSON body", async () => {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleMergeContacts(
+      new Request("http://localhost:7830/v1/contacts/merge", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "not json",
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe("BAD_REQUEST");
+  });
+
+  test("returns 500 on unexpected error (no proxy fallback)", async () => {
+    contactStoreMergeMock = mock(async () => {
+      throw new Error("gateway DB unavailable");
+    });
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleMergeContacts(
+      new Request("http://localhost:7830/v1/contacts/merge", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ keepId: "ct_keep", mergeId: "ct_merge" }),
+      }),
+    );
+
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error.code).toBe("INTERNAL_ERROR");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("returns 200 even if store returns null (survivor read-back miss)", async () => {
+    contactStoreMergeMock = mock(async () => null);
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleMergeContacts(
+      new Request("http://localhost:7830/v1/contacts/merge", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ keepId: "ct_keep", mergeId: "ct_merge" }),
+      }),
+    );
+
+    // The merge itself succeeded (no throw); the survivor read-back just
+    // returned null. Still 200 with ok:true.
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.contact).toBeUndefined();
+  });
+});
+
+  test("returns 400 when merging away a guardian contact", async () => {
+    const { MergeContactsError } = await import("../db/contact-store.js");
+    contactStoreMergeMock = mock(async () => {
+      throw new MergeContactsError(
+        "Cannot merge away a guardian contact. Keep the guardian as the survivor instead.",
+      );
+    });
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleMergeContacts(
+      new Request("http://localhost:7830/v1/contacts/merge", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ keepId: "ct_regular", mergeId: "ct_guardian" }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message).toMatch(/guardian/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
