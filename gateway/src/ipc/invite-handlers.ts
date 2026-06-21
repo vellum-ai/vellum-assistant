@@ -8,11 +8,48 @@
  * authoritative lifecycle gate (no separate check-then-act window). This keeps
  * the gateway invite row authoritative across every runtime redemption path
  * (token + 6-digit channel intercepts, voice relay, HTTP).
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ * Invite CRUD IPC contract (the daemon CLI relay — see contacts-gw-native-
+ * invites PR 5 — calls these via `ipcCallPersistent`; KEEP STABLE):
+ *
+ *   invites_list
+ *     params : { sourceChannel?: string; status?: string }
+ *     returns: { invites: Array<Record<string, unknown>> }   (sanitized — no
+ *              inviteCodeHash; gateway rows + voice join + assistant-only merge)
+ *
+ *   invites_create
+ *     params : { contactId: string; sourceChannel: string; note?: string;
+ *                maxUses?: number; expiresInMs?: number; contactName?: string;
+ *                expectedExternalUserId?: string; voiceCodeDigits?: number;
+ *                friendName?: string; guardianName?: string }
+ *     returns: { invite: Record<string, unknown>; rawToken?: string }
+ *              (the assistant's one-time minted payload)
+ *
+ *   invites_revoke
+ *     params : { id: string }
+ *     returns: { invite: Record<string, unknown> }            (sanitized)
+ *
+ *   invites_trigger_call
+ *     params : { id: string }
+ *     returns: { callSid: string }
+ *
+ * All four delegate to the SAME native functions the gateway HTTP invite
+ * handlers use (gateway/src/http/routes/contacts-control-plane-proxy.ts), which
+ * throw InviteNativeError / IpcHandlerError on failure. The IPC server
+ * stringifies a thrown error into the wire `error` field.
+ * ───────────────────────────────────────────────────────────────────────────
  */
 
 import { z } from "zod";
 
 import { ContactStore } from "../db/contact-store.js";
+import {
+  createInviteNative,
+  listInvitesNative,
+  revokeInviteNative,
+  triggerInviteCallNative,
+} from "../http/routes/contacts-control-plane-proxy.js";
 import type { IpcRoute } from "./server.js";
 
 let store: ContactStore | null = null;
@@ -28,6 +65,33 @@ const RecordInviteRedemptionParamsSchema = z.object({
   inviteId: z.string().min(1),
   redeemedByExternalUserId: z.string().nullish(),
   redeemedByExternalChatId: z.string().nullish(),
+});
+
+const positiveNumber = z
+  .number()
+  .refine((n) => Number.isFinite(n) && n > 0, "must be a positive number");
+
+const ListInvitesParamsSchema = z.object({
+  sourceChannel: z.string().optional(),
+  status: z.string().optional(),
+});
+
+// Mirrors createInviteSchema in http/routes/invite-validation.ts.
+const CreateInviteParamsSchema = z.object({
+  contactId: z.string().trim().min(1, "contactId is required"),
+  sourceChannel: z.string().trim().min(1, "sourceChannel is required"),
+  note: z.string().optional(),
+  maxUses: positiveNumber.optional(),
+  expiresInMs: positiveNumber.optional(),
+  contactName: z.string().optional(),
+  expectedExternalUserId: z.string().optional(),
+  voiceCodeDigits: positiveNumber.optional(),
+  friendName: z.string().optional(),
+  guardianName: z.string().optional(),
+});
+
+const InviteIdParamsSchema = z.object({
+  id: z.string().min(1),
 });
 
 export const inviteRoutes: IpcRoute[] = [
@@ -52,6 +116,46 @@ export const inviteRoutes: IpcRoute[] = [
         updated: result.updated,
         mirrored: result.row !== null,
       };
+    },
+  },
+  {
+    // Gateway rows (lifecycle truth) + best-effort voice-field join +
+    // assistant-only merge, sanitized (no inviteCodeHash). Shares the HTTP
+    // list native implementation.
+    method: "invites_list",
+    schema: ListInvitesParamsSchema,
+    handler: async (params?: Record<string, unknown>) => {
+      const query = ListInvitesParamsSchema.parse(params ?? {});
+      return await listInvitesNative(query);
+    },
+  },
+  {
+    // Verify contact → relay assistant mint → write canonical gateway row.
+    // Returns the assistant's one-time minted payload + rawToken.
+    method: "invites_create",
+    schema: CreateInviteParamsSchema,
+    handler: async (params?: Record<string, unknown>) => {
+      const input = CreateInviteParamsSchema.parse(params);
+      return await createInviteNative(input);
+    },
+  },
+  {
+    // Flip the gateway row (then mirror to assistant DB), or fall back to the
+    // assistant-only row. Returns the sanitized invite.
+    method: "invites_revoke",
+    schema: InviteIdParamsSchema,
+    handler: async (params?: Record<string, unknown>) => {
+      const { id } = InviteIdParamsSchema.parse(params);
+      return await revokeInviteNative(id);
+    },
+  },
+  {
+    // Gate on active gateway row → relay the outbound call to the assistant.
+    method: "invites_trigger_call",
+    schema: InviteIdParamsSchema,
+    handler: async (params?: Record<string, unknown>) => {
+      const { id } = InviteIdParamsSchema.parse(params);
+      return await triggerInviteCallNative(id);
     },
   },
 ];
