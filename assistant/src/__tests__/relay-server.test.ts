@@ -42,6 +42,18 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+// The voice redemption path now claims the gateway-canonical row over IPC
+// before mutating. Stub it so tests don't attempt a real socket connect; the
+// claim returns consumed (updated:true) so redemption proceeds.
+mock.module("../ipc/gateway-client.js", () => ({
+  ipcCall: async () => undefined,
+  ipcCallPersistent: async (method: string) => {
+    if (method === "record_invite_redemption")
+      return { ok: true, updated: true, mirrored: true };
+    return undefined;
+  },
+}));
+
 // ── Identity helpers mock ─────────────────────────────────────────────
 
 let mockAssistantName: string | null = "Vellum";
@@ -2428,7 +2440,11 @@ describe("relay-server", () => {
       await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
 
-    // Call should be marked as failed immediately
+    // Redemption is dispatched async (it now consults the gateway lifecycle
+    // pre-check over IPC), so flush the microtask/timer queue before asserting.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Call should be marked as failed
     const updated = getCallSession(session.id);
     expect(updated).not.toBeNull();
     expect(updated!.status).toBe("failed");

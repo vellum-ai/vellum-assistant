@@ -15,6 +15,18 @@ mock.module("../security/secure-keys.js", () => ({
   deleteSecureKeyAsync: async () => {},
 }));
 
+// The redemption service now claims the gateway-canonical row over IPC before
+// mutating. Default the claim to consumed (updated:true) so these assistant-side
+// handler tests exercise the happy redemption path.
+mock.module("../ipc/gateway-client.js", () => ({
+  ipcCallPersistent: async (method: string) => {
+    if (method === "record_invite_redemption") {
+      return { ok: true, updated: true, mirrored: true };
+    }
+    return undefined;
+  },
+}));
+
 import { upsertContact } from "../contacts/contact-store.js";
 import { handleMintInvite } from "../ipc/routes/invite-ipc-routes.js";
 import { getSqlite } from "../memory/db-connection.js";
@@ -132,7 +144,7 @@ describe("handleMintInvite (invites_mint)", () => {
 describe("handleRedeemTokenInvite (invites_redeem_token)", () => {
   beforeEach(resetTables);
 
-  test("redeems a valid token and returns the invite shape", () => {
+  test("redeems a valid token and returns the invite shape", async () => {
     const contactId = createTargetContact();
     const { rawToken, invite } = createInvite({
       sourceChannel: "telegram",
@@ -140,20 +152,52 @@ describe("handleRedeemTokenInvite (invites_redeem_token)", () => {
       maxUses: 1,
     });
 
-    const result = handleRedeemTokenInvite({
+    const result = (await handleRedeemTokenInvite({
       body: {
         token: rawToken,
         sourceChannel: "telegram",
         externalUserId: "user-1",
       },
-    }) as { ok: boolean; invite: { id: string } };
+    })) as { ok: boolean; invite: { id: string }; type: string };
 
     expect(result.ok).toBe(true);
     expect(result.invite.id).toBe(invite.id);
+    expect(result.type).toBe("redeemed");
   });
 
-  test("rejects a bogus token with a 400", () => {
-    expect(() =>
+  test("surfaces type 'already_member' when an existing contact reopens the link", async () => {
+    const contactId = createTargetContact();
+    const { rawToken } = createInvite({
+      sourceChannel: "telegram",
+      contactId,
+      maxUses: 2,
+    });
+
+    // First redeem makes the caller an active contact.
+    await handleRedeemTokenInvite({
+      body: {
+        token: rawToken,
+        sourceChannel: "telegram",
+        externalUserId: "user-1",
+      },
+    });
+
+    // Second redeem by the SAME caller is a no-op membership-wise: it must
+    // surface type "already_member" so the gateway skips consuming a use.
+    const again = (await handleRedeemTokenInvite({
+      body: {
+        token: rawToken,
+        sourceChannel: "telegram",
+        externalUserId: "user-1",
+      },
+    })) as { ok: boolean; type: string };
+
+    expect(again.ok).toBe(true);
+    expect(again.type).toBe("already_member");
+  });
+
+  test("rejects a bogus token with a 400", async () => {
+    await expect(
       handleRedeemTokenInvite({
         body: {
           token: "totally-bogus-token",
@@ -161,10 +205,10 @@ describe("handleRedeemTokenInvite (invites_redeem_token)", () => {
           externalUserId: "user-1",
         },
       }),
-    ).toThrow();
+    ).rejects.toThrow();
   });
 
-  test("rejects redemption on the wrong channel", () => {
+  test("rejects redemption on the wrong channel", async () => {
     const contactId = createTargetContact();
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
@@ -172,7 +216,7 @@ describe("handleRedeemTokenInvite (invites_redeem_token)", () => {
       maxUses: 1,
     });
 
-    expect(() =>
+    await expect(
       handleRedeemTokenInvite({
         body: {
           token: rawToken,
@@ -180,7 +224,7 @@ describe("handleRedeemTokenInvite (invites_redeem_token)", () => {
           externalUserId: "user-1",
         },
       }),
-    ).toThrow();
+    ).rejects.toThrow();
   });
 });
 
@@ -201,13 +245,13 @@ describe("handleRedeemVoiceInvite (invites_redeem_voice)", () => {
     return { invite, code };
   }
 
-  test("redeems a valid voice code and returns the documented shape", () => {
+  test("redeems a valid voice code and returns the documented shape", async () => {
     const phone = "+12025550100";
     const { invite, code } = createVoiceInvite(phone);
 
-    const result = handleRedeemVoiceInvite({
+    const result = (await handleRedeemVoiceInvite({
       body: { callerExternalUserId: phone, code },
-    }) as {
+    })) as {
       ok: boolean;
       type: string;
       memberId: string;
@@ -222,24 +266,24 @@ describe("handleRedeemVoiceInvite (invites_redeem_voice)", () => {
     });
   });
 
-  test("wrong caller identity is rejected with a 400", () => {
+  test("wrong caller identity is rejected with a 400", async () => {
     const { code } = createVoiceInvite("+12025550100");
 
-    expect(() =>
+    await expect(
       handleRedeemVoiceInvite({
         body: { callerExternalUserId: "+12025550101", code },
       }),
-    ).toThrow();
+    ).rejects.toThrow();
   });
 
-  test("missing callerExternalUserId or code is rejected with a 400", () => {
-    expect(() =>
+  test("missing callerExternalUserId or code is rejected with a 400", async () => {
+    await expect(
       handleRedeemVoiceInvite({ body: { code: "123456" } }),
-    ).toThrow();
-    expect(() =>
+    ).rejects.toThrow();
+    await expect(
       handleRedeemVoiceInvite({
         body: { callerExternalUserId: "+12025550100" },
       }),
-    ).toThrow();
+    ).rejects.toThrow();
   });
 });
