@@ -118,6 +118,21 @@ describe("invites_list", () => {
     expect(listInvitesNativeMock).toHaveBeenCalledTimes(1);
   });
 
+  test("accepts omitted params (no-filter list) and calls native with {}", async () => {
+    listInvitesNativeMock = mock(async () => ({
+      invites: [{ id: "inv_1" }],
+    }));
+    const r = route("invites_list");
+    // The daemon relay's `ipcCallPersistent("invites_list")` sends no params,
+    // so the server validates `undefined` against the schema before the handler.
+    expect(r.schema?.safeParse(undefined).success).toBe(true);
+
+    const result = await r.handler(undefined);
+    expect(result).toEqual({ invites: [{ id: "inv_1" }] });
+    expect(listInvitesNativeMock).toHaveBeenCalledTimes(1);
+    expect(listInvitesNativeMock.mock.calls[0][0]).toEqual({});
+  });
+
   test("passes sourceChannel + status through to the native function", async () => {
     const r = route("invites_list");
     expect(

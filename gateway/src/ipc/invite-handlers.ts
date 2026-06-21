@@ -71,10 +71,18 @@ const positiveNumber = z
   .number()
   .refine((n) => Number.isFinite(n) && n > 0, "must be a positive number");
 
-const ListInvitesParamsSchema = z.object({
-  sourceChannel: z.string().optional(),
-  status: z.string().optional(),
-});
+// The no-filter list is the common case; the daemon relay calls
+// `ipcCallPersistent("invites_list")` with no params (req.params === undefined).
+// The server validates req.params against this schema BEFORE the handler runs,
+// so the schema must accept omitted/undefined params and default them to {}.
+// Field validations stay intact for when params ARE provided.
+const ListInvitesParamsSchema = z.preprocess(
+  (v) => v ?? {},
+  z.object({
+    sourceChannel: z.string().optional(),
+    status: z.string().optional(),
+  }),
+);
 
 // Mirrors createInviteSchema in http/routes/invite-validation.ts.
 const CreateInviteParamsSchema = z.object({
