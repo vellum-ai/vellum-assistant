@@ -127,8 +127,7 @@ mock.module("../../tools/credentials/metadata-store.js", () => ({
     const existing = metadataStore.get(key);
     metadataStore.set(key, {
       allowedTools: policy?.allowedTools ?? existing?.allowedTools ?? [],
-      usageDescription:
-        policy?.usageDescription ?? existing?.usageDescription,
+      usageDescription: policy?.usageDescription ?? existing?.usageDescription,
     });
     return {
       credentialId: `cred-${key}`,
@@ -533,8 +532,8 @@ function listRows(): RowSnapshot[] {
 }
 
 describe("DELETE /v1/acp/sessions?status=completed", () => {
-  beforeAll(() => {
-    initializeDb();
+  beforeAll(async () => {
+    await initializeDb();
   });
 
   beforeEach(() => {
@@ -687,8 +686,8 @@ function insertHistoryRow(opts: {
 }
 
 describe("DELETE /v1/acp/sessions/:id", () => {
-  beforeAll(() => {
-    initializeDb();
+  beforeAll(async () => {
+    await initializeDb();
   });
 
   beforeEach(() => {

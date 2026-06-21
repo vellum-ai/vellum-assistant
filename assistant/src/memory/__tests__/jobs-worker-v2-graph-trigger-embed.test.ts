@@ -75,8 +75,8 @@ import { _resetQdrantBreaker } from "../qdrant-circuit-breaker.js";
 import { memoryJobs } from "../schema.js";
 
 describe("graph_trigger_embed under memory v2", () => {
-  beforeAll(() => {
-    initializeDb();
+  beforeAll(async () => {
+    await initializeDb();
   });
 
   afterAll(() => {

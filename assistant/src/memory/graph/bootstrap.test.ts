@@ -16,8 +16,8 @@ const MIGRATE_ITEMS_CHECKPOINT = "graph_bootstrap:migrated_tool_items";
 // Setup
 // ---------------------------------------------------------------------------
 
-beforeAll(() => {
-  initializeDb();
+beforeAll(async () => {
+  await initializeDb();
 });
 
 beforeEach(() => {

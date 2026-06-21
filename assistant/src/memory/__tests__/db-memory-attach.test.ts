@@ -26,7 +26,7 @@ const { runAsyncSqlite } = await import("../db-async-query.js");
 const { getMemoryDbPath } = await import("../../util/memory-db-path.js");
 const { findSqlite3 } = await import("../../util/sqlite3-runtime.js");
 
-initializeDb();
+await initializeDb();
 
 const sqlite3Available = findSqlite3() !== undefined;
 

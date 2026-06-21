@@ -26,7 +26,7 @@ const { maybeRunDbMaintenance } = await import("../db-maintenance.js");
 const { getLastUserMessageTimestamp } = await import("../conversation-crud.js");
 const { getDbPath } = await import("../../util/platform.js");
 
-initializeDb();
+await initializeDb();
 
 const MAINTENANCE_CHECKPOINT_KEY = "db_maintenance:last_run";
 const QUIET_PERIOD_MS = 3 * 60 * 60 * 1000;

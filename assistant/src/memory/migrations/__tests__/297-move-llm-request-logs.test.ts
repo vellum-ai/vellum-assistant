@@ -24,7 +24,7 @@ const { migrateMoveLlmRequestLogsToLogsDb } =
 const { recordRequestLog, getRequestLogById } =
   await import("../../llm-request-log-store.js");
 
-initializeDb();
+await initializeDb();
 
 function existsInMain(name: string): boolean {
   return (

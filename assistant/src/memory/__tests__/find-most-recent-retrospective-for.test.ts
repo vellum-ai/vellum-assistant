@@ -18,7 +18,7 @@ import { initializeDb } from "../db-init.js";
 import { MEMORY_RETROSPECTIVE_SOURCE } from "../memory-retrospective-constants.js";
 import { conversations } from "../schema.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();

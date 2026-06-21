@@ -126,7 +126,7 @@ function consolidationJobPayloads(): Record<string, unknown>[] {
 // Initialize the DB once for the file; clear per-test tables in beforeEach
 // rather than tearing down the singleton, which is slow because it re-runs
 // every migration on the next access.
-initializeDb();
+await initializeDb();
 
 beforeEach(() => {
   // Clear job + checkpoint state so each test starts from zero rows. Other

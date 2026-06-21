@@ -32,7 +32,7 @@ import {
   sampleConfig,
 } from "./fixtures/memory-v2-activation-fixtures.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();

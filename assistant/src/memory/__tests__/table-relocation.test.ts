@@ -26,7 +26,7 @@ const { drainStagedTable, stageTableForRelocation } =
 const { MEMORY_JOBS_RELOCATION } =
   await import("../migrations/298-move-memory-jobs-to-memory-db.js");
 
-initializeDb();
+await initializeDb();
 
 function existsInMain(name: string): boolean {
   return (

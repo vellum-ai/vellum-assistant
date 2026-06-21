@@ -253,9 +253,9 @@ function makeJob(
 // template by running every step; later calls restore it by file copy. That
 // cold build can exceed bun's default 5s hook timeout under CI load, so give
 // the hook generous headroom.
-beforeEach(() => {
+beforeEach(async () => {
   resetDbForTesting();
-  initializeDb();
+  await initializeDb();
   // The shared template-DB caching does not clear WAL state between tests,
   // so explicitly truncate every table this suite writes to. Without this,
   // a row written by an earlier test (e.g. an activation_state for

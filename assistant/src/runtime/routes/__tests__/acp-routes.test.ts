@@ -133,7 +133,7 @@ const { ROUTES } = await import("../acp-routes.js");
 const { _resetAdapterInstallCacheForTests } =
   await import("../../../acp/auto-install.js");
 
-initializeDb();
+await initializeDb();
 
 afterAll(() => {
   which.restore();
