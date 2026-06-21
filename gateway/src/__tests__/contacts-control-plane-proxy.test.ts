@@ -125,7 +125,8 @@ const DEFAULT_INVITE: InviteRow = {
   note: null,
   maxUses: 1,
   useCount: 0,
-  expiresAt: 2000000,
+  // Far-future so the redeem pre-gate's expiry check treats it as still valid.
+  expiresAt: 4_000_000_000_000,
   status: "active",
   createdAt: 1000000,
   updatedAt: 1000000,
@@ -163,6 +164,14 @@ type GetInviteByIdFn = (inviteId: string) => InviteRow | null;
 let contactStoreGetInviteByIdMock: ReturnType<typeof mock<GetInviteByIdFn>> =
   mock(() => DEFAULT_INVITE);
 
+type FindActiveInviteByCodeHashFn = (
+  codeHash: string,
+  sourceChannel: string,
+) => InviteRow | null;
+let contactStoreFindActiveInviteByCodeHashMock: ReturnType<
+  typeof mock<FindActiveInviteByCodeHashFn>
+> = mock(() => DEFAULT_INVITE);
+
 mock.module("../db/contact-store.js", () => ({
   ContactStore: class MockContactStore {
     upsertContact(...args: Parameters<UpsertFn>) {
@@ -185,6 +194,9 @@ mock.module("../db/contact-store.js", () => ({
     }
     getInviteById(inviteId: string) {
       return contactStoreGetInviteByIdMock(inviteId);
+    }
+    findActiveInviteByCodeHash(codeHash: string, sourceChannel: string) {
+      return contactStoreFindActiveInviteByCodeHashMock(codeHash, sourceChannel);
     }
     async listContactsWithInfo(opts?: {
       limit?: number;
@@ -283,6 +295,7 @@ afterEach(() => {
     row: DEFAULT_INVITE,
   }));
   contactStoreGetInviteByIdMock = mock(() => DEFAULT_INVITE);
+  contactStoreFindActiveInviteByCodeHashMock = mock(() => DEFAULT_INVITE);
 });
 
 describe("contacts control-plane proxy", () => {
@@ -1633,6 +1646,8 @@ describe("handleListInvites (gateway-native)", () => {
     expect(body.invites[0].id).toBe("inv_1");
     expect(body.invites[0].voiceCodeDigits).toBe(6);
     expect(body.invites[0].friendName).toBe("Alice");
+    // The brute-forceable code hash must never be exposed in list responses.
+    expect(body.invites[0]).not.toHaveProperty("inviteCodeHash");
     // status filter passed through to the store query.
     expect(contactStoreListInvitesMock.mock.calls[0][0]).toEqual({
       status: "active",
@@ -1658,6 +1673,7 @@ describe("handleListInvites (gateway-native)", () => {
     expect(body.invites).toHaveLength(1);
     expect(body.invites[0].id).toBe("inv_1");
     expect(body.invites[0].friendName).toBeUndefined();
+    expect(body.invites[0]).not.toHaveProperty("inviteCodeHash");
   });
 
   test("returns 500 when the gateway read throws", async () => {
@@ -1694,6 +1710,8 @@ describe("handleRevokeInvite (gateway-native)", () => {
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.invite.status).toBe("revoked");
+    // Revoke responses must not leak the brute-forceable code hash.
+    expect(body.invite).not.toHaveProperty("inviteCodeHash");
     expect(contactStoreRevokeInviteMock).toHaveBeenCalledWith("inv_1");
     // Best-effort assistant DB mirror.
     expect(assistantDbRunMock).toHaveBeenCalledTimes(1);
@@ -1816,8 +1834,41 @@ describe("handleRedeemInvite (gateway-native)", () => {
     expect(contactStoreRecordRedemptionMock).not.toHaveBeenCalled();
   });
 
-  test("token path relays to invites_redeem_token and mirrors redemption", async () => {
+  test("voice path rejects with 409 and does NOT relay the redeem when no active canonical row matches the code", async () => {
+    // The gateway pre-gate finds no active/unexpired/unexhausted row for the
+    // code hash (revoked/exhausted invite with a stale assistant mirror), so it
+    // must reject BEFORE the assistant mutates contacts.
+    contactStoreFindActiveInviteByCodeHashMock = mock(() => null);
+    ipcCallAssistantMock = mock(async () => ({}));
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleRedeemInvite(
+      new Request("http://localhost:7830/v1/contacts/invites/redeem", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          code: "123456",
+          callerExternalUserId: "+15551234567",
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(409);
+    expect((await res.json()).error.code).toBe("CONFLICT");
+    // The side-effecting voice redeem must never have run.
+    expect(ipcCallAssistantMock).not.toHaveBeenCalled();
+    expect(contactStoreRecordRedemptionMock).not.toHaveBeenCalled();
+    // Pre-gate scoped to the phone channel.
+    expect(
+      contactStoreFindActiveInviteByCodeHashMock.mock.calls[0][1],
+    ).toBe("phone");
+  });
+
+  test("token path resolves, pre-gates on the canonical row, then relays to invites_redeem_token and mirrors redemption", async () => {
     ipcCallAssistantMock = mock(async (method: string) => {
+      if (method === "invites_resolve_token") {
+        return { id: "inv_1" };
+      }
       if (method === "invites_redeem_token") {
         return { invite: { id: "inv_1", status: "redeemed" } };
       }
@@ -1841,7 +1892,10 @@ describe("handleRedeemInvite (gateway-native)", () => {
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.invite.id).toBe("inv_1");
-    expect(ipcCallAssistantMock.mock.calls[0][0]).toBe("invites_redeem_token");
+    // Resolve runs BEFORE the side-effecting redeem.
+    expect(ipcCallAssistantMock.mock.calls[0][0]).toBe("invites_resolve_token");
+    expect(ipcCallAssistantMock.mock.calls[1][0]).toBe("invites_redeem_token");
+    expect(contactStoreGetInviteByIdMock).toHaveBeenCalledWith("inv_1");
     expect(contactStoreRecordRedemptionMock).toHaveBeenCalledTimes(1);
     const [params] = contactStoreRecordRedemptionMock.mock.calls[0] as [
       Record<string, unknown>,
@@ -1849,6 +1903,62 @@ describe("handleRedeemInvite (gateway-native)", () => {
     expect(params.inviteId).toBe("inv_1");
     expect(params.redeemedByExternalUserId).toBe("u_1");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("token path rejects with 409 and does NOT relay the redeem when the canonical gateway row is not active", async () => {
+    contactStoreGetInviteByIdMock = mock(() => ({
+      ...DEFAULT_INVITE,
+      status: "revoked",
+    }));
+    ipcCallAssistantMock = mock(async (method: string) => {
+      if (method === "invites_resolve_token") {
+        return { id: "inv_1" };
+      }
+      return {};
+    });
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleRedeemInvite(
+      new Request("http://localhost:7830/v1/contacts/invites/redeem", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token: "tok", sourceChannel: "telegram" }),
+      }),
+    );
+
+    expect(res.status).toBe(409);
+    expect((await res.json()).error.code).toBe("CONFLICT");
+    // The side-effecting redeem must never have run.
+    const methods = ipcCallAssistantMock.mock.calls.map((c) => c[0]);
+    expect(methods).not.toContain("invites_redeem_token");
+    expect(contactStoreRecordRedemptionMock).not.toHaveBeenCalled();
+  });
+
+  test("token path rejects with 409 when the canonical gateway row is exhausted", async () => {
+    contactStoreGetInviteByIdMock = mock(() => ({
+      ...DEFAULT_INVITE,
+      useCount: 1,
+      maxUses: 1,
+    }));
+    ipcCallAssistantMock = mock(async (method: string) => {
+      if (method === "invites_resolve_token") {
+        return { id: "inv_1" };
+      }
+      return {};
+    });
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleRedeemInvite(
+      new Request("http://localhost:7830/v1/contacts/invites/redeem", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token: "tok", sourceChannel: "telegram" }),
+      }),
+    );
+
+    expect(res.status).toBe(409);
+    const methods = ipcCallAssistantMock.mock.calls.map((c) => c[0]);
+    expect(methods).not.toContain("invites_redeem_token");
   });
 
   test("returns 400 for invalid JSON body", async () => {
@@ -1880,11 +1990,15 @@ describe("handleRedeemInvite (gateway-native)", () => {
     expect(ipcCallAssistantMock).not.toHaveBeenCalled();
   });
 
-  test("token path rejects with 409 when the gateway invite is no longer active", async () => {
-    // The assistant resolved the invite, but the gateway's canonical row is
-    // revoked/exhausted (recordInviteRedemption.updated === false). The
-    // gateway lifecycle is authoritative — do NOT return success.
+  test("token path rejects with 409 (post-record defense-in-depth) when recordInviteRedemption races out", async () => {
+    // The pre-gate passed (canonical row was active at check time), but the
+    // gateway row was concurrently revoked/exhausted before the post-redeem
+    // record (recordInviteRedemption.updated === false). The gateway lifecycle
+    // is authoritative — do NOT return success.
     ipcCallAssistantMock = mock(async (method: string) => {
+      if (method === "invites_resolve_token") {
+        return { id: "inv_1" };
+      }
       if (method === "invites_redeem_token") {
         return { invite: { id: "inv_1" } };
       }
@@ -1912,7 +2026,7 @@ describe("handleRedeemInvite (gateway-native)", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("voice path rejects with 409 when the gateway invite is no longer active", async () => {
+  test("voice path rejects with 409 (post-record defense-in-depth) when recordInviteRedemption races out", async () => {
     ipcCallAssistantMock = mock(async (method: string) => {
       if (method === "invites_redeem_voice") {
         return { type: "redeemed", memberId: "mem_1", inviteId: "inv_1" };
@@ -1945,6 +2059,9 @@ describe("handleRedeemInvite (gateway-native)", () => {
 
   test("maps assistant redeem 400 (IpcHandlerError) to 400", async () => {
     ipcCallAssistantMock = mock(async (method: string) => {
+      if (method === "invites_resolve_token") {
+        return { id: "inv_1" };
+      }
       if (method === "invites_redeem_token") {
         throw new IpcHandlerError("Invite not found", 400, "BAD_REQUEST");
       }

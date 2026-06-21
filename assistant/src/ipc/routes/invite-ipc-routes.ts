@@ -12,7 +12,10 @@
  * than flagged inside `ROUTES`.
  */
 
-import { mintIngressInvite } from "../../runtime/invite-service.js";
+import {
+  mintIngressInvite,
+  resolveTokenInvite,
+} from "../../runtime/invite-service.js";
 import {
   handleRedeemTokenInvite,
   handleRedeemVoiceInvite,
@@ -53,6 +56,21 @@ export async function handleMintInvite({ body = {} }: RouteHandlerArgs) {
 }
 
 /**
+ * Resolve a token invite's id without side effects (`invites_resolve_token`).
+ *
+ * The gateway stores no redeemable token hash, so it calls this to map an
+ * incoming token to its canonical invite id, then gates on its own lifecycle
+ * row before relaying the side-effecting `invites_redeem_token`.
+ */
+export function handleResolveTokenInvite({ body = {} }: RouteHandlerArgs) {
+  const result = resolveTokenInvite({ token: body.token as string | undefined });
+  if (!result.ok) {
+    throw new BadRequestError(result.error);
+  }
+  return { ok: true, id: result.data.id };
+}
+
+/**
  * IPC-only invite methods, keyed by IPC operationId. Registered directly on
  * the assistant IPC server (see `assistant-server.ts`).
  *
@@ -65,6 +83,7 @@ export const INVITE_IPC_METHODS: Record<
   (args: RouteHandlerArgs) => unknown
 > = {
   invites_mint: handleMintInvite,
+  invites_resolve_token: handleResolveTokenInvite,
   invites_redeem_voice: handleRedeemVoiceInvite,
   invites_redeem_token: handleRedeemTokenInvite,
 };

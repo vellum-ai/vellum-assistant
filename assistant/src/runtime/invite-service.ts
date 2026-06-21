@@ -438,6 +438,28 @@ export function redeemIngressInvite(params: {
   return { ok: true, data: inviteToResponse(inv) };
 }
 
+/**
+ * Resolve a token invite's id WITHOUT side effects.
+ *
+ * The gateway stores no redeemable token hash (its `inviteCodeHash` mirrors the
+ * 6-digit display-code hash, not the token), so it cannot locate its canonical
+ * invite row from an incoming token on its own. This lets the gateway resolve
+ * the invite id from the token, then gate on its own canonical lifecycle row
+ * before relaying the side-effecting redeem.
+ */
+export function resolveTokenInvite(params: {
+  token?: string;
+}): IngressResult<{ id: string }> {
+  if (!params.token) {
+    return { ok: false, error: "token is required for resolve" };
+  }
+  const inv = findByTokenHash(hashToken(params.token));
+  if (!inv) {
+    return { ok: false, error: "Invite not found" };
+  }
+  return { ok: true, data: { id: inv.id } };
+}
+
 export function redeemVoiceInviteCode(params: {
   assistantId?: string;
   callerExternalUserId: string;

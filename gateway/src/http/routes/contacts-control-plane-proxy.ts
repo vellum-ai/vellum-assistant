@@ -5,6 +5,8 @@
  * auth handling rather than falling through to the catch-all proxy.
  */
 
+import { createHash } from "node:crypto";
+
 import { proxyForward } from "@vellumai/assistant-client";
 import { eq } from "drizzle-orm";
 
@@ -41,6 +43,33 @@ const log = getLogger("contacts-control-plane-proxy");
 // ---------------------------------------------------------------------------
 
 const VALID_CONTACT_TYPES = ["human", "assistant"] as const;
+
+// ---------------------------------------------------------------------------
+// Invite hashing + response sanitization
+// ---------------------------------------------------------------------------
+
+/**
+ * Hash a redemption code the same way the assistant does for voice/invite
+ * codes (`hashVoiceCode`): plain unsalted SHA-256. Kept local to avoid an
+ * assistant -> gateway import (a layering violation); the scheme is a single
+ * `createHash("sha256")` call in both packages and must not drift.
+ */
+function hashInviteCode(code: string): string {
+  return createHash("sha256").update(code).digest("hex");
+}
+
+/**
+ * Strip code/token hashes from a gateway invite row before returning it over
+ * HTTP. `inviteCodeHash` is the unsalted SHA-256 of a 6-digit code; returning
+ * it lets any list-capable caller brute-force the ~10^6 keyspace offline and
+ * redeem an active invite. All invite responses MUST go through this.
+ */
+function sanitizeInviteRow<T extends { inviteCodeHash?: unknown }>(
+  row: T,
+): Omit<T, "inviteCodeHash"> {
+  const { inviteCodeHash: _omit, ...rest } = row;
+  return rest;
+}
 
 // ---------------------------------------------------------------------------
 // ContactWithInfo -> ContactPayload mapping (gateway-native read path)
@@ -924,7 +953,7 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
         }
 
         const invites = rows.map((r) => ({
-          ...r,
+          ...sanitizeInviteRow(r),
           ...(voiceById.get(r.id) ?? {}),
         }));
         log.info(
@@ -1102,6 +1131,40 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
 
       try {
         if (input.kind === "voice") {
+          // Pre-gate on the canonical gateway row BEFORE relaying the
+          // side-effecting redeem. The runtime trust resolver reads assistant
+          // contacts, so a revoked/expired/exhausted invite whose assistant
+          // mirror is stale must be rejected here — not after the assistant has
+          // already made the caller an active contact. The gateway stores the
+          // voice-code hash (sha256 of the 6-digit code) so it can locate its
+          // own row from the incoming code.
+          //
+          // A residual TOCTOU window between this check and the assistant
+          // mutation is inherent to the dual-DB design; it is bounded by the
+          // soft-fail/compensation invariants and the post-redeem
+          // recordInviteRedemption gate below. We do not attempt cross-DB
+          // atomicity.
+          const codeHash = hashInviteCode(input.code);
+          const canonical = new ContactStore().findActiveInviteByCodeHash(
+            codeHash,
+            "phone",
+          );
+          if (!canonical) {
+            log.warn(
+              {},
+              "redeem_invite(voice): no active canonical gateway invite for code — rejecting before assistant side effect",
+            );
+            return Response.json(
+              {
+                error: {
+                  code: "CONFLICT",
+                  message: "Invite is no longer valid",
+                },
+              },
+              { status: 409 },
+            );
+          }
+
           const result = (await ipcCallAssistant("invites_redeem_voice", {
             body: {
               code: input.code,
@@ -1154,7 +1217,46 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
           });
         }
 
-        // Token path.
+        // Token path. The gateway stores no redeemable token hash (its
+        // inviteCodeHash mirrors the 6-digit display-code hash, not the
+        // token), so it cannot locate its canonical row from the token alone.
+        // Resolve the invite id via a NON-MUTATING assistant IPC, then gate on
+        // the canonical gateway row's lifecycle BEFORE relaying the
+        // side-effecting redeem — otherwise the assistant would make the caller
+        // an active contact even when the gateway has revoked/exhausted the
+        // invite.
+        //
+        // A residual TOCTOU window between this check and the assistant
+        // mutation is inherent to the dual-DB design; it is bounded by the
+        // soft-fail/compensation invariants and the post-redeem
+        // recordInviteRedemption gate below. We do not attempt cross-DB
+        // atomicity.
+        const resolved = (await ipcCallAssistant("invites_resolve_token", {
+          body: { token: input.token },
+        } as unknown as Record<string, unknown>)) as { id: string };
+
+        const canonicalToken = new ContactStore().getInviteById(resolved.id);
+        if (
+          !canonicalToken ||
+          canonicalToken.status !== "active" ||
+          canonicalToken.useCount >= canonicalToken.maxUses ||
+          canonicalToken.expiresAt <= Date.now()
+        ) {
+          log.warn(
+            { inviteId: resolved.id },
+            "redeem_invite(token): canonical gateway invite is not active (revoked/expired/exhausted) — rejecting before assistant side effect",
+          );
+          return Response.json(
+            {
+              error: {
+                code: "CONFLICT",
+                message: `Invite "${resolved.id}" is no longer valid`,
+              },
+            },
+            { status: 409 },
+          );
+        }
+
         const result = (await ipcCallAssistant("invites_redeem_token", {
           body: {
             token: input.token,
@@ -1326,7 +1428,7 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
         } as unknown as Record<string, unknown>).catch(() => {});
 
         log.info({ inviteId }, "revoke_invite: handled natively");
-        return Response.json({ ok: true, invite });
+        return Response.json({ ok: true, invite: sanitizeInviteRow(invite) });
       } catch (err) {
         log.error({ err, inviteId }, "revoke_invite: gateway-native revoke failed");
         return Response.json(
