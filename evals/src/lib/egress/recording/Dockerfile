@@ -64,8 +64,16 @@ RUN su -s /bin/sh -c '\
   done; \
   kill $PID 2>/dev/null; \
   wait $PID 2>/dev/null || true; \
-  [ -f /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem ]\
+  [ -f /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem ] \
 ' mitmproxy
+
+# The base image declares /home/mitmproxy/.mitmproxy as a Docker VOLUME,
+# which wipes the pre-generated CA at container start. Copy the entire
+# confdir (CA cert + private key + DH params) to a non-VOLUME path so
+# mitmproxy can reuse the build-time CA at runtime instead of generating
+# a new one that doesn't match what the assistant container trusts.
+RUN cp -a /home/mitmproxy/.mitmproxy /opt/recording/mitmproxy-conf \
+  && chown -R mitmproxy:mitmproxy /opt/recording/mitmproxy-conf
 
 # Recording output volume target. The `evals run` harness mounts the
 # per-run artifacts dir here so mitmproxy writes egress-usage.ndjson
