@@ -29,6 +29,7 @@ import { useChatBannerSlots } from "@/domains/chat/hooks/use-chat-banner-slots";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
+import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachment-gate";
 import { useComposerStore, selectUploadingCount, selectUploadedIds } from "@/domains/chat/composer-store";
 import { ChatBody } from "@/domains/chat/components/chat-body";
 import { ChatRuleEditorModal } from "@/domains/chat/components/chat-rule-editor-modal";
@@ -491,6 +492,7 @@ export function ChatMainPanel({
     activeDraftProfile,
   );
   const activeModelSupportsVision = activeProfileModel?.supportsVision ?? true;
+  const visionGateActive = useVisionAttachmentGate();
 
   const showUploadBlockedNotice =
     attachmentsUploadingCount > 0 &&
@@ -512,7 +514,7 @@ export function ChatMainPanel({
   const handleDroppedFiles = useCallback(
     (files: FileList | File[]) => {
       const arr = Array.from(files);
-      const allowed = activeModelSupportsVision
+      const allowed = !visionGateActive || activeModelSupportsVision
         ? arr
         : arr.filter((f) => !f.type.startsWith("image/"));
       if (allowed.length < arr.length) {
@@ -523,7 +525,7 @@ export function ChatMainPanel({
       }
       if (allowed.length > 0) addChatAttachmentFiles(allowed);
     },
-    [addChatAttachmentFiles, activeModelSupportsVision],
+    [addChatAttachmentFiles, activeModelSupportsVision, visionGateActive],
   );
   const {
     isDragOver: isAttachmentDragOver,
