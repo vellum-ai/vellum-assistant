@@ -3,8 +3,8 @@
  *
  * These mirror the daemon's invite request shapes
  * (`assistant/src/runtime/routes/contact-routes.ts`, operations
- * `invites_create` / `invites_redeem`) so the native gateway HTTP handlers
- * (PR 3) and IPC callers can share a single source of validation truth.
+ * `invites_create` / `invites_redeem`) so the gateway HTTP handlers and IPC
+ * callers share a single source of validation truth.
  *
  * No DB, no IPC, no logging — just parse/validate. Keep it that way so any
  * caller (handler or test) can use these directly.
@@ -24,7 +24,6 @@ export interface CreateInviteInput {
   expiresInMs?: number;
   contactName?: string;
   expectedExternalUserId?: string;
-  voiceCodeDigits?: number;
   friendName?: string;
   guardianName?: string;
 }
@@ -33,11 +32,11 @@ export type ParseResult<T> =
   | { ok: true; value: T }
   | { ok: false; message: string };
 
-const positiveNumber = z
+export const positiveNumber = z
   .number()
   .refine((n) => Number.isFinite(n) && n > 0, "must be a positive number");
 
-const createInviteSchema = z.object({
+export const createInviteSchema = z.object({
   contactId: z.string().trim().min(1, "contactId is required"),
   sourceChannel: z.string().trim().min(1, "sourceChannel is required"),
   note: z.string().optional(),
@@ -45,7 +44,6 @@ const createInviteSchema = z.object({
   expiresInMs: positiveNumber.optional(),
   contactName: z.string().optional(),
   expectedExternalUserId: z.string().optional(),
-  voiceCodeDigits: positiveNumber.optional(),
   friendName: z.string().optional(),
   guardianName: z.string().optional(),
 });
@@ -148,6 +146,13 @@ export function parseRedeemInviteBody(
 // ---------------------------------------------------------------------------
 // List invites query
 // ---------------------------------------------------------------------------
+
+export const listInviteQueryShape = {
+  sourceChannel: z.string().optional(),
+  status: z.string().optional(),
+} as const;
+
+export const listInviteQuerySchema = z.object(listInviteQueryShape);
 
 export interface ListInviteQuery {
   sourceChannel?: string;

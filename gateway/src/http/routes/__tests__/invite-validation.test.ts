@@ -47,7 +47,6 @@ describe("parseCreateInviteBody", () => {
       expiresInMs: 60_000,
       contactName: "Alice",
       expectedExternalUserId: "+12025550100",
-      voiceCodeDigits: 4,
       friendName: "Bob",
       guardianName: "Carol",
     });

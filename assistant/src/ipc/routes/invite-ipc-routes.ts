@@ -35,7 +35,6 @@ export async function handleMintInvite({ body = {} }: RouteHandlerArgs) {
     expiresInMs: body.expiresInMs as number | undefined,
     contactName: body.contactName as string | undefined,
     expectedExternalUserId: body.expectedExternalUserId as string | undefined,
-    voiceCodeDigits: body.voiceCodeDigits as number | undefined,
     friendName: body.friendName as string | undefined,
     guardianName: body.guardianName as string | undefined,
     contactId: body.contactId as string,

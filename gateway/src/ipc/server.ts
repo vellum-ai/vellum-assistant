@@ -50,7 +50,7 @@ export type IpcRequest = {
  * `errorCode` (and `errorDetails` when present) ALONGSIDE the existing
  * `error` string. Errors without those fields serialize exactly as before
  * (just `{ id, error }`), so consumers reading only `error` keep working.
- * The PR 5 daemon relay (`PersistentIpcClient.call`) reads `statusCode`/
+ * The daemon relay (`PersistentIpcClient.call`) reads `statusCode`/
  * `errorCode`/`errorDetails` to surface invite user-errors (4xx) instead of
  * statusless IPC failures.
  */

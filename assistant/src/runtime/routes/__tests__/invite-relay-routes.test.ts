@@ -133,7 +133,6 @@ describe("invite relay routes", () => {
             expiresInMs: undefined,
             contactName: undefined,
             expectedExternalUserId: undefined,
-            voiceCodeDigits: undefined,
             friendName: undefined,
             guardianName: undefined,
           },
