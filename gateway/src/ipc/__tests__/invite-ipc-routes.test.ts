@@ -62,6 +62,7 @@ mock.module("../db/contact-store.js", () => ({
 }));
 
 const { inviteRoutes } = await import("../invite-handlers.js");
+const { buildErrorResponse } = await import("../server.js");
 
 function route(method: string) {
   const found = inviteRoutes.find((r) => r.method === method);
@@ -79,6 +80,66 @@ beforeEach(() => {
     invite: { id: "inv_1", status: "revoked" },
   }));
   triggerInviteCallNativeMock = mock(async () => ({ callSid: "CA123" }));
+});
+
+describe("buildErrorResponse — typed-error envelope preservation", () => {
+  // Mirrors InviteNativeError / IpcHandlerError: both carry
+  // `statusCode: number` + `code: string`. The server duck-types these so any
+  // such typed error preserves its status/code over the IPC wire.
+  class TypedError extends Error {
+    readonly statusCode: number;
+    readonly code: string;
+    constructor(message: string, statusCode: number, code: string) {
+      super(message);
+      this.statusCode = statusCode;
+      this.code = code;
+    }
+  }
+
+  test("includes statusCode + errorCode for a typed error (404)", () => {
+    const err = new TypedError("Contact not found", 404, "NOT_FOUND");
+    const res = buildErrorResponse("req-1", err);
+    expect(res).toEqual({
+      id: "req-1",
+      error: String(err),
+      statusCode: 404,
+      errorCode: "NOT_FOUND",
+    });
+  });
+
+  test("includes statusCode + errorCode for a 400 user-error", () => {
+    const err = new TypedError("Invite expired", 400, "INVALID_INVITE");
+    const res = buildErrorResponse("req-2", err);
+    expect(res.statusCode).toBe(400);
+    expect(res.errorCode).toBe("INVALID_INVITE");
+    expect(res.error).toBe(String(err));
+  });
+
+  test("mirrors a structured `details` payload into errorDetails", () => {
+    const err = Object.assign(
+      new TypedError("Conflict", 409, "CONFLICT"),
+      { details: { reason: "already_revoked" } },
+    );
+    const res = buildErrorResponse("req-3", err);
+    expect(res.errorDetails).toEqual({ reason: "already_revoked" });
+  });
+
+  test("plain Error serializes as just { id, error } — no spurious fields", () => {
+    const res = buildErrorResponse("req-4", new Error("boom"));
+    expect(res).toEqual({ id: "req-4", error: "Error: boom" });
+    expect("statusCode" in res).toBe(false);
+    expect("errorCode" in res).toBe(false);
+    expect("errorDetails" in res).toBe(false);
+  });
+
+  test("ignores non-numeric statusCode / non-string code (backward compatible)", () => {
+    const err = Object.assign(new Error("weird"), {
+      statusCode: "503",
+      code: 42,
+    });
+    const res = buildErrorResponse("req-5", err);
+    expect(res).toEqual({ id: "req-5", error: "Error: weird" });
+  });
 });
 
 describe("invite CRUD IPC routes registration", () => {
