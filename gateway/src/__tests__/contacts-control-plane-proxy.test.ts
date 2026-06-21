@@ -21,8 +21,8 @@ mock.module("../fetch.js", () => ({
 type DbQueryFn = (sql: string, bind?: unknown[]) => Promise<Record<string, unknown>[]>;
 let assistantDbQueryMock: ReturnType<typeof mock<DbQueryFn>> = mock(async () => []);
 
-type DbRunFn = (sql: string, bind?: unknown[]) => Promise<void>;
-let assistantDbRunMock: ReturnType<typeof mock<DbRunFn>> = mock(async () => {});
+type DbRunFn = (sql: string, bind?: unknown[]) => Promise<{ changes: number; lastInsertRowid: number }>;
+let assistantDbRunMock: ReturnType<typeof mock<DbRunFn>> = mock(async () => ({ changes: 1, lastInsertRowid: 0 }));
 
 mock.module("../db/assistant-db-proxy.js", () => ({
   assistantDbQuery: (...args: Parameters<DbQueryFn>) => assistantDbQueryMock(...args),
@@ -71,6 +71,16 @@ let contactStoreListMock: ReturnType<typeof mock<ListFn>> = mock(async () => [])
 type GetFn = (contactId: string) => Promise<typeof DEFAULT_MOCK_CONTACT | null>;
 let contactStoreGetMock: ReturnType<typeof mock<GetFn>> = mock(async () => null);
 
+type UpdateChannelFn = (channelId: string, params: {
+  status?: string;
+  policy?: string;
+  reason?: string | null;
+}) => { id: string; contactId: string; status: string; policy: string } | null;
+let contactStoreUpdateChannelMock: ReturnType<typeof mock<UpdateChannelFn>> = mock(() => null);
+
+type DualWriteChannelFn = (channelId: string, params: Record<string, unknown>) => Promise<void>;
+let contactStoreDualWriteChannelMock: ReturnType<typeof mock<DualWriteChannelFn>> = mock(async () => {});
+
 mock.module("../db/contact-store.js", () => ({
   ContactStore: class MockContactStore {
     upsertContact(...args: Parameters<UpsertFn>) {
@@ -85,6 +95,27 @@ mock.module("../db/contact-store.js", () => ({
     }
     async getContactWithInfo(contactId: string) {
       return contactStoreGetMock(contactId);
+    }
+    async updateChannelStatus(channelId: string, params: {
+      status?: string;
+      policy?: string;
+      reason?: string | null;
+    }) {
+      return contactStoreUpdateChannelMock(channelId, params);
+    }
+    async dualWriteChannelStatusToAssistantDb(
+      channelId: string,
+      params: Record<string, unknown>,
+    ) {
+      return contactStoreDualWriteChannelMock(channelId, params);
+    }
+  },
+  CannotRevokeBlockedError: class CannotRevokeBlockedError extends Error {
+    readonly channelId: string;
+    constructor(channelId: string) {
+      super("Cannot revoke a blocked channel. Unblock it first or leave it blocked.");
+      this.name = "CannotRevokeBlockedError";
+      this.channelId = channelId;
     }
   },
 }));
@@ -123,7 +154,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
 afterEach(() => {
   fetchMock = mock(async () => new Response());
   assistantDbQueryMock = mock(async () => []);
-  assistantDbRunMock = mock(async () => {});
+  assistantDbRunMock = mock(async () => ({ changes: 1, lastInsertRowid: 0 }));
   ipcCallAssistantMock = mock(async () => ({}));
   contactStoreUpsertMock = mock(async () => ({
     contact: DEFAULT_MOCK_CONTACT,
@@ -131,6 +162,8 @@ afterEach(() => {
   }));
   contactStoreListMock = mock(async () => []);
   contactStoreGetMock = mock(async () => null);
+  contactStoreUpdateChannelMock = mock(() => null);
+  contactStoreDualWriteChannelMock = mock(async () => {});
 });
 
 describe("contacts control-plane proxy", () => {
@@ -164,18 +197,11 @@ describe("contacts control-plane proxy", () => {
         method: "POST",
       }),
     );
-    await handler.handleUpdateContactChannel(
-      new Request("http://localhost:7830/v1/contact-channels/ch_1", {
-        method: "PATCH",
-      }),
-      "ch_1",
-    );
 
     expect(captured).toEqual([
       "http://localhost:7821/v1/contacts?limit=10&query=alice",
       "http://localhost:7821/v1/contacts/ct_1",
       "http://localhost:7821/v1/contacts/merge",
-      "http://localhost:7821/v1/contact-channels/ch_1",
     ]);
   });
 
@@ -876,5 +902,256 @@ describe("handleGetContact (gateway-native)", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(res.status).toBe(200);
+  });
+});
+
+describe("handleUpdateContactChannel (gateway-native)", () => {
+  const MOCK_CHANNEL = {
+    id: "ch_1",
+    contactId: "ct_mock",
+    status: "active",
+    policy: "allow",
+  };
+
+  test("updates channel status natively and returns parent contact", async () => {
+    contactStoreUpdateChannelMock = mock(() => ({
+      ...MOCK_CHANNEL,
+      status: "revoked",
+    }));
+    contactStoreGetMock = mock(async () => ({
+      ...DEFAULT_MOCK_CONTACT,
+      id: "ct_mock",
+    }));
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpdateContactChannel(
+      new Request("http://localhost:7830/v1/contact-channels/ch_1", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "revoked", reason: "user request" }),
+      }),
+      "ch_1",
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.contact.id).toBe("ct_mock");
+    expect(contactStoreUpdateChannelMock).toHaveBeenCalledTimes(1);
+    const [channelId, params] = contactStoreUpdateChannelMock.mock.calls[0] as [
+      string,
+      { status?: string; reason?: string },
+    ];
+    expect(channelId).toBe("ch_1");
+    expect(params.status).toBe("revoked");
+    expect(params.reason).toBe("user request");
+    expect(contactStoreDualWriteChannelMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("updates channel policy natively", async () => {
+    contactStoreUpdateChannelMock = mock(() => ({
+      ...MOCK_CHANNEL,
+      policy: "deny",
+    }));
+    contactStoreGetMock = mock(async () => DEFAULT_MOCK_CONTACT);
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpdateContactChannel(
+      new Request("http://localhost:7830/v1/contact-channels/ch_1", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ policy: "deny" }),
+      }),
+      "ch_1",
+    );
+
+    expect(res.status).toBe(200);
+    expect(contactStoreUpdateChannelMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("returns 400 for invalid status", async () => {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpdateContactChannel(
+      new Request("http://localhost:7830/v1/contact-channels/ch_1", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "deleted" }),
+      }),
+      "ch_1",
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message).toMatch(/status/);
+    expect(contactStoreUpdateChannelMock).not.toHaveBeenCalled();
+  });
+
+  test("returns 400 for invalid policy", async () => {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpdateContactChannel(
+      new Request("http://localhost:7830/v1/contact-channels/ch_1", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ policy: "maybe" }),
+      }),
+      "ch_1",
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message).toMatch(/policy/);
+  });
+
+  test("returns 400 when neither status nor policy provided", async () => {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpdateContactChannel(
+      new Request("http://localhost:7830/v1/contact-channels/ch_1", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reason: "no status or policy" }),
+      }),
+      "ch_1",
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.message).toMatch(/status or policy/);
+  });
+
+  test("returns 400 for invalid JSON body", async () => {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpdateContactChannel(
+      new Request("http://localhost:7830/v1/contact-channels/ch_1", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: "not json",
+      }),
+      "ch_1",
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe("BAD_REQUEST");
+  });
+
+  test("returns 404 when channel not found", async () => {
+    contactStoreUpdateChannelMock = mock(() => null);
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpdateContactChannel(
+      new Request("http://localhost:7830/v1/contact-channels/nope", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "revoked" }),
+      }),
+      "nope",
+    );
+
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.error.code).toBe("NOT_FOUND");
+  });
+
+  test("returns 409 when revoking a blocked channel", async () => {
+    const { CannotRevokeBlockedError } = await import("../db/contact-store.js");
+    contactStoreUpdateChannelMock = mock(() => {
+      throw new CannotRevokeBlockedError("ch_1");
+    });
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpdateContactChannel(
+      new Request("http://localhost:7830/v1/contact-channels/ch_1", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "revoked" }),
+      }),
+      "ch_1",
+    );
+
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error.code).toBe("CONFLICT");
+    expect(body.error.message).toMatch(/blocked/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("returns 500 on unexpected gateway error (no proxy fallback)", async () => {
+    contactStoreUpdateChannelMock = mock(() => {
+      throw new Error("gateway DB unavailable");
+    });
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpdateContactChannel(
+      new Request("http://localhost:7830/v1/contact-channels/ch_1", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "revoked" }),
+      }),
+      "ch_1",
+    );
+
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error.code).toBe("INTERNAL_ERROR");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("continues even if assistant DB dual-write fails", async () => {
+    contactStoreUpdateChannelMock = mock(() => ({
+      ...MOCK_CHANNEL,
+      status: "blocked",
+    }));
+    contactStoreDualWriteChannelMock = mock(async () => {
+      throw new Error("assistant DB down");
+    });
+    contactStoreGetMock = mock(async () => DEFAULT_MOCK_CONTACT);
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpdateContactChannel(
+      new Request("http://localhost:7830/v1/contact-channels/ch_1", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "blocked", reason: "spam" }),
+      }),
+      "ch_1",
+    );
+
+    // Should still succeed — dual-write is best-effort.
+    expect(res.status).toBe(200);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("resolves assistant-side channel ID to gateway channel (backward compat)", async () => {
+    // Simulate: store.updateChannelStatus gets an assistant-side ID that
+    // doesn't exist in the gateway DB. The real method resolves it via
+    // assistantDbQuery. Here we mock the store to return the resolved
+    // channel, confirming the handler correctly awaits the async call
+    // and returns 200 (not 404).
+    contactStoreUpdateChannelMock = mock(() => ({
+      ...MOCK_CHANNEL,
+      status: "revoked",
+    }));
+    contactStoreGetMock = mock(async () => ({
+      ...DEFAULT_MOCK_CONTACT,
+      id: "ct_mock",
+    }));
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpdateContactChannel(
+      new Request("http://localhost:7830/v1/contact-channels/asst-side-id", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "revoked" }),
+      }),
+      "asst-side-id",
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.contact.id).toBe("ct_mock");
   });
 });

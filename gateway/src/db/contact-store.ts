@@ -327,6 +327,176 @@ export class ContactStore {
   }
 
   /**
+   * Update a channel's status and/or policy in the gateway DB, then
+   * best-effort dual-write to the assistant DB.
+   *
+   * Returns the updated channel, or null if not found in either DB.
+   * Throws if a blocked channel is being revoked (caller maps to 409).
+   *
+   * `revokedReason` / `blockedReason` are set based on the new status:
+   *   - status="revoked" → revokedReason = reason ?? null, blockedReason = null
+   *   - status="blocked" → blockedReason = reason ?? null, revokedReason = null
+   *   - any other status → both reasons cleared to null
+   *   - status unchanged → reasons left untouched (pass undefined)
+   *
+   * Channel ID resolution: the caller may pass an assistant-side channel ID
+   * (the UI gets these from `readAssistantContact`). If the ID isn't found
+   * in the gateway DB, we resolve it from the assistant DB by
+   * (contactId, type, address) and then find the matching gateway channel.
+   */
+  async updateChannelStatus(
+    channelId: string,
+    params: {
+      status?: string;
+      policy?: string;
+      reason?: string | null;
+    },
+  ): Promise<ContactChannel | null> {
+    let gwChannel = this.db
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, channelId))
+      .get();
+
+    // If not found in the gateway DB, resolve from the assistant DB by
+    // logical key (contactId, type, address) and find the matching gateway row.
+    if (!gwChannel) {
+      const assistantChannel = await assistantDbQuery<{
+        contactId: string;
+        type: string;
+        address: string;
+      }>(
+        "SELECT contact_id AS contactId, type, address FROM contact_channels WHERE id = ?",
+        [channelId],
+      );
+      if (assistantChannel.length > 0) {
+        const { contactId, type, address } = assistantChannel[0];
+        gwChannel = this.db
+          .select()
+          .from(contactChannels)
+          .where(
+            and(
+              eq(contactChannels.contactId, contactId),
+              eq(contactChannels.type, type),
+              sql`${contactChannels.address} = ${address} COLLATE NOCASE`,
+            ),
+          )
+          .get();
+      }
+    }
+
+    if (!gwChannel) return null;
+
+    // Guard: cannot revoke a blocked channel.
+    if (params.status === "revoked" && gwChannel.status === "blocked") {
+      throw new CannotRevokeBlockedError(channelId);
+    }
+
+    const now = Date.now();
+    const updateSet: Record<string, unknown> = { updatedAt: now };
+
+    if (params.status !== undefined) {
+      updateSet.status = params.status;
+      if (params.status === "revoked") {
+        updateSet.revokedReason = params.reason ?? null;
+        updateSet.blockedReason = null;
+      } else if (params.status === "blocked") {
+        updateSet.blockedReason = params.reason ?? null;
+        updateSet.revokedReason = null;
+      } else {
+        updateSet.revokedReason = null;
+        updateSet.blockedReason = null;
+      }
+    }
+
+    if (params.policy !== undefined) {
+      updateSet.policy = params.policy;
+    }
+
+    this.db
+      .update(contactChannels)
+      .set(updateSet)
+      .where(eq(contactChannels.id, gwChannel.id))
+      .run();
+
+    return this.db
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, gwChannel.id))
+      .get()!;
+  }
+
+  /**
+   * Best-effort dual-write of a channel status/policy update to the
+   * assistant DB. The gateway DB is the source of truth; the assistant
+   * copy is a best-effort mirror. Failures are logged, not thrown.
+   */
+  async dualWriteChannelStatusToAssistantDb(
+    channelId: string,
+    params: {
+      status?: string;
+      policy?: string;
+      revokedReason?: string | null;
+      blockedReason?: string | null;
+    },
+  ): Promise<void> {
+    const setClauses: string[] = [];
+    const bind: (string | null)[] = [];
+
+    if (params.status !== undefined) {
+      setClauses.push("status = ?");
+      bind.push(params.status);
+    }
+    if (params.policy !== undefined) {
+      setClauses.push("policy = ?");
+      bind.push(params.policy);
+    }
+    if (params.revokedReason !== undefined) {
+      setClauses.push("revoked_reason = ?");
+      bind.push(params.revokedReason);
+    }
+    if (params.blockedReason !== undefined) {
+      setClauses.push("blocked_reason = ?");
+      bind.push(params.blockedReason);
+    }
+
+    if (setClauses.length === 0) return;
+
+    setClauses.push("updated_at = ?");
+    bind.push(String(Date.now()));
+    bind.push(channelId);
+
+    const result = await assistantDbRun(
+      `UPDATE contact_channels SET ${setClauses.join(", ")} WHERE id = ?`,
+      bind,
+    );
+
+    // Legacy channels may have a different assistant-side ID. If the ID-keyed
+    // update touched zero rows, resolve by (contactId, type, address) and
+    // retry so the assistant mirror stays consistent.
+    if (result.changes === 0) {
+      const gwChannel = this.db
+        .select()
+        .from(contactChannels)
+        .where(eq(contactChannels.id, channelId))
+        .get();
+      if (!gwChannel) return;
+
+      const logicalBind = bind.slice(0, -1); // drop the channelId
+      logicalBind.push(
+        gwChannel.contactId,
+        gwChannel.type,
+        gwChannel.address,
+      );
+      await assistantDbRun(
+        `UPDATE contact_channels SET ${setClauses.join(", ")}
+         WHERE contact_id = ? AND type = ? AND address = ? COLLATE NOCASE`,
+        logicalBind,
+      );
+    }
+  }
+
+  /**
    * Increment interaction count and set lastInteraction timestamp
    * (gateway DB only).
    */
@@ -977,6 +1147,21 @@ export class ContactStore {
         );
         if (conflict.length) continue;
 
+        // Reuse the gateway channel ID so assistant and gateway channel
+        // rows share the same UUID for the same logical channel.
+        const gatewayChannel = this.db
+          .select({ id: contactChannels.id })
+          .from(contactChannels)
+          .where(
+            and(
+              eq(contactChannels.contactId, contactId),
+              eq(contactChannels.type, ch.type),
+              sql`${contactChannels.address} = ${ch.address} COLLATE NOCASE`,
+            ),
+          )
+          .get();
+        const channelId = gatewayChannel?.id ?? crypto.randomUUID();
+
         await assistantDbRun(
           `INSERT INTO contact_channels
              (id, contact_id, type, address, is_primary,
@@ -984,7 +1169,7 @@ export class ContactStore {
               status, policy, interaction_count, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
           [
-            crypto.randomUUID(),
+            channelId,
             contactId,
             ch.type,
             ch.address,
@@ -1245,4 +1430,19 @@ interface AssistantContactRow {
   lastInteraction: number | null;
   channelCreatedAt: number | null;
   channelUpdatedAt: number | null;
+}
+
+/**
+ * Thrown by `updateChannelStatus` when the caller attempts to revoke a
+ * channel that is currently blocked. The caller maps this to HTTP 409.
+ */
+export class CannotRevokeBlockedError extends Error {
+  readonly channelId: string;
+  constructor(channelId: string) {
+    super(
+      "Cannot revoke a blocked channel. Unblock it first or leave it blocked.",
+    );
+    this.name = "CannotRevokeBlockedError";
+    this.channelId = channelId;
+  }
 }
