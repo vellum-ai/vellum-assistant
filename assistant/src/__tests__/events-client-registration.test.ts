@@ -40,7 +40,7 @@ import {
 } from "../runtime/routes/errors.js";
 import { handleSubscribeAssistantEvents } from "../runtime/routes/events-routes.js";
 
-initializeDb();
+await initializeDb();
 
 describe("events client registration", () => {
   // ── Registration on connect ───────────────────────────────────────────────

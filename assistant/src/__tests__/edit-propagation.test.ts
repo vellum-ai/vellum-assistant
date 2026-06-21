@@ -27,7 +27,7 @@ import { messages } from "../memory/schema.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { handleEditIntercept } from "../runtime/routes/inbound-stages/edit-intercept.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();

@@ -65,7 +65,7 @@ import {
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 
-initializeDb();
+await initializeDb();
 
 import {
   closeInferenceProfileSession,

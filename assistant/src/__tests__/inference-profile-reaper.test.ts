@@ -27,7 +27,7 @@ import {
 } from "../runtime/routes/inference-profile-session-reaper.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
-initializeDb();
+await initializeDb();
 
 function clearTables(): void {
   const db = getDb();

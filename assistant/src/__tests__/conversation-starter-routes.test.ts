@@ -23,7 +23,7 @@ import {
 } from "../runtime/routes/conversation-starter-routes.js";
 import { RouteError } from "../runtime/routes/errors.js";
 
-initializeDb();
+await initializeDb();
 
 /**
  * Dispatch a request to the ROUTES array by matching endpoint + method.

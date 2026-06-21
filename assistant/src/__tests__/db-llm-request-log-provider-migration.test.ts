@@ -83,8 +83,8 @@ describe("llm_request_logs provider migration", () => {
     removeTestDbFiles(getLogsDbPath());
   });
 
-  test("fresh DB initialization includes llm_request_logs.provider", () => {
-    initializeDb();
+  test("fresh DB initialization includes llm_request_logs.provider", async () => {
+    await initializeDb();
 
     // llm_request_logs now lives in the attached logs database.
     const raw = new Database(getLogsDbPath());

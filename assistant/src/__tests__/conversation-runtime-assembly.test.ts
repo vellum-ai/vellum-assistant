@@ -124,7 +124,7 @@ import { getWorkspacePromptPath } from "../util/platform.js";
 // `applyRuntimeInjections` self-resolves the Slack active-thread focus block by
 // reading the live conversation's persisted message rows, so the schema must
 // exist before any Slack-channel assembly test runs.
-initializeDb();
+await initializeDb();
 
 // The pkb-reminder injector derives PKB-active state from the workspace itself
 // — `readPkbContext()` returning content behind the personal-memory trust gate

@@ -6,7 +6,7 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { rawRun } from "../memory/raw-query.js";
 import { writeSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
-initializeDb();
+await initializeDb();
 
 let seedId = 0;
 

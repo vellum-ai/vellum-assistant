@@ -61,7 +61,7 @@ import {
 } from "../memory/conversation-disk-view.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-initializeDb();
+await initializeDb();
 
 function resetTables() {
   const db = getDb();
