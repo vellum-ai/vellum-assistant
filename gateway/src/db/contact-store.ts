@@ -1081,7 +1081,7 @@ export class ContactStore {
       // isn't downgraded to role=contact in the assistant mirror.
       const userFile = await this.resolveAssistantUserFileSlug(
         keepDisplayName,
-        null,
+        keepPrincipalId,
       );
       await assistantDbRun(
         `INSERT INTO contacts (id, display_name, notes, role, contact_type, principal_id, user_file, created_at, updated_at)
