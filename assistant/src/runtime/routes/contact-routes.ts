@@ -240,36 +240,48 @@ export function handleRevokeInvite({ pathParams = {} }: RouteHandlerArgs) {
   return { ok: true, invite: result.data };
 }
 
-export async function handleRedeemInvite({ body = {} }: RouteHandlerArgs) {
-  if (body.code != null) {
-    const callerExternalUserId = body.callerExternalUserId as
-      | string
-      | undefined;
-    const code = body.code as string | undefined;
+/**
+ * Redeem a voice invite code.
+ *
+ * Backs the HTTP `invites_redeem` route (voice path) and the IPC-only
+ * `invites_redeem_voice` method. Wraps the identity-bound
+ * `redeemVoiceInviteCode` path.
+ */
+export function handleRedeemVoiceInvite({ body = {} }: RouteHandlerArgs) {
+  const callerExternalUserId = body.callerExternalUserId as string | undefined;
+  const code = body.code as string | undefined;
 
-    if (!callerExternalUserId || !code) {
-      throw new BadRequestError("callerExternalUserId and code are required");
-    }
-
-    const result = redeemVoiceInviteCode({
-      assistantId: body.assistantId as string | undefined,
-      callerExternalUserId,
-      sourceChannel: "phone",
-      code,
-    });
-
-    if (!result.ok) {
-      throw new BadRequestError(result.reason);
-    }
-
-    return {
-      ok: true,
-      type: result.type,
-      memberId: result.memberId,
-      ...(result.type === "redeemed" ? { inviteId: result.inviteId } : {}),
-    };
+  if (!callerExternalUserId || !code) {
+    throw new BadRequestError("callerExternalUserId and code are required");
   }
 
+  const result = redeemVoiceInviteCode({
+    assistantId: body.assistantId as string | undefined,
+    callerExternalUserId,
+    sourceChannel: "phone",
+    code,
+  });
+
+  if (!result.ok) {
+    throw new BadRequestError(result.reason);
+  }
+
+  return {
+    ok: true,
+    type: result.type,
+    memberId: result.memberId,
+    ...(result.type === "redeemed" ? { inviteId: result.inviteId } : {}),
+  };
+}
+
+/**
+ * Redeem a token invite.
+ *
+ * Backs the HTTP `invites_redeem` route (token path) and the IPC-only
+ * `invites_redeem_token` method. Wraps the generic `redeemIngressInvite`
+ * token path.
+ */
+export function handleRedeemTokenInvite({ body = {} }: RouteHandlerArgs) {
   const result = redeemIngressInvite({
     token: body.token as string | undefined,
     externalUserId: body.externalUserId as string | undefined,
@@ -281,6 +293,14 @@ export async function handleRedeemInvite({ body = {} }: RouteHandlerArgs) {
     throw new BadRequestError(result.error);
   }
   return { ok: true, invite: result.data };
+}
+
+export async function handleRedeemInvite(args: RouteHandlerArgs) {
+  const body = args.body ?? {};
+  if (body.code != null) {
+    return handleRedeemVoiceInvite(args);
+  }
+  return handleRedeemTokenInvite(args);
 }
 
 export async function handleTriggerInviteCall({

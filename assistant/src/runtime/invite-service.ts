@@ -276,6 +276,73 @@ export async function createIngressInvite(params: {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Mint — gateway-facing projection
+//
+// The gateway owns the canonical invite lifecycle in its own DB, but token
+// generation/hashing and voice fields are assistant-owned. `mintIngressInvite`
+// runs the same `createIngressInvite` path and surfaces the raw token plus the
+// minimal projection the gateway mirrors. The raw token is returned exactly
+// once and never persisted in plaintext.
+// ---------------------------------------------------------------------------
+
+/** Minimal invite projection the gateway mirrors into its own store. */
+export interface GatewayInviteProjection {
+  id: string;
+  /** Hash of whatever code redeems this invite: token hash for token invites,
+   * voice code hash for voice/phone invites. Always non-null and mirrorable. */
+  inviteCodeHash: string;
+  sourceChannel: string;
+  contactId: string;
+  note: string | null;
+  maxUses: number;
+  expiresAt: number;
+}
+
+export interface MintInviteResult {
+  invite: InviteResponseData;
+  rawToken?: string;
+  gateway: GatewayInviteProjection;
+}
+
+export async function mintIngressInvite(
+  params: Parameters<typeof createIngressInvite>[0],
+): Promise<IngressResult<MintInviteResult>> {
+  const result = await createIngressInvite(params);
+  if (!result.ok) return result;
+
+  // The persisted row carries fields the response projection omits
+  // (inviteCodeHash); read it back to build the gateway projection.
+  const row = findById(result.data.id);
+  if (!row) {
+    return { ok: false, error: "Invite not found after mint" };
+  }
+
+  // The gateway mirrors the hash of whatever code redeems this invite. Token
+  // invites carry inviteCodeHash; voice/phone invites gate on voiceCodeHash.
+  const inviteCodeHash = row.inviteCodeHash ?? row.voiceCodeHash;
+  if (!inviteCodeHash) {
+    return { ok: false, error: "Invite is missing a redemption code hash" };
+  }
+
+  return {
+    ok: true,
+    data: {
+      invite: result.data,
+      rawToken: result.data.token,
+      gateway: {
+        id: row.id,
+        inviteCodeHash,
+        sourceChannel: row.sourceChannel,
+        contactId: row.contactId,
+        note: row.note,
+        maxUses: row.maxUses,
+        expiresAt: row.expiresAt,
+      },
+    },
+  };
+}
+
 export function listIngressInvites(params: {
   sourceChannel?: string;
   status?: string;
