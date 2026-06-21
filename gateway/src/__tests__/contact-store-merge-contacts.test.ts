@@ -82,6 +82,12 @@ mock.module("../db/assistant-db-proxy.js", () => ({
     if (lower.startsWith("delete from contacts")) {
       const id = String(bind?.[0] ?? "");
       fakeAssistantDb.contacts.delete(id);
+      // Cascade: remove channels still pointing at the deleted contact.
+      for (const [chId, ch] of fakeAssistantDb.channels) {
+        if (ch.contact_id === id) {
+          fakeAssistantDb.channels.delete(chId);
+        }
+      }
       return { changes: 1, lastInsertRowid: 0 };
     }
     if (lower.startsWith("delete from contact_channels")) {
@@ -96,6 +102,15 @@ mock.module("../db/assistant-db-proxy.js", () => ({
       return { changes: 1, lastInsertRowid: 0 };
     }
     if (lower.startsWith("update contact_channels")) {
+      // Parse: UPDATE contact_channels SET contact_id = ?, updated_at = ? WHERE id = ?
+      if (bind && bind.length >= 3) {
+        const newContactId = String(bind[0]);
+        const channelId = String(bind[2]);
+        const ch = fakeAssistantDb.channels.get(channelId);
+        if (ch) {
+          ch.contact_id = newContactId;
+        }
+      }
       return { changes: 1, lastInsertRowid: 0 };
     }
     if (lower.startsWith("insert into contacts")) {
@@ -229,6 +244,35 @@ function seedAssistantContact(id: string, notes: string | null = null): void {
   });
 }
 
+function seedAssistantChannel(opts: {
+  id: string;
+  contactId: string;
+  type?: string;
+  address?: string;
+}): void {
+  fakeAssistantDb.channels.set(opts.id, {
+    id: opts.id,
+    contact_id: opts.contactId,
+    type: opts.type ?? "slack",
+    address: opts.address ?? `addr-${opts.id}`,
+    is_primary: 0,
+    external_user_id: null,
+    external_chat_id: null,
+    status: "active",
+    policy: "allow",
+    verified_at: null,
+    verified_via: null,
+    invite_id: null,
+    revoked_reason: null,
+    blocked_reason: null,
+    last_seen_at: null,
+    interaction_count: 0,
+    last_interaction: null,
+    created_at: 100,
+    updated_at: 100,
+  });
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 describe("ContactStore.mergeContacts — assistant DB mirror soft-fail", () => {
@@ -238,9 +282,10 @@ describe("ContactStore.mergeContacts — assistant DB mirror soft-fail", () => {
     seedContact("ct_merge", "contact");
     seedChannel({ id: "ch_1", contactId: "ct_merge" });
 
-    // Assistant DB: both contacts exist.
+    // Assistant DB: both contacts + donor channel exist.
     seedAssistantContact("ct_keep", "keep notes");
     seedAssistantContact("ct_merge", "merge notes");
+    seedAssistantChannel({ id: "ch_1", contactId: "ct_merge" });
 
     // Make the first assistantDbRun throw — this will cause
     // mergeInAssistantDb to throw at the notes-concat UPDATE step.
@@ -257,7 +302,6 @@ describe("ContactStore.mergeContacts — assistant DB mirror soft-fail", () => {
     const deleteCalls = fakeAssistantDb.runCalls.filter((c) =>
       c.sql.toLowerCase().trim().startsWith("delete from contacts"),
     );
-    // At least one DELETE targets the donor (ct_merge).
     const donorDeleteCalls = deleteCalls.filter(
       (c) => String(c.bind?.[0]) === "ct_merge",
     );
@@ -265,6 +309,12 @@ describe("ContactStore.mergeContacts — assistant DB mirror soft-fail", () => {
 
     // The donor should be gone from the assistant DB fake.
     expect(fakeAssistantDb.contacts.has("ct_merge")).toBe(false);
+
+    // The donor channel should have been reparented to the survivor
+    // before the delete (not cascade-wiped).
+    const reparented = fakeAssistantDb.channels.get("ch_1");
+    expect(reparented).toBeDefined();
+    expect(reparented!.contact_id).toBe("ct_keep");
   });
 
   test("merge succeeds and donor is deleted from assistant DB on happy path", async () => {

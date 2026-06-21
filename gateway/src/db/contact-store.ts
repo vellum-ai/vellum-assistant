@@ -1025,7 +1025,17 @@ export class ContactStore {
       // The gateway DB donor is already gone, but if the assistant DB
       // donor lingers it will reappear in search-style queries (query,
       // channelAddress, channelType, contactType) that still proxy to
-      // the daemon. Best-effort delete to prevent that resurrection.
+      // the daemon. Best-effort: move donor channels to survivor, then
+      // delete the donor. Channel move must happen first because the
+      // assistant DB cascades contact_channel deletion on contact delete.
+      try {
+        await this.reparentDonorChannelsInAssistantDb(keepId, mergeId);
+      } catch (chErr) {
+        log.warn(
+          { keepId, mergeId, chErr },
+          "mergeContacts: compensation channel reparent failed — donor channels may be lost from search",
+        );
+      }
       try {
         await assistantDbRun("DELETE FROM contacts WHERE id = ?", [mergeId]);
       } catch (deleteErr) {
@@ -1098,8 +1108,25 @@ export class ContactStore {
         ],
       );
     }
-
     // 2. Move donor channels to survivor (skip dups by logical key).
+    await this.reparentDonorChannelsInAssistantDb(keepId, mergeId);
+
+    // 3. Delete the donor (cascade removes remaining duplicate channels).
+    await assistantDbRun("DELETE FROM contacts WHERE id = ?", [mergeId]);
+  }
+
+  /**
+   * Move donor channels to survivor in the assistant DB, skipping
+   * duplicates by logical key (type + address COLLATE NOCASE). Used by
+   * both the happy-path mirror and the compensation path after a mirror
+   * failure. Must run before any donor delete to avoid cascade-wiping
+   * channels that haven't been reparented yet.
+   */
+  private async reparentDonorChannelsInAssistantDb(
+    keepId: string,
+    mergeId: string,
+  ): Promise<void> {
+    const now = Date.now();
     const donorChannels = await assistantDbQuery<{
       id: string;
       type: string;
@@ -1120,9 +1147,6 @@ export class ContactStore {
         );
       }
     }
-
-    // 3. Delete the donor (cascade removes remaining duplicate channels).
-    await assistantDbRun("DELETE FROM contacts WHERE id = ?", [mergeId]);
   }
 
   // ---------------------------------------------------------------------------
