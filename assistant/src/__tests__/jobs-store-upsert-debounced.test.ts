@@ -15,12 +15,9 @@ mock.module("../config/loader.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import { getDb } from "../memory/db-connection.js";
+import { getMemoryDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import {
-  enqueueMemoryJob,
-  upsertDebouncedJob,
-} from "../memory/jobs-store.js";
+import { enqueueMemoryJob, upsertDebouncedJob } from "../memory/jobs-store.js";
 import { memoryJobs } from "../memory/schema.js";
 
 describe("upsertDebouncedJob payload refresh", () => {
@@ -29,7 +26,7 @@ describe("upsertDebouncedJob payload refresh", () => {
   });
 
   beforeEach(() => {
-    const db = getDb();
+    const db = getMemoryDb()!;
     db.run("DELETE FROM memory_jobs");
   });
 
@@ -49,7 +46,7 @@ describe("upsertDebouncedJob payload refresh", () => {
       Date.now(),
     );
 
-    const db = getDb();
+    const db = getMemoryDb()!;
     const rows = db
       .select()
       .from(memoryJobs)
@@ -79,7 +76,7 @@ describe("upsertDebouncedJob payload refresh", () => {
       Date.now(),
     );
 
-    const db = getDb();
+    const db = getMemoryDb()!;
     const rows = db
       .select()
       .from(memoryJobs)
@@ -106,7 +103,7 @@ describe("upsertDebouncedJob payload refresh", () => {
       runAfterNew,
     );
 
-    const db = getDb();
+    const db = getMemoryDb()!;
     const rows = db
       .select()
       .from(memoryJobs)
@@ -124,7 +121,7 @@ describe("upsertDebouncedJob payload refresh", () => {
       Date.now(),
     );
 
-    const db = getDb();
+    const db = getMemoryDb()!;
     const rows = db
       .select()
       .from(memoryJobs)

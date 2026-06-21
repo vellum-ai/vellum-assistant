@@ -77,18 +77,18 @@ interface StatusReport {
   file: FileFacts;
   db: DbFacts | null;
   /**
-   * The secondary append-only database (`assistant-logs.db`). Omitted from the
+   * The dedicated append-only database (`assistant-logs.db`). Omitted from the
    * report when the file does not exist yet — it is created the first time the
-   * daemon opens (and ATTACHes) the DB, so a fresh install that has never run
-   * the daemon won't have one.
+   * daemon opens its connection, so a fresh install that has never run the
+   * daemon won't have one.
    */
   logsFile?: FileFacts;
   logsDb?: DbFacts | null;
   /**
-   * The secondary memory database (`assistant-memory.db`). Like `logsFile`, it
+   * The dedicated memory database (`assistant-memory.db`). Like `logsFile`, it
    * is omitted from the report until the file exists on disk — it is created
-   * the first time the daemon opens (and ATTACHes) the DB, so a fresh install
-   * that has never run the daemon won't have one.
+   * the first time the daemon opens its connection, so a fresh install that has
+   * never run the daemon won't have one.
    */
   memoryFile?: FileFacts;
   memoryDb?: DbFacts | null;
@@ -393,7 +393,7 @@ export function registerDbStatus(parent: Command): void {
         process.exit(1);
       }
 
-      // Best-effort probe of the secondary append-only DB. It may not exist
+      // Best-effort probe of the dedicated append-only DB. It may not exist
       // yet (fresh install that has never started the daemon), and a probe
       // failure must never mask the main-DB report.
       const logsFile = readFileFacts(getLogsDbPath());
@@ -406,7 +406,7 @@ export function registerDbStatus(parent: Command): void {
         }
       }
 
-      // Same best-effort probe for the secondary memory DB.
+      // Same best-effort probe for the dedicated memory DB.
       const memoryFile = readFileFacts(getMemoryDbPath());
       let memoryDb: DbFacts | null = null;
       if (memoryFile.exists) {

@@ -23,7 +23,7 @@ import {
   createConversation,
   getAssistantMessageIdsInTurn,
 } from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
+import { getDb, getLogsDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { llmRequestLogs, toolInvocations } from "../memory/schema.js";
 
@@ -31,7 +31,7 @@ initializeDb();
 
 function resetTables(): void {
   const db = getDb();
-  db.delete(llmRequestLogs).run();
+  getLogsDb()!.delete(llmRequestLogs).run();
   db.delete(toolInvocations).run();
   db.run("DELETE FROM message_attachments");
   db.run("DELETE FROM attachments");

@@ -6,19 +6,20 @@
  * What this locks in:
  *   1. `stageTableForRelocation` drops an empty source, renames a populated
  *      one aside to `<table>__relocating`, and is idempotent across re-runs.
- *   2. `drainStagedTable` copies the rows worth keeping into the attached
- *      target, purges the rest without copying, applies the spec's per-column
+ *   2. `drainStagedTable` copies the rows worth keeping into the target file,
+ *      purges the rest without copying, applies the spec's per-column
  *      transforms (`running` → `pending`), and drops the staging table — so a
  *      heavy table moves in bounded awaited batches rather than one blocking
  *      shot.
  *
- * sqlite3 may not be on the host here, so the drain runs through the in-process
- * `runAsyncSqlite` fallback — which exercises the same cross-database SQL on the
- * daemon connection (it already has the `memory`/`logs` databases attached).
+ * The drain runs through `runAsyncSqlite`, which targets the memory file
+ * directly (sqlite3 subprocess where available; in-process transient
+ * connection otherwise) — independent of the daemon connection, which no longer
+ * ATTACHes the dedicated files.
  */
 import { describe, expect, test } from "bun:test";
 
-const { getSqlite, MEMORY_DB_SCHEMA } = await import("../db-connection.js");
+const { getSqlite, getMemorySqlite } = await import("../db-connection.js");
 const { initializeDb } = await import("../db-init.js");
 const { drainStagedTable, stageTableForRelocation } =
   await import("../migrations/helpers/relocation.js");
@@ -84,9 +85,10 @@ describe("stageTableForRelocation", () => {
 describe("memory_jobs drain", () => {
   test("copies pending/running rows, purges terminal rows, drops staging", async () => {
     const sqlite = getSqlite();
+    const memory = getMemorySqlite()!;
 
     // Clean slate: empty live queue, fresh populated staging table.
-    sqlite.exec(`DELETE FROM memory_jobs`);
+    memory.exec(`DELETE FROM memory_jobs`);
     sqlite.exec(`DROP TABLE IF EXISTS main."memory_jobs__relocating"`);
     sqlite.exec(
       `CREATE TABLE main."memory_jobs__relocating" (${MEMORY_JOBS_COLUMNS})`,
@@ -112,7 +114,7 @@ describe("memory_jobs drain", () => {
     // Exactly the three keepers landed in the memory database; the terminal
     // rows were purged without being copied, and the in-flight `running` row
     // was reset to `pending` so the worker can re-claim it in its new home.
-    const kept = sqlite
+    const kept = memory
       .query<
         { id: string; status: string },
         []
@@ -123,14 +125,5 @@ describe("memory_jobs drain", () => {
       { id: "seed-keep-2", status: "pending" },
       { id: "seed-keep-3", status: "pending" },
     ]);
-
-    // The keepers physically live in the memory database.
-    const inMemory = getSqlite()
-      .query<
-        { c: number },
-        []
-      >(`SELECT COUNT(*) AS c FROM ${MEMORY_DB_SCHEMA}.memory_jobs WHERE id LIKE 'seed-%'`)
-      .get();
-    expect(inMemory?.c).toBe(3);
   });
 });

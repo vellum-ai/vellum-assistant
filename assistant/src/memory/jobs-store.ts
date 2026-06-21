@@ -4,7 +4,7 @@ import { v4 as uuid } from "uuid";
 import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
-import { getDb } from "./db-connection.js";
+import { type DrizzleDb, getMemoryDb } from "./db-connection.js";
 import {
   isEmbeddingBillingBreakerOpen,
   shouldAllowBillingProbe,
@@ -13,10 +13,22 @@ import {
   isQdrantBreakerOpen,
   shouldAllowQdrantProbe,
 } from "./qdrant-circuit-breaker.js";
-import { rawAll, rawChanges } from "./raw-query.js";
+import { rawMemoryAll, rawMemoryChanges } from "./raw-query.js";
 import { memoryJobs } from "./schema.js";
 
 const log = getLogger("memory-jobs-store");
+
+/**
+ * The memory connection (`assistant-memory.db`), where `memory_jobs` lives.
+ * Throws if the file cannot be opened — the work queue has no fallback.
+ */
+function memoryDb(): DrizzleDb {
+  const db = getMemoryDb();
+  if (!db) {
+    throw new Error("memory database unavailable");
+  }
+  return db;
+}
 
 export type MemoryJobType =
   | "embed_segment"
@@ -115,13 +127,13 @@ export function enqueueMemoryJob(
   type: MemoryJobType,
   payload: Record<string, unknown>,
   runAfter = Date.now(),
-  dbOverride?: Parameters<ReturnType<typeof getDb>["transaction"]>[0] extends (
+  dbOverride?: Parameters<DrizzleDb["transaction"]>[0] extends (
     tx: infer T,
   ) => unknown
     ? T
     : never,
 ): string {
-  const db = dbOverride ?? getDb();
+  const db = dbOverride ?? memoryDb();
   const id = uuid();
   const now = Date.now();
   db.insert(memoryJobs)
@@ -157,13 +169,13 @@ export function upsertDebouncedJob(
   type: MemoryJobType,
   payload: { conversationId: string } & Record<string, unknown>,
   runAfter: number,
-  dbOverride?: Parameters<ReturnType<typeof getDb>["transaction"]>[0] extends (
+  dbOverride?: Parameters<DrizzleDb["transaction"]>[0] extends (
     tx: infer T,
   ) => unknown
     ? T
     : never,
 ): void {
-  const db = dbOverride ?? getDb();
+  const db = dbOverride ?? memoryDb();
   const existing = db
     .select()
     .from(memoryJobs)
@@ -211,13 +223,13 @@ export function upsertAutoAnalysisJob(
     triggerGroup: "immediate" | "debounced";
   },
   runAfter: number,
-  dbOverride?: Parameters<ReturnType<typeof getDb>["transaction"]>[0] extends (
+  dbOverride?: Parameters<DrizzleDb["transaction"]>[0] extends (
     tx: infer T,
   ) => unknown
     ? T
     : never,
 ): void {
-  const db = dbOverride ?? getDb();
+  const db = dbOverride ?? memoryDb();
   // Match rows with the same triggerGroup OR legacy rows without triggerGroup
   // (from older builds that used upsertDebouncedJob before triggerGroup was
   // introduced). Without the IS NULL fallback, the next enqueue would insert
@@ -293,13 +305,13 @@ export function upsertAutoAnalysisJob(
 export function upsertMemoryRetrospectiveJob(
   payload: { conversationId: string },
   runAfter: number = Date.now(),
-  dbOverride?: Parameters<ReturnType<typeof getDb>["transaction"]>[0] extends (
+  dbOverride?: Parameters<DrizzleDb["transaction"]>[0] extends (
     tx: infer T,
   ) => unknown
     ? T
     : never,
 ): void {
-  const db = dbOverride ?? getDb();
+  const db = dbOverride ?? memoryDb();
   const existing = db
     .select()
     .from(memoryJobs)
@@ -331,7 +343,7 @@ export function upsertMemoryRetrospectiveJob(
  * Used to prevent duplicate enqueues for long-running maintenance jobs.
  */
 export function hasActiveJobOfType(type: MemoryJobType): boolean {
-  const db = getDb();
+  const db = memoryDb();
   return (
     db
       .select({ id: memoryJobs.id })
@@ -347,7 +359,7 @@ export function hasActiveJobOfType(type: MemoryJobType): boolean {
 }
 
 export function enqueuePruneOldLlmRequestLogsJob(retentionMs?: number): string {
-  const db = getDb();
+  const db = memoryDb();
   const existing = db
     .select()
     .from(memoryJobs)
@@ -396,7 +408,7 @@ export function enqueuePruneOldLlmRequestLogsJob(retentionMs?: number): string {
 export function enqueuePruneOldConversationsJob(
   retentionDays?: number,
 ): string {
-  const db = getDb();
+  const db = memoryDb();
   const existing = db
     .select()
     .from(memoryJobs)
@@ -443,7 +455,7 @@ export function enqueuePruneOldConversationsJob(
 }
 
 export function enqueuePruneOldTraceEventsJob(retentionDays?: number): string {
-  const db = getDb();
+  const db = memoryDb();
   const existing = db
     .select()
     .from(memoryJobs)
@@ -498,7 +510,7 @@ export interface LaneBudgets {
 export function claimMemoryJobs(limits: LaneBudgets): MemoryJob[] {
   if (limits.slowLlm <= 0 && limits.fast <= 0 && limits.embed <= 0) return [];
 
-  const db = getDb();
+  const db = memoryDb();
   const now = Date.now();
   const pendingFilter = and(
     eq(memoryJobs.status, "pending"),
@@ -584,7 +596,7 @@ export function claimMemoryJobs(limits: LaneBudgets): MemoryJob[] {
       .set({ status: "running", startedAt: now, updatedAt: now })
       .where(and(eq(memoryJobs.id, row.id), eq(memoryJobs.status, "pending")))
       .run();
-    if (rawChanges() === 0) continue;
+    if (rawMemoryChanges() === 0) continue;
     claimed.push(
       parseRow({
         ...row,
@@ -598,7 +610,7 @@ export function claimMemoryJobs(limits: LaneBudgets): MemoryJob[] {
 }
 
 export function completeMemoryJob(id: string): void {
-  const db = getDb();
+  const db = memoryDb();
   db.update(memoryJobs)
     .set({ status: "completed", updatedAt: Date.now(), lastError: null })
     .where(eq(memoryJobs.id, id))
@@ -626,7 +638,7 @@ const DEFER_MAX_DELAY_MS = 5 * 60 * 1000;
  * were exceeded and the job was marked as failed.
  */
 export function deferMemoryJob(id: string): "deferred" | "failed" {
-  const db = getDb();
+  const db = memoryDb();
   const row = db.select().from(memoryJobs).where(eq(memoryJobs.id, id)).get();
   if (!row) return "failed";
 
@@ -683,7 +695,7 @@ export function failMemoryJob(
 ): void {
   const retryDelayMs = options?.retryDelayMs ?? 30_000;
   const maxAttempts = options?.maxAttempts ?? 5;
-  const db = getDb();
+  const db = memoryDb();
   const row = db.select().from(memoryJobs).where(eq(memoryJobs.id, id)).get();
   if (!row) return;
   const attempts = row.attempts + 1;
@@ -713,12 +725,12 @@ export function failMemoryJob(
 }
 
 export function resetRunningJobsToPending(): number {
-  const db = getDb();
+  const db = memoryDb();
   db.update(memoryJobs)
     .set({ status: "pending", updatedAt: Date.now() })
     .where(eq(memoryJobs.status, "running"))
     .run();
-  return rawChanges();
+  return rawMemoryChanges();
 }
 
 /**
@@ -728,7 +740,7 @@ export function resetRunningJobsToPending(): number {
 export function failStalledJobs(timeoutMs: number): number {
   const now = Date.now();
   const cutoff = now - timeoutMs;
-  const stalled = rawAll<{ id: string; type: string }>(
+  const stalled = rawMemoryAll<{ id: string; type: string }>(
     `
     SELECT id, type
     FROM memory_jobs
@@ -740,7 +752,7 @@ export function failStalledJobs(timeoutMs: number): number {
   );
   if (stalled.length === 0) return 0;
 
-  const db = getDb();
+  const db = memoryDb();
   for (const row of stalled) {
     db.update(memoryJobs)
       .set({
@@ -761,7 +773,7 @@ export function failStalledJobs(timeoutMs: number): number {
 }
 
 export function getMemoryJobCounts(): Record<string, number> {
-  const rows = rawAll<{ status: string; c: number }>(`
+  const rows = rawMemoryAll<{ status: string; c: number }>(`
     SELECT status, COUNT(*) AS c
     FROM memory_jobs
     GROUP BY status

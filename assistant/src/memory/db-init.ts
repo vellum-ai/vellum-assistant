@@ -11,10 +11,16 @@ import { dirname, join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
 import { getLogsDbPath } from "../util/logs-db-path.js";
+import { getMemoryDbPath } from "../util/memory-db-path.js";
 import { ensureDataDir, getDbPath } from "../util/platform.js";
 import { backfillAppConversationIds } from "./app-store.js";
 import { runAsyncSqlite } from "./db-async-query.js";
-import { getDb, getSqlite } from "./db-connection.js";
+import {
+  getDb,
+  getLogsSqlite,
+  getMemorySqlite,
+  getSqlite,
+} from "./db-connection.js";
 import { migrateToolCreatedItems } from "./graph/bootstrap.js";
 import { migrateCoreTables } from "./migrations/000-core-tables.js";
 import { migrateJobDeferrals } from "./migrations/001-job-deferrals.js";
@@ -250,8 +256,14 @@ import { migrateWorkflowJournalLeafTokens } from "./migrations/293-workflow-jour
 import { migrateDropExternalUserId } from "./migrations/294-drop-external-user-id.js";
 import { dropApprovalPromptTsTrackerTable } from "./migrations/295-drop-approval-prompt-ts-tracker.js";
 import { migrateRewriteBalancedEconomyProfilePins } from "./migrations/296-rewrite-balanced-economy-profile-pins.js";
-import { migrateMoveLlmRequestLogsToLogsDb } from "./migrations/297-move-llm-request-logs-to-logs-db.js";
-import { migrateMoveMemoryJobsToMemoryDb } from "./migrations/298-move-memory-jobs-to-memory-db.js";
+import {
+  ensureLlmRequestLogsSchema,
+  migrateMoveLlmRequestLogsToLogsDb,
+} from "./migrations/297-move-llm-request-logs-to-logs-db.js";
+import {
+  ensureMemoryJobsSchema,
+  migrateMoveMemoryJobsToMemoryDb,
+} from "./migrations/298-move-memory-jobs-to-memory-db.js";
 import { runMigrationSteps } from "./migrations/run-migrations.js";
 import { validateMigrationState } from "./migrations/validate-migration-state.js";
 
@@ -284,14 +296,23 @@ function getTemplateDbPath(): string {
 }
 
 /**
- * Template path for the attached `logs` database, kept alongside the main
- * template. Both files must be captured/restored together: the migrated state
- * now spans two files (llm_request_logs and its indexes live in `logs`), so
+ * Template path for the dedicated `logs` database, kept alongside the main
+ * template. All three files must be captured/restored together: the migrated
+ * state spans them (llm_request_logs and its indexes live in `logs`), so
  * restoring only the main DB would leave a fresh, empty logs DB with no
  * `llm_request_logs` table.
  */
 function getLogsTemplateDbPath(): string {
   return `${getTemplateDbPath()}.logs`;
+}
+
+/**
+ * Template path for the dedicated `memory` database, kept alongside the main
+ * and logs templates. Captured/restored together with them so the restored
+ * test DB includes `memory_jobs` (created by migration 298 in this file).
+ */
+function getMemoryTemplateDbPath(): string {
+  return `${getTemplateDbPath()}.memory`;
 }
 
 function tryRestoreTemplate(): boolean {
@@ -300,13 +321,17 @@ function tryRestoreTemplate(): boolean {
   // getDb() hasn't run yet, so the data directory may not exist.
   ensureDataDir();
   copyFileSync(templatePath, getDbPath());
-  // Restore the attached logs DB before getDb() opens (and ATTACHes) it, so the
-  // relocated llm_request_logs table is present. Older templates may predate
-  // the split; the hash includes the migration files, so a stale template
-  // without this sibling won't be reused — but guard anyway.
+  // Restore the dedicated logs/memory DBs before their connections open, so the
+  // relocated tables are present. Older templates may predate the split; the
+  // hash includes the migration files, so a stale template without these
+  // siblings won't be reused — but guard anyway.
   const logsTemplate = getLogsTemplateDbPath();
   if (existsSync(logsTemplate)) {
     copyFileSync(logsTemplate, getLogsDbPath());
+  }
+  const memoryTemplate = getMemoryTemplateDbPath();
+  if (existsSync(memoryTemplate)) {
+    copyFileSync(memoryTemplate, getMemoryDbPath());
   }
   // Open the pre-migrated copy — getDb() will set PRAGMAs but skip migrations.
   getDb();
@@ -315,18 +340,22 @@ function tryRestoreTemplate(): boolean {
 
 function saveTemplate(): void {
   try {
-    // Flush each DB's WAL to its main file before copying.
+    // Flush each connection's WAL to its main file before copying.
     getSqlite().exec("PRAGMA wal_checkpoint(TRUNCATE)");
-    getSqlite().exec("PRAGMA logs.wal_checkpoint(TRUNCATE)");
+    getLogsSqlite()?.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    getMemorySqlite()?.exec("PRAGMA wal_checkpoint(TRUNCATE)");
 
     const mainTmp = `${getTemplateDbPath()}.${process.pid}`;
     copyFileSync(getDbPath(), mainTmp);
     const logsTmp = `${getLogsTemplateDbPath()}.${process.pid}`;
     copyFileSync(getLogsDbPath(), logsTmp);
+    const memoryTmp = `${getMemoryTemplateDbPath()}.${process.pid}`;
+    copyFileSync(getMemoryDbPath(), memoryTmp);
 
     // Atomic renames — safe even with parallel test workers.
     renameSync(mainTmp, getTemplateDbPath());
     renameSync(logsTmp, getLogsTemplateDbPath());
+    renameSync(memoryTmp, getMemoryTemplateDbPath());
   } catch {
     // Best effort — next file will just run migrations normally.
   }
@@ -390,8 +419,26 @@ export async function checkpointWalBeforeOpen(): Promise<void> {
 
 // ---------------------------------------------------------------------------
 
+/**
+ * Create the dedicated logs/memory schemas synchronously. Idempotent
+ * (`CREATE … IF NOT EXISTS`). Runs as part of DB init — never on connection
+ * open — so the tables exist as soon as `initializeDb()` returns, on both the
+ * fresh-migration path and the test template-restore path, and regardless of
+ * whether the caller awaits (the relocation steps 297/298 that also create them
+ * are async). Best-effort: a connection that fails to open leaves its tables
+ * unavailable, matching the daemon's "never block startup on a subsystem
+ * failure" policy.
+ */
+function ensureDedicatedSchemas(): void {
+  const logsRaw = getLogsSqlite();
+  if (logsRaw) ensureLlmRequestLogsSchema(logsRaw);
+  const memoryRaw = getMemorySqlite();
+  if (memoryRaw) ensureMemoryJobsSchema(memoryRaw);
+}
+
 export async function initializeDb(): Promise<void> {
   if (process.env.BUN_TEST === "1" && tryRestoreTemplate()) {
+    ensureDedicatedSchemas();
     return;
   }
 
@@ -666,6 +713,10 @@ export async function initializeDb(): Promise<void> {
   // broken migration doesn't prevent independent later ones from succeeding.
   // The runner creates the checkpoint ledger, recovers crashed migrations, then
   // records each step so an already-migrated database skips it on later boots.
+  // Create the dedicated logs/memory schemas up front, synchronously, before the
+  // (async) relocation steps run — see {@link ensureDedicatedSchemas}.
+  ensureDedicatedSchemas();
+
   const { failed, skipped } = await runMigrationSteps(database, migrationSteps);
 
   log.debug(

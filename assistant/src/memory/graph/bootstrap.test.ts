@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
 import { setMemoryCheckpoint } from "../checkpoints.js";
+import { getMemoryDb } from "../db-connection.js";
 import { initializeDb } from "../db-init.js";
 import { rawAll, rawGet, rawRun, resetTestTables } from "../raw-query.js";
 import { migrateToolCreatedItems } from "./bootstrap.js";
@@ -21,7 +22,9 @@ beforeAll(() => {
 
 beforeEach(() => {
   // Clear graph nodes and checkpoints between tests so each test starts clean.
-  resetTestTables("memory_graph_nodes", "memory_checkpoints", "memory_jobs");
+  // memory_jobs lives in the dedicated memory connection; the rest in main.
+  resetTestTables("memory_graph_nodes", "memory_checkpoints");
+  getMemoryDb()!.run("DELETE FROM memory_jobs");
 });
 
 // ---------------------------------------------------------------------------

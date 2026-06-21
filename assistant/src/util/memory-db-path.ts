@@ -3,10 +3,10 @@ import { join } from "node:path";
 import { getDataDir } from "./platform.js";
 
 /**
- * Path to the secondary SQLite file that houses the high-churn memory
+ * Path to the dedicated SQLite file that houses the high-churn memory
  * subsystem tables (starting with the `memory_jobs` work queue). It lives in
- * the same `data/db` directory as the main DB and is ATTACHed to the daemon's
- * connection as the `memory` schema (see `memory/db-connection.ts`). Splitting
+ * the same `data/db` directory as the main DB and is opened on its own
+ * connection (see `getMemoryDb()` in `memory/db-connection.ts`). Splitting
  * these tables into their own file keeps the main DB — and its WAL — small and
  * lets the two files VACUUM/checkpoint independently, so a runaway queue can no
  * longer bloat the main database.

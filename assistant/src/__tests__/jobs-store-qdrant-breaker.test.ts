@@ -15,7 +15,7 @@ mock.module("../config/loader.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import { getDb } from "../memory/db-connection.js";
+import { getMemoryDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
   claimMemoryJobs,
@@ -34,7 +34,7 @@ describe("claimMemoryJobs with Qdrant circuit breaker", () => {
   });
 
   beforeEach(() => {
-    const db = getDb();
+    const db = getMemoryDb()!;
     db.run("DELETE FROM memory_jobs");
     _resetQdrantBreaker();
   });
@@ -149,7 +149,7 @@ describe("claimMemoryJobs with Qdrant circuit breaker", () => {
     expect(embedClaimed).toHaveLength(2);
 
     // Remaining 10 jobs should still be pending.
-    const db = getDb();
+    const db = getMemoryDb()!;
     const pendingRows = db
       .select()
       .from(memoryJobs)

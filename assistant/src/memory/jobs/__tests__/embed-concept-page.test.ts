@@ -142,7 +142,7 @@ afterAll(() => {
 // Imports are deferred to after the env var is set so any internal use of
 // `getWorkspaceDir()` resolves to the tmpdir.
 const { DEFAULT_CONFIG } = await import("../../../config/defaults.js");
-const { getDb } = await import("../../db-connection.js");
+const { getDb, getMemoryDb } = await import("../../db-connection.js");
 const { resetDbForTesting } =
   await import("../../../__tests__/db-test-helpers.js");
 const { initializeDb } = await import("../../db-init.js");
@@ -547,7 +547,7 @@ describe("enqueueEmbedConceptPageJob", () => {
   test("inserted job row carries the right type and slug payload", () => {
     const id = enqueueEmbedConceptPageJob({ slug: "row-check" });
 
-    const row = getDb()
+    const row = getMemoryDb()!
       .select()
       .from(memoryJobs)
       .all()

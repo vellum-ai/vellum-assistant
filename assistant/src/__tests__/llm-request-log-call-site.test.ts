@@ -24,7 +24,7 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import { getDb, getSqliteFrom } from "../memory/db-connection.js";
+import { getLogsDb, getSqliteFrom } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
   getRequestLogById,
@@ -35,9 +35,9 @@ import { llmRequestLogs } from "../memory/schema.js";
 
 initializeDb();
 
+// llm_request_logs lives in the dedicated logs connection.
 function resetLogs(): void {
-  const db = getDb();
-  db.delete(llmRequestLogs).run();
+  getLogsDb()!.delete(llmRequestLogs).run();
 }
 
 describe("recordRequestLog call_site stamping", () => {
@@ -100,7 +100,7 @@ describe("recordRequestLog call_site stamping", () => {
 
 describe("migrateLlmRequestLogCallSite", () => {
   test("adds the call_site column when missing", () => {
-    const db = getDb();
+    const db = getLogsDb()!;
     const raw = getSqliteFrom(db);
 
     // Drop the column if present (simulate pre-264 state). SQLite supports
@@ -126,7 +126,7 @@ describe("migrateLlmRequestLogCallSite", () => {
   });
 
   test("is idempotent — second run is a no-op", () => {
-    const db = getDb();
+    const db = getLogsDb()!;
     // First run (column may or may not exist depending on test order; either
     // path is fine for the idempotency contract).
     migrateLlmRequestLogCallSite(db);
