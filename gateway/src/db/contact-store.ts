@@ -971,6 +971,13 @@ export class ContactStore {
       throw new MergeContactsError(`Contact "${mergeId}" not found`);
     }
 
+    // Guard: cannot delete a guardian contact (same rule as handleDeleteContact).
+    if (merge.role === "guardian") {
+      throw new MergeContactsError(
+        "Cannot merge away a guardian contact. Keep the guardian as the survivor instead.",
+      );
+    }
+
     // Gateway DB transaction: move channels, delete donor.
     this.db.transaction((tx) => {
       const donorChannels = tx
@@ -1005,23 +1012,13 @@ export class ContactStore {
       tx.delete(contacts).where(eq(contacts.id, mergeId)).run();
     });
 
-    // Best-effort: concatenate notes in the assistant DB.
+    // Best-effort: mirror the merge in the assistant DB (notes + channels + donor delete).
     try {
-      await this.mergeNotesInAssistantDb(keepId, mergeId);
+      await this.mergeInAssistantDb(keepId, mergeId, keep.displayName);
     } catch (err) {
       log.warn(
         { keepId, mergeId, err },
-        "mergeContacts: assistant DB notes concat failed (best-effort)",
-      );
-    }
-
-    // Best-effort: delete the donor contact from the assistant DB.
-    try {
-      await assistantDbRun("DELETE FROM contacts WHERE id = ?", [mergeId]);
-    } catch (err) {
-      log.warn(
-        { mergeId, err },
-        "mergeContacts: assistant DB donor delete failed (best-effort)",
+        "mergeContacts: assistant DB mirror failed (best-effort)",
       );
     }
 
@@ -1030,13 +1027,23 @@ export class ContactStore {
   }
 
   /**
-   * Concatenate notes from donor and survivor in the assistant DB.
-   * Best-effort — failures are logged by the caller.
+   * Mirror the merge in the assistant DB: concatenate notes, move donor
+   * channels to survivor, delete the donor. Best-effort — failures are
+   * logged by the caller.
+   *
+   * Order matters: notes concat → channel move → donor delete. If the
+   * survivor doesn't exist in the assistant DB (dual-write gap), we insert
+   * it with the combined notes so donor notes aren't lost when the donor
+   * row is deleted.
    */
-  private async mergeNotesInAssistantDb(
+  private async mergeInAssistantDb(
     keepId: string,
     mergeId: string,
+    keepDisplayName: string,
   ): Promise<void> {
+    const now = Date.now();
+
+    // 1. Concatenate notes.
     const rows = await assistantDbQuery<{ id: string; notes: string | null }>(
       "SELECT id, notes FROM contacts WHERE id IN (?, ?)",
       [keepId, mergeId],
@@ -1046,10 +1053,47 @@ export class ContactStore {
     const combined =
       [keepNotes, mergeNotes].filter(Boolean).join("\n") || null;
 
-    await assistantDbRun(
+    // Try UPDATE first. If the survivor row doesn't exist in the assistant
+    // DB (dual-write gap), INSERT it with the combined notes.
+    const updateResult = await assistantDbRun(
       "UPDATE contacts SET notes = ?, updated_at = ? WHERE id = ?",
-      [combined, String(Date.now()), keepId],
+      [combined, String(now), keepId],
     );
+
+    if (updateResult.changes === 0) {
+      // Survivor row missing from assistant DB — create it with combined notes.
+      await assistantDbRun(
+        `INSERT INTO contacts (id, display_name, notes, role, contact_type, principal_id, user_file, created_at, updated_at)
+         VALUES (?, ?, ?, 'contact', 'human', NULL, NULL, ?, ?)`,
+        [keepId, keepDisplayName, combined, String(now), String(now)],
+      );
+    }
+
+    // 2. Move donor channels to survivor (skip dups by logical key).
+    const donorChannels = await assistantDbQuery<{
+      id: string;
+      type: string;
+      address: string;
+    }>(
+      "SELECT id, type, address FROM contact_channels WHERE contact_id = ?",
+      [mergeId],
+    );
+
+    for (const ch of donorChannels) {
+      const exists = await assistantDbQuery<{ id: string }>(
+        "SELECT id FROM contact_channels WHERE contact_id = ? AND type = ? AND address = ? COLLATE NOCASE",
+        [keepId, ch.type, ch.address],
+      );
+      if (exists.length === 0) {
+        await assistantDbRun(
+          "UPDATE contact_channels SET contact_id = ?, updated_at = ? WHERE id = ?",
+          [keepId, String(now), ch.id],
+        );
+      }
+    }
+
+    // 3. Delete the donor (cascade removes remaining duplicate channels).
+    await assistantDbRun("DELETE FROM contacts WHERE id = ?", [mergeId]);
   }
 
   // ---------------------------------------------------------------------------

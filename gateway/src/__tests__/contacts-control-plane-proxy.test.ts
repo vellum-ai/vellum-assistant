@@ -1316,3 +1316,27 @@ describe("handleMergeContacts (gateway-native)", () => {
     expect(body.contact).toBeUndefined();
   });
 });
+
+  test("returns 400 when merging away a guardian contact", async () => {
+    const { MergeContactsError } = await import("../db/contact-store.js");
+    contactStoreMergeMock = mock(async () => {
+      throw new MergeContactsError(
+        "Cannot merge away a guardian contact. Keep the guardian as the survivor instead.",
+      );
+    });
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleMergeContacts(
+      new Request("http://localhost:7830/v1/contacts/merge", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ keepId: "ct_regular", mergeId: "ct_guardian" }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message).toMatch(/guardian/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
