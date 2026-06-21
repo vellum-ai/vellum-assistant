@@ -96,6 +96,33 @@ describe("routeDefinitionsToIpcMethods — eligibility", () => {
       result.find((r) => r.operationId === "get_route_schema"),
     ).toBeDefined();
   });
+
+  test("ipcOnly routes are IPC-registered but absent from the HTTP-matchable schema", async () => {
+    // ipcOnly routes (e.g. invites_mint) must be reachable over the IPC
+    // socket via ipcCallAssistant, but MUST NOT appear in the route schema
+    // the gateway HTTP IPC proxy matches against — otherwise a request like
+    // POST /v1/_ipc/contacts/invites/mint could reach them over HTTP.
+    const routes: RouteDefinition[] = [
+      defineRoute({ operationId: "ok", endpoint: "ok" }),
+      defineRoute({
+        operationId: "invites_mint",
+        endpoint: "contacts/invites/mint",
+        method: "POST",
+        ipcOnly: true,
+      }),
+    ];
+
+    // (a) Present in the IPC method registration.
+    const ipcMethods = routeDefinitionsToIpcMethods(routes);
+    const ipcIds = ipcMethods.map((r) => r.operationId);
+    expect(ipcIds).toContain("invites_mint");
+
+    // (b) Absent from the get_route_schema / HTTP-matchable route set.
+    const schema = await getSchema(routes);
+    const schemaIds = schema.map((e) => e.operationId);
+    expect(schemaIds).toContain("ok");
+    expect(schemaIds).not.toContain("invites_mint");
+  });
 });
 
 // ---------------------------------------------------------------------------

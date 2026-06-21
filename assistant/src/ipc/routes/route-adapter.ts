@@ -56,6 +56,13 @@ export function routeDefinitionsToIpcMethods(
 ): RouteDefinition[] {
   const eligible = routes.filter(isIpcEligible);
 
+  // ipcOnly routes are reachable via `ipcCallAssistant` (they stay in the
+  // returned method list) but MUST NOT appear in the route schema the gateway
+  // caches: the gateway's HTTP IPC proxy matches incoming HTTP requests
+  // against that schema, so including them would expose an HTTP surface and
+  // defeat the no-HTTP-surface guarantee.
+  const schemaRoutes = eligible.filter((r) => !r.ipcOnly);
+
   // Meta-route: exposes the route schema to the gateway for IPC proxy
   // discovery. Lives here (not in ROUTES) because it describes ROUTES itself.
   const metaRoute: RouteDefinition = {
@@ -66,7 +73,7 @@ export function routeDefinitionsToIpcMethods(
     // it runs before any policy table is in scope and has no actor
     // scopes attached. Explicitly unprotected.
     policy: null,
-    handler: async () => eligible.map(toSchemaEntry),
+    handler: async () => schemaRoutes.map(toSchemaEntry),
   };
 
   return [...eligible, metaRoute];
