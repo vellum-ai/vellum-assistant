@@ -978,8 +978,15 @@ export class ContactStore {
       );
     }
 
-    // Gateway DB transaction: move channels, delete donor.
+    // Gateway DB transaction: bump survivor timestamp, move channels, delete donor.
     this.db.transaction((tx) => {
+      // Touch the survivor so list/read responses (ordered by updatedAt desc)
+      // reflect the merge.
+      tx.update(contacts)
+        .set({ updatedAt: now })
+        .where(eq(contacts.id, keepId))
+        .run();
+
       const donorChannels = tx
         .select()
         .from(contactChannels)
@@ -1014,7 +1021,13 @@ export class ContactStore {
 
     // Best-effort: mirror the merge in the assistant DB (notes + channels + donor delete).
     try {
-      await this.mergeInAssistantDb(keepId, mergeId, keep.displayName);
+      await this.mergeInAssistantDb(
+        keepId,
+        mergeId,
+        keep.displayName,
+        keep.role,
+        keep.principalId,
+      );
     } catch (err) {
       log.warn(
         { keepId, mergeId, err },
@@ -1040,6 +1053,8 @@ export class ContactStore {
     keepId: string,
     mergeId: string,
     keepDisplayName: string,
+    keepRole: string,
+    keepPrincipalId: string | null,
   ): Promise<void> {
     const now = Date.now();
 
@@ -1062,10 +1077,25 @@ export class ContactStore {
 
     if (updateResult.changes === 0) {
       // Survivor row missing from assistant DB — create it with combined notes.
+      // Use the gateway survivor's role/principalId so a guardian survivor
+      // isn't downgraded to role=contact in the assistant mirror.
+      const userFile = await this.resolveAssistantUserFileSlug(
+        keepDisplayName,
+        null,
+      );
       await assistantDbRun(
         `INSERT INTO contacts (id, display_name, notes, role, contact_type, principal_id, user_file, created_at, updated_at)
-         VALUES (?, ?, ?, 'contact', 'human', NULL, NULL, ?, ?)`,
-        [keepId, keepDisplayName, combined, String(now), String(now)],
+         VALUES (?, ?, ?, ?, 'human', ?, ?, ?, ?)`,
+        [
+          keepId,
+          keepDisplayName,
+          combined,
+          keepRole,
+          keepPrincipalId,
+          userFile,
+          String(now),
+          String(now),
+        ],
       );
     }
 
