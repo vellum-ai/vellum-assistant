@@ -247,7 +247,9 @@ export function handleRevokeInvite({ pathParams = {} }: RouteHandlerArgs) {
  * `invites_redeem_voice` method. Wraps the identity-bound
  * `redeemVoiceInviteCode` path.
  */
-export function handleRedeemVoiceInvite({ body = {} }: RouteHandlerArgs) {
+export async function handleRedeemVoiceInvite({
+  body = {},
+}: RouteHandlerArgs) {
   const callerExternalUserId = body.callerExternalUserId as string | undefined;
   const code = body.code as string | undefined;
 
@@ -255,7 +257,7 @@ export function handleRedeemVoiceInvite({ body = {} }: RouteHandlerArgs) {
     throw new BadRequestError("callerExternalUserId and code are required");
   }
 
-  const result = redeemVoiceInviteCode({
+  const result = await redeemVoiceInviteCode({
     assistantId: body.assistantId as string | undefined,
     callerExternalUserId,
     sourceChannel: "phone",
@@ -281,8 +283,10 @@ export function handleRedeemVoiceInvite({ body = {} }: RouteHandlerArgs) {
  * `invites_redeem_token` method. Wraps the generic `redeemIngressInvite`
  * token path.
  */
-export function handleRedeemTokenInvite({ body = {} }: RouteHandlerArgs) {
-  const result = redeemIngressInvite({
+export async function handleRedeemTokenInvite({
+  body = {},
+}: RouteHandlerArgs) {
+  const result = await redeemIngressInvite({
     token: body.token as string | undefined,
     externalUserId: body.externalUserId as string | undefined,
     externalChatId: body.externalChatId as string | undefined,

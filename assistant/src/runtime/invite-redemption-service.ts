@@ -10,6 +10,7 @@
 import type { ChannelId } from "../channels/types.js";
 import { findContactChannel, getContact } from "../contacts/contact-store.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
+import { ipcCallPersistent } from "../ipc/gateway-client.js";
 import { getSqlite } from "../memory/db-connection.js";
 import {
   findActiveVoiceInvites,
@@ -20,7 +21,91 @@ import {
   recordInviteUse,
 } from "../memory/invite-store.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
+import { getLogger } from "../util/logger.js";
 import { hashVoiceCode } from "../util/voice-code.js";
+
+const log = getLogger("invite-redemption-service");
+
+// ---------------------------------------------------------------------------
+// Gateway lifecycle bridge (shared by all redemption paths)
+// ---------------------------------------------------------------------------
+//
+// The assistant is the authority on token/code → invite resolution (it holds
+// the hashes and caller scoping). Once it has resolved the EXACT invite, it
+// asks the gateway — BY ID, which is unambiguous — whether the gateway-
+// canonical row is still redeemable, then (after a successful mutation) mirrors
+// the redemption back. This keeps the gateway invite row the lifecycle source
+// of truth across every redemption path (token + 6-digit channel intercepts,
+// voice relay, HTTP).
+
+/**
+ * Ask the gateway whether the invite `inviteId` is still redeemable.
+ *
+ * Returns a decision the caller maps to behavior:
+ *   - "revoked": the gateway row EXISTS but is revoked/expired/exhausted →
+ *     REJECT the redemption (do not mutate).
+ *   - "proceed": the gateway considers the invite active → continue.
+ *   - "legacy": no gateway row exists (pre-migration assistant-only invite) →
+ *     continue (the assistant stays authoritative). Logged at warn.
+ *   - "unavailable": the gateway IPC threw (gateway unreachable). FAIL-OPEN —
+ *     continue; the assistant-side checks still apply. Logged loudly.
+ */
+async function checkGatewayInviteActive(
+  inviteId: string,
+): Promise<"proceed" | "revoked" | "legacy" | "unavailable"> {
+  try {
+    const res = (await ipcCallPersistent("check_invite_active", {
+      inviteId,
+    })) as { exists?: boolean; active?: boolean } | null;
+
+    if (!res || typeof res !== "object") {
+      log.warn(
+        { inviteId, res },
+        "check_invite_active: gateway returned malformed response — failing open",
+      );
+      return "unavailable";
+    }
+    if (res.exists === false) {
+      log.warn(
+        { inviteId },
+        "check_invite_active: no gateway invite row — treating as legacy assistant-only invite",
+      );
+      return "legacy";
+    }
+    return res.active ? "proceed" : "revoked";
+  } catch (err) {
+    // FAIL-OPEN: availability > strict gating. The assistant-side validation
+    // (status/expiry/use-count/channel) still applies; we just couldn't
+    // confirm the gateway-canonical lifecycle.
+    log.error(
+      { err, inviteId },
+      "check_invite_active: gateway IPC unavailable — failing open (assistant-side checks still apply)",
+    );
+    return "unavailable";
+  }
+}
+
+/**
+ * Best-effort mirror of a successful redemption into the gateway-canonical row.
+ * Soft-fails: never blocks or rolls back the assistant redemption (stale over
+ * lost). No-ops gateway-side when the row is absent (legacy invite).
+ */
+function mirrorRedemptionToGateway(params: {
+  inviteId: string;
+  redeemedByExternalUserId?: string | null;
+  redeemedByExternalChatId?: string | null;
+}): void {
+  void ipcCallPersistent("record_invite_redemption", {
+    inviteId: params.inviteId,
+    redeemedByExternalUserId: params.redeemedByExternalUserId ?? null,
+    redeemedByExternalChatId: params.redeemedByExternalChatId ?? null,
+  }).catch((err) => {
+    log.warn(
+      { err, inviteId: params.inviteId },
+      "record_invite_redemption: gateway mirror failed (best-effort, redemption stands)",
+    );
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Outcome type
@@ -67,7 +152,7 @@ const STORE_ERROR_TO_REASON: Record<
 // redeemInvite
 // ---------------------------------------------------------------------------
 
-export function redeemInvite(params: {
+export async function redeemInvite(params: {
   rawToken: string;
   sourceChannel: string;
   externalUserId?: string;
@@ -75,7 +160,7 @@ export function redeemInvite(params: {
   displayName?: string;
   username?: string;
   assistantId?: string;
-}): InviteRedemptionOutcome {
+}): Promise<InviteRedemptionOutcome> {
   const {
     rawToken,
     sourceChannel,
@@ -156,6 +241,13 @@ export function redeemInvite(params: {
     return { ok: false, reason: "invalid_token" };
   }
 
+  // Gateway lifecycle pre-check (by id — caller-scoped resolution already
+  // picked the exact invite). A gateway-known revoked/exhausted/expired invite
+  // must be rejected before any mutation, even if the assistant mirror is stale.
+  if ((await checkGatewayInviteActive(invite.id)) === "revoked") {
+    return { ok: false, reason: "invalid_token" };
+  }
+
   // Inactive member reactivation: when the user already has a member record
   // in a non-active state (revoked/pending), reactivate it via upsertContactChannel
   // and consume an invite use atomically. The fresh-member path below also
@@ -214,6 +306,12 @@ export function redeemInvite(params: {
       throw err;
     }
 
+    mirrorRedemptionToGateway({
+      inviteId: invite.id,
+      redeemedByExternalUserId: externalUserId,
+      redeemedByExternalChatId: externalChatId,
+    });
+
     return {
       ok: true,
       type: "redeemed",
@@ -270,6 +368,12 @@ export function redeemInvite(params: {
     throw err;
   }
 
+  mirrorRedemptionToGateway({
+    inviteId: invite.id,
+    redeemedByExternalUserId: externalUserId,
+    redeemedByExternalChatId: externalChatId,
+  });
+
   return {
     ok: true,
     type: "redeemed",
@@ -298,12 +402,12 @@ export function redeemInvite(params: {
  * oracle attacks that could reveal which invites exist or which phone numbers
  * are bound.
  */
-export function redeemVoiceInviteCode(params: {
+export async function redeemVoiceInviteCode(params: {
   assistantId?: string;
   callerExternalUserId: string;
   sourceChannel: "phone";
   code: string;
-}): VoiceRedemptionOutcome {
+}): Promise<VoiceRedemptionOutcome> {
   const { callerExternalUserId, code } = params;
 
   if (!callerExternalUserId) {
@@ -378,6 +482,14 @@ export function redeemVoiceInviteCode(params: {
     return { ok: false, reason: "invalid_or_expired" };
   }
 
+  // Gateway lifecycle pre-check (by id). The candidate was already resolved
+  // caller-scoped (expectedExternalUserId == caller), so the id is unambiguous
+  // even when two phone invites share a 6-digit code — this closes the
+  // colliding-code gap that a code-hash-only gateway pre-gate left open.
+  if ((await checkGatewayInviteActive(invite.id)) === "revoked") {
+    return { ok: false, reason: "invalid_or_expired" };
+  }
+
   // Atomic redemption: upsert member + consume invite use in a transaction
   const STALE_INVITE = Symbol("stale_invite");
   let memberId: string | undefined;
@@ -427,6 +539,11 @@ export function redeemVoiceInviteCode(params: {
     throw err;
   }
 
+  mirrorRedemptionToGateway({
+    inviteId: invite.id,
+    redeemedByExternalUserId: callerExternalUserId,
+  });
+
   return {
     ok: true,
     type: "redeemed",
@@ -449,7 +566,7 @@ export function redeemVoiceInviteCode(params: {
  * Validation: active status, not expired, uses remaining, channel match.
  * On success: upserts/reactivates a member with status 'active', policy 'allow'.
  */
-export function redeemInviteByCode(params: {
+export async function redeemInviteByCode(params: {
   code: string;
   sourceChannel: string;
   externalUserId?: string;
@@ -457,7 +574,7 @@ export function redeemInviteByCode(params: {
   displayName?: string;
   username?: string;
   assistantId?: string;
-}): InviteRedemptionOutcome {
+}): Promise<InviteRedemptionOutcome> {
   const {
     code,
     sourceChannel,
@@ -530,6 +647,13 @@ export function redeemInviteByCode(params: {
     return { ok: false, reason: "invalid_token" };
   }
 
+  // Gateway lifecycle pre-check (by id). Reject a gateway-known revoked/
+  // exhausted/expired invite before mutating, even if the assistant mirror is
+  // stale.
+  if ((await checkGatewayInviteActive(invite.id)) === "revoked") {
+    return { ok: false, reason: "invalid_token" };
+  }
+
   // Inactive member reactivation: reactivate via upsertContactChannel and consume
   // an invite use atomically.
   if (existingChannel && !targetMismatch) {
@@ -579,6 +703,12 @@ export function redeemInviteByCode(params: {
       }
       throw err;
     }
+
+    mirrorRedemptionToGateway({
+      inviteId: invite.id,
+      redeemedByExternalUserId: externalUserId,
+      redeemedByExternalChatId: externalChatId,
+    });
 
     return {
       ok: true,
@@ -635,6 +765,12 @@ export function redeemInviteByCode(params: {
     }
     throw err;
   }
+
+  mirrorRedemptionToGateway({
+    inviteId: invite.id,
+    redeemedByExternalUserId: externalUserId,
+    redeemedByExternalChatId: externalChatId,
+  });
 
   return {
     ok: true,

@@ -406,19 +406,21 @@ export async function triggerInviteCall(
   return { ok: true, data: { callSid: result.callSid } };
 }
 
-export function redeemIngressInvite(params: {
+export async function redeemIngressInvite(params: {
   token?: string;
   externalUserId?: string;
   externalChatId?: string;
   sourceChannel?: string;
-}): IngressResult<{ invite: InviteResponseData; type: RedemptionType }> {
+}): Promise<
+  IngressResult<{ invite: InviteResponseData; type: RedemptionType }>
+> {
   if (!params.token) {
     return { ok: false, error: "token is required for redeem" };
   }
   if (!params.sourceChannel) {
     return { ok: false, error: "sourceChannel is required for redeem" };
   }
-  const outcome = redeemInviteTyped({
+  const outcome = await redeemInviteTyped({
     rawToken: params.token,
     sourceChannel: params.sourceChannel,
     externalUserId: params.externalUserId,
@@ -438,33 +440,11 @@ export function redeemIngressInvite(params: {
   return { ok: true, data: { invite: inviteToResponse(inv), type: outcome.type } };
 }
 
-/**
- * Resolve a token invite's id WITHOUT side effects.
- *
- * The gateway stores no redeemable token hash (its `inviteCodeHash` mirrors the
- * 6-digit display-code hash, not the token), so it cannot locate its canonical
- * invite row from an incoming token on its own. This lets the gateway resolve
- * the invite id from the token, then gate on its own canonical lifecycle row
- * before relaying the side-effecting redeem.
- */
-export function resolveTokenInvite(params: {
-  token?: string;
-}): IngressResult<{ id: string }> {
-  if (!params.token) {
-    return { ok: false, error: "token is required for resolve" };
-  }
-  const inv = findByTokenHash(hashToken(params.token));
-  if (!inv) {
-    return { ok: false, error: "Invite not found" };
-  }
-  return { ok: true, data: { id: inv.id } };
-}
-
 export function redeemVoiceInviteCode(params: {
   assistantId?: string;
   callerExternalUserId: string;
   sourceChannel: "phone";
   code: string;
-}): VoiceRedemptionOutcome {
+}): Promise<VoiceRedemptionOutcome> {
   return redeemVoiceInviteCodeTyped(params);
 }

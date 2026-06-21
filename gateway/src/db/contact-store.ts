@@ -1,6 +1,6 @@
 import { type Database } from "bun:sqlite";
 
-import { and, desc, eq, gt, ne, sql } from "drizzle-orm";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
 
 import {
   type SqliteValue,
@@ -837,59 +837,6 @@ export class ContactStore {
         .select()
         .from(ingressInvites)
         .where(eq(ingressInvites.id, inviteId))
-        .get() ?? null
-    );
-  }
-
-  /**
-   * Find the canonical active invite whose stored `inviteCodeHash` matches
-   * `codeHash` on the given channel. Used by the voice redeem pre-gate so the
-   * gateway can reject a revoked/expired/exhausted invite BEFORE relaying the
-   * side-effecting redeem to the assistant. Scoped to active, unexpired, and
-   * not-yet-exhausted rows so a stale assistant mirror can't be redeemed.
-   */
-  findActiveInviteByCodeHash(
-    codeHash: string,
-    sourceChannel: string,
-  ): IngressInviteRow | null {
-    return (
-      this.db
-        .select()
-        .from(ingressInvites)
-        .where(
-          and(
-            eq(ingressInvites.inviteCodeHash, codeHash),
-            eq(ingressInvites.sourceChannel, sourceChannel),
-            eq(ingressInvites.status, "active"),
-            gt(ingressInvites.expiresAt, Date.now()),
-            sql`${ingressInvites.useCount} < ${ingressInvites.maxUses}`,
-          ),
-        )
-        .get() ?? null
-    );
-  }
-
-  /**
-   * Find the canonical invite for `codeHash` on a channel REGARDLESS of status.
-   * The voice redeem pre-gate uses this to tell an ABSENT gateway row (legacy
-   * assistant-only invite created before the contacts migration — fall through
-   * to the assistant) from a row that EXISTS but is revoked/expired/exhausted
-   * (reject with 409).
-   */
-  findInviteByCodeHash(
-    codeHash: string,
-    sourceChannel: string,
-  ): IngressInviteRow | null {
-    return (
-      this.db
-        .select()
-        .from(ingressInvites)
-        .where(
-          and(
-            eq(ingressInvites.inviteCodeHash, codeHash),
-            eq(ingressInvites.sourceChannel, sourceChannel),
-          ),
-        )
         .get() ?? null
     );
   }

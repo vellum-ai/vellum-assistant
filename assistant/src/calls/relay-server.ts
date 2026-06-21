@@ -1620,7 +1620,7 @@ export class RelayConnection {
       return;
     }
 
-    const result = attemptInviteCodeRedemption({
+    const result = await attemptInviteCodeRedemption({
       inviteRedemptionAssistantId: this.inviteRedemptionAssistantId,
       inviteRedemptionFromNumber: this.inviteRedemptionFromNumber,
       enteredCode,

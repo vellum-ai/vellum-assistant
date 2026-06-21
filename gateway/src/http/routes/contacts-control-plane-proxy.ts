@@ -5,8 +5,6 @@
  * auth handling rather than falling through to the catch-all proxy.
  */
 
-import { createHash } from "node:crypto";
-
 import { proxyForward } from "@vellumai/assistant-client";
 import { eq } from "drizzle-orm";
 
@@ -47,16 +45,6 @@ const VALID_CONTACT_TYPES = ["human", "assistant"] as const;
 // ---------------------------------------------------------------------------
 // Invite hashing + response sanitization
 // ---------------------------------------------------------------------------
-
-/**
- * Hash a redemption code the same way the assistant does for voice/invite
- * codes (`hashVoiceCode`): plain unsalted SHA-256. Kept local to avoid an
- * assistant -> gateway import (a layering violation); the scheme is a single
- * `createHash("sha256")` call in both packages and must not drift.
- */
-function hashInviteCode(code: string): string {
-  return createHash("sha256").update(code).digest("hex");
-}
 
 /**
  * Strip code/token hashes from a gateway invite row before returning it over
@@ -1129,58 +1117,14 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       }
       const input = parsed.value;
 
+      // Thin relay: the assistant redemption service now owns the gateway
+      // lifecycle pre-check (check_invite_active, by id, caller-scoped) and the
+      // redemption mirror (record_invite_redemption) for ALL paths — including
+      // this HTTP one, since it relays into the same assistant redeem handlers.
+      // Re-gating or re-mirroring here would double-count uses, so the gateway
+      // handler just parses, relays, and returns.
       try {
         if (input.kind === "voice") {
-          // Pre-gate on the canonical gateway row BEFORE relaying the
-          // side-effecting redeem. The runtime trust resolver reads assistant
-          // contacts, so a revoked/expired/exhausted invite whose assistant
-          // mirror is stale must be rejected here — not after the assistant has
-          // already made the caller an active contact. The gateway stores the
-          // voice-code hash (sha256 of the 6-digit code) so it can locate its
-          // own row from the incoming code.
-          //
-          // A residual TOCTOU window between this check and the assistant
-          // mutation is inherent to the dual-DB design; it is bounded by the
-          // soft-fail/compensation invariants and the post-redeem
-          // recordInviteRedemption gate below. We do not attempt cross-DB
-          // atomicity.
-          //
-          // Compatibility (backward-compat invariant #5, "stale over lost"):
-          // post-migration invites always have a gateway row (create writes it
-          // as source of truth and 500s if that write fails), so an ABSENT
-          // gateway row reliably means a legacy/pre-migration invite that lives
-          // only in the assistant — fall through and let the assistant (still
-          // authoritative for invites the gateway never heard of) redeem it.
-          // A row that EXISTS but is not active is a gateway-known
-          // revoked/exhausted invite and must still be rejected.
-          const codeHash = hashInviteCode(input.code);
-          const store = new ContactStore();
-          const canonical = store.findActiveInviteByCodeHash(codeHash, "phone");
-          let isLegacyVoiceInvite = false;
-          if (!canonical) {
-            const known = store.findInviteByCodeHash(codeHash, "phone");
-            if (known) {
-              log.warn(
-                { inviteId: known.id, status: known.status },
-                "redeem_invite(voice): gateway invite is not active (revoked/expired/exhausted) — rejecting before assistant side effect",
-              );
-              return Response.json(
-                {
-                  error: {
-                    code: "CONFLICT",
-                    message: "Invite is no longer valid",
-                  },
-                },
-                { status: 409 },
-              );
-            }
-            isLegacyVoiceInvite = true;
-            log.warn(
-              {},
-              "redeem_invite(voice): no gateway invite row for code — treating as legacy assistant-only invite, falling through to assistant redeem",
-            );
-          }
-
           const result = (await ipcCallAssistant("invites_redeem_voice", {
             body: {
               code: input.code,
@@ -1193,42 +1137,9 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
             inviteId?: string;
           };
 
-          // Record the redemption against the gateway's canonical invite row.
-          // The gateway lifecycle is authoritative: if the row is no longer
-          // active (revoked or exhausted — e.g. a revoke that soft-failed on
-          // the assistant mirror), recordInviteRedemption reports updated=false
-          // and we must NOT return success. Voice "already_member" carries no
-          // inviteId, so there's no gateway row to gate on.
-          //
-          // Legacy assistant-only invites (no gateway row at all) skip this
-          // gate: recordInviteRedemption would report updated=false simply
-          // because the row doesn't exist, and we must not 409 the legacy
-          // fall-through. The assistant remains authoritative for them.
-          if (result.inviteId && !isLegacyVoiceInvite) {
-            const recorded = new ContactStore().recordInviteRedemption({
-              inviteId: result.inviteId,
-              redeemedByExternalUserId: input.callerExternalUserId,
-            });
-            if (!recorded.updated) {
-              log.error(
-                { inviteId: result.inviteId },
-                "redeem_invite(voice): gateway invite is no longer active (revoked/exhausted) — rejecting after assistant side effect",
-              );
-              return Response.json(
-                {
-                  error: {
-                    code: "CONFLICT",
-                    message: `Invite "${result.inviteId}" is no longer valid`,
-                  },
-                },
-                { status: 409 },
-              );
-            }
-          }
-
           log.info(
             { type: result.type, inviteId: result.inviteId },
-            "redeem_invite(voice): handled natively",
+            "redeem_invite(voice): relayed to assistant",
           );
           return Response.json({
             ok: true,
@@ -1236,59 +1147,6 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
             memberId: result.memberId,
             ...(result.inviteId ? { inviteId: result.inviteId } : {}),
           });
-        }
-
-        // Token path. The gateway stores no redeemable token hash (its
-        // inviteCodeHash mirrors the 6-digit display-code hash, not the
-        // token), so it cannot locate its canonical row from the token alone.
-        // Resolve the invite id via a NON-MUTATING assistant IPC, then gate on
-        // the canonical gateway row's lifecycle BEFORE relaying the
-        // side-effecting redeem — otherwise the assistant would make the caller
-        // an active contact even when the gateway has revoked/exhausted the
-        // invite.
-        //
-        // A residual TOCTOU window between this check and the assistant
-        // mutation is inherent to the dual-DB design; it is bounded by the
-        // soft-fail/compensation invariants and the post-redeem
-        // recordInviteRedemption gate below. We do not attempt cross-DB
-        // atomicity.
-        const resolved = (await ipcCallAssistant("invites_resolve_token", {
-          body: { token: input.token },
-        } as unknown as Record<string, unknown>)) as { id: string };
-
-        // Compatibility (backward-compat invariant #5, "stale over lost"):
-        // post-migration invites always have a gateway row, so an ABSENT row
-        // means a legacy/pre-migration invite that lives only in the assistant
-        // — fall through and let the assistant redeem it. A row that EXISTS but
-        // is not active is a gateway-known revoked/exhausted invite and must
-        // still be rejected.
-        const canonicalToken = new ContactStore().getInviteById(resolved.id);
-        const isLegacyTokenInvite = !canonicalToken;
-        if (
-          canonicalToken &&
-          (canonicalToken.status !== "active" ||
-            canonicalToken.useCount >= canonicalToken.maxUses ||
-            canonicalToken.expiresAt <= Date.now())
-        ) {
-          log.warn(
-            { inviteId: resolved.id },
-            "redeem_invite(token): canonical gateway invite is not active (revoked/expired/exhausted) — rejecting before assistant side effect",
-          );
-          return Response.json(
-            {
-              error: {
-                code: "CONFLICT",
-                message: `Invite "${resolved.id}" is no longer valid`,
-              },
-            },
-            { status: 409 },
-          );
-        }
-        if (isLegacyTokenInvite) {
-          log.warn(
-            { inviteId: resolved.id },
-            "redeem_invite(token): no gateway invite row — treating as legacy assistant-only invite, falling through to assistant redeem",
-          );
         }
 
         const result = (await ipcCallAssistant("invites_redeem_token", {
@@ -1307,43 +1165,9 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
           type?: string;
         };
 
-        // The gateway invite row is authoritative on the redemption outcome:
-        // if it's no longer active (revoked or exhausted), reject rather than
-        // returning success on an assistant-only redemption.
-        //
-        // Skip the mirror when the redemption consumed no use: an
-        // `already_member` redeem (an existing contact reopening the link)
-        // must not bump useCount, or a maxUses:1 invite would be wrongly marked
-        // redeemed and 409 future legitimate invitees. Legacy assistant-only
-        // invites (no gateway row) also skip the mirror — recordInviteRedemption
-        // would report updated=false simply because the row is absent, and we
-        // must not 409 the legacy fall-through.
-        if (result.type !== "already_member" && !isLegacyTokenInvite) {
-          const recorded = new ContactStore().recordInviteRedemption({
-            inviteId: result.invite.id,
-            redeemedByExternalUserId: input.externalUserId ?? null,
-            redeemedByExternalChatId: input.externalChatId ?? null,
-          });
-          if (!recorded.updated) {
-            log.error(
-              { inviteId: result.invite.id },
-              "redeem_invite(token): gateway invite is no longer active (revoked/exhausted) — rejecting after assistant side effect",
-            );
-            return Response.json(
-              {
-                error: {
-                  code: "CONFLICT",
-                  message: `Invite "${result.invite.id}" is no longer valid`,
-                },
-              },
-              { status: 409 },
-            );
-          }
-        }
-
         log.info(
           { inviteId: result.invite.id },
-          "redeem_invite(token): handled natively",
+          "redeem_invite(token): relayed to assistant",
         );
         return Response.json({ ok: true, invite: result.invite });
       } catch (err) {
