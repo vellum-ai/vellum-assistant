@@ -45,11 +45,21 @@ mock.module("../util/logger.js", () => ({
 // The voice redemption path now claims the gateway-canonical row over IPC
 // before mutating. Stub it so tests don't attempt a real socket connect; the
 // claim returns consumed (updated:true) so redemption proceeds.
+//
+// `inviteClaimCalls` counts gateway claims so concurrency tests can assert that
+// a repeated code does NOT launch a second claim. `inviteClaimGate`, when set,
+// holds the claim open mid-flight so a test can drive the race window where a
+// second code arrives while the first redemption is still awaiting the gateway.
+let inviteClaimCalls = 0;
+let inviteClaimGate: Promise<void> | null = null;
 mock.module("../ipc/gateway-client.js", () => ({
   ipcCall: async () => undefined,
   ipcCallPersistent: async (method: string) => {
-    if (method === "record_invite_redemption")
+    if (method === "record_invite_redemption") {
+      inviteClaimCalls += 1;
+      if (inviteClaimGate) await inviteClaimGate;
       return { ok: true, updated: true, mirrored: true };
+    }
     return undefined;
   },
 }));
@@ -503,6 +513,8 @@ describe("relay-server", () => {
       verifiedVia: "bootstrap",
     });
     activeRelayConnections.clear();
+    inviteClaimCalls = 0;
+    inviteClaimGate = null;
     mockUserReference = "my human";
     mockAssistantName = "Vellum";
     mockAdmissionPolicy = null;
@@ -2482,6 +2494,190 @@ describe("relay-server", () => {
     expect(endMessages.length).toBe(1);
 
     relay.destroy();
+  });
+
+  test("inbound voice invite redemption: repeated code during in-flight claim is deduped (no second redemption, no spurious failure)", async () => {
+    ensureConversation("conv-invite-dedup");
+    const session = createCallSession({
+      conversationId: "conv-invite-dedup",
+      provider: "twilio",
+      fromNumber: "+15558885555",
+      toNumber: "+15551111111",
+    });
+
+    const code = generateVoiceCode(6);
+    const codeHash = hashVoiceCode(code);
+    createInvite({
+      sourceChannel: "phone",
+      contactId: createTargetContact(),
+      maxUses: 1,
+      expectedExternalUserId: "+15558885555",
+      voiceCodeHash: codeHash,
+      voiceCodeDigits: 6,
+      friendName: "Eve",
+      guardianName: "Frank",
+    });
+
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["Hello, how can I help?"]),
+    );
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_invite_dedup",
+        from: "+15558885555",
+        to: "+15551111111",
+      }),
+    );
+
+    expect(relay.getConnectionState()).toBe("verification_pending");
+
+    // Hold the gateway claim open so the first redemption stays in flight while
+    // the caller re-speaks the SAME code (the race this guard prevents).
+    let releaseClaim: () => void = () => {};
+    inviteClaimGate = new Promise<void>((resolve) => {
+      releaseClaim = resolve;
+    });
+
+    // First attempt: enter the full code via DTMF — dispatched fire-and-forget.
+    for (const digit of code) {
+      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
+    }
+    // Let the async handler reach the awaited gateway claim.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(inviteClaimCalls).toBe(1);
+
+    // Second attempt with the SAME code arrives while the first is in flight.
+    // It must be ignored — no second claim, no failure branch.
+    for (const digit of code) {
+      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(inviteClaimCalls).toBe(1);
+
+    // Now let the first redemption resolve.
+    releaseClaim();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Exactly one gateway claim ran across both attempts.
+    expect(inviteClaimCalls).toBe(1);
+
+    // Activation succeeded — call continued, never marked failed.
+    expect(relay.getConnectionState()).toBe("connected");
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).not.toBe("failed");
+
+    const events = getCallEvents(session.id);
+    expect(
+      events.some((e) => e.eventType === "invite_redemption_succeeded"),
+    ).toBe(true);
+    expect(events.some((e) => e.eventType === "invite_redemption_failed")).toBe(
+      false,
+    );
+
+    // No failure copy was sent for the deduped second attempt.
+    const failureCopy = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter(
+        (m) =>
+          m.type === "text" &&
+          (m.token ?? "").includes("incorrect or has since expired"),
+      );
+    expect(failureCopy.length).toBe(0);
+
+    relay.destroy();
+  });
+
+  test("inbound voice invite redemption: a fresh redemption after a prior attempt fully resolves still proceeds (guard cleared, no deadlock)", async () => {
+    // Prior attempt: a fully-resolved redemption on its own call.
+    ensureConversation("conv-invite-prior");
+    const priorSession = createCallSession({
+      conversationId: "conv-invite-prior",
+      provider: "twilio",
+      fromNumber: "+15558883333",
+      toNumber: "+15551111111",
+    });
+    const priorCode = generateVoiceCode(6);
+    createInvite({
+      sourceChannel: "phone",
+      contactId: createTargetContact(),
+      maxUses: 1,
+      expectedExternalUserId: "+15558883333",
+      voiceCodeHash: hashVoiceCode(priorCode),
+      voiceCodeDigits: 6,
+      friendName: "Ivan",
+      guardianName: "Judy",
+    });
+
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["Hello, how can I help?"]),
+    );
+
+    const prior = createMockWs(priorSession.id);
+    await prior.relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_invite_prior",
+        from: "+15558883333",
+        to: "+15551111111",
+      }),
+    );
+    for (const digit of priorCode) {
+      await prior.relay.handleMessage(
+        JSON.stringify({ type: "dtmf", digit }),
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(prior.relay.getConnectionState()).toBe("connected");
+    expect(inviteClaimCalls).toBe(1);
+    prior.relay.destroy();
+
+    // Fresh attempt: a brand-new redemption proceeds (the in-flight guard from
+    // the resolved attempt does not block it — it was cleared in finally).
+    ensureConversation("conv-invite-fresh");
+    const freshSession = createCallSession({
+      conversationId: "conv-invite-fresh",
+      provider: "twilio",
+      fromNumber: "+15558882222",
+      toNumber: "+15551111111",
+    });
+    const freshCode = generateVoiceCode(6);
+    createInvite({
+      sourceChannel: "phone",
+      contactId: createTargetContact(),
+      maxUses: 1,
+      expectedExternalUserId: "+15558882222",
+      voiceCodeHash: hashVoiceCode(freshCode),
+      voiceCodeDigits: 6,
+      friendName: "Kim",
+      guardianName: "Liam",
+    });
+
+    const fresh = createMockWs(freshSession.id);
+    await fresh.relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_invite_fresh",
+        from: "+15558882222",
+        to: "+15551111111",
+      }),
+    );
+    for (const digit of freshCode) {
+      await fresh.relay.handleMessage(
+        JSON.stringify({ type: "dtmf", digit }),
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // A second claim ran for the fresh attempt — guard did not deadlock it.
+    expect(inviteClaimCalls).toBe(2);
+    expect(fresh.relay.getConnectionState()).toBe("connected");
+
+    fresh.relay.destroy();
   });
 
   test("inbound voice: unknown caller with no active invite enters name capture flow", async () => {
