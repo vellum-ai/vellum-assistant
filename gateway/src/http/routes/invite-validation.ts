@@ -18,7 +18,7 @@ import { z } from "zod";
 
 export interface CreateInviteInput {
   contactId: string;
-  sourceChannel?: string;
+  sourceChannel: string;
   note?: string;
   maxUses?: number;
   expiresInMs?: number;
@@ -39,7 +39,7 @@ const positiveNumber = z
 
 const createInviteSchema = z.object({
   contactId: z.string().trim().min(1, "contactId is required"),
-  sourceChannel: z.string().optional(),
+  sourceChannel: z.string().trim().min(1, "sourceChannel is required"),
   note: z.string().optional(),
   maxUses: positiveNumber.optional(),
   expiresInMs: positiveNumber.optional(),
@@ -85,7 +85,7 @@ export interface TokenRedeemInput {
   token: string;
   externalUserId?: string;
   externalChatId?: string;
-  sourceChannel?: string;
+  sourceChannel: string;
 }
 
 export type RedeemInviteInput = VoiceRedeemInput | TokenRedeemInput;
@@ -126,6 +126,11 @@ export function parseRedeemInviteBody(
   if (!token) {
     return { ok: false, message: "token is required" };
   }
+  const sourceChannel =
+    typeof raw.sourceChannel === "string" ? raw.sourceChannel.trim() : "";
+  if (!sourceChannel) {
+    return { ok: false, message: "sourceChannel is required" };
+  }
   return {
     ok: true,
     value: {
@@ -135,8 +140,7 @@ export function parseRedeemInviteBody(
         typeof raw.externalUserId === "string" ? raw.externalUserId : undefined,
       externalChatId:
         typeof raw.externalChatId === "string" ? raw.externalChatId : undefined,
-      sourceChannel:
-        typeof raw.sourceChannel === "string" ? raw.sourceChannel : undefined,
+      sourceChannel,
     },
   };
 }

@@ -8,10 +8,33 @@ import {
 
 describe("parseCreateInviteBody", () => {
   it("accepts a minimal valid body", () => {
-    const result = parseCreateInviteBody({ contactId: "contact-1" });
+    const result = parseCreateInviteBody({
+      contactId: "contact-1",
+      sourceChannel: "telegram",
+    });
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.contactId).toBe("contact-1");
+      expect(result.value.sourceChannel).toBe("telegram");
+    }
+  });
+
+  it("rejects a missing sourceChannel", () => {
+    const result = parseCreateInviteBody({ contactId: "contact-1" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.message).toContain("sourceChannel");
+    }
+  });
+
+  it("rejects an empty/whitespace sourceChannel", () => {
+    const result = parseCreateInviteBody({
+      contactId: "contact-1",
+      sourceChannel: "   ",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.message).toContain("sourceChannel");
     }
   });
 
@@ -51,6 +74,7 @@ describe("parseCreateInviteBody", () => {
   it("rejects a negative maxUses", () => {
     const result = parseCreateInviteBody({
       contactId: "contact-1",
+      sourceChannel: "telegram",
       maxUses: -1,
     });
     expect(result.ok).toBe(false);
@@ -62,6 +86,7 @@ describe("parseCreateInviteBody", () => {
   it("rejects a zero expiresInMs", () => {
     const result = parseCreateInviteBody({
       contactId: "contact-1",
+      sourceChannel: "telegram",
       expiresInMs: 0,
     });
     expect(result.ok).toBe(false);
@@ -114,6 +139,25 @@ describe("parseRedeemInviteBody", () => {
         expect(result.value.token).toBe("tok-abc");
         expect(result.value.sourceChannel).toBe("telegram");
       }
+    }
+  });
+
+  it("rejects a token body missing sourceChannel", () => {
+    const result = parseRedeemInviteBody({ token: "tok-abc" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.message).toContain("sourceChannel");
+    }
+  });
+
+  it("rejects a token body with empty/whitespace sourceChannel", () => {
+    const result = parseRedeemInviteBody({
+      token: "tok-abc",
+      sourceChannel: "   ",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.message).toContain("sourceChannel");
     }
   });
 
