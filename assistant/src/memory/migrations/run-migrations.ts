@@ -19,6 +19,8 @@ const log = getLogger("db-init");
 export type MigrationStep = (database: DrizzleDb) => void | Promise<void>;
 
 export interface MigrationRunResult {
+  /** Steps that ran and completed successfully this boot. */
+  applied: string[];
   /** Steps whose body threw. */
   failed: string[];
   /** Steps skipped because a prior run already applied them. */
@@ -154,6 +156,7 @@ export async function runMigrationSteps(
 
   const failed: string[] = [];
   const skipped: string[] = [];
+  const ran: string[] = [];
 
   for (const step of steps) {
     const name = step.name;
@@ -166,7 +169,7 @@ export async function runMigrationSteps(
     }
 
     try {
-      log.debug({ migration: name }, `Starting migration: ${name}`);
+      log.info({ migration: name }, `Starting migration: ${name}`);
       // Await only steps that actually return a promise, so a list of purely
       // synchronous steps runs to completion without yielding the thread — and
       // an async step is fully drained before it is checkpointed below.
@@ -174,9 +177,10 @@ export async function runMigrationSteps(
       if (result instanceof Promise) {
         await result;
       }
-      log.debug({ migration: name }, `Migration succeeded: ${name}`);
+      log.info({ migration: name }, `Migration succeeded: ${name}`);
       if (checkpointable) {
         markApplied.run(`${STEP_CHECKPOINT_PREFIX}${name}`, Date.now());
+        ran.push(name);
       }
     } catch (err) {
       failed.push(name);
@@ -184,7 +188,7 @@ export async function runMigrationSteps(
     }
   }
 
-  return { failed, skipped };
+  return { applied: ran, failed, skipped };
 }
 
 /**
