@@ -38,7 +38,7 @@ mock.module("../util/secure-keys.js", () => ({
   getSecureKeyAsync: async () => undefined,
 }));
 
-import { getDb } from "../memory/db-connection.js";
+import { getDb, getLogsDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
   conversations,
@@ -552,7 +552,7 @@ describe("POST /v1/export — manifest truncatedSections", () => {
         createdAt: now + i,
       }),
     );
-    db.insert(llmRequestLogs).values(rows).run();
+    getLogsDb()!.insert(llmRequestLogs).values(rows).run();
 
     const manifest = await readManifest({ full: true });
     expect(manifest.truncatedSections).toEqual(["llm-request-logs"]);

@@ -132,7 +132,7 @@ mock.module("../runtime/services/analyze-conversation.js", () => ({
 
 import { conversationAnalyzeJob } from "../memory/conversation-analyze-job.js";
 import { createConversation } from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
+import { getDb, getMemoryDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { indexMessageNow } from "../memory/indexer.js";
 import type { MemoryJob } from "../memory/jobs-store.js";
@@ -157,7 +157,7 @@ function resetTables(): void {
   db.run("DELETE FROM memory_embeddings");
   db.run("DELETE FROM memory_graph_nodes");
   db.run("DELETE FROM memory_segments");
-  db.run("DELETE FROM memory_jobs");
+  getMemoryDb()!.run("DELETE FROM memory_jobs");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
 }
@@ -206,8 +206,7 @@ async function indexMessages(
 }
 
 function countJobsOfType(type: string, conversationId?: string): number {
-  const db = getDb();
-  const rows = db
+  const rows = getMemoryDb()!
     .select()
     .from(memoryJobs)
     .where(eq(memoryJobs.type, type))
@@ -234,8 +233,7 @@ function countJobsOfType(type: string, conversationId?: string): number {
 async function drainOneConversationAnalyzeJob(
   conversationId: string,
 ): Promise<boolean> {
-  const db = getDb();
-  const rows = db
+  const rows = getMemoryDb()!
     .select()
     .from(memoryJobs)
     .where(eq(memoryJobs.type, "conversation_analyze"))
@@ -427,8 +425,7 @@ describe("auto-analysis batch trigger uses analysis.batchSize cadence", () => {
 
     // Stronger: any pending analysis job must be debounced (runAfter
     // far in the future), not the immediate batch fire.
-    const db = getDb();
-    const analysisRows = db
+    const analysisRows = getMemoryDb()!
       .select()
       .from(memoryJobs)
       .where(eq(memoryJobs.type, "conversation_analyze"))
@@ -464,8 +461,7 @@ describe("auto-analysis batch trigger uses analysis.batchSize cadence", () => {
     await indexMessages(source.id, 1, 4);
     const after = Date.now();
 
-    const db = getDb();
-    const analysisRows = db
+    const analysisRows = getMemoryDb()!
       .select()
       .from(memoryJobs)
       .where(eq(memoryJobs.type, "conversation_analyze"))
@@ -520,8 +516,7 @@ describe("auto-analysis batch trigger uses analysis.batchSize cadence", () => {
     await indexMessages(source.id, 1, 1);
     const after = Date.now();
 
-    const db = getDb();
-    const graphRows = db
+    const graphRows = getMemoryDb()!
       .select()
       .from(memoryJobs)
       .where(eq(memoryJobs.type, "graph_extract"))

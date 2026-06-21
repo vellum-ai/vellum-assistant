@@ -7,7 +7,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { getDb } from "../memory/db-connection.js";
+import { getLogsDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { llmRequestLogs } from "../memory/schema.js";
 import { ROUTES } from "../runtime/routes/conversation-query-routes.js";
@@ -32,7 +32,7 @@ function dispatchLogPayload(logId: string) {
 }
 
 function clearRequestLogs(): void {
-  getDb().delete(llmRequestLogs).run();
+  getLogsDb()!.delete(llmRequestLogs).run();
 }
 
 function seedRequestLog(overrides: {
@@ -43,7 +43,7 @@ function seedRequestLog(overrides: {
   responsePayload: string;
   createdAt?: number;
 }): void {
-  getDb()
+  getLogsDb()!
     .insert(llmRequestLogs)
     .values({
       id: overrides.id,
