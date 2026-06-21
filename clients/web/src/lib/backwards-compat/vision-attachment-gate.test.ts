@@ -29,29 +29,23 @@ describe("useVisionAttachmentGate", () => {
     expect(check("")).toBe(true);
   });
 
-  test("returns true (gate active) for 0.10.0 — feature not yet shipped", () => {
+  test("returns true (gate active) for 0.10.0 stable — feature not yet shipped", () => {
     expect(check("0.10.0")).toBe(true);
   });
 
-  test("returns false (gate inactive) for 0.10.1+", () => {
+  test("returns false (gate inactive) for the target dev build and newer", () => {
+    expect(check("0.10.0-dev.202606211252.5cf8576")).toBe(false);
+    expect(check("0.10.0-dev.202606211300.abcdef")).toBe(false);
+  });
+
+  test("returns true (gate active) for older dev builds", () => {
+    expect(check("0.10.0-dev.202606211200.abcdef")).toBe(true);
+  });
+
+  test("returns false (gate inactive) for 0.10.1+ stable", () => {
     expect(check("0.10.1")).toBe(false);
     expect(check("0.11.0")).toBe(false);
     expect(check("1.0.0")).toBe(false);
-  });
-
-  test("returns false (gate inactive) for dev pre-releases of 0.10.0", () => {
-    // Dev builds contain unreleased commits ahead of the base version,
-    // so 0.10.0-dev.x is treated as 0.10.1 by the compat system.
-    expect(check("0.10.0-dev.202606211252.5cf8576")).toBe(false);
-    expect(check("0.10.0-dev.202606211252")).toBe(false);
-  });
-
-  test("returns true (gate active) for rc/beta pre-releases of 0.10.0", () => {
-    // Non-dev pre-releases strip to their base version per convention,
-    // so 0.10.0-rc.1 counts as 0.10.0 which is < 0.10.1.
-    expect(check("0.10.0-rc.1")).toBe(true);
-    // But 0.10.1-rc.1 strips to 0.10.1 which is >= 0.10.1.
-    expect(check("0.10.1-rc.1")).toBe(false);
   });
 
   test("returns true (gate active) for older assistants", () => {

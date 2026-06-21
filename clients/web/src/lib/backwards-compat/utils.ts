@@ -25,7 +25,7 @@
  *   assistant version is read off the identity store.)
  */
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
-import { compareParsed, parseSemver } from "@/utils/semver";
+import { compareParsed, comparePreRelease, parseSemver } from "@/utils/semver";
 import { whenStoreState } from "@/utils/when-store-state";
 
 /**
@@ -39,10 +39,12 @@ import { whenStoreState } from "@/utils/when-store-state";
  *   counts as `0.8.5`. Testers on RCs get the new path the moment the
  *   patch version bumps.
  * - `dev` pre-releases (e.g. `0.10.0-dev.202606211252.5cf8576`) are
- *   treated as one patch ahead of their base: `0.10.0-dev.x` compares
- *   as `0.10.1`. Dev builds contain unreleased commits on top of the
- *   base version, so they should light up features that will ship in
- *   the next stable release.
+ *   treated as AHEAD of the stable release with the same base version
+ *   (the opposite of strict semver) — they contain unreleased commits.
+ *   Two dev builds with the same base compare by their pre-release
+ *   string (which encodes a timestamp). This lets gates target a
+ *   specific dev build by passing the exact version string as
+ *   `minVersion`.
  * - Unparseable versions (either side) return `false`.
  */
 export function useAssistantSupports(minVersion: string): boolean {
@@ -74,16 +76,33 @@ function supportsVersion(
   const parsed = parseSemver(version);
   const min = parseSemver(minVersion);
   if (!parsed || !min) return false;
-  // `dev` pre-releases (e.g. `0.10.0-dev.202606211252.5cf8576`) contain
-  // unreleased commits on top of the base version — treat them as one
-  // patch ahead so features targeting the next stable release light up
-  // for dev builds. Other pre-releases (rc, beta, alpha) are stripped
-  // to their base version per the existing convention.
-  const effective =
-    parsed.pre !== null && parsed.pre.startsWith("dev")
-      ? { ...parsed, patch: parsed.patch + 1, pre: null }
-      : { ...parsed, pre: null };
-  return compareParsed(effective, min) >= 0;
+  // Compare base versions (major.minor.patch) first, ignoring
+  // pre-release suffixes. If the bases differ, the higher base wins.
+  const baseCmp = compareParsed(
+    { ...parsed, pre: null },
+    { ...min, pre: null },
+  );
+  if (baseCmp !== 0) return baseCmp > 0;
+  // Base versions are equal. Dev pre-releases (e.g.
+  // `0.10.0-dev.202606211252.5cf8576`) are development builds AHEAD of
+  // the stable release with the same base — they contain unreleased
+  // commits on top of it. So a dev build of 0.10.0 is newer than the
+  // 0.10.0 stable release, not older (the opposite of strict semver).
+  const versionIsDev = parsed.pre !== null && parsed.pre.startsWith("dev");
+  const minIsDev = min.pre !== null && min.pre.startsWith("dev");
+  if (versionIsDev && minIsDev) {
+    // Two dev builds with the same base compare by their pre-release
+    // string, which encodes a timestamp (dev.YYYYMMDDHHMM.sha).
+    return comparePreRelease(parsed.pre!, min.pre!) >= 0;
+  }
+  if (versionIsDev !== minIsDev) {
+    // Dev is ahead of stable with the same base.
+    return versionIsDev;
+  }
+  // Neither is dev — existing convention: strip pre-release suffixes,
+  // equal base versions count as supported (rc/beta/alpha testers get
+  // the new path the moment the patch version bumps).
+  return true;
 }
 
 /**
