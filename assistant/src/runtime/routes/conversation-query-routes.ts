@@ -85,7 +85,10 @@ import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { validateAllowlistFile } from "../../security/secret-allowlist.js";
-import { resolvePricingForUsage } from "../../util/pricing.js";
+import {
+  resolvePricingForUsage,
+  usesAnthropicPricingRules,
+} from "../../util/pricing.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import {
   type LlmContextSummary,
@@ -212,10 +215,17 @@ function attachEstimatedCost(summary: LlmContextSummary): LlmContextSummary {
 
   const cacheCreation = summary.cacheCreationInputTokens ?? 0;
   const cacheRead = summary.cacheReadInputTokens ?? 0;
-  const directInputTokens = Math.max(
-    inputTokens - cacheCreation - cacheRead,
-    0,
-  );
+  // `inputTokens` carries provider-shape-dependent cache accounting. Anthropic
+  // Messages responses (native and OpenRouter `anthropic/*`) report `input_tokens`
+  // already net of cache — cache-creation/read are separate, additive buckets —
+  // so the full-rate portion IS `inputTokens`. OpenAI/Gemini report a total
+  // prompt-token count with cached tokens as a subset, so the full-rate portion
+  // is the total minus cache. `usesAnthropicPricingRules` selects the same
+  // response shapes the pricing layer treats as Anthropic (keyed on the stored
+  // transport provider + model), so it also distinguishes the cache accounting.
+  const directInputTokens = usesAnthropicPricingRules(provider, model)
+    ? Math.max(inputTokens, 0)
+    : Math.max(inputTokens - cacheCreation - cacheRead, 0);
 
   const result = resolvePricingForUsage(provider, model, {
     directInputTokens,
