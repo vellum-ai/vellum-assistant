@@ -62,11 +62,10 @@ const CREATE_TABLE = /*sql*/ `
 
 /**
  * Create the `memory_jobs` table and its indexes on the memory connection.
- * Idempotent (`IF NOT EXISTS`). Invoked both by this migration and synchronously
- * by `initializeDb` so the table exists as soon as the DB is initialized — the
- * dedicated connection itself performs no DDL on open.
+ * Idempotent (`IF NOT EXISTS`) — the dedicated connection itself performs no DDL
+ * on open, so this migration owns the schema.
  */
-export function ensureMemoryJobsSchema(memoryRaw: Database): void {
+function ensureMemoryJobsSchema(memoryRaw: Database): void {
   memoryRaw.exec(CREATE_TABLE);
   createIndexes(memoryRaw);
 }

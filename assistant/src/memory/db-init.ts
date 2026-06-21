@@ -256,14 +256,8 @@ import { migrateWorkflowJournalLeafTokens } from "./migrations/293-workflow-jour
 import { migrateDropExternalUserId } from "./migrations/294-drop-external-user-id.js";
 import { dropApprovalPromptTsTrackerTable } from "./migrations/295-drop-approval-prompt-ts-tracker.js";
 import { migrateRewriteBalancedEconomyProfilePins } from "./migrations/296-rewrite-balanced-economy-profile-pins.js";
-import {
-  ensureLlmRequestLogsSchema,
-  migrateMoveLlmRequestLogsToLogsDb,
-} from "./migrations/297-move-llm-request-logs-to-logs-db.js";
-import {
-  ensureMemoryJobsSchema,
-  migrateMoveMemoryJobsToMemoryDb,
-} from "./migrations/298-move-memory-jobs-to-memory-db.js";
+import { migrateMoveLlmRequestLogsToLogsDb } from "./migrations/297-move-llm-request-logs-to-logs-db.js";
+import { migrateMoveMemoryJobsToMemoryDb } from "./migrations/298-move-memory-jobs-to-memory-db.js";
 import { runMigrationSteps } from "./migrations/run-migrations.js";
 import { validateMigrationState } from "./migrations/validate-migration-state.js";
 
@@ -317,22 +311,29 @@ function getMemoryTemplateDbPath(): string {
 
 function tryRestoreTemplate(): boolean {
   const templatePath = getTemplateDbPath();
-  if (!existsSync(templatePath)) return false;
+  const logsTemplate = getLogsTemplateDbPath();
+  const memoryTemplate = getMemoryTemplateDbPath();
+  // Restore only when ALL THREE templates are present. `saveTemplate()` renames
+  // them one at a time, so a parallel test worker can momentarily observe the
+  // main template without its logs/memory siblings. Restoring then would copy
+  // the main DB, leave the dedicated DBs as fresh empty files, and skip
+  // migrations — so the next `llm_request_logs`/`memory_jobs` access would fail
+  // with a missing-table error. Treating a partial set as "not ready" makes such
+  // a worker fall through to a full migrate, which creates every table.
+  if (
+    !existsSync(templatePath) ||
+    !existsSync(logsTemplate) ||
+    !existsSync(memoryTemplate)
+  ) {
+    return false;
+  }
   // getDb() hasn't run yet, so the data directory may not exist.
   ensureDataDir();
   copyFileSync(templatePath, getDbPath());
   // Restore the dedicated logs/memory DBs before their connections open, so the
-  // relocated tables are present. Older templates may predate the split; the
-  // hash includes the migration files, so a stale template without these
-  // siblings won't be reused — but guard anyway.
-  const logsTemplate = getLogsTemplateDbPath();
-  if (existsSync(logsTemplate)) {
-    copyFileSync(logsTemplate, getLogsDbPath());
-  }
-  const memoryTemplate = getMemoryTemplateDbPath();
-  if (existsSync(memoryTemplate)) {
-    copyFileSync(memoryTemplate, getMemoryDbPath());
-  }
+  // relocated tables are present.
+  copyFileSync(logsTemplate, getLogsDbPath());
+  copyFileSync(memoryTemplate, getMemoryDbPath());
   // Open the pre-migrated copy — getDb() will set PRAGMAs but skip migrations.
   getDb();
   return true;
@@ -419,26 +420,8 @@ export async function checkpointWalBeforeOpen(): Promise<void> {
 
 // ---------------------------------------------------------------------------
 
-/**
- * Create the dedicated logs/memory schemas synchronously. Idempotent
- * (`CREATE … IF NOT EXISTS`). Runs as part of DB init — never on connection
- * open — so the tables exist as soon as `initializeDb()` returns, on both the
- * fresh-migration path and the test template-restore path, and regardless of
- * whether the caller awaits (the relocation steps 297/298 that also create them
- * are async). Best-effort: a connection that fails to open leaves its tables
- * unavailable, matching the daemon's "never block startup on a subsystem
- * failure" policy.
- */
-function ensureDedicatedSchemas(): void {
-  const logsRaw = getLogsSqlite();
-  if (logsRaw) ensureLlmRequestLogsSchema(logsRaw);
-  const memoryRaw = getMemorySqlite();
-  if (memoryRaw) ensureMemoryJobsSchema(memoryRaw);
-}
-
 export async function initializeDb(): Promise<void> {
   if (process.env.BUN_TEST === "1" && tryRestoreTemplate()) {
-    ensureDedicatedSchemas();
     return;
   }
 
@@ -713,10 +696,6 @@ export async function initializeDb(): Promise<void> {
   // broken migration doesn't prevent independent later ones from succeeding.
   // The runner creates the checkpoint ledger, recovers crashed migrations, then
   // records each step so an already-migrated database skips it on later boots.
-  // Create the dedicated logs/memory schemas up front, synchronously, before the
-  // (async) relocation steps run — see {@link ensureDedicatedSchemas}.
-  ensureDedicatedSchemas();
-
   const { failed, skipped } = await runMigrationSteps(database, migrationSteps);
 
   log.debug(
