@@ -113,6 +113,8 @@ const RouteEntrySchema = z.object({
     .optional(),
   /** Source module filename, used for auto-deriving tags. */
   sourceModule: z.string().optional(),
+  /** IPC-only routes have no HTTP surface and are excluded from the spec. */
+  ipcOnly: z.boolean().optional(),
 });
 
 type RouteEntry = z.infer<typeof RouteEntrySchema>;
@@ -208,7 +210,8 @@ async function collectRoutesFromModules(): Promise<RouteEntry[]> {
           ...(typeof raw === "object" && raw !== null ? raw : {}),
           sourceModule: file,
         });
-        if (result.success) routes.push(result.data);
+        // ipcOnly routes have no HTTP surface — keep them out of the spec.
+        if (result.success && !result.data.ipcOnly) routes.push(result.data);
       }
     }
   }

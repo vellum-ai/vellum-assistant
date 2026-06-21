@@ -193,6 +193,13 @@ export interface RouteDefinition {
    */
   isPublic?: boolean;
   /**
+   * When true, the route is exposed only over IPC (not HTTP). The HTTP
+   * adapter skips it entirely; the IPC adapter registers it as a callable
+   * method. Used for daemon-internal operations the gateway calls back into
+   * (e.g. token minting) that have no public HTTP surface.
+   */
+  ipcOnly?: boolean;
+  /**
    * Response headers for this route. Can be:
    * - A static map of header name → value
    * - A function that computes headers from path/query params + request headers

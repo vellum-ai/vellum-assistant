@@ -26,10 +26,11 @@ import type {
   ContactType,
 } from "../../contacts/types.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
-import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { ACTOR_PRINCIPALS, GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import {
   createIngressInvite,
   listIngressInvites,
+  mintIngressInvite,
   redeemIngressInvite,
   redeemVoiceInviteCode,
   revokeIngressInvite,
@@ -240,36 +241,79 @@ export function handleRevokeInvite({ pathParams = {} }: RouteHandlerArgs) {
   return { ok: true, invite: result.data };
 }
 
-export async function handleRedeemInvite({ body = {} }: RouteHandlerArgs) {
-  if (body.code != null) {
-    const callerExternalUserId = body.callerExternalUserId as
-      | string
-      | undefined;
-    const code = body.code as string | undefined;
+/**
+ * Mint an invite for the gateway.
+ *
+ * IPC-only (`invites_mint`). Runs the same `createIngressInvite` path as the
+ * HTTP `invites_create` route but returns the raw token plus the minimal
+ * projection the gateway mirrors into its own store. Token generation/hashing
+ * and voice fields stay assistant-owned.
+ */
+export async function handleMintInvite({ body = {} }: RouteHandlerArgs) {
+  const result = await mintIngressInvite({
+    sourceChannel: body.sourceChannel as string | undefined,
+    note: body.note as string | undefined,
+    maxUses: body.maxUses as number | undefined,
+    expiresInMs: body.expiresInMs as number | undefined,
+    contactName: body.contactName as string | undefined,
+    expectedExternalUserId: body.expectedExternalUserId as string | undefined,
+    voiceCodeDigits: body.voiceCodeDigits as number | undefined,
+    friendName: body.friendName as string | undefined,
+    guardianName: body.guardianName as string | undefined,
+    contactId: body.contactId as string,
+  });
 
-    if (!callerExternalUserId || !code) {
-      throw new BadRequestError("callerExternalUserId and code are required");
-    }
+  if (!result.ok) {
+    throw new BadRequestError(result.error);
+  }
+  return {
+    ok: true,
+    invite: result.data.invite,
+    rawToken: result.data.rawToken,
+    gateway: result.data.gateway,
+  };
+}
 
-    const result = redeemVoiceInviteCode({
-      assistantId: body.assistantId as string | undefined,
-      callerExternalUserId,
-      sourceChannel: "phone",
-      code,
-    });
+/**
+ * Redeem a voice invite code (IPC-only `invites_redeem_voice`).
+ *
+ * Wraps the identity-bound `redeemVoiceInviteCode` path. Split out of the
+ * legacy `handleRedeemInvite` so the gateway can call it directly.
+ */
+export function handleRedeemVoiceInvite({ body = {} }: RouteHandlerArgs) {
+  const callerExternalUserId = body.callerExternalUserId as string | undefined;
+  const code = body.code as string | undefined;
 
-    if (!result.ok) {
-      throw new BadRequestError(result.reason);
-    }
-
-    return {
-      ok: true,
-      type: result.type,
-      memberId: result.memberId,
-      ...(result.type === "redeemed" ? { inviteId: result.inviteId } : {}),
-    };
+  if (!callerExternalUserId || !code) {
+    throw new BadRequestError("callerExternalUserId and code are required");
   }
 
+  const result = redeemVoiceInviteCode({
+    assistantId: body.assistantId as string | undefined,
+    callerExternalUserId,
+    sourceChannel: "phone",
+    code,
+  });
+
+  if (!result.ok) {
+    throw new BadRequestError(result.reason);
+  }
+
+  return {
+    ok: true,
+    type: result.type,
+    memberId: result.memberId,
+    ...(result.type === "redeemed" ? { inviteId: result.inviteId } : {}),
+  };
+}
+
+/**
+ * Redeem a token invite (IPC-only `invites_redeem_token`).
+ *
+ * Wraps the generic `redeemIngressInvite` token path. Split out of the legacy
+ * `handleRedeemInvite` so the gateway can call it directly.
+ */
+export function handleRedeemTokenInvite({ body = {} }: RouteHandlerArgs) {
   const result = redeemIngressInvite({
     token: body.token as string | undefined,
     externalUserId: body.externalUserId as string | undefined,
@@ -281,6 +325,14 @@ export async function handleRedeemInvite({ body = {} }: RouteHandlerArgs) {
     throw new BadRequestError(result.error);
   }
   return { ok: true, invite: result.data };
+}
+
+export async function handleRedeemInvite(args: RouteHandlerArgs) {
+  const body = args.body ?? {};
+  if (body.code != null) {
+    return handleRedeemVoiceInvite(args);
+  }
+  return handleRedeemTokenInvite(args);
 }
 
 export async function handleTriggerInviteCall({
@@ -503,6 +555,54 @@ export const ROUTES: RouteDefinition[] = [
         description: "Invite not eligible for outbound call",
       },
     },
+  },
+
+  // ── invites IPC-only (gateway-native; no HTTP surface) ──────────────
+  // These back the gateway's native invite HTTP handlers: the gateway mints
+  // tokens / redeems codes here (assistant-owned secrets), then mirrors the
+  // canonical lifecycle into its own DB. ipcOnly => excluded from HTTP routing.
+  {
+    operationId: "invites_mint",
+    endpoint: "_ipc/contacts/invites/mint",
+    method: "POST",
+    ipcOnly: true,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+    },
+    handler: handleMintInvite,
+    summary: "Mint an invite (gateway IPC)",
+    description:
+      "Generate an invite token + voice fields and return the gateway projection.",
+    tags: ["contacts"],
+  },
+  {
+    operationId: "invites_redeem_voice",
+    endpoint: "_ipc/contacts/invites/redeem-voice",
+    method: "POST",
+    ipcOnly: true,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+    },
+    handler: handleRedeemVoiceInvite,
+    summary: "Redeem a voice invite code (gateway IPC)",
+    description: "Redeem an identity-bound voice invite code.",
+    tags: ["contacts"],
+  },
+  {
+    operationId: "invites_redeem_token",
+    endpoint: "_ipc/contacts/invites/redeem-token",
+    method: "POST",
+    ipcOnly: true,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+    },
+    handler: handleRedeemTokenInvite,
+    summary: "Redeem a token invite (gateway IPC)",
+    description: "Redeem a generic token-based invite.",
+    tags: ["contacts"],
   },
 
   // ── contacts/search ──────────────────────────────────────────────────

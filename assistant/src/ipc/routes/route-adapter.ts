@@ -11,6 +11,8 @@
 import type { RouteDefinition } from "../../runtime/routes/types.js";
 
 function isIpcEligible(r: RouteDefinition): boolean {
+  // ipcOnly routes have no HTTP surface but are still callable over IPC.
+  if (r.ipcOnly) return true;
   return !r.requireGuardian && !r.isPublic;
 }
 
