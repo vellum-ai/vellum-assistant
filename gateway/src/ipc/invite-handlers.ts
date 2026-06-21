@@ -21,8 +21,8 @@
  *   invites_create
  *     params : { contactId: string; sourceChannel: string; note?: string;
  *                maxUses?: number; expiresInMs?: number; contactName?: string;
- *                expectedExternalUserId?: string; voiceCodeDigits?: number;
- *                friendName?: string; guardianName?: string }
+ *                expectedExternalUserId?: string; friendName?: string;
+ *                guardianName?: string }
  *     returns: { invite: Record<string, unknown>; rawToken?: string }
  *              (the assistant's one-time minted payload)
  *
@@ -50,6 +50,10 @@ import {
   listInvitesNative,
   revokeInviteNative,
 } from "../http/routes/contacts-control-plane-proxy.js";
+import {
+  createInviteSchema,
+  listInviteQueryShape,
+} from "../http/routes/invite-validation.js";
 import type { IpcRoute } from "./server.js";
 
 let store: ContactStore | null = null;
@@ -67,36 +71,20 @@ const RecordInviteRedemptionParamsSchema = z.object({
   redeemedByExternalChatId: z.string().nullish(),
 });
 
-const positiveNumber = z
-  .number()
-  .refine((n) => Number.isFinite(n) && n > 0, "must be a positive number");
-
 // The no-filter list is the common case; the daemon relay calls
 // `ipcCallPersistent("invites_list")` with no params (req.params === undefined).
 // The server validates req.params against this schema BEFORE the handler runs,
 // so the schema must accept omitted/undefined params and default them to {}.
-// Field validations stay intact for when params ARE provided.
+// Field validations stay intact for when params ARE provided. The omitted-params
+// tolerance is the IPC-layer concern; the field shape is shared with the HTTP
+// list-query validator.
 const ListInvitesParamsSchema = z.preprocess(
   (v) => v ?? {},
-  z.object({
-    sourceChannel: z.string().optional(),
-    status: z.string().optional(),
-  }),
+  z.object(listInviteQueryShape),
 );
 
-// Mirrors createInviteSchema in http/routes/invite-validation.ts.
-const CreateInviteParamsSchema = z.object({
-  contactId: z.string().trim().min(1, "contactId is required"),
-  sourceChannel: z.string().trim().min(1, "sourceChannel is required"),
-  note: z.string().optional(),
-  maxUses: positiveNumber.optional(),
-  expiresInMs: positiveNumber.optional(),
-  contactName: z.string().optional(),
-  expectedExternalUserId: z.string().optional(),
-  voiceCodeDigits: positiveNumber.optional(),
-  friendName: z.string().optional(),
-  guardianName: z.string().optional(),
-});
+// The gateway HTTP handlers and IPC callers share a single create-invite schema.
+const CreateInviteParamsSchema = createInviteSchema;
 
 const InviteIdParamsSchema = z.object({
   id: z.string().min(1),

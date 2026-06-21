@@ -37,22 +37,20 @@ mock.module("../calls/call-domain.js", () => ({
 import { upsertContact } from "../contacts/contact-store.js";
 import { getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import { revokeInvite } from "../memory/invite-store.js";
 import {
   createIngressInvite,
-  listIngressInvites,
-  revokeIngressInvite,
   triggerInviteCall,
 } from "../runtime/invite-service.js";
 import { handleRedeemInvite as _handleRedeemInvite } from "../runtime/routes/contact-routes.js";
 import { RouteError } from "../runtime/routes/errors.js";
 
 /**
- * The CLI/HTTP create/list/revoke/trigger route handlers now relay to the
- * gateway (see invite-relay-routes.test.ts). The assistant-native invite logic
- * those handlers used to call directly — and which the gateway still invokes via
- * `invites_mint` + its native handlers — is exercised here against the assistant
- * DB through the `invite-service` functions. Redemption stays daemon-local and is
- * still driven through the route handler.
+ * The CLI/HTTP create/list/revoke/trigger route handlers relay to the gateway
+ * (see invite-relay-routes.test.ts). The assistant-native invite logic the
+ * gateway invokes via `invites_mint` + its native handlers is exercised here
+ * against the assistant DB through the `invite-service` functions. Redemption
+ * stays daemon-local and is driven through the route handler.
  */
 function fakeResponse(body: unknown, status = 200) {
   return { status, json: async () => body };
@@ -67,28 +65,12 @@ async function handleCreateInvite(req: Request) {
     expiresInMs: body.expiresInMs as number | undefined,
     contactName: body.contactName as string | undefined,
     expectedExternalUserId: body.expectedExternalUserId as string | undefined,
-    voiceCodeDigits: body.voiceCodeDigits as number | undefined,
     friendName: body.friendName as string | undefined,
     guardianName: body.guardianName as string | undefined,
     contactId: body.contactId as string,
   });
   if (!result.ok) return fakeResponse({ ok: false, error: result.error }, 400);
   return fakeResponse({ ok: true, invite: result.data }, 201);
-}
-
-function handleListInvites(url: URL) {
-  const result = listIngressInvites({
-    sourceChannel: url.searchParams.get("sourceChannel") ?? undefined,
-    status: url.searchParams.get("status") ?? undefined,
-  });
-  if (!result.ok) return fakeResponse({ ok: false, error: result.error }, 400);
-  return fakeResponse({ ok: true, invites: result.data });
-}
-
-function handleRevokeInvite(inviteId: string) {
-  const result = revokeIngressInvite(inviteId);
-  if (!result.ok) return fakeResponse({ ok: false, error: result.error }, 404);
-  return fakeResponse({ ok: true, invite: result.data });
 }
 
 async function handleRedeemInvite(req: Request) {
@@ -203,66 +185,6 @@ describe("ingress invite HTTP routes", () => {
     expect(body.error).toContain("sourceChannel");
   });
 
-  test("GET /v1/contacts/invites — lists invites", async () => {
-    // Create two invites
-    await handleCreateInvite(
-      new Request("http://localhost/v1/contacts/invites", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sourceChannel: "telegram",
-          contactId: createTargetContact(),
-        }),
-      }),
-    );
-    await handleCreateInvite(
-      new Request("http://localhost/v1/contacts/invites", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sourceChannel: "telegram",
-          contactId: createTargetContact(),
-        }),
-      }),
-    );
-
-    const url = new URL("http://localhost/v1/contacts/invites");
-    const res = handleListInvites(url);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(res.status).toBe(200);
-    expect(body.ok).toBe(true);
-    expect(Array.isArray(body.invites)).toBe(true);
-    expect((body.invites as unknown[]).length).toBe(2);
-  });
-
-  test("DELETE /v1/contacts/invites/:id — revokes an invite", async () => {
-    const createRes = await handleCreateInvite(
-      new Request("http://localhost/v1/contacts/invites", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sourceChannel: "telegram",
-          contactId: createTargetContact(),
-        }),
-      }),
-    );
-    const created = (await createRes.json()) as { invite: { id: string } };
-
-    const res = handleRevokeInvite(created.invite.id);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(res.status).toBe(200);
-    expect(body.ok).toBe(true);
-    const invite = body.invite as Record<string, unknown>;
-    expect(invite.status).toBe("revoked");
-  });
-
-  test("DELETE /v1/contacts/invites/:id — not found returns 404", () => {
-    const res = handleRevokeInvite("nonexistent-id");
-    expect(res.status).toBe(404);
-  });
-
   test("POST /v1/contacts/invites/redeem — redeems an invite", async () => {
     // Create an invite first
     const createRes = await handleCreateInvite(
@@ -352,12 +274,9 @@ describe("ingress service shared logic", () => {
     };
     expect(created.invite.status).toBe("active");
 
-    const revokeRes = handleRevokeInvite(created.invite.id);
-    const revoked = (await revokeRes.json()) as {
-      invite: { id: string; status: string };
-    };
-    expect(revoked.invite.status).toBe("revoked");
-    expect(revoked.invite.id).toBe(created.invite.id);
+    const revoked = revokeInvite(created.invite.id);
+    expect(revoked?.status).toBe("revoked");
+    expect(revoked?.id).toBe(created.invite.id);
   });
 });
 
@@ -709,7 +628,7 @@ describe("POST /v1/contacts/invites/:id/call", () => {
     const created = (await createRes.json()) as { invite: { id: string } };
 
     // Revoke the invite
-    handleRevokeInvite(created.invite.id);
+    revokeInvite(created.invite.id);
 
     const res = await handleTriggerInviteCall(created.invite.id);
     const body = (await res.json()) as Record<string, unknown>;

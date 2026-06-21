@@ -16,10 +16,7 @@ import {
   findByTokenHash,
   hashToken,
   type IngressInvite,
-  type InviteStatus,
-  listInvites,
   markInviteExpired,
-  revokeInvite,
 } from "../memory/invite-store.js";
 import {
   DECLINED_BY_USER_SENTINEL,
@@ -161,7 +158,6 @@ export async function createIngressInvite(params: {
   contactName?: string;
   // Voice invite parameters
   expectedExternalUserId?: string;
-  voiceCodeDigits?: number;
   friendName?: string;
   guardianName?: string;
   contactId: string;
@@ -347,33 +343,6 @@ export async function mintIngressInvite(
       },
     },
   };
-}
-
-export function listIngressInvites(params: {
-  sourceChannel?: string;
-  status?: string;
-}): IngressResult<InviteResponseData[]> {
-  const invites = listInvites({
-    sourceChannel: params.sourceChannel,
-    status: params.status as InviteStatus | undefined,
-  });
-  return {
-    ok: true,
-    data: invites.map((inv) => inviteToResponse(inv)),
-  };
-}
-
-export function revokeIngressInvite(
-  inviteId?: string,
-): IngressResult<InviteResponseData> {
-  if (!inviteId) {
-    return { ok: false, error: "inviteId is required for revoke" };
-  }
-  const revoked = revokeInvite(inviteId);
-  if (!revoked) {
-    return { ok: false, error: "Invite not found or already revoked" };
-  }
-  return { ok: true, data: inviteToResponse(revoked) };
 }
 
 export async function triggerInviteCall(

@@ -248,7 +248,6 @@ export async function handleCreateInvite({ body = {} }: RouteHandlerArgs) {
       expiresInMs: body.expiresInMs as number | undefined,
       contactName: body.contactName as string | undefined,
       expectedExternalUserId: body.expectedExternalUserId as string | undefined,
-      voiceCodeDigits: body.voiceCodeDigits as number | undefined,
       friendName: body.friendName as string | undefined,
       guardianName: body.guardianName as string | undefined,
     })) as { invite: Record<string, unknown>; rawToken?: string };
