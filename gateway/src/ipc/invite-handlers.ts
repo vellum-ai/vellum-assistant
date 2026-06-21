@@ -10,8 +10,8 @@
  * (token + 6-digit channel intercepts, voice relay, HTTP).
  *
  * ───────────────────────────────────────────────────────────────────────────
- * Invite CRUD IPC contract (the daemon CLI relay — see contacts-gw-native-
- * invites PR 5 — calls these via `ipcCallPersistent`; KEEP STABLE):
+ * Invite CRUD IPC contract (the daemon CLI relay calls these via
+ * `ipcCallPersistent`; KEEP STABLE):
  *
  *   invites_list
  *     params : { sourceChannel?: string; status?: string }
