@@ -63,12 +63,15 @@ const fakeAssistantDb = {
   queryCalls: [] as { sql: string; bind?: unknown[] }[],
   // When set, the next N assistantDbRun calls throw this error.
   runThrowQueue: [] as Error[],
+  // When set, the next N assistantDbQuery calls throw this error.
+  queryThrowQueue: [] as Error[],
   reset(): void {
     this.contacts.clear();
     this.channels.clear();
     this.runCalls = [];
     this.queryCalls = [];
     this.runThrowQueue = [];
+    this.queryThrowQueue = [];
   },
 };
 
@@ -120,6 +123,9 @@ mock.module("../db/assistant-db-proxy.js", () => ({
   }),
   assistantDbQuery: mock(async (sql: string, bind?: unknown[]) => {
     fakeAssistantDb.queryCalls.push({ sql, bind });
+    if (fakeAssistantDb.queryThrowQueue.length > 0) {
+      throw fakeAssistantDb.queryThrowQueue.shift()!;
+    }
     const lower = sql.toLowerCase();
     if (lower.includes("from contacts") && lower.includes("where id in")) {
       // SELECT id, notes FROM contacts WHERE id IN (?, ?)
@@ -385,5 +391,49 @@ describe("ContactStore.mergeContacts — assistant DB mirror soft-fail", () => {
     // Donor still in assistant DB (both attempts failed) — but gateway is
     // consistent. The error is logged for reconciliation.
     expect(fakeAssistantDb.contacts.has("ct_merge")).toBe(true);
+  });
+
+  test("skips donor delete when compensation reparent fails (preserves channels)", async () => {
+    seedContact("ct_keep", "contact");
+    seedContact("ct_merge", "contact");
+    seedChannel({ id: "ch_1", contactId: "ct_merge" });
+
+    seedAssistantContact("ct_keep", "keep notes");
+    seedAssistantContact("ct_merge", "merge notes");
+    seedAssistantChannel({ id: "ch_1", contactId: "ct_merge" });
+
+    // First throw kills mergeInAssistantDb (notes concat step).
+    // Then make the reparent query throw by queueing an error for the
+    // SELECT from contact_channels call.
+    fakeAssistantDb.runThrowQueue.push(new Error("assistant DB unavailable"));
+    // The reparent uses assistantDbQuery (not run), so we need to make
+    // the query throw. We'll use a queryThrowQueue.
+    fakeAssistantDb.queryThrowQueue.push(
+      new Error("FK violation: survivor row missing"),
+    );
+
+    const store = new ContactStore();
+    const result = await store.mergeContacts("ct_keep", "ct_merge");
+
+    expect(result).not.toBeNull();
+    expect(result!.id).toBe("ct_keep");
+
+    // Donor should still exist in assistant DB — delete was skipped
+    // because reparent failed.
+    expect(fakeAssistantDb.contacts.has("ct_merge")).toBe(true);
+
+    // Donor channel should still exist (not cascade-wiped).
+    const ch = fakeAssistantDb.channels.get("ch_1");
+    expect(ch).toBeDefined();
+    expect(ch!.contact_id).toBe("ct_merge");
+
+    // No DELETE FROM contacts should have been called for the donor
+    // on the compensation path.
+    const donorDeleteCalls = fakeAssistantDb.runCalls.filter(
+      (c) =>
+        c.sql.toLowerCase().trim().startsWith("delete from contacts") &&
+        String(c.bind?.[0]) === "ct_merge",
+    );
+    expect(donorDeleteCalls.length).toBe(0);
   });
 });

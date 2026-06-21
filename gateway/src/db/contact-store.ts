@@ -1028,21 +1028,29 @@ export class ContactStore {
       // the daemon. Best-effort: move donor channels to survivor, then
       // delete the donor. Channel move must happen first because the
       // assistant DB cascades contact_channel deletion on contact delete.
+      // If the reparent fails (e.g. FK violation because the survivor row
+      // is missing from the assistant DB), skip the delete — cascading
+      // would wipe the donor's channels, which is worse than a stale
+      // donor row that reconciliation can clean up later.
+      let reparentOk = false;
       try {
         await this.reparentDonorChannelsInAssistantDb(keepId, mergeId);
+        reparentOk = true;
       } catch (chErr) {
         log.warn(
           { keepId, mergeId, chErr },
-          "mergeContacts: compensation channel reparent failed — donor channels may be lost from search",
+          "mergeContacts: compensation channel reparent failed — skipping donor delete to preserve channels",
         );
       }
-      try {
-        await assistantDbRun("DELETE FROM contacts WHERE id = ?", [mergeId]);
-      } catch (deleteErr) {
-        log.error(
-          { keepId, mergeId, deleteErr },
-          "mergeContacts: assistant DB donor delete failed — donor may reappear in search results until reconciled",
-        );
+      if (reparentOk) {
+        try {
+          await assistantDbRun("DELETE FROM contacts WHERE id = ?", [mergeId]);
+        } catch (deleteErr) {
+          log.error(
+            { keepId, mergeId, deleteErr },
+            "mergeContacts: assistant DB donor delete failed — donor may reappear in search results until reconciled",
+          );
+        }
       }
     }
 
