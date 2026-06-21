@@ -137,10 +137,7 @@ export class ContactStore {
     const rows = this.db
       .select({ contact: contacts, channel: contactChannels })
       .from(contacts)
-      .leftJoin(
-        contactChannels,
-        eq(contactChannels.contactId, contacts.id),
-      )
+      .leftJoin(contactChannels, eq(contactChannels.contactId, contacts.id))
       .where(
         sql`${contacts.id} IN (${sql.join(
           contactIds.map((id) => sql`${id}`),
@@ -164,16 +161,11 @@ export class ContactStore {
    * Get a single contact with channels + info. Returns null if the contact is
    * not in the gateway DB.
    */
-  async getContactWithInfo(
-    contactId: string,
-  ): Promise<ContactWithInfo | null> {
+  async getContactWithInfo(contactId: string): Promise<ContactWithInfo | null> {
     const rows = this.db
       .select({ contact: contacts, channel: contactChannels })
       .from(contacts)
-      .leftJoin(
-        contactChannels,
-        eq(contactChannels.contactId, contacts.id),
-      )
+      .leftJoin(contactChannels, eq(contactChannels.contactId, contacts.id))
       .where(eq(contacts.id, contactId))
       .orderBy(
         // Primary channel first, then by creation time — mirrors the daemon
@@ -197,7 +189,10 @@ export class ContactStore {
   ): Promise<ContactWithInfo[]> {
     // Group channels by contact, preserving first-seen contact order.
     const orderedIds: string[] = [];
-    const byId = new Map<string, { contact: Contact; channels: ContactChannel[] }>();
+    const byId = new Map<
+      string,
+      { contact: Contact; channels: ContactChannel[] }
+    >();
     for (const row of rows) {
       const id = row.contact.id;
       if (!byId.has(id)) {
@@ -250,10 +245,8 @@ export class ContactStore {
       0,
     );
     const lastInteraction =
-      channels.reduce(
-        (max, ch) => Math.max(max, ch.lastInteraction ?? 0),
-        0,
-      ) || null;
+      channels.reduce((max, ch) => Math.max(max, ch.lastInteraction ?? 0), 0) ||
+      null;
 
     return {
       id: contact.id,
@@ -483,11 +476,7 @@ export class ContactStore {
       if (!gwChannel) return;
 
       const logicalBind = bind.slice(0, -1); // drop the channelId
-      logicalBind.push(
-        gwChannel.contactId,
-        gwChannel.type,
-        gwChannel.address,
-      );
+      logicalBind.push(gwChannel.contactId, gwChannel.type, gwChannel.address);
       await assistantDbRun(
         `UPDATE contact_channels SET ${setClauses.join(", ")}
          WHERE contact_id = ? AND type = ? AND address = ? COLLATE NOCASE`,
@@ -1033,6 +1022,18 @@ export class ContactStore {
         { keepId, mergeId, err },
         "mergeContacts: assistant DB mirror failed (best-effort)",
       );
+      // The gateway DB donor is already gone, but if the assistant DB
+      // donor lingers it will reappear in search-style queries (query,
+      // channelAddress, channelType, contactType) that still proxy to
+      // the daemon. Best-effort delete to prevent that resurrection.
+      try {
+        await assistantDbRun("DELETE FROM contacts WHERE id = ?", [mergeId]);
+      } catch (deleteErr) {
+        log.error(
+          { keepId, mergeId, deleteErr },
+          "mergeContacts: assistant DB donor delete failed — donor may reappear in search results until reconciled",
+        );
+      }
     }
 
     // Read back the survivor with info join.
@@ -1065,8 +1066,7 @@ export class ContactStore {
     );
     const keepNotes = rows.find((r) => r.id === keepId)?.notes ?? null;
     const mergeNotes = rows.find((r) => r.id === mergeId)?.notes ?? null;
-    const combined =
-      [keepNotes, mergeNotes].filter(Boolean).join("\n") || null;
+    const combined = [keepNotes, mergeNotes].filter(Boolean).join("\n") || null;
 
     // Try UPDATE first. If the survivor row doesn't exist in the assistant
     // DB (dual-write gap), INSERT it with the combined notes.
@@ -1104,10 +1104,9 @@ export class ContactStore {
       id: string;
       type: string;
       address: string;
-    }>(
-      "SELECT id, type, address FROM contact_channels WHERE contact_id = ?",
-      [mergeId],
-    );
+    }>("SELECT id, type, address FROM contact_channels WHERE contact_id = ?", [
+      mergeId,
+    ]);
 
     for (const ch of donorChannels) {
       const exists = await assistantDbQuery<{ id: string }>(
