@@ -1701,11 +1701,37 @@ describe("handleRevokeInvite (gateway-native)", () => {
     // Revoke responses must not leak the brute-forceable code hash.
     expect(body.invite).not.toHaveProperty("inviteCodeHash");
     expect(contactStoreRevokeInviteMock).toHaveBeenCalledWith("inv_1");
-    // Best-effort assistant DB mirror.
+    // Best-effort assistant DB mirror reflects the gateway row's actual status.
     expect(assistantDbRunMock).toHaveBeenCalledTimes(1);
     expect(assistantDbRunMock.mock.calls[0][0]).toMatch(
       /assistant_ingress_invites/,
     );
+    expect(assistantDbRunMock.mock.calls[0][1]?.[0]).toBe("revoked");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("mirrors the gateway row's actual status for an already-redeemed invite", async () => {
+    // revokeInvite() only flips an ACTIVE row to revoked; an already-redeemed
+    // invite is returned unchanged. The mirror must NOT force 'revoked' — it
+    // must reflect the gateway row's real status so the stores stay in sync.
+    contactStoreRevokeInviteMock = mock(() => ({
+      ...DEFAULT_INVITE,
+      status: "redeemed",
+    }));
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleRevokeInvite(
+      new Request("http://localhost:7830/v1/contacts/invites/inv_1", {
+        method: "DELETE",
+      }),
+      "inv_1",
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.invite.status).toBe("redeemed");
+    expect(assistantDbRunMock).toHaveBeenCalledTimes(1);
+    expect(assistantDbRunMock.mock.calls[0][1]?.[0]).toBe("redeemed");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -1828,12 +1854,43 @@ describe("handleRedeemInvite (gateway-native, thin relay)", () => {
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.invite.id).toBe("inv_1");
+    // Redemption type must be relayed so callers can tell a real redeem apart
+    // from a no-op already_member (mirrors the voice path's shape).
+    expect(body.type).toBe("redeemed");
     // Only the redeem IPC runs — no resolve pre-step, no gateway-side record.
     const methods = ipcCallAssistantMock.mock.calls.map((c) => c[0]);
     expect(methods).toEqual(["invites_redeem_token"]);
     expect(methods).not.toContain("invites_resolve_token");
     expect(contactStoreRecordRedemptionMock).not.toHaveBeenCalled();
     expect(contactStoreGetInviteByIdMock).not.toHaveBeenCalled();
+  });
+
+  test("token path relays the already_member type unchanged", async () => {
+    ipcCallAssistantMock = mock(async (method: string) => {
+      if (method === "invites_redeem_token") {
+        return { invite: { id: "inv_1" }, type: "already_member" };
+      }
+      return {};
+    });
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleRedeemInvite(
+      new Request("http://localhost:7830/v1/contacts/invites/redeem", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          token: "tok",
+          sourceChannel: "telegram",
+          externalUserId: "u_1",
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.invite.id).toBe("inv_1");
+    expect(body.type).toBe("already_member");
   });
 
   test("returns 400 when token redeem is missing sourceChannel", async () => {

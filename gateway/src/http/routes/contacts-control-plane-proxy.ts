@@ -1168,7 +1168,11 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
           { inviteId: result.invite.id },
           "redeem_invite(token): relayed to assistant",
         );
-        return Response.json({ ok: true, invite: result.invite });
+        return Response.json({
+          ok: true,
+          invite: result.invite,
+          ...(result.type ? { type: result.type } : {}),
+        });
       } catch (err) {
         if (err instanceof IpcHandlerError) {
           return Response.json(
@@ -1278,11 +1282,14 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
           );
         }
 
-        // Best-effort mirror into the assistant DB.
+        // Best-effort mirror into the assistant DB. revokeInvite() only flips an
+        // ACTIVE row to revoked — an already redeemed/expired invite is returned
+        // unchanged. Mirror the gateway row's ACTUAL post-revoke status so the
+        // two lifecycle stores stay in sync instead of forcing 'revoked'.
         try {
           await assistantDbRun(
-            "UPDATE assistant_ingress_invites SET status='revoked', updated_at=? WHERE id=?",
-            [Date.now(), inviteId],
+            "UPDATE assistant_ingress_invites SET status=?, updated_at=? WHERE id=?",
+            [invite.status, Date.now(), inviteId],
           );
         } catch (err) {
           log.warn(
