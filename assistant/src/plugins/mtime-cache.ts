@@ -18,7 +18,7 @@
  * cached entry.
  */
 
-import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { getConfig } from "../config/loader.js";
@@ -57,6 +57,76 @@ const log = getLogger("plugin-mtime-cache");
  * `reconcilePluginTools` for runtime re-imports. Defaults to 10s.
  */
 let importTimeoutMs = 10_000;
+
+/**
+ * Cached install-date timestamps per plugin directory, so `scanPlugins`
+ * doesn't re-read `install-meta.json` on every turn. Populated on first
+ * discovery, cleared on eviction and in test reset. The install date
+ * doesn't change during a process lifetime.
+ */
+const installDateCache = new Map<string, number>();
+
+/**
+ * The filename of the provenance sidecar written by the plugin install CLI.
+ * We read only the `installedAt` field for ordering — the full `InstallMeta`
+ * type lives in `src/cli/lib/install-from-github.ts` and we avoid pulling
+ * the CLI dependency graph into the daemon.
+ */
+const INSTALL_META_FILENAME = "install-meta.json";
+
+/**
+ * Get a sortable timestamp for a plugin directory, used to order plugins
+ * deterministically by their original install date.
+ *
+ * Resolution order:
+ * 1. `install-meta.json` → `installedAt` field (ISO-8601 string → epoch ms)
+ * 2. `statSync(pluginDir).birthtimeMs` (directory creation time as fallback)
+ * 3. `Infinity` (unknown — sorts after all dated plugins)
+ *
+ * Results are cached in `installDateCache` so repeated `scanPlugins` calls
+ * during a process lifetime don't re-read the sidecar.
+ */
+function getInstallDate(pluginDir: string): number {
+  const cached = installDateCache.get(pluginDir);
+  if (cached !== undefined) return cached;
+
+  // Try install-meta.json first.
+  const metaPath = join(pluginDir, INSTALL_META_FILENAME);
+  if (existsSync(metaPath)) {
+    try {
+      const raw = JSON.parse(readFileSync(metaPath, "utf8"));
+      if (
+        typeof raw === "object" &&
+        raw !== null &&
+        typeof raw.installedAt === "string"
+      ) {
+        const parsed = Date.parse(raw.installedAt);
+        if (!Number.isNaN(parsed)) {
+          installDateCache.set(pluginDir, parsed);
+          return parsed;
+        }
+      }
+    } catch {
+      // Malformed sidecar — fall through to birthtime.
+    }
+  }
+
+  // Fall back to directory birthtime. On Linux ext4 and other filesystems
+  // that don't support birth time, statSync returns 0 — treat that as
+  // unknown so undated plugins sort after dated ones.
+  let timestamp = Infinity;
+  try {
+    const birthtime = statSync(pluginDir).birthtimeMs;
+    if (birthtime > 0) {
+      timestamp = birthtime;
+    }
+  } catch {
+    // statSync failed — leave as Infinity.
+  }
+
+  installDateCache.set(pluginDir, timestamp);
+  return timestamp;
+}
 
 // ─── Cache entries ───────────────────────────────────────────────────────────
 
@@ -351,9 +421,13 @@ async function scanPlugins(): Promise<void> {
     }
   }
 
-  // Update the discovered set.
+  // Update the discovered set, sorted by original install date so
+  // hook execution order and tool registration order are deterministic.
   discoveredPluginDirs.clear();
-  for (const [dir, name] of currentDirs) {
+  const sorted = [...currentDirs.entries()].sort(
+    ([dirA], [dirB]) => getInstallDate(dirA) - getInstallDate(dirB),
+  );
+  for (const [dir, name] of sorted) {
     discoveredPluginDirs.set(dir, name);
   }
 }
@@ -387,6 +461,7 @@ async function evictPlugin(
     "plugin evicted (directory removed)",
   );
   discoveredPluginDirs.delete(pluginDir);
+  installDateCache.delete(pluginDir);
 }
 
 /**
@@ -396,6 +471,7 @@ async function evictAll(): Promise<void> {
   hookCache.clear();
   toolCache.clear();
   discoveredPluginDirs.clear();
+  installDateCache.clear();
 }
 
 // ─── Import dedup ────────────────────────────────────────────────────────────
@@ -620,6 +696,7 @@ export function resetPluginCacheForTests(): void {
   toolCache.clear();
   inflight.clear();
   discoveredPluginDirs.clear();
+  installDateCache.clear();
   activatedPlugins.length = 0;
 }
 

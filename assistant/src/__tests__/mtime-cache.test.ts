@@ -59,6 +59,13 @@ function writeHook(dir: string, hookName: string, body: string): void {
   writeFileSync(join(hooksDir, `${hookName}.ts`), body);
 }
 
+function writeInstallMeta(dir: string, installedAt: string): void {
+  writeFileSync(
+    join(dir, "install-meta.json"),
+    JSON.stringify({ name: "test", installedAt, source: { kind: "github", owner: "test", repo: "test", ref: "main" } }, null, 2),
+  );
+}
+
 function writeTool(dir: string, toolName: string, body: string): void {
   const toolsDir = join(dir, "tools");
   mkdirSync(toolsDir, { recursive: true });
@@ -302,5 +309,67 @@ describe("plugin mtime cache (per-surface)", () => {
     await populateCacheAtBoot();
     expect(await getUserHooksFor("user-prompt-submit")).toHaveLength(0);
     expect(getCachedUserTools()).toHaveLength(0);
+  });
+
+  test("hooks are ordered by install-meta.json installedAt", async () => {
+    // Create two plugins with different install dates. The one installed
+    // later (newer timestamp) should appear second in hook execution order.
+    const dirA = freshPluginDir("plugin-alpha");
+    writePackageJson(dirA, { ...SIMPLE_PKG, name: "plugin-alpha" });
+    writeHook(
+      dirA,
+      "user-prompt-submit",
+      `export default () => ({ tag: "alpha" });`,
+    );
+    writeInstallMeta(dirA, "2026-01-15T00:00:00.000Z");
+
+    const dirB = freshPluginDir("plugin-beta");
+    writePackageJson(dirB, { ...SIMPLE_PKG, name: "plugin-beta" });
+    writeHook(
+      dirB,
+      "user-prompt-submit",
+      `export default () => ({ tag: "beta" });`,
+    );
+    writeInstallMeta(dirB, "2026-01-01T00:00:00.000Z"); // earlier install
+
+    await populateCacheAtBoot();
+
+    const hooks = await getUserHooksFor("user-prompt-submit");
+    expect(hooks).toHaveLength(2);
+
+    // beta was installed earlier (Jan 1) so it should come first.
+    const results = hooks.map((fn) => (fn as unknown as () => { tag: string })());
+    expect(results[0]!.tag).toBe("beta");
+    expect(results[1]!.tag).toBe("alpha");
+  });
+
+  test("plugin without install-meta.json sorts after dated plugins", async () => {
+    const dirDated = freshPluginDir("dated-plugin");
+    writePackageJson(dirDated, { ...SIMPLE_PKG, name: "dated-plugin" });
+    writeHook(
+      dirDated,
+      "user-prompt-submit",
+      `export default () => ({ tag: "dated" });`,
+    );
+    writeInstallMeta(dirDated, "2026-01-01T00:00:00.000Z");
+
+    const dirUndated = freshPluginDir("undated-plugin");
+    writePackageJson(dirUndated, { ...SIMPLE_PKG, name: "undated-plugin" });
+    writeHook(
+      dirUndated,
+      "user-prompt-submit",
+      `export default () => ({ tag: "undated" });`,
+    );
+    // No install-meta.json — falls back to birthtime, which is "now"
+    // (later than the dated plugin's Jan 1 install date).
+
+    await populateCacheAtBoot();
+
+    const hooks = await getUserHooksFor("user-prompt-submit");
+    expect(hooks).toHaveLength(2);
+
+    const results = hooks.map((fn) => (fn as unknown as () => { tag: string })());
+    expect(results[0]!.tag).toBe("dated");
+    expect(results[1]!.tag).toBe("undated");
   });
 });
