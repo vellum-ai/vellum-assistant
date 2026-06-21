@@ -1117,11 +1117,10 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       }
       const input = parsed.value;
 
-      // Thin relay: the assistant redemption service now owns the gateway
-      // lifecycle pre-check (check_invite_active, by id, caller-scoped) and the
-      // redemption mirror (record_invite_redemption) for ALL paths — including
-      // this HTTP one, since it relays into the same assistant redeem handlers.
-      // Re-gating or re-mirroring here would double-count uses, so the gateway
+      // Thin relay: the assistant redemption service now owns the authoritative
+      // gateway claim (record_invite_redemption, by id, caller-scoped) for ALL
+      // paths — including this HTTP one, since it relays into the same assistant
+      // redeem handlers. Re-claiming here would double-count uses, so the gateway
       // handler just parses, relays, and returns.
       try {
         if (input.kind === "voice") {

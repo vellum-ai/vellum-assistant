@@ -1765,11 +1765,11 @@ describe("handleRevokeInvite (gateway-native)", () => {
 });
 
 describe("handleRedeemInvite (gateway-native, thin relay)", () => {
-  // The assistant redemption service now owns the gateway lifecycle pre-check
-  // (check_invite_active, by id, caller-scoped) and the redemption mirror
-  // (record_invite_redemption) for ALL paths — including this HTTP one, which
-  // relays into the same assistant redeem handlers. So the gateway HTTP handler
-  // is a thin relay: it must NOT pre-gate, resolve, or record itself.
+  // The assistant redemption service now owns the authoritative gateway claim
+  // (record_invite_redemption, by id, caller-scoped) for ALL paths — including
+  // this HTTP one, which relays into the same assistant redeem handlers. So the
+  // gateway HTTP handler is a thin relay: it must NOT claim, resolve, or record
+  // itself.
 
   test("voice path relays to invites_redeem_voice and returns the result", async () => {
     ipcCallAssistantMock = mock(async (method: string) => {

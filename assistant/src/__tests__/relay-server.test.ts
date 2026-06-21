@@ -42,13 +42,12 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// The voice redemption path now consults the gateway over IPC for its lifecycle
-// pre-check + redemption mirror. Stub it so tests don't attempt a real socket
-// connect; the active-check returns "active" so redemption proceeds.
+// The voice redemption path now claims the gateway-canonical row over IPC
+// before mutating. Stub it so tests don't attempt a real socket connect; the
+// claim returns consumed (updated:true) so redemption proceeds.
 mock.module("../ipc/gateway-client.js", () => ({
   ipcCall: async () => undefined,
   ipcCallPersistent: async (method: string) => {
-    if (method === "check_invite_active") return { exists: true, active: true };
     if (method === "record_invite_redemption")
       return { ok: true, updated: true, mirrored: true };
     return undefined;

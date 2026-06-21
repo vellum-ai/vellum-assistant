@@ -7,14 +7,16 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// Mock the gateway IPC bridge used by the redemption service for the lifecycle
-// pre-check + redemption mirror. Tests drive the responses via `gatewayIpc`.
+// Mock the gateway IPC bridge used by the redemption service for the
+// authoritative pre-mutation claim (record_invite_redemption). Tests drive the
+// claim result via `gatewayIpc`.
 const gatewayIpc = {
-  check: { exists: true, active: true } as {
-    exists: boolean;
-    active: boolean;
+  claim: { ok: true, updated: true, mirrored: true } as {
+    ok: boolean;
+    updated: boolean;
+    mirrored: boolean;
   },
-  checkThrows: false,
+  claimThrows: false,
   calls: [] as { method: string; params?: Record<string, unknown> }[],
 };
 
@@ -24,20 +26,17 @@ mock.module("../ipc/gateway-client.js", () => ({
     params?: Record<string, unknown>,
   ) => {
     gatewayIpc.calls.push({ method, params });
-    if (method === "check_invite_active") {
-      if (gatewayIpc.checkThrows) throw new Error("gateway unreachable");
-      return gatewayIpc.check;
-    }
     if (method === "record_invite_redemption") {
-      return { ok: true, updated: true, mirrored: true };
+      if (gatewayIpc.claimThrows) throw new Error("gateway unreachable");
+      return gatewayIpc.claim;
     }
     return undefined;
   },
 }));
 
 function resetGatewayIpc() {
-  gatewayIpc.check = { exists: true, active: true };
-  gatewayIpc.checkThrows = false;
+  gatewayIpc.claim = { ok: true, updated: true, mirrored: true };
+  gatewayIpc.claimThrows = false;
   gatewayIpc.calls = [];
 }
 
@@ -601,7 +600,7 @@ describe("invite-redemption-service", () => {
 
   // ── Gateway lifecycle pre-check + redemption mirror ────────────────────
 
-  test("rejects redemption when the gateway considers the invite inactive (no mutation, no mirror)", async () => {
+  test("rejects redemption when the gateway claim is not consumable (no assistant mutation)", async () => {
     const targetContactId = createTargetContact();
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
@@ -609,8 +608,8 @@ describe("invite-redemption-service", () => {
       maxUses: 1,
     });
 
-    // Gateway row exists but is revoked/exhausted/expired → reject.
-    gatewayIpc.check = { exists: true, active: false };
+    // Gateway row exists but was NOT consumable (revoked/exhausted/raced).
+    gatewayIpc.claim = { ok: true, updated: false, mirrored: true };
 
     const outcome = await redeemInvite({
       rawToken,
@@ -620,21 +619,16 @@ describe("invite-redemption-service", () => {
 
     expect(outcome).toEqual({ ok: false, reason: "invalid_token" });
 
-    // No member was created.
+    // No member was created — the assistant DB was never mutated.
     expect(
       findContactChannel({
         channelType: "telegram",
         address: "gw-revoked-user",
       }),
     ).toBeNull();
-
-    // No redemption mirror was attempted.
-    expect(
-      gatewayIpc.calls.some((c) => c.method === "record_invite_redemption"),
-    ).toBe(false);
   });
 
-  test("proceeds and mirrors the redemption when the gateway invite is active", async () => {
+  test("proceeds and mutates when the gateway claim is consumed (updated:true)", async () => {
     const targetContactId = createTargetContact();
     const { rawToken, invite } = createInvite({
       sourceChannel: "telegram",
@@ -642,7 +636,7 @@ describe("invite-redemption-service", () => {
       maxUses: 1,
     });
 
-    gatewayIpc.check = { exists: true, active: true };
+    gatewayIpc.claim = { ok: true, updated: true, mirrored: true };
 
     const outcome = await redeemInvite({
       rawToken,
@@ -652,14 +646,20 @@ describe("invite-redemption-service", () => {
 
     expect(outcome.ok).toBe(true);
 
-    const mirror = gatewayIpc.calls.find(
+    // The claim was performed against the resolved invite id.
+    const claim = gatewayIpc.calls.find(
       (c) => c.method === "record_invite_redemption",
     );
-    expect(mirror).toBeDefined();
-    expect(mirror!.params).toMatchObject({ inviteId: invite.id });
+    expect(claim).toBeDefined();
+    expect(claim!.params).toMatchObject({ inviteId: invite.id });
+
+    // The assistant DB was mutated.
+    expect(
+      findContactChannel({ channelType: "telegram", address: "gw-active-user" }),
+    ).not.toBeNull();
   });
 
-  test("proceeds for a legacy invite the gateway has never seen (exists:false)", async () => {
+  test("proceeds for a legacy invite the gateway has never seen (mirrored:false)", async () => {
     const targetContactId = createTargetContact();
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
@@ -667,7 +667,7 @@ describe("invite-redemption-service", () => {
       maxUses: 1,
     });
 
-    gatewayIpc.check = { exists: false, active: false };
+    gatewayIpc.claim = { ok: true, updated: false, mirrored: false };
 
     const outcome = await redeemInvite({
       rawToken,
@@ -681,7 +681,7 @@ describe("invite-redemption-service", () => {
     ).not.toBeNull();
   });
 
-  test("fails open when the gateway active-check throws (assistant-side checks still apply)", async () => {
+  test("fails open when the gateway claim throws (assistant-side checks still apply)", async () => {
     const targetContactId = createTargetContact();
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
@@ -689,7 +689,7 @@ describe("invite-redemption-service", () => {
       maxUses: 1,
     });
 
-    gatewayIpc.checkThrows = true;
+    gatewayIpc.claimThrows = true;
 
     const outcome = await redeemInvite({
       rawToken,
@@ -703,7 +703,40 @@ describe("invite-redemption-service", () => {
     ).not.toBeNull();
   });
 
-  test("rejects 6-digit code redemption when the gateway invite is inactive", async () => {
+  test("does not claim the gateway row for an already-active member", async () => {
+    const targetContactId = createTargetContact();
+    const { rawToken } = createInvite({
+      sourceChannel: "telegram",
+      contactId: targetContactId,
+      maxUses: 1,
+    });
+
+    // Seed an already-active member bound to the invite's target contact.
+    upsertContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "already-member-user",
+      role: "contact",
+      status: "active",
+      policy: "allow",
+      contactId: targetContactId,
+    });
+
+    const outcome = await redeemInvite({
+      rawToken,
+      sourceChannel: "telegram",
+      externalUserId: "already-member-user",
+    });
+
+    expect(outcome.ok).toBe(true);
+    expect((outcome as { type: string }).type).toBe("already_member");
+
+    // No gateway claim was made — no use must be consumed for a non-redemption.
+    expect(
+      gatewayIpc.calls.some((c) => c.method === "record_invite_redemption"),
+    ).toBe(false);
+  });
+
+  test("rejects 6-digit code redemption when the gateway claim is not consumable", async () => {
     const targetContactId = createTargetContact();
     const code = "654321";
     createInvite({
@@ -713,7 +746,7 @@ describe("invite-redemption-service", () => {
       inviteCodeHash: hashVoiceCode(code),
     });
 
-    gatewayIpc.check = { exists: true, active: false };
+    gatewayIpc.claim = { ok: true, updated: false, mirrored: true };
 
     const outcome = await redeemInviteByCode({
       code,

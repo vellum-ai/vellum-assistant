@@ -145,69 +145,14 @@ describe("IPC invite routes", () => {
     client = await connectClient(socketPath);
   }
 
-  // ── check_invite_active ────────────────────────────────────────────────
+  // ── record_invite_redemption ───────────────────────────────────────────
 
-  test("check_invite_active: active invite → exists+active", async () => {
-    seedContact();
-    seedInvite({ id: "inv-active" });
+  test("record_invite_redemption: validates params", async () => {
     await startServerAndConnect();
-
-    const res = await sendRequest(client, "check_invite_active", {
-      inviteId: "inv-active",
-    });
-    expect(res.error).toBeUndefined();
-    expect(res.result).toEqual({ exists: true, active: true });
-  });
-
-  test("check_invite_active: revoked invite → exists+inactive", async () => {
-    seedContact();
-    seedInvite({ id: "inv-revoked", status: "revoked" });
-    await startServerAndConnect();
-
-    const res = await sendRequest(client, "check_invite_active", {
-      inviteId: "inv-revoked",
-    });
-    expect(res.result).toEqual({ exists: true, active: false });
-  });
-
-  test("check_invite_active: exhausted invite → exists+inactive", async () => {
-    seedContact();
-    seedInvite({ id: "inv-exhausted", maxUses: 1, useCount: 1 });
-    await startServerAndConnect();
-
-    const res = await sendRequest(client, "check_invite_active", {
-      inviteId: "inv-exhausted",
-    });
-    expect(res.result).toEqual({ exists: true, active: false });
-  });
-
-  test("check_invite_active: expired invite → exists+inactive", async () => {
-    seedContact();
-    seedInvite({ id: "inv-expired", expiresAt: Date.now() - 1000 });
-    await startServerAndConnect();
-
-    const res = await sendRequest(client, "check_invite_active", {
-      inviteId: "inv-expired",
-    });
-    expect(res.result).toEqual({ exists: true, active: false });
-  });
-
-  test("check_invite_active: absent invite → exists:false", async () => {
-    await startServerAndConnect();
-    const res = await sendRequest(client, "check_invite_active", {
-      inviteId: "nope",
-    });
-    expect(res.result).toEqual({ exists: false, active: false });
-  });
-
-  test("check_invite_active: validates params", async () => {
-    await startServerAndConnect();
-    const res = await sendRequest(client, "check_invite_active", {});
+    const res = await sendRequest(client, "record_invite_redemption", {});
     expect(res.error).toBeDefined();
     expect(res.error).toContain("Invalid params");
   });
-
-  // ── record_invite_redemption ───────────────────────────────────────────
 
   test("record_invite_redemption: bumps useCount on an active row", async () => {
     seedContact();

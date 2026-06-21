@@ -15,14 +15,11 @@ mock.module("../security/secure-keys.js", () => ({
   deleteSecureKeyAsync: async () => {},
 }));
 
-// The redemption service now consults the gateway over IPC for the lifecycle
-// pre-check + redemption mirror. Default the active-check to "active" so these
-// assistant-side handler tests exercise the happy redemption path.
+// The redemption service now claims the gateway-canonical row over IPC before
+// mutating. Default the claim to consumed (updated:true) so these assistant-side
+// handler tests exercise the happy redemption path.
 mock.module("../ipc/gateway-client.js", () => ({
   ipcCallPersistent: async (method: string) => {
-    if (method === "check_invite_active") {
-      return { exists: true, active: true };
-    }
     if (method === "record_invite_redemption") {
       return { ok: true, updated: true, mirrored: true };
     }

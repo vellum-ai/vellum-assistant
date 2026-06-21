@@ -8,11 +8,12 @@ mock.module("../util/logger.js", () => ({
 }));
 
 const gatewayIpc = {
-  check: { exists: true, active: true } as {
-    exists: boolean;
-    active: boolean;
+  claim: { ok: true, updated: true, mirrored: true } as {
+    ok: boolean;
+    updated: boolean;
+    mirrored: boolean;
   },
-  checkThrows: false,
+  claimThrows: false,
   calls: [] as { method: string; params?: Record<string, unknown> }[],
 };
 
@@ -22,20 +23,17 @@ mock.module("../ipc/gateway-client.js", () => ({
     params?: Record<string, unknown>,
   ) => {
     gatewayIpc.calls.push({ method, params });
-    if (method === "check_invite_active") {
-      if (gatewayIpc.checkThrows) throw new Error("gateway unreachable");
-      return gatewayIpc.check;
-    }
     if (method === "record_invite_redemption") {
-      return { ok: true, updated: true, mirrored: true };
+      if (gatewayIpc.claimThrows) throw new Error("gateway unreachable");
+      return gatewayIpc.claim;
     }
     return undefined;
   },
 }));
 
 function resetGatewayIpc() {
-  gatewayIpc.check = { exists: true, active: true };
-  gatewayIpc.checkThrows = false;
+  gatewayIpc.claim = { ok: true, updated: true, mirrored: true };
+  gatewayIpc.claimThrows = false;
   gatewayIpc.calls = [];
 }
 
@@ -199,6 +197,66 @@ describe("redeemVoiceInviteCode", () => {
       memberId: expect.any(String),
       inviteId: expect.any(String),
     });
+
+    // The redemption claimed the gateway-canonical row before mutating.
+    const claim = gatewayIpc.calls.find(
+      (c) => c.method === "record_invite_redemption",
+    );
+    expect(claim).toBeDefined();
+    expect(claim!.params).toMatchObject({ redeemedByExternalUserId: phone });
+  });
+
+  test("rejects voice redemption when the gateway claim is not consumable (no mutation)", async () => {
+    const phone = "+15551234567";
+    const { code } = createVoiceInvite({ callerPhone: phone });
+
+    // Gateway row exists but was NOT consumable (revoked/exhausted/raced).
+    gatewayIpc.claim = { ok: true, updated: false, mirrored: true };
+
+    const result = await redeemVoiceInviteCode({
+      callerExternalUserId: phone,
+      sourceChannel: "phone",
+      code,
+    });
+
+    expect(result).toEqual({ ok: false, reason: "invalid_or_expired" });
+    expect(findContactChannel({ channelType: "phone", address: phone })).toBeNull();
+  });
+
+  test("proceeds for a legacy voice invite the gateway has never seen (mirrored:false)", async () => {
+    const phone = "+15551234567";
+    const { code } = createVoiceInvite({ callerPhone: phone });
+
+    gatewayIpc.claim = { ok: true, updated: false, mirrored: false };
+
+    const result = await redeemVoiceInviteCode({
+      callerExternalUserId: phone,
+      sourceChannel: "phone",
+      code,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(
+      findContactChannel({ channelType: "phone", address: phone }),
+    ).not.toBeNull();
+  });
+
+  test("fails open when the gateway claim throws on voice redemption", async () => {
+    const phone = "+15551234567";
+    const { code } = createVoiceInvite({ callerPhone: phone });
+
+    gatewayIpc.claimThrows = true;
+
+    const result = await redeemVoiceInviteCode({
+      callerExternalUserId: phone,
+      sourceChannel: "phone",
+      code,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(
+      findContactChannel({ channelType: "phone", address: phone }),
+    ).not.toBeNull();
   });
 
   test("marks channel as verified via invite on voice redemption", async () => {
@@ -354,6 +412,11 @@ describe("redeemVoiceInviteCode", () => {
       type: "already_member",
       memberId: expect.any(String),
     });
+
+    // No gateway claim — already_member must not consume a use.
+    expect(
+      gatewayIpc.calls.some((c) => c.method === "record_invite_redemption"),
+    ).toBe(false);
   });
 
   test("blocked member gets generic failure to avoid leaking membership status", async () => {

@@ -2,10 +2,11 @@
  * IPC route definitions for gateway-canonical invite lifecycle.
  *
  * The assistant resolves the exact invite (caller-scoped) from a token/code,
- * then asks the gateway — BY ID — whether that invite is still redeemable
- * (`check_invite_active`) before mutating, and mirrors the redemption back into
- * the gateway row afterwards (`record_invite_redemption`). This keeps the
- * gateway invite row authoritative across every runtime redemption path
+ * passes its own validation, then CLAIMS the gateway-canonical row — BY ID —
+ * via `record_invite_redemption` BEFORE mutating its own DB. That call
+ * atomically gates on status="active" and consumes the row, so it is the single
+ * authoritative lifecycle gate (no separate check-then-act window). This keeps
+ * the gateway invite row authoritative across every runtime redemption path
  * (token + 6-digit channel intercepts, voice relay, HTTP).
  */
 
@@ -23,10 +24,6 @@ function getStore(): ContactStore {
   return store;
 }
 
-const CheckInviteActiveParamsSchema = z.object({
-  inviteId: z.string().min(1),
-});
-
 const RecordInviteRedemptionParamsSchema = z.object({
   inviteId: z.string().min(1),
   redeemedByExternalUserId: z.string().nullish(),
@@ -35,29 +32,12 @@ const RecordInviteRedemptionParamsSchema = z.object({
 
 export const inviteRoutes: IpcRoute[] = [
   {
-    // Resolve, by id, whether the gateway-canonical invite row is still
-    // redeemable. `exists` distinguishes a legacy assistant-only invite (no
-    // gateway row → assistant stays authoritative) from a gateway-known invite
-    // that has been revoked/exhausted/expired (`active:false` → reject).
-    method: "check_invite_active",
-    schema: CheckInviteActiveParamsSchema,
-    handler: (params?: Record<string, unknown>) => {
-      const { inviteId } = CheckInviteActiveParamsSchema.parse(params);
-      const row = getStore().getInviteById(inviteId);
-      if (!row) {
-        return { exists: false, active: false };
-      }
-      const active =
-        row.status === "active" &&
-        row.expiresAt > Date.now() &&
-        row.useCount < row.maxUses;
-      return { exists: true, active };
-    },
-  },
-  {
-    // Mirror a redemption into the gateway-canonical row. No-ops (updated:false)
-    // when the row is absent (legacy invite) or no longer active — legacy
-    // invites are valid, so an absent row must NOT error.
+    // Authoritative redemption claim against the gateway-canonical row: bumps
+    // useCount and flips status once exhausted, gated on status="active" so a
+    // revoked/exhausted row can't be consumed under a race. `updated:false` on a
+    // present row (`mirrored:true`) signals a rejected claim; `mirrored:false`
+    // means the row is absent (legacy invite) — which is valid and must NOT
+    // error.
     method: "record_invite_redemption",
     schema: RecordInviteRedemptionParamsSchema,
     handler: (params?: Record<string, unknown>) => {

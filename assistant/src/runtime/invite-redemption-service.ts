@@ -31,80 +31,72 @@ const log = getLogger("invite-redemption-service");
 // ---------------------------------------------------------------------------
 //
 // The assistant is the authority on token/code → invite resolution (it holds
-// the hashes and caller scoping). Once it has resolved the EXACT invite, it
-// asks the gateway — BY ID, which is unambiguous — whether the gateway-
-// canonical row is still redeemable, then (after a successful mutation) mirrors
-// the redemption back. This keeps the gateway invite row the lifecycle source
-// of truth across every redemption path (token + 6-digit channel intercepts,
-// voice relay, HTTP).
+// the hashes and caller scoping). Once it has resolved the EXACT invite and
+// passed its own validation, it CLAIMS the gateway-canonical row — BY ID, which
+// is unambiguous — as the AUTHORITATIVE lifecycle gate BEFORE mutating its own
+// DB. `record_invite_redemption` atomically checks status="active" and consumes
+// the row, so there is no check-then-act window: a guardian revoke or a racing
+// redemption that consumes the gateway row first makes this claim fail, and the
+// assistant never mutates. This keeps the gateway invite row the lifecycle
+// source of truth across every redemption path (token + 6-digit channel
+// intercepts, voice relay, HTTP).
 
 /**
- * Ask the gateway whether the invite `inviteId` is still redeemable.
+ * Atomically CLAIM the gateway-canonical invite row for `inviteId`.
  *
- * Returns a decision the caller maps to behavior:
- *   - "revoked": the gateway row EXISTS but is revoked/expired/exhausted →
- *     REJECT the redemption (do not mutate).
- *   - "proceed": the gateway considers the invite active → continue.
+ * This is the single authoritative gateway gate, performed BEFORE the assistant
+ * mutation. Returns a decision the caller maps to behavior:
+ *   - "claimed": the gateway row existed and was consumed (active → redeemed) →
+ *     proceed to the assistant mutation.
+ *   - "rejected": the gateway row EXISTS but was NOT consumable
+ *     (revoked / exhausted / expired / already redeemed in a race) → REJECT the
+ *     redemption WITHOUT mutating the assistant DB.
  *   - "legacy": no gateway row exists (pre-migration assistant-only invite) →
- *     continue (the assistant stays authoritative). Logged at warn.
+ *     proceed (the assistant stays authoritative). Logged at warn.
  *   - "unavailable": the gateway IPC threw (gateway unreachable). FAIL-OPEN —
- *     continue; the assistant-side checks still apply. Logged loudly.
+ *     proceed; the assistant-side checks still apply. Logged loudly.
  */
-async function checkGatewayInviteActive(
+async function claimGatewayRedemption(
   inviteId: string,
-): Promise<"proceed" | "revoked" | "legacy" | "unavailable"> {
+  redeemedBy: {
+    redeemedByExternalUserId?: string | null;
+    redeemedByExternalChatId?: string | null;
+  },
+): Promise<"claimed" | "rejected" | "legacy" | "unavailable"> {
   try {
-    const res = (await ipcCallPersistent("check_invite_active", {
+    const res = (await ipcCallPersistent("record_invite_redemption", {
       inviteId,
-    })) as { exists?: boolean; active?: boolean } | null;
+      redeemedByExternalUserId: redeemedBy.redeemedByExternalUserId ?? null,
+      redeemedByExternalChatId: redeemedBy.redeemedByExternalChatId ?? null,
+    })) as { ok?: boolean; updated?: boolean; mirrored?: boolean } | null;
 
     if (!res || typeof res !== "object") {
       log.warn(
         { inviteId, res },
-        "check_invite_active: gateway returned malformed response — failing open",
+        "record_invite_redemption: gateway returned malformed response — failing open",
       );
       return "unavailable";
     }
-    if (res.exists === false) {
+    if (res.mirrored === false) {
       log.warn(
         { inviteId },
-        "check_invite_active: no gateway invite row — treating as legacy assistant-only invite",
+        "record_invite_redemption: no gateway invite row — treating as legacy assistant-only invite",
       );
       return "legacy";
     }
-    return res.active ? "proceed" : "revoked";
+    // mirrored === true: a gateway row exists. `updated` reflects whether the
+    // atomic status="active" claim consumed it.
+    return res.updated ? "claimed" : "rejected";
   } catch (err) {
     // FAIL-OPEN: availability > strict gating. The assistant-side validation
-    // (status/expiry/use-count/channel) still applies; we just couldn't
-    // confirm the gateway-canonical lifecycle.
+    // (status/expiry/use-count/channel) still applies; we just couldn't claim
+    // the gateway-canonical row.
     log.error(
       { err, inviteId },
-      "check_invite_active: gateway IPC unavailable — failing open (assistant-side checks still apply)",
+      "record_invite_redemption: gateway claim unavailable — failing open (assistant-side checks still apply)",
     );
     return "unavailable";
   }
-}
-
-/**
- * Best-effort mirror of a successful redemption into the gateway-canonical row.
- * Soft-fails: never blocks or rolls back the assistant redemption (stale over
- * lost). No-ops gateway-side when the row is absent (legacy invite).
- */
-function mirrorRedemptionToGateway(params: {
-  inviteId: string;
-  redeemedByExternalUserId?: string | null;
-  redeemedByExternalChatId?: string | null;
-}): void {
-  void ipcCallPersistent("record_invite_redemption", {
-    inviteId: params.inviteId,
-    redeemedByExternalUserId: params.redeemedByExternalUserId ?? null,
-    redeemedByExternalChatId: params.redeemedByExternalChatId ?? null,
-  }).catch((err) => {
-    log.warn(
-      { err, inviteId: params.inviteId },
-      "record_invite_redemption: gateway mirror failed (best-effort, redemption stands)",
-    );
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -241,10 +233,17 @@ export async function redeemInvite(params: {
     return { ok: false, reason: "invalid_token" };
   }
 
-  // Gateway lifecycle pre-check (by id — caller-scoped resolution already
-  // picked the exact invite). A gateway-known revoked/exhausted/expired invite
-  // must be rejected before any mutation, even if the assistant mirror is stale.
-  if ((await checkGatewayInviteActive(invite.id)) === "revoked") {
+  // Authoritative gateway claim (by id — caller-scoped resolution already
+  // picked the exact invite). Consume the gateway-canonical row BEFORE mutating
+  // the assistant so a concurrent revoke/redemption that consumes it first
+  // rejects here, with no assistant mutation to roll back. No use is consumed
+  // for the already_member/blocked early returns above.
+  if (
+    (await claimGatewayRedemption(invite.id, {
+      redeemedByExternalUserId: externalUserId,
+      redeemedByExternalChatId: externalChatId,
+    })) === "rejected"
+  ) {
     return { ok: false, reason: "invalid_token" };
   }
 
@@ -303,14 +302,15 @@ export async function redeemInvite(params: {
       if (err === STALE_INVITE) {
         return { ok: false, reason: "invalid_token" };
       }
+      // Rare: the gateway claim already consumed the row but the assistant
+      // mutation failed — a recoverable wasted gateway use; no cross-process
+      // rollback is attempted.
+      log.error(
+        { err, inviteId: invite.id },
+        "redeemInvite: assistant mutation failed AFTER gateway claim consumed the row (wasted use)",
+      );
       throw err;
     }
-
-    mirrorRedemptionToGateway({
-      inviteId: invite.id,
-      redeemedByExternalUserId: externalUserId,
-      redeemedByExternalChatId: externalChatId,
-    });
 
     return {
       ok: true,
@@ -365,14 +365,14 @@ export async function redeemInvite(params: {
     if (err === STALE_INVITE_FRESH) {
       return { ok: false, reason: "invalid_token" };
     }
+    // Rare: gateway claim succeeded but the assistant mutation failed — a
+    // recoverable wasted gateway use; no cross-process rollback attempted.
+    log.error(
+      { err, inviteId: invite.id },
+      "redeemInvite: assistant mutation failed AFTER gateway claim consumed the row (wasted use)",
+    );
     throw err;
   }
-
-  mirrorRedemptionToGateway({
-    inviteId: invite.id,
-    redeemedByExternalUserId: externalUserId,
-    redeemedByExternalChatId: externalChatId,
-  });
 
   return {
     ok: true,
@@ -482,11 +482,17 @@ export async function redeemVoiceInviteCode(params: {
     return { ok: false, reason: "invalid_or_expired" };
   }
 
-  // Gateway lifecycle pre-check (by id). The candidate was already resolved
+  // Authoritative gateway claim (by id). The candidate was already resolved
   // caller-scoped (expectedExternalUserId == caller), so the id is unambiguous
   // even when two phone invites share a 6-digit code — this closes the
-  // colliding-code gap that a code-hash-only gateway pre-gate left open.
-  if ((await checkGatewayInviteActive(invite.id)) === "revoked") {
+  // colliding-code gap that a code-hash-only gateway gate left open. Consuming
+  // the gateway row here, before the assistant mutation, closes the TOCTOU
+  // window: a concurrent revoke/redemption rejects with no assistant mutation.
+  if (
+    (await claimGatewayRedemption(invite.id, {
+      redeemedByExternalUserId: callerExternalUserId,
+    })) === "rejected"
+  ) {
     return { ok: false, reason: "invalid_or_expired" };
   }
 
@@ -536,13 +542,14 @@ export async function redeemVoiceInviteCode(params: {
     if (err === STALE_INVITE) {
       return { ok: false, reason: "invalid_or_expired" };
     }
+    // Rare: gateway claim succeeded but the assistant mutation failed — a
+    // recoverable wasted gateway use; no cross-process rollback attempted.
+    log.error(
+      { err, inviteId: invite.id },
+      "redeemVoiceInviteCode: assistant mutation failed AFTER gateway claim consumed the row (wasted use)",
+    );
     throw err;
   }
-
-  mirrorRedemptionToGateway({
-    inviteId: invite.id,
-    redeemedByExternalUserId: callerExternalUserId,
-  });
 
   return {
     ok: true,
@@ -647,10 +654,16 @@ export async function redeemInviteByCode(params: {
     return { ok: false, reason: "invalid_token" };
   }
 
-  // Gateway lifecycle pre-check (by id). Reject a gateway-known revoked/
-  // exhausted/expired invite before mutating, even if the assistant mirror is
-  // stale.
-  if ((await checkGatewayInviteActive(invite.id)) === "revoked") {
+  // Authoritative gateway claim (by id). Consume the gateway-canonical row
+  // before mutating the assistant, so a concurrent revoke/redemption that
+  // consumes it first rejects here with no assistant mutation to roll back. No
+  // use is consumed for the already_member/blocked early returns above.
+  if (
+    (await claimGatewayRedemption(invite.id, {
+      redeemedByExternalUserId: externalUserId,
+      redeemedByExternalChatId: externalChatId,
+    })) === "rejected"
+  ) {
     return { ok: false, reason: "invalid_token" };
   }
 
@@ -701,14 +714,14 @@ export async function redeemInviteByCode(params: {
       if (err === STALE_INVITE_REACTIVATE) {
         return { ok: false, reason: "invalid_token" };
       }
+      // Rare: gateway claim succeeded but the assistant mutation failed — a
+      // recoverable wasted gateway use; no cross-process rollback attempted.
+      log.error(
+        { err, inviteId: invite.id },
+        "redeemInviteByCode: assistant mutation failed AFTER gateway claim consumed the row (wasted use)",
+      );
       throw err;
     }
-
-    mirrorRedemptionToGateway({
-      inviteId: invite.id,
-      redeemedByExternalUserId: externalUserId,
-      redeemedByExternalChatId: externalChatId,
-    });
 
     return {
       ok: true,
@@ -763,14 +776,14 @@ export async function redeemInviteByCode(params: {
     if (err === STALE_INVITE_FRESH) {
       return { ok: false, reason: "invalid_token" };
     }
+    // Rare: gateway claim succeeded but the assistant mutation failed — a
+    // recoverable wasted gateway use; no cross-process rollback attempted.
+    log.error(
+      { err, inviteId: invite.id },
+      "redeemInviteByCode: assistant mutation failed AFTER gateway claim consumed the row (wasted use)",
+    );
     throw err;
   }
-
-  mirrorRedemptionToGateway({
-    inviteId: invite.id,
-    redeemedByExternalUserId: externalUserId,
-    redeemedByExternalChatId: externalChatId,
-  });
 
   return {
     ok: true,
