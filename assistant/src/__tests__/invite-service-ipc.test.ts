@@ -57,7 +57,7 @@ describe("handleMintInvite (invites_mint)", () => {
       rawToken?: string;
       gateway: {
         id: string;
-        inviteCodeHash: string | null;
+        inviteCodeHash: string;
         sourceChannel: string;
         contactId: string;
         note: string | null;
@@ -96,7 +96,7 @@ describe("handleMintInvite (invites_mint)", () => {
       body: {
         sourceChannel: "phone",
         contactId,
-        expectedExternalUserId: "+15551234567",
+        expectedExternalUserId: "+12025550100",
         friendName: "Alex",
         guardianName: "Sam",
       },
@@ -104,7 +104,7 @@ describe("handleMintInvite (invites_mint)", () => {
       ok: boolean;
       invite: { id: string; voiceCode?: string };
       rawToken?: string;
-      gateway: { sourceChannel: string; inviteCodeHash: string | null };
+      gateway: { sourceChannel: string; inviteCodeHash: string };
     };
 
     expect(result.ok).toBe(true);
@@ -114,10 +114,12 @@ describe("handleMintInvite (invites_mint)", () => {
 
     const row = findById(result.invite.id);
     expect(row).not.toBeNull();
-    expect(row!.expectedExternalUserId).toBe("+15551234567");
+    expect(row!.expectedExternalUserId).toBe("+12025550100");
     expect(row!.voiceCodeHash).toBeTruthy();
-    // Voice invites use voiceCodeHash, not the non-voice inviteCodeHash.
+    // Voice invites have no non-voice inviteCodeHash; the gateway projection
+    // mirrors the voice code hash instead so the NOT NULL mirror constraint holds.
     expect(row!.inviteCodeHash).toBeNull();
+    expect(row!.voiceCodeHash).toBe(result.gateway.inviteCodeHash);
   });
 
   test("returns a 400 when required params are missing", async () => {
@@ -186,7 +188,7 @@ describe("handleRedeemVoiceInvite (invites_redeem_voice)", () => {
   beforeEach(resetTables);
 
   /** Create a voice invite with a known code; return the invite + plaintext code. */
-  function createVoiceInvite(callerPhone = "+15551234567") {
+  function createVoiceInvite(callerPhone = "+12025550100") {
     const code = generateVoiceCode(6);
     const { invite } = createInvite({
       sourceChannel: "phone",
@@ -200,7 +202,7 @@ describe("handleRedeemVoiceInvite (invites_redeem_voice)", () => {
   }
 
   test("redeems a valid voice code and returns the documented shape", () => {
-    const phone = "+15551234567";
+    const phone = "+12025550100";
     const { invite, code } = createVoiceInvite(phone);
 
     const result = handleRedeemVoiceInvite({
@@ -221,11 +223,11 @@ describe("handleRedeemVoiceInvite (invites_redeem_voice)", () => {
   });
 
   test("wrong caller identity is rejected with a 400", () => {
-    const { code } = createVoiceInvite("+15551234567");
+    const { code } = createVoiceInvite("+12025550100");
 
     expect(() =>
       handleRedeemVoiceInvite({
-        body: { callerExternalUserId: "+19999999999", code },
+        body: { callerExternalUserId: "+12025550101", code },
       }),
     ).toThrow();
   });
@@ -236,7 +238,7 @@ describe("handleRedeemVoiceInvite (invites_redeem_voice)", () => {
     ).toThrow();
     expect(() =>
       handleRedeemVoiceInvite({
-        body: { callerExternalUserId: "+15551234567" },
+        body: { callerExternalUserId: "+12025550100" },
       }),
     ).toThrow();
   });

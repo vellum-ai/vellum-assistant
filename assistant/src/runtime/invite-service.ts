@@ -289,7 +289,9 @@ export async function createIngressInvite(params: {
 /** Minimal invite projection the gateway mirrors into its own store. */
 export interface GatewayInviteProjection {
   id: string;
-  inviteCodeHash: string | null;
+  /** Hash of whatever code redeems this invite: token hash for token invites,
+   * voice code hash for voice/phone invites. Always non-null and mirrorable. */
+  inviteCodeHash: string;
   sourceChannel: string;
   contactId: string;
   note: string | null;
@@ -316,6 +318,13 @@ export async function mintIngressInvite(
     return { ok: false, error: "Invite not found after mint" };
   }
 
+  // The gateway mirrors the hash of whatever code redeems this invite. Token
+  // invites carry inviteCodeHash; voice/phone invites gate on voiceCodeHash.
+  const inviteCodeHash = row.inviteCodeHash ?? row.voiceCodeHash;
+  if (!inviteCodeHash) {
+    return { ok: false, error: "Invite is missing a redemption code hash" };
+  }
+
   return {
     ok: true,
     data: {
@@ -323,7 +332,7 @@ export async function mintIngressInvite(
       rawToken: result.data.token,
       gateway: {
         id: row.id,
-        inviteCodeHash: row.inviteCodeHash,
+        inviteCodeHash,
         sourceChannel: row.sourceChannel,
         contactId: row.contactId,
         note: row.note,
