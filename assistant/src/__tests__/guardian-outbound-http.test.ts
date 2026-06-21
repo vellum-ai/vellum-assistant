@@ -105,7 +105,7 @@ import {
 import { resetDbForTesting } from "./db-test-helpers.js";
 
 // Initialize the database (creates all tables)
-initializeDb();
+await initializeDb();
 
 afterAll(() => {
   globalThis.fetch = originalFetch;
@@ -442,9 +442,9 @@ describe("HTTP route: handleCreateVerificationSession (guardian path)", () => {
 
 describe("HTTP route: handleResendVerificationSession (guardian path)", () => {
   test("throws BadRequestError when channel is missing", async () => {
-    await expect(
-      handleResendVerificationSession({ body: {} }),
-    ).rejects.toThrow(BadRequestError);
+    await expect(handleResendVerificationSession({ body: {} })).rejects.toThrow(
+      BadRequestError,
+    );
   });
 
   test("throws BadRequestError for no_active_session", async () => {
@@ -483,9 +483,9 @@ describe("HTTP route: handleResendVerificationSession (guardian path)", () => {
 
 describe("HTTP route: handleCancelVerificationSession (guardian path)", () => {
   test("throws BadRequestError when channel is missing", async () => {
-    await expect(
-      handleCancelVerificationSession({ body: {} }),
-    ).rejects.toThrow(BadRequestError);
+    await expect(handleCancelVerificationSession({ body: {} })).rejects.toThrow(
+      BadRequestError,
+    );
   });
 
   test("returns success even when no active session exists", async () => {

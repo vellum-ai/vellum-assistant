@@ -51,7 +51,7 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { conversationKeys, conversations } from "../memory/schema.js";
 
-initializeDb();
+await initializeDb();
 
 beforeEach(() => {
   const db = getDb();

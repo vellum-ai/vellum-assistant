@@ -19,7 +19,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 
 // Initialize db once before all tests
-initializeDb();
+await initializeDb();
 
 describe("wipeConversation", () => {
   beforeEach(() => {

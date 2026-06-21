@@ -21,7 +21,7 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { conversations } from "../memory/schema.js";
 
-initializeDb();
+await initializeDb();
 
 function ensureConversation(id: string): void {
   const db = getDb();

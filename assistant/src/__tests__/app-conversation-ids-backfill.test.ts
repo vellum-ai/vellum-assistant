@@ -21,7 +21,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { rawRun } from "../memory/raw-query.js";
 
 // Initialize db once for all tests
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers

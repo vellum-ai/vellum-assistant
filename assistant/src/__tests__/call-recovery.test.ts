@@ -30,7 +30,7 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { conversations } from "../memory/schema.js";
 
-initializeDb();
+await initializeDb();
 
 /** Ensure a conversation row exists for the given ID so FK constraints pass. */
 let ensuredConvIds = new Set<string>();

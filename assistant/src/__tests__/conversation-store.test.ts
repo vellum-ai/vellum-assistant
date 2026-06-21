@@ -27,7 +27,7 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { skillLoadedEvents } from "../memory/schema.js";
 // Initialize db once before all tests
-initializeDb();
+await initializeDb();
 
 describe("deleteLastExchange", () => {
   beforeEach(() => {

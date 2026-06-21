@@ -40,7 +40,7 @@ import {
 } from "../memory/llm-request-log-store.js";
 import { llmRequestLogs } from "../memory/schema.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();

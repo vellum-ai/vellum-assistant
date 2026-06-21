@@ -72,7 +72,7 @@ import { RouteError } from "../runtime/routes/errors.js";
 import type { ToolContext } from "../tools/types.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
-initializeDb();
+await initializeDb();
 
 // ── Lightweight gateway stub ─────────────────────────────────────────────────
 

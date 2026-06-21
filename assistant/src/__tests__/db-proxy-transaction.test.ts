@@ -15,7 +15,7 @@ import { getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { RouteError } from "../runtime/routes/errors.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTestTable(): void {
   const sqlite = getSqlite();

@@ -25,7 +25,7 @@ import { addMessage, createConversation } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 
-initializeDb();
+await initializeDb();
 
 // 1x1 transparent PNG.
 const PNG_1X1_BASE64 =

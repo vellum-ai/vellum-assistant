@@ -269,8 +269,8 @@ async function drainOneConversationAnalyzeJob(
 
 // ── Test fixture ──────────────────────────────────────────────────
 
-beforeAll(() => {
-  initializeDb();
+beforeAll(async () => {
+  await initializeDb();
 });
 
 beforeEach(() => {

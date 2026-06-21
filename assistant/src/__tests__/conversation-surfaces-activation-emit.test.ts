@@ -44,7 +44,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { queryUnreportedOnboardingEvents } from "../memory/onboarding-events-store.js";
 import { activationSessions, onboardingEvents } from "../memory/schema.js";
 
-initializeDb();
+await initializeDb();
 
 interface ProcessMessageCall {
   content: string;

@@ -74,7 +74,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { createInvite, revokeInvite } from "../memory/invite-store.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers

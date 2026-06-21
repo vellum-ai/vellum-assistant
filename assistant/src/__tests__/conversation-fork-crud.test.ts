@@ -70,7 +70,7 @@ import {
   recordInjected as recordV3Injected,
 } from "../plugins/defaults/memory-v3-shadow/ever-injected-store.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();

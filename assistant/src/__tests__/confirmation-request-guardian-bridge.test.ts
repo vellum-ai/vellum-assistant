@@ -69,7 +69,6 @@ mock.module("../runtime/channel-verification-service.js", () => ({
   },
 }));
 
-
 import type { TrustContext } from "../daemon/trust-context.js";
 import {
   createCanonicalGuardianRequest,
@@ -80,7 +79,7 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();

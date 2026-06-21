@@ -24,7 +24,7 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { conversations, messages } from "../memory/schema.js";
 
-initializeDb();
+await initializeDb();
 
 function ensureConversation(id: string): void {
   const db = getDb();
@@ -62,7 +62,14 @@ describe("sendGuardianExpiryNotices", () => {
 
   test("sends external channel expiry notices for sent deliveries", async () => {
     await sendGuardianExpiryNotices(
-      [makeDelivery({ status: "sent" }), makeDelivery({ id: "d2", status: "pending", destinationChatId: "chat-456" })],
+      [
+        makeDelivery({ status: "sent" }),
+        makeDelivery({
+          id: "d2",
+          status: "pending",
+          destinationChatId: "chat-456",
+        }),
+      ],
       "assistant-1",
     );
 
