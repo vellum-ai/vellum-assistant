@@ -17,6 +17,7 @@ import { IpcCallError } from "@vellumai/gateway-client/ipc-client";
 type IpcCall = {
   method: string;
   params?: Record<string, unknown>;
+  timeoutMs?: number;
 };
 
 let ipcCalls: IpcCall[] = [];
@@ -24,8 +25,12 @@ let ipcResult: unknown = {};
 let ipcError: Error | undefined;
 
 const ipcCallPersistentMock = mock(
-  async (method: string, params?: Record<string, unknown>) => {
-    ipcCalls.push({ method, params });
+  async (
+    method: string,
+    params?: Record<string, unknown>,
+    timeoutMs?: number,
+  ) => {
+    ipcCalls.push({ method, params, timeoutMs });
     if (ipcError) throw ipcError;
     return ipcResult;
   },
@@ -96,6 +101,8 @@ describe("invite relay routes", () => {
         {
           method: "invites_list",
           params: { sourceChannel: "telegram", status: "active" },
+          // List uses the default IPC timeout (no longer-timeout relay needed).
+          timeoutMs: undefined,
         },
       ]);
       expect(result).toEqual({ ok: true, invites: [{ id: "i1" }] });
@@ -106,7 +113,9 @@ describe("invite relay routes", () => {
       ipcResult = { invites: [] };
       await handleListInvites({ queryParams: {} });
 
-      expect(ipcCalls).toEqual([{ method: "invites_list", params: {} }]);
+      expect(ipcCalls).toEqual([
+        { method: "invites_list", params: {}, timeoutMs: undefined },
+      ]);
     });
   });
 
@@ -136,6 +145,9 @@ describe("invite relay routes", () => {
             friendName: undefined,
             guardianName: undefined,
           },
+          // The create relay uses a generous timeout (gateway invites_mint can
+          // spend ~5s in generateInviteInstruction); list/revoke use the default.
+          timeoutMs: 30_000,
         },
       ]);
       expect(result).toEqual({
@@ -162,7 +174,7 @@ describe("invite relay routes", () => {
       const result = await handleRevokeInvite({ pathParams: { id: "i3" } });
 
       expect(ipcCalls).toEqual([
-        { method: "invites_revoke", params: { id: "i3" } },
+        { method: "invites_revoke", params: { id: "i3" }, timeoutMs: undefined },
       ]);
       expect(result).toEqual({
         ok: true,

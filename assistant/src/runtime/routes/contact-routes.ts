@@ -224,6 +224,14 @@ function handleGetContact(contactId: string) {
 // to the gateway IPC methods via `ipcCallPersistent`; the assistant DB is
 // written only by the gateway. (Redemption stays daemon-local — see the redeem route.)
 
+// The invite-CREATE relay needs a generous timeout: the gateway's `invites_mint`
+// handler calls `createIngressInvite` → `generateInviteInstruction`, which can spend
+// up to GENERATION_TIMEOUT_MS (~5s) waiting on an LLM before falling back. The default
+// 5s persistent-IPC timeout can fire mid-mint, so the caller sees a spurious failure
+// even though the gateway is still writing the invite. 30s safely exceeds the inner
+// ~5s fallback plus IPC overhead on both nested hops. (List/revoke keep the default.)
+const INVITE_CREATE_RELAY_TIMEOUT_MS = 30_000;
+
 export async function handleListInvites({ queryParams = {} }: RouteHandlerArgs) {
   try {
     const result = (await ipcCallPersistent("invites_list", {
@@ -240,17 +248,23 @@ export async function handleListInvites({ queryParams = {} }: RouteHandlerArgs) 
 
 export async function handleCreateInvite({ body = {} }: RouteHandlerArgs) {
   try {
-    const result = (await ipcCallPersistent("invites_create", {
-      contactId: body.contactId as string,
-      sourceChannel: body.sourceChannel as string | undefined,
-      note: body.note as string | undefined,
-      maxUses: body.maxUses as number | undefined,
-      expiresInMs: body.expiresInMs as number | undefined,
-      contactName: body.contactName as string | undefined,
-      expectedExternalUserId: body.expectedExternalUserId as string | undefined,
-      friendName: body.friendName as string | undefined,
-      guardianName: body.guardianName as string | undefined,
-    })) as { invite: Record<string, unknown>; rawToken?: string };
+    const result = (await ipcCallPersistent(
+      "invites_create",
+      {
+        contactId: body.contactId as string,
+        sourceChannel: body.sourceChannel as string | undefined,
+        note: body.note as string | undefined,
+        maxUses: body.maxUses as number | undefined,
+        expiresInMs: body.expiresInMs as number | undefined,
+        contactName: body.contactName as string | undefined,
+        expectedExternalUserId: body.expectedExternalUserId as
+          | string
+          | undefined,
+        friendName: body.friendName as string | undefined,
+        guardianName: body.guardianName as string | undefined,
+      },
+      INVITE_CREATE_RELAY_TIMEOUT_MS,
+    )) as { invite: Record<string, unknown>; rawToken?: string };
     return {
       ok: true,
       invite: result.invite,
