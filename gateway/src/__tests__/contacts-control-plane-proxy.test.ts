@@ -2165,20 +2165,35 @@ describe("handleCallInvite (gateway-native)", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("returns 404 when the invite does not exist", async () => {
+  test("relays to the assistant when no gateway row exists (assistant-only invite)", async () => {
+    // Legacy/assistant-only invite: no gateway row, but a live row in
+    // assistant_ingress_invites. Mirror the list/revoke assistant-only fallback
+    // — don't 404; relay and let the daemon-local trigger validate its own row.
     contactStoreGetInviteByIdMock = mock(() => null);
+    ipcCallAssistantMock = mock(async (method: string) => {
+      if (method === "invites_trigger_call") {
+        return { callSid: "CA456" };
+      }
+      return {};
+    });
 
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleCallInvite(
-      new Request("http://localhost:7830/v1/contacts/invites/nope/call", {
+      new Request("http://localhost:7830/v1/contacts/invites/inv_1/call", {
         method: "POST",
       }),
-      "nope",
+      "inv_1",
     );
 
-    expect(res.status).toBe(404);
-    expect((await res.json()).error.code).toBe("NOT_FOUND");
-    expect(ipcCallAssistantMock).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.callSid).toBe("CA456");
+    expect(ipcCallAssistantMock.mock.calls[0]).toEqual([
+      "invites_trigger_call",
+      { pathParams: { id: "inv_1" } },
+    ]);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test("returns 400 when the invite is not active", async () => {

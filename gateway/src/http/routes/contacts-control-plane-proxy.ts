@@ -521,24 +521,23 @@ export async function revokeInviteNative(
 }
 
 /**
- * Verify the invite exists + is active in the gateway DB (lifecycle source of
- * truth) then relay the provider-specific outbound call to the assistant.
- * Returns the provider call sid. Throws InviteNativeError(404) when the invite
- * is unknown, InviteNativeError(400) when it isn't active, InviteNativeError(500)
- * on relay failure, and propagates an assistant IpcHandlerError unchanged.
+ * Trigger the provider-specific outbound call for an invite. When the gateway
+ * row exists (lifecycle source of truth) it gates on `active`. When it's absent
+ * — a legacy/assistant-only invite that lives only in `assistant_ingress_invites`
+ * (the same rows list/revoke handle via their assistant-only fallback) — it
+ * falls through and lets the daemon-local trigger validate its own row. Returns
+ * the provider call sid. Throws InviteNativeError(400) when a present gateway
+ * row isn't active, InviteNativeError(500) on relay failure, and propagates an
+ * assistant IpcHandlerError unchanged.
  */
 export async function triggerInviteCallNative(
   inviteId: string,
 ): Promise<{ callSid: string }> {
   const invite = new ContactStore().getInviteById(inviteId);
-  if (!invite) {
-    throw new InviteNativeError(
-      `Invite "${inviteId}" not found`,
-      404,
-      "NOT_FOUND",
-    );
-  }
-  if (invite.status !== "active") {
+  // Absent gateway row → legacy/assistant-only invite. Don't 404: fall through
+  // and relay; `handleTriggerInviteCall` validates its own assistant_ingress_invites
+  // row (active/inactive) and places the call or surfaces its own error.
+  if (invite && invite.status !== "active") {
     throw new InviteNativeError(
       `Invite "${inviteId}" is not active`,
       400,
