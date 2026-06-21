@@ -869,6 +869,31 @@ export class ContactStore {
     );
   }
 
+  /**
+   * Find the canonical invite for `codeHash` on a channel REGARDLESS of status.
+   * The voice redeem pre-gate uses this to tell an ABSENT gateway row (legacy
+   * assistant-only invite created before the contacts migration — fall through
+   * to the assistant) from a row that EXISTS but is revoked/expired/exhausted
+   * (reject with 409).
+   */
+  findInviteByCodeHash(
+    codeHash: string,
+    sourceChannel: string,
+  ): IngressInviteRow | null {
+    return (
+      this.db
+        .select()
+        .from(ingressInvites)
+        .where(
+          and(
+            eq(ingressInvites.inviteCodeHash, codeHash),
+            eq(ingressInvites.sourceChannel, sourceChannel),
+          ),
+        )
+        .get() ?? null
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // Upsert (gateway DB + assistant DB dual-write)
   // ---------------------------------------------------------------------------

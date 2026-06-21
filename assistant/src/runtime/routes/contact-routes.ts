@@ -292,7 +292,9 @@ export function handleRedeemTokenInvite({ body = {} }: RouteHandlerArgs) {
   if (!result.ok) {
     throw new BadRequestError(result.error);
   }
-  return { ok: true, invite: result.data };
+  // Surface the redemption `type` so the gateway can skip mirroring an
+  // `already_member` redeem (which consumes no invite use).
+  return { ok: true, invite: result.data.invite, type: result.data.type };
 }
 
 export async function handleRedeemInvite(args: RouteHandlerArgs) {

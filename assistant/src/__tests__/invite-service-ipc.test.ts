@@ -146,10 +146,42 @@ describe("handleRedeemTokenInvite (invites_redeem_token)", () => {
         sourceChannel: "telegram",
         externalUserId: "user-1",
       },
-    }) as { ok: boolean; invite: { id: string } };
+    }) as { ok: boolean; invite: { id: string }; type: string };
 
     expect(result.ok).toBe(true);
     expect(result.invite.id).toBe(invite.id);
+    expect(result.type).toBe("redeemed");
+  });
+
+  test("surfaces type 'already_member' when an existing contact reopens the link", () => {
+    const contactId = createTargetContact();
+    const { rawToken } = createInvite({
+      sourceChannel: "telegram",
+      contactId,
+      maxUses: 2,
+    });
+
+    // First redeem makes the caller an active contact.
+    handleRedeemTokenInvite({
+      body: {
+        token: rawToken,
+        sourceChannel: "telegram",
+        externalUserId: "user-1",
+      },
+    });
+
+    // Second redeem by the SAME caller is a no-op membership-wise: it must
+    // surface type "already_member" so the gateway skips consuming a use.
+    const again = handleRedeemTokenInvite({
+      body: {
+        token: rawToken,
+        sourceChannel: "telegram",
+        externalUserId: "user-1",
+      },
+    }) as { ok: boolean; type: string };
+
+    expect(again.ok).toBe(true);
+    expect(again.type).toBe("already_member");
   });
 
   test("rejects a bogus token with a 400", () => {

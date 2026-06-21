@@ -43,6 +43,12 @@ import {
 // Response shapes — used by both HTTP routes and message handlers
 // ---------------------------------------------------------------------------
 
+/**
+ * Redemption outcome type surfaced to callers. `already_member` consumes no
+ * invite use, so the gateway must not mirror it into recordInviteRedemption.
+ */
+export type RedemptionType = "redeemed" | "already_member";
+
 export interface InviteResponseData {
   id: string;
   sourceChannel: string;
@@ -405,7 +411,7 @@ export function redeemIngressInvite(params: {
   externalUserId?: string;
   externalChatId?: string;
   sourceChannel?: string;
-}): IngressResult<InviteResponseData> {
+}): IngressResult<{ invite: InviteResponseData; type: RedemptionType }> {
   if (!params.token) {
     return { ok: false, error: "token is required for redeem" };
   }
@@ -421,21 +427,15 @@ export function redeemIngressInvite(params: {
   if (!outcome.ok) {
     return { ok: false, error: outcome.reason };
   }
-  // For already_member, look up the invite by token hash to build the response
-  if (outcome.type === "already_member") {
-    const inv = findByTokenHash(hashToken(params.token));
-    if (!inv) {
-      return { ok: false, error: "Invite not found after redemption" };
-    }
-    return { ok: true, data: inviteToResponse(inv) };
-  }
-  // Look up the invite by token hash — same approach as the already_member path
-  // above. Using findByTokenHash avoids the pagination limit of listInvites.
+  // Look up the invite by token hash for both outcomes (`redeemed` and
+  // `already_member`). Using findByTokenHash avoids the pagination limit of
+  // listInvites. The `type` is surfaced so the gateway can skip mirroring an
+  // `already_member` redemption (which consumes no use).
   const inv = findByTokenHash(hashToken(params.token));
   if (!inv) {
     return { ok: false, error: "Invite not found after redemption" };
   }
-  return { ok: true, data: inviteToResponse(inv) };
+  return { ok: true, data: { invite: inviteToResponse(inv), type: outcome.type } };
 }
 
 /**
