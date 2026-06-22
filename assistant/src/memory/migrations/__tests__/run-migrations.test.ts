@@ -358,7 +358,7 @@ describe("runMigrationSteps — checkpointing", () => {
     const db = createTestDb();
     const raw = getSqliteFrom(db);
 
-    let markerSeenDuringAwait: string | null = null;
+    const seen: { marker: string | null } = { marker: null };
     const steps: MigrationStep[] = [
       async function asyncWithInspection() {
         // Read the checkpoint while the step is "in flight" — the
@@ -368,7 +368,7 @@ describe("runMigrationSteps — checkpointing", () => {
             `SELECT value FROM memory_checkpoints WHERE key = 'step:asyncWithInspection'`,
           )
           .get();
-        markerSeenDuringAwait = row?.value ?? null;
+        seen.marker = row?.value ?? null;
         await Promise.resolve();
       },
     ];
@@ -376,7 +376,7 @@ describe("runMigrationSteps — checkpointing", () => {
     await runMigrationSteps(db, steps);
 
     // The 'started' marker was visible during the async step's execution
-    expect(markerSeenDuringAwait).toBe("started");
+    expect(seen.marker).toBe("started");
 
     // After completion, the checkpoint is '1'
     const final = raw
