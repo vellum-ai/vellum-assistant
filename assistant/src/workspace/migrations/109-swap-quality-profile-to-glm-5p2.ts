@@ -86,8 +86,15 @@ export const swapQualityProfileToGlm52Migration: WorkspaceMigration = {
 
     // Move the default advisor pointer to the new strongest managed profile.
     // Only the seeded default (`quality-optimized`) is rewritten; a workspace
-    // that picked its own advisor profile keeps it.
-    if (llm.advisorProfile === "quality-optimized") {
+    // that picked its own advisor profile keeps it. Skip the rewrite when a
+    // user already owns a profile named `frontier`: the seeder leaves that
+    // user profile in place rather than materializing the managed Opus one, so
+    // pointing the advisor at it would consult an arbitrary user model. Leaving
+    // the advisor on `quality-optimized` (now managed GLM 5.2) is the safe
+    // fallback in that collision case.
+    const frontierIsUserOwned =
+      readObject(profiles?.frontier)?.source === "user";
+    if (llm.advisorProfile === "quality-optimized" && !frontierIsUserOwned) {
       llm.advisorProfile = "frontier";
       changed = true;
     }

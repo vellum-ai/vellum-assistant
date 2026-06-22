@@ -179,6 +179,26 @@ describe("109-swap-quality-profile-to-glm-5p2 migration", () => {
     expect(readLlm().advisorProfile).toBe("frontier");
   });
 
+  test("does not repoint the advisor when a user owns a frontier profile", () => {
+    writeConfig({
+      llm: {
+        advisorProfile: "quality-optimized",
+        profiles: {
+          "quality-optimized": {
+            source: "managed",
+            provider: "anthropic",
+            model: "claude-opus-4-8",
+          },
+          frontier: { source: "user", provider: "openai", model: "gpt-5.4" },
+        },
+      },
+    });
+    swapQualityProfileToGlm52Migration.run(workspaceDir);
+    // The seeder leaves the user's `frontier` in place rather than creating the
+    // managed Opus one, so the advisor stays on managed GLM 5.2 (quality).
+    expect(readLlm().advisorProfile).toBe("quality-optimized");
+  });
+
   test("leaves a custom advisor profile untouched", () => {
     writeConfig({
       llm: {
