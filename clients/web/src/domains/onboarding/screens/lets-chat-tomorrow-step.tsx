@@ -1,6 +1,7 @@
 /**
- * "Let's chat tomorrow" step content — invite the user to add a Day-2 check-in
- * to their calendar, now part of the onboarding flow itself.
+ * "I'll check in with you tomorrow" step content — offer to drop a Day-2
+ * follow-up on the user's calendar, framed as the assistant checking in (not as
+ * connecting an integration), since chatting continues right after onboarding.
  *
  * SPIKE — research-onboarding flow.
  *
@@ -17,33 +18,30 @@ interface LetsChatTomorrowStepProps {
   onConnect: () => void;
   onSkip: () => void;
   onBack: () => void;
+  /** Redo into the next step — only set when the user has stepped back. */
+  onForward?: () => void;
 }
 
 export function LetsChatTomorrowStep({
   onConnect,
   onSkip,
   onBack,
+  onForward,
 }: LetsChatTomorrowStepProps) {
   const tone = useOnboardingTone();
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
-      <OnboardingTopBar
-        current={4}
-        total={5}
-        label="Quick setup"
-        onBack={onBack}
-        onNext={onConnect}
-      />
+      <OnboardingTopBar onBack={onBack} onNext={onForward} />
 
       <div className="absolute left-1/2 top-[26%] flex w-[360px] -translate-x-1/2 flex-col items-center gap-5 text-center">
         <h1
-          className="text-[2.6rem] leading-none"
+          className="text-[2.6rem] leading-tight"
           style={{ fontFamily: "var(--font-serif)" }}
         >
-          Let&rsquo;s chat tomorrow
+          I&rsquo;ll also check in with you
         </h1>
         <p className="text-[16px]" style={{ color: tone.fgMuted }}>
-          Add a meeting in your calendar so we can pick up where we left off.
+          I&rsquo;ll add a quick check-in to your calendar to follow up tomorrow.
         </p>
 
         <div className="mt-6 flex w-[234px] flex-col items-center gap-3">
@@ -56,7 +54,7 @@ export function LetsChatTomorrowStep({
               color: tone.isLight ? "#FFFFFF" : "#1A1A1A",
             }}
           >
-            Connect Google Calendar
+            Add to Google Calendar
           </button>
           <button
             type="button"

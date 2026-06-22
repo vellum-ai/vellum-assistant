@@ -32,6 +32,8 @@ export interface GiveMeAFaceValues {
 interface GiveMeAFaceScreenProps {
   onContinue: (values: GiveMeAFaceValues) => void;
   onBack: () => void;
+  /** Redo into the next step — only set when the user has stepped back. */
+  onForward?: () => void;
 }
 
 /** Prefill names, cycled across the pool and swapped in as you change avatars. */
@@ -54,6 +56,7 @@ function initialArrangement(count: number, centerChar: number): Arrangement {
 export function GiveMeAFaceScreen({
   onContinue,
   onBack,
+  onForward,
 }: GiveMeAFaceScreenProps) {
   const components = useBundledAvatarComponents();
   const characters = useOnboardingAvatarPoolStore.use.characters();
@@ -162,15 +165,7 @@ export function GiveMeAFaceScreen({
         />
       )}
 
-      <OnboardingTopBar
-        current={1}
-        total={5}
-        label="Personalise"
-        tone="light"
-        onBack={onBack}
-        onNext={handleContinue}
-        nextDisabled={!ready}
-      />
+      <OnboardingTopBar tone="light" onBack={onBack} onNext={onForward} />
 
       {/* Title */}
       <h1

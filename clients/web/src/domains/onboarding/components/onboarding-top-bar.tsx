@@ -1,7 +1,8 @@
 /**
- * Shared top bar for onboarding steps: a back chevron, centered progress bars
- * + label, and an invisible spacer on the right so the progress stays truly
- * centered (the chevron on the left is balanced by the spacer).
+ * Shared top bar for onboarding steps: a back chevron pinned top-left, plus an
+ * optional forward chevron. The forward chevron only renders when `onNext` is
+ * provided — the flow wires it up only after the user has stepped back, so it
+ * acts as a "redo" rather than always offering to skip ahead.
  *
  * SPIKE — research-onboarding flow.
  *
@@ -11,26 +12,16 @@
 
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
-import { StepIndicatorDots } from "@/domains/onboarding/components/step-indicator-dots";
 import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
 
 export function OnboardingTopBar({
-  current,
-  total,
-  label,
   onBack,
   onNext,
-  nextDisabled = false,
   tone,
 }: {
-  current: number;
-  total: number;
-  label: string;
   onBack: () => void;
-  /** When provided, renders a forward chevron mirroring Continue. */
+  /** When provided, renders the forward (redo) chevron. */
   onNext?: () => void;
-  /** Disables the forward chevron (mirrors Continue's disabled state). */
-  nextDisabled?: boolean;
   /**
    * Force the foreground tone. Omit on the avatar-tinted steps to auto-derive
    * from the chosen color (white on dark colors, black on yellow); pass
@@ -40,11 +31,6 @@ export function OnboardingTopBar({
 }) {
   const auto = useOnboardingTone();
   const fg = tone ? (tone === "dark" ? "#1A1A1A" : "#FFFFFF") : auto.fg;
-  const labelColor = tone
-    ? tone === "dark"
-      ? "rgba(0,0,0,0.55)"
-      : "rgba(255,255,255,0.7)"
-    : auto.fgMuted;
   const hoverBg = tone
     ? tone === "dark"
       ? "rgba(0,0,0,0.08)"
@@ -52,7 +38,7 @@ export function OnboardingTopBar({
     : auto.wash;
 
   return (
-    <div className="absolute left-1/2 top-6 z-10 flex -translate-x-1/2 items-center gap-3">
+    <div className="absolute left-4 top-6 z-10 flex items-center gap-3">
       <button
         type="button"
         onClick={onBack}
@@ -64,35 +50,20 @@ export function OnboardingTopBar({
       >
         <ChevronLeft className="h-5 w-5" />
       </button>
-      <div className="flex flex-col items-center gap-2">
-        <StepIndicatorDots current={current} total={total} color={fg} />
-        <span
-          className="text-body-small-default"
-          style={{ color: labelColor }}
-        >
-          {label}
-        </span>
-      </div>
-      {/* Forward chevron (mirrors Continue), or an invisible spacer so the
-          progress stays centered when there's no next action. */}
+      {/* Forward (redo) chevron — only after the user has stepped back. */}
       {onNext ? (
         <button
           type="button"
           onClick={onNext}
-          disabled={nextDisabled}
-          aria-label="Continue"
-          className="flex h-8 w-8 items-center justify-center rounded-md transition-[color,background-color,opacity] duration-150 disabled:cursor-not-allowed disabled:opacity-30"
+          aria-label="Forward"
+          className="flex h-8 w-8 items-center justify-center rounded-md transition-colors duration-150"
           style={{ color: fg }}
-          onMouseEnter={(e) => {
-            if (!nextDisabled) e.currentTarget.style.backgroundColor = hoverBg;
-          }}
+          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = hoverBg)}
           onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
         >
           <ChevronRight className="h-5 w-5" />
         </button>
-      ) : (
-        <div aria-hidden="true" className="h-8 w-8" />
-      )}
+      ) : null}
     </div>
   );
 }

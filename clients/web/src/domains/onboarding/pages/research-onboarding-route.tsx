@@ -40,7 +40,10 @@ import {
   type GiveMeAFaceValues,
 } from "@/domains/onboarding/screens/give-me-a-face-screen";
 import { IntroductionScreen } from "@/domains/onboarding/screens/introduction-screen";
-import { HowShouldITalkScreen } from "@/domains/onboarding/screens/how-should-i-talk-screen";
+import {
+  PitchDifferentStep,
+  PitchTogetherStep,
+} from "@/domains/onboarding/screens/intro-pitch-steps";
 import { IntegrationStep } from "@/domains/onboarding/screens/integration-step";
 import { LetsChatTomorrowStep } from "@/domains/onboarding/screens/lets-chat-tomorrow-step";
 import {
@@ -49,10 +52,20 @@ import {
   ResearchResultsStep,
   SuggestionsStep,
 } from "@/domains/onboarding/screens/research-result-steps";
-import {
-  OnboardingTonedBackdrop,
-  type TalkStyle,
-} from "@/domains/onboarding/components/onboarding-toned-backdrop";
+import { OnboardingTonedBackdrop } from "@/domains/onboarding/components/onboarding-toned-backdrop";
+
+type ResearchStep =
+  | "form"
+  | "face"
+  | "intro"
+  | "different"
+  | "together"
+  | "integration"
+  | "letschat"
+  | "meeting"
+  | "looking"
+  | "results"
+  | "suggestions";
 
 export function ResearchOnboardingRoute() {
   const navigate = useNavigate();
@@ -67,26 +80,40 @@ export function ResearchOnboardingRoute() {
   const flagsHydrated = useClientFeatureFlagStore.use.hydrated();
 
   // Sub-steps share this route: details form → avatar/name picker →
-  // introduction → talk-style → integration → "let's chat tomorrow". The last
-  // three share a persistent toned backdrop so the avatars/eyes stay put. The
-  // handoff fires from the "let's chat tomorrow" step (or the picker's skip).
-  const [step, setStep] = useState<
-    | "form"
-    | "face"
-    | "intro"
-    | "talk"
-    | "integration"
-    | "letschat"
-    | "meeting"
-    | "looking"
-    | "results"
-    | "suggestions"
-  >("form");
+  // introduction → "different"/"collaborate" pitch → integration → "let's chat
+  // tomorrow". The toned steps share a persistent backdrop so the avatars/eyes
+  // stay put. The handoff fires from the "let's chat tomorrow" step (or the
+  // picker's skip).
+  const [step, setStep] = useState<ResearchStep>("form");
+  // Forward-history (redo) stack: pushed when the user steps back, popped when
+  // they step forward via the header's forward chevron. The chevron only shows
+  // while this is non-empty — i.e. only after a back. A deliberate forward move
+  // (any Continue/Skip) clears it, browser-style.
+  const [forwardStack, setForwardStack] = useState<ResearchStep[]>([]);
+
+  // Forward (Continue/Skip): a fresh forward move invalidates the redo stack.
+  function goForwardTo(next: ResearchStep) {
+    setForwardStack([]);
+    setStep(next);
+  }
+  // Back: remember where we were so the forward chevron can return there.
+  function goBackTo(prev: ResearchStep) {
+    setForwardStack((s) => [...s, step]);
+    setStep(prev);
+  }
+  // Redo: pop the most-recently-backed-from step.
+  function goForward() {
+    const next = forwardStack[forwardStack.length - 1];
+    if (!next) return;
+    setForwardStack((s) => s.slice(0, -1));
+    setStep(next);
+  }
+  // Passed to the step screens' header; undefined hides the forward chevron.
+  const onForward = forwardStack.length > 0 ? goForward : undefined;
   const [formValues, setFormValues] = useState<ResearchOnboardingValues | null>(
     null,
   );
   const [faceValues, setFaceValues] = useState<GiveMeAFaceValues | null>(null);
-  const [talkStyle, setTalkStyle] = useState<TalkStyle | null>(null);
   // Bumped by the integration step's coin to jolt the bottom eyes.
   const [eyesBump, setEyesBump] = useState(0);
   // Extra edge characters revealed so far — grows as the looking-you-up
@@ -162,7 +189,7 @@ export function ResearchOnboardingRoute() {
 
   function handleFormSubmit(values: ResearchOnboardingValues) {
     setFormValues(values);
-    setStep("face");
+    goForwardTo("face");
   }
 
   if (!enabled) {
@@ -177,7 +204,8 @@ export function ResearchOnboardingRoute() {
   // eyes + tone characters) so the avatars stay put while the foreground
   // content swaps. Extra edge characters pop in per step to build excitement.
   const tonedSteps = [
-    "talk",
+    "different",
+    "together",
     "integration",
     "letschat",
     "meeting",
@@ -190,57 +218,69 @@ export function ResearchOnboardingRoute() {
     // eyes collapse into the small avatar beside the text. Extra edge
     // characters are revealed by the looking-you-up carousel (see edgeAvatars).
     const postCalendar = ["meeting", "looking", "results", "suggestions"].includes(step);
+    // The peeking crowd grows one per step (by position in the toned sequence),
+    // plus any extras the looking-you-up carousel reveals.
+    const peekLevel = tonedSteps.indexOf(step) + 1 + edgeAvatars;
     return (
       <div data-theme="dark" className="relative h-full overflow-hidden">
         <OnboardingTonedBackdrop
-          talkStyle={talkStyle}
           eyesBumpNonce={eyesBump}
-          extraPeekLevel={edgeAvatars}
+          peekLevel={peekLevel}
           darkBg={postCalendar}
           showBottomEyes={!postCalendar}
         />
-        {step === "talk" && (
-          <HowShouldITalkScreen
-            selected={talkStyle}
-            onSelect={setTalkStyle}
-            onContinue={() => setStep("integration")}
-            onSkip={() => setStep("integration")}
-            onBack={() => setStep("intro")}
+        {step === "different" && (
+          <PitchDifferentStep
+            onDone={() => goForwardTo("together")}
+            onBack={() => goBackTo("intro")}
+            onForward={onForward}
+          />
+        )}
+        {step === "together" && (
+          <PitchTogetherStep
+            onContinue={() => goForwardTo("integration")}
+            onBack={() => goBackTo("different")}
+            onForward={onForward}
           />
         )}
         {step === "integration" && (
           <IntegrationStep
-            onClaim={() => setStep("letschat")}
+            onClaim={() => goForwardTo("letschat")}
             onBumpEyes={() => setEyesBump((n) => n + 1)}
-            onBack={() => setStep("talk")}
+            onBack={() => goBackTo("together")}
+            onForward={onForward}
           />
         )}
         {step === "letschat" && (
           <LetsChatTomorrowStep
-            onConnect={() => setStep("meeting")}
-            onSkip={() => setStep("looking")}
-            onBack={() => setStep("integration")}
+            onConnect={() => goForwardTo("meeting")}
+            onSkip={() => goForwardTo("looking")}
+            onBack={() => goBackTo("integration")}
+            onForward={onForward}
           />
         )}
         {step === "meeting" && (
           <MeetingCreatedStep
-            onDone={() => setStep("looking")}
-            onBack={() => setStep("letschat")}
+            onDone={() => goForwardTo("looking")}
+            onBack={() => goBackTo("letschat")}
+            onForward={onForward}
           />
         )}
         {step === "looking" && (
           <LookingYouUpStep
-            onDone={() => setStep("results")}
-            onBack={() => setStep("letschat")}
+            onDone={() => goForwardTo("results")}
+            onBack={() => goBackTo("letschat")}
             onAdvance={(i) => setEdgeAvatars(Math.min(i + 1, 4))}
+            onForward={onForward}
           />
         )}
         {step === "results" && (
           <ResearchResultsStep
             firstName={formValues.firstName}
             role={formValues.role}
-            onContinue={() => setStep("suggestions")}
-            onBack={() => setStep("looking")}
+            onContinue={() => goForwardTo("suggestions")}
+            onBack={() => goBackTo("looking")}
+            onForward={onForward}
           />
         )}
         {step === "suggestions" && (
@@ -248,7 +288,8 @@ export function ResearchOnboardingRoute() {
             onSuggestionClick={(prompt) =>
               enterAssistant(formValues, faceValues, prompt)
             }
-            onBack={() => setStep("results")}
+            onBack={() => goBackTo("results")}
+            onForward={onForward}
           />
         )}
       </div>
@@ -259,8 +300,10 @@ export function ResearchOnboardingRoute() {
     return (
       <IntroductionScreen
         firstName={formValues.firstName}
-        onContinue={() => setStep("talk")}
-        onBack={() => setStep("face")}
+        assistantName={faceValues?.name}
+        onContinue={() => goForwardTo("different")}
+        onBack={() => goBackTo("face")}
+        onForward={onForward}
       />
     );
   }
@@ -270,9 +313,10 @@ export function ResearchOnboardingRoute() {
       <GiveMeAFaceScreen
         onContinue={(face) => {
           setFaceValues(face);
-          setStep("intro");
+          goForwardTo("intro");
         }}
-        onBack={() => setStep("form")}
+        onBack={() => goBackTo("form")}
+        onForward={onForward}
       />
     );
   }

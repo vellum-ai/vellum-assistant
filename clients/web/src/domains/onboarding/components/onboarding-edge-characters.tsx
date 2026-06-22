@@ -82,7 +82,12 @@ export function OnboardingEdgeCharacters() {
             }}
           >
             <div style={{ transform: `rotate(${rotation}deg)` }}>
-              <AnimatedAvatar components={components} traits={traits} size={size} />
+              <AnimatedAvatar
+                components={components}
+                traits={traits}
+                size={size}
+                breathe={false}
+              />
             </div>
           </div>
         );

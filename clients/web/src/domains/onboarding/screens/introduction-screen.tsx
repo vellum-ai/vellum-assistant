@@ -23,8 +23,12 @@ import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-component
 
 interface IntroductionScreenProps {
   firstName: string;
+  /** The name the user gave the assistant on the picker step (if any). */
+  assistantName?: string;
   onContinue: () => void;
   onBack: () => void;
+  /** Redo into the next step — only set when the user has stepped back. */
+  onForward?: () => void;
 }
 
 /** Multiply each channel of a #rrggbb hex by `factor` (clamped). */
@@ -57,8 +61,10 @@ function useViewport() {
 
 export function IntroductionScreen({
   firstName,
+  assistantName,
   onContinue,
   onBack,
+  onForward,
 }: IntroductionScreenProps) {
   const components = useBundledAvatarComponents();
   const characters = useOnboardingAvatarPoolStore.use.characters();
@@ -77,9 +83,10 @@ export function IntroductionScreen({
     return { body, color: color.hex };
   }, [components, chosen]);
 
-  const greeting = firstName.trim()
-    ? `Hi nice to meet you ${firstName.trim()}!`
-    : "Hi nice to meet you!";
+  const greeting = firstName.trim() ? `Hey, ${firstName.trim()}!` : "Hey!";
+  const intro = assistantName?.trim()
+    ? `I’m ${assistantName.trim()}, your new AI assistant`
+    : "I’m your new AI assistant";
 
   if (!art) {
     return (
@@ -146,13 +153,7 @@ export function IntroductionScreen({
         animate={{ opacity: 1 }}
         transition={reduce ? { duration: 0 } : { duration: 0.4, delay: 1 }}
       >
-        <OnboardingTopBar
-          current={3}
-          total={5}
-          label="Introduction"
-          onBack={onBack}
-          onNext={onContinue}
-        />
+        <OnboardingTopBar onBack={onBack} onNext={onForward} />
       </motion.div>
 
       {/* Greeting + Continue, grouped so the button sits just under the text. */}
@@ -178,7 +179,7 @@ export function IntroductionScreen({
             className="block text-[clamp(2.5rem,6vw,5rem)]"
             style={{ color: tone.fg }}
           >
-            I&rsquo;m your new AI assistant.
+            {intro}
           </span>
         </motion.h1>
 

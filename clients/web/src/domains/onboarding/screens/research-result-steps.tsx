@@ -74,9 +74,12 @@ const MINI = 48;
 export function MeetingCreatedStep({
   onDone,
   onBack,
+  onForward,
 }: {
   onDone: () => void;
   onBack: () => void;
+  /** Redo into the next step — only set when the user has stepped back. */
+  onForward?: () => void;
 }) {
   const { components, chosen } = useChosenAvatar();
   const reduce = useReducedMotion();
@@ -102,13 +105,7 @@ export function MeetingCreatedStep({
 
   return (
     <div className="absolute inset-0 z-10 overflow-hidden text-white">
-      <OnboardingTopBar
-        current={4}
-        total={5}
-        label="Quick setup"
-        onBack={onBack}
-        tone="light"
-      />
+      <OnboardingTopBar onBack={onBack} onNext={onForward} tone="light" />
 
       <div
         className="absolute flex items-center gap-4"
@@ -168,11 +165,14 @@ export function LookingYouUpStep({
   onDone,
   onBack,
   onAdvance,
+  onForward,
 }: {
   onDone: () => void;
   onBack: () => void;
   /** Reports the current message index — used to pop an edge avatar per line. */
   onAdvance?: (index: number) => void;
+  /** Redo into the next step — only set when the user has stepped back. */
+  onForward?: () => void;
 }) {
   const tone = useOnboardingTone();
   const [index, setIndex] = useState(0);
@@ -189,7 +189,7 @@ export function LookingYouUpStep({
 
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
-      <OnboardingTopBar current={4} total={5} label="Quick setup" onBack={onBack} />
+      <OnboardingTopBar onBack={onBack} onNext={onForward} />
       <div className="absolute left-1/2 top-[26%] flex w-full max-w-xl -translate-x-1/2 items-center gap-3 px-6">
         <MiniAssistant />
         <AnimatePresence mode="wait">
@@ -230,11 +230,14 @@ export function ResearchResultsStep({
   role,
   onContinue,
   onBack,
+  onForward,
 }: {
   firstName: string;
   role: string;
   onContinue: () => void;
   onBack: () => void;
+  /** Redo into the next step — only set when the user has stepped back. */
+  onForward?: () => void;
 }) {
   const tone = useOnboardingTone();
   const reduce = useReducedMotion();
@@ -243,7 +246,7 @@ export function ResearchResultsStep({
 
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
-      <OnboardingTopBar current={4} total={5} label="Almost there" onBack={onBack} />
+      <OnboardingTopBar onBack={onBack} onNext={onForward} />
 
       <div className="absolute left-1/2 top-[26%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6">
         <div className="flex items-center gap-3">
@@ -319,16 +322,19 @@ const MOCK_SUGGESTIONS = [
 export function SuggestionsStep({
   onSuggestionClick,
   onBack,
+  onForward,
 }: {
   onSuggestionClick: (prompt: string) => void;
   onBack: () => void;
+  /** Redo into the next step — only set when the user has stepped back. */
+  onForward?: () => void;
 }) {
   const tone = useOnboardingTone();
   const reduce = useReducedMotion();
 
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
-      <OnboardingTopBar current={4} total={5} label="Almost there" onBack={onBack} />
+      <OnboardingTopBar onBack={onBack} onNext={onForward} />
 
       <div className="absolute left-1/2 top-[26%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6">
         <div className="flex items-center gap-3">

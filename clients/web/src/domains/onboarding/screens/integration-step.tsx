@@ -21,6 +21,8 @@ interface IntegrationStepProps {
   /** Fire the eyes' upward jolt as the coin reaches them. */
   onBumpEyes: () => void;
   onBack: () => void;
+  /** Redo into the next step — only set when the user has stepped back. */
+  onForward?: () => void;
 }
 
 /** Coin drop → bump → quick gravity arc up + back down (seconds). The fall is
@@ -32,6 +34,7 @@ export function IntegrationStep({
   onClaim,
   onBumpEyes,
   onBack,
+  onForward,
 }: IntegrationStepProps) {
   const reduce = useReducedMotion();
   const tone = useOnboardingTone();
@@ -55,14 +58,7 @@ export function IntegrationStep({
 
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
-      <OnboardingTopBar
-        current={4}
-        total={5}
-        label="Quick setup"
-        onBack={onBack}
-        onNext={handleClaim}
-        nextDisabled={claiming}
-      />
+      <OnboardingTopBar onBack={onBack} onNext={onForward} />
 
       <div className="absolute left-1/2 top-[26%] flex -translate-x-1/2 flex-col items-center gap-3 text-center">
         <h1
