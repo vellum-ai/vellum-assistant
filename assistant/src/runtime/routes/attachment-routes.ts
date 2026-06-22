@@ -122,7 +122,7 @@ const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
  * response schemas so the generated client type is a single source of truth
  * (camelCase, matching the rest of the daemon API and the get-by-id response).
  */
-const attachmentMetadataSchema = z.object({
+export const attachmentMetadataSchema = z.object({
   id: z.string(),
   filename: z.string(),
   mimeType: z.string(),
