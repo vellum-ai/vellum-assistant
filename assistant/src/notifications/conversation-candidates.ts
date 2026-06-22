@@ -10,11 +10,11 @@
  * needs for a routing decision, not full conversation contents.
  */
 
-import { and, count, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, desc, eq, isNotNull } from "drizzle-orm";
 
+import { listPendingRequestsByConversationScope } from "../memory/canonical-guardian-store.js";
 import { getDb } from "../memory/db-connection.js";
 import {
-  channelGuardianApprovalRequests,
   conversations,
   notificationDecisions,
   notificationDeliveries,
@@ -169,72 +169,24 @@ function buildCandidatesForChannel(
     if (candidates.length >= MAX_CANDIDATES_PER_CHANNEL) break;
   }
 
-  // Batch-enrich all candidates with guardian context in a single query
-  if (candidates.length > 0) {
-    const pendingCounts = batchCountPendingByConversation(
-      candidates.map((c) => c.conversationId),
-    );
-    for (const candidate of candidates) {
-      const pendingCount = pendingCounts.get(candidate.conversationId) ?? 0;
-      if (pendingCount > 0) {
-        candidate.guardianContext = {
-          pendingUnresolvedRequestCount: pendingCount,
-        };
-      }
+  // Enrich each candidate with its count of pending guardian requests. The
+  // canonical store owns the addressing convention and counts by conversation
+  // scope: the request's source conversation plus any conversation its card was
+  // delivered to (e.g. an access request whose synthetic source id differs from
+  // the in-app card's destination conversation).
+  for (const candidate of candidates) {
+    const pendingCount = listPendingRequestsByConversationScope(
+      candidate.conversationId,
+      candidate.channel,
+    ).length;
+    if (pendingCount > 0) {
+      candidate.guardianContext = {
+        pendingUnresolvedRequestCount: pendingCount,
+      };
     }
   }
 
   return candidates;
-}
-
-// -- Guardian context enrichment ----------------------------------------------
-
-/**
- * Batch-count pending guardian approval requests for multiple conversations
- * in a single query. Returns a map from conversationId to pending count
- * (only entries with count > 0 are included).
- */
-function batchCountPendingByConversation(
-  conversationIds: string[],
-): Map<string, number> {
-  const result = new Map<string, number>();
-  if (conversationIds.length === 0) return result;
-
-  try {
-    const db = getDb();
-
-    const rows = db
-      .select({
-        conversationId: channelGuardianApprovalRequests.conversationId,
-        count: count(),
-      })
-      .from(channelGuardianApprovalRequests)
-      .where(
-        and(
-          inArray(
-            channelGuardianApprovalRequests.conversationId,
-            conversationIds,
-          ),
-          eq(channelGuardianApprovalRequests.status, "pending"),
-        ),
-      )
-      .groupBy(channelGuardianApprovalRequests.conversationId)
-      .all();
-
-    for (const row of rows) {
-      if (row.count > 0) {
-        result.set(row.conversationId, row.count);
-      }
-    }
-  } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    log.warn(
-      { err: errMsg },
-      "Failed to batch-query guardian context for candidates",
-    );
-  }
-
-  return result;
 }
 
 // -- Prompt serialization -----------------------------------------------------
