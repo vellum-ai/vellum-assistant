@@ -25,6 +25,7 @@ import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useOnboardingFocusStore } from "@/stores/onboarding-focus-store";
 import { routes } from "@/utils/routes";
+import { OnboardingBackButton } from "@/components/onboarding-back-button";
 import { ResearchActivityFeed } from "@/domains/chat/onboarding-research/research-activity-feed";
 import { ResearchResultsView } from "@/domains/chat/onboarding-research/research-results-view";
 import {
@@ -54,6 +55,8 @@ export function ResearchResultsOverlay() {
   const liveWebActivity = useTurnStore((s) => s.liveWebActivity);
   const exitFocus = useOnboardingFocusStore.use.exitFocus();
   const requestFollowup = useOnboardingFocusStore.use.requestFollowup();
+  const beginCheckin = useOnboardingFocusStore.use.beginCheckin();
+  const checkinUserName = useOnboardingFocusStore.use.checkinUserName();
   const navigate = useNavigate();
 
   const processing = isSending(turnPhase);
@@ -180,8 +183,14 @@ export function ResearchResultsOverlay() {
       ? "empty"
       : "loading";
 
+  // Back re-shows the calendar check-in step (z-60) over the results, which
+  // stay mounted behind it. The research pass has already run, so stepping back
+  // and forward again is cheap.
+  const handleBack = () => beginCheckin(checkinUserName ?? undefined);
+
   return (
-    <div className="fixed inset-0 z-50">
+    <div data-theme="dark" className="fixed inset-0 z-50">
+      <OnboardingBackButton onClick={handleBack} />
       <ResearchResultsView
         mode={mode}
         loadingContent={<ResearchActivityFeed />}

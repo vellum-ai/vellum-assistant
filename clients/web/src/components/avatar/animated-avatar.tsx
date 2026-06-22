@@ -146,9 +146,16 @@ export function AnimatedAvatar({
   const eyeCenterOutputY =
     bodyScaleFactor * (remapTy + eyeStyle.eyeCenter.y * remapScale) + bodyTy;
 
+  // Wobble variants are only used during streaming, and precomputing them is
+  // O(n²) per path — doing it eagerly for every avatar (e.g. the 10 mounted on
+  // each onboarding step) caused a noticeable jank on mount. Compute lazily,
+  // only once an avatar actually streams.
   const morphPaths = useMemo(
-    () => precomputeWobbledPaths(bodyShape.svgPath, 16, 0.06),
-    [bodyShape.svgPath],
+    () =>
+      isStreaming
+        ? precomputeWobbledPaths(bodyShape.svgPath, 16, 0.06)
+        : [bodyShape.svgPath],
+    [bodyShape.svgPath, isStreaming],
   );
 
   const [isBlinking, setIsBlinking] = useState(false);
