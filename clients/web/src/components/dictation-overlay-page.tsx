@@ -1,17 +1,19 @@
-import { Check, Loader2, TriangleAlert } from "lucide-react";
+import { Check, Loader2, Square, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import {
   getDictationOverlayState,
+  requestDictationOverlayStop,
+  setDictationOverlayInteractive,
   subscribeToDictationOverlayState,
 } from "@/runtime/dictation-overlay";
 import type { DictationOverlayState } from "@/runtime/is-electron";
 
 /**
  * Live dictation pill rendered inside the Electron dictation overlay
- * BrowserWindow — a click-through, non-activating panel pinned top-center
- * of the active display while the user dictates via push-to-talk into
- * another app. The Electron port of the native Swift client's
+ * BrowserWindow — a non-activating panel pinned top-center of the active
+ * display while the user dictates via push-to-talk into another app. The
+ * Electron port of the native Swift client's
  * `DictationOverlayWindow`: a status row (state icon + label), compact
  * audio meter, and optional two-line live transcription.
  *
@@ -54,9 +56,7 @@ export function DictationOverlayPage() {
           <span className="truncate text-[11px] font-medium text-[var(--content-secondary)]">
             {stateLabel(state)}
           </span>
-          {state.kind === "recording" && (
-            <AudioMeter level={audioLevel} />
-          )}
+          {state.kind === "recording" && <RecordingActions level={audioLevel} />}
         </div>
         {transcription && (
           // Bottom-anchored two-line text: the transcript grows as words
@@ -73,12 +73,50 @@ export function DictationOverlayPage() {
   );
 }
 
+function RecordingActions({ level }: { level: number }) {
+  useEffect(() => {
+    return () => {
+      setDictationOverlayInteractive(false);
+    };
+  }, []);
+
+  const enableInteraction = () => {
+    setDictationOverlayInteractive(true);
+  };
+  const disableInteraction = () => {
+    setDictationOverlayInteractive(false);
+  };
+  const stopRecording = () => {
+    requestDictationOverlayStop();
+    setDictationOverlayInteractive(false);
+  };
+
+  return (
+    <div className="ml-auto flex shrink-0 items-center gap-2">
+      <AudioMeter level={level} />
+      <button
+        type="button"
+        className="flex size-5 items-center justify-center rounded-full text-[var(--content-secondary)] transition-colors hover:bg-[var(--surface-overlay)] hover:text-[var(--system-negative-strong)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--system-negative-strong)]"
+        aria-label="Stop recording"
+        title="Stop recording"
+        onMouseEnter={enableInteraction}
+        onMouseLeave={disableInteraction}
+        onFocus={enableInteraction}
+        onBlur={disableInteraction}
+        onClick={stopRecording}
+      >
+        <Square className="size-2.5 fill-current" strokeWidth={2} aria-hidden />
+      </button>
+    </div>
+  );
+}
+
 function AudioMeter({ level }: { level: number }) {
   const clamped = Math.max(0, Math.min(1, level));
 
   return (
     <div
-      className="ml-auto flex h-4 w-16 shrink-0 items-end gap-0.5"
+      className="flex h-4 w-16 shrink-0 items-end gap-0.5"
       aria-hidden
     >
       {[0.16, 0.32, 0.48, 0.64, 0.8, 0.96].map((threshold, index) => (

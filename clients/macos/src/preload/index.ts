@@ -494,6 +494,21 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke(
         "vellum:dictationOverlay:getState",
       ) as Promise<DictationOverlayState | null>,
+    requestStop: (): void => {
+      ipcRenderer.send("vellum:dictationOverlay:requestStop");
+    },
+    onStopRequested: (callback) => {
+      const handler = () => {
+        callback();
+      };
+      ipcRenderer.on("vellum:dictationOverlay:stopRequested", handler);
+      return () => {
+        ipcRenderer.off("vellum:dictationOverlay:stopRequested", handler);
+      };
+    },
+    setInteractive: (interactive: boolean): void => {
+      ipcRenderer.send("vellum:dictationOverlay:setInteractive", interactive);
+    },
   },
   popout: {
     open: (conversationId: string): Promise<void> =>

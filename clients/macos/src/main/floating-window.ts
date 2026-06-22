@@ -10,6 +10,9 @@ import { createWindow } from "./windows";
 type AlwaysOnTopLevel = NonNullable<
   Parameters<BrowserWindow["setAlwaysOnTop"]>[1]
 >;
+type IgnoreMouseEventsOptions = NonNullable<
+  Parameters<BrowserWindow["setIgnoreMouseEvents"]>[1]
+>;
 
 export type FloatingWindowPosition =
   | { x: number; y: number }
@@ -23,7 +26,7 @@ export interface CreateFloatingWindowOptions {
   focusOnShow?: boolean;
   alwaysOnTopLevel?: AlwaysOnTopLevel;
   visibleOnAllWorkspaces?: boolean;
-  ignoreMouseEvents?: boolean;
+  ignoreMouseEvents?: boolean | IgnoreMouseEventsOptions;
   browserWindow?: Omit<
     BrowserWindowConstructorOptions,
     | "webPreferences"
@@ -117,7 +120,11 @@ export const createFloatingWindow = ({
 
   win.setAlwaysOnTop(true, alwaysOnTopLevel);
   if (ignoreMouseEvents) {
-    win.setIgnoreMouseEvents(true);
+    if (typeof ignoreMouseEvents === "boolean") {
+      win.setIgnoreMouseEvents(true);
+    } else {
+      win.setIgnoreMouseEvents(true, ignoreMouseEvents);
+    }
   }
   if (visibleOnAllWorkspaces) {
     win.setVisibleOnAllWorkspaces(true, {
