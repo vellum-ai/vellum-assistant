@@ -342,6 +342,17 @@ describe("ContactStore.markChannelVerified", () => {
         .where(eq(contactChannels.id, "asst-ch"))
         .get(),
     ).toBeUndefined();
+
+    // The assistant-side mirror targets the ORIGINAL assistant id, not the
+    // resolved gateway id — otherwise the UPDATE no-ops on the split-id path.
+    const mirror = fakeAssistantDb.runCalls.find(
+      (c) =>
+        c.sql.includes("UPDATE contact_channels") &&
+        c.sql.includes("WHERE id = ?"),
+    );
+    expect(mirror).toBeTruthy();
+    expect(mirror!.bind?.[mirror!.bind!.length - 1]).toBe("asst-ch");
+    expect(mirror!.bind).not.toContain("gw-ch");
   });
 
   test("refuses to mirror when assistant channel references a missing contact", async () => {

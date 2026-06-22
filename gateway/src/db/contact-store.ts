@@ -483,10 +483,12 @@ export class ContactStore {
       policy?: string;
       revokedReason?: string | null;
       blockedReason?: string | null;
+      verifiedAt?: number | null;
+      verifiedVia?: string | null;
     },
-  ): Promise<void> {
+  ): Promise<boolean> {
     const setClauses: string[] = [];
-    const bind: (string | null)[] = [];
+    const bind: (string | number | null)[] = [];
 
     if (params.status !== undefined) {
       setClauses.push("status = ?");
@@ -504,8 +506,16 @@ export class ContactStore {
       setClauses.push("blocked_reason = ?");
       bind.push(params.blockedReason);
     }
+    if (params.verifiedAt !== undefined) {
+      setClauses.push("verified_at = ?");
+      bind.push(params.verifiedAt);
+    }
+    if (params.verifiedVia !== undefined) {
+      setClauses.push("verified_via = ?");
+      bind.push(params.verifiedVia);
+    }
 
-    if (setClauses.length === 0) return;
+    if (setClauses.length === 0) return false;
 
     setClauses.push("updated_at = ?");
     bind.push(String(Date.now()));
@@ -515,26 +525,26 @@ export class ContactStore {
       `UPDATE contact_channels SET ${setClauses.join(", ")} WHERE id = ?`,
       bind,
     );
+    if (result.changes > 0) return true;
 
     // Legacy channels may have a different assistant-side ID. If the ID-keyed
     // update touched zero rows, resolve by (contactId, type, address) and
     // retry so the assistant mirror stays consistent.
-    if (result.changes === 0) {
-      const gwChannel = this.db
-        .select()
-        .from(contactChannels)
-        .where(eq(contactChannels.id, channelId))
-        .get();
-      if (!gwChannel) return;
+    const gwChannel = this.db
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, channelId))
+      .get();
+    if (!gwChannel) return false;
 
-      const logicalBind = bind.slice(0, -1); // drop the channelId
-      logicalBind.push(gwChannel.contactId, gwChannel.type, gwChannel.address);
-      await assistantDbRun(
-        `UPDATE contact_channels SET ${setClauses.join(", ")}
+    const logicalBind = bind.slice(0, -1); // drop the channelId
+    logicalBind.push(gwChannel.contactId, gwChannel.type, gwChannel.address);
+    const retry = await assistantDbRun(
+      `UPDATE contact_channels SET ${setClauses.join(", ")}
          WHERE contact_id = ? AND type = ? AND address = ? COLLATE NOCASE`,
-        logicalBind,
-      );
-    }
+      logicalBind,
+    );
+    return retry.changes > 0;
   }
 
   /**
@@ -774,14 +784,19 @@ export class ContactStore {
     // wrote (best-effort dual-write). Skipping the no-op case prevents
     // spurious verified_at/updated_at drift in the assistant DB on idempotent
     // calls. The gateway DB remains source of truth.
+    //
+    // Key the mirror by the ORIGINAL assistant channel id, not the resolved
+    // gateway `targetId`: on the split-id path they differ and the assistant
+    // row is keyed by `channelId`, so mirroring by `targetId` would no-op.
+    // The dual-write's logical (contactId,type,address) fallback covers rows
+    // keyed differently from the id.
     if (didWrite) {
       try {
-        await assistantDbRun(
-          `UPDATE contact_channels
-             SET status = 'active', verified_at = ?, verified_via = 'manual', updated_at = ?
-           WHERE id = ?`,
-          [now, now, targetId],
-        );
+        await this.dualWriteChannelStatusToAssistantDb(channelId, {
+          status: "active",
+          verifiedAt: now,
+          verifiedVia: "manual",
+        });
       } catch (err) {
         log.warn(
           { channelId, targetId, err },
