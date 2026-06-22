@@ -145,10 +145,19 @@ function SubagentPhaseRow({
       data-phase-label={section.label}
       className={cn("relative flex flex-col gap-2", !isLast && "pb-4")}
     >
-      {/* No connector trails below the final row. `-bottom-2` extends the line
-          lower than the main-chat default so the gap between segments is
-          tighter (the timeline still reads as segments, just closer together). */}
-      {!isLast && <TimelineConnector className="-bottom-2" />}
+      {/* No connector trails below the final row. The dot centre sits 11px from
+          the row top (label line-height 18px dominates the 22px row; the 14px
+          bullet box centres there), dot radius 2.5px. For a uniform 4px gap at
+          BOTH ends we start the line 4px below this dot (11 + 2.5 + 4 = 17.5px)
+          and end it 4px above the next dot. The next dot is always 11px into the
+          following row, which begins at this container's bottom edge, so the
+          line must finish 4.5px below that edge (11 − 2.5 − 4 = 4.5) — and since
+          that offset is relative to the container bottom it holds whether the
+          row is collapsed or expanded. These override the shared connector's
+          `top-6` / `bottom-0` defaults via tailwind-merge. */}
+      {!isLast && (
+        <TimelineConnector className="top-[17.5px] -bottom-[4.5px]" />
+      )}
 
       <button
         type="button"
