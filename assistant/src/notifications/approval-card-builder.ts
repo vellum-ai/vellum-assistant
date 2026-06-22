@@ -40,8 +40,14 @@ export interface ApprovalCardParams {
  * Build a `[ui_surface, text]` block pair for a guardian approval notification.
  *
  * The `ui_surface` block renders as a card with Approve/Reject buttons in
- * clients that support Surface rendering. The `text` block provides a
- * plain-text fallback for older clients, search indexing, and CLI display.
+ * clients that support Surface rendering. The `text` block is the card's
+ * plain-text fallback — it feeds the model, search indexing, CLI display, and
+ * channel replies, which read it as ordinary text.
+ *
+ * The fallback block is flagged `_surfaceFallback` so the display projector
+ * (`renderHistoryContent`) keeps it in the flat `.text` body but omits it from
+ * `contentBlocks`/`textSegments`. Without that, a surface-capable client would
+ * render the card AND its fallback text — the duplicate this flag prevents.
  */
 export function buildApprovalCardBlocks(params: ApprovalCardParams): unknown[] {
   const {
@@ -87,6 +93,11 @@ export function buildApprovalCardBlocks(params: ApprovalCardParams): unknown[] {
   const textBlock = {
     type: "text" as const,
     text: fallbackText,
+    // Display-only hint: surface-capable clients render the card from
+    // `surfaceBlock` and must skip this block (see `renderHistoryContent`), or
+    // they show the card and a duplicate text line. Non-display consumers
+    // (model, search, CLI `.text`) read it as ordinary text.
+    _surfaceFallback: true,
   };
 
   return [surfaceBlock, textBlock];
