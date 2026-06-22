@@ -136,6 +136,47 @@ function buildRequesterChannelNotice(params: {
   return payload;
 }
 
+/**
+ * Emit the `verification_sent` lifecycle signal on guardian approve.
+ *
+ * Always `visibleInSourceNow: true` so the notification pipeline suppresses
+ * delivery — the guardian already received the code (on-channel via the channel
+ * reply, off-channel via the inline reply text), so this records the lifecycle
+ * transition without sending a redundant "approved" message. It also stands in
+ * for `guardian_decision` on approve (which would notify), so the pipeline
+ * doesn't announce approval before verification.
+ */
+function emitVerificationSentSignal(params: {
+  channel: NotificationSourceChannel;
+  conversationId: string | null | undefined;
+  requesterExternalUserId: string;
+  requesterChatId: string;
+  requesterDisplayName: string | null;
+  decidedByDisplayName: string | null;
+  verificationSessionId: string;
+}): void {
+  void emitNotificationSignal({
+    sourceEventName: "ingress.trusted_contact.verification_sent",
+    sourceChannel: params.channel,
+    sourceContextId: params.conversationId ?? "",
+    attentionHints: {
+      requiresAction: false,
+      urgency: "low",
+      isAsyncBackground: true,
+      visibleInSourceNow: true,
+    },
+    contextPayload: {
+      sourceChannel: params.channel,
+      requesterExternalUserId: params.requesterExternalUserId,
+      requesterChatId: params.requesterChatId,
+      requesterDisplayName: params.requesterDisplayName,
+      decidedByDisplayName: params.decidedByDisplayName,
+      verificationSessionId: params.verificationSessionId,
+    },
+    dedupeKey: `trusted-contact:verification-sent:${params.verificationSessionId}`,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -782,69 +823,82 @@ const accessRequestResolver: GuardianRequestResolver = {
         }
       }
 
-      // Emit verification_sent with visibleInSourceNow=true so the notification
-      // pipeline suppresses delivery — the guardian already received the code.
+      // Record the verification_sent lifecycle transition (delivery suppressed).
       if (codeDelivered) {
-        void emitNotificationSignal({
-          sourceEventName: "ingress.trusted_contact.verification_sent",
-          sourceChannel: channel,
-          sourceContextId: request.conversationId ?? "",
-          attentionHints: {
-            requiresAction: false,
-            urgency: "low",
-            isAsyncBackground: true,
-            visibleInSourceNow: true,
-          },
-          contextPayload: {
-            sourceChannel: channel,
-            requesterExternalUserId,
-            requesterChatId,
-            requesterDisplayName,
-            decidedByDisplayName,
-            verificationSessionId: session.sessionId,
-          },
-          dedupeKey: `trusted-contact:verification-sent:${session.sessionId}`,
+        emitVerificationSentSignal({
+          channel,
+          conversationId: request.conversationId,
+          requesterExternalUserId,
+          requesterChatId,
+          requesterDisplayName,
+          decidedByDisplayName,
+          verificationSessionId: session.sessionId,
         });
       }
-    } else if (desktopDeliverUrl && requesterChatId) {
-      // Guardian decided off-channel (e.g. desktop) but the requester is on a
-      // deliverable channel. On Slack, DM the code directly (parity with the
-      // on-channel path); otherwise fall back to the courier notice.
-      const requesterCodeDelivered =
-        channel === "slack" && requesterExternalUserId
-          ? await deliverVerificationCodeToSlackRequester({
-              replyCallbackUrl: desktopDeliverUrl,
-              requesterExternalUserId,
-              verificationCode: session.secret,
-              assistantId,
-            })
-          : false;
-
-      if (requesterCodeDelivered) {
-        requesterNotified = true;
-      } else {
-        // For Slack, route to DM via requesterExternalUserId (user ID) instead
-        // of requesterChatId (channel ID) to avoid posting in public channels.
-        const targetChatId =
+    } else {
+      // Guardian decided off-channel (e.g. desktop). The guardian receives the
+      // verification code inline via `guardianReplyText` regardless of the
+      // requester's channel, so the lifecycle transition is recorded for every
+      // off-channel approve — including channels with no deliverable callback
+      // (e.g. email), where the requester cannot be auto-notified here.
+      if (desktopDeliverUrl && requesterChatId) {
+        // The requester is on a deliverable channel. On Slack, DM the code
+        // directly (parity with the on-channel path); otherwise fall back to
+        // the courier notice.
+        const requesterCodeDelivered =
           channel === "slack" && requesterExternalUserId
-            ? requesterExternalUserId
-            : requesterChatId;
-        try {
-          await deliverChannelReply(desktopDeliverUrl, {
-            chatId: targetChatId,
-            text:
-              "Your access request has been approved! " +
-              "Please enter the 6-digit verification code you receive from the guardian.",
-            assistantId,
-          });
+            ? await deliverVerificationCodeToSlackRequester({
+                replyCallbackUrl: desktopDeliverUrl,
+                requesterExternalUserId,
+                verificationCode: session.secret,
+                assistantId,
+              })
+            : false;
+
+        if (requesterCodeDelivered) {
           requesterNotified = true;
-        } catch (err) {
-          log.error(
-            { err, requesterChatId },
-            "Failed to notify requester of access request approval (desktop decision path)",
-          );
+        } else {
+          // For Slack, route to DM via requesterExternalUserId (user ID)
+          // instead of requesterChatId (channel ID) to avoid posting in public
+          // channels.
+          const targetChatId =
+            channel === "slack" && requesterExternalUserId
+              ? requesterExternalUserId
+              : requesterChatId;
+          try {
+            await deliverChannelReply(desktopDeliverUrl, {
+              chatId: targetChatId,
+              text:
+                "Your access request has been approved! " +
+                "Please enter the 6-digit verification code you receive from the guardian.",
+              assistantId,
+            });
+            requesterNotified = true;
+          } catch (err) {
+            log.error(
+              { err, requesterChatId },
+              "Failed to notify requester of access request approval (desktop decision path)",
+            );
+          }
         }
       }
+
+      // Record the verification_sent lifecycle transition for every off-channel
+      // approve. The session is minted and the guardian has the code via
+      // `guardianReplyText` regardless of whether (or how) the requester was
+      // notified — mirroring the on-channel branch, which keys off guardian
+      // receipt rather than requester delivery. Without this, approves on
+      // channels with no deliverable callback (e.g. email) would silently skip
+      // the audit/lifecycle record.
+      emitVerificationSentSignal({
+        channel,
+        conversationId: request.conversationId,
+        requesterExternalUserId,
+        requesterChatId,
+        requesterDisplayName,
+        decidedByDisplayName,
+        verificationSessionId: session.sessionId,
+      });
     }
 
     const verificationReplyText = requesterNotified
