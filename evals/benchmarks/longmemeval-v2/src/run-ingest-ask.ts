@@ -4,9 +4,9 @@
  * conversation B, sends a follow-up message, and captures the
  * assistant's response as the hypothesis.
  *
- * Designed to be benchmark-agnostic. The caller (e.g. the
- * LongMemEval-V2 Phase 1 wire) is responsible for shaping `inputs`,
- * `ingestMessage`, and `questionMessage` to the benchmark's contract.
+ * Designed for LongMemEval-V2's ingest-then-ask contract. The caller
+ * shapes `inputs`, `ingestMessage`, and `questionMessage` to the
+ * benchmark's specific test item.
  *
  * Why a separate runner instead of extending `runEvalOnce`:
  *
@@ -30,13 +30,14 @@ import type {
   AgentHatchInput,
   BaseAgent,
   WorkspaceFileWrite,
-} from "../adapter";
-import { confirmationRequestId } from "../adapter";
-import type { Profile } from "../profile";
+} from "../../../src/lib/adapter";
+import { confirmationRequestId } from "../../../src/lib/adapter";
+import type { Profile } from "../../../src/lib/profile";
 
-import { createAgent } from "./create-agent";
-import { AgentEventCollector } from "./event-collector";
-import { assistantContent } from "./run-once";
+import { createAgent } from "../../../src/lib/runner/create-agent";
+import { AgentEventCollector } from "../../../src/lib/runner/event-collector";
+import { appendTranscriptTurn } from "../../../src/lib/metrics";
+import { assistantContent } from "../../../src/lib/runner/run-once";
 
 export interface IngestAskInput {
   /** Profile to hatch. */
@@ -287,6 +288,13 @@ export async function runIngestAsk(
     const ingestCollector = new AgentEventCollector(
       agent.events()[Symbol.asyncIterator](),
     );
+    const ingestSendTime = new Date().toISOString();
+    await appendTranscriptTurn(input.runId, {
+      role: "simulator",
+      content: input.ingestMessage,
+      emittedAt: ingestSendTime,
+      conversationKey: ingestConversationKey,
+    }).catch(() => undefined);
     await agent.send({ content: input.ingestMessage });
 
     // Auto-approve tool confirmations in both turns. The agent legitimately
@@ -358,6 +366,25 @@ export async function runIngestAsk(
       );
     }
 
+    // Persist the ingest assistant's response (typically "Ready.") as a
+    // transcript turn tagged with the ingest conversation key, so the
+    // report UI can group it under the Ingest conversation pane.
+    const ingestResponseText = joinAssistantText(ingestEvents).trim();
+    if (ingestResponseText) {
+      const ingestEndStamp = (() => {
+        for (let i = ingestEvents.length - 1; i >= 0; i--) {
+          if (ingestEvents[i].emittedAt) return ingestEvents[i].emittedAt!;
+        }
+        return ingestSendTime;
+      })();
+      await appendTranscriptTurn(input.runId, {
+        role: "assistant",
+        content: ingestResponseText,
+        emittedAt: ingestEndStamp,
+        conversationKey: ingestConversationKey,
+      }).catch(() => undefined);
+    }
+
     // Close A → open B. The agent process and any persistent state
     // (memory layer, staged workspace files) survive; only the chat
     // history resets so the question turn cannot just look at the
@@ -377,6 +404,13 @@ export async function runIngestAsk(
     const questionCollector = new AgentEventCollector(
       agent.events()[Symbol.asyncIterator](),
     );
+    const questionSendTime = new Date().toISOString();
+    await appendTranscriptTurn(input.runId, {
+      role: "simulator",
+      content: input.questionMessage,
+      emittedAt: questionSendTime,
+      conversationKey: questionConversationKey,
+    }).catch(() => undefined);
     await agent.send({ content: input.questionMessage });
     const questionEvents = await questionCollector.collectUntilQuiet({
       quietMs,
@@ -398,6 +432,23 @@ export async function runIngestAsk(
     // empty hypothesis and let the caller score it as a completed miss
     // rather than throwing and excluding the run.
     const hypothesis = joinAssistantText(questionEvents);
+
+    // Persist the question-turn assistant response as a transcript turn
+    // tagged with the question conversation key.
+    if (hypothesis.trim()) {
+      const questionEndStamp = (() => {
+        for (let i = questionEvents.length - 1; i >= 0; i--) {
+          if (questionEvents[i].emittedAt) return questionEvents[i].emittedAt!;
+        }
+        return questionSendTime;
+      })();
+      await appendTranscriptTurn(input.runId, {
+        role: "assistant",
+        content: hypothesis.trim(),
+        emittedAt: questionEndStamp,
+        conversationKey: questionConversationKey,
+      }).catch(() => undefined);
+    }
 
     // Read the egress jail's observed usage while the agent (and its
     // recording sidecar) is still alive — the `finally` retires both.

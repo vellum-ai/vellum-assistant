@@ -31,6 +31,13 @@ import { handle, on } from "./ipc";
 const OVERLAY_KIND = "dictation-overlay";
 const OVERLAY_PATH = "/floating/dictation-overlay";
 
+type AlwaysOnTopLevel = NonNullable<
+  Parameters<BrowserWindow["setAlwaysOnTop"]>[1]
+>;
+
+export const DICTATION_OVERLAY_ALWAYS_ON_TOP_LEVEL =
+  "screen-saver" satisfies AlwaysOnTopLevel;
+
 // The window is a fixed-size transparent canvas larger than the visible
 // pill: the page renders the pill top-centered and sized to content, with
 // padding so its CSS shadow has room to paint (the window itself draws no
@@ -168,6 +175,7 @@ const ensureOverlayWindow = (): BrowserWindow => {
     width: OVERLAY_WIDTH,
     height: OVERLAY_HEIGHT,
     focusOnShow: false,
+    alwaysOnTopLevel: DICTATION_OVERLAY_ALWAYS_ON_TOP_LEVEL,
     ignoreMouseEvents: true,
     position: overlayPosition,
     browserWindow: {

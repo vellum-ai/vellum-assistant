@@ -71,6 +71,17 @@ const log = getLogger("relay-server");
 const UUID_SHAPED_NAME =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
+/**
+ * Return the first whitespace-delimited token of a name, or `null` when the
+ * input is null/blank. Used for greetings so "Carolina Flaherty" -> "Carolina".
+ */
+function firstToken(name: string | null | undefined): string | null {
+  if (!name) return null;
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  return trimmed.split(/\s+/)[0] ?? null;
+}
+
 // ── ConversationRelay message types ──────────────────────────────────
 
 // Messages FROM Twilio
@@ -220,8 +231,7 @@ export class RelayConnection {
   private inviteRedemptionAssistantId: string | null = null;
   private inviteRedemptionFromNumber: string | null = null;
   private inviteRedemptionCodeLength = 6;
-  private inviteRedemptionFriendName: string | null = null;
-  private inviteRedemptionGuardianName: string | null = null;
+  private inviteRedemptionInviteeName: string | null = null;
 
   // In-call guardian approval wait state (friend-initiated)
   private accessRequestWaitActive = false;
@@ -650,8 +660,7 @@ export class RelayConnection {
         this.startInviteRedemption(
           outcome.assistantId,
           outcome.fromNumber,
-          outcome.friendName,
-          outcome.guardianName,
+          outcome.inviteeName,
           !resolved.isInbound,
         );
         return;
@@ -876,8 +885,14 @@ export class RelayConnection {
       | "invite_redeemed"
       | "access_approved"
       | "trusted_contact_verified";
-    friendName?: string;
-    guardianName?: string;
+    /**
+     * Display name resolved from the bound contact (or, for outbound invite
+     * calls, the session's recorded invitee name). Greeting uses only the
+     * first whitespace-delimited token; an empty/blank value triggers the
+     * neutral "Hi there" greeting rather than substituting the channel
+     * address.
+     */
+    inviteeName?: string | null;
   }): void {
     const { assistantId, fromNumber } = params;
 
@@ -902,17 +917,16 @@ export class RelayConnection {
     let handoffText: string;
 
     if (params.activationReason === "invite_redeemed") {
-      const name = params.friendName;
+      const firstName = firstToken(params.inviteeName);
       const assistantName = this.resolveAssistantLabel();
-      const gLabel = params.guardianName || guardianLabel;
-      if (name) {
+      if (firstName) {
         handoffText = assistantName
-          ? `Great, I've verified that you are ${name}. It's nice to meet you! I'm ${assistantName}, ${gLabel}'s assistant. How can I help?`
-          : `Great, I've verified that you are ${name}. It's nice to meet you! How can I help?`;
+          ? `Great, I've verified that you are ${firstName}. It's nice to meet you! I'm ${assistantName}, ${guardianLabel}'s assistant. How can I help?`
+          : `Great, I've verified that you are ${firstName}. It's nice to meet you! How can I help?`;
       } else {
         handoffText = assistantName
-          ? `Great, I've verified your identity. It's nice to meet you! I'm ${assistantName}, ${gLabel}'s assistant. How can I help?`
-          : `Great, I've verified your identity. It's nice to meet you! How can I help?`;
+          ? `Hi there! I'm ${assistantName}, ${guardianLabel}'s assistant. How can I help?`
+          : `Hi there! How can I help?`;
       }
     } else {
       handoffText = `Great! ${guardianLabel} said I can speak with you. How can I help?`;
@@ -1199,16 +1213,14 @@ export class RelayConnection {
   private startInviteRedemption(
     assistantId: string,
     fromNumber: string,
-    friendName: string | null,
-    guardianName: string | null,
+    inviteeName: string | null,
     isOutbound: boolean,
   ): void {
     this.inviteRedemptionActive = true;
     this.inviteRedemptionInFlight = false;
     this.inviteRedemptionAssistantId = assistantId;
     this.inviteRedemptionFromNumber = fromNumber;
-    this.inviteRedemptionFriendName = friendName;
-    this.inviteRedemptionGuardianName = guardianName;
+    this.inviteRedemptionInviteeName = inviteeName;
     this.connectionState = "verification_pending";
     this.verificationAttempts = 0;
     this.verificationMaxAttempts = 1;
@@ -1221,8 +1233,8 @@ export class RelayConnection {
       maxAttempts: this.verificationMaxAttempts,
     });
 
-    const displayFriend = friendName ?? "there";
-    const displayGuardian = guardianName ?? "your contact";
+    const displayFriend = firstToken(inviteeName) ?? "there";
+    const displayGuardian = this.resolveGuardianLabel();
 
     let promptText: string;
     if (isOutbound) {
@@ -1655,7 +1667,7 @@ export class RelayConnection {
       inviteRedemptionAssistantId: this.inviteRedemptionAssistantId,
       inviteRedemptionFromNumber: this.inviteRedemptionFromNumber,
       enteredCode,
-      inviteRedemptionGuardianName: this.inviteRedemptionGuardianName,
+      guardianLabel: this.resolveGuardianLabel(),
     });
 
     if (result.outcome === "success") {
@@ -1680,8 +1692,7 @@ export class RelayConnection {
         assistantId: this.inviteRedemptionAssistantId,
         fromNumber: this.inviteRedemptionFromNumber,
         activationReason: "invite_redeemed",
-        friendName: this.inviteRedemptionFriendName ?? undefined,
-        guardianName: this.inviteRedemptionGuardianName ?? undefined,
+        inviteeName: this.inviteRedemptionInviteeName,
       });
     } else {
       this.inviteRedemptionActive = false;

@@ -3,7 +3,6 @@ import { useCallback, useEffect, useState } from "react";
 
 import type { McpServerEntry, McpToolsSummaryServer } from "./mcp-api";
 import { Button } from "@vellumai/design-library/components/button";
-import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
 
 const RISK_LEVELS = ["low", "medium", "high"] as const;
@@ -16,8 +15,6 @@ interface McpServerDetailModalProps {
     name: string;
     defaultRiskLevel?: string;
     maxTools?: number;
-    allowedTools?: string[] | null;
-    blockedTools?: string[] | null;
   }) => void;
   isPending: boolean;
 }
@@ -30,14 +27,10 @@ export function McpServerDetailModal({
   isPending,
 }: McpServerDetailModalProps) {
   const [riskLevel, setRiskLevel] = useState("medium");
-  const [allowedToolsText, setAllowedToolsText] = useState("");
-  const [blockedToolsText, setBlockedToolsText] = useState("");
 
   useEffect(() => {
     if (server) {
       setRiskLevel(server.defaultRiskLevel);
-      setAllowedToolsText(server.allowedTools?.join(", ") ?? "");
-      setBlockedToolsText(server.blockedTools?.join(", ") ?? "");
     }
   }, [server]);
 
@@ -46,16 +39,11 @@ export function McpServerDetailModal({
       return;
     }
 
-    const allowed = allowedToolsText.trim();
-    const blocked = blockedToolsText.trim();
-
     onSave(server.id, {
       name: server.id,
       defaultRiskLevel: riskLevel,
-      allowedTools: allowed ? allowed.split(",").map((s) => s.trim()).filter(Boolean) : null,
-      blockedTools: blocked ? blocked.split(",").map((s) => s.trim()).filter(Boolean) : null,
     });
-  }, [server, riskLevel, allowedToolsText, blockedToolsText, onSave]);
+  }, [server, riskLevel, onSave]);
 
   const handleClose = useCallback(() => {
     if (!isPending) {
@@ -95,34 +83,6 @@ export function McpServerDetailModal({
                   </option>
                 ))}
               </select>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-allowed">
-                Allowed tools (comma-separated, leave empty for all)
-              </label>
-              <Input
-                id="mcp-allowed"
-                type="text"
-                value={allowedToolsText}
-                onChange={(e) => setAllowedToolsText(e.target.value)}
-                placeholder="tool_a, tool_b"
-                fullWidth
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-blocked">
-                Blocked tools (comma-separated)
-              </label>
-              <Input
-                id="mcp-blocked"
-                type="text"
-                value={blockedToolsText}
-                onChange={(e) => setBlockedToolsText(e.target.value)}
-                placeholder="dangerous_tool"
-                fullWidth
-              />
             </div>
 
             {toolsSummary && toolsSummary.tools.length > 0 ? (

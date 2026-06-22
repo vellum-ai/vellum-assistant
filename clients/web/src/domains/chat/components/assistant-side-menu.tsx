@@ -433,56 +433,59 @@ export function AssistantSideMenu({
             <div className="flex items-center gap-2">{headerActions}</div>
           </div>
         ) : null}
-        <SideMenu.Item
-          icon={Brain}
-          label={assistantName || "Your Assistant"}
-          showCollapsedTooltip
-          active={isIntelligenceActive}
-          onSelect={onOpenIntelligence ? () => { onOpenIntelligence(); onClose?.(); } : undefined}
-        />
-        {onOpenLibrary ? (
+        {/* 2px row gap to match the conversation list. */}
+        <div className="flex flex-col gap-[2px]">
           <SideMenu.Item
-            icon={LayoutGrid}
-            label="Library"
+            icon={Brain}
+            label={assistantName || "Your Assistant"}
             showCollapsedTooltip
-            active={isLibraryActive}
-            onSelect={onOpenLibrary ? () => { onOpenLibrary(); onClose?.(); } : undefined}
+            active={isIntelligenceActive}
+            onSelect={onOpenIntelligence ? () => { onOpenIntelligence(); onClose?.(); } : undefined}
           />
-        ) : null}
-        {onOpenHome ? (
-          <SideMenu.Item
-            icon={Calendar}
-            label="Activity"
-            showCollapsedTooltip
-            active={isHomeActive}
-            badge={
-              hasUnreadHome && !isHomeActive ? (
-                <span
-                  className="h-2 w-2 rounded-full bg-[var(--system-negative-strong)]"
-                  aria-hidden="true"
-                />
-              ) : undefined
-            }
-            onSelect={onOpenHome ? () => { onOpenHome(); onClose?.(); } : undefined}
-          />
-        ) : null}
-        {pinnedApps.map((app) => (
-          <SideMenu.Item
-            key={app.appId}
-            // Apps source their icon as an emoji string on the manifest
-            // (`app.icon`). Fall back to the Rocket lucide glyph so unmojified
-            // apps still get a leading icon in the rail.
-            icon={app.icon ?? Rocket}
-            label={app.name}
-            showCollapsedTooltip
-            active={activeAppId === app.appId}
-            onSelect={onOpenApp ? () => { onOpenApp(app.appId); onClose?.(); } : undefined}
-          />
-        ))}
+          {onOpenLibrary ? (
+            <SideMenu.Item
+              icon={LayoutGrid}
+              label="Library"
+              showCollapsedTooltip
+              active={isLibraryActive}
+              onSelect={onOpenLibrary ? () => { onOpenLibrary(); onClose?.(); } : undefined}
+            />
+          ) : null}
+          {onOpenHome ? (
+            <SideMenu.Item
+              icon={Calendar}
+              label="Activity"
+              showCollapsedTooltip
+              active={isHomeActive}
+              badge={
+                hasUnreadHome && !isHomeActive ? (
+                  <span
+                    className="h-2 w-2 rounded-full bg-[var(--system-negative-strong)]"
+                    aria-hidden="true"
+                  />
+                ) : undefined
+              }
+              onSelect={onOpenHome ? () => { onOpenHome(); onClose?.(); } : undefined}
+            />
+          ) : null}
+          {pinnedApps.map((app) => (
+            <SideMenu.Item
+              key={app.appId}
+              // Apps source their icon as an emoji string on the manifest
+              // (`app.icon`). Fall back to the Rocket lucide glyph so unmojified
+              // apps still get a leading icon in the rail.
+              icon={app.icon ?? Rocket}
+              label={app.name}
+              showCollapsedTooltip
+              active={activeAppId === app.appId}
+              onSelect={onOpenApp ? () => { onOpenApp(app.appId); onClose?.(); } : undefined}
+            />
+          ))}
+        </div>
         <SideMenu.Separator />
       </SideMenu.Header>
 
-      <SideMenu.Body className="gap-[2px] pt-3 max-md:pt-4">
+      <SideMenu.Body className="gap-1 pt-3 max-md:pt-4">
         {collapsed && variant === "rail" ? (
           <div className="flex flex-col items-center gap-1">
             {headerActions}

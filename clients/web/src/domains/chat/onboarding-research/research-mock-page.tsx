@@ -5,8 +5,8 @@
  *
  * Renders the exact same `ResearchResultsView` as the live overlay, driven by
  * static fixtures + local state instead of the chat/turn stores — so we can
- * iterate on layout, copy, and the remove / deeper-dive / suggestion-click
- * interactions instantly, without running the real (slow) research job.
+ * iterate on layout, copy, and the remove / suggestion-click interactions
+ * instantly, without running the real (slow) research job.
  *
  * Suggestion clicks use the real navigation path, so this also reproduces the
  * "start a new conversation with the message sent" behavior in isolation.
@@ -80,7 +80,6 @@ export function ResearchMockPage() {
   const [removals, setRemovals] = useState<Map<number, RemovalReason | null>>(
     () => new Map(),
   );
-  const [deeperDiveResolved, setDeeperDiveResolved] = useState(false);
 
   const items = MOCK_CLAIMS.map((fact, index) => ({ fact, index }));
 
@@ -126,8 +125,7 @@ export function ResearchMockPage() {
         removals={removals}
         suggestions={MOCK_SUGGESTIONS}
         resultsTitle="Here's what I know about you. You can remove any that aren't true:"
-        showDeeperDiveCard={!deeperDiveResolved}
-        showSuggestions={deeperDiveResolved}
+        showSuggestions
         canContinue
         resolveFavicon={faviconService}
         onRemove={(index) =>
@@ -146,8 +144,6 @@ export function ResearchMockPage() {
             return next;
           })
         }
-        onDeeperDive={() => setDeeperDiveResolved(true)}
-        onGoodForNow={() => setDeeperDiveResolved(true)}
         onSuggestionClick={handleSuggestionClick}
         onContinue={() => navigate(routes.assistant)}
       />

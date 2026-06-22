@@ -1401,8 +1401,7 @@ describe("twilio webhook routes", () => {
           action: "invite_redemption",
           assistantId: "self",
           fromNumber: "+14155551234",
-          friendName: "Alice",
-          guardianName: "Bob",
+          inviteeName: "Alice",
         },
         resolved: {
           assistantId: "self",

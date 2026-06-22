@@ -38,6 +38,7 @@ import {
   handleSecretRequest,
   handleConfirmationRequest,
   handleContactRequest,
+  handleInteractionResolved,
   handleQuestionRequest,
 } from "@/domains/chat/utils/stream-handlers/interaction-handlers";
 import {
@@ -409,7 +410,13 @@ export function useStreamEventHandler(
         case "document_comment_resolved":
         case "document_comment_reopened":
         case "document_comment_deleted":
+          break;
+        // The daemon resolved a pending interaction for the active
+        // conversation. Attention tracking handles non-active conversations
+        // and defers the active one here, so retire any matching confirmation
+        // card before the user can tap a prompt the server has discarded.
         case "interaction_resolved":
+          handleInteractionResolved(event, ctx);
           break;
         // Diagnostic timeline events. The logs domain fetches these from
         // the daemon's trace-events endpoint on demand; the chat stream

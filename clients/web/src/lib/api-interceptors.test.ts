@@ -38,7 +38,6 @@ mock.module("@/lib/local-mode", () => ({
   getPlatformRuntimeUrl: () => window.location.origin,
   getSelectedAssistant: () => undefined,
   hasAssistants: () => false,
-  isGuardianRepairable: () => false,
   isLocalAssistant: () => false,
   isLocalMode: isLocalModeMock,
   isPlatformDisabled: isPlatformDisabledMock,

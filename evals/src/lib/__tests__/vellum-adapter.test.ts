@@ -533,7 +533,7 @@ describe("VellumAgent", () => {
         "evals:timeline-recall:eval-run-2",
         "hello",
       ],
-      ["vellum", "retire", "eval-run-2"],
+      ["vellum", "retire", "eval-run-2", "--yes"],
       ["docker", "rm", "-f", "eval-run-2-assistant"],
       ["docker", "rm", "-f", "eval-run-2-gateway"],
       ["docker", "rm", "-f", "eval-run-2-credential-executor"],

@@ -27,12 +27,20 @@
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
+import type { CharacterTraits } from "@/types/avatar";
 
 interface OnboardingFocusState {
   /** When true, `ChatLayout` renders chrome-less with a Continue affordance. */
   focused: boolean;
   enterFocus: () => void;
   exitFocus: () => void;
+  /**
+   * Avatar traits chosen on the "Give me a face" picker, staged at handoff and
+   * applied to the assistant once it's hatched (the avatar isn't part of the
+   * pre-chat context, so it's a post-hatch call). Cleared after it's applied.
+   */
+  pendingAvatarTraits: CharacterTraits | null;
+  setPendingAvatarTraits: (traits: CharacterTraits | null) => void;
   /**
    * A follow-up message the focused results overlay wants sent into the same
    * conversation (e.g. the "deeper dive" research request). The overlay lives
@@ -66,7 +74,10 @@ const useOnboardingFocusStoreBase = create<OnboardingFocusState>((set) => ({
       focused: false,
       pendingFollowupMessage: null,
       checkinPending: false,
+      pendingAvatarTraits: null,
     }),
+  pendingAvatarTraits: null,
+  setPendingAvatarTraits: (traits) => set({ pendingAvatarTraits: traits }),
   pendingFollowupMessage: null,
   requestFollowup: (message) => set({ pendingFollowupMessage: message }),
   clearFollowup: () => set({ pendingFollowupMessage: null }),
