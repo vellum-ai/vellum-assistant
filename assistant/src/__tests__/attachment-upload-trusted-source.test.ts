@@ -72,10 +72,10 @@ describe("attachment upload — trustedSource flag", () => {
         },
         "svc_gateway",
       ),
-    )) as { id: string; mime_type: string };
+    )) as { id: string; mimeType: string };
 
     expect(result.id).toBeDefined();
-    expect(result.mime_type).toBe("video/x-matroska");
+    expect(result.mimeType).toBe("video/x-matroska");
   });
 
   test("svc_gateway + trustedSource:true accepts a dangerous extension", async () => {

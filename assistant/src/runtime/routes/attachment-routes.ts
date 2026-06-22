@@ -118,14 +118,29 @@ export function resolveAllowedFileBackedAttachmentPath(
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 
 /**
+ * Canonical attachment metadata shape, shared by the upload and get-by-id route
+ * response schemas so the generated client type is a single source of truth
+ * (camelCase, matching the rest of the daemon API and the get-by-id response).
+ */
+const attachmentMetadataSchema = z.object({
+  id: z.string(),
+  filename: z.string(),
+  mimeType: z.string(),
+  sizeBytes: z.number(),
+  kind: z.string(),
+});
+
+/**
  * Build the standard JSON success payload for an uploaded attachment.
  */
-function attachmentPayload(attachment: StoredAttachment) {
+function attachmentPayload(
+  attachment: StoredAttachment,
+): z.infer<typeof attachmentMetadataSchema> {
   return {
     id: attachment.id,
-    original_filename: attachment.originalFilename,
-    mime_type: attachment.mimeType,
-    size_bytes: attachment.sizeBytes,
+    filename: attachment.originalFilename,
+    mimeType: attachment.mimeType,
+    sizeBytes: attachment.sizeBytes,
     kind: attachment.kind,
   };
 }
@@ -700,12 +715,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Get attachment metadata",
     description: "Return metadata and optional base64 data for an attachment.",
     tags: ["attachments"],
-    responseBody: z.object({
-      id: z.string(),
-      filename: z.string(),
-      mimeType: z.string(),
-      sizeBytes: z.number(),
-      kind: z.string(),
+    responseBody: attachmentMetadataSchema.extend({
       data: z.string().describe("Base64-encoded content").nullable(),
       fileBacked: z.boolean().optional(),
     }),
@@ -745,13 +755,7 @@ export const ROUTES: RouteDefinition[] = [
         required: ["file", "filename", "mimeType"],
       },
     },
-    responseBody: z.object({
-      id: z.string(),
-      original_filename: z.string(),
-      mime_type: z.string(),
-      size_bytes: z.number(),
-      kind: z.string(),
-    }),
+    responseBody: attachmentMetadataSchema,
     handler: handleUploadAttachmentRoute,
   },
   {

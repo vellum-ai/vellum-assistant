@@ -1,31 +1,33 @@
 /**
  * Tests for the inbound admission-floor enforcement in `routeSetup`.
  *
- * `routeSetup` is pure routing logic but reads several module-level singletons
- * (config, trust resolver, pending verification session, invite store). These
- * are mocked so the table below can drive trust class, member status, pending
- * challenge, and active invites independently of any DB.
+ * `routeSetup` reads several module-level singletons (config, trust resolver,
+ * pending verification session, invite store, contact store). Those I/O
+ * collaborators are mocked so the tables below can drive trust class, member
+ * status, pending challenge, active invites, and the bound invite contact
+ * directly — no database is touched.
  *
- * The floor verdict is exercised through the REAL `enforceAdmissionPolicy`
- * floor tables (`TRUST_CLASS_RANK` × `ADMISSION_FLOOR`), with the exempt-channel
- * short-circuit bypassed in the mock so the tests assert the true floor
- * semantics independent of any channel's exempt status (`phone` is now
- * enforced).
+ * The admission floor is exercised through the REAL, pure `enforceAdmissionPolicy`:
+ * `phone` is an enforced (non-exempt) channel, so the real function applies the
+ * true `rank >= floor` semantics. We deliberately do not reimplement the floor
+ * here — a test-local copy of production logic would silently drift from it.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import {
-  ADMISSION_FLOOR,
-  type AdmissionPolicy,
-} from "@vellumai/gateway-client";
+import type { AdmissionPolicy } from "@vellumai/gateway-client";
 
-import type { ChannelPolicy, ChannelStatus } from "../../contacts/types.js";
+import type {
+  ChannelPolicy,
+  ChannelStatus,
+  ContactChannel,
+  ContactRole,
+  ContactWithChannels,
+} from "../../contacts/types.js";
 import type {
   ActorTrustContext,
   TrustClass,
 } from "../../runtime/actor-trust-resolver.js";
-import { TRUST_CLASS_RANK } from "../../runtime/actor-trust-resolver.js";
 
 mock.module("../../util/logger.js", () => ({
   getLogger: () =>
@@ -40,8 +42,6 @@ mock.module("../../config/loader.js", () => ({
 let nextTrust: ActorTrustContext;
 mock.module("../../runtime/actor-trust-resolver.js", () => ({
   resolveActorTrust: () => nextTrust,
-  // Re-export the real rank table; the floor mock below consumes it.
-  TRUST_CLASS_RANK,
 }));
 
 // Controllable pending verification challenge.
@@ -67,66 +67,80 @@ mock.module("../../contacts/contact-store.js", () => ({
   getContact: () => boundContact,
 }));
 
-// Real floor semantics, exemption bypassed (see file header).
-mock.module("../../runtime/routes/inbound-stages/admission-policy.js", () => ({
-  enforceAdmissionPolicy: (input: {
-    trustClass: TrustClass;
-    memberStatus: ChannelStatus | undefined;
-    policy: AdmissionPolicy;
-  }) => {
-    if (input.memberStatus === "blocked" || input.memberStatus === "revoked") {
-      return {
-        admitted: false,
-        reason:
-          input.memberStatus === "blocked"
-            ? "member_blocked"
-            : "member_revoked",
-        shouldChallenge: false,
-        effectivePolicy: input.policy,
-      };
-    }
-    const rank = TRUST_CLASS_RANK[input.trustClass];
-    const floor = ADMISSION_FLOOR[input.policy];
-    if (rank >= floor) return { admitted: true };
-    return {
-      admitted: false,
-      reason: `admission_policy_${input.policy}`,
-      shouldChallenge: false,
-      effectivePolicy: input.policy,
-    };
-  },
-}));
-
 const { routeSetup } = await import("../relay-setup-router.js");
 
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
 
+function makeChannel(overrides: Partial<ContactChannel> = {}): ContactChannel {
+  return {
+    id: "ch_1",
+    contactId: "ct_1",
+    type: "phone",
+    address: "+12025550142",
+    isPrimary: true,
+    externalChatId: null,
+    status: "active",
+    policy: "allow",
+    verifiedAt: null,
+    verifiedVia: null,
+    inviteId: null,
+    revokedReason: null,
+    blockedReason: null,
+    lastSeenAt: null,
+    interactionCount: 0,
+    lastInteraction: null,
+    updatedAt: null,
+    createdAt: 0,
+    ...overrides,
+  };
+}
+
+function makeContact(
+  overrides: Partial<ContactWithChannels> = {},
+): ContactWithChannels {
+  return {
+    id: "ct_1",
+    displayName: "Test Caller",
+    notes: null,
+    lastInteraction: null,
+    interactionCount: 0,
+    createdAt: 0,
+    updatedAt: 0,
+    role: "contact",
+    contactType: "human",
+    principalId: null,
+    userFile: null,
+    channels: [],
+    ...overrides,
+  };
+}
+
 function makeTrust(
   trustClass: TrustClass,
-  channel?: { status: ChannelStatus; policy?: ChannelPolicy; role?: string },
+  channel?: {
+    status: ChannelStatus;
+    policy?: ChannelPolicy;
+    role?: ContactRole;
+  },
 ): ActorTrustContext {
   const memberRecord = channel
     ? {
-        contact: {
-          displayName: "Test Caller",
-          role: channel.role ?? "trusted_contact",
-        } as never,
-        channel: {
-          id: "ch_1",
+        contact: makeContact({ role: channel.role ?? "contact" }),
+        channel: makeChannel({
           status: channel.status,
           policy: channel.policy ?? "allow",
-        } as never,
+        }),
       }
     : null;
   return {
-    canonicalSenderId: "+15551234567",
+    canonicalSenderId: "+12025550142",
     guardianBindingMatch: null,
     memberRecord,
     trustClass,
     actorMetadata: {
-      identifier: "+15551234567",
+      identifier: "+12025550142",
       displayName: undefined,
       senderDisplayName: undefined,
       memberDisplayName: undefined,
@@ -134,15 +148,15 @@ function makeTrust(
       channel: "phone",
       trustStatus: trustClass,
     },
-  } as ActorTrustContext;
+  };
 }
 
 function route(admissionPolicy?: AdmissionPolicy | null) {
   return routeSetup({
     callSessionId: "cs_1",
     session: null, // inbound
-    from: "+15551234567",
-    to: "+15559999999",
+    from: "+12025550142",
+    to: "+12025550199",
     admissionPolicy,
   });
 }

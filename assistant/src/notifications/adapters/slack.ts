@@ -12,6 +12,8 @@
  * https://docs.slack.dev/reference/block-kit/blocks/card-block
  */
 
+import type { Button, CardBlock, ContextBlock, KnownBlock } from "@slack/types";
+
 import { sendSlackReply } from "../../messaging/providers/slack/send.js";
 import type { ApprovalUIMetadata } from "../../runtime/channel-approval-types.js";
 import { getLogger } from "../../util/logger.js";
@@ -39,7 +41,7 @@ const log = getLogger("notif-adapter-slack");
 // ---------------------------------------------------------------------------
 
 /** Build action buttons for a Slack Card block from approval metadata. */
-function buildCardActions(approval: ApprovalUIMetadata): unknown[] {
+function buildCardActions(approval: ApprovalUIMetadata): Button[] {
   return approval.actions.map((action) => ({
     type: "button",
     text: { type: "plain_text", text: action.label, emoji: true },
@@ -80,7 +82,7 @@ function buildAccessRequestBody(view: AccessRequestCardView): string {
 /** Source-channel context block with Slack permalink when available. */
 function buildSourceContextBlock(
   view: AccessRequestCardView,
-): unknown | undefined {
+): ContextBlock | undefined {
   if (view.sourceChannel !== "slack" || !view.conversationExternalId) {
     return undefined;
   }
@@ -107,7 +109,7 @@ function buildSourceContextBlock(
 /** Stable requester identifier context block (external ID when it adds info). */
 function buildRequesterIdBlock(
   view: AccessRequestCardView,
-): unknown | undefined {
+): ContextBlock | undefined {
   const safeExternalId = view.externalId;
   if (!safeExternalId) return undefined;
 
@@ -134,10 +136,10 @@ function buildRequesterIdBlock(
  */
 function buildAccessRequestCardBlocks(
   payload: ChannelDeliveryPayload,
-): unknown[] {
+): KnownBlock[] {
   const approval = payload.approvalContext!;
   const view = buildAccessRequestCardView(payload.accessRequestContext!);
-  const blocks: unknown[] = [];
+  const blocks: KnownBlock[] = [];
 
   const subtitle = buildAccessRequestSubtitle(view);
   const body = buildAccessRequestBody(view);
@@ -147,7 +149,7 @@ function buildAccessRequestCardBlocks(
       ? truncate(view.warnings.map((w) => `:warning: ${w}`).join(" · "), 200)
       : undefined;
 
-  const card: Record<string, unknown> = {
+  const card: CardBlock = {
     type: "card",
     title: { type: "mrkdwn", text: "Access Request" },
     subtitle: { type: "mrkdwn", text: subtitle },
@@ -211,9 +213,9 @@ function buildAccessRequestCardBlocks(
 function buildToolApprovalCardBlocks(
   payload: ChannelDeliveryPayload,
   messageText: string,
-): unknown[] {
+): KnownBlock[] {
   const approval = payload.approvalContext!;
-  const blocks: unknown[] = [];
+  const blocks: KnownBlock[] = [];
 
   const details = approval.permissionDetails;
   const toolName = details?.toolName;
@@ -226,7 +228,7 @@ function buildToolApprovalCardBlocks(
   }
 
   const needsOverflow = messageText.length > 200;
-  const card: Record<string, unknown> = {
+  const card: CardBlock = {
     type: "card",
     title: {
       type: "mrkdwn",
@@ -266,7 +268,7 @@ function buildToolApprovalCardBlocks(
 export function buildApprovalNotificationBlocks(
   payload: ChannelDeliveryPayload,
   messageText: string,
-): unknown[] {
+): KnownBlock[] {
   if (
     payload.sourceEventName === "ingress.access_request" &&
     payload.accessRequestContext != null

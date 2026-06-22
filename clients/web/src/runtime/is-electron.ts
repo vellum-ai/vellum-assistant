@@ -263,6 +263,9 @@ declare global {
           callback: (state: DictationOverlayState) => void,
         ): () => void;
         getState(): Promise<DictationOverlayState | null>;
+        requestStop(): void;
+        onStopRequested(callback: () => void): () => void;
+        setInteractive(interactive: boolean): void;
       };
       notifications?: {
         show(

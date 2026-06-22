@@ -5,6 +5,8 @@
  * This module is the top-level dispatcher. It delegates plain-text messages to
  * the conversational engine in guardian-text-engine-strategy.ts.
  */
+import type { KnownBlock } from "@slack/types";
+
 import type { ChannelId } from "../../channels/types.js";
 import type { TrustContext } from "../../daemon/trust-context.js";
 import { getLogger } from "../../util/logger.js";
@@ -330,7 +332,7 @@ function editStaleSlackApprovalMessage(params: {
   conversationId: string;
 }): void {
   const statusText = "This approval request has been resolved.";
-  const blocks = [
+  const blocks: KnownBlock[] = [
     {
       type: "section",
       text: { type: "mrkdwn", text: statusText },

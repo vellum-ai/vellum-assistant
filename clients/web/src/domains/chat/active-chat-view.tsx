@@ -195,10 +195,6 @@ export function ActiveChatView() {
     }
   }, [assistantId]);
 
-  // Persist the composer draft across reloads (debounced autosave + unload
-  // flush) and restore it on cold load.
-  useDraftPersistence();
-
   // Keyboard focus: Electron host focus relay + typing auto-focus.
   useComposerKeyboard(inputRef);
 
@@ -242,6 +238,11 @@ export function ActiveChatView() {
     reachabilityReadyEpoch,
     onboardingDraftConversationIdRef,
   });
+
+  // Persist the composer draft across reloads (debounced autosave + unload
+  // flush) and restore it on cold load. Mounted after useConversationLoader
+  // so the switchToConversation effect fires before restoreDraftIfEmpty.
+  useDraftPersistence();
 
   // -------------------------------------------------------------------------
   // Message lifecycle — reconciliation, stream event handling, SSE

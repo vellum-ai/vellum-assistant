@@ -136,9 +136,9 @@ export const routeTree = [
     { path: "/assistant/floating/command-palette", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/command-palette/command-palette-window-page").then((m) => m.CommandPaletteWindowPage) } },
 
     // Dictation overlay — live transcription pill rendered inside the
-    // Electron dictation overlay BrowserWindow (a click-through floating
-    // panel pinned top-center of the screen while push-to-talk dictation
-    // is active). Same pattern as Quick Input: sibling of `/assistant`,
+    // Electron dictation overlay BrowserWindow (a floating panel pinned
+    // top-center of the screen while push-to-talk dictation is active).
+    // Same pattern as Quick Input: sibling of `/assistant`,
     // outside auth middleware and RootLayout for fast load.
     { path: "/assistant/floating/dictation-overlay", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/dictation-overlay-page").then((m) => m.DictationOverlayPage) } },
     // Legacy direct path retained so old dev windows do not blank during

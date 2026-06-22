@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { KnownBlock } from "@slack/types";
+
 // Derive the mock signature from the real export so it cannot drift from the
 // production response shape (`SlackApiResponse`). A hand-rolled
 // `Promise<Record<string, unknown>>` here would let a test pass against a
@@ -87,7 +89,7 @@ describe("sendSlackAssistantThreadStatus", () => {
 describe("sendSlackReply update path", () => {
   const messageTs = "1700000000.000100";
   const threadTs = "1700000000.000001";
-  const blocks = [
+  const blocks: KnownBlock[] = [
     { type: "section", text: { type: "mrkdwn", text: "Final reply" } },
   ];
 
@@ -190,7 +192,7 @@ describe("sendSlackReply update path", () => {
 
 describe("sendSlackReply post path", () => {
   const threadTs = "1700000000.000001";
-  const blocks = [
+  const blocks: KnownBlock[] = [
     { type: "section", text: { type: "mrkdwn", text: "Fresh reply" } },
   ];
 
