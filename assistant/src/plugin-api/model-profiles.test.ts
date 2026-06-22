@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 interface MockProfileEntry {
   label?: string;
   description?: string;
+  provider?: string;
+  model?: string;
   status?: string;
   mix?: unknown;
 }
@@ -48,8 +50,8 @@ beforeEach(() => {
 describe("getModelProfiles", () => {
   test("returns all configured profiles in order", () => {
     mockProfiles = {
-      balanced: { label: "Balanced" },
-      "quality-optimized": { label: "Quality" },
+      balanced: { label: "Balanced", provider: "anthropic" },
+      "quality-optimized": { label: "Quality", provider: "anthropic" },
     };
     mockProfileOrder = ["balanced", "quality-optimized"];
 
@@ -59,8 +61,12 @@ describe("getModelProfiles", () => {
 
   test("includes disabled profiles (flagged via isDisabled)", () => {
     mockProfiles = {
-      balanced: { label: "Balanced" },
-      disabled: { label: "Disabled", status: "disabled" },
+      balanced: { label: "Balanced", provider: "anthropic" },
+      disabled: {
+        label: "Disabled",
+        provider: "anthropic",
+        status: "disabled",
+      },
     };
 
     const result = getModelProfiles();
@@ -81,10 +87,30 @@ describe("getModelProfiles", () => {
     expect(result[0].isMix).toBe(true);
   });
 
+  test("skips metadata-only profiles that cannot route plugin calls", () => {
+    mockProfiles = {
+      metadata: { label: "Metadata Only" },
+      "model-only": { label: "Model Only", model: "claude-opus-4-6" },
+      "provider-only": { label: "Provider Only", provider: "anthropic" },
+      mix: {
+        label: "Mix",
+        mix: [{ profile: "model-only", weight: 1 }],
+      },
+    };
+    mockProfileOrder = ["metadata", "model-only", "provider-only", "mix"];
+
+    const result = getModelProfiles();
+    expect(result.map((p) => p.key)).toEqual([
+      "model-only",
+      "provider-only",
+      "mix",
+    ]);
+  });
+
   test("marks the active profile with isActive", () => {
     mockProfiles = {
-      balanced: { label: "Balanced" },
-      "quality-optimized": { label: "Quality" },
+      balanced: { label: "Balanced", provider: "anthropic" },
+      "quality-optimized": { label: "Quality", provider: "anthropic" },
     };
     mockActiveProfile = "balanced";
 
