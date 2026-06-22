@@ -21,6 +21,7 @@ import {
   groupStepsByPhase,
   phaseHeaderStatus,
   stepKey,
+  stepRendersPill,
   sumDurationLabels,
   TimelineConnector,
   TimelineNode,
@@ -28,32 +29,6 @@ import {
 } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
 import { cn } from "@/utils/misc";
-
-/**
- * Whether a step renders a non-null body in `DefaultStepPill` — i.e. whether it
- * carries detail worth revealing. Mirrors `DefaultStepPill`'s per-kind logic:
- * `tool_error` / `web_search_error` always render a message; `thinking` renders
- * only when its text is non-empty; a `tool` step renders only when it has
- * non-empty `info` OR a failing (`error`/`denied`) status; `web_search` renders
- * its title. A single-step phase is expandable only when its lone step has
- * detail — otherwise expanding it would reveal nothing.
- */
-function stepHasDetail(step: ToolCallCardStep): boolean {
-  switch (step.kind) {
-    case "tool_error":
-    case "web_search_error":
-    case "web_search":
-      return true;
-    case "thinking":
-      return step.text.length > 0;
-    case "tool":
-      return (
-        step.info.length > 0 ||
-        step.status === "error" ||
-        step.status === "denied"
-      );
-  }
-}
 
 /**
  * Stable key for a phase section — its positional index plus its label and the
@@ -139,12 +114,11 @@ function SubagentPhaseRow({
 
   // The "N steps" pill only makes sense for a multi-step phase.
   const showStepCount = stepCount >= 2;
-  // A row is interactive (chevron + toggle) when it has a body worth revealing:
-  // any multi-step phase, OR a single-step phase whose lone step carries detail
-  // (an error message, tool input, response text, …). A lone info-less success
-  // step renders a null `DefaultStepPill`, so it stays non-expandable.
-  const isExpandable =
-    stepCount >= 2 || (stepCount === 1 && stepHasDetail(section.steps[0]!));
+  // A row is interactive (chevron + toggle) when at least one step actually
+  // renders a pill — `stepRendersPill` is `DefaultStepPill`'s own predicate, so
+  // the chevron can never expand to an empty body. A lone info-less tool step
+  // (whether successful or failed) renders no pill, so it stays non-expandable.
+  const isExpandable = section.steps.some(stepRendersPill);
 
   const totalDuration =
     status === "running"

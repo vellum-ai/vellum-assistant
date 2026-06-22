@@ -590,6 +590,31 @@ function PhaseHeaderRow({
 }
 
 /**
+ * Whether {@link DefaultStepPill} renders a non-null body for a step — the
+ * single source of truth for "does this step produce a pill". Consumers that
+ * gate UI on whether a step is worth revealing (e.g. row expandability in the
+ * subagent timeline) call this so they can never drift from the rendering:
+ *
+ *  - `thinking` → always renders a pill.
+ *  - `tool` → renders only when `info` is non-empty (status is ignored: a
+ *    failing tool step with no `info` still has nothing to show).
+ *  - `tool_error` / `web_search_error` → always render a message.
+ *  - `web_search` → always renders its title.
+ */
+export function stepRendersPill(step: ToolCallCardStep): boolean {
+  switch (step.kind) {
+    case "thinking":
+      return true;
+    case "tool":
+      return step.info.length > 0;
+    case "tool_error":
+    case "web_search_error":
+    case "web_search":
+      return true;
+  }
+}
+
+/**
  * Default per-step pill rendering — a single bordered pill containing the
  * step's icon (when available) and its primary text. Matches Figma
  * `5010-103135` — 100px radius, 10px/6px padding, `--surface-base` border.
@@ -614,7 +639,7 @@ export function DefaultStepPill({ step }: { step: ToolCallCardStep }) {
     // pill entirely rather than duplicating the phase header's title — e.g.
     // a skill call with no skill name shouldn't render a literal "Using a
     // skill" pill underneath a "Using a skill" phase header.
-    if (!step.info) return null;
+    if (!stepRendersPill(step)) return null;
     return (
       <StepPill>
         <Glyph
