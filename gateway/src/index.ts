@@ -187,6 +187,7 @@ import {
 } from "./twilio/webhook-sync-trigger.js";
 import { GatewayIpcServer } from "./ipc/server.js";
 import { contactRoutes } from "./ipc/contact-handlers.js";
+import { inviteRoutes } from "./ipc/invite-handlers.js";
 import { featureFlagRoutes } from "./ipc/feature-flag-handlers.js";
 import { admissionPolicyRoutes } from "./ipc/admission-policy-handlers.js";
 import { createLogTailRoutes } from "./ipc/log-tail-handlers.js";
@@ -2461,6 +2462,7 @@ async function main() {
   const ipcServer = new GatewayIpcServer([
     ...featureFlagRoutes,
     ...contactRoutes,
+    ...inviteRoutes,
     ...slackThreadRoutes,
     ...thresholdRoutes,
     ...admissionPolicyRoutes,

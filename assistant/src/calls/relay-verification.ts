@@ -244,9 +244,9 @@ type InviteRedemptionResult =
  * caller. Returns a structured result so the caller can handle state
  * mutations and session updates.
  */
-export function attemptInviteCodeRedemption(
+export async function attemptInviteCodeRedemption(
   params: InviteRedemptionParams,
-): InviteRedemptionResult {
+): Promise<InviteRedemptionResult> {
   const {
     inviteRedemptionAssistantId,
     inviteRedemptionFromNumber,
@@ -254,7 +254,7 @@ export function attemptInviteCodeRedemption(
     inviteRedemptionGuardianName,
   } = params;
 
-  const result = redeemVoiceInviteCode({
+  const result = await redeemVoiceInviteCode({
     assistantId: inviteRedemptionAssistantId,
     callerExternalUserId: inviteRedemptionFromNumber,
     sourceChannel: "phone",

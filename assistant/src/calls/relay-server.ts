@@ -213,6 +213,10 @@ export class RelayConnection {
 
   // Inbound voice invite redemption state
   private inviteRedemptionActive = false;
+  // In-flight guard: true while an async redemption attempt is awaiting the
+  // gateway-backed claim, so a rapidly-repeated code is deduped rather than
+  // launching a second concurrent redeemVoiceInviteCode.
+  private inviteRedemptionInFlight = false;
   private inviteRedemptionAssistantId: string | null = null;
   private inviteRedemptionFromNumber: string | null = null;
   private inviteRedemptionCodeLength = 6;
@@ -1200,6 +1204,7 @@ export class RelayConnection {
     isOutbound: boolean,
   ): void {
     this.inviteRedemptionActive = true;
+    this.inviteRedemptionInFlight = false;
     this.inviteRedemptionAssistantId = assistantId;
     this.inviteRedemptionFromNumber = fromNumber;
     this.inviteRedemptionFriendName = friendName;
@@ -1620,7 +1625,33 @@ export class RelayConnection {
       return;
     }
 
-    const result = attemptInviteCodeRedemption({
+    // Dedup concurrent attempts: a repeated code (re-spoken / re-entered)
+    // arriving while the async gateway-backed claim is still in flight is
+    // ignored, so we never run a second redeemVoiceInviteCode that would see
+    // the invite already consumed and wrongly mark the call failed. The flag
+    // is set synchronously before awaiting and cleared in finally.
+    if (this.inviteRedemptionInFlight) {
+      log.info(
+        { callSessionId: this.callSessionId },
+        "Ignoring repeated invite code — redemption already in flight",
+      );
+      return;
+    }
+    this.inviteRedemptionInFlight = true;
+
+    try {
+      await this.runInviteCodeRedemption(enteredCode);
+    } finally {
+      this.inviteRedemptionInFlight = false;
+    }
+  }
+
+  private async runInviteCodeRedemption(enteredCode: string): Promise<void> {
+    if (!this.inviteRedemptionAssistantId || !this.inviteRedemptionFromNumber) {
+      return;
+    }
+
+    const result = await attemptInviteCodeRedemption({
       inviteRedemptionAssistantId: this.inviteRedemptionAssistantId,
       inviteRedemptionFromNumber: this.inviteRedemptionFromNumber,
       enteredCode,
