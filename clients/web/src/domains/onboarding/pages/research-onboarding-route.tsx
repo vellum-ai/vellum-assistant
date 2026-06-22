@@ -53,6 +53,8 @@ export function ResearchOnboardingRoute() {
   const user = useAuthStore.use.user();
   const enterFocus = useOnboardingFocusStore.use.enterFocus();
   const exitFocus = useOnboardingFocusStore.use.exitFocus();
+  const setPendingAvatarTraits =
+    useOnboardingFocusStore.use.setPendingAvatarTraits();
   // Belt-and-suspenders gate: the spike lives at a dedicated path AND behind
   // this flag (off by default; enable locally via the feature-flags panel).
   const enabled = useClientFeatureFlagStore.use.researchOnboarding();
@@ -116,6 +118,10 @@ export function ResearchOnboardingRoute() {
     };
 
     setPendingPreChatContext(context);
+
+    // Stage the chosen avatar traits; OnboardingAvatarApplier applies them once
+    // the assistant is hatched (they're not part of the pre-chat context).
+    setPendingAvatarTraits(face?.traits ?? null);
 
     // The "let's chat tomorrow" gcal step now lives inline in onboarding, so we
     // no longer trigger the post-handoff check-in overlay. Enter the focused
