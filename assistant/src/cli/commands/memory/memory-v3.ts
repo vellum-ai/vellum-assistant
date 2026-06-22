@@ -15,12 +15,15 @@
  *     starts empty and the incremental maintain pass only re-embeds deltas.
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../../ipc/cli-client.js";
-import type { MemoryEvalRunResult } from "../../../runtime/routes/memory-eval-routes.js";
+import type {
+  MemoryEvalRunResult,
+  MemoryEvalTallyResult,
+} from "../../../runtime/routes/memory-eval-routes.js";
 import type {
   MemoryV3BackfillSectionsResult,
   MemoryV3RebuildIndexResult,
@@ -68,6 +71,30 @@ function readTurnIdsFromFile(path: string): string[] {
     throw new Error(`--turns-file ${path} contained no turn ids`);
   }
   return ids;
+}
+
+/** Read and parse a JSON file, asserting it is an array. */
+function readJsonArray<T>(path: string, label: string): T[] {
+  const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+  if (!Array.isArray(parsed)) {
+    throw new Error(`--${label} ${path} must be a JSON array`);
+  }
+  return parsed as T[];
+}
+
+/** Render an eval-tally result as a human-readable summary block. */
+function formatTally(r: MemoryEvalTallyResult): string {
+  const lines = [
+    `Eval gate: ${r.gate.toUpperCase()} (${r.verdict})`,
+    `  turns judged:   ${r.turns} (panel ${r.panel.min}-${r.panel.max} votes/turn, mean ${r.panel.mean.toFixed(1)})`,
+    `  snapshot (v2):  ${r.snapshotWins} wins, mean score ${r.meanSnapshot.toFixed(2)}`,
+    `  staging (wiki): ${r.stagingWins} wins, mean score ${r.meanStaging.toFixed(2)}`,
+    `  ties:           ${r.ties}`,
+    `  sign-test p:    ${r.signTestP.toFixed(3)} over ${r.decided} decided turns`,
+    `  confident:      ${r.confident ? "yes" : "no"}`,
+  ];
+  for (const note of r.notes) lines.push(`  note: ${note}`);
+  return lines.join("\n");
 }
 
 export function registerMemoryV3Command(memory: Command): void {
@@ -292,6 +319,77 @@ Examples:
                   `(pinned turns may have been deleted, or there are too few recent user turns).`,
               );
             }
+          },
+        );
+
+      v3.command("eval-tally")
+        .description(
+          "Unblind + tally blind-judge verdicts against key.json with a noise-aware win/tie/loss verdict",
+        )
+        .requiredOption(
+          "--verdicts <path>",
+          "JSON file: array of { turn, winner, scoreA, scoreB } (one or more per turn for a panel)",
+        )
+        .requiredOption(
+          "--key <path>",
+          "key.json from `eval` — the per-turn A/B → snapshot/staging unblinding map",
+        )
+        .option(
+          "--alpha <p>",
+          "Significance threshold for the sign test (the wiki only FAILS on a significant snapshot lead)",
+          "0.05",
+        )
+        .option("--out <path>", "Also write the full tally JSON to this path")
+        .option("--json", "Emit raw JSON instead of a formatted summary")
+        .addHelpText(
+          "after",
+          `
+Joins the blind-judge verdicts to the unblinding key (A/B is shuffled PER TURN,
+so the winner must be mapped turn-by-turn — a global A-vs-B count is wrong) and
+applies a two-sided sign test: the wiki only FAILS when the snapshot's win lead
+is statistically significant. A within-noise difference is a tie, which passes
+the win-or-tie gate. Pass a judge PANEL (multiple verdicts per turn, e.g. from
+re-judging under several seeds) to control single-vote noise.
+
+Example:
+  $ assistant memory v3 eval-tally --verdicts .mv3/eval/verdicts.json --key .mv3/eval/key.json`,
+        )
+        .action(
+          async (opts: {
+            verdicts: string;
+            key: string;
+            alpha: string;
+            out?: string;
+            json?: boolean;
+          }) => {
+            let verdicts: unknown[];
+            let key: unknown[];
+            try {
+              verdicts = readJsonArray<unknown>(opts.verdicts, "verdicts");
+              key = readJsonArray<unknown>(opts.key, "key");
+            } catch (err) {
+              log.error(err instanceof Error ? err.message : String(err));
+              process.exitCode = 1;
+              return;
+            }
+            const result = await cliIpcCall<MemoryEvalTallyResult>(
+              "memory_eval_tally",
+              { body: { verdicts, key, alpha: Number(opts.alpha) } },
+            );
+            if (!result.ok) {
+              log.error(result.error ?? "Failed to tally verdicts");
+              process.exitCode = 1;
+              return;
+            }
+            const payload = result.result!;
+            if (opts.out !== undefined) {
+              writeFileSync(opts.out, JSON.stringify(payload, null, 2));
+            }
+            if (opts.json === true) {
+              log.info(JSON.stringify(payload, null, 2));
+              return;
+            }
+            log.info(formatTally(payload));
           },
         );
     },

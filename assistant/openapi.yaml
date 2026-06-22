@@ -15624,6 +15624,139 @@ paths:
                   - embedding
                   - turnIds
                 additionalProperties: false
+  /v1/memory/eval/tally:
+    post:
+      operationId: memory_eval_tally_post
+      summary: Unblind + tally blind-judge verdicts against the key with a noise-aware win/tie/loss verdict
+      tags:
+        - memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                verdicts:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      turn:
+                        type: string
+                      winner:
+                        type: string
+                      scoreA:
+                        type: number
+                      scoreB:
+                        type: number
+                    required:
+                      - turn
+                      - scoreA
+                      - scoreB
+                key:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      turn:
+                        type: string
+                      a:
+                        type: string
+                        enum:
+                          - snapshot
+                          - staging
+                      b:
+                        type: string
+                        enum:
+                          - snapshot
+                          - staging
+                    required:
+                      - turn
+                      - a
+                      - b
+                alpha:
+                  type: number
+                  exclusiveMinimum: 0
+              required:
+                - verdicts
+                - key
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  turns:
+                    type: number
+                  verdictsCounted:
+                    type: number
+                  unmatchedVerdicts:
+                    type: number
+                  panel:
+                    type: object
+                    properties:
+                      min:
+                        type: number
+                      max:
+                        type: number
+                      mean:
+                        type: number
+                    required:
+                      - min
+                      - max
+                      - mean
+                    additionalProperties: false
+                  snapshotWins:
+                    type: number
+                  stagingWins:
+                    type: number
+                  ties:
+                    type: number
+                  decided:
+                    type: number
+                  meanSnapshot:
+                    type: number
+                  meanStaging:
+                    type: number
+                  signTestP:
+                    type: number
+                  verdict:
+                    type: string
+                    enum:
+                      - wiki-wins
+                      - tie
+                      - wiki-loses
+                  gate:
+                    type: string
+                    enum:
+                      - pass
+                      - fail
+                  confident:
+                    type: boolean
+                  notes:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - turns
+                  - verdictsCounted
+                  - unmatchedVerdicts
+                  - panel
+                  - snapshotWins
+                  - stagingWins
+                  - ties
+                  - decided
+                  - meanSnapshot
+                  - meanStaging
+                  - signTestP
+                  - verdict
+                  - gate
+                  - confident
+                  - notes
+                additionalProperties: false
   /v1/memory/v2/backfill:
     post:
       operationId: memory_v2_backfill_post
