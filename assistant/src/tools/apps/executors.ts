@@ -12,6 +12,7 @@ import { compileApp } from "../../bundler/app-compiler.js";
 import { generateAppIcon } from "../../media/app-icon-generator.js";
 import type { AppDefinition } from "../../memory/app-store.js";
 import { getAppDirPath } from "../../memory/app-store.js";
+import { getLogger } from "../../util/logger.js";
 
 // ---------------------------------------------------------------------------
 // Shared result type
@@ -55,6 +56,11 @@ export interface AppStoreWriter {
   ): AppDefinition;
   deleteApp(id: string): void;
   writeAppFile(appId: string, path: string, content: string): void;
+  /**
+   * Associate a freshly created app with the conversation that created it.
+   * Optional so test doubles need not implement it; the real store does.
+   */
+  addAppConversationId?(appId: string, conversationId: string): boolean;
 }
 
 export type AppStore = AppStoreReader & AppStoreWriter;
@@ -68,6 +74,73 @@ export type ProxyResolver = (
   input: Record<string, unknown>,
 ) => Promise<ExecutorResult>;
 
+/**
+ * Validate a `source_files` map (LLM input is not type-checked at runtime).
+ * Returns an error ExecutorResult when invalid, or null when absent/valid.
+ */
+function validateSourceFiles(sourceFiles: unknown): ExecutorResult | null {
+  if (sourceFiles == null) {
+    return null;
+  }
+  if (typeof sourceFiles !== "object" || Array.isArray(sourceFiles)) {
+    return {
+      content: JSON.stringify({
+        error:
+          "source_files must be an object mapping relative file paths to string contents",
+      }),
+      isError: true,
+    };
+  }
+  for (const [key, val] of Object.entries(sourceFiles)) {
+    if (typeof val !== "string") {
+      return {
+        content: JSON.stringify({
+          error: `source_files["${key}"] must be a string, got ${typeof val}`,
+        }),
+        isError: true,
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve an app name when the model omits it. The preview card's title is
+ * "always include" guidance and almost always present, so it's the best
+ * fallback — a real, meaningful name — before a generic placeholder.
+ */
+function resolveAppName(input: AppCreateInput): string {
+  const previewTitle =
+    input.preview && typeof input.preview.title === "string"
+      ? input.preview.title
+      : undefined;
+  for (const candidate of [input.name, previewTitle]) {
+    if (typeof candidate === "string" && candidate.trim() !== "") {
+      return candidate.trim();
+    }
+  }
+  return "New App";
+}
+
+/**
+ * Compile-result fields shared by the app_refresh and app_update responses.
+ * On failure the errors/warnings are surfaced so the agent can fix them.
+ */
+function compileResultPayload(
+  compileResult: Awaited<ReturnType<typeof compileApp>>,
+): Record<string, unknown> {
+  return {
+    compiled: compileResult.ok,
+    ...(compileResult.ok
+      ? { compile_duration_ms: compileResult.durationMs }
+      : {
+          compile_errors: compileResult.errors,
+          compile_warnings: compileResult.warnings,
+          compile_duration_ms: compileResult.durationMs,
+        }),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // app_create
 // ---------------------------------------------------------------------------
@@ -76,14 +149,12 @@ export interface AppCreateInput {
   name: string;
   description?: string;
   schema_json?: string;
-  /**
-   * Retired single-file shortcut. Kept in the type so legacy or stale callers
-   * get a clear tool error instead of silently creating a v2 app with stale
-   * scaffold content.
-   */
+  /** Retired single-file shortcut. Returns a guidance error. */
   html?: unknown;
-  /** Retired single-file multi-page shortcut. */
+  /** Retired single-file multi-page shortcut. Returns a guidance error. */
   pages?: unknown;
+  /** Lenient alias. Folded into preview.icon when preview.icon is absent. */
+  icon?: unknown;
   auto_open?: boolean;
   preview?: Record<string, unknown>;
   source_files?: Record<string, string>;
@@ -93,16 +164,22 @@ export async function executeAppCreate(
   input: AppCreateInput,
   store: AppStore,
   proxyToolResolver?: ProxyResolver,
+  conversationId?: string,
 ): Promise<ExecutorResult> {
-  const name = input.name;
+  // The model sometimes omits a name; resolve a sensible one rather than
+  // erroring out so the build still succeeds. Users can rename via app_update.
+  const name = resolveAppName(input);
   const description = input.description;
   const schemaJson = input.schema_json ?? "{}";
 
+  // Retired shortcut: a top-level `html` is no longer accepted. Reject with a
+  // helpful message (rather than a cryptic schema error) so the model writes a
+  // multi-file TSX app under src/ instead.
   if (Object.prototype.hasOwnProperty.call(input, "html")) {
     return {
       content: JSON.stringify({
         error:
-          "app_create no longer accepts html. Create the app scaffold, write src/index.html and src/main.tsx with file_write, then call app_refresh.",
+          "app_create no longer accepts html. Build a multi-file TSX app under src/ (src/index.html + src/main.tsx + src/App.tsx) instead.",
       }),
       isError: true,
     };
@@ -120,44 +197,18 @@ export async function executeAppCreate(
   const autoOpen = input.auto_open !== false; // default true
   const preview = input.preview;
 
-  // Validate required fields - LLM input is not type-checked at runtime
-  if (typeof name !== "string" || name.trim() === "") {
-    return {
-      content: JSON.stringify({
-        error: "name is required and must be a non-empty string",
-      }),
-      isError: true,
-    };
-  }
-
-  if (input.source_files != null) {
-    if (
-      typeof input.source_files !== "object" ||
-      Array.isArray(input.source_files)
-    ) {
-      return {
-        content: JSON.stringify({
-          error:
-            "source_files must be an object mapping relative file paths to string contents",
-        }),
-        isError: true,
-      };
-    }
-    for (const [key, val] of Object.entries(input.source_files)) {
-      if (typeof val !== "string") {
-        return {
-          content: JSON.stringify({
-            error: `source_files["${key}"] must be a string, got ${typeof val}`,
-          }),
-          isError: true,
-        };
-      }
-    }
+  const sourceFilesError = validateSourceFiles(input.source_files);
+  if (sourceFilesError) {
+    return sourceFilesError;
   }
 
   // Extract icon from preview if provided - only persist emoji-like values,
   // not URLs which would render as raw strings in UI and bundle manifests.
-  const rawIcon = preview?.icon as string | undefined;
+  // Lenient alias: a top-level `icon` is folded in when preview.icon is absent.
+  const rawIcon = (preview?.icon ??
+    (typeof input.icon === "string" ? input.icon : undefined)) as
+    | string
+    | undefined;
   const icon = rawIcon && !rawIcon.startsWith("http") ? rawIcon : undefined;
 
   const app = store.createApp({
@@ -168,6 +219,22 @@ export async function executeAppCreate(
     htmlDefinition: "",
     formatVersion: 2,
   });
+
+  // Associate the app with its conversation at creation so subsequent
+  // `app_*` calls in the same turn can resolve it even when the model omits
+  // `app_id` (see resolveAppId). Without this the link is only formed at
+  // `app_open`, leaving the create→update→refresh gap unresolvable.
+  // Best-effort: a failed association must never fail the create.
+  if (conversationId && store.addAppConversationId) {
+    try {
+      store.addAppConversationId(app.id, conversationId);
+    } catch (err) {
+      getLogger("app-executors").debug(
+        { err, appId: app.id, conversationId },
+        "Failed to associate app with conversation at create",
+      );
+    }
+  }
 
   // Scaffold multifile app with src/ files and compile to dist/
   const htmlSafeName = name
@@ -351,14 +418,7 @@ export async function executeAppRefresh(
         refreshed: true,
         appId: updated.id,
         name: updated.name,
-        compiled: compileResult.ok,
-        ...(compileResult.ok
-          ? { compile_duration_ms: compileResult.durationMs }
-          : {
-              compile_errors: compileResult.errors,
-              compile_warnings: compileResult.warnings,
-              compile_duration_ms: compileResult.durationMs,
-            }),
+        ...compileResultPayload(compileResult),
       }),
       isError: false,
     };
@@ -369,6 +429,85 @@ export async function executeAppRefresh(
       refreshed: true,
       appId: updated.id,
       name: updated.name,
+    }),
+    isError: false,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// app_update
+// ---------------------------------------------------------------------------
+
+export interface AppUpdateInput {
+  app_id: string;
+  name?: string;
+  description?: string;
+  schema_json?: string;
+  source_files?: Record<string, string>;
+}
+
+export async function executeAppUpdate(
+  input: AppUpdateInput,
+  store: AppStore,
+): Promise<ExecutorResult> {
+  const app = store.getApp(input.app_id);
+  if (!app) {
+    return {
+      content: JSON.stringify({ error: `App '${input.app_id}' not found` }),
+      isError: true,
+    };
+  }
+
+  const sourceFilesError = validateSourceFiles(input.source_files);
+  if (sourceFilesError) {
+    return sourceFilesError;
+  }
+
+  if (input.source_files) {
+    for (const [filePath, content] of Object.entries(input.source_files)) {
+      store.writeAppFile(input.app_id, filePath, content);
+    }
+  }
+
+  const updates: Partial<
+    Pick<AppDefinition, "name" | "description" | "schemaJson">
+  > = {};
+  if (typeof input.name === "string" && input.name.trim() !== "") {
+    updates.name = input.name.trim();
+  }
+  if (typeof input.description === "string") {
+    updates.description = input.description;
+  }
+  if (typeof input.schema_json === "string") {
+    updates.schemaJson = input.schema_json;
+  }
+
+  // An empty update still bumps updatedAt, triggering a client surface refresh.
+  const updated = store.updateApp(input.app_id, updates);
+
+  // Multifile apps recompile so the agent sees any errors from the edited
+  // source instead of serving a stale dist (mirrors app_refresh).
+  if (app.formatVersion === 2) {
+    const appDir = getAppDirPath(input.app_id);
+    const compileResult = await compileApp(appDir);
+    return {
+      content: JSON.stringify({
+        updated: true,
+        appId: updated.id,
+        name: updated.name,
+        description: updated.description,
+        ...compileResultPayload(compileResult),
+      }),
+      isError: false,
+    };
+  }
+
+  return {
+    content: JSON.stringify({
+      updated: true,
+      appId: updated.id,
+      name: updated.name,
+      description: updated.description,
     }),
     isError: false,
   };
@@ -432,7 +571,7 @@ export async function executeAppGenerateIcon(
   return {
     content: JSON.stringify({
       error:
-        "Icon generation failed. Make sure a Gemini API key is configured in Settings.",
+        "Icon generation failed. Make sure a Gemini API key is configured in Settings → Models & Services.",
     }),
     isError: true,
   };

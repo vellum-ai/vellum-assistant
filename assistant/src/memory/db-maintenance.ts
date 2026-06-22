@@ -1,15 +1,17 @@
 import { statSync } from "node:fs";
 
+import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
 import { getDbPath } from "../util/platform.js";
+import { pruneRuns } from "../workflows/journal-store.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
+import { getLastUserMessageTimestamp } from "./conversation-crud.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import { getSqlite } from "./db-connection.js";
 
 const log = getLogger("db-maintenance");
 
 const DB_MAINTENANCE_CHECKPOINT_KEY = "db_maintenance:last_run";
-const DB_MAINTENANCE_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 interface DbStats {
   pageSize: number;
@@ -55,18 +57,23 @@ async function runDbMaintenance(): Promise<void> {
     "Starting database maintenance",
   );
 
-  // VACUUM is the long-running one — minutes on a multi-GB DB. PRAGMA
-  // optimize is fast but routed through the same async path for
-  // consistency and to keep both off the main thread when the CLI
-  // backend is available.
-  const vacuumResult = await runAsyncSqlite("VACUUM");
-  if (!vacuumResult.ok) {
-    log.warn(
-      { error: vacuumResult.error, backend: vacuumResult.backend },
-      "VACUUM failed (non-fatal)",
-    );
+  // Prune finished workflow runs (and their journals) past the retention
+  // window. This is a fast bounded DELETE on the small workflow tables, so it
+  // runs on the main connection (`rawRun`). SQLite reuses the pages it frees
+  // for later writes — we deliberately do not VACUUM to hand them back to the
+  // OS (see the WAL note below).
+  try {
+    const deletedRuns = pruneRuns(getConfig().workflows.journalRetentionDays);
+    if (deletedRuns > 0) {
+      log.info({ deletedRuns }, "Pruned expired workflow runs");
+    }
+  } catch (err) {
+    log.warn({ err }, "Workflow run pruning failed (non-fatal)");
   }
 
+  // Refresh the query planner's statistics. PRAGMA optimize is cheap; it is
+  // routed through the async path for consistency and to keep it off the main
+  // thread when the sqlite3 CLI backend is available.
   const optimizeResult = await runAsyncSqlite("PRAGMA optimize");
   if (!optimizeResult.ok) {
     log.warn(
@@ -75,37 +82,67 @@ async function runDbMaintenance(): Promise<void> {
     );
   }
 
-  const after = getDbStats();
-  const reclaimedPages = before.pageCount - after.pageCount;
-  const reclaimedBytes =
-    before.fileSizeBytes != null && after.fileSizeBytes != null
-      ? before.fileSizeBytes - after.fileSizeBytes
-      : null;
+  // Truncate the WAL so it doesn't sit at its high-water mark. We intentionally
+  // do NOT run a full VACUUM: in WAL mode VACUUM rewrites the whole database
+  // through the WAL, inflating it to ~the database size and needing up to 2x the
+  // DB size in free disk to finish. SQLite already reuses freed pages for new
+  // writes, so eager space return isn't worth that cost on a multi-GB database.
+  //
+  // The checkpoint goes through the async path (sqlite3 subprocess when one is
+  // available) for the same reason VACUUM/optimize do: a synchronous
+  // wal_checkpoint(TRUNCATE) on the shared connection blocks the event loop
+  // while it checkpoints frames and waits out readers — the health/IPC stall
+  // runAsyncSqlite exists to avoid. A checkpoint from a separate connection
+  // still truncates the shared WAL; if a reader holds it back it's a
+  // best-effort no-op and the next maintenance pass retries.
+  const checkpointResult = await runAsyncSqlite(
+    "PRAGMA wal_checkpoint(TRUNCATE)",
+  );
+  if (!checkpointResult.ok) {
+    log.warn(
+      { error: checkpointResult.error, backend: checkpointResult.backend },
+      "WAL checkpoint failed (non-fatal)",
+    );
+  }
 
+  const after = getDbStats();
   log.info(
     {
-      backend: vacuumResult.backend,
-      vacuumOk: vacuumResult.ok,
       optimizeOk: optimizeResult.ok,
-      vacuumElapsedMs: vacuumResult.elapsedMs,
+      optimizeBackend: optimizeResult.backend,
       optimizeElapsedMs: optimizeResult.elapsedMs,
-      beforePageCount: before.pageCount,
-      afterPageCount: after.pageCount,
-      reclaimedPages,
-      beforeFileSizeBytes: before.fileSizeBytes,
-      afterFileSizeBytes: after.fileSizeBytes,
-      reclaimedBytes,
+      checkpointOk: checkpointResult.ok,
+      checkpointBackend: checkpointResult.backend,
+      checkpointResult: checkpointResult.stdout?.trim(),
+      checkpointElapsedMs: checkpointResult.elapsedMs,
+      pageCount: after.pageCount,
+      freelistCount: after.freelistCount,
+      fileSizeBytes: after.fileSizeBytes,
     },
     "Database maintenance complete",
   );
 }
 
 export async function maybeRunDbMaintenance(nowMs = Date.now()): Promise<void> {
+  const { intervalMs, quietPeriodMs } = getConfig().memory.maintenance;
+
   const lastRun = parseInt(
     getMemoryCheckpoint(DB_MAINTENANCE_CHECKPOINT_KEY) ?? "0",
     10,
   );
-  if (nowMs - lastRun < DB_MAINTENANCE_INTERVAL_MS) return;
+  if (nowMs - lastRun < intervalMs) return;
+
+  // Maintenance still takes brief write locks (PRAGMA optimize and the
+  // truncating WAL checkpoint), so defer it until the user has been quiet for
+  // `quietPeriodMs` and those locks never land mid-conversation. The checkpoint
+  // below is only written once maintenance actually runs, so a deferred run is
+  // simply retried on a later (still-idle) worker tick.
+  if (quietPeriodMs > 0) {
+    const lastUserMessageAt = getLastUserMessageTimestamp();
+    if (lastUserMessageAt > 0 && nowMs - lastUserMessageAt < quietPeriodMs) {
+      return;
+    }
+  }
 
   try {
     await runDbMaintenance();

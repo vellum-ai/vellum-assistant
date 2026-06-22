@@ -12,6 +12,7 @@
  * IPC, and converts the result back into an HTTP Response.
  */
 
+import { isActorTokenRevoked } from "../../auth/actor-token-revocation.js";
 import { resolveScopeProfile } from "../../auth/scopes.js";
 import { parseSub } from "../../auth/subject.js";
 import { validateEdgeToken } from "../../auth/token-exchange.js";
@@ -71,6 +72,13 @@ export async function tryIpcProxy(
           reason: result.reason,
         },
         "IPC proxy auth rejected",
+      );
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (isActorTokenRevoked(edgeJwt, result.claims)) {
+      log.warn(
+        { method: req.method, path: new URL(req.url).pathname },
+        "IPC proxy auth rejected: actor token revoked",
       );
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -205,6 +213,26 @@ export async function tryIpcProxy(
     return Response.json(result);
   } catch (err) {
     const duration = Math.round(performance.now() - start);
+
+    // A binary/streaming route can't be carried over the IPC transport (the
+    // gateway IPC client speaks newline-delimited JSON). The daemon signals
+    // this with BINARY_UNSUPPORTED_OVER_IPC; return null so the caller falls
+    // through to the HTTP proxy, which streams binary responses correctly.
+    if (
+      err instanceof IpcHandlerError &&
+      err.code === "BINARY_UNSUPPORTED_OVER_IPC"
+    ) {
+      log.info(
+        {
+          method: req.method,
+          path: pathname,
+          operationId: match.operationId,
+          duration,
+        },
+        "IPC proxy falling back to HTTP for binary response",
+      );
+      return null;
+    }
 
     if (err instanceof IpcHandlerError) {
       log.warn(

@@ -60,7 +60,7 @@ import { mintToken } from "../runtime/auth/token-service.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
-initializeDb();
+await initializeDb();
 
 const CHAT_WRITE_JWT = mintToken({
   aud: "vellum-daemon",

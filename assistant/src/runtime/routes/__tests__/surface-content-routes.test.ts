@@ -51,7 +51,7 @@ const findBySurfaceCalls: string[] = [];
 const getOrCreateCalls: string[] = [];
 const rawGetCalls: Array<{ sql: string; params: unknown[] }> = [];
 
-mock.module("../../../daemon/conversation-store.js", () => ({
+mock.module("../../../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => {
     findConvCalls.push(id);
     return memoryById ?? undefined;
@@ -60,6 +60,9 @@ mock.module("../../../daemon/conversation-store.js", () => ({
     findBySurfaceCalls.push(surfaceId);
     return undefined;
   },
+}));
+
+mock.module("../../../daemon/conversation-store.js", () => ({
   getOrCreateConversation: async (id: string) => {
     getOrCreateCalls.push(id);
     if (!rehydrated) {

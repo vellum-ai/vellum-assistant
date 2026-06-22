@@ -48,8 +48,9 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import type { AgentEvent, AgentLoopRunOptions } from "../agent/loop.js";
+import type { AgentLoopRunOptions } from "../agent/loop.js";
 import { LLMSchema } from "../config/schemas/llm.js";
+import type { Conversation } from "../daemon/conversation.js";
 import { RetryProvider } from "../providers/retry.js";
 import type {
   Message,
@@ -60,7 +61,6 @@ import type {
 import {
   __resetWakeChainForTests,
   wakeAgentForOpportunity,
-  type WakeTarget,
 } from "../runtime/agent-wake.js";
 
 interface RunArgs {
@@ -69,44 +69,44 @@ interface RunArgs {
 }
 
 function makeTarget(): {
-  target: WakeTarget;
+  target: Conversation;
   runArgs: RunArgs[];
 } {
   const runArgs: RunArgs[] = [];
-  const history: Message[] = [
+  const messages: Message[] = [
     { role: "user", content: [{ type: "text", text: "hi" }] },
   ];
   let processing = false;
 
-  const target: WakeTarget = {
+  const target = {
     conversationId: "conv-wake-override",
     agentLoop: {
-      run: (async (
-        messages: Message[],
-        _onEvent: (event: AgentEvent) => void | Promise<void>,
-        options?: AgentLoopRunOptions,
-      ) => {
+      run: async (options: AgentLoopRunOptions) => {
         runArgs.push({
-          messages: [...messages],
+          messages: [...options.messages],
           options,
         });
         // Return the input verbatim → silent no-op (no assistant tail).
         // Wake never yields at a checkpoint, so the pause-reason is null.
-        return { history: messages, exitReason: null };
-      }) as WakeTarget["agentLoop"]["run"],
+        return { history: options.messages, exitReason: null };
+      },
     },
-    getMessages: () => history,
-    pushMessage: (msg) => {
-      history.push(msg);
-    },
-    emitAgentEvent: () => {},
+    messages,
+    getMessages: () => messages,
     isProcessing: () => processing,
-    markProcessing: (on) => {
+    setProcessing: (on: boolean) => {
       processing = on;
     },
-    persistTailMessage: async () => {},
+    setTrustContext: () => {},
+    getTurnChannelContext: () => null,
+    getTurnInterfaceContext: () => null,
+    drainQueue: async () => {},
+    // Pre-run auto-compaction gate — no-op for these tests.
+    maybeCompact: async () => null,
+    buildCurrentSystemPrompt: () => "mock-system-prompt",
+    modelOverride: undefined,
   };
-  return { target, runArgs };
+  return { target: target as unknown as Conversation, runArgs };
 }
 
 beforeEach(() => {
@@ -161,6 +161,81 @@ describe("wakeAgentForOpportunity — overrideProfile forwarding", () => {
     );
     // Sanity: the wake-source tag still propagates as requestId.
     expect(runArgs[0]!.options?.requestId).toBe("wake:scheduler");
+  });
+
+  test("forceOverrideProfile replaces the pinned-profile lookup and forwards the force flag to agentLoop.run", async () => {
+    // The conversation's own pinned profile must be ignored — the caller's
+    // forced profile (e.g. a fork-based retrospective matching the source
+    // conversation) takes its place AND floats above the call-site layers
+    // via the resolver's `forceOverrideProfile` escape hatch.
+    mockOverrideProfile = "pinned-ignored";
+    mockLlmConfig = LLMSchema.parse({
+      default: {
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        maxTokens: 64000,
+        contextWindow: { maxInputTokens: 200000 },
+      },
+      profiles: {
+        forced: {
+          contextWindow: { maxInputTokens: 120000 },
+        },
+      },
+      callSites: {
+        memoryRetrospective: { contextWindow: { maxInputTokens: 180000 } },
+      },
+    }) as Record<string, unknown>;
+    const { target, runArgs } = makeTarget();
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: target.conversationId,
+        hint: "test hint",
+        source: "memory-retrospective",
+        callSite: "memoryRetrospective",
+        forceOverrideProfile: "forced",
+      },
+      { resolveTarget: async () => target },
+    );
+
+    expect(result.invoked).toBe(true);
+    expect(runArgs).toHaveLength(1);
+    expect(runArgs[0]!.options?.overrideProfile).toBe("forced");
+    expect(runArgs[0]!.options?.forceOverrideProfile).toBe(true);
+    expect(runArgs[0]!.options?.callSite).toBe("memoryRetrospective");
+    // The effective context window resolves under the FORCED profile, above
+    // the explicit call-site override (120k beats the call site's 180k).
+    expect(runArgs[0]!.options?.resolveContextWindow?.().maxInputTokens).toBe(
+      120000,
+    );
+  });
+
+  test("without forceOverrideProfile the wake never sets the force flag", async () => {
+    mockOverrideProfile = "frontier";
+    mockLlmConfig = LLMSchema.parse({
+      default: {
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        maxTokens: 64000,
+        contextWindow: { maxInputTokens: 200000 },
+      },
+      profiles: { frontier: {} },
+      callSites: { mainAgent: {} },
+    }) as Record<string, unknown>;
+    const { target, runArgs } = makeTarget();
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: target.conversationId,
+        hint: "test hint",
+        source: "scheduler",
+      },
+      { resolveTarget: async () => target },
+    );
+
+    expect(runArgs).toHaveLength(1);
+    expect(runArgs[0]!.options?.overrideProfile).toBe("frontier");
+    expect(runArgs[0]!.options?.forceOverrideProfile).toBe(false);
   });
 
   test("passes undefined overrideProfile when the conversation has no pinned profile, but still forwards mainAgent callSite", async () => {

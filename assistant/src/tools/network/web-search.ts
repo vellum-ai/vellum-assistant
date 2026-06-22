@@ -6,6 +6,7 @@ import type {
 import { RiskLevel } from "../../permissions/types.js";
 import { getProviderKeyAsync } from "../../security/secure-keys.js";
 import { wrapUntrustedContent } from "../../security/untrusted-content.js";
+import { isAbortReason } from "../../util/abort-reasons.js";
 import { faviconUrlForDomain } from "../../util/favicon.js";
 import { getLogger } from "../../util/logger.js";
 import {
@@ -22,6 +23,11 @@ import type {
 } from "../types.js";
 import { extractDomain } from "./domain-normalize.js";
 import type { ManagedSearchProxyResult } from "./managed-search-proxy.js";
+import {
+  classifyWebSearchFailure,
+  logWebSearchBackendFailure,
+  WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
+} from "./web-search-error.js";
 
 const log = getLogger("web-search");
 
@@ -29,8 +35,9 @@ const BRAVE_SEARCH_PATH = "/res/v1/web/search";
 const BRAVE_API_URL = `https://api.search.brave.com${BRAVE_SEARCH_PATH}`;
 const PERPLEXITY_API_URL = "https://api.perplexity.ai/chat/completions";
 const TAVILY_API_URL = "https://api.tavily.com/search";
+const FIRECRAWL_API_URL = "https://api.firecrawl.dev/v2/search";
 
-type WebSearchProvider = "perplexity" | "brave" | "tavily";
+type WebSearchProvider = "perplexity" | "brave" | "tavily" | "firecrawl";
 type WebSearchMode = "managed" | "your-own";
 
 /**
@@ -100,6 +107,28 @@ interface TavilySearchResult {
 interface TavilySearchResponse {
   query?: string;
   results?: TavilySearchResult[];
+}
+
+interface FirecrawlSearchResult {
+  title?: string;
+  description?: string;
+  url?: string;
+  category?: string;
+}
+
+/**
+ * Firecrawl `/v2/search` returns one array per requested source under `data`
+ * (defaults to `web`). We request only `web`, so that is the array we read;
+ * `news`/`images` are typed loosely since we never request them here.
+ */
+interface FirecrawlSearchResponse {
+  success?: boolean;
+  data?: {
+    web?: FirecrawlSearchResult[];
+    news?: FirecrawlSearchResult[];
+    images?: unknown[];
+  };
+  warning?: string | null;
 }
 
 function getWebSearchProvider(): WebSearchProvider {
@@ -216,6 +245,34 @@ function formatTavilyResults(
     }
     if (typeof r.score === "number") {
       lines.push(`   Score: ${r.score.toFixed(3)}`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
+function formatFirecrawlResults(
+  data: FirecrawlSearchResponse,
+  query: string,
+): string {
+  const results = data.data?.web ?? [];
+
+  if (results.length === 0) {
+    return `No results found for "${query}".`;
+  }
+
+  const lines: string[] = [`Web search results for "${query}":\n`];
+
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    const title = r.title?.trim() || r.url?.trim() || "Untitled result";
+    lines.push(`${i + 1}. ${title}`);
+    if (r.url) {
+      lines.push(`   URL: ${r.url}`);
+    }
+    if (r.description) {
+      lines.push(`   ${r.description}`);
     }
     lines.push("");
   }
@@ -359,6 +416,55 @@ function tavilyTimeRangeForFreshness(
   }
 }
 
+function buildFirecrawlMetadata(
+  data: FirecrawlSearchResponse,
+  query: string,
+  durationMs: number,
+): WebSearchMetadata {
+  const results = data.data?.web ?? [];
+  const items: WebSearchResultItem[] = results.map((r, i) => {
+    const url = r.url ?? "";
+    const domain = extractDomain(url);
+    return {
+      rank: i + 1,
+      title: r.title?.trim() || url.trim() || "Untitled result",
+      url,
+      domain,
+      faviconUrl: faviconUrlForDomain(domain),
+      snippet: r.description,
+    };
+  });
+  return {
+    query,
+    provider: "firecrawl",
+    resultCount: items.length,
+    durationMs,
+    results: items,
+  };
+}
+
+/**
+ * Map the tool's `freshness` window onto Firecrawl's `tbs` time filter
+ * (`qdr:d` / `qdr:w` / `qdr:m` / `qdr:y`). Returns `undefined` for an
+ * unrecognized value so the request omits `tbs` entirely.
+ */
+function firecrawlTbsForFreshness(
+  freshness: string | undefined,
+): "qdr:d" | "qdr:w" | "qdr:m" | "qdr:y" | undefined {
+  switch (freshness) {
+    case "pd":
+      return "qdr:d";
+    case "pw":
+      return "qdr:w";
+    case "pm":
+      return "qdr:m";
+    case "py":
+      return "qdr:y";
+    default:
+      return undefined;
+  }
+}
+
 function errorResult(
   query: string,
   provider: WebSearchProvider,
@@ -381,6 +487,114 @@ function errorResult(
   };
 }
 
+/**
+ * Wrap an already-read provider response body so {@link backendFailureResult}
+ * forwards it into the classifier's internal-only `rawDetail` (telemetry). The
+ * classifier reads `error.message`; `buildRawDetail` truncates to ≤500 chars.
+ * Returns `undefined` for an empty body so we don't pad `rawDetail` with noise.
+ * The body must NEVER reach user-facing `content`/`errorMessage`.
+ */
+function rawBodyDetail(body: unknown): { message: string } | undefined {
+  if (body == null) return undefined;
+  const text = typeof body === "string" ? body : safeStringifyBody(body);
+  const trimmed = text.trim();
+  return trimmed ? { message: trimmed } : undefined;
+}
+
+function safeStringifyBody(body: unknown): string {
+  try {
+    return JSON.stringify(body);
+  } catch {
+    return String(body);
+  }
+}
+
+/**
+ * Build a {@link ToolExecutionResult} for a genuine backend/transport failure
+ * (5xx, post-retry rate-limit, thrown network/timeout error). Routes the raw
+ * detail through {@link classifyWebSearchFailure}: when it is a backend failure
+ * we surface the friendly recoverable copy (the bare sentence so the model
+ * reads it as guidance — retry / continue-without-search / paste-details —
+ * rather than fabricating) in both the model-facing `content` and the client
+ * `errorMessage`, and log the raw detail via telemetry. Non-backend categories
+ * (e.g. an unexpected 4xx) fall back to {@link errorResult} with `fallback`.
+ *
+ * Raw provider JSON / status text must never reach `content` or `errorMessage`;
+ * only `rawDetail` (internal-only) captures it for the log.
+ */
+function backendFailureResult(
+  query: string,
+  provider: WebSearchProvider,
+  startedAt: number,
+  raw: { error?: unknown; statusCode?: number; errorCode?: string },
+  fallback: string,
+): ToolExecutionResult {
+  const classification = classifyWebSearchFailure({
+    isError: true,
+    error: raw.error,
+    statusCode: raw.statusCode,
+    errorCode: raw.errorCode,
+  });
+
+  if (!classification.isBackendFailure) {
+    return errorResult(query, provider, startedAt, fallback);
+  }
+
+  logWebSearchBackendFailure(log, {
+    provider,
+    errorCategory: classification.category,
+    rawDetail: classification.rawDetail,
+    fallbackShown: true,
+    queryLength: query.length,
+  });
+
+  return {
+    content: WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
+    isError: true,
+    activityMetadata: {
+      webSearch: {
+        query,
+        provider,
+        resultCount: 0,
+        durationMs: Date.now() - startedAt,
+        results: [],
+        errorMessage: WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
+      },
+    },
+  };
+}
+
+/**
+ * Route a thrown fetch error (network/timeout) through {@link backendFailureResult}
+ * as a `backend_unavailable` candidate, falling back to a `Web search failed: …`
+ * error for non-backend throws (e.g. a JSON parse error).
+ *
+ * If the caller aborted the request (`signal.aborted` — the user hit Stop/Esc,
+ * or an external caller cancelled), the thrown error is re-thrown so the
+ * executor's existing cancellation handling takes over. A user-cancel must NOT
+ * surface the friendly backend copy or emit `web_search_backend_failure`
+ * telemetry. Internal fetch timeouts (where the caller's signal is not aborted)
+ * still route to the friendly backend result.
+ */
+function networkFailureResult(
+  query: string,
+  provider: WebSearchProvider,
+  startedAt: number,
+  err: unknown,
+  signal?: AbortSignal,
+): ToolExecutionResult {
+  if (signal?.aborted || isAbortReason((err as { reason?: unknown })?.reason)) {
+    throw err;
+  }
+  return backendFailureResult(
+    query,
+    provider,
+    startedAt,
+    { error: err },
+    `Web search failed: ${err instanceof Error ? err.message : String(err)}`,
+  );
+}
+
 async function executeBraveSearch(
   query: string,
   count: number,
@@ -396,21 +610,26 @@ async function executeBraveSearch(
   const startedAt = Date.now();
 
   for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
-    const response = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        "Accept-Encoding": "gzip",
-        "X-Subscription-Token": apiKey,
-      },
-      signal,
-    });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        headers: {
+          Accept: "application/json",
+          "Accept-Encoding": "gzip",
+          "X-Subscription-Token": apiKey,
+        },
+        signal,
+      });
+    } catch (err) {
+      return networkFailureResult(query, "brave", startedAt, err, signal);
+    }
 
     if (response.ok) {
       const data = (await response.json()) as BraveSearchResponse;
       return successfulBraveResult(data, query, startedAt);
     }
 
-    await response.text();
+    const bodyText = await response.text();
 
     if (response.status === 401 || response.status === 403) {
       return errorResult(
@@ -436,20 +655,22 @@ async function executeBraveSearch(
     }
 
     log.warn({ status: response.status }, "Brave Search API error");
-    return errorResult(
+    return backendFailureResult(
       query,
       "brave",
       startedAt,
+      { statusCode: response.status, error: rawBodyDetail(bodyText) },
       response.status === 429
         ? "Brave Search rate limit exceeded after retries. Try again shortly."
         : `Brave Search API returned status ${response.status}`,
     );
   }
 
-  return errorResult(
+  return backendFailureResult(
     query,
     "brave",
     startedAt,
+    { statusCode: 429 },
     "Brave Search rate limit exceeded after retries. Try again shortly.",
   );
 }
@@ -478,6 +699,20 @@ async function executeManagedBraveSearch(
   );
 
   if (!proxyResult.ok) {
+    // Keep billing/auth/unavailable mapping as specific copy; route genuine
+    // platform 5xx (transport-level failures) to the friendly backend helper.
+    if (proxyResult.kind === "platform-error" && proxyResult.status >= 500) {
+      return backendFailureResult(
+        query,
+        "brave",
+        startedAt,
+        {
+          statusCode: proxyResult.status,
+          error: rawBodyDetail(proxyResult.body),
+        },
+        managedSearchProxyErrorMessage(proxyResult),
+      );
+    }
     return errorResult(
       query,
       "brave",
@@ -503,12 +738,18 @@ async function executeManagedBraveSearch(
     );
   }
 
-  if (proxyResult.status === 429) {
-    return errorResult(
+  if (proxyResult.status === 429 || proxyResult.status >= 500) {
+    return backendFailureResult(
       query,
       "brave",
       startedAt,
-      "Managed Brave Search rate limit exceeded. Try again shortly.",
+      {
+        statusCode: proxyResult.status,
+        error: rawBodyDetail(proxyResult.body),
+      },
+      proxyResult.status === 429
+        ? "Managed Brave Search rate limit exceeded. Try again shortly."
+        : `Managed Brave Search provider returned status ${proxyResult.status}`,
     );
   }
 
@@ -545,18 +786,23 @@ async function executePerplexitySearch(
 ): Promise<ToolExecutionResult> {
   const startedAt = Date.now();
   for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
-    const response = await fetch(PERPLEXITY_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "sonar",
-        messages: [{ role: "user", content: query }],
-      }),
-      signal,
-    });
+    let response: Response;
+    try {
+      response = await fetch(PERPLEXITY_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: "sonar",
+          messages: [{ role: "user", content: query }],
+        }),
+        signal,
+      });
+    } catch (err) {
+      return networkFailureResult(query, "perplexity", startedAt, err, signal);
+    }
 
     if (response.ok) {
       const data = (await response.json()) as PerplexityResponse;
@@ -574,7 +820,7 @@ async function executePerplexitySearch(
       };
     }
 
-    await response.text();
+    const bodyText = await response.text();
 
     if (response.status === 401 || response.status === 403) {
       return errorResult(
@@ -600,20 +846,22 @@ async function executePerplexitySearch(
     }
 
     log.warn({ status: response.status }, "Perplexity API error");
-    return errorResult(
+    return backendFailureResult(
       query,
       "perplexity",
       startedAt,
+      { statusCode: response.status, error: rawBodyDetail(bodyText) },
       response.status === 429
         ? "Perplexity rate limit exceeded after retries. Try again shortly."
         : `Perplexity API returned status ${response.status}`,
     );
   }
 
-  return errorResult(
+  return backendFailureResult(
     query,
     "perplexity",
     startedAt,
+    { statusCode: 429 },
     "Perplexity rate limit exceeded after retries. Try again shortly.",
   );
 }
@@ -638,16 +886,21 @@ async function executeTavilySearch(
   const startedAt = Date.now();
 
   for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
-    const response = await fetch(TAVILY_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-        "X-Client-Source": "vellum-assistant",
-      },
-      body: JSON.stringify(body),
-      signal,
-    });
+    let response: Response;
+    try {
+      response = await fetch(TAVILY_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+          "X-Client-Source": "vellum-assistant",
+        },
+        body: JSON.stringify(body),
+        signal,
+      });
+    } catch (err) {
+      return networkFailureResult(query, "tavily", startedAt, err, signal);
+    }
 
     if (response.ok) {
       const data = (await response.json()) as TavilySearchResponse;
@@ -665,7 +918,7 @@ async function executeTavilySearch(
       };
     }
 
-    await response.text();
+    const bodyText = await response.text();
 
     if (response.status === 401 || response.status === 403) {
       return errorResult(
@@ -691,21 +944,121 @@ async function executeTavilySearch(
     }
 
     log.warn({ status: response.status }, "Tavily Search API error");
-    return errorResult(
+    return backendFailureResult(
       query,
       "tavily",
       startedAt,
+      { statusCode: response.status, error: rawBodyDetail(bodyText) },
       response.status === 429
         ? "Tavily Search rate limit exceeded after retries. Try again shortly."
         : `Tavily Search API returned status ${response.status}`,
     );
   }
 
-  return errorResult(
+  return backendFailureResult(
     query,
     "tavily",
     startedAt,
+    { statusCode: 429 },
     "Tavily Search rate limit exceeded after retries. Try again shortly.",
+  );
+}
+
+async function executeFirecrawlSearch(
+  query: string,
+  count: number,
+  freshness: string | undefined,
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<ToolExecutionResult> {
+  const tbs = firecrawlTbsForFreshness(freshness);
+  const body: Record<string, unknown> = {
+    query,
+    limit: count,
+    sources: ["web"],
+  };
+  if (tbs) {
+    body.tbs = tbs;
+  }
+
+  const startedAt = Date.now();
+
+  for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
+    let response: Response;
+    try {
+      response = await fetch(FIRECRAWL_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+          "X-Client-Source": "vellum-assistant",
+        },
+        body: JSON.stringify(body),
+        signal,
+      });
+    } catch (err) {
+      return networkFailureResult(query, "firecrawl", startedAt, err, signal);
+    }
+
+    if (response.ok) {
+      const data = (await response.json()) as FirecrawlSearchResponse;
+      const durationMs = Date.now() - startedAt;
+      return {
+        content:
+          wrapUntrustedContent(formatFirecrawlResults(data, query), {
+            source: "search",
+            sourceDetail: "firecrawl",
+          }) + CITATION_INSTRUCTION,
+        isError: false,
+        activityMetadata: {
+          webSearch: buildFirecrawlMetadata(data, query, durationMs),
+        },
+      };
+    }
+
+    const bodyText = await response.text();
+
+    if (response.status === 401 || response.status === 403) {
+      return errorResult(
+        query,
+        "firecrawl",
+        startedAt,
+        "Invalid or expired Firecrawl API key",
+      );
+    }
+
+    if (response.status === 429 && attempt < DEFAULT_MAX_RETRIES) {
+      const delayMs = getHttpRetryDelay(
+        response,
+        attempt,
+        DEFAULT_BASE_DELAY_MS,
+      );
+      log.warn(
+        { attempt: attempt + 1, delayMs },
+        "Firecrawl Search rate limited, retrying",
+      );
+      await sleep(delayMs);
+      continue;
+    }
+
+    log.warn({ status: response.status }, "Firecrawl Search API error");
+    return backendFailureResult(
+      query,
+      "firecrawl",
+      startedAt,
+      { statusCode: response.status, error: rawBodyDetail(bodyText) },
+      response.status === 429
+        ? "Firecrawl Search rate limit exceeded after retries. Try again shortly."
+        : `Firecrawl Search API returned status ${response.status}`,
+    );
+  }
+
+  return backendFailureResult(
+    query,
+    "firecrawl",
+    startedAt,
+    { statusCode: 429 },
+    "Firecrawl Search rate limit exceeded after retries. Try again shortly.",
   );
 }
 
@@ -750,6 +1103,14 @@ const tavilySearchAdapter: WebSearchAdapter = {
     executeTavilySearch(query, count, freshness, apiKey, signal),
 };
 
+const firecrawlSearchAdapter: WebSearchAdapter = {
+  id: "firecrawl",
+  providerKeyName: "firecrawl",
+  fallbackOrder: 4,
+  execute: ({ query, count, freshness, apiKey, signal }) =>
+    executeFirecrawlSearch(query, count, freshness, apiKey, signal),
+};
+
 /**
  * All built-in web-search adapters keyed by provider id. The
  * `Record<WebSearchProvider, ...>` shape forces TypeScript to flag any
@@ -759,6 +1120,7 @@ const WEB_SEARCH_ADAPTERS: Record<WebSearchProvider, WebSearchAdapter> = {
   perplexity: perplexitySearchAdapter,
   brave: braveSearchAdapter,
   tavily: tavilySearchAdapter,
+  firecrawl: firecrawlSearchAdapter,
 };
 
 /**
@@ -790,7 +1152,7 @@ export const webSearchTool = {
       count: {
         type: "number",
         description:
-          "Number of results to return (1-20, default 10). Used with Brave and Tavily providers.",
+          "Number of results to return (1-20, default 10). Used with Brave, Tavily, and Firecrawl providers.",
       },
       offset: {
         type: "number",
@@ -800,7 +1162,7 @@ export const webSearchTool = {
       freshness: {
         type: "string",
         description:
-          'Filter by recency: "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year). Used with Brave and Tavily providers.',
+          'Filter by recency: "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year). Used with Brave, Tavily, and Firecrawl providers.',
       },
     },
     required: ["query"],
@@ -844,13 +1206,13 @@ export const webSearchTool = {
           signal: context.signal,
         });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
         log.error({ err }, "Managed web search failed");
-        return errorResult(
+        return networkFailureResult(
           query,
           "brave",
           startedAt,
-          `Managed web search failed: ${msg}`,
+          err,
+          context.signal,
         );
       }
     }
@@ -880,7 +1242,7 @@ export const webSearchTool = {
           query,
           provider,
           startedAt,
-          "No web search API key configured. Set it via `keys set perplexity <key>`, `keys set brave <key>`, or `keys set tavily <key>`, or configure it from the Settings page under API Keys.",
+          "No web search API key configured. Set it via `keys set perplexity <key>`, `keys set brave <key>`, `keys set tavily <key>`, or `keys set firecrawl <key>`, or configure it from the Settings page under API Keys.",
         );
       }
     }
@@ -897,13 +1259,13 @@ export const webSearchTool = {
         signal: context.signal,
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
       log.error({ err }, "Web search failed");
-      return errorResult(
+      return networkFailureResult(
         query,
         provider,
         startedAt,
-        `Web search failed: ${msg}`,
+        err,
+        context.signal,
       );
     }
   },

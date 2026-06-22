@@ -14,7 +14,7 @@ import type { Message } from "../providers/types.js";
 /**
  * Minimal reproduction of repairPendingToolUseBlocks logic for direct
  * unit testing. The real implementation lives in conversation-process.ts.
- * This mirrors it exactly to avoid needing the full ProcessConversationContext.
+ * This mirrors it exactly to avoid needing the full Conversation.
  */
 function repairPendingToolUseBlocks(messages: Message[]): Message[] {
   if (messages.length === 0) return messages;

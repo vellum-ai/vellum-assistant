@@ -1,15 +1,16 @@
 /**
  * Route handlers for conversation listing, detail, and seen/unread state.
  *
- * GET    /v1/conversations          — paginated conversation list
- * POST   /v1/conversations/seen     — record a seen signal
- * POST   /v1/conversations/unread   — mark a conversation unread
- * GET    /v1/conversations/:id      — conversation detail
+ * GET    /v1/conversations              — paginated conversation list
+ * POST   /v1/conversations/seen         — record a seen signal (single)
+ * POST   /v1/conversations/seen/bulk    — record seen signals (batch)
+ * POST   /v1/conversations/unread       — mark a conversation unread
+ * GET    /v1/conversations/:id          — conversation detail
  */
 
 import { z } from "zod";
 
-import { findConversation } from "../../daemon/conversation-store.js";
+import { findConversation } from "../../daemon/conversation-registry.js";
 import {
   type Confidence,
   getAttentionStateByConversationIds,
@@ -27,6 +28,7 @@ import {
   listConversations,
   listPinnedConversations,
 } from "../../memory/conversation-queries.js";
+import type { ConversationType } from "../../memory/conversation-types.js";
 import { getBindingsForConversations } from "../../memory/external-conversation-store.js";
 import { listGroups } from "../../memory/group-crud.js";
 import { UserError } from "../../util/errors.js";
@@ -36,7 +38,10 @@ import {
   buildConversationDetailResponse,
   serializeConversationSummary,
 } from "../services/conversation-serializer.js";
-import { publishConversationListAndMetadataChanged } from "../sync/resource-sync-events.js";
+import {
+  publishConversationListAndMetadataChanged,
+  publishConversationListChanged,
+} from "../sync/resource-sync-events.js";
 import {
   BadRequestError,
   InternalError,
@@ -72,6 +77,7 @@ const assistantAttentionSchema = z.object({
       "macos_notification_view",
       "macos_conversation_opened",
       "ios_conversation_opened",
+      "web_bulk_mark_read",
       "telegram_inbound_message",
       "telegram_callback",
       "slack_inbound_message",
@@ -132,6 +138,12 @@ export const conversationSummarySchema = z.object({
   groupId: z.string().nullable(),
   forkParent: forkParentSchema.optional(),
   archivedAt: z.number().optional(),
+  /**
+   * Epoch-ms timestamp set when a background/scheduled conversation was
+   * explicitly promoted ("surfaced") into the Recents sidebar grouping via
+   * `POST /v1/conversations/:id/surface`. Absent when not surfaced.
+   */
+  surfacedAt: z.number().optional(),
   inferenceProfile: z.string().optional(),
   /**
    * True when the agent loop is currently mid-turn for this conversation.
@@ -176,7 +188,25 @@ function resolveOrThrow(rawId: string): string {
 function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
   const limit = Number(queryParams.limit ?? 50);
   const offset = Number(queryParams.offset ?? 0);
-  const backgroundOnly = queryParams.conversationType === "background";
+  // "background" is the back-compat umbrella (background + scheduled); newer
+  // clients can pass "scheduled" to load only the Scheduled section. Absent
+  // defaults to the standard foreground list. Any other value is rejected so
+  // an unrecognized type surfaces as a 400 rather than being silently coerced
+  // to the foreground list (which would mask client/daemon version skew).
+  const rawConversationType = queryParams.conversationType;
+  let conversationType: ConversationType = "standard";
+  if (rawConversationType !== undefined && rawConversationType !== "") {
+    if (
+      rawConversationType === "background" ||
+      rawConversationType === "scheduled"
+    ) {
+      conversationType = rawConversationType;
+    } else {
+      throw new BadRequestError(
+        `Unknown conversationType "${rawConversationType}"; expected "background" or "scheduled".`,
+      );
+    }
+  }
   // Defaults to `active` so sidebar restores no longer pull archived rows.
   // The Archive page opts into `archived` to render only archived rows
   // without dragging the entire live history through pagination first.
@@ -187,14 +217,36 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
         ? "all"
         : "active";
 
-  let rows = listConversations(limit, backgroundOnly, offset, archiveStatus);
-  const totalCount = countConversations(backgroundOnly, archiveStatus);
+  const originChannel =
+    queryParams.originChannel !== undefined && queryParams.originChannel !== ""
+      ? queryParams.originChannel
+      : undefined;
+
+  let rows = listConversations(
+    limit,
+    conversationType,
+    offset,
+    archiveStatus,
+    originChannel,
+  );
+  const totalCount = countConversations(
+    conversationType,
+    archiveStatus,
+    originChannel,
+  );
 
   // On the first page, ensure all pinned conversations are included
   // even if they fall outside the paginated window. Pinned injection is
   // skipped in archived/all views since the Archive page renders archived
-  // rows in archive-time order, not pin order.
-  if (offset === 0 && !backgroundOnly && archiveStatus === "active") {
+  // rows in archive-time order, not pin order. Also skipped for
+  // channel-scoped queries — those return only items matching the
+  // requested origin channel; pinned items render in their own section.
+  if (
+    offset === 0 &&
+    conversationType === "standard" &&
+    archiveStatus === "active" &&
+    originChannel === undefined
+  ) {
     const pinned = listPinnedConversations(archiveStatus);
     const seen = new Set(rows.map((c) => c.id));
     const missing = pinned.filter((c) => !seen.has(c.id));
@@ -289,6 +341,55 @@ function handleRecordSeen({ body = {}, headers }: RouteHandlerArgs) {
   }
 }
 
+function handleRecordSeenBulk({ body = {}, headers }: RouteHandlerArgs) {
+  const rawIds = body.conversationIds as string[] | undefined;
+  if (!Array.isArray(rawIds) || rawIds.length === 0) {
+    throw new BadRequestError("conversationIds must be a non-empty array");
+  }
+
+  const originClientId = headers?.["x-vellum-client-id"]?.trim() || undefined;
+  const changedIds: string[] = [];
+
+  for (const rawId of rawIds) {
+    try {
+      const conversationId = resolveOrThrow(rawId);
+      const priorState = getAttentionStateByConversationIds([
+        conversationId,
+      ]).get(conversationId);
+      const wasUnseen =
+        priorState != null &&
+        priorState.latestAssistantMessageAt != null &&
+        (priorState.lastSeenAssistantMessageAt == null ||
+          priorState.lastSeenAssistantMessageAt <
+            priorState.latestAssistantMessageAt);
+
+      recordConversationSeenSignal({
+        conversationId,
+        sourceChannel: "vellum",
+        signalType: "web_bulk_mark_read",
+        confidence: "explicit",
+        source: "http-api",
+      });
+
+      if (wasUnseen) {
+        changedIds.push(conversationId);
+      }
+    } catch (err) {
+      log.error(
+        { err, conversationId: rawId },
+        "POST /v1/conversations/seen/bulk: failed for conversation",
+      );
+      // Best-effort: continue with remaining conversations.
+    }
+  }
+
+  if (changedIds.length > 0) {
+    publishConversationListChanged("seen_changed", originClientId);
+  }
+
+  return { ok: true, updated: changedIds.length };
+}
+
 function handleMarkUnread({ body = {}, headers }: RouteHandlerArgs) {
   const rawConversationId = body.conversationId as string | undefined;
   if (!rawConversationId) {
@@ -358,8 +459,8 @@ export const ROUTES: RouteDefinition[] = [
         type: "string",
         required: false,
         description:
-          'Filter by conversation type. Pass "background" to list only background/scheduled conversations.',
-        schema: { type: "string", enum: ["background"] },
+          'Filter by conversation type. Pass "background" to list background and scheduled conversations together (the back-compat umbrella), or "scheduled" to list only scheduled conversations.',
+        schema: { type: "string", enum: ["background", "scheduled"] },
       },
       {
         name: "archiveStatus",
@@ -368,6 +469,25 @@ export const ROUTES: RouteDefinition[] = [
         description:
           'Filter by archive state. Defaults to "active" (non-archived rows only). Pass "archived" to list only archived rows (for the Archive page) or "all" to include both.',
         schema: { type: "string", enum: ["active", "archived", "all"] },
+      },
+      {
+        name: "originChannel",
+        type: "string",
+        required: false,
+        description:
+          "Filter by origin channel. When provided, only conversations with this exact origin_channel value are returned. Omit to include all channels.",
+        schema: {
+          type: "string",
+          enum: [
+            "slack",
+            "telegram",
+            "whatsapp",
+            "email",
+            "a2a",
+            "vellum",
+            "phone",
+          ],
+        },
       },
     ],
     responseBody: listConversationsResponseSchema,
@@ -396,6 +516,24 @@ export const ROUTES: RouteDefinition[] = [
     }),
     responseBody: z.object({ ok: z.boolean() }),
     handler: handleRecordSeen,
+  },
+  {
+    operationId: "recordConversationSeenBulk",
+    endpoint: "conversations/seen/bulk",
+    method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Bulk mark conversations as seen",
+    description:
+      "Mark multiple conversations as seen in one request. Emits a single sync invalidation for the entire batch instead of per-conversation events.",
+    tags: ["conversations"],
+    requestBody: z.object({
+      conversationIds: z.array(z.string()).min(1),
+    }),
+    responseBody: z.object({ ok: z.boolean(), updated: z.number() }),
+    handler: handleRecordSeenBulk,
   },
   {
     operationId: "markConversationUnread",

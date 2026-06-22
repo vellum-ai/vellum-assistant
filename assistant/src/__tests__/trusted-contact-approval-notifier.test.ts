@@ -169,8 +169,10 @@ async function simulateNotifierPoll(params: {
     notifiedRequestIds,
   } = params;
 
-  // Gate check: only trusted contacts with guardian route
-  if (trustClass !== "trusted_contact" || !guardianExternalUserId) {
+  // Gate check: only identity-known non-guardian contacts with guardian route
+  const isIdentityKnownNonGuardian =
+    trustClass === "trusted_contact" || trustClass === "unverified_contact";
+  if (!isIdentityKnownNonGuardian || !guardianExternalUserId) {
     return false;
   }
 

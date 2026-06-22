@@ -5,6 +5,7 @@ import {
   type ImageGenCredentials,
   type ImageGenerationRequest,
   type ImageGenerationResult,
+  isImageProviderBillingError,
   type ManagedProxyCredentials,
   MAX_VARIANTS,
 } from "./types.js";
@@ -19,9 +20,18 @@ const ALLOWED_MODELS = new Set([
 
 // --- Error mapping ---
 
+const GEMINI_BILLING_MESSAGE =
+  "Image generation is unavailable because the Gemini account or API key is out of credits. " +
+  "Add funds with the provider or update the key in Settings — retrying won't help until credits are added.";
+
 export function mapGeminiError(error: unknown): string {
   if (error instanceof ApiError) {
     const status = error.status;
+    // Billing failures are non-retryable, so check them before the rate-limit
+    // branch to avoid telling the user to "wait and try again".
+    if (isImageProviderBillingError({ status, message: error.message })) {
+      return GEMINI_BILLING_MESSAGE;
+    }
     if (status === 400) {
       return "The image request was invalid. Please check your prompt and try again.";
     }
@@ -37,6 +47,11 @@ export function mapGeminiError(error: unknown): string {
     return `Gemini API error (status ${status}). Please try again.`;
   }
   if (error instanceof Error) {
+    // The managed proxy surfaces failures as plain Errors whose message embeds
+    // the upstream status (e.g. "Managed proxy request failed (402): ...").
+    if (isImageProviderBillingError({ message: error.message })) {
+      return GEMINI_BILLING_MESSAGE;
+    }
     return `Image generation failed: ${error.message}`;
   }
   return "An unexpected error occurred during image generation.";

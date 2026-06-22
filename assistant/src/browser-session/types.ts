@@ -1,4 +1,8 @@
-export type BrowserBackendKind = "extension" | "local" | "cdp-inspect";
+export type BrowserBackendKind =
+  | "extension"
+  | "local"
+  | "cdp-inspect"
+  | "host-bridge";
 
 export interface CdpCommand {
   method: string;

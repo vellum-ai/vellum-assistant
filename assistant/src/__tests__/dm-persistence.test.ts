@@ -94,10 +94,14 @@ function createSlackTurnContext(): MessagingConversationContext {
     drain: () => [],
     size: () => 0,
   } as unknown as MessageQueue;
+  let processing = false;
   return {
     conversationId: "conv-dm-test",
     messages: [],
-    processing: false,
+    isProcessing: () => processing,
+    setProcessing: (value: boolean) => {
+      processing = value;
+    },
     abortController: null,
     queue: queueStub,
     getTurnChannelContext: () => channel,

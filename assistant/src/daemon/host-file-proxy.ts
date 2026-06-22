@@ -277,19 +277,22 @@ export class HostFileProxy {
   dispose(): void {
     for (const entry of pendingInteractions.getByKind("host_file")) {
       pendingInteractions.resolve(entry.requestId, "cancelled");
+      const { conversationId } = entry;
       try {
-        broadcastMessage(
-          {
-            type: "host_file_cancel",
-            requestId: entry.requestId,
-            conversationId: entry.conversationId,
-            ...(entry.targetClientId != null
-              ? { targetClientId: entry.targetClientId }
-              : {}),
-          },
-          entry.conversationId,
-          { targetClientId: entry.targetClientId as string | undefined },
-        );
+        if (conversationId !== undefined) {
+          broadcastMessage(
+            {
+              type: "host_file_cancel",
+              requestId: entry.requestId,
+              conversationId,
+              ...(entry.targetClientId != null
+                ? { targetClientId: entry.targetClientId }
+                : {}),
+            },
+            conversationId,
+            { targetClientId: entry.targetClientId as string | undefined },
+          );
+        }
       } catch {
         // Best-effort cancel notification
       }

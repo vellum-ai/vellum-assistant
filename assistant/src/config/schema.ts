@@ -27,6 +27,7 @@ import {
   WhatsAppConfigSchema,
 } from "./schemas/channels.js";
 import { CompactionConfigSchema } from "./schemas/compaction.js";
+import { CompactionLogsConfigSchema } from "./schemas/compaction-logs.js";
 import { ConversationsConfigSchema } from "./schemas/conversations.js";
 import { FilingConfigSchema } from "./schemas/filing.js";
 import { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
@@ -55,7 +56,7 @@ import {
   TimeoutConfigSchema,
 } from "./schemas/timeouts.js";
 import { ToolsConfigSchema } from "./schemas/tools.js";
-import { UpdatesConfigSchema } from "./schemas/updates.js";
+import { WorkflowsConfigSchema } from "./schemas/workflows.js";
 import { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 
 export const AssistantConfigSchema = z
@@ -88,7 +89,6 @@ export const AssistantConfigSchema = z
     llmRequestLogs: LlmRequestLogsConfigSchema,
     filing: FilingConfigSchema.default(FilingConfigSchema.parse({})),
     heartbeat: HeartbeatConfigSchema.default(HeartbeatConfigSchema.parse({})),
-    updates: UpdatesConfigSchema.default(UpdatesConfigSchema.parse({})),
     hostBrowser: HostBrowserConfigSchema.default(
       HostBrowserConfigSchema.parse({}),
     ),
@@ -107,6 +107,7 @@ export const AssistantConfigSchema = z
     compaction: CompactionConfigSchema.default(
       CompactionConfigSchema.parse({}),
     ),
+    compactionLogs: CompactionLogsConfigSchema,
     twilio: TwilioConfigSchema.default(TwilioConfigSchema.parse({})),
     calls: CallsConfigSchema.default(CallsConfigSchema.parse({})),
     whatsapp: WhatsAppConfigSchema.default(WhatsAppConfigSchema.parse({})),
@@ -121,6 +122,7 @@ export const AssistantConfigSchema = z
     ),
     ui: UiConfigSchema.default(UiConfigSchema.parse({})),
     tools: ToolsConfigSchema.default(ToolsConfigSchema.parse({})),
+    workflows: WorkflowsConfigSchema.default(WorkflowsConfigSchema.parse({})),
     // Per-plugin config blocks keyed by plugin name. The schema is intentionally
     // permissive — each plugin's manifest supplies its own validator which the
     // plugin bootstrap (`external-plugins-bootstrap.ts`) runs against the raw
@@ -134,16 +136,18 @@ export const AssistantConfigSchema = z
       .describe(
         "Per-plugin configuration keyed by plugin name. Validated downstream by each plugin's manifest.config validator at bootstrap.",
       ),
-    collectUsageData: z
+    legacyTelemetryOptOut: z
       .boolean()
-      .default(true)
+      .optional()
       .describe(
-        "Whether to collect anonymous usage data to help improve the assistant",
+        "Fail-closed telemetry marker: set for a workspace that had an explicit local usage-data opt-out before telemetry moved to platform share_analytics consent. While set, usage telemetry stays disabled regardless of platform consent.",
       ),
-    sendDiagnostics: z
+    legacyDiagnosticsOptOut: z
       .boolean()
-      .default(true)
-      .describe("Whether to send diagnostic/crash reports"),
+      .optional()
+      .describe(
+        "Fail-closed diagnostics marker: set for a workspace that had an explicit local sendDiagnostics opt-out before crash reporting moved to platform share_diagnostics consent. While set, Sentry stays disabled regardless of platform consent.",
+      ),
     maxStepsPerSession: z
       .number({ error: "maxStepsPerSession must be a number" })
       .int("maxStepsPerSession must be an integer")

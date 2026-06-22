@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
  * Guard test: SKILL.md files must never instruct the assistant to accept
  * secrets (passwords, API keys, tokens, etc.) pasted directly in chat.
  *
- * Secrets must always be collected via `credential_store prompt`, which
+ * Secrets must always be collected via `assistant credentials prompt`, which
  * presents a secure native UI that keeps the value out of conversation
  * history and LLM context.
  *
@@ -28,7 +28,7 @@ const SECRET_WORDS =
 
 /**
  * Patterns that indicate the assistant is being told to accept a secret
- * value directly in chat, rather than via credential_store prompt.
+ * value directly in chat, rather than via `assistant credentials prompt`.
  */
 const VIOLATION_PATTERNS: RegExp[] = [
   // "accept <secret> in/via/from chat/plaintext/the conversation"
@@ -72,12 +72,13 @@ const NEGATION_PATTERNS =
   /\b(?:never|do\s+not|don['']t|must\s+not|should\s+not|shouldn['']t)\b|\bNOT\b/;
 
 /**
- * Lines that are YAML-style field values within a credential_store prompt
- * block (label, description, placeholder). These contain secret-related
- * words but are secure UI text, not chat instructions.
+ * Lines that carry the secure prompt's field text within an `assistant
+ * credentials prompt` block — either CLI flags (`--label`, `--description`,
+ * `--placeholder`, ...) or legacy YAML-style fields. These contain
+ * secret-related words but are secure UI text, not chat instructions.
  */
-const CREDENTIAL_STORE_UI_FIELD =
-  /^\s*(?:[-*]\s+)?(?:label|description|placeholder)\s*[:=]\s*/i;
+const CREDENTIAL_PROMPT_UI_FIELD =
+  /^\s*(?:[-*]\s+)?(?:label|description|placeholder)\s*[:=]\s*|^\s*--(?:service|field|label|description|placeholder|allowed-domains|allowed-tools|injection-templates|usage-description)\b/i;
 
 interface Violation {
   file: string;
@@ -127,31 +128,31 @@ function findViolations(): Violation[] {
 
     const lines = content.split("\n");
 
-    // Track whether we're inside a credential_store prompt block
-    // (indented YAML-like content after a credential_store mention)
-    let inCredentialStoreBlock = false;
+    // Track whether we're inside an `assistant credentials prompt` block
+    // (the command plus its indented flag continuation lines)
+    let inCredentialPromptBlock = false;
     let blockIndent = 0;
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const lineNumber = i + 1;
 
-      // Track credential_store prompt blocks
-      if (/credential_store\s+prompt/i.test(line)) {
-        inCredentialStoreBlock = true;
+      // Track `assistant credentials prompt` blocks
+      if (/assistant\s+credentials\s+prompt/i.test(line)) {
+        inCredentialPromptBlock = true;
         blockIndent = line.search(/\S/);
         continue;
       }
 
-      // Exit credential_store block when indentation returns to same or lesser level
-      if (inCredentialStoreBlock) {
+      // Exit the prompt block when indentation returns to same or lesser level
+      if (inCredentialPromptBlock) {
         const currentIndent = line.search(/\S/);
         if (
           currentIndent !== -1 &&
           currentIndent <= blockIndent &&
           line.trim().length > 0
         ) {
-          inCredentialStoreBlock = false;
+          inCredentialPromptBlock = false;
         }
       }
 
@@ -161,8 +162,8 @@ function findViolations(): Violation[] {
       // Skip negation lines — these instruct NOT to do something
       if (NEGATION_PATTERNS.test(line)) continue;
 
-      // Skip credential_store UI field lines (label:, description:, placeholder:)
-      if (inCredentialStoreBlock && CREDENTIAL_STORE_UI_FIELD.test(line))
+      // Skip secure-prompt UI field lines (--label/--description/--placeholder, etc.)
+      if (inCredentialPromptBlock && CREDENTIAL_PROMPT_UI_FIELD.test(line))
         continue;
 
       // Strip markdown backticks before pattern matching so that
@@ -193,13 +194,13 @@ describe("SKILL.md secret handling guard", () => {
     if (violations.length > 0) {
       const message = [
         "Found SKILL.md files that instruct accepting secrets directly in chat.",
-        "Secrets must always be collected via `credential_store prompt`, which",
+        "Secrets must always be collected via `assistant credentials prompt`, which",
         "presents a secure native UI that keeps values out of conversation history.",
         "",
         "Violations:",
         ...violations.map((v) => `  - ${v.file}:${v.line}: ${v.text}`),
         "",
-        "To fix: replace chat-based secret collection with a `credential_store prompt` call.",
+        "To fix: replace chat-based secret collection with an `assistant credentials prompt` call.",
         "See any *-setup skill (e.g. skills/slack-app-setup/SKILL.md) for the correct pattern.",
         "",
         "If this is a genuine exception, add the file path to the ALLOWLIST in",

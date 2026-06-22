@@ -1,5 +1,6 @@
 import type { InterfaceId } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import { resolveCapabilities } from "../runtime/capabilities.js";
 import type { DiskPressureStatus } from "./disk-pressure-guard.js";
 import type { ConversationType } from "./message-types/shared.js";
 import type { TrustContext } from "./trust-context.js";
@@ -51,11 +52,9 @@ const BACKGROUND_SOURCES = new Set([
   "heartbeat",
   "memory",
   "notification",
-  "proactive-artifact",
   "reminder",
   "schedule",
   "task",
-  "update-bulletin",
 ]);
 const LOCAL_OWNER_INTERFACES = new Set(["macos", "web", "vellum", "cli"]);
 
@@ -76,11 +75,11 @@ export function classifyDiskPressureTurnPolicy(
   }
 
   const trustClass = metadata.trustContext?.trustClass;
-  if (trustClass === "guardian") {
+  if (resolveCapabilities(trustClass).canActUnderDiskPressureCleanup) {
     return { action: "allow-cleanup-mode", reason: "guardian" };
   }
 
-  if (trustClass === "trusted_contact") {
+  if (trustClass === "trusted_contact" || trustClass === "unverified_contact") {
     return { action: "block", reason: "trusted-contact" };
   }
 
@@ -158,6 +157,7 @@ function isExplicitLocalOwnerCleanupTurn(
   }
   return (
     metadata.trustContext == null ||
-    metadata.trustContext.trustClass === "guardian"
+    resolveCapabilities(metadata.trustContext.trustClass)
+      .canActUnderDiskPressureCleanup
   );
 }

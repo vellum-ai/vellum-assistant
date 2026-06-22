@@ -202,7 +202,7 @@ describe("openTrajectories — error paths", () => {
   test("missing trajectories.jsonl surfaces a helpful operator error", async () => {
     const dir = await mkdtemp(join(tmpdir(), "lme-traj-reader-"));
     await expect(openTrajectories(dir)).rejects.toThrow(
-      /trajectories\.jsonl not found.*data\/download\.sh/,
+      /trajectories\.jsonl not found.*data\/download\.ts/,
     );
   });
 

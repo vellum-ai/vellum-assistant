@@ -21,6 +21,7 @@ COPY packages/ces-client ./packages/ces-client
 COPY packages/service-contracts ./packages/service-contracts
 COPY packages/credential-storage ./packages/credential-storage
 COPY packages/egress-proxy ./packages/egress-proxy
+COPY packages/environments ./packages/environments
 COPY packages/gateway-client ./packages/gateway-client
 COPY packages/ipc-server-utils ./packages/ipc-server-utils
 COPY packages/skill-host-contracts ./packages/skill-host-contracts
@@ -76,6 +77,7 @@ RUN apt-get update && apt-get install -y \
     debootstrap \
     debian-archive-keyring \
     debconf \
+    e2fsprogs \
     ffmpeg \
     fonts-freefont-ttf \
     g++ \
@@ -112,11 +114,13 @@ RUN apt-get update && apt-get install -y \
     libxtst6 \
     lsof \
     make \
+    mount \
     openssl \
     procps \
     python3 \
     sqlite3 \
     sudo \
+    util-linux \
     unzip \
     uuid-runtime \
     vim \
@@ -179,7 +183,8 @@ RUN printf '%s\n' \
 RUN printf '%s\n' \
     '#!/usr/bin/env sh' \
     'set -eu' \
-    'if [ "${VELLUM_SANDBOX_RUNTIME:-}" != "kata" ]; then' \
+    '. /app/assistant/docker-kata-runtime-family.sh' \
+    'if ! vellum_is_kata_family_runtime; then' \
     '  exec /usr/bin/apt-get "$@"' \
     'fi' \
     'export DEBIAN_FRONTEND=noninteractive' \
@@ -194,7 +199,8 @@ RUN printf '%s\n' \
     printf '%s\n' \
     '#!/usr/bin/env sh' \
     'set -eu' \
-    'if [ "${VELLUM_SANDBOX_RUNTIME:-}" != "kata" ]; then' \
+    '. /app/assistant/docker-kata-runtime-family.sh' \
+    'if ! vellum_is_kata_family_runtime; then' \
     '  exec /usr/bin/apt "$@"' \
     'fi' \
     'export DEBIAN_FRONTEND=noninteractive' \
@@ -209,7 +215,8 @@ RUN printf '%s\n' \
     printf '%s\n' \
     '#!/usr/bin/env sh' \
     'set -eu' \
-    'if [ "${VELLUM_SANDBOX_RUNTIME:-}" != "kata" ]; then' \
+    '. /app/assistant/docker-kata-runtime-family.sh' \
+    'if ! vellum_is_kata_family_runtime; then' \
     '  exec /usr/bin/dpkg "$@"' \
     'fi' \
     'DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"' \
@@ -235,7 +242,17 @@ ENV IS_CONTAINERIZED=true
 # and the generated meet-join manifest from the builder stage.
 COPY --from=builder /app /app
 
-RUN chmod +x /app/assistant/docker-entrypoint.sh /app/assistant/docker-init-apt-root.sh /app/assistant/docker-kata-apt-env.sh
+COPY packages/block-volume-bootstrap/scripts/*.sh /usr/local/bin/
+
+RUN chmod +x \
+    /app/assistant/docker-entrypoint.sh \
+    /app/assistant/docker-init-apt-root.sh \
+    /app/assistant/docker-kata-apt-env.sh \
+    /app/assistant/docker-kata-runtime-family.sh \
+    /usr/local/bin/vellum-block-volume-common.sh \
+    /usr/local/bin/vellum-block-volume-init.sh \
+    /usr/local/bin/vellum-block-volume-mount.sh \
+    /usr/local/bin/vellum-block-volume-resize.sh
 
 # Run the daemon + http server
 CMD ["/app/assistant/docker-entrypoint.sh"]

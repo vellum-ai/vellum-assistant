@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import { getIsPlatform } from "../../config/env-registry.js";
 import {
   invalidateConfigCache,
@@ -26,7 +28,6 @@ import {
   deleteCredentialMetadata,
   upsertCredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
-import type { TelegramConfigResponse } from "../message-protocol.js";
 import { log } from "./shared.js";
 
 const TELEGRAM_BOT_TOKEN_IN_URL_PATTERN =
@@ -60,7 +61,20 @@ function summarizeTelegramError(err: unknown): string {
 
 // -- Transport-agnostic result type (omits the `type` discriminant) --
 
-export type TelegramConfigResult = Omit<TelegramConfigResponse, "type">;
+export const TelegramConfigResultSchema = z.object({
+  success: z.boolean(),
+  hasBotToken: z.boolean(),
+  botId: z.string().optional(),
+  botUsername: z.string().optional(),
+  connected: z.boolean(),
+  hasWebhookSecret: z.boolean(),
+  lastError: z.string().optional(),
+  error: z.string().optional(),
+  commandsRegistered: z.array(z.string()).optional(),
+  warning: z.string().optional(),
+});
+
+export type TelegramConfigResult = z.infer<typeof TelegramConfigResultSchema>;
 
 // -- Extracted business logic functions --
 

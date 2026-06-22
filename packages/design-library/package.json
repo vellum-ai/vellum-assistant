@@ -1,5 +1,5 @@
 {
-  "name": "@vellum/design-library",
+  "name": "@vellumai/design-library",
   "version": "0.0.1",
   "private": true,
   "license": "MIT",
@@ -36,6 +36,7 @@
     "@radix-ui/react-tooltip": ">=1.2.0",
     "class-variance-authority": ">=0.7.0",
     "clsx": ">=2.1.0",
+    "katex": "^0.16.0",
     "lucide-react": ">=1.16.0",
     "react": ">=19.0.0",
     "react-dom": ">=19.0.0",
@@ -43,9 +44,11 @@
     "rehype-katex": ">=7.0.0",
     "remark-gfm": ">=4.0.0",
     "remark-math": ">=6.0.0",
+    "remark-parse": ">=11.0.0",
     "sonner": ">=2.0.0",
     "tailwind-merge": ">=3.6.0",
-    "tailwindcss": ">=4.0.0"
+    "tailwindcss": ">=4.0.0",
+    "unified": ">=11.0.0"
   },
   "devDependencies": {
     "@playwright/browser-chromium": "1.60.0",
@@ -67,6 +70,7 @@
     "@storybook/addon-vitest": "10.4.0",
     "@storybook/react-vite": "10.4.0",
     "@tailwindcss/vite": "4.3.0",
+    "@types/bun": "1.3.14",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitest/browser": "4.1.6",
@@ -75,6 +79,7 @@
     "@vitest/runner": "4.1.6",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
+    "katex": "0.16.47",
     "lucide-react": "1.16.0",
     "playwright": "1.60.0",
     "react": "19.2.6",
@@ -83,14 +88,13 @@
     "rehype-katex": "7.0.1",
     "remark-gfm": "4.0.1",
     "remark-math": "6.0.0",
+    "remark-parse": "11.0.0",
     "sonner": "2.0.7",
     "storybook": "10.4.0",
     "tailwind-merge": "3.6.0",
     "typescript": "5.9.3",
+    "unified": "11.0.5",
     "vite": "8.0.11",
     "vitest": "4.1.6"
-  },
-  "dependencies": {
-    "katex": "0.17.0"
   }
 }

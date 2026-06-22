@@ -102,6 +102,28 @@ describe("pendingInteractions.resolve emits interaction_resolved", () => {
     expect(publishedMessages).toHaveLength(0);
   });
 
+  test("no event is emitted for a conversation-less interaction", () => {
+    /**
+     * Conversation-less interactions (e.g. the CLI `credentials prompt`
+     * command) resolve through their own resolver rather than a conversation.
+     * The `interaction_resolved` envelope requires a conversationId, so the
+     * tracker skips the broadcast instead of emitting an invalid event.
+     */
+    // GIVEN a registered interaction with no owning conversation
+    pendingInteractions.register("req-detached", { kind: "secret" });
+
+    // WHEN it is resolved
+    const returned = pendingInteractions.resolve("req-detached", "answered");
+
+    // THEN the entry is still returned to its caller
+    expect(returned).toBeDefined();
+
+    // AND no interaction_resolved envelope is published
+    expect(
+      publishedMessages.filter((m) => m.type === "interaction_resolved"),
+    ).toHaveLength(0);
+  });
+
   test("a single resolve emits exactly one event", () => {
     pendingInteractions.register("req-once", {
       conversationId: "conv-e",
@@ -185,5 +207,45 @@ describe("removeByConversation emits interaction_resolved per entry", () => {
       (events[0] as Extract<ServerMessage, { type: "interaction_resolved" }>)
         .state,
     ).toBe("cancelled");
+  });
+
+  test("settles a swept secret prompt's resolver with a cancelled result", () => {
+    /**
+     * A secret prompt blocks its caller (the CLI `credentials prompt` command
+     * or the in-conversation SecretPrompter) on `rpcResolve`. Unlike questions
+     * (abort-signal teardown) and confirmations (denyAllPendingConfirmations),
+     * nothing else settles a secret when it is superseded, so removing the
+     * entry alone would hang the caller until its IPC client times out.
+     */
+    // GIVEN a pending secret whose caller is blocked on rpcResolve
+    const resolved: unknown[] = [];
+    pendingInteractions.register("secret-sweep", {
+      conversationId: "conv-sweep",
+      kind: "secret",
+      rpcResolve: (value) => resolved.push(value),
+    });
+
+    // WHEN a new user message supersedes the conversation's interactions
+    pendingInteractions.removeByConversation("conv-sweep");
+
+    // THEN the secret resolver is settled once with a cancelled result
+    expect(resolved).toEqual([{ value: null, delivery: "store" }]);
+  });
+
+  test("does not invoke a swept confirmation's resolver with a secret result", () => {
+    // GIVEN a pending confirmation carrying an rpcResolve callback
+    const resolved: unknown[] = [];
+    pendingInteractions.register("conf-sweep", {
+      conversationId: "conv-conf",
+      kind: "confirmation",
+      rpcResolve: (value) => resolved.push(value),
+    });
+
+    // WHEN the conversation is superseded
+    pendingInteractions.removeByConversation("conv-conf");
+
+    // THEN the confirmation resolver is left untouched — only secret prompts
+    // are settled with a SecretPromptResult-shaped value here.
+    expect(resolved).toHaveLength(0);
   });
 });

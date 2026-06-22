@@ -1,4 +1,4 @@
-import { execFile, spawnSync } from "node:child_process";
+import { execFile, spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -12,6 +12,7 @@ import { promisify } from "node:util";
 
 import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
+import { Mutex } from "../util/mutex.js";
 import { PromiseGuard } from "../util/promise-guard.js";
 
 const execFileAsync = promisify(execFile);
@@ -61,6 +62,7 @@ function cleanGitEnv(workspaceDir: string): Record<string, string> {
 const WORKSPACE_GITIGNORE_RULES = [
   "data/db/",
   "data/qdrant/",
+  "plugins/*/node_modules/",
   "logs/",
   "*.log",
   "*.sock",
@@ -117,48 +119,6 @@ interface ExecError extends Error {
   killed?: boolean;
   signal?: string;
   code?: string | number;
-}
-
-/**
- * Simple mutex implementation for per-workspace git operation serialization.
- * Prevents concurrent git operations from corrupting the repository state.
- */
-class Mutex {
-  private locked = false;
-  private waitQueue: Array<() => void> = [];
-
-  async acquire(): Promise<void> {
-    if (!this.locked) {
-      this.locked = true;
-      return;
-    }
-    // Wait for the lock to be released
-    await new Promise<void>((resolve) => {
-      this.waitQueue.push(resolve);
-    });
-  }
-
-  release(): void {
-    const next = this.waitQueue.shift();
-    if (next) {
-      next();
-    } else {
-      this.locked = false;
-    }
-  }
-
-  /**
-   * Execute a function while holding the lock.
-   * Automatically releases the lock when done, even if the function throws.
-   */
-  async withLock<T>(fn: () => Promise<T>): Promise<T> {
-    await this.acquire();
-    try {
-      return await fn();
-    } finally {
-      this.release();
-    }
-  }
 }
 
 interface GitCommitMetadata {
@@ -648,7 +608,25 @@ export class WorkspaceGitService {
           };
         }
 
-        const status = await this.getStatusInternal();
+        // A status read can fail transiently (e.g. an oversized working tree
+        // or a momentary git error). Treat that as "no commit this tick"
+        // rather than a hard failure: returning didRunGit=false leaves the
+        // circuit breaker untouched so auto-commit/heartbeat keeps running
+        // instead of tripping dead until restart.
+        let status: GitStatus;
+        try {
+          status = await this.getStatusInternal();
+        } catch (statusErr) {
+          log.warn(
+            { err: statusErr, workspaceDir: this.workspaceDir },
+            "Skipping commit cycle: git status read failed",
+          );
+          return {
+            committed: false,
+            status: emptyStatus,
+            didRunGit: false as const,
+          };
+        }
         if (status.clean) {
           return { committed: false, status, didRunGit: true as const };
         }
@@ -722,7 +700,9 @@ export class WorkspaceGitService {
    * Internal status implementation (must be called with lock held).
    */
   private async getStatusInternal(): Promise<GitStatus> {
-    const { stdout } = await this.execGit(["status", "--porcelain"]);
+    // Streamed via spawn (not execFile) so an oversized status from a bloated
+    // working tree cannot exceed Node's default 1 MB maxBuffer and fail.
+    const { stdout } = await this.execGitStreaming(["status", "--porcelain"]);
 
     const staged: string[] = [];
     const modified: string[] = [];
@@ -918,33 +898,127 @@ export class WorkspaceGitService {
       });
       return { stdout, stderr };
     } catch (err) {
-      // Enhance error with git command details, preserving properties
-      // needed to distinguish transient failures from corruption.
-      const gitErr = err as Error & {
-        stdout?: string;
-        stderr?: string;
-        code?: string;
-        killed?: boolean;
-        signal?: string;
-      };
-      const isPermissionError =
-        gitErr.code === "EACCES" ||
-        gitErr.stderr?.includes("Permission denied");
-      const prefix = isPermissionError
-        ? "Git permission error"
-        : "Git command failed";
-      const enhanced = new Error(
-        `${prefix}: git ${args.join(" ")}\n` +
-          `Error: ${gitErr.message}\n` +
-          `Stderr: ${gitErr.stderr || ""}`,
-      );
-      // Preserve properties so callers can detect timeouts, permission
-      // errors, and missing-binary failures without parsing the message.
-      (enhanced as ExecError).killed = gitErr.killed;
-      (enhanced as ExecError).signal = gitErr.signal;
-      (enhanced as ExecError).code = gitErr.code;
-      throw enhanced;
+      const gitErr = err as ExecError & { stdout?: string; stderr?: string };
+      throw this.enhanceGitError(args, {
+        message: gitErr.message,
+        stderr: gitErr.stderr,
+        code: gitErr.code,
+        killed: gitErr.killed,
+        signal: gitErr.signal,
+      });
     }
+  }
+
+  /**
+   * Execute a git command, streaming stdout/stderr into buffers via `spawn`.
+   *
+   * Unlike {@link execGit} (which uses `execFile` with Node's 1 MB default
+   * `maxBuffer`), this has no fixed output ceiling — so commands whose output
+   * scales with working-tree size (`git status --porcelain` over a bloated
+   * workspace) cannot fail with `ERR_CHILD_PROCESS_STDIO_MAXBUFFER`. Used for
+   * read paths where output is unbounded; errors are enhanced identically to
+   * {@link execGit} so callers can still distinguish timeouts and permissions.
+   */
+  private execGitStreaming(
+    args: string[],
+    options?: { signal?: AbortSignal },
+  ): Promise<{ stdout: string; stderr: string }> {
+    const config = getConfig();
+    const timeoutMs = config.workspaceGit?.interactiveGitTimeoutMs ?? 10_000;
+    return new Promise((resolve, reject) => {
+      const child = spawn("git", args, {
+        cwd: this.workspaceDir,
+        env: cleanGitEnv(this.workspaceDir),
+        signal: options?.signal,
+      });
+
+      const stdoutChunks: Buffer[] = [];
+      const stderrChunks: Buffer[] = [];
+      let timedOut = false;
+      let settled = false;
+
+      const timer = setTimeout(() => {
+        timedOut = true;
+        child.kill("SIGTERM");
+      }, timeoutMs);
+
+      child.stdout?.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
+      child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+
+      child.on("error", (err: ExecError) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(
+          this.enhanceGitError(args, {
+            message: err.message,
+            stderr: Buffer.concat(stderrChunks).toString("utf-8"),
+            code: err.code,
+            killed: err.killed,
+            signal: err.signal,
+          }),
+        );
+      });
+
+      child.on(
+        "close",
+        (code: number | null, signal: NodeJS.Signals | null) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          const stdout = Buffer.concat(stdoutChunks).toString("utf-8");
+          const stderr = Buffer.concat(stderrChunks).toString("utf-8");
+
+          if (code === 0 && !timedOut) {
+            resolve({ stdout, stderr });
+            return;
+          }
+
+          reject(
+            this.enhanceGitError(args, {
+              message: timedOut
+                ? `git ${args.join(" ")} timed out after ${timeoutMs}ms`
+                : `git ${args.join(" ")} exited with code ${code}`,
+              stderr,
+              code: timedOut ? undefined : (code ?? undefined),
+              killed: timedOut,
+              signal: signal ?? (timedOut ? "SIGTERM" : undefined),
+            }),
+          );
+        },
+      );
+    });
+  }
+
+  /**
+   * Build a descriptive Error for a failed git command, preserving the
+   * properties callers use to distinguish transient failures (timeouts,
+   * permissions, missing binary) from genuine corruption.
+   */
+  private enhanceGitError(
+    args: string[],
+    raw: {
+      message: string;
+      stderr?: string;
+      code?: string | number;
+      killed?: boolean;
+      signal?: string;
+    },
+  ): ExecError {
+    const isPermissionError =
+      raw.code === "EACCES" || raw.stderr?.includes("Permission denied");
+    const prefix = isPermissionError
+      ? "Git permission error"
+      : "Git command failed";
+    const enhanced = new Error(
+      `${prefix}: git ${args.join(" ")}\n` +
+        `Error: ${raw.message}\n` +
+        `Stderr: ${raw.stderr || ""}`,
+    ) as ExecError;
+    enhanced.killed = raw.killed;
+    enhanced.signal = raw.signal;
+    enhanced.code = raw.code;
+    return enhanced;
   }
 
   /**

@@ -193,6 +193,19 @@ mock.module("../skills/version-hash.js", () => ({
   },
 }));
 
+// Mock the skill_loaded telemetry dependencies of conversation-skill-tools so
+// their heavy transitive imports (catalog-install → CLI program, sqlite) stay
+// out of this import-light test.
+mock.module("../skills/catalog-cache.js", () => ({
+  getCachedCatalogSync: () => [],
+}));
+mock.module("../skills/install-meta.js", () => ({
+  readInstallMeta: () => null,
+}));
+mock.module("../memory/skill-loaded-events-store.js", () => ({
+  recordSkillLoadedEvent: () => {},
+}));
+
 // ---------------------------------------------------------------------------
 // Imports under test (after mocks)
 // ---------------------------------------------------------------------------

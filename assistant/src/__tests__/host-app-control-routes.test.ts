@@ -47,7 +47,7 @@ interface FakeConversation {
 
 const conversations = new Map<string, FakeConversation>();
 
-mock.module("../daemon/conversation-store.js", () => ({
+mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => conversations.get(id),
 }));
 

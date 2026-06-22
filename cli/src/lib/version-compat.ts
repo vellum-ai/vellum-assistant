@@ -87,6 +87,24 @@ export function compareVersions(a: string, b: string): number | null {
 }
 
 /**
+ * Strip an optional leading `v`/`V` prefix: "v0.7.0" → "0.7.0".
+ */
+export function stripVersionPrefix(version: string): string {
+  return version.replace(/^[vV]/, "");
+}
+
+/**
+ * Check whether two version strings refer to the same version.
+ * Compares via semver when both parse; falls back to prefix-stripped
+ * string equality when either is unparseable.
+ */
+export function versionsEqual(a: string, b: string): boolean {
+  const cmp = compareVersions(a, b);
+  if (cmp !== null) return cmp === 0;
+  return stripVersionPrefix(a) === stripVersionPrefix(b);
+}
+
+/**
  * Check whether two version strings are compatible.
  * Compatibility requires matching major AND minor versions.
  * Patch differences are allowed.

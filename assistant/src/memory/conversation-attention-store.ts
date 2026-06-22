@@ -24,6 +24,7 @@ export type SignalType =
   | "macos_notification_view"
   | "macos_conversation_opened"
   | "ios_conversation_opened"
+  | "web_bulk_mark_read"
   | "telegram_inbound_message"
   | "telegram_callback"
   | "slack_inbound_message"

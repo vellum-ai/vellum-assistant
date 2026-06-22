@@ -64,7 +64,6 @@ mock.module("../../daemon/approval-generators.js", () => ({
 import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
-  GuardianActionCopyGenerator,
   MessageProcessor,
 } from "../../runtime/http-types.js";
 import {
@@ -111,7 +110,6 @@ export async function handleChannelInbound(
   _assistantId?: string,
   _approvalCopyGenerator?: ApprovalCopyGenerator,
   _approvalConversationGenerator?: ApprovalConversationGenerator,
-  _guardianActionCopyGenerator?: GuardianActionCopyGenerator,
 ): Promise<Response> {
   const body = await req.json();
   return wrapHandler(() => _handleChannelInbound({ body }));

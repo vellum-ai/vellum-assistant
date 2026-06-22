@@ -6,6 +6,7 @@ metadata:
   emoji: "📖"
   vellum:
     display-name: "Playbooks"
+    category: "productivity"
 ---
 
 Playbooks are trigger-action automation rules that tell the assistant how to handle incoming messages matching a pattern.

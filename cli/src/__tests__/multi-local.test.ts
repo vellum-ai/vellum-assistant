@@ -10,16 +10,7 @@ process.env.VELLUM_LOCKFILE_DIR = testDir;
 
 // Mock homedir() to return testDir — this isolates allocateLocalResources()
 // which uses homedir() directly for instance directory creation.
-const realOs = await import("node:os");
-mock.module("node:os", () => ({
-  ...realOs,
-  homedir: () => testDir,
-}));
-// Also mock the bare "os" specifier since assistant-config.ts uses `from "os"`
-mock.module("os", () => ({
-  ...realOs,
-  homedir: () => testDir,
-}));
+await mockOsHomedir(() => () => testDir);
 
 // Mock probePort so we control which ports appear in-use without touching the network
 const probePortMock = mock<(port: number, host?: string) => Promise<boolean>>(
@@ -43,6 +34,7 @@ import {
   DEFAULT_GATEWAY_PORT,
   DEFAULT_QDRANT_PORT,
 } from "../lib/constants.js";
+import { mockOsHomedir } from "./helpers/os-mock.js";
 
 afterAll(() => {
   rmSync(testDir, { recursive: true, force: true });
@@ -156,7 +148,7 @@ describe("multi-local", () => {
 
     test("allocation picks env-specific port bases for non-prod envs", async () => {
       // Each non-prod env sits in its own 1000-port window (see
-      // environments/seeds.ts). Hatching under VELLUM_ENVIRONMENT=dev should
+      // @vellumai/environments seeds). Hatching under VELLUM_ENVIRONMENT=dev should
       // produce ports in the dev block (18000+), not the production defaults.
       const prevEnv = process.env.VELLUM_ENVIRONMENT;
       const prevXdg = process.env.XDG_DATA_HOME;

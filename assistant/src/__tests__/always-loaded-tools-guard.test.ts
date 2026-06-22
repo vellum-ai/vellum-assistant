@@ -28,7 +28,7 @@ afterAll(() => {
 });
 
 describe("always-loaded tool count", () => {
-  test("should be exactly 13 with delete_memory and update_memory added", async () => {
+  test("should be exactly 12 with delete_memory and update_memory added", async () => {
     await initializeTools();
     const allDefs = getAllToolDefinitions();
 
@@ -52,7 +52,6 @@ describe("always-loaded tool count", () => {
     // path would allow unchecked host command execution.
     const expectedNames = [
       "bash",
-      "credential_store",
       "delete_memory",
       "file_edit",
       "file_read",
@@ -68,6 +67,6 @@ describe("always-loaded tool count", () => {
 
     expect(activeNames).toEqual(expectedNames);
     expect(activeNames.filter((name) => name === "recall")).toHaveLength(1);
-    expect(activeTools.length).toBe(13);
+    expect(activeTools.length).toBe(12);
   });
 });

@@ -32,18 +32,14 @@ import {
 // ── Mock state ────────────────────────────────────────────────────
 
 let mockWorkspaceDir: string = "";
-let mockVellumGuardian:
-  | {
-      contact: { userFile: string | null };
-      channel: Record<string, unknown>;
-    }
-  | null = null;
-let mockAnyGuardian:
-  | {
-      contact: { userFile: string | null };
-      channels: Record<string, unknown>[];
-    }
-  | null = null;
+let mockVellumGuardian: {
+  contact: { userFile: string | null };
+  channel: Record<string, unknown>;
+} | null = null;
+let mockAnyGuardian: {
+  contact: { userFile: string | null };
+  channels: Record<string, unknown>[];
+} | null = null;
 
 // ── Mock modules (must precede imports from the module under test) ──
 
@@ -52,7 +48,7 @@ mock.module("../util/platform.js", () => ({
 }));
 
 mock.module("../contacts/contact-store.js", () => ({
-  findContactByChannelExternalId: () => null,
+  findContactByAddress: () => null,
   findGuardianForChannel: (channelType: string) =>
     channelType === "vellum" ? mockVellumGuardian : null,
   listGuardianChannels: () => mockAnyGuardian,
@@ -60,12 +56,14 @@ mock.module("../contacts/contact-store.js", () => ({
 
 // Import AFTER mocks so the module under test binds to the stubbed
 // implementations.
+import type { TrustContext } from "../daemon/trust-context.js";
 import {
   ensureGuardianPersonaFile,
   isGuardianPersonaCustomized,
   resolveGuardianPersona,
   resolveGuardianPersonaPath,
   resolveGuardianPersonaStrict,
+  resolveUserSlug,
 } from "../prompts/persona-resolver.js";
 
 // ── Temp workspace scaffold ───────────────────────────────────────
@@ -138,7 +136,8 @@ describe("ensureGuardianPersonaFile", () => {
     const userFile = "alice.md";
     const dir = join(mockWorkspaceDir, "users");
     const filePath = join(dir, userFile);
-    const existingContent = "# Existing user notes\n\n- Likes sparkling water\n";
+    const existingContent =
+      "# Existing user notes\n\n- Likes sparkling water\n";
 
     mkdirSync(dir, { recursive: true });
     writeFileSync(filePath, existingContent, "utf-8");
@@ -247,5 +246,41 @@ describe("isGuardianPersonaCustomized", () => {
     );
 
     expect(isGuardianPersonaCustomized(filePath)).toBe(true);
+  });
+});
+
+// ── resolveUserSlug — background/scheduled guardian turns ──────────
+//
+// Background and scheduled turns carry a guardian trust context with no
+// `requesterExternalUserId`. They must resolve the guardian's user file
+// (parity with foreground guardian turns), not fall through to default.
+
+describe("resolveUserSlug (guardian trust, no requester identity)", () => {
+  test("guardian trust context without requesterExternalUserId resolves the guardian user file", () => {
+    mockVellumGuardian = {
+      contact: { userFile: "alice.md" },
+      channel: {},
+    };
+
+    const trustContext = {
+      sourceChannel: "vellum",
+      trustClass: "guardian",
+    } as TrustContext;
+
+    expect(resolveUserSlug(trustContext)).toBe("alice");
+  });
+
+  test("non-guardian trust context without requesterExternalUserId does not borrow the guardian persona", () => {
+    mockVellumGuardian = {
+      contact: { userFile: "alice.md" },
+      channel: {},
+    };
+
+    const trustContext = {
+      sourceChannel: "vellum",
+      trustClass: "trusted_contact",
+    } as TrustContext;
+
+    expect(resolveUserSlug(trustContext)).toBeNull();
   });
 });

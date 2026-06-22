@@ -15,6 +15,7 @@ import { memoryCheckpoints } from "./schema.js";
 export const CK_ITEM_COUNT = "conversation_starters:item_count_at_last_gen";
 export const CK_BATCH = "conversation_starters:generation_batch";
 export const CK_LAST_GEN_AT = "conversation_starters:last_gen_at";
+export const CK_LAST_ATTEMPT_AT = "conversation_starters:last_attempt_at";
 
 export function checkpointKey(base: string, scopeId: string): string {
   return `${base}:${scopeId}`;

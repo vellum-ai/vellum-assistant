@@ -1,3 +1,4 @@
+import { stringifyToolInput } from "../tools/types.js";
 import { getLogger, truncateForLog } from "../util/logger.js";
 import type { EventBus, Subscription } from "./bus.js";
 import type { AssistantDomainEvents } from "./domain-events.js";
@@ -129,9 +130,5 @@ function formatInputForLog(
   input: Record<string, unknown>,
   truncate: (value: string, maxLen: number) => string,
 ): string {
-  try {
-    return truncate(JSON.stringify(input), INPUT_PREVIEW_LIMIT);
-  } catch {
-    return "[unserializable-input]";
-  }
+  return truncate(stringifyToolInput(input), INPUT_PREVIEW_LIMIT);
 }

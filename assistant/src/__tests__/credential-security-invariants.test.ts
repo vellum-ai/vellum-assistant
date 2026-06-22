@@ -95,17 +95,7 @@ import {
 
 describe("Invariant 1: secrets never enter LLM context", () => {
   for (const tc of contextInjectionCases) {
-    if (
-      tc.vector === "tool_output" &&
-      tc.tool === "credential_store" &&
-      tc.input.action === "store"
-    ) {
-      // Store output never includes the value
-      test(`${tc.label}: secret not in output`, () => {
-        expect(tc.forbiddenValue).toBeTruthy();
-        // Actual assertion is in credential-vault.test.ts baseline section
-      });
-    } else if (tc.vector === "confirmation_payload") {
+    if (tc.vector === "confirmation_payload") {
       // PR 23 added redaction to confirmation_request payloads via redactSensitiveFields
       test(`${tc.label}: secret redacted from confirmation payload`, () => {
         const payload = { ...tc.input };
@@ -132,7 +122,7 @@ describe("Invariant 1: secrets never enter LLM context", () => {
         }
       });
     } else {
-      // tool_output cases for list and browser_fill — already passing via baselines
+      // tool_output cases (browser_fill_credential) — already passing via baselines
       test(`${tc.label}: secret not in output`, () => {
         expect(tc.forbiddenValue).toBeTruthy();
       });
@@ -165,13 +155,13 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
     // Hard boundary: only these production files may import from secure-keys.
     // Any new import must be reviewed for secret-leak risk and added here.
     const ALLOWED_IMPORTERS = new Set([
-      "tools/credentials/vault.ts", // credential store tool
+      "credential-execution/prompted-credential.ts", // shared prompt-action persistence (stores secret via setSecureKeyAsync)
       "tools/credentials/broker.ts", // brokered credential access
       "tools/network/web-search.ts", // web search API key lookup
+      "tools/network/web-fetch.ts", // web fetch provider (Firecrawl) API key lookup
       "daemon/handlers/config-telegram.ts", // Telegram bot token management
       "daemon/handlers/config-vercel.ts", // Vercel API token management
       "runtime/routes/integrations/twilio.ts", // Twilio credential management (HTTP control-plane)
-      "acp/prepare-agent-env.ts", // shared helper injects CLAUDE_CODE_OAUTH_TOKEN into claude-agent-acp subprocess env (called by route + skill tool spawn paths)
       "security/token-manager.ts", // OAuth token refresh flow
       "tools/network/script-proxy/session-manager.ts", // proxy credential injection at runtime
       "calls/call-domain.ts", // caller identity resolution (user phone number lookup)
@@ -217,6 +207,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "media/image-credentials.ts", // shared image-gen credential resolver (provider API key lookup)
       "memory/embedding-backend.ts", // embedding backend API key lookup
       "memory/llm-request-log-source-clickhouse.ts", // ClickHouse read source — lazy lookup of clickhouse:url + clickhouse:password + vellum:platform_assistant_id for self-scoped mirror reads
+      "memory/compaction-log-store-clickhouse.ts", // ClickHouse compaction log writer — lazy lookup of clickhouse:url + clickhouse:password + vellum:platform_assistant_id for self-scoped event writes
       "daemon/providers-setup.ts", // provider initialization API key lookup
       "workspace/migrations/006-services-config.ts", // services config migration reads provider API keys
       "workspace/migrations/018-rekey-compound-credential-keys.ts", // re-key compound credential storage keys
@@ -231,7 +222,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "runtime/routes/platform-routes.ts", // CLI platform connect/disconnect/status routes (CLI-migrated to IPC)
       "ipc/skill-routes/providers.ts", // host.providers.secureKeys.getProviderKey IPC route (out-of-process SkillHost companion)
       "daemon/external-plugins-bootstrap.ts", // reads credentials at plugin init (manifest.requiresCredential) via the CES-mediated getSecureKeyAsync path
-      "plugins/external-api.ts", // globalThis runtime bridge that exposes getSecureKeyAsync to dynamically-imported workspace plugins (compiled-binary plugin loading)
+      "plugin-api/index.ts", // public @vellumai/plugin-api surface re-exports getSecureKeyAsync to dynamically-imported workspace plugins via the boot-time shim (compiled-binary plugin loading)
       "inbound/platform-callback-registration.ts", // managed credential lookup for platform base URL, assistant ID, and API key
       "tts/providers/elevenlabs-provider.ts", // ElevenLabs TTS API key lookup
       "tts/providers/deepgram-provider.ts", // Deepgram TTS API key lookup
@@ -243,6 +234,11 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "cli/commands/oauth/connect.ts", // CLI OAuth connect stored-secret verification
       "runtime/routes/chatgpt-subscription-auth-routes.ts", // ChatGPT subscription OAuth token storage
       "runtime/routes/identity-routes.ts", // health/readyz endpoint checks CES connectivity via getCesClient
+      "tools/credential-execution/run-authenticated-command.ts", // resolves the CES RPC client via getCesClient
+      "tools/credential-execution/make-authenticated-request.ts", // resolves the CES RPC client via getCesClient
+      "tools/credential-execution/manage-secure-command-tool.ts", // resolves the CES RPC client via getCesClient
+      "tools/executor.ts", // CES approval bridge resolves the CES RPC client via getCesClient
+      "tools/network/web-fetch.ts", // Firecrawl /scrape BYOK fetch provider API key lookup (firecrawl provider key)
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));

@@ -15,6 +15,7 @@ import { startNgrokTunnel, type NgrokTunnel } from "../lib/ngrok";
 import {
   findExecutionRunId,
   listReportSessions,
+  readProfileInSession,
   readReportRun,
   readReportSession,
   readTestInSession,
@@ -161,6 +162,22 @@ export async function handleRequest(request: Request): Promise<Response> {
     return jsonResponse(test);
   }
 
+  const apiProfile = path.match(
+    /^\/api\/sessions\/([^/]+)\/profiles\/([^/]+)$/,
+  );
+  if (apiProfile) {
+    const [, sessionEnc, profileEnc] = apiProfile;
+    const sessionId = decodeURIComponent(sessionEnc);
+    const profileId = decodeURIComponent(profileEnc);
+    const profile = await readProfileInSession(sessionId, profileId);
+    if (!profile) {
+      return notFoundJson(
+        `No profile ${profileId} found in session ${sessionId}`,
+      );
+    }
+    return jsonResponse(profile);
+  }
+
   const apiSession = path.match(/^\/api\/sessions\/([^/]+)$/);
   if (apiSession) {
     const sessionId = decodeURIComponent(apiSession[1]);
@@ -196,6 +213,20 @@ export async function handleRequest(request: Request): Promise<Response> {
       return notFoundPage(`No test ${testId} found in session ${sessionId}.`);
     }
     return pageResponse({ kind: "test", test });
+  }
+
+  const pageProfile = path.match(/^\/sessions\/([^/]+)\/profiles\/([^/]+)$/);
+  if (pageProfile) {
+    const [, sessionEnc, profileEnc] = pageProfile;
+    const sessionId = decodeURIComponent(sessionEnc);
+    const profileId = decodeURIComponent(profileEnc);
+    const profile = await readProfileInSession(sessionId, profileId);
+    if (!profile) {
+      return notFoundPage(
+        `No profile ${profileId} found in session ${sessionId}.`,
+      );
+    }
+    return pageResponse({ kind: "profile", profile });
   }
 
   const pageSession = path.match(/^\/sessions\/([^/]+)$/);

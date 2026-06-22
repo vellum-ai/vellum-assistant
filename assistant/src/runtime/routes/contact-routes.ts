@@ -8,6 +8,11 @@
  * they don't shadow more-specific sub-paths like contacts/invites.
  */
 
+import {
+  GetContactIpcResponseSchema,
+  ListContactsIpcResponseSchema,
+} from "@vellumai/gateway-client/gateway-ipc-contracts";
+import { IpcCallError } from "@vellumai/gateway-client/ipc-client";
 import { z } from "zod";
 
 import {
@@ -25,22 +30,41 @@ import type {
   ContactRole,
   ContactType,
 } from "../../contacts/types.js";
+import { ipcCallPersistent } from "../../ipc/gateway-client.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
+import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
-  createIngressInvite,
-  listIngressInvites,
   redeemIngressInvite,
   redeemVoiceInviteCode,
-  revokeIngressInvite,
   triggerInviteCall,
 } from "../invite-service.js";
 import {
   BadRequestError,
   ConflictError,
   NotFoundError,
+  RouteError,
 } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+
+const log = getLogger("contact-routes");
+
+/**
+ * Re-throw a relayed gateway `IpcCallError` as a `RouteError` so the IPC/HTTP
+ * adapters honor its statusCode/errorCode (4xx surfaces as 4xx, not a generic
+ * 500). Non-IpcCallError throws propagate unchanged.
+ */
+function rethrowGatewayError(err: unknown): never {
+  if (err instanceof IpcCallError) {
+    throw new RouteError(
+      err.message,
+      err.errorCode ?? "INTERNAL_ERROR",
+      err.statusCode ?? 500,
+      err.errorDetails,
+    );
+  }
+  throw err;
+}
 
 function withGuardianNameOverride<
   T extends { role: string; displayName: string },
@@ -52,6 +76,30 @@ function withGuardianNameOverride<
     };
   }
   return contact;
+}
+
+/** Adds `externalUserId` (= `address`) to each channel for older macOS clients. */
+function withChannelCompat<T extends { channels: { address: string }[] }>(
+  contact: T,
+): T {
+  return {
+    ...contact,
+    channels: contact.channels.map((ch) => ({
+      ...ch,
+      externalUserId: ch.address,
+    })),
+  };
+}
+
+/** Compose both response transforms (guardian display name + channel compat). */
+function prepareContactResponse<
+  T extends {
+    role: string;
+    displayName: string;
+    channels: { address: string }[];
+  },
+>(contact: T): T {
+  return withChannelCompat(withGuardianNameOverride(contact));
 }
 
 const VALID_CONTACT_TYPES: readonly ContactType[] = ["human", "assistant"];
@@ -82,10 +130,79 @@ function isChannelPolicy(value: string): value is ChannelPolicy {
 }
 
 // ---------------------------------------------------------------------------
+// Response schemas (drive OpenAPI spec → codegen → typed SDK)
+// ---------------------------------------------------------------------------
+
+const contactChannelSchema = z.object({
+  id: z.string(),
+  contactId: z.string(),
+  type: z.string(),
+  address: z.string(),
+  isPrimary: z.boolean(),
+  /** @deprecated Echoes `address` for backwards compatibility with older macOS clients. */
+  externalUserId: z.string().nullable(),
+  status: z.string(),
+  policy: z.string(),
+  verifiedAt: z.number().nullable(),
+  verifiedVia: z.string().nullable(),
+  lastSeenAt: z.number().nullable(),
+  interactionCount: z.number(),
+  lastInteraction: z.number().nullable(),
+  revokedReason: z.string().nullable(),
+  blockedReason: z.string().nullable(),
+});
+
+const contactSchema = z.object({
+  id: z.string(),
+  displayName: z.string(),
+  role: z.string(),
+  notes: z.string().nullable().optional(),
+  contactType: z.string().nullable().optional(),
+  lastInteraction: z.number().nullable().optional(),
+  interactionCount: z.number(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+  channels: z.array(contactChannelSchema),
+});
+
+// ---------------------------------------------------------------------------
 // Contact handlers (transport-agnostic)
 // ---------------------------------------------------------------------------
 
-function handleListContacts(queryParams: Record<string, string>) {
+/**
+ * Relay a non-search contact list read to the gateway (source of truth for ACL
+ * fields), falling back to the assistant DB on IPC failure. Shared by the GET
+ * `contacts` list and the `search_contacts` no-filter case so both serve
+ * gateway-sourced data consistently.
+ */
+async function relayListContacts(
+  limit: number,
+  role: ContactRole | undefined,
+) {
+  try {
+    const result = await ipcCallPersistent("contacts_list_rich", {
+      limit,
+      ...(role ? { role } : {}),
+    });
+    const { contacts } = ListContactsIpcResponseSchema.parse(result);
+    return {
+      ok: true,
+      contacts: contacts.map(prepareContactResponse),
+    };
+  } catch (err) {
+    log.warn(
+      { err },
+      "relayListContacts: gateway relay failed; falling back to assistant DB",
+    );
+    const contacts = listContacts(limit, role);
+    return {
+      ok: true,
+      contacts: contacts.map(prepareContactResponse),
+    };
+  }
+}
+
+export async function handleListContacts(queryParams: Record<string, string>) {
   const limit = Number(queryParams.limit ?? 50);
   const role = (queryParams.role as ContactRole) || undefined;
   const contactTypeParam = queryParams.contactType;
@@ -103,7 +220,11 @@ function handleListContacts(queryParams: Record<string, string>) {
     ? (contactTypeParam as ContactType)
     : undefined;
 
+  // True search stays daemon-native: gateway-native search is design-blocked.
   if (query || channelAddress || channelType) {
+    log.debug(
+      "handleListContacts: search served daemon-native (gateway-native search is design-blocked)",
+    );
     const contacts = searchContacts({
       query,
       channelAddress,
@@ -114,109 +235,182 @@ function handleListContacts(queryParams: Record<string, string>) {
     });
     return {
       ok: true,
-      contacts: contacts.map(withGuardianNameOverride),
+      contacts: contacts.map(prepareContactResponse),
     };
   }
 
-  const contacts = listContacts(limit, role, contactType);
-  return {
-    ok: true,
-    contacts: contacts.map(withGuardianNameOverride),
-  };
+  // contactType is assistant-owned: serve daemon-native so it's filtered in SQL
+  // BEFORE the limit. The gateway relay filtered it AFTER its limit, which
+  // under-returned (and returned empty on an assistant-DB outage, since the
+  // soft-fail map dropped every row). Mirrors the search boundary.
+  if (contactType) {
+    log.debug(
+      "handleListContacts: contactType-filtered read served daemon-native (gateway-native contactType filtering is design-blocked, pending ACL classification)",
+    );
+    const contacts = listContacts(limit, role, contactType);
+    return {
+      ok: true,
+      contacts: contacts.map(prepareContactResponse),
+    };
+  }
+
+  return relayListContacts(limit, role);
 }
 
-function handleGetContact(contactId: string) {
-  const contact = getContact(contactId);
-  if (!contact) {
-    throw new NotFoundError(`Contact "${contactId}" not found`);
+export async function handleGetContact(contactId: string) {
+  try {
+    const result = await ipcCallPersistent("contacts_get_rich", { contactId });
+    // The gateway returns null (no `contact`) on a clean not-found.
+    if (!result || (result as { contact?: unknown }).contact === undefined) {
+      throw new NotFoundError(`Contact "${contactId}" not found`);
+    }
+    const { contact, assistantMetadata } =
+      GetContactIpcResponseSchema.parse(result);
+    return {
+      ok: true,
+      contact: prepareContactResponse(contact),
+      assistantMetadata: assistantMetadata ?? undefined,
+    };
+  } catch (err) {
+    // A clean not-found is a real 404 — don't fall back or mask it.
+    if (err instanceof NotFoundError) throw err;
+    log.warn(
+      { err, contactId },
+      "handleGetContact: gateway relay failed; falling back to assistant DB",
+    );
+    const contact = getContact(contactId);
+    if (!contact) {
+      throw new NotFoundError(`Contact "${contactId}" not found`);
+    }
+    const assistantMeta =
+      contact.contactType === "assistant"
+        ? getAssistantContactMetadata(contact.id)
+        : undefined;
+    return {
+      ok: true,
+      contact: prepareContactResponse(contact),
+      assistantMetadata: assistantMeta ?? undefined,
+    };
   }
-  const assistantMeta =
-    contact.contactType === "assistant"
-      ? getAssistantContactMetadata(contact.id)
-      : undefined;
-  return {
-    ok: true,
-    contact: withGuardianNameOverride(contact),
-    assistantMetadata: assistantMeta ?? undefined,
-  };
 }
 
 // ---------------------------------------------------------------------------
 // Invite handlers (transport-agnostic)
 // ---------------------------------------------------------------------------
 
-export function handleListInvites({ queryParams = {} }: RouteHandlerArgs) {
-  const result = listIngressInvites({
-    sourceChannel: queryParams.sourceChannel,
-    status: queryParams.status,
-  });
+// The gateway owns the canonical invite write path. These CLI handlers relay
+// to the gateway IPC methods via `ipcCallPersistent`; the assistant DB is
+// written only by the gateway. (Redemption stays daemon-local — see the redeem route.)
 
-  if (!result.ok) {
-    throw new BadRequestError(result.error);
+// The invite-CREATE relay needs a generous timeout: the gateway's `invites_mint`
+// handler calls `createIngressInvite` → `generateInviteInstruction`, which can spend
+// up to GENERATION_TIMEOUT_MS (~5s) waiting on an LLM before falling back. The default
+// 5s persistent-IPC timeout can fire mid-mint, so the caller sees a spurious failure
+// even though the gateway is still writing the invite. 30s safely exceeds the inner
+// ~5s fallback plus IPC overhead on both nested hops. (List/revoke keep the default.)
+const INVITE_CREATE_RELAY_TIMEOUT_MS = 30_000;
+
+export async function handleListInvites({ queryParams = {} }: RouteHandlerArgs) {
+  try {
+    const result = (await ipcCallPersistent("invites_list", {
+      ...(queryParams.sourceChannel
+        ? { sourceChannel: queryParams.sourceChannel }
+        : {}),
+      ...(queryParams.status ? { status: queryParams.status } : {}),
+    })) as { invites: Array<Record<string, unknown>> };
+    return { ok: true, invites: result.invites };
+  } catch (err) {
+    rethrowGatewayError(err);
   }
-  return { ok: true, invites: result.data };
 }
 
 export async function handleCreateInvite({ body = {} }: RouteHandlerArgs) {
-  const result = await createIngressInvite({
-    sourceChannel: body.sourceChannel as string | undefined,
-    note: body.note as string | undefined,
-    maxUses: body.maxUses as number | undefined,
-    expiresInMs: body.expiresInMs as number | undefined,
-    contactName: body.contactName as string | undefined,
-    expectedExternalUserId: body.expectedExternalUserId as string | undefined,
-    voiceCodeDigits: body.voiceCodeDigits as number | undefined,
-    friendName: body.friendName as string | undefined,
-    guardianName: body.guardianName as string | undefined,
-    contactId: body.contactId as string,
+  try {
+    const result = (await ipcCallPersistent(
+      "invites_create",
+      {
+        contactId: body.contactId as string,
+        sourceChannel: body.sourceChannel as string | undefined,
+        note: body.note as string | undefined,
+        maxUses: body.maxUses as number | undefined,
+        expiresInMs: body.expiresInMs as number | undefined,
+        contactName: body.contactName as string | undefined,
+        expectedExternalUserId: body.expectedExternalUserId as
+          | string
+          | undefined,
+        friendName: body.friendName as string | undefined,
+        guardianName: body.guardianName as string | undefined,
+      },
+      INVITE_CREATE_RELAY_TIMEOUT_MS,
+    )) as { invite: Record<string, unknown>; rawToken?: string };
+    return {
+      ok: true,
+      invite: result.invite,
+      ...(result.rawToken ? { rawToken: result.rawToken } : {}),
+    };
+  } catch (err) {
+    rethrowGatewayError(err);
+  }
+}
+
+export async function handleRevokeInvite({ pathParams = {} }: RouteHandlerArgs) {
+  try {
+    const result = (await ipcCallPersistent("invites_revoke", {
+      id: pathParams.id,
+    })) as { invite: Record<string, unknown> };
+    return { ok: true, invite: result.invite };
+  } catch (err) {
+    rethrowGatewayError(err);
+  }
+}
+
+/**
+ * Redeem a voice invite code.
+ *
+ * Backs the HTTP `invites_redeem` route (voice path) and the IPC-only
+ * `invites_redeem_voice` method. Wraps the identity-bound
+ * `redeemVoiceInviteCode` path.
+ */
+export async function handleRedeemVoiceInvite({
+  body = {},
+}: RouteHandlerArgs) {
+  const callerExternalUserId = body.callerExternalUserId as string | undefined;
+  const code = body.code as string | undefined;
+
+  if (!callerExternalUserId || !code) {
+    throw new BadRequestError("callerExternalUserId and code are required");
+  }
+
+  const result = await redeemVoiceInviteCode({
+    assistantId: body.assistantId as string | undefined,
+    callerExternalUserId,
+    sourceChannel: "phone",
+    code,
   });
 
   if (!result.ok) {
-    throw new BadRequestError(result.error);
+    throw new BadRequestError(result.reason);
   }
-  return { ok: true, invite: result.data };
+
+  return {
+    ok: true,
+    type: result.type,
+    memberId: result.memberId,
+    ...(result.type === "redeemed" ? { inviteId: result.inviteId } : {}),
+  };
 }
 
-export function handleRevokeInvite({ pathParams = {} }: RouteHandlerArgs) {
-  const result = revokeIngressInvite(pathParams.id);
-
-  if (!result.ok) {
-    throw new NotFoundError(result.error);
-  }
-  return { ok: true, invite: result.data };
-}
-
-export async function handleRedeemInvite({ body = {} }: RouteHandlerArgs) {
-  if (body.code != null) {
-    const callerExternalUserId = body.callerExternalUserId as
-      | string
-      | undefined;
-    const code = body.code as string | undefined;
-
-    if (!callerExternalUserId || !code) {
-      throw new BadRequestError("callerExternalUserId and code are required");
-    }
-
-    const result = redeemVoiceInviteCode({
-      assistantId: body.assistantId as string | undefined,
-      callerExternalUserId,
-      sourceChannel: "phone",
-      code,
-    });
-
-    if (!result.ok) {
-      throw new BadRequestError(result.reason);
-    }
-
-    return {
-      ok: true,
-      type: result.type,
-      memberId: result.memberId,
-      ...(result.type === "redeemed" ? { inviteId: result.inviteId } : {}),
-    };
-  }
-
-  const result = redeemIngressInvite({
+/**
+ * Redeem a token invite.
+ *
+ * Backs the HTTP `invites_redeem` route (token path) and the IPC-only
+ * `invites_redeem_token` method. Wraps the generic `redeemIngressInvite`
+ * token path.
+ */
+export async function handleRedeemTokenInvite({
+  body = {},
+}: RouteHandlerArgs) {
+  const result = await redeemIngressInvite({
     token: body.token as string | undefined,
     externalUserId: body.externalUserId as string | undefined,
     externalChatId: body.externalChatId as string | undefined,
@@ -226,9 +420,23 @@ export async function handleRedeemInvite({ body = {} }: RouteHandlerArgs) {
   if (!result.ok) {
     throw new BadRequestError(result.error);
   }
-  return { ok: true, invite: result.data };
+  // Surface the redemption `type` so the gateway can skip mirroring an
+  // `already_member` redeem (which consumes no invite use).
+  return { ok: true, invite: result.data.invite, type: result.data.type };
 }
 
+export async function handleRedeemInvite(args: RouteHandlerArgs) {
+  const body = args.body ?? {};
+  if (body.code != null) {
+    return handleRedeemVoiceInvite(args);
+  }
+  return handleRedeemTokenInvite(args);
+}
+
+// Stays daemon-local by design (like invites_redeem): the gateway's call path
+// validates its row then delegates the actual provider call to THIS handler via
+// ipcCallAssistant("invites_trigger_call"). Relaying back would loop
+// gateway→assistant→gateway. The provider call is a daemon capability.
 export async function handleTriggerInviteCall({
   pathParams = {},
 }: RouteHandlerArgs) {
@@ -295,7 +503,7 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       ok: z.boolean(),
       contacts: z
-        .array(z.unknown())
+        .array(contactSchema)
         .describe("Contact objects with channels and metadata"),
     }),
     handler: ({ queryParams }: RouteHandlerArgs) =>
@@ -365,6 +573,10 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       ok: z.boolean(),
       invite: z.object({}).passthrough().describe("Created invite"),
+      rawToken: z
+        .string()
+        .optional()
+        .describe("One-time raw invite token (returned at creation only)"),
     }),
     additionalResponses: {
       "400": {
@@ -373,6 +585,9 @@ export const ROUTES: RouteDefinition[] = [
     },
   },
   {
+    // Stays daemon-local by design: redemption is an inbound-channel path (not
+    // a CLI ACL surface), and the assistant redemption service already claims
+    // the gateway row by id via record_invite_redemption — relaying would loop.
     operationId: "invites_redeem",
     endpoint: "contacts/invites/redeem",
     method: "POST",
@@ -469,8 +684,8 @@ export const ROUTES: RouteDefinition[] = [
       channelType: z.string().optional(),
       limit: z.number().optional(),
     }),
-    responseBody: z.array(z.object({}).passthrough()),
-    handler: ({ body = {} }: RouteHandlerArgs) => {
+    responseBody: z.array(contactSchema),
+    handler: async ({ body = {} }: RouteHandlerArgs) => {
       const parsed = z
         .object({
           query: z.string().optional(),
@@ -479,7 +694,24 @@ export const ROUTES: RouteDefinition[] = [
           limit: z.number().optional(),
         })
         .parse(body);
-      return searchContacts(parsed);
+
+      const hasFilter =
+        Boolean(parsed.query?.trim()) ||
+        Boolean(parsed.channelAddress) ||
+        Boolean(parsed.channelType);
+
+      // No-filter "search" is a list read — relay to the gateway so it returns
+      // the same source-of-truth data as `contacts list`.
+      if (!hasFilter) {
+        const { contacts } = await relayListContacts(parsed.limit ?? 50, undefined);
+        return contacts;
+      }
+
+      // True search stays daemon-native: gateway-native search is design-blocked.
+      log.debug(
+        "search_contacts: search served daemon-native (gateway-native search is design-blocked)",
+      );
+      return searchContacts(parsed).map(prepareContactResponse);
     },
   },
 
@@ -498,10 +730,14 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["contacts"],
     responseBody: z.object({
       ok: z.boolean(),
-      contact: z.object({}).passthrough().describe("Contact details"),
+      contact: contactSchema,
       assistantMetadata: z
-        .object({})
-        .passthrough()
+        .object({
+          contactId: z.string(),
+          species: z.string(),
+          metadata: z.object({}).passthrough().nullable(),
+        })
+        .optional()
         .describe("Assistant-side metadata"),
     }),
     handler: ({ pathParams }: RouteHandlerArgs) =>
@@ -526,7 +762,7 @@ export const ROUTES: RouteDefinition[] = [
     }),
     responseBody: z.object({
       ok: z.boolean(),
-      contact: z.object({}).passthrough().describe("Merged contact"),
+      contact: contactSchema.describe("Merged contact"),
     }),
     handler: (args: RouteHandlerArgs) => handleMergeContactsRoute(args),
   },
@@ -542,15 +778,14 @@ export const ROUTES: RouteDefinition[] = [
     description: "Update status, policy, or reason on a contact's channel.",
     tags: ["contacts"],
     requestBody: z.object({
-      status: z.string().describe("Channel status"),
-      policy: z.string().describe("Channel policy"),
-      reason: z.string().describe("Reason for the change"),
+      status: z.string().optional().describe("Channel status"),
+      policy: z.string().optional().describe("Channel policy"),
+      reason: z.string().optional().describe("Reason for the change"),
     }),
     responseBody: z.object({
       ok: z.boolean(),
-      contact: z
-        .object({})
-        .passthrough()
+      contact: contactSchema
+        .optional()
         .describe("Updated contact (if applicable)"),
     }),
     handler: (args: RouteHandlerArgs) => handleUpdateContactChannelRoute(args),
@@ -572,7 +807,7 @@ function handleMergeContactsRoute(args: RouteHandlerArgs) {
 
   try {
     const contact = mergeContacts(keepId, mergeId);
-    return { ok: true, contact: withGuardianNameOverride(contact) };
+    return { ok: true, contact: prepareContactResponse(contact) };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new BadRequestError(message);
@@ -635,10 +870,6 @@ function handleUpdateContactChannelRoute(args: RouteHandlerArgs) {
   const parentContact = getContact(updated.contactId);
   return {
     ok: true,
-    contact: parentContact
-      ? withGuardianNameOverride(parentContact)
-      : undefined,
+    contact: parentContact ? prepareContactResponse(parentContact) : undefined,
   };
 }
-
-

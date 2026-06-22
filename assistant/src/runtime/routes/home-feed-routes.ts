@@ -24,11 +24,13 @@ import { z } from "zod";
 
 import {
   type FeedItem,
-  feedItemSchema,
+  FeedItemSchema,
   type FeedItemStatus,
-  suggestedPromptSchema,
-} from "../../home/feed-types.js";
+  HomeFeedResponseSchema,
+} from "../../api/responses/home.js";
+import { enrichFeedItemsWithSource } from "../../home/feed-source-enrichment.js";
 import { patchFeedItemStatus, readHomeFeed } from "../../home/feed-writer.js";
+import { revalidateHomeContentInBackground } from "../../home/home-content-refresh.js";
 import { getPersonalizedGreeting } from "../../home/home-greeting.js";
 import { getSuggestedPrompts } from "../../home/suggested-prompts.js";
 import {
@@ -45,19 +47,6 @@ const log = getLogger("home-feed-routes");
 // ---------------------------------------------------------------------------
 // Response / request schemas
 // ---------------------------------------------------------------------------
-
-const contextBannerSchema = z.object({
-  greeting: z.string(),
-  timeAwayLabel: z.string(),
-  newCount: z.number().int().min(0),
-});
-
-const getHomeFeedResponseSchema = z.object({
-  items: z.array(feedItemSchema),
-  updatedAt: z.string(),
-  contextBanner: contextBannerSchema,
-  suggestedPrompts: z.array(suggestedPromptSchema),
-});
 
 const patchFeedItemRequestSchema = z.object({
   status: z.enum(["new", "seen", "acted_on", "dismissed"]),
@@ -82,7 +71,7 @@ const listHomeFeedRequestSchema = z.object({
 });
 
 const listHomeFeedResponseSchema = z.object({
-  items: z.array(feedItemSchema),
+  items: z.array(FeedItemSchema),
   total: z.number().int().nonnegative(),
   returned: z.number().int().nonnegative(),
   hasMore: z.boolean(),
@@ -147,10 +136,21 @@ export async function handleGetHomeFeed({
   // v2 schema dropped per-item `minTimeAway` gating; surface every item
   // and let the client decide what to render based on its own
   // session state. `timeAwaySeconds` survives only to feed the
-  // context-banner relative-time label.
-  const filtered = feed.items;
+  // context-banner relative-time label. Each item is enriched with its
+  // source-conversation classification (`sourceType`/`sourceKey`/
+  // `sourceLabel`) so clients can filter the feed by what produced it.
+  const filtered = enrichFeedItemsWithSource(feed.items);
 
   const now = new Date();
+
+  // Stale-while-revalidate: serve whatever is cached right now and kick
+  // off a bounded background regeneration of any stale LLM content. The
+  // refresh publishes `home_feed_updated` when fresh content lands, so
+  // connected clients refetch and the personalized content swaps in.
+  // This is the accepted exception to GET-handler idempotency documented
+  // in `src/runtime/AGENTS.md` — the handler itself stays read-only and
+  // returns immediately with cached/fallback copy.
+  revalidateHomeContentInBackground();
 
   const personalizedGreeting = getPersonalizedGreeting();
   const suggestedPrompts = await getSuggestedPrompts();
@@ -290,7 +290,9 @@ export function handleListHomeFeed({
   const total = filtered.length;
   const offset = params.offset ?? 0;
   const limit = params.limit ?? 20;
-  const items = filtered.slice(offset, offset + limit);
+  const items = enrichFeedItemsWithSource(
+    filtered.slice(offset, offset + limit),
+  );
 
   return {
     items,
@@ -365,7 +367,7 @@ export const ROUTES: RouteDefinition[] = [
           "Seconds since the user was last active in the client. Used to compute the context-banner relative-time label.",
       },
     ],
-    responseBody: getHomeFeedResponseSchema,
+    responseBody: HomeFeedResponseSchema,
   },
   {
     operationId: "patch_home_feed_item",
@@ -381,7 +383,7 @@ export const ROUTES: RouteDefinition[] = [
       "Update the `status` field of a single feed item (e.g. mark it seen or acted_on). Returns the updated item on success, 404 if the item does not exist, 500 if the underlying write fails.",
     tags: ["home"],
     requestBody: patchFeedItemRequestSchema,
-    responseBody: feedItemSchema,
+    responseBody: FeedItemSchema,
     additionalResponses: {
       "404": { description: "Feed item not found" },
       "500": { description: "Failed to persist feed item status" },

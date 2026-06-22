@@ -32,6 +32,19 @@ import {
  *   4. `llm.profiles[llm.activeProfile]`
  *   5. `llm.profiles[opts.overrideProfile]`
  *
+ * `opts.forceOverrideProfile` is an explicit escape hatch for non-main-agent
+ * call sites: when true (and `opts.overrideProfile` resolves to a defined
+ * profile), the override profile floats ABOVE the call-site layers — the
+ * non-main ordering becomes default → activeProfile → site profile →
+ * call-site override → overrideProfile. This mirrors how `mainAgent` treats
+ * the user's chat-model selection as authoritative, and exists for callers
+ * that must run a background call site under a specific conversation's
+ * inference profile (e.g. fork-based memory retrospectives matching the
+ * source conversation for provider prompt-cache reuse). When the referenced
+ * profile is missing, the flag is inert and the normal precedence applies
+ * (same silent fall-through as any `overrideProfile` reference); for
+ * `mainAgent` the flag is a no-op because the override already sits on top.
+ *
  * Nested objects (`thinking`, `contextWindow`, and
  * `contextWindow.overflowRecovery`) are deep-merged so partial overrides at
  * any nesting level merge into — rather than replace — the corresponding
@@ -54,6 +67,14 @@ import {
  */
 export interface ResolveCallSiteOpts {
   overrideProfile?: string;
+  /**
+   * Float `overrideProfile` above the call-site layers (named site profile +
+   * call-site override) for non-main-agent call sites. See the
+   * `resolveCallSiteConfig` docstring for the resulting precedence and the
+   * use case. Inert when `overrideProfile` is absent or references a missing
+   * profile, and a no-op for `mainAgent`.
+   */
+  forceOverrideProfile?: boolean;
   /**
    * Per-conversation seed for expanding `mix` profiles. The chosen constituent
    * is a deterministic function of `selectionSeed` + the mix profile's own
@@ -78,6 +99,15 @@ export function resolveCallSiteConfig(
 ): z.infer<typeof LLMConfigBase> {
   const layers: Mergeable[] = [llm.default as Mergeable];
 
+  // Effective logit-bias preset, tracked outside the deep-merge so it ties to
+  // the single highest-precedence *profile* that wins resolution rather than
+  // inheriting from a lower one. Profile layers are appended low→high, and each
+  // one fully determines the preset (a profile that omits `logitBias` clears
+  // any value a lower-precedence profile set), so the last profile appended
+  // wins — matching the merge's own precedence and including the implicit
+  // call-site default selected by `effectiveDefault`.
+  const biasRef: LogitBiasRef = { preset: undefined };
+
   const activeFragment = resolveProfileFragment(llm.activeProfile, llm, opts);
   const overrideFragment = resolveProfileFragment(
     opts.overrideProfile,
@@ -89,17 +119,40 @@ export function resolveCallSiteConfig(
     effectiveDefault(callSite, llm, opts.overrideProfile != null);
 
   if (callSite === "mainAgent") {
-    appendCallSiteLayers(layers, callSite, llm, site, opts);
-    appendProfileLayer(layers, activeFragment);
-    appendProfileLayer(layers, overrideFragment);
+    appendCallSiteLayers(layers, callSite, llm, site, opts, biasRef);
+    appendProfileLayer(layers, activeFragment, biasRef);
+    appendProfileLayer(layers, overrideFragment, biasRef);
+  } else if (opts.forceOverrideProfile === true && overrideFragment != null) {
+    // Escape hatch: float the override profile above the call-site layers,
+    // mirroring mainAgent's treatment of the user's chat-model selection.
+    // Guarded on a resolved fragment so a missing profile reference degrades
+    // to the normal precedence below instead of silently dropping the
+    // call-site layers' standing.
+    appendProfileLayer(layers, activeFragment, biasRef);
+    appendCallSiteLayers(layers, callSite, llm, site, opts, biasRef);
+    appendProfileLayer(layers, overrideFragment, biasRef);
   } else {
-    appendProfileLayer(layers, activeFragment);
-    appendProfileLayer(layers, overrideFragment);
-    appendCallSiteLayers(layers, callSite, llm, site, opts);
+    appendProfileLayer(layers, activeFragment, biasRef);
+    appendProfileLayer(layers, overrideFragment, biasRef);
+    appendCallSiteLayers(layers, callSite, llm, site, opts, biasRef);
   }
 
-  return finalize(deepMerge(...layers.map(withImpliedProviderForKnownModel)));
+  const resolved = finalize(
+    deepMerge(...layers.map(withImpliedProviderForKnownModel)),
+  );
+  // `logitBias` is profile-scoped: the winning profile is its only source.
+  // Overwrite — or clear — whatever the deep-merge may have copied from a
+  // non-profile layer (`llm.default` or a call-site fragment), so a preset set
+  // outside a profile can't apply to a profile that didn't opt in.
+  if (biasRef.preset !== undefined) {
+    resolved.logitBias = biasRef.preset;
+  } else {
+    delete (resolved as { logitBias?: unknown }).logitBias;
+  }
+  return resolved;
 }
+
+type LogitBiasRef = { preset: ProfileEntry["logitBias"] };
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -261,8 +314,10 @@ function withImpliedProviderForKnownModel(source: Mergeable): Mergeable {
 function appendProfileLayer(
   layers: Mergeable[],
   profile: ProfileEntry | undefined,
+  biasRef: LogitBiasRef,
 ): void {
   if (profile != null) {
+    biasRef.preset = profile.logitBias;
     layers.push(profileConfigFragment(profile));
   }
 }
@@ -273,6 +328,7 @@ function appendCallSiteLayers(
   llm: z.infer<typeof LLMSchema>,
   site: z.infer<typeof LLMSchema>["callSites"][LLMCallSite] | undefined,
   opts: ResolveCallSiteOpts,
+  biasRef: LogitBiasRef,
 ): void {
   if (site != null) {
     if (site.profile != null) {
@@ -286,6 +342,7 @@ function appendCallSiteLayers(
           `LLM call site "${callSite}" references undefined profile "${site.profile}"`,
         );
       }
+      biasRef.preset = profileFragment.logitBias;
       layers.push(profileConfigFragment(profileFragment));
     }
     // Strip the `profile` discriminator before merging — it isn't a
@@ -304,6 +361,14 @@ function profileConfigFragment(profile: ProfileEntry): Mergeable {
     // profile before this point), but strip it defensively so it can never
     // leak into the merged `LLMConfigBase`.
     mix: _mix,
+    // `logitBias` is profile-identity metadata, not inheritable config: a
+    // preset must apply only to the profile that opted in, never bleed from a
+    // lower-precedence (e.g. active) profile into one that merely inherited it.
+    // `RetryProvider` resolves it from the applied profile, not the merge.
+    logitBias: _logitBias,
+    // Per-profile advisor toggle is profile identity, not inheritable model
+    // config — strip it so it can't leak into the merged `LLMConfigBase`.
+    advisorEnabled: _advisorEnabled,
     ...config
   } = profile;
   return config as Mergeable;

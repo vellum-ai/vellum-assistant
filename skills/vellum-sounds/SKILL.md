@@ -5,6 +5,7 @@ compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔊"
   vellum:
+    category: "content"
     display-name: "Sounds"
 ---
 
@@ -23,17 +24,17 @@ Two stores, both under `$VELLUM_WORKSPACE_DIR/data/sounds/`:
 
 These are the only valid event keys. Other keys are ignored by the app.
 
-| Event key | Fires when |
-|---|---|
-| `app_open` | App launches (first time per session) |
-| `task_complete` | Conversation transitions processing → idle |
-| `needs_input` | Conversation enters waiting-for-input |
-| `task_failed` | Conversation enters error state |
-| `notification` | A tool-triggered notification is sent |
-| `new_conversation` | User creates a new conversation |
-| `message_sent` | User sends a message in the composer |
-| `character_poke` | User clicks the avatar |
-| `random` | Ambient timer (fires every 5–30 minutes) |
+| Event key          | Fires when                                 |
+| ------------------ | ------------------------------------------ |
+| `app_open`         | App launches (first time per session)      |
+| `task_complete`    | Conversation transitions processing → idle |
+| `needs_input`      | Conversation enters waiting-for-input      |
+| `task_failed`      | Conversation enters error state            |
+| `notification`     | A tool-triggered notification is sent      |
+| `new_conversation` | User creates a new conversation            |
+| `message_sent`     | User sends a message in the composer       |
+| `character_poke`   | User clicks the avatar                     |
+| `random`           | Ambient timer (fires every 5–30 minutes)   |
 
 ## Mode 1: Inspect current state
 
@@ -56,6 +57,7 @@ cp "<source-path>" "$VELLUM_WORKSPACE_DIR/data/sounds/<descriptive-name>.<ext>"
 ```
 
 Rules:
+
 - Extension must be one of: `aiff`, `wav`, `mp3`, `m4a`, `caf`. If the user's file is something else (e.g. `.ogg`, `.flac`), tell them — don't try to rename.
 - Keep the filename simple (no path separators, no leading dots). Spaces are fine.
 - After adding a file, it's available in the dropdown — but nothing plays until you assign it to an event (Mode 3).
@@ -96,17 +98,17 @@ Only one pool-mutation flag is allowed per invocation — mixing `--sound` and `
 
 Flag reference:
 
-| Flag | Value | Effect |
-|---|---|---|
-| `--global-enabled` | `true` or `false` | Master switch. If `false`, NOTHING plays regardless of per-event settings. |
-| `--volume` | `0.0`–`1.0` (clamped) | Master volume. `0.7` is the default. |
-| `--event` | one of the 9 keys above | Scopes the next flags to a single event. |
-| `--enabled` | `true` or `false` | Per-event on/off (requires `--event`). |
-| `--sound` | filename or `null` | Single-sound convenience (requires `--event`). **Replaces** the entire pool with one entry, or clears it when given `null`. The file must already exist in `data/sounds/`. |
-| `--sounds` | comma-separated filenames | Replaces the pool with the given list (requires `--event`). Every filename must already exist in `data/sounds/`. Use `--clear-sounds` to empty. |
-| `--add-sound` | filename | Appends one filename to the pool (requires `--event`). No-op with a warning if already present. May be repeated in a single invocation. |
-| `--remove-sound` | filename | Removes one filename from the pool (requires `--event`). No-op with a warning if not present. |
-| `--clear-sounds` | — | Empties the pool (requires `--event`). |
+| Flag               | Value                     | Effect                                                                                                                                                                     |
+| ------------------ | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--global-enabled` | `true` or `false`         | Master switch. If `false`, NOTHING plays regardless of per-event settings.                                                                                                 |
+| `--volume`         | `0.0`–`1.0` (clamped)     | Master volume. `0.7` is the default.                                                                                                                                       |
+| `--event`          | one of the 9 keys above   | Scopes the next flags to a single event.                                                                                                                                   |
+| `--enabled`        | `true` or `false`         | Per-event on/off (requires `--event`).                                                                                                                                     |
+| `--sound`          | filename or `null`        | Single-sound convenience (requires `--event`). **Replaces** the entire pool with one entry, or clears it when given `null`. The file must already exist in `data/sounds/`. |
+| `--sounds`         | comma-separated filenames | Replaces the pool with the given list (requires `--event`). Every filename must already exist in `data/sounds/`. Use `--clear-sounds` to empty.                            |
+| `--add-sound`      | filename                  | Appends one filename to the pool (requires `--event`). No-op with a warning if already present. May be repeated in a single invocation.                                    |
+| `--remove-sound`   | filename                  | Removes one filename from the pool (requires `--event`). No-op with a warning if not present.                                                                              |
+| `--clear-sounds`   | —                         | Empties the pool (requires `--event`).                                                                                                                                     |
 
 The script prints the resulting config slice so you can confirm what changed.
 
@@ -147,15 +149,15 @@ If the user inspects `config.json` directly, this is what they'll see. Defaults 
   "globalEnabled": false,
   "volume": 0.7,
   "events": {
-    "app_open":         { "enabled": false, "sounds": [] },
-    "task_complete":    { "enabled": false, "sounds": [] },
-    "needs_input":      { "enabled": false, "sounds": [] },
-    "task_failed":      { "enabled": false, "sounds": [] },
-    "notification":     { "enabled": false, "sounds": [] },
+    "app_open": { "enabled": false, "sounds": [] },
+    "task_complete": { "enabled": false, "sounds": [] },
+    "needs_input": { "enabled": false, "sounds": [] },
+    "task_failed": { "enabled": false, "sounds": [] },
+    "notification": { "enabled": false, "sounds": [] },
     "new_conversation": { "enabled": false, "sounds": [] },
-    "message_sent":     { "enabled": false, "sounds": [] },
-    "character_poke":   { "enabled": false, "sounds": [] },
-    "random":           { "enabled": false, "sounds": [] }
+    "message_sent": { "enabled": false, "sounds": [] },
+    "character_poke": { "enabled": false, "sounds": [] },
+    "random": { "enabled": false, "sounds": [] }
   }
 }
 ```

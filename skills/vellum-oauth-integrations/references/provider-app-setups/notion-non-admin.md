@@ -20,6 +20,6 @@ Suggested message:
 
 After the user picks an option, adapt the flow:
 
-- **Option 1 (admin shares token):** When the user has the secret, skip directly to Step 3a (collect the secret via `credential_store prompt`) and then 3b (grant page access on their own pages).
+- **Option 1 (admin shares token):** When the user has the secret, skip directly to Step 3a (collect the secret via `assistant credentials prompt`) and then 3b (grant page access on their own pages).
 - **Option 2 (different workspace):** Restart from Step 1 targeting the new workspace.
 - **Option 3 (request admin access):** Pause the flow. Tell them to come back when they have admin access and you'll pick up where you left off.

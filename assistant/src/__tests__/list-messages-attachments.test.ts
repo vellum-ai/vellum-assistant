@@ -35,7 +35,7 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { handleListMessages } from "../runtime/routes/conversation-routes.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables() {
   const db = getDb();
@@ -164,6 +164,47 @@ describe("handleListMessages attachments", () => {
     expect(imgAtt!.data).toBe(IMAGE_BASE64);
     expect(docAtt!.data).toBeUndefined();
   });
+
+  test("attachment-only assistant message synthesizes contentBlocks", async () => {
+    // When the assistant's entire response was a <vellum-attachment/> tag,
+    // parseDirectives strips it → cleanText is empty → renderHistoryContent
+    // drops the empty text block → contentBlocks is []. The serializer must
+    // synthesize attachment blocks from msgAttachments so the client has a
+    // block to anchor the attachment chip.
+    const conv = createConversation();
+    // Persist the post-strip content: an empty text block (what
+    // cleanAssistantContent leaves after stripping the directive tag).
+    const msg = await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "" }]),
+    );
+    const stored = uploadAttachment("output.png", "image/png", IMAGE_BASE64);
+    linkAttachmentToMessage(msg.id, stored.id, 0);
+
+    const response = handleListMessages(createTestArgs(conv.id));
+    const body = response as {
+      messages: {
+        attachments?: AttachmentPayload[];
+        contentBlocks?: Array<{
+          type: string;
+          attachment?: { id: string; filename: string };
+        }>;
+      }[];
+    };
+
+    expect(body.messages).toHaveLength(1);
+    // Attachments are always on the wire
+    expect(body.messages[0].attachments).toBeDefined();
+    expect(body.messages[0].attachments).toHaveLength(1);
+    // contentBlocks must be synthesized — not omitted
+    expect(body.messages[0].contentBlocks).toBeDefined();
+    expect(body.messages[0].contentBlocks).toHaveLength(1);
+    expect(body.messages[0].contentBlocks![0].type).toBe("attachment");
+    expect(body.messages[0].contentBlocks![0].attachment!.filename).toBe(
+      "output.png",
+    );
+  });
 });
 
 describe("handleListMessages no_response filtering", () => {
@@ -179,11 +220,10 @@ describe("handleListMessages no_response filtering", () => {
 
     const response = handleListMessages(createTestArgs(conv.id));
     const body = response as {
-      messages: { content: string; textSegments: string[] }[];
+      messages: { textSegments?: string[] }[];
     };
 
     expect(body.messages).toHaveLength(1);
-    expect(body.messages[0].content).toBe("");
     // textSegments is omitted from payload when empty
     expect(body.messages[0].textSegments).toBeUndefined();
   });
@@ -201,11 +241,10 @@ describe("handleListMessages no_response filtering", () => {
 
     const response = handleListMessages(createTestArgs(conv.id));
     const body = response as {
-      messages: { content: string; textSegments: string[] }[];
+      messages: { textSegments?: string[] }[];
     };
 
     expect(body.messages).toHaveLength(1);
-    expect(body.messages[0].content).toBe("Real reply.");
     expect(body.messages[0].textSegments).toEqual(["Real reply."]);
   });
 
@@ -231,7 +270,6 @@ describe("handleListMessages no_response filtering", () => {
     const response = handleListMessages(createTestArgs(conv.id));
     const body = response as {
       messages: {
-        content: string;
         textSegments: string[];
         contentOrder: string[];
       }[];
@@ -254,11 +292,13 @@ describe("handleListMessages no_response filtering", () => {
 
     const response = handleListMessages(createTestArgs(conv.id));
     const body = response as {
-      messages: { content: string }[];
+      messages: { textSegments?: string[] }[];
     };
 
     expect(body.messages).toHaveLength(1);
-    expect(body.messages[0].content).toBe("What does <no_response/> do?");
+    expect(body.messages[0].textSegments).toEqual([
+      "What does <no_response/> do?",
+    ]);
   });
 });
 
@@ -267,7 +307,7 @@ describe("handleListMessages no_response filtering", () => {
 // ---------------------------------------------------------------------------
 
 interface PaginatedResponse {
-  messages: { id: string; content: string; timestamp: string }[];
+  messages: { id: string; timestamp: string }[];
   hasMore?: boolean;
   oldestTimestamp?: number;
   oldestMessageId?: string;

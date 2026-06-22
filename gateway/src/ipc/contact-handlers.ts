@@ -6,14 +6,16 @@
  * assistant DB proxy (raw SQL), so the gateway owns the write path.
  */
 
+import {
+  GetContactIpcParamsSchema,
+  ListContactsIpcParamsSchema,
+} from "@vellumai/gateway-client/gateway-ipc-contracts";
 import { z } from "zod";
 
-import {
-  assistantDbQuery,
-  assistantDbRun,
-} from "../db/assistant-db-proxy.js";
+import { assistantDbQuery, assistantDbRun } from "../db/assistant-db-proxy.js";
 import { ContactStore } from "../db/contact-store.js";
 import { getLogger } from "../logger.js";
+import { canonicalizeInboundIdentity } from "../verification/identity.js";
 import type { IpcRoute } from "./server.js";
 
 const log = getLogger("contact-handlers");
@@ -60,6 +62,36 @@ export const contactRoutes: IpcRoute[] = [
       return getStore().getContact(contactId) ?? null;
     },
   },
+  // Rich reads expose the shared ContactRead shape (gateway ACL + assistant
+  // info) for the daemon's list/get relay. Additive — the lean list_contacts /
+  // get_contact methods above stay for gateway-internal callers.
+  {
+    method: "contacts_list_rich",
+    schema: ListContactsIpcParamsSchema,
+    handler: async (params?: Record<string, unknown>) => {
+      const parsed = ListContactsIpcParamsSchema.parse(params);
+      const contacts = await getStore().listContactsRich(parsed);
+      return { ok: true, contacts };
+    },
+  },
+  {
+    method: "contacts_get_rich",
+    schema: GetContactIpcParamsSchema,
+    handler: async (params?: Record<string, unknown>) => {
+      const { contactId } = GetContactIpcParamsSchema.parse(params);
+      const result = await getStore().getContactRich(contactId);
+      // Return null on miss (mirrors get_contact); the daemon relay maps a
+      // null/not-found result to a 404.
+      if (!result) return null;
+      return {
+        ok: true,
+        contact: result.contact,
+        ...(result.assistantMetadata
+          ? { assistantMetadata: result.assistantMetadata }
+          : {}),
+      };
+    },
+  },
   {
     method: "get_contact_by_channel",
     schema: GetContactByChannelParamsSchema,
@@ -86,7 +118,8 @@ export const contactRoutes: IpcRoute[] = [
       const { channelType, address, role, displayName } =
         CreateContactParamsSchema.parse(params);
 
-      const normalizedAddress = address.toLowerCase().trim();
+      const normalizedAddress =
+        canonicalizeInboundIdentity(channelType, address) ?? address.trim();
       const effectiveDisplayName = displayName ?? normalizedAddress;
       // Map prompt roles to valid ContactRole values ("guardian" | "contact").
       const effectiveRole: string =
@@ -100,7 +133,7 @@ export const contactRoutes: IpcRoute[] = [
       }>(
         `SELECT cc.id AS channelId, cc.contact_id AS contactId
          FROM contact_channels cc
-         WHERE cc.type = ? AND cc.address = ?
+         WHERE cc.type = ? AND cc.address = ? COLLATE NOCASE
          LIMIT 1`,
         [channelType, normalizedAddress],
       );
@@ -142,7 +175,13 @@ export const contactRoutes: IpcRoute[] = [
       }
 
       log.info(
-        { channelType, address: normalizedAddress, contactId, channelId, role: effectiveRole },
+        {
+          channelType,
+          address: normalizedAddress,
+          contactId,
+          channelId,
+          role: effectiveRole,
+        },
         "create_contact: created new contact + channel",
       );
 

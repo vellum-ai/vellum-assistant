@@ -69,6 +69,7 @@ type SurfaceConversationContext =
 function buildMockContext(
   hostCuProxy?: InstanceType<typeof HostCuProxy>,
   trustGuardianPrincipalId: string | null = DEFAULT_PRINCIPAL,
+  actorPrincipalId: string | null = trustGuardianPrincipalId,
 ): SurfaceConversationContext {
   return {
     conversationId: "test-session",
@@ -79,6 +80,16 @@ function buildMockContext(
             trustClass: "guardian",
             guardianPrincipalId: trustGuardianPrincipalId,
           }
+        : undefined,
+    authContext:
+      actorPrincipalId != null
+        ? ({ actorPrincipalId } as SurfaceConversationContext["authContext"])
+        : undefined,
+    currentTurnAuthContext:
+      actorPrincipalId != null
+        ? ({
+            actorPrincipalId,
+          } as SurfaceConversationContext["currentTurnAuthContext"])
         : undefined,
     traceEmitter: { emit: () => {} },
     sendToClient: () => {},
@@ -438,7 +449,7 @@ describe("surfaceProxyResolver — CU tool routing", () => {
       });
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain("multiple clients support host_cu");
+      expect(result.content).toContain("Multiple host_cu clients");
       expect(result.content).toContain("target_client_id");
       // No message should have been dispatched
       expect(sentMessages).toHaveLength(0);
@@ -665,6 +676,31 @@ describe("surfaceProxyResolver — CU tool routing", () => {
       expect(sentMessages).toHaveLength(0);
     });
 
+    test("rejects untargeted CU dispatch to owner client when current requester is a trusted contact", async () => {
+      sentMessages.length = 0;
+      mockHasClient = true;
+      mockCuClients = [
+        {
+          clientId: "owner-cu-client",
+          capabilities: ["host_cu"],
+          actorPrincipalId: "owner-user",
+        },
+      ];
+      proxy = new HostCuProxy();
+      const ctx = buildMockContext(proxy, "owner-user", "trusted-contact-user");
+
+      const result = await surfaceProxyResolver(ctx, "computer_use_click", {
+        element_id: 1,
+        reasoning: "click",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("current actor");
+      expect(proxy.stepCount).toBe(0);
+      expect(proxy.actionHistory).toHaveLength(0);
+      expect(sentMessages).toHaveLength(0);
+    });
+
     test("auto-resolves to the unique same-user CU client when cross-user clients are present", async () => {
       // Regression: previously the dispatch counted only same-user clients
       // for the multi-client guard, so 1 same-user + 1 cross-user passed the
@@ -704,6 +740,31 @@ describe("surfaceProxyResolver — CU tool routing", () => {
         executionResult: "ok",
       });
       await resultPromise;
+    });
+
+    test("rejects untargeted CU dispatch when only another actor has a capable client", async () => {
+      sentMessages.length = 0;
+      mockHasClient = true;
+      mockCuClients = [
+        {
+          clientId: "cu-other",
+          capabilities: ["host_cu"],
+          actorPrincipalId: "user-other",
+        },
+      ];
+      proxy = new HostCuProxy();
+      const ctx = buildMockContext(proxy, DEFAULT_PRINCIPAL);
+
+      const result = await surfaceProxyResolver(ctx, "computer_use_click", {
+        element_id: 1,
+        reasoning: "click",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("current actor");
+      // No step burned, no dispatch.
+      expect(proxy.stepCount).toBe(0);
+      expect(sentMessages).toHaveLength(0);
     });
   });
 

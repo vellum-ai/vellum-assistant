@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent } from "../agent/loop.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
@@ -16,11 +17,6 @@ let agentLoopScript: (onEvent: (event: AgentEvent) => void) => void = () => {};
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
-mock.module("../memory/guardian-action-store.js", () => ({
-  getGuardianActionRequest: () => null,
-  resolveGuardianActionRequest: () => {},
 }));
 
 mock.module("../providers/registry.js", () => ({
@@ -140,7 +136,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getMessageById: () => null,
   getLastUserTimestampBefore: () => 0,
   setLastNotifiedInferenceProfile: () => {},
-  getConversationOverrideProfileFromRow: () => undefined,
+  resolveOverrideProfile: () => undefined,
   updateMessageMetadata: () => {},
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
   updateMessageContent: mock(() => {}),
@@ -177,14 +173,22 @@ mock.module("../memory/query-builder.js", () => ({
 mock.module("../memory/retrieval-budget.js", () => ({
   computeRecallBudget: () => 0,
 }));
-mock.module("../context/window-manager.js", () => ({
+mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   ContextWindowManager: class {
+    estimateInputTokens() {
+      return 0;
+    }
+    get tokenCountInputs() {
+      return { systemPrompt: "", tools: undefined };
+    }
+    updateConfig() {}
     shouldCompact() {
       return { needed: false, estimatedTokens: 0 };
     }
     async maybeCompact() {
       return { compacted: false };
     }
+    resetOverflowRecovery() {}
   },
   createContextSummaryMessage: () => ({
     role: "user",
@@ -216,6 +220,7 @@ mock.module("../workspace/turn-commit.js", () => ({
 
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
+    compactionCircuit = new CompactionCircuit("test-conv");
     constructor() {}
     getToolTokenBudget() {
       return 0;
@@ -226,10 +231,11 @@ mock.module("../agent/loop.js", () => ({
     getActiveModel() {
       return undefined;
     }
-    async run(
-      messages: Message[],
-      onEvent: (event: AgentEvent) => void,
-    ): Promise<Message[]> {
+    async run(options: {
+      messages: Message[];
+      onEvent: (event: AgentEvent) => void;
+    }): Promise<Message[]> {
+      const { messages, onEvent } = options;
       // Prime the assistant row anchor — production code emits this from
       // `AgentLoop.run` just before `provider.sendMessage`.
       await onEvent({ type: "llm_call_started" });
@@ -271,6 +277,7 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 }));
 
 import { Conversation } from "../daemon/conversation.js";
+import { refreshWorkspaceTopLevelContextIfNeeded } from "../daemon/conversation-workspace.js";
 
 function makeConversation(): Conversation {
   const provider = {
@@ -288,9 +295,9 @@ function makeConversation(): Conversation {
     "conv-1",
     provider,
     "system prompt",
-    4096,
     () => {},
     "/tmp",
+    { maxTokens: 4096 },
   );
 }
 
@@ -308,7 +315,7 @@ describe("Conversation workspace dirty on file mutations", () => {
     await conversation.loadFromDb();
 
     // Prime the cache so dirty=false
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
 
     agentLoopScript = (onEvent) => {
@@ -337,7 +344,7 @@ describe("Conversation workspace dirty on file mutations", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
 
     agentLoopScript = (onEvent) => {
@@ -368,7 +375,7 @@ describe("Conversation workspace dirty on file mutations", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
 
     agentLoopScript = (onEvent) => {
@@ -397,7 +404,7 @@ describe("Conversation workspace dirty on file mutations", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
 
     agentLoopScript = (onEvent) => {
@@ -426,7 +433,7 @@ describe("Conversation workspace dirty on file mutations", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
 
     agentLoopScript = (onEvent) => {
@@ -455,7 +462,7 @@ describe("Conversation workspace dirty on file mutations", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
 
     agentLoopScript = (onEvent) => {

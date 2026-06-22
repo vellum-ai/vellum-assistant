@@ -45,10 +45,14 @@ mock.module("../helpers.js", () => ({
 import { RouteError } from "../../errors.js";
 import { ROUTES } from "../index.js";
 
-interface MockConversation {
-  readonly conversationId: string;
+interface MockCompactionCircuit {
   consecutiveCompactionFailures: number;
   compactionCircuitOpenUntil: number | null;
+}
+
+interface MockConversation {
+  readonly conversationId: string;
+  agentLoop: { compactionCircuit: MockCompactionCircuit };
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
   sentMessages: ServerMessage[];
@@ -60,8 +64,12 @@ function makeConversation(id = "conv-playground-test"): MockConversation {
   const sentMessages: ServerMessage[] = [];
   return {
     conversationId: id,
-    consecutiveCompactionFailures: 0,
-    compactionCircuitOpenUntil: null,
+    agentLoop: {
+      compactionCircuit: {
+        consecutiveCompactionFailures: 0,
+        compactionCircuitOpenUntil: null,
+      },
+    },
     contextCompactedMessageCount: 0,
     contextCompactedAt: null,
     sentMessages,
@@ -109,9 +117,10 @@ describe("POST /v1/conversations/:id/playground/inject-compaction-failures", () 
     })) as Record<string, unknown>;
     const afterNow = Date.now();
 
-    expect(conversation.consecutiveCompactionFailures).toBe(3);
-    expect(conversation.compactionCircuitOpenUntil).not.toBeNull();
-    const openUntil = conversation.compactionCircuitOpenUntil!;
+    const circuit = conversation.agentLoop.compactionCircuit;
+    expect(circuit.consecutiveCompactionFailures).toBe(3);
+    expect(circuit.compactionCircuitOpenUntil).not.toBeNull();
+    const openUntil = circuit.compactionCircuitOpenUntil!;
     expect(openUntil).toBeGreaterThanOrEqual(beforeNow + 60_000);
     expect(openUntil).toBeLessThanOrEqual(afterNow + 60_000);
 
@@ -128,16 +137,18 @@ describe("POST /v1/conversations/:id/playground/inject-compaction-failures", () 
 
   test("clears the circuit and emits compaction_circuit_closed on circuitOpenForMs: 0", async () => {
     const conversation = makeConversation("conv-close");
-    conversation.compactionCircuitOpenUntil = Date.now() + 10_000;
-    conversation.consecutiveCompactionFailures = 3;
+    conversation.agentLoop.compactionCircuit.compactionCircuitOpenUntil =
+      Date.now() + 10_000;
+    conversation.agentLoop.compactionCircuit.consecutiveCompactionFailures = 3;
     _mockConversation = conversation;
 
     await invoke(conversation.conversationId, {
       circuitOpenForMs: 0,
     });
 
-    expect(conversation.compactionCircuitOpenUntil).toBeNull();
-    expect(conversation.consecutiveCompactionFailures).toBe(3);
+    const circuit = conversation.agentLoop.compactionCircuit;
+    expect(circuit.compactionCircuitOpenUntil).toBeNull();
+    expect(circuit.consecutiveCompactionFailures).toBe(3);
 
     expect(conversation.sentMessages).toHaveLength(1);
     expect(conversation.sentMessages[0]).toEqual({
@@ -148,14 +159,18 @@ describe("POST /v1/conversations/:id/playground/inject-compaction-failures", () 
 
   test("is a no-op on the event channel when circuitOpenForMs: 0 but the breaker is already closed", async () => {
     const conversation = makeConversation("conv-already-closed");
-    expect(conversation.compactionCircuitOpenUntil).toBeNull();
+    expect(
+      conversation.agentLoop.compactionCircuit.compactionCircuitOpenUntil,
+    ).toBeNull();
     _mockConversation = conversation;
 
     const body = (await invoke(conversation.conversationId, {
       circuitOpenForMs: 0,
     })) as Record<string, unknown>;
 
-    expect(conversation.compactionCircuitOpenUntil).toBeNull();
+    expect(
+      conversation.agentLoop.compactionCircuit.compactionCircuitOpenUntil,
+    ).toBeNull();
     expect(conversation.sentMessages).toHaveLength(0);
     expect(body.compactionCircuitOpenUntil).toBeNull();
     expect(body.isCircuitOpen).toBe(false);
@@ -175,7 +190,9 @@ describe("POST /v1/conversations/:id/playground/inject-compaction-failures", () 
       expect((err as RouteError).statusCode).toBe(400);
     }
 
-    expect(conversation.consecutiveCompactionFailures).toBe(0);
+    expect(
+      conversation.agentLoop.compactionCircuit.consecutiveCompactionFailures,
+    ).toBe(0);
     expect(conversation.sentMessages).toHaveLength(0);
   });
 
@@ -193,7 +210,9 @@ describe("POST /v1/conversations/:id/playground/inject-compaction-failures", () 
       expect((err as RouteError).statusCode).toBe(400);
     }
 
-    expect(conversation.compactionCircuitOpenUntil).toBeNull();
+    expect(
+      conversation.agentLoop.compactionCircuit.compactionCircuitOpenUntil,
+    ).toBeNull();
     expect(conversation.sentMessages).toHaveLength(0);
   });
 
@@ -210,7 +229,9 @@ describe("POST /v1/conversations/:id/playground/inject-compaction-failures", () 
       expect(err).toBeInstanceOf(RouteError);
       expect((err as RouteError).statusCode).toBe(400);
     }
-    expect(conversation.consecutiveCompactionFailures).toBe(0);
+    expect(
+      conversation.agentLoop.compactionCircuit.consecutiveCompactionFailures,
+    ).toBe(0);
   });
 
   test("response body includes the full CompactionStateResponse shape", async () => {

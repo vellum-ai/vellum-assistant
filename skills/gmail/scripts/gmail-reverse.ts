@@ -9,12 +9,7 @@
  *   reverse --run-id <id> --thread <id>      — Reverse a specific thread only
  */
 
-import {
-  parseArgs,
-  printError,
-  ok,
-  optionalArg,
-} from "./lib/common.js";
+import { parseArgs, printError, ok, optionalArg } from "./lib/common.js";
 import { gmailPost, DailyQuotaExceededError } from "./lib/gmail-client.js";
 import {
   generateRunId,
@@ -158,7 +153,11 @@ async function reverseOp(
           account,
         );
         if (!resp.ok) {
-          writeFailed(reversalRunId, chunkIndex, `reverse label_add failed (status ${resp.status})`);
+          writeFailed(
+            reversalRunId,
+            chunkIndex,
+            `reverse label_add failed (status ${resp.status})`,
+          );
           return false;
         }
       }
@@ -173,7 +172,11 @@ async function reverseOp(
           account,
         );
         if (!resp.ok) {
-          writeFailed(reversalRunId, chunkIndex, `reverse label_remove failed (status ${resp.status})`);
+          writeFailed(
+            reversalRunId,
+            chunkIndex,
+            `reverse label_remove failed (status ${resp.status})`,
+          );
           return false;
         }
       }
@@ -190,11 +193,19 @@ async function reverseOp(
       // Inverse of trash: remove TRASH label, add INBOX
       const resp = await gmailPost(
         "/messages/batchModify",
-        { ids: op.message_ids, removeLabelIds: ["TRASH"], addLabelIds: ["INBOX"] },
+        {
+          ids: op.message_ids,
+          removeLabelIds: ["TRASH"],
+          addLabelIds: ["INBOX"],
+        },
         account,
       );
       if (!resp.ok) {
-        writeFailed(reversalRunId, chunkIndex, `untrash batchModify failed (status ${resp.status})`);
+        writeFailed(
+          reversalRunId,
+          chunkIndex,
+          `untrash batchModify failed (status ${resp.status})`,
+        );
         return false;
       }
     }
@@ -313,7 +324,9 @@ async function main(): Promise<void> {
 
   const runId = optionalArg(args, "run-id");
   if (!runId) {
-    printError("Usage: gmail-reverse.ts --run-id <run-id> [--thread <message-id>]");
+    printError(
+      "Usage: gmail-reverse.ts --run-id <run-id> [--thread <message-id>]",
+    );
     return;
   }
 

@@ -17,15 +17,11 @@ mock.module("../db/assistant-db-proxy.js", () => ({
   assistantDbExec: mock(),
 }));
 
-const { handlePair, resetPairRateLimiterForTests } = await import(
-  "../http/routes/pair.js"
-);
-const { resolveExtensionOrigin } = await import(
-  "../http/middleware/cors.js"
-);
-const { KNOWN_EXTENSION_ORIGINS } = await import(
-  "../chrome-extension-origins.js"
-);
+const { handlePair, resetPairRateLimiterForTests } =
+  await import("../http/routes/pair.js");
+const { resolveExtensionOrigin } = await import("../http/middleware/cors.js");
+const { KNOWN_EXTENSION_ORIGINS } =
+  await import("../chrome-extension-origins.js");
 
 // Simulate a loopback peer IP as supplied by the gateway server to the handler.
 const LOOPBACK_IP = "127.0.0.1";
@@ -33,17 +29,27 @@ const LOOPBACK_IP = "127.0.0.1";
 // A valid Vellum extension origin (production).
 const PROD_ORIGIN = "chrome-extension://hphbdmpffeigpcdjkckleobjmhhokpne";
 // A non-Vellum extension origin.
-const MALICIOUS_ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const MALICIOUS_ORIGIN =
+  "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
-function makePairRequest(overrides: {
-  method?: string;
-  origin?: string | null;
-  interfaceId?: string | null;
-  xForwardedFor?: string;
-} = {}): Request {
-  const { method = "POST", origin, interfaceId = "chrome-extension", xForwardedFor } = overrides;
+function makePairRequest(
+  overrides: {
+    method?: string;
+    origin?: string | null;
+    interfaceId?: string | null;
+    xForwardedFor?: string;
+    edgeForwarded?: boolean;
+  } = {},
+): Request {
+  const {
+    method = "POST",
+    origin,
+    interfaceId = "chrome-extension",
+    xForwardedFor,
+    edgeForwarded,
+  } = overrides;
   const headers: Record<string, string> = {
-    "host": "localhost:7830",
+    host: "localhost:7830",
     "content-type": "application/json",
   };
   if (origin !== null) {
@@ -54,6 +60,9 @@ function makePairRequest(overrides: {
   }
   if (xForwardedFor) {
     headers["x-forwarded-for"] = xForwardedFor;
+  }
+  if (edgeForwarded) {
+    headers["x-vellum-edge-forwarded"] = "1";
   }
   return new Request("http://localhost:7830/v1/pair", { method, headers });
 }
@@ -106,7 +115,7 @@ describe("handlePair — Origin allowlist", () => {
     const req = makePairRequest({ origin: PROD_ORIGIN });
     const res = await handlePair(req, LOOPBACK_IP);
     expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect(typeof body.token).toBe("string");
   });
 
@@ -123,7 +132,7 @@ describe("handlePair — Origin allowlist", () => {
     const req = makePairRequest({ origin: MALICIOUS_ORIGIN });
     const res = await handlePair(req, LOOPBACK_IP);
     expect(res.status).toBe(403);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect((body.error as Record<string, unknown>).code).toBe("FORBIDDEN");
   });
 
@@ -137,19 +146,37 @@ describe("handlePair — Origin allowlist", () => {
     const req = makePairRequest({ origin: PROD_ORIGIN });
     const res = await handlePair(req, "8.8.8.8");
     expect(res.status).toBe(403);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect((body.error as Record<string, unknown>).code).toBe("FORBIDDEN");
   });
 
   test("still rejects requests with X-Forwarded-For regardless of origin", async () => {
-    const req = makePairRequest({ origin: PROD_ORIGIN, xForwardedFor: "1.2.3.4" });
+    const req = makePairRequest({
+      origin: PROD_ORIGIN,
+      xForwardedFor: "1.2.3.4",
+    });
     const res = await handlePair(req, LOOPBACK_IP);
     expect(res.status).toBe(403);
   });
 
   test("still rejects unknown interface IDs (unrelated to origin check)", async () => {
-    const req = makePairRequest({ origin: PROD_ORIGIN, interfaceId: "unknown-client" });
+    const req = makePairRequest({
+      origin: PROD_ORIGIN,
+      interfaceId: "unknown-client",
+    });
     const res = await handlePair(req, LOOPBACK_IP);
     expect(res.status).toBe(400);
+  });
+
+  // The edge marker is set by the self-hosted nginx edge (SPA over a tunnel).
+  // Every hop in that chain is loopback, so the peer IP passed here is the
+  // legitimate-looking 127.0.0.1 — the marker is what proves the request did
+  // not come directly from a local client and must be rejected.
+  test("rejects a request carrying the edge-forwarded marker even from a loopback peer", async () => {
+    const req = makePairRequest({ origin: PROD_ORIGIN, edgeForwarded: true });
+    const res = await handlePair(req, LOOPBACK_IP);
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect((body.error as Record<string, unknown>).code).toBe("FORBIDDEN");
   });
 });

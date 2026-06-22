@@ -14,25 +14,12 @@
 import { createRequire } from "node:module";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type {
-  AgentEvent,
-  AgentLoopRunOptions,
-  AgentLoopRunResult,
-  MidLoopCompaction,
-} from "../agent/loop.js";
+import type { LoopToolExecutor } from "../agent/loop.js";
 import type { LLMConfig } from "../config/schemas/llm.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
-import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
-import { getMiddlewaresFor } from "../plugins/registry.js";
-import type {
-  CompactionArgs,
-  CompactionResult,
-  TurnContext,
-} from "../plugins/types.js";
-import { PluginTimeoutError } from "../plugins/types.js";
-import type { ContentBlock, Message } from "../providers/types.js";
+import type { Message, Provider, ToolDefinition } from "../providers/types.js";
+import { ContextOverflowError } from "../providers/types.js";
 
 const conversationCrudRealSnapshot = {
   ...(createRequire(import.meta.url)(
@@ -53,6 +40,20 @@ const conversationRuntimeAssemblyRealSnapshot = {
 
 // ── Module mocks (must precede imports of the module under test) ─────
 
+// The real AgentLoop resolves the per-conversation ContextWindowManager from
+// the compaction store keyed by conversationId. These overflow tests build
+// fake conversations whose manager is a canned stub, so register each stub in a
+// map the mocked store reads from.
+const fakeContextWindowManagers = new Map<string, unknown>();
+mock.module("../plugins/defaults/compaction/manager-store.js", () => ({
+  createContextWindowManager: () => undefined,
+  getContextWindowManager: (conversationId: string) =>
+    fakeContextWindowManagers.get(conversationId),
+  disposeContextWindowManager: (conversationId: string) => {
+    fakeContextWindowManagers.delete(conversationId);
+  },
+}));
+
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
@@ -67,6 +68,7 @@ const defaultLlmConfig: LLMConfig = {
     speed: "standard" as const,
     verbosity: "medium" as const,
     temperature: null,
+    topP: null,
     thinking: { enabled: false, streamThinking: true },
     contextWindow: {
       enabled: true,
@@ -101,6 +103,7 @@ mock.module("../config/loader.js", () => ({
     memory: { retrieval: { scratchpadInjection: { enabled: true } } },
     ui: {},
     compaction: { enabled: true, autoThreshold: 0.7 },
+    conversations: { skipAutoRetitling: true },
   }),
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
@@ -112,10 +115,10 @@ mock.module("../config/loader.js", () => ({
 // Token estimator — controllable per-test via mockEstimateTokens.
 // Can be a number (constant), a no-arg function, or a function that
 // receives the messages array for dynamic behavior based on content.
-// Both the calibrated entry point (`estimatePromptTokens`, used in the
-// convergence path) and the raw entry point (`estimatePromptTokensRaw`,
-// used by the default `tokenEstimate` plugin pipeline for preflight/mid-
-// loop) are stubbed so either call site can drive the test.
+// Both the calibrated entry point (`estimatePromptTokens`, which backs the
+// loop's budget gate and the convergence path) and the raw entry point
+// (`estimatePromptTokensRaw`, used by the pre-send calibration capture) are
+// stubbed so either call site can drive the test.
 let mockEstimateTokens: number | ((msgs?: Message[]) => number) = 1000;
 mock.module("../context/token-estimator.js", () => ({
   estimatePromptTokens: (msgs: Message[]) =>
@@ -126,8 +129,16 @@ mock.module("../context/token-estimator.js", () => ({
     typeof mockEstimateTokens === "function"
       ? mockEstimateTokens(msgs)
       : mockEstimateTokens,
-  // Default plugin multiplies-in tool tokens via this helper; 0 keeps the
-  // stubbed raw value unchanged.
+  // The loop's budget gate calls this calibrated wrapper directly, so it
+  // must honor `mockEstimateTokens` too — otherwise the real implementation
+  // (which sums tool tokens onto the real calibrated estimate) ignores the
+  // per-test value and the overflow scenarios below never trigger.
+  estimatePromptTokensWithTools: (history: Message[]) =>
+    typeof mockEstimateTokens === "function"
+      ? mockEstimateTokens(history)
+      : mockEstimateTokens,
+  // `estimatePromptTokensWithTools` folds tool tokens in via this helper; 0
+  // keeps the stubbed value unchanged.
   estimateToolsTokens: () => 0,
   // Conversation agent loop now calls this helper to canonicalize the
   // provider key shared with the calibration system. The tests here
@@ -142,39 +153,106 @@ mock.module("../context/token-estimator.js", () => ({
 let mockReducerStepFn:
   | ((msgs: Message[], cfg: unknown, state: unknown) => unknown)
   | null = null;
-mock.module("../daemon/context-overflow-reducer.js", () => ({
-  createInitialReducerState: () => ({
-    appliedTiers: [],
-    injectionMode: "full" as const,
-    exhausted: false,
+const makeInitialReducerState = () => ({
+  appliedTiers: [] as string[],
+  injectionMode: "full" as const,
+  exhausted: false,
+});
+const runMockReducer = async (
+  msgs: Message[],
+  cfg: unknown,
+  state: unknown,
+) => {
+  if (mockReducerStepFn) return mockReducerStepFn(msgs, cfg, state);
+  return {
+    messages: msgs,
+    tier: "forced_compaction",
+    state: {
+      appliedTiers: [
+        "forced_compaction",
+        "tool_result_truncation",
+        "media_stubbing",
+        "injection_downgrade",
+      ],
+      injectionMode: "full",
+      exhausted: true,
+    },
+    estimatedTokens: 1000,
+  };
+};
+mock.module(
+  "../plugins/defaults/compaction/context-overflow-reducer.js",
+  () => ({
+    createInitialReducerState: makeInitialReducerState,
+    reduceContextOverflow: runMockReducer,
   }),
-  reduceContextOverflow: async (
+);
+
+// Stand-in for `ContextWindowManager`'s turn-scoped overflow ladder. Threads
+// reducer state across a turn's rungs and delegates each rung to the mocked
+// reducer, mirroring `reduceOverflowOneRung` / `resetOverflowRecovery`.
+// `recoverContextOverflow` adapts a rung into the `ContextWindowResult` the
+// agent loop's compaction path consumes, mirroring the real manager's
+// `overflowStepToResult` so the loop sees the rung's reduced history, injection
+// mode, terminal auto-compress flag, and exhaustion.
+function makeOverflowLadderStub(): {
+  resetOverflowRecovery: () => void;
+  reduceOverflowOneRung: (
     msgs: Message[],
-    cfg: unknown,
-    state: unknown,
-  ) => {
-    if (mockReducerStepFn) return mockReducerStepFn(msgs, cfg, state);
-    return {
-      messages: msgs,
-      tier: "forced_compaction",
-      state: {
-        appliedTiers: [
-          "forced_compaction",
-          "tool_result_truncation",
-          "media_stubbing",
-          "injection_downgrade",
-        ],
-        injectionMode: "full",
-        exhausted: true,
-      },
-      estimatedTokens: 1000,
+    opts: unknown,
+    signal?: AbortSignal,
+  ) => Promise<unknown>;
+  recoverContextOverflow: (
+    msgs: Message[],
+    opts: unknown,
+    signal?: AbortSignal,
+  ) => Promise<unknown>;
+} {
+  let state: unknown;
+  const reduceOverflowOneRung = async (msgs: Message[], opts: unknown) => {
+    if (!state) state = makeInitialReducerState();
+    const step = (await runMockReducer(msgs, opts, state)) as {
+      state: unknown;
     };
-  },
-}));
+    state = step.state;
+    return step;
+  };
+  return {
+    resetOverflowRecovery: () => {
+      state = undefined;
+    },
+    reduceOverflowOneRung,
+    recoverContextOverflow: async (msgs: Message[], opts: unknown) => {
+      const step = (await reduceOverflowOneRung(msgs, opts)) as {
+        messages: Message[];
+        estimatedTokens?: number;
+        state: {
+          appliedTiers: string[];
+          injectionMode: string;
+          exhausted: boolean;
+        };
+        compactionResult?: Record<string, unknown>;
+      };
+      const base = step.compactionResult ?? {
+        compacted: false,
+        messages: step.messages,
+      };
+      return {
+        ...base,
+        messages: step.messages,
+        injectionMode: step.state.injectionMode,
+        autoCompressApplied: step.state.appliedTiers.includes(
+          "auto_compress_latest_turn",
+        ),
+        exhausted: step.state.exhausted,
+      };
+    },
+  };
+}
 
 // Policy: default to fail_gracefully
 let mockOverflowAction: string = "fail_gracefully";
-mock.module("../daemon/context-overflow-policy.js", () => ({
+mock.module("../plugins/defaults/compaction/overflow-policy.js", () => ({
   resolveOverflowAction: () => mockOverflowAction,
 }));
 
@@ -207,7 +285,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateMessageMetadata: () => {},
   setLastNotifiedInferenceProfile: () => {},
   getLastUserTimestampBefore: () => 0,
-  getConversationOverrideProfileFromRow: () => undefined,
+  resolveOverrideProfile: () => undefined,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
@@ -279,15 +357,6 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
     blocks: {},
   }),
   stripInjectionsForCompaction: (msgs: Message[]) => msgs,
-  findLastInjectedNowContent: () => null,
-  readNowScratchpad: () => null,
-  readPkbContext: () => null,
-  getPkbAutoInjectList: () => [
-    "INDEX.md",
-    "essentials.md",
-    "threads.md",
-    "buffer.md",
-  ],
   isSlackChannelConversation: () => false,
   getSlackCompactionWatermarkForPrefix: () => null,
   loadSlackChronologicalContext: () => null,
@@ -301,7 +370,7 @@ mock.module("../daemon/date-context.js", () => ({
   formatTurnTimestamp: () => "2026-01-01 (Thursday) 00:00:00 +00:00 (UTC)",
 }));
 
-mock.module("../daemon/history-repair.js", () => ({
+mock.module("../plugins/defaults/history-repair/terminal.js", () => ({
   repairHistory: (msgs: Message[]) => ({
     messages: msgs,
     stats: {
@@ -312,6 +381,7 @@ mock.module("../daemon/history-repair.js", () => ({
     },
   }),
   deepRepairHistory: (msgs: Message[]) => ({ messages: msgs, stats: {} }),
+  isRepairableOrderingError: () => false,
 }));
 
 const recordUsageMock = mock((..._args: unknown[]) => {});
@@ -402,11 +472,13 @@ mock.module("../daemon/conversation-error.js", () => ({
     /context.?length.?exceeded|prompt.?is.?too.?long|too many.*input.*tokens/i.test(
       msg,
     ),
-}));
-
-mock.module("../daemon/conversation-slash.js", () => ({
-  isProviderOrderingError: (msg: string) =>
-    /ordering|before.*after|messages.*order/i.test(msg),
+  budgetYieldUnrecoveredClassification: () => ({
+    code: "BUDGET_YIELD_UNRECOVERED",
+    userMessage:
+      "I tried to compact this conversation but couldn't fit the next step into the model's context window. Send another message to continue.",
+    retryable: true,
+    errorCategory: "budget_yield_unrecovered",
+  }),
 }));
 
 mock.module("../util/truncate.js", () => ({
@@ -424,6 +496,7 @@ mock.module("../memory/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
   backfillMessageIdOnLogs: () => {},
   setAgentLoopExitReasonOnLatestLog: setAgentLoopExitReasonOnLatestLogMock,
+  recordSyntheticAgentErrorMessageLog: () => {},
 }));
 
 mock.module("../memory/archive-store.js", () => ({
@@ -435,169 +508,72 @@ mock.module("../memory/archive-store.js", () => ({
 
 // ── Imports (after mocks) ────────────────────────────────────────────
 
+import { AgentLoop } from "../agent/loop.js";
+import type { Conversation } from "../daemon/conversation.js";
+import { runAgentLoopImpl } from "../daemon/conversation-agent-loop.js";
 import {
-  type AgentLoopConversationContext,
-  runAgentLoopImpl,
-} from "../daemon/conversation-agent-loop.js";
+  createMockProvider,
+  type ScriptedResponse,
+  textResponse,
+  toolUseResponse,
+} from "./helpers/mock-provider.js";
 
 // ── Test helpers ─────────────────────────────────────────────────────
 
-type AgentLoopRun = (
-  messages: Message[],
-  onEvent: (event: AgentEvent) => void,
-  options?: AgentLoopRunOptions,
-) => Promise<Message[]>;
-
-/**
- * Faithful re-implementation of `AgentLoop.compact()` for the mock loop: run
- * the compaction pipeline against the supplied turn context (which carries the
- * test's `contextWindowManager`), invoke the orchestrator-supplied hooks, and
- * return the continuation history — or `null` on timeout/exhaustion so the
- * caller yields "budget".
- */
-async function simulateInlineCompaction(
-  compaction: MidLoopCompaction,
-  history: Message[],
-  turnContext: TurnContext | undefined,
-  signal: AbortSignal | undefined,
-): Promise<Message[] | null> {
-  compaction.onCompacting?.();
-  const { rawHistory, options } = compaction.prepare(history);
-  let result: CompactionResult;
-  try {
-    result = await runPipeline<CompactionArgs, CompactionResult>(
-      "compaction",
-      getMiddlewaresFor("compaction"),
-      (args) => defaultCompactionTerminal(args, turnContext as TurnContext),
-      { messages: rawHistory, signal, options },
-      turnContext as TurnContext,
-      DEFAULT_TIMEOUTS.compaction,
-    );
-  } catch (error) {
-    if (error instanceof PluginTimeoutError) {
-      await compaction.onTimeout();
-      return null;
-    }
-    throw error;
-  }
-  const { exhausted } = await compaction.persist(result, rawHistory);
-  if (exhausted) {
-    return null;
-  }
-  return compaction.reinject();
-}
-
-/**
- * Adapt a `Message[]`-returning mock loop body into `run()`'s real result
- * shape. Mirrors the production loop: the pause-reason carried back is
- * whatever the most recent `onCheckpoint` call yielded with (null when it
- * never yielded), so the orchestrator derives its yield bookkeeping the same
- * way it does against the real loop.
- */
-const asAgentLoopRun = (
-  fn: AgentLoopRun,
-): ((
-  messages: Message[],
-  onEvent: (event: AgentEvent) => void | Promise<void>,
-  options?: AgentLoopRunOptions,
-) => Promise<AgentLoopRunResult>) => {
-  return async (messages, onEvent, options) => {
-    let exitReason: AgentLoopRunResult["exitReason"] = null;
-    let wrapped = options;
-    if (options?.onCheckpoint) {
-      const inner = options.onCheckpoint;
-      wrapped = {
-        ...options,
-        onCheckpoint: async (info) => {
-          // Handoff is offered first, mirroring the loop's ordering.
-          const decision = await inner(info);
-          if (decision !== "continue") {
-            exitReason = decision;
-            return decision;
-          }
-          // The mid-loop budget gate and inline compaction both live inside
-          // `AgentLoop.run`. Replicate them here — same formula, stubbed
-          // estimator, and the loop's own `compact()` ceremony — so these
-          // orchestrator tests drive the real escalation path now that the
-          // orchestrator's `onCheckpoint` is handoff-only and compaction
-          // runs inline rather than via an orchestrator re-entry loop.
-          const contextWindow = options.resolveContextWindow?.();
-          if (contextWindow?.overflowRecovery.enabled) {
-            const { maxInputTokens, overflowRecovery } = contextWindow;
-            const safetyMargin =
-              info.history.length > 50
-                ? Math.max(overflowRecovery.safetyMarginRatio, 0.15)
-                : overflowRecovery.safetyMarginRatio;
-            const preflightBudget = Math.floor(
-              maxInputTokens * (1 - safetyMargin),
-            );
-            const estimated =
-              typeof mockEstimateTokens === "function"
-                ? mockEstimateTokens(info.history)
-                : mockEstimateTokens;
-            if (estimated > preflightBudget * 0.85) {
-              // Mirror `AgentLoop.compact()`: when a compaction path is
-              // supplied, run it in place and continue; on timeout or
-              // exhaustion it returns null, so the loop yields "budget".
-              const compacted = options.compaction
-                ? await simulateInlineCompaction(
-                    options.compaction,
-                    info.history,
-                    options.turnContext,
-                    options.signal,
-                  )
-                : null;
-              if (compacted) {
-                exitReason = null;
-                return "continue";
-              }
-              exitReason = "budget";
-              return "budget";
-            }
-          }
-          exitReason = null;
-          return "continue";
-        },
-      };
-    }
-    const history = await fn(messages, onEvent, wrapped);
-    return { history, exitReason };
-  };
-};
-
 function makeCtx(
-  overrides?: Partial<AgentLoopConversationContext> & {
-    agentLoopRun?: AgentLoopRun;
+  overrides?: Partial<Conversation> & {
+    providerResponses?: ScriptedResponse[];
+    loopProvider?: Provider;
+    loopTools?: ToolDefinition[];
+    toolExecutor?: LoopToolExecutor;
   },
-): AgentLoopConversationContext {
-  const agentLoopRun =
-    overrides?.agentLoopRun ??
-    (async (messages: Message[]) => [
-      ...messages,
-      {
-        role: "assistant" as const,
-        content: [{ type: "text" as const, text: "response" }],
-      },
-    ]);
+): Conversation {
+  const {
+    providerResponses,
+    loopProvider,
+    loopTools,
+    toolExecutor,
+    ...ctxOverrides
+  } = overrides ?? {};
+  const conversationId = ctxOverrides.conversationId ?? "test-conv";
 
-  return {
+  // Drive the real `AgentLoop` against a scripted provider, mocking only the
+  // provider HTTP boundary. The loop owns its mid-loop budget gate, inline
+  // compaction, and event emission, so these overflow tests exercise the real
+  // escalation/persistence path.
+  const loopProviderName =
+    (ctxOverrides.provider as { name?: string } | undefined)?.name ??
+    "mock-provider";
+  const provider =
+    loopProvider ??
+    createMockProvider(
+      providerResponses ?? [textResponse("response")],
+      loopProviderName,
+    ).provider;
+  const agentLoop = new AgentLoop({
+    provider: provider,
+    systemPrompt: "system prompt",
+    conversationId,
+    tools: loopTools ?? [],
+    toolExecutor,
+  });
+
+  const ctx = {
     conversationId: "test-conv",
     messages: [
       { role: "user", content: [{ type: "text", text: "Hello" }] },
     ] as Message[],
     processing: true,
+    isProcessing(this: { processing: boolean }) {
+      return this.processing;
+    },
+    setProcessing(this: { processing: boolean }, value: boolean) {
+      this.processing = value;
+    },
     abortController: new AbortController(),
     currentRequestId: "test-req",
 
-    agentLoop: {
-      run: asAgentLoopRun(agentLoopRun),
-      getToolTokenBudget: () => 0,
-      getResolvedTools: () => [],
-      // Tests in this file don't exercise calibration, so returning
-      // undefined is fine — the estimator falls back to the per-provider
-      // aggregate key.
-      getActiveModel: () => undefined,
-    } as unknown as AgentLoopConversationContext["agentLoop"],
+    agentLoop,
     provider: {
       name: "mock-provider",
       sendMessage: async () => ({
@@ -606,13 +582,14 @@ function makeCtx(
         usage: { inputTokens: 0, outputTokens: 0 },
         stopReason: "end_turn",
       }),
-    } as unknown as AgentLoopConversationContext["provider"],
+    } as unknown as Conversation["provider"],
     systemPrompt: "system prompt",
 
     contextWindowManager: {
+      updateConfig: () => {},
       shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
       maybeCompact: async () => ({ compacted: false }),
-    } as unknown as AgentLoopConversationContext["contextWindowManager"],
+    } as unknown as Conversation["contextWindowManager"],
     contextCompactedMessageCount: 0,
     contextCompactedAt: null,
 
@@ -626,8 +603,6 @@ function makeCtx(
     currentTurnSurfaces: [],
 
     workingDir: "/tmp",
-    workspaceTopLevelContext: null,
-    workspaceTopLevelDirty: false,
     channelCapabilities: undefined,
     commandIntent: undefined,
     trustContext: undefined,
@@ -637,15 +612,15 @@ function makeCtx(
     preactivatedSkillIds: undefined,
     skillProjectionState: new Map(),
     skillProjectionCache:
-      new Map() as unknown as AgentLoopConversationContext["skillProjectionCache"],
+      new Map() as unknown as Conversation["skillProjectionCache"],
 
     traceEmitter: {
       emit: () => {},
-    } as unknown as AgentLoopConversationContext["traceEmitter"],
+    } as unknown as Conversation["traceEmitter"],
     profiler: {
       startRequest: () => {},
       emitSummary: () => {},
-    } as unknown as AgentLoopConversationContext["profiler"],
+    } as unknown as Conversation["profiler"],
     usageStats: {
       totalInputTokens: 0,
       totalOutputTokens: 0,
@@ -658,13 +633,12 @@ function makeCtx(
     lastAttachmentWarnings: [],
 
     hasNoClient: false,
-    prompter: {} as unknown as AgentLoopConversationContext["prompter"],
-    queue: {} as unknown as AgentLoopConversationContext["queue"],
+    prompter: {} as unknown as Conversation["prompter"],
+    queue: {} as unknown as Conversation["queue"],
 
     getWorkspaceGitService: () => ({ ensureInitialized: async () => {} }),
     commitTurnChanges: async () => {},
 
-    refreshWorkspaceTopLevelContextIfNeeded: () => {},
     markWorkspaceTopLevelDirty: () => {},
     emitActivityState: () => {},
     getQueueDepth: () => 0,
@@ -676,6 +650,9 @@ function makeCtx(
       userMessageChannel: "vellum" as const,
       assistantMessageChannel: "vellum" as const,
     }),
+
+    buildCurrentSystemPrompt: () => "system prompt",
+    modelOverride: undefined,
 
     graphMemory: {
       onCompacted: async () => {},
@@ -690,10 +667,23 @@ function makeCtx(
         injectedTokens: 0,
       }),
       retrackCachedNodes: () => {},
-    } as unknown as AgentLoopConversationContext["graphMemory"],
+      recordPkbQueryVectors: () => {},
+    } as unknown as Conversation["graphMemory"],
 
-    ...overrides,
-  } as AgentLoopConversationContext;
+    ...ctxOverrides,
+  } as unknown as Conversation;
+  // The convergence driver resolves the turn-scoped overflow ladder off the
+  // manager; give every fake manager the ladder methods unless a test supplied
+  // its own.
+  const manager = ctx.contextWindowManager as unknown as Record<
+    string,
+    unknown
+  >;
+  if (typeof manager.reduceOverflowOneRung !== "function") {
+    Object.assign(manager, makeOverflowLadderStub());
+  }
+  fakeContextWindowManagers.set(conversationId, ctx.contextWindowManager);
+  return ctx;
 }
 
 /**
@@ -761,15 +751,15 @@ beforeEach(() => {
   recordUsageMock.mockClear();
   setAgentLoopExitReasonOnLatestLogMock.mockClear();
   addMessageMock.mockClear();
-  // Reset the plugin registry and re-register every default so the
-  // orchestrator's pipelines (`overflowReduce`, `persistence`, …) dispatch to
-  // the default middleware, which in turn hits the mocked collaborators
-  // (`reduceContextOverflow`, `syncMessageToDisk`, …) these tests install.
+  // Reset the plugin registry and re-register every default so the compaction
+  // pipeline dispatches to the default middleware, which in turn hits the
+  // mocked collaborators (`syncMessageToDisk`, …) these tests install.
   resetPluginRegistryAndRegisterDefaults();
 });
 
 describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   test("usage update context max follows active main-agent profile budget", async () => {
+    // GIVEN an active main-agent profile that narrows the context budget
     mockLlmConfig = {
       ...structuredClone(defaultLlmConfig),
       activeProfile: "short-context",
@@ -781,27 +771,22 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       },
     };
 
+    // AND a provider turn that reports 12k input tokens of usage
     const ctx = makeCtx({
-      agentLoopRun: async (messages, onEvent) => {
-        onEvent({
-          type: "usage",
-          inputTokens: 12_000,
-          outputTokens: 300,
+      providerResponses: [
+        {
+          content: [{ type: "text", text: "response" }],
           model: "mock-model",
-          providerDurationMs: 25,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text" as const, text: "response" }],
-          },
-        ];
-      },
+          usage: { inputTokens: 12_000, outputTokens: 300 },
+          stopReason: "end_turn",
+        },
+      ],
     });
 
+    // WHEN the turn runs to completion
     await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
 
+    // THEN the recorded main-agent usage carries the profile's max budget
     const mainAgentUsageCall = recordUsageMock.mock.calls.find(
       (call) => call[5] === "main_agent",
     );
@@ -814,10 +799,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
 
   // ── Test 1 ────────────────────────────────────────────────────────
   // BUG: When the agent loop makes progress (adds messages to history)
-  // before hitting context_too_large, the convergence loop at line 864
-  // checks `updatedHistory.length === preRunHistoryLength` which is
-  // false when progress was made. This means the reducer is never
-  // invoked — the error is surfaced immediately at line 1163-1175
+  // before hitting context_too_large, the convergence loop's progress
+  // check must recognize that the loop appended messages. If it fails to,
+  // the reducer is never invoked — the error is surfaced immediately
   // without any compaction attempt.
   //
   // Expected behavior (PR 2 fix): After progress + context_too_large,
@@ -857,129 +841,36 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
         };
       };
 
-      let agentLoopCallCount = 0;
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        // Prime the assistant row anchor — production code emits this from
-        // `AgentLoop.run` just before `provider.sendMessage`.
-        await onEvent({ type: "llm_call_started" });
-        agentLoopCallCount++;
-        if (agentLoopCallCount === 1) {
-          // Simulate: agent makes progress (tool calls + results added)
-          // then hits context_too_large on next LLM call
-          const progressMessages: Message[] = [
-            ...messages,
-            {
-              role: "assistant" as const,
-              content: [
-                { type: "text", text: "Let me check that." },
-                {
-                  type: "tool_use",
-                  id: "tu-progress",
-                  name: "bash",
-                  input: { command: "ls" },
-                },
-              ] as ContentBlock[],
-            },
-            {
-              role: "user" as const,
-              content: [
-                {
-                  type: "tool_result",
-                  tool_use_id: "tu-progress",
-                  content: "file1.ts\nfile2.ts",
-                  is_error: false,
-                },
-              ] as ContentBlock[],
-            },
-          ];
-
-          // Emit events for the progress that was made
-          onEvent({
-            type: "tool_use",
-            id: "tu-progress",
-            name: "bash",
-            input: { command: "ls" },
-          });
-          onEvent({
-            type: "tool_result",
-            toolUseId: "tu-progress",
-            content: "file1.ts\nfile2.ts",
-            isError: false,
-          });
-          onEvent({
-            type: "message_complete",
-            message: {
-              role: "assistant",
-              content: [
-                { type: "text", text: "Let me check that." },
-                {
-                  type: "tool_use",
-                  id: "tu-progress",
-                  name: "bash",
-                  input: { command: "ls" },
-                },
-              ],
-            },
-          });
-          onEvent({
-            type: "usage",
-            inputTokens: 100,
-            outputTokens: 50,
-            model: "test-model",
-            providerDurationMs: 100,
-          });
-
-          // Then context_too_large error occurs on the *next* LLM call
-          onEvent({
-            type: "error",
-            error: new Error(
-              "prompt is too long: 242201 tokens > 200000 maximum",
-            ),
-          });
-          onEvent({
-            type: "usage",
-            inputTokens: 0,
-            outputTokens: 0,
-            model: "test-model",
-            providerDurationMs: 10,
-          });
-
-          // Return the history WITH progress (more messages than input)
-          return progressMessages;
-        }
-
-        // Second call (after compaction): succeed
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "recovered after compaction" }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 50,
-          outputTokens: 25,
-          model: "test-model",
-          providerDurationMs: 100,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [
-              { type: "text", text: "recovered after compaction" },
-            ] as ContentBlock[],
-          },
-        ];
-      };
+      // Run 1 makes progress (a tool turn) then the following provider call
+      // rejects with a context_too_large error; after the convergence reducer
+      // compacts, the rerun recovers with plain text.
+      const { provider } = createMockProvider([
+        toolUseResponse("tu-progress", "bash", { command: "ls" }),
+        new Error("prompt is too long: 242201 tokens > 200000 maximum"),
+        textResponse("recovered after compaction"),
+      ]);
 
       const ctx = makeCtx({
-        agentLoopRun,
+        loopProvider: provider,
+        loopTools: [
+          {
+            name: "bash",
+            description: "Run a shell command",
+            input_schema: {
+              type: "object",
+              properties: { command: { type: "string" } },
+            },
+          },
+        ],
+        toolExecutor: async () => ({
+          content: "file1.ts\nfile2.ts",
+          isError: false,
+        }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -999,18 +890,19 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   );
 
   // ── Test 2 ────────────────────────────────────────────────────────
-  // When estimation says we're within budget but the provider rejects,
-  // the post-run convergence loop should kick in and recover.
-  // This test should PASS against current code (when no progress is made).
+  // When estimation says we're within budget but the provider rejects, the
+  // loop calibrates the estimator from the rejection and drives the reduction
+  // ladder on the next gate pass, recovering before the rerun.
   test("overflow recovery compacts below limit even when estimation underestimates", async () => {
     const events: ServerMessage[] = [];
-    let callCount = 0;
     let reducerCalled = false;
 
-    // Estimator says 185k (below 190k budget = 200k * 0.95)
+    // GIVEN the estimator reports 185k and the context manager's compaction
+    // is a no-op, so the first call proceeds to the provider without any
+    // up-front reduction.
     mockEstimateTokens = 185_000;
 
-    // Reducer successfully compacts
+    // AND the reduction ladder successfully compacts on its first rung
     mockReducerStepFn = (msgs: Message[]) => {
       reducerCalled = true;
       return {
@@ -1040,96 +932,50 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       };
     };
 
-    const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-      // Prime the assistant row anchor — production code emits this from
-      // `AgentLoop.run` just before `provider.sendMessage`.
-      await onEvent({ type: "llm_call_started" });
-      callCount++;
-      if (callCount === 1) {
-        // Provider rejects with "prompt is too long: 242201 tokens > 200000"
-        // even though estimator said 185k
-        onEvent({
-          type: "error",
-          error: new Error(
-            "prompt is too long: 242201 tokens > 200000 maximum",
-          ),
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 0,
-          outputTokens: 0,
-          model: "test-model",
-          providerDurationMs: 10,
-        });
-        // No progress — return same messages
-        return messages;
-      }
-      // Second call succeeds
-      onEvent({
-        type: "message_complete",
-        message: {
-          role: "assistant",
-          content: [{ type: "text", text: "recovered" }],
-        },
-      });
-      onEvent({
-        type: "usage",
-        inputTokens: 80_000,
-        outputTokens: 200,
-        model: "test-model",
-        providerDurationMs: 500,
-      });
-      return [
-        ...messages,
-        {
-          role: "assistant" as const,
-          content: [{ type: "text", text: "recovered" }] as ContentBlock[],
-        },
-      ];
-    };
+    // AND a provider that rejects the first call as too long (revealing the
+    // real 242k count the estimator missed), then succeeds on the rerun.
+    const { provider, calls } = createMockProvider([
+      new ContextOverflowError("prompt is too long", "mock-provider", {
+        actualTokens: 242_201,
+        maxTokens: 200_000,
+      }),
+      textResponse("recovered"),
+    ]);
 
     const ctx = makeCtx({
-      agentLoopRun,
+      loopProvider: provider,
       contextWindowManager: {
+        updateConfig: () => {},
         shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
         maybeCompact: async () => ({ compacted: false }),
-      } as unknown as AgentLoopConversationContext["contextWindowManager"],
+      } as unknown as Conversation["contextWindowManager"],
     });
 
+    // WHEN the turn runs
     await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-    // The reducer should be called in the convergence loop
+    // THEN the convergence reducer ran and the rerun recovered without a
+    // user-facing conversation_error.
     expect(reducerCalled).toBe(true);
-    // Should recover without conversation_error
     const conversationError = events.find(
       (e) => e.type === "conversation_error",
     );
     expect(conversationError).toBeUndefined();
-    expect(callCount).toBe(2);
+    expect(calls.length).toBe(2);
   });
 
   // ── Test 3 ────────────────────────────────────────────────────────
-  // BUG: When the provider rejection reveals actual token count (e.g.,
-  // "242201 tokens > 200000"), the reducer should target a budget below
-  // the actual limit (not below the estimator's inaccurate budget).
-  // Currently the reducer always uses `preflightBudget` (190k) as the
-  // target, but the actual tokens were 242k — so 190k is already too
-  // high relative to the real count. The target should be adjusted
-  // downward based on the observed mismatch.
-  //
-  // Expected behavior (PR 4 fix): `targetInputTokensOverride` should
-  // be adjusted based on the ratio between estimated and actual tokens.
-  // BUG: The targetTokens passed to the reducer is preflightBudget = 190k.
-  // But when the actual token count is 242k (1.31x the estimate of 185k),
-  // the target should be adjusted downward to account for the estimation
-  // inaccuracy. For example: 190k / 1.31 ≈ 145k.
-  // Planned fix: targetInputTokensOverride should be adjusted based on
-  // the ratio between estimated and actual tokens.
+  // When the provider rejection reveals the actual token count (e.g.,
+  // "242201 tokens > 200000"), the overflow reducer's `targetTokens`
+  // should be a budget below the actual limit, not below the estimator's
+  // inaccurate budget. With a preflightBudget of 190k but an actual count
+  // of 242k (1.31x the estimate of 185k), the target is adjusted downward
+  // based on the observed mismatch (190k / 1.31 ≈ 145k) so the reducer
+  // converges toward the real ceiling rather than the optimistic estimate.
   test.todo(
     "forced compaction targets a lower budget when estimation has been inaccurate",
     async () => {
       const events: ServerMessage[] = [];
-      let callCount = 0;
       let capturedTargetTokens: number | undefined;
 
       // Estimator says 185k (below 190k budget = 200k * 0.95)
@@ -1165,59 +1011,21 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
         };
       };
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        // Prime the assistant row anchor — production code emits this from
-        // `AgentLoop.run` just before `provider.sendMessage`.
-        await onEvent({ type: "llm_call_started" });
-        callCount++;
-        if (callCount === 1) {
-          // Provider rejects: actual tokens 242201, way above estimate of 185k
-          onEvent({
-            type: "error",
-            error: new Error(
-              "prompt is too long: 242201 tokens > 200000 maximum",
-            ),
-          });
-          onEvent({
-            type: "usage",
-            inputTokens: 0,
-            outputTokens: 0,
-            model: "test-model",
-            providerDurationMs: 10,
-          });
-          // No progress — return same messages
-          return messages;
-        }
-        // Second call succeeds after compaction
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "recovered" }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 80_000,
-          outputTokens: 200,
-          model: "test-model",
-          providerDurationMs: 500,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text", text: "recovered" }] as ContentBlock[],
-          },
-        ];
-      };
+      // The provider rejects the first call with a context_too_large error
+      // (actual tokens 242201, far above the 185k estimate); after forced
+      // compaction re-targets a lower budget, the rerun recovers with text.
+      const { provider, calls } = createMockProvider([
+        new Error("prompt is too long: 242201 tokens > 200000 maximum"),
+        textResponse("recovered"),
+      ]);
 
       const ctx = makeCtx({
-        agentLoopRun,
+        loopProvider: provider,
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1243,7 +1051,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
         (e) => e.type === "conversation_error",
       );
       expect(conversationError).toBeUndefined();
-      expect(callCount).toBe(2);
+      expect(calls.length).toBe(2);
     },
   );
 
@@ -1257,7 +1065,6 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     async () => {
       const events: ServerMessage[] = [];
       const longHistory = buildLongConversation(75);
-      let callCount = 0;
       let reducerCalled = false;
 
       // Estimator says ~195k — just above budget so preflight reducer runs
@@ -1293,43 +1100,20 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
         };
       };
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        // Prime the assistant row anchor — production code emits this from
-        // `AgentLoop.run` just before `provider.sendMessage`.
-        await onEvent({ type: "llm_call_started" });
-        callCount++;
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "Here's the analysis..." }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 50_000,
-          outputTokens: 300,
-          model: "test-model",
-          providerDurationMs: 800,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [
-              { type: "text", text: "Here's the analysis..." },
-            ] as ContentBlock[],
-          },
-        ];
-      };
+      // After the preflight reducer compacts the long history under budget,
+      // a single provider call completes the turn with plain text.
+      const { provider, calls } = createMockProvider([
+        textResponse("Here's the analysis..."),
+      ]);
 
       const ctx = makeCtx({
-        agentLoopRun,
+        loopProvider: provider,
         messages: longHistory,
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "analyze this", "msg-1", (msg) =>
@@ -1339,7 +1123,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       // Preflight should trigger the reducer since 195k > 190k budget
       expect(reducerCalled).toBe(true);
       // Should succeed
-      expect(callCount).toBe(1);
+      expect(calls.length).toBe(1);
       const conversationError = events.find(
         (e) => e.type === "conversation_error",
       );
@@ -1383,119 +1167,33 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
         };
       };
 
-      let agentLoopCallCount = 0;
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        // Prime the assistant row anchor — production code emits this from
-        // `AgentLoop.run` just before `provider.sendMessage`.
-        await onEvent({ type: "llm_call_started" });
-        agentLoopCallCount++;
-        if (agentLoopCallCount === 1) {
-          // Agent makes progress (tool calls succeed, messages grow)
-          const progressMessages: Message[] = [
-            ...messages,
-            {
-              role: "assistant" as const,
-              content: [
-                { type: "text", text: "Running analysis..." },
-                {
-                  type: "tool_use",
-                  id: "tu-1",
-                  name: "bash",
-                  input: { command: "find . -name '*.ts'" },
-                },
-              ] as ContentBlock[],
-            },
-            {
-              role: "user" as const,
-              content: [
-                {
-                  type: "tool_result",
-                  tool_use_id: "tu-1",
-                  content: "file1.ts\nfile2.ts\nfile3.ts",
-                  is_error: false,
-                },
-              ] as ContentBlock[],
-            },
-          ];
-
-          onEvent({
-            type: "tool_use",
-            id: "tu-1",
-            name: "bash",
-            input: { command: "find . -name '*.ts'" },
-          });
-          onEvent({
-            type: "tool_result",
-            toolUseId: "tu-1",
-            content: "file1.ts\nfile2.ts\nfile3.ts",
-            isError: false,
-          });
-          onEvent({
-            type: "message_complete",
-            message: {
-              role: "assistant",
-              content: [
-                { type: "text", text: "Running analysis..." },
-                {
-                  type: "tool_use",
-                  id: "tu-1",
-                  name: "bash",
-                  input: { command: "find . -name '*.ts'" },
-                },
-              ],
-            },
-          });
-          onEvent({
-            type: "usage",
-            inputTokens: 190_000,
-            outputTokens: 100,
-            model: "test-model",
-            providerDurationMs: 200,
-          });
-
-          // Then context_too_large on the next LLM call within the loop
-          onEvent({
-            type: "error",
-            error: new Error("context_length_exceeded"),
-          });
-          onEvent({
-            type: "usage",
-            inputTokens: 0,
-            outputTokens: 0,
-            model: "test-model",
-            providerDurationMs: 10,
-          });
-
-          return progressMessages;
-        }
-
-        // After emergency compaction, succeed
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "recovered" }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 50_000,
-          outputTokens: 100,
-          model: "test-model",
-          providerDurationMs: 200,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text", text: "recovered" }] as ContentBlock[],
-          },
-        ];
-      };
+      // Run 1 makes progress (a tool turn) then the following provider call
+      // rejects with context_too_large; after emergency compaction the rerun
+      // recovers with plain text.
+      const { provider } = createMockProvider([
+        toolUseResponse("tu-1", "bash", { command: "find . -name '*.ts'" }),
+        new Error("context_length_exceeded"),
+        textResponse("recovered"),
+      ]);
 
       const ctx = makeCtx({
-        agentLoopRun,
+        loopProvider: provider,
+        loopTools: [
+          {
+            name: "bash",
+            description: "Run a shell command",
+            input_schema: {
+              type: "object",
+              properties: { command: { type: "string" } },
+            },
+          },
+        ],
+        toolExecutor: async () => ({
+          content: "file1.ts\nfile2.ts\nfile3.ts",
+          isError: false,
+        }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async (
             _msgs: Message[],
@@ -1527,7 +1225,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
             }
             return { compacted: false };
           },
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1571,112 +1269,32 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
         return 170_000;
       };
 
-      let agentLoopCallCount = 0;
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
-        // Prime the assistant row anchor — production code emits this from
-        // `AgentLoop.run` just before `provider.sendMessage`.
-        await onEvent({ type: "llm_call_started" });
-        agentLoopCallCount++;
-
-        if (agentLoopCallCount === 1) {
-          // Simulate a tool round: assistant calls a tool, results come back
-          const withProgress: Message[] = [
-            ...messages,
-            {
-              role: "assistant" as const,
-              content: [
-                { type: "text", text: "Let me check." },
-                {
-                  type: "tool_use",
-                  id: "tu-1",
-                  name: "bash",
-                  input: { command: "ls" },
-                },
-              ] as ContentBlock[],
-            },
-            {
-              role: "user" as const,
-              content: [
-                {
-                  type: "tool_result",
-                  tool_use_id: "tu-1",
-                  content: "file1.ts\nfile2.ts",
-                  is_error: false,
-                },
-              ] as ContentBlock[],
-            },
-          ];
-
-          onEvent({
-            type: "message_complete",
-            message: {
-              role: "assistant",
-              content: [
-                { type: "text", text: "Let me check." },
-                {
-                  type: "tool_use",
-                  id: "tu-1",
-                  name: "bash",
-                  input: { command: "ls" },
-                },
-              ],
-            },
-          });
-          onEvent({
-            type: "usage",
-            inputTokens: 100,
-            outputTokens: 50,
-            model: "test-model",
-            providerDurationMs: 100,
-          });
-
-          // Call onCheckpoint — this should trigger the mid-loop budget check
-          // which sees 170_000 > 161_500 and returns "yield"
-          if (options?.onCheckpoint) {
-            const decision = await options.onCheckpoint({
-              turnIndex: 0,
-              toolCount: 1,
-              hasToolUse: true,
-              history: withProgress,
-            });
-            if (decision !== "continue") {
-              // Agent loop stops when checkpoint yields
-              return withProgress;
-            }
-          }
-
-          return withProgress;
-        }
-
-        // Second call (after compaction): complete successfully
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "done after compaction" }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 50,
-          outputTokens: 25,
-          model: "test-model",
-          providerDurationMs: 100,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [
-              { type: "text", text: "done after compaction" },
-            ] as ContentBlock[],
-          },
-        ];
-      };
+      // A tool round trips the mid-loop budget gate (170k > 161_500); the
+      // gate compacts in place (productive) and the loop continues, so the
+      // post-compaction provider call completes the turn with plain text.
+      const { provider, calls } = createMockProvider([
+        toolUseResponse("tu-1", "bash", { command: "ls" }),
+        textResponse("done after compaction"),
+      ]);
 
       const ctx = makeCtx({
-        agentLoopRun,
+        loopProvider: provider,
+        loopTools: [
+          {
+            name: "bash",
+            description: "Run a shell command",
+            input_schema: {
+              type: "object",
+              properties: { command: { type: "string" } },
+            },
+          },
+        ],
+        toolExecutor: async () => ({
+          content: "file1.ts\nfile2.ts",
+          isError: false,
+        }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => {
             compactionCalled = true;
@@ -1701,7 +1319,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
               summaryModel: "mock-model",
             };
           },
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1709,8 +1327,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       // The mid-loop budget check should have triggered compaction
       expect(compactionCalled).toBe(true);
 
-      // Agent loop should have been called twice: once before yield, once after compaction
-      expect(agentLoopCallCount).toBe(2);
+      // Provider called twice: the tool turn that tripped the gate, then the
+      // post-compaction turn that completed the run.
+      expect(calls.length).toBe(2);
 
       // No conversation_error should be emitted
       const conversationError = events.find(
@@ -1751,105 +1370,38 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
         return 175_000;
       };
 
-      let agentLoopCallCount = 0;
       let contextTooLargeEmitted = false;
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
-        // Prime the assistant row anchor — production code emits this from
-        // `AgentLoop.run` just before `provider.sendMessage`.
-        await onEvent({ type: "llm_call_started" });
-        agentLoopCallCount++;
-
-        if (agentLoopCallCount === 1) {
-          const currentHistory = [...messages];
-
-          // Simulate 5 tool rounds — but the checkpoint should yield at round 3
-          for (let i = 0; i < 5; i++) {
-            const toolId = `tu-${i}`;
-            const assistantMsg: Message = {
-              role: "assistant" as const,
-              content: [
-                { type: "text", text: `Step ${i}` },
-                {
-                  type: "tool_use",
-                  id: toolId,
-                  name: "bash",
-                  input: { command: `cmd-${i}` },
-                },
-              ] as ContentBlock[],
-            };
-            const resultMsg: Message = {
-              role: "user" as const,
-              content: [
-                {
-                  type: "tool_result",
-                  tool_use_id: toolId,
-                  content: "x".repeat(10_000),
-                  is_error: false,
-                },
-              ] as ContentBlock[],
-            };
-            currentHistory.push(assistantMsg, resultMsg);
-
-            onEvent({
-              type: "message_complete",
-              message: assistantMsg,
-            });
-            onEvent({
-              type: "usage",
-              inputTokens: 50_000 + i * 20_000,
-              outputTokens: 50,
-              model: "test-model",
-              providerDurationMs: 100,
-            });
-
-            if (options?.onCheckpoint) {
-              const decision = await options.onCheckpoint({
-                turnIndex: i,
-                toolCount: 1,
-                hasToolUse: true,
-                history: currentHistory,
-              });
-              if (decision !== "continue") {
-                return currentHistory;
-              }
-            }
-          }
-
-          return currentHistory;
-        }
-
-        // Second call (after compaction): complete
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [
-              { type: "text", text: "completed after mid-loop compaction" },
-            ],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 60_000,
-          outputTokens: 100,
-          model: "test-model",
-          providerDurationMs: 200,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [
-              { type: "text", text: "completed after mid-loop compaction" },
-            ] as ContentBlock[],
-          },
-        ];
-      };
+      // Each tool round produces a large result; the estimate grows with each
+      // checkpoint until tool round 3 trips the mid-loop gate (175k > 161_500).
+      // Compaction runs in place (productive) and the loop continues, so the
+      // following plain-text provider call completes the turn. The provider
+      // never rejects with context_too_large.
+      const { provider, calls } = createMockProvider([
+        toolUseResponse("tu-0", "bash", { command: "cmd-0" }),
+        toolUseResponse("tu-1", "bash", { command: "cmd-1" }),
+        toolUseResponse("tu-2", "bash", { command: "cmd-2" }),
+        textResponse("completed after mid-loop compaction"),
+      ]);
 
       const ctx = makeCtx({
-        agentLoopRun,
+        loopProvider: provider,
+        loopTools: [
+          {
+            name: "bash",
+            description: "Run a shell command",
+            input_schema: {
+              type: "object",
+              properties: { command: { type: "string" } },
+            },
+          },
+        ],
+        toolExecutor: async () => ({
+          content: "x".repeat(10_000),
+          isError: false,
+        }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => {
             compactionCalled = true;
@@ -1874,7 +1426,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
               summaryModel: "mock-model",
             };
           },
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => {
@@ -1895,8 +1447,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       // The provider should NEVER have rejected with context_too_large
       expect(contextTooLargeEmitted).toBe(false);
 
-      // Agent loop called twice: once (yielded at tool 3), once after compaction
-      expect(agentLoopCallCount).toBe(2);
+      // Provider called four times: three tool rounds (the third trips the
+      // mid-loop gate) plus the post-compaction text turn that completes.
+      expect(calls.length).toBe(4);
 
       // No conversation_error
       const conversationError = events.find(
@@ -1907,548 +1460,143 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   );
 
   // ── Test 8 ────────────────────────────────────────────────────────
-  // When mid-loop compaction exhausts maxAttempts but the agent loop
-  // still yields (yieldedForBudget remains true), the incomplete turn
-  // must escalate to the convergence loop instead of being silently
-  // treated as a completed turn.
-  test("exhausted mid-loop compaction attempts escalate to convergence loop", async () => {
+  /**
+   * Reactive recovery escalates the reduction ladder one rung per provider
+   * rejection and ends the turn with `context_too_large` once the ladder is
+   * exhausted and no auto-compress rung ran.
+   */
+  test("ladder escalation ends the turn with context_too_large when exhausted", async () => {
+    // GIVEN an estimate below the mid-loop threshold, so only the provider's
+    // rejection — not the proactive gate — drives recovery
     const events: ServerMessage[] = [];
+    mockEstimateTokens = 100_000;
 
-    // Budget = 200_000 * 0.95 = 190_000
-    // Mid-loop threshold = 190_000 * 0.85 = 161_500
-    let estimateCallCount = 0;
-    mockEstimateTokens = () => {
-      estimateCallCount++;
-      // Preflight: below budget
-      if (estimateCallCount === 1) return 100_000;
-      // Every checkpoint call: above threshold — always triggers yield
-      return 170_000;
-    };
-
-    let agentLoopCallCount = 0;
-    const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
-      // Prime the assistant row anchor — production code emits this from
-      // `AgentLoop.run` just before `provider.sendMessage`.
-      await onEvent({ type: "llm_call_started" });
-      agentLoopCallCount++;
-
-      // Every call: simulate tool progress then yield at checkpoint
-      const withProgress: Message[] = [
-        ...messages,
-        {
-          role: "assistant" as const,
-          content: [
-            { type: "text", text: `Tool call ${agentLoopCallCount}` },
-            {
-              type: "tool_use",
-              id: `tu-${agentLoopCallCount}`,
-              name: "bash",
-              input: { command: "ls" },
-            },
-          ] as ContentBlock[],
-        },
-        {
-          role: "user" as const,
-          content: [
-            {
-              type: "tool_result",
-              tool_use_id: `tu-${agentLoopCallCount}`,
-              content: "output",
-              is_error: false,
-            },
-          ] as ContentBlock[],
-        },
-      ];
-
-      onEvent({
-        type: "message_complete",
-        message: {
-          role: "assistant",
-          content: [
-            { type: "text", text: `Tool call ${agentLoopCallCount}` },
-            {
-              type: "tool_use",
-              id: `tu-${agentLoopCallCount}`,
-              name: "bash",
-              input: { command: "ls" },
-            },
-          ],
-        },
-      });
-      onEvent({
-        type: "usage",
-        inputTokens: 100,
-        outputTokens: 50,
-        model: "test-model",
-        providerDurationMs: 100,
-      });
-
-      // Always yield at checkpoint — simulates compaction not helping
-      if (options?.onCheckpoint) {
-        const decision = await options.onCheckpoint({
-          turnIndex: 0,
-          toolCount: 1,
-          hasToolUse: true,
-          history: withProgress,
-        });
-        if (decision !== "continue") {
-          return withProgress;
-        }
-      }
-
-      return withProgress;
-    };
-
-    let compactionCallCount = 0;
-    // Convergence reducer: reduce tokens enough to succeed
-    let convergenceReducerCalled = false;
+    // AND a ladder that reduces on the first rung and reports exhaustion on
+    // the second without ever applying the terminal auto-compress tier
+    let reducerCallCount = 0;
     mockReducerStepFn = (msgs: Message[]) => {
-      convergenceReducerCalled = true;
+      reducerCallCount++;
+      const exhausted = reducerCallCount >= 2;
+      return {
+        messages: msgs,
+        tier: exhausted ? "injection_downgrade" : "forced_compaction",
+        state: {
+          appliedTiers: exhausted
+            ? [
+                "forced_compaction",
+                "tool_result_truncation",
+                "media_stubbing",
+                "injection_downgrade",
+              ]
+            : ["forced_compaction"],
+          injectionMode: "full",
+          exhausted,
+        },
+        estimatedTokens: exhausted ? 60_000 : 80_000,
+      };
+    };
+
+    // AND a provider that rejects every call with a context-overflow error
+    const { provider, calls } = createMockProvider([
+      new ContextOverflowError(
+        "context_length_exceeded: 250000 tokens > 200000 maximum",
+        "mock-provider",
+        { actualTokens: 250_000, maxTokens: 200_000 },
+      ),
+    ]);
+    const ctx = makeCtx({ loopProvider: provider });
+
+    // WHEN the turn runs
+    await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+    // THEN two ladder rungs ran (one per rejection before exhaustion) and the
+    // exhausted-ladder rejection ended the turn — three provider calls total
+    expect(reducerCallCount).toBe(2);
+    expect(calls.length).toBe(3);
+
+    // AND the loop emitted the terminal `context_too_large` exit, which the
+    // daemon surfaced as a classified error and stamped onto the request log
+    expect(setAgentLoopExitReasonOnLatestLogMock).toHaveBeenCalledWith(
+      "test-conv",
+      "context_too_large",
+    );
+    const errorEvent = events.find((e) => e.type === "conversation_error");
+    expect(errorEvent).toBeDefined();
+    if (errorEvent && "errorCategory" in errorEvent) {
+      expect(errorEvent.errorCategory).toBe("context_too_large");
+    }
+  });
+
+  // ── Test 8b ───────────────────────────────────────────────────────
+  /**
+   * The common case: a single ladder rung reduces enough that the re-issued
+   * provider call succeeds, so the loop continues the turn in place and ends
+   * normally with no terminal overflow exit and no client-facing error.
+   */
+  test("single-rung recovery succeeds and the turn continues in place", async () => {
+    // GIVEN an estimate below the mid-loop threshold
+    const events: ServerMessage[] = [];
+    mockEstimateTokens = 100_000;
+
+    // AND a ladder rung that reduces without reporting exhaustion
+    let reducerCallCount = 0;
+    mockReducerStepFn = (msgs: Message[]) => {
+      reducerCallCount++;
       return {
         messages: msgs,
         tier: "forced_compaction",
         state: {
           appliedTiers: ["forced_compaction"],
           injectionMode: "full",
-          exhausted: true,
+          exhausted: false,
         },
         estimatedTokens: 80_000,
       };
     };
 
-    const ctx = makeCtx({
-      agentLoopRun,
-      contextWindowManager: {
-        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-        maybeCompact: async () => {
-          compactionCallCount++;
-          // Compaction's internal retry budget is exhausted — the
-          // compactor itself ran maxAttempts passes and still couldn't
-          // drop below the auto-threshold. `maybeCompact` surfaces this
-          // via `exhausted: true` so the orchestrator escalates
-          // straight to the convergence loop instead of looping on a
-          // stuck compactor.
-          return {
-            compacted: true,
-            exhausted: true,
-            messages: [
-              {
-                role: "user" as const,
-                content: [{ type: "text", text: "Hello" }],
-              },
-            ] as Message[],
-            compactedPersistedMessages: 5,
-            summaryText: "Compaction summary",
-            previousEstimatedInputTokens: 170_000,
-            estimatedInputTokens: 165_000, // barely reduced
-            maxInputTokens: 200_000,
-            thresholdTokens: 160_000,
-            compactedMessages: 10,
-            summaryCalls: 1,
-            summaryInputTokens: 500,
-            summaryOutputTokens: 200,
-            summaryModel: "mock-model",
-          };
-        },
-      } as unknown as AgentLoopConversationContext["contextWindowManager"],
-    });
+    // AND a provider that rejects once, then accepts the re-issued call
+    const { provider, calls } = createMockProvider([
+      new ContextOverflowError(
+        "context_length_exceeded: 250000 tokens > 200000 maximum",
+        "mock-provider",
+        { actualTokens: 250_000, maxTokens: 200_000 },
+      ),
+      textResponse("recovered answer"),
+    ]);
+    const ctx = makeCtx({ loopProvider: provider });
 
+    // WHEN the turn runs
     await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-    // 1 initial auto-compact + 1 mid-loop compaction = 2 total. The
-    // first mid-loop call surfaces `exhausted: true`, so the
-    // orchestrator escalates immediately without retrying maybeCompact
-    // — the retry budget for the compactor itself lives inside
-    // `ContextWindowManager.maybeCompact`.
-    expect(compactionCallCount).toBe(2);
+    // THEN one rung ran and the retry succeeded — one rejection + one success
+    expect(reducerCallCount).toBe(1);
+    expect(calls.length).toBe(2);
 
-    // Agent loop: 1 initial + 1 convergence re-run = 2 calls. No
-    // mid-loop re-entries because the orchestrator broke out on
-    // `exhausted` before re-invoking the agent loop.
-    expect(agentLoopCallCount).toBe(2);
-
-    // After the compactor exhausted itself, the convergence loop
-    // should have been triggered (contextTooLargeDetected set to true)
-    expect(convergenceReducerCalled).toBe(true);
-    expect(setAgentLoopExitReasonOnLatestLogMock).toHaveBeenCalledWith(
-      "test-conv",
-      "context_too_large",
-    );
-  });
-
-  // ── Test 8b ───────────────────────────────────────────────────────
-  // Counterpart to Test 8: when a mid-loop `maybeCompact` returns
-  // productive (`compacted: true`, no `exhausted` flag), the loop
-  // compacts in place and continues the run itself — it never yields
-  // "budget", so the orchestrator does not escalate to the convergence
-  // loop. Mid-loop iteration is now wholly internal to `AgentLoop.run`;
-  // the orchestrator only reacts to the binary `exhausted`/timeout
-  // signal carried back as a "budget" exit.
-  test("productive mid-loop compaction continues in place without escalating", async () => {
-    const events: ServerMessage[] = [];
-
-    // Budget = 200_000 * 0.95 = 190_000
-    // Mid-loop threshold = 190_000 * 0.85 = 161_500
-    let estimateCallCount = 0;
-    mockEstimateTokens = () => {
-      estimateCallCount++;
-      // Preflight: below budget.
-      if (estimateCallCount === 1) return 100_000;
-      // Every checkpoint estimate: above threshold — always trips the
-      // yield. Simulates a long turn where each tool call's result
-      // inflates the context past 85% even after a successful compaction.
-      return 170_000;
-    };
-
-    // A single tool round reaches one checkpoint; the in-loop budget
-    // gate trips there and compaction runs in place. The loop continues
-    // the run itself rather than handing control back, so the
-    // orchestrator invokes `run()` exactly once.
-    let agentLoopCallCount = 0;
-    const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
-      await onEvent({ type: "llm_call_started" });
-      agentLoopCallCount++;
-
-      const withProgress: Message[] = [
-        ...messages,
-        {
-          role: "assistant" as const,
-          content: [
-            { type: "text", text: `Tool call ${agentLoopCallCount}` },
-            {
-              type: "tool_use",
-              id: `tu-${agentLoopCallCount}`,
-              name: "bash",
-              input: { command: "ls" },
-            },
-          ] as ContentBlock[],
-        },
-        {
-          role: "user" as const,
-          content: [
-            {
-              type: "tool_result",
-              tool_use_id: `tu-${agentLoopCallCount}`,
-              content: "output",
-              is_error: false,
-            },
-          ] as ContentBlock[],
-        },
-      ];
-
-      onEvent({
-        type: "message_complete",
-        message: {
-          role: "assistant",
-          content: [
-            { type: "text", text: `Tool call ${agentLoopCallCount}` },
-            {
-              type: "tool_use",
-              id: `tu-${agentLoopCallCount}`,
-              name: "bash",
-              input: { command: "ls" },
-            },
-          ],
-        },
-      });
-      onEvent({
-        type: "usage",
-        inputTokens: 100,
-        outputTokens: 50,
-        model: "test-model",
-        providerDurationMs: 100,
-      });
-
-      if (options?.onCheckpoint) {
-        await options.onCheckpoint({
-          turnIndex: 0,
-          toolCount: 1,
-          hasToolUse: true,
-          history: withProgress,
-        });
-      }
-
-      return withProgress;
-    };
-
-    // Compaction reports `estimatedInputTokens` well below the 161_500
-    // threshold — the "compaction is productive" signal (no `exhausted`
-    // flag) that lets the loop continue in place.
-    let compactionCallCount = 0;
-    const ctx = makeCtx({
-      agentLoopRun,
-      contextWindowManager: {
-        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-        maybeCompact: async () => {
-          compactionCallCount++;
-          return {
-            compacted: true,
-            messages: [
-              {
-                role: "user" as const,
-                content: [{ type: "text", text: "Hello" }],
-              },
-            ] as Message[],
-            compactedPersistedMessages: 5,
-            summaryText: "Compaction summary",
-            previousEstimatedInputTokens: 170_000,
-            estimatedInputTokens: 100_000,
-            maxInputTokens: 200_000,
-            thresholdTokens: 160_000,
-            compactedMessages: 10,
-            summaryCalls: 1,
-            summaryInputTokens: 500,
-            summaryOutputTokens: 200,
-            summaryModel: "mock-model",
-          };
-        },
-      } as unknown as AgentLoopConversationContext["contextWindowManager"],
-    });
-
-    await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
-
-    // 1 initial auto-compact + 1 productive mid-loop compaction. The
-    // loop continues in place after compacting, so the orchestrator
-    // never re-enters `run()` — it is invoked exactly once.
-    expect(compactionCallCount).toBe(2);
-    expect(agentLoopCallCount).toBe(1);
-
-    // No escalation to the convergence loop because the mid-loop
-    // `maybeCompact` returned productive (no `exhausted` flag).
+    // AND the turn recovered in place: no terminal overflow exit, no error
     expect(setAgentLoopExitReasonOnLatestLogMock).not.toHaveBeenCalledWith(
       "test-conv",
       "context_too_large",
     );
+    expect(setAgentLoopExitReasonOnLatestLogMock).not.toHaveBeenCalledWith(
+      "test-conv",
+      "budget_yield_unrecovered",
+    );
+    expect(events.find((e) => e.type === "conversation_error")).toBeUndefined();
   });
 
   // ── Test 9 ────────────────────────────────────────────────────────
-  // When the convergence loop reruns the agent loop and it still yields
-  // at checkpoint (yieldedForBudget), the loop must continue reducing
-  // through additional tiers instead of silently dropping the incomplete
-  // turn.
-  test("post-convergence yieldedForBudget continues reduction", async () => {
+  /**
+   * The ladder climbs through several rungs across successive rejections and
+   * recovers once a later rung reduces the prompt enough for the provider to
+   * accept it, completing the turn without a terminal overflow exit.
+   */
+  test("multi-rung escalation recovers when a later rung fits", async () => {
+    // GIVEN an estimate below the mid-loop threshold
     const events: ServerMessage[] = [];
+    mockEstimateTokens = 100_000;
 
-    // Budget = 200_000 * 0.95 = 190_000
-    // Mid-loop threshold = 190_000 * 0.85 = 161_500
-    let estimateCallCount = 0;
-    mockEstimateTokens = () => {
-      estimateCallCount++;
-      // Preflight: below budget
-      if (estimateCallCount === 1) return 100_000;
-      // Every checkpoint call: above threshold — always triggers yield
-      return 170_000;
-    };
-
-    let agentLoopCallCount = 0;
-    const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
-      // Prime the assistant row anchor — production code emits this from
-      // `AgentLoop.run` just before `provider.sendMessage`.
-      await onEvent({ type: "llm_call_started" });
-      agentLoopCallCount++;
-
-      const withProgress: Message[] = [
-        ...messages,
-        {
-          role: "assistant" as const,
-          content: [
-            { type: "text", text: `Tool call ${agentLoopCallCount}` },
-            {
-              type: "tool_use",
-              id: `tu-${agentLoopCallCount}`,
-              name: "bash",
-              input: { command: "ls" },
-            },
-          ] as ContentBlock[],
-        },
-        {
-          role: "user" as const,
-          content: [
-            {
-              type: "tool_result",
-              tool_use_id: `tu-${agentLoopCallCount}`,
-              content: "output",
-              is_error: false,
-            },
-          ] as ContentBlock[],
-        },
-      ];
-
-      onEvent({
-        type: "message_complete",
-        message: {
-          role: "assistant",
-          content: [
-            { type: "text", text: `Tool call ${agentLoopCallCount}` },
-            {
-              type: "tool_use",
-              id: `tu-${agentLoopCallCount}`,
-              name: "bash",
-              input: { command: "ls" },
-            },
-          ],
-        },
-      });
-      onEvent({
-        type: "usage",
-        inputTokens: 100,
-        outputTokens: 50,
-        model: "test-model",
-        providerDurationMs: 100,
-      });
-
-      // Always yield at checkpoint — simulates reduction not helping enough
-      if (options?.onCheckpoint) {
-        const decision = await options.onCheckpoint({
-          turnIndex: 0,
-          toolCount: 1,
-          hasToolUse: true,
-          history: withProgress,
-        });
-        if (decision !== "continue") {
-          return withProgress;
-        }
-      }
-
-      return withProgress;
-    };
-
-    // Convergence reducer: first call returns non-exhausted, second returns exhausted
+    // AND a ladder that reduces further on each successive rung
     let reducerCallCount = 0;
-    mockReducerStepFn = (msgs: Message[]) => {
-      reducerCallCount++;
-      if (reducerCallCount === 1) {
-        return {
-          messages: msgs,
-          tier: "forced_compaction",
-          state: {
-            appliedTiers: ["forced_compaction"],
-            injectionMode: "full",
-            exhausted: false,
-          },
-          estimatedTokens: 80_000,
-        };
-      }
-      // Second call: exhausted
-      return {
-        messages: msgs,
-        tier: "tool_result_truncation",
-        state: {
-          appliedTiers: ["forced_compaction", "tool_result_truncation"],
-          injectionMode: "full",
-          exhausted: true,
-        },
-        estimatedTokens: 60_000,
-      };
-    };
-
-    const ctx = makeCtx({
-      agentLoopRun,
-      contextWindowManager: {
-        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-        // Under the new architecture (Compaction Re-homing Arc, Bullet 1)
-        // the retry budget lives inside `ContextWindowManager._maybeCompact`,
-        // so a single daemon-level call represents the full manager retry
-        // sequence. Signal `exhausted: true` immediately to escalate the
-        // mid-loop to the convergence reducer.
-        maybeCompact: async () => ({
-          compacted: true,
-          messages: [
-            {
-              role: "user" as const,
-              content: [{ type: "text", text: "Hello" }],
-            },
-          ] as Message[],
-          compactedPersistedMessages: 5,
-          summaryText: "Compaction summary",
-          previousEstimatedInputTokens: 170_000,
-          estimatedInputTokens: 165_000,
-          maxInputTokens: 200_000,
-          thresholdTokens: 160_000,
-          compactedMessages: 10,
-          summaryCalls: 1,
-          summaryInputTokens: 500,
-          summaryOutputTokens: 200,
-          summaryModel: "mock-model",
-          exhausted: true,
-        }),
-      } as unknown as AgentLoopConversationContext["contextWindowManager"],
-    });
-
-    await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
-
-    // Reducer should have been called twice: once for first convergence tier,
-    // once more after yieldedForBudget triggered re-entry
-    expect(reducerCallCount).toBe(2);
-
-    // Agent loop: 1 initial + 2 convergence re-runs = 3 calls. The mid-loop
-    // no longer drives daemon-level retries — the manager owns its retry
-    // budget and signals exhaustion via the `exhausted` flag.
-    expect(agentLoopCallCount).toBe(3);
-    expect(setAgentLoopExitReasonOnLatestLogMock).toHaveBeenCalledWith(
-      "test-conv",
-      "context_too_large",
-    );
-  });
-
-  // ── Test 8 ────────────────────────────────────────────────────────
-  // BUG: The preflight overflow reducer's budget check uses
-  // step.estimatedTokens (computed on bare ctx.messages) without
-  // accounting for tokens added by applyRuntimeInjections(). This
-  // causes the reducer to stop early when the bare estimate is under
-  // budget, even though post-injection tokens exceed it — leading to
-  // a wasted provider round-trip that gets rejected.
-  //
-  // After fix: the budget check re-estimates on runMessages (with
-  // injections) so the reducer continues to the next tier.
-  test("preflight reducer continues when post-injection tokens exceed budget", async () => {
-    const events: ServerMessage[] = [];
-
-    // Injections add an extra message, bumping the token count.
-    const injectionMessage: Message = {
-      role: "user" as const,
-      content: [
-        {
-          type: "text" as const,
-          text: "injected context " + "x".repeat(500),
-        },
-      ],
-    };
-    mockApplyRuntimeInjections = (msgs) => [...msgs, injectionMessage];
-
-    // Budget = 200_000 * 0.95 = 190_000
-    // The estimator returns different values based on whether the
-    // injection message is present:
-    //   - bare history (no injection msg) → 195_000 (triggers preflight)
-    //   - after tier 1 bare → 185_000 (under budget, would stop early without fix)
-    //   - after tier 1 with injection → 195_000 (still over budget)
-    //   - after tier 2 bare → 170_000
-    //   - after tier 2 with injection → 175_000 (under budget, reducer stops)
-    let reducerCallCount = 0;
-    mockEstimateTokens = (msgs?: Message[]) => {
-      const hasInjection = msgs?.some(
-        (m) =>
-          m.role === "user" &&
-          Array.isArray(m.content) &&
-          m.content.some(
-            (b: { type: string; text?: string }) =>
-              b.type === "text" &&
-              typeof b.text === "string" &&
-              b.text.startsWith("injected context"),
-          ),
-      );
-      if (reducerCallCount === 0) {
-        // Before any reduction: preflight check on runMessages (with injection)
-        return 195_000;
-      }
-      if (reducerCallCount === 1) {
-        // After tier 1
-        return hasInjection ? 195_000 : 185_000;
-      }
-      // After tier 2
-      return hasInjection ? 175_000 : 170_000;
-    };
-
     mockReducerStepFn = (msgs: Message[]) => {
       reducerCallCount++;
       const tier =
@@ -2461,283 +1609,95 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
             reducerCallCount === 1
               ? ["forced_compaction"]
               : ["forced_compaction", "tool_result_truncation"],
-          injectionMode: "full" as const,
-          exhausted: reducerCallCount >= 2,
+          injectionMode: "full",
+          exhausted: false,
         },
-        // Bare-history estimate (what the reducer sees on ctx.messages)
-        estimatedTokens: reducerCallCount === 1 ? 185_000 : 170_000,
-        compactionResult: {
-          compacted: true,
-          messages: msgs,
-          compactedPersistedMessages: 5,
-          summaryText: "Summary",
-          previousEstimatedInputTokens: 195_000,
-          estimatedInputTokens: reducerCallCount === 1 ? 185_000 : 170_000,
-          maxInputTokens: 200_000,
-          thresholdTokens: 160_000,
-          compactedMessages: 10,
-          summaryCalls: 1,
-          summaryInputTokens: 500,
-          summaryOutputTokens: 200,
-          summaryModel: "mock-model",
-        },
+        estimatedTokens: reducerCallCount === 1 ? 80_000 : 60_000,
       };
     };
 
-    const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-      // Prime the assistant row anchor — production code emits this from
-      // `AgentLoop.run` just before `provider.sendMessage`.
-      await onEvent({ type: "llm_call_started" });
-      onEvent({
-        type: "message_complete",
-        message: {
-          role: "assistant",
-          content: [{ type: "text", text: "done" }],
-        },
-      });
-      onEvent({
-        type: "usage",
-        inputTokens: 170_000,
-        outputTokens: 200,
-        model: "test-model",
-        providerDurationMs: 500,
-      });
-      return [
-        ...messages,
-        {
-          role: "assistant" as const,
-          content: [{ type: "text", text: "done" }] as ContentBlock[],
-        },
-      ];
-    };
+    // AND a provider that rejects twice, then accepts the third call
+    const { provider, calls } = createMockProvider([
+      new ContextOverflowError(
+        "context_length_exceeded: 250000 tokens > 200000 maximum",
+        "mock-provider",
+        { actualTokens: 250_000, maxTokens: 200_000 },
+      ),
+      new ContextOverflowError(
+        "context_length_exceeded: 230000 tokens > 200000 maximum",
+        "mock-provider",
+        { actualTokens: 230_000, maxTokens: 200_000 },
+      ),
+      textResponse("recovered answer"),
+    ]);
+    const ctx = makeCtx({ loopProvider: provider });
 
-    const ctx = makeCtx({
-      agentLoopRun,
-      contextWindowManager: {
-        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-        maybeCompact: async () => ({ compacted: false }),
-      } as unknown as AgentLoopConversationContext["contextWindowManager"],
-    });
-
+    // WHEN the turn runs
     await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-    // The reducer must be called twice — the first tier's bare estimate
-    // (185k) is under budget (190k), but post-injection tokens (195k)
-    // still exceed it. Without the fix, the reducer would stop after
-    // tier 1 and the provider call would likely fail.
+    // THEN two rungs ran across two rejections and the third call recovered
     expect(reducerCallCount).toBe(2);
+    expect(calls.length).toBe(3);
 
-    // Should succeed without errors
-    const conversationError = events.find(
-      (e) => e.type === "conversation_error",
+    // AND no terminal overflow exit or error was surfaced
+    expect(setAgentLoopExitReasonOnLatestLogMock).not.toHaveBeenCalledWith(
+      "test-conv",
+      "context_too_large",
     );
-    expect(conversationError).toBeUndefined();
+    expect(events.find((e) => e.type === "conversation_error")).toBeUndefined();
   });
 
-  // ── Test 9 ────────────────────────────────────────────────────────
-  // When the `auto_compress_latest_turn` rerun (the last layer of the
-  // overflow-recovery ladder) still yields at the mid-loop checkpoint,
-  // the turn cannot proceed. Before PR 1 of the Compaction Visibility
-  // workstream this terminated silently — no `agent_loop_exit_reason`,
-  // no client notice, no durable transcript row. Now the loop must:
-  //   1. emit a `conversation_error` event with code
-  //      `BUDGET_YIELD_UNRECOVERED`,
-  //   2. persist a `role="assistant"` notice via the persistence
-  //      pipeline (so reloads keep the message),
-  //   3. stamp `budget_yield_unrecovered` onto the latest llm_request_logs
-  //      row.
+  // ── Test 10 ───────────────────────────────────────────────────────
+  /**
+   * When the ladder applies its terminal `auto_compress_latest_turn` rung,
+   * reports exhaustion, and the provider still rejects, the loop ends the turn
+   * with `budget_yield_unrecovered`. The daemon then emits a classified
+   * `BUDGET_YIELD_UNRECOVERED` error, persists a durable assistant notice, and
+   * stamps the exit reason onto the latest llm_request_logs row.
+   */
   test("budget_yield_unrecovered: classified error emitted, persisted, and stamped", async () => {
+    // GIVEN an estimate below the mid-loop threshold
     const events: ServerMessage[] = [];
+    mockEstimateTokens = 100_000;
 
-    // Every estimate after the very first preflight is above the mid-loop
-    // threshold (190_000 × 0.85 = 161_500). This makes every checkpoint
-    // yield, including the one inside the auto_compress rerun.
-    let estimateCallCount = 0;
-    mockEstimateTokens = () => {
-      estimateCallCount++;
-      if (estimateCallCount === 1) return 100_000;
-      return 170_000;
-    };
-
-    // Convergence reducer becomes exhausted on the second tier so the
-    // loop escalates from convergence to the action-resolution block.
+    // AND a ladder whose terminal rung applies `auto_compress_latest_turn` and
+    // reports exhaustion — the signal that distinguishes
+    // `budget_yield_unrecovered` from `context_too_large`
     let reducerCallCount = 0;
     mockReducerStepFn = (msgs: Message[]) => {
       reducerCallCount++;
-      const exhausted = reducerCallCount >= 2;
+      const terminal = reducerCallCount >= 2;
       return {
         messages: msgs,
-        tier: exhausted ? "tool_result_truncation" : "forced_compaction",
+        tier: terminal ? "auto_compress_latest_turn" : "forced_compaction",
         state: {
-          appliedTiers: exhausted
-            ? ["forced_compaction", "tool_result_truncation"]
+          appliedTiers: terminal
+            ? ["forced_compaction", "auto_compress_latest_turn"]
             : ["forced_compaction"],
           injectionMode: "full" as const,
-          exhausted,
+          exhausted: terminal,
         },
-        estimatedTokens: exhausted ? 60_000 : 80_000,
+        estimatedTokens: terminal ? 60_000 : 80_000,
       };
     };
 
-    // The overflow policy directs us into auto_compress_latest_turn so the
-    // emergency compaction + final agentLoop.run path executes.
+    // AND an overflow policy that permits the terminal auto-compress rung
     mockOverflowAction = "auto_compress_latest_turn";
 
-    let agentLoopCallCount = 0;
-    const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
-      // Prime the assistant row anchor — production code emits this from
-      // `AgentLoop.run` just before `provider.sendMessage`.
-      await onEvent({ type: "llm_call_started" });
-      agentLoopCallCount++;
+    // AND a provider that rejects every call with a context-overflow error
+    const { provider } = createMockProvider([
+      new ContextOverflowError(
+        "context_length_exceeded: 250000 tokens > 200000 maximum",
+        "mock-provider",
+        { actualTokens: 250_000, maxTokens: 200_000 },
+      ),
+    ]);
+    const ctx = makeCtx({ loopProvider: provider });
 
-      const withProgress: Message[] = [
-        ...messages,
-        {
-          role: "assistant" as const,
-          content: [
-            { type: "text", text: `tool call ${agentLoopCallCount}` },
-            {
-              type: "tool_use",
-              id: `tu-${agentLoopCallCount}`,
-              name: "bash",
-              input: { command: "ls" },
-            },
-          ] as ContentBlock[],
-        },
-        {
-          role: "user" as const,
-          content: [
-            {
-              type: "tool_result",
-              tool_use_id: `tu-${agentLoopCallCount}`,
-              content: "output",
-              is_error: false,
-            },
-          ] as ContentBlock[],
-        },
-      ];
-
-      onEvent({
-        type: "message_complete",
-        message: {
-          role: "assistant",
-          content: [
-            { type: "text", text: `tool call ${agentLoopCallCount}` },
-            {
-              type: "tool_use",
-              id: `tu-${agentLoopCallCount}`,
-              name: "bash",
-              input: { command: "ls" },
-            },
-          ],
-        },
-      });
-      onEvent({
-        type: "usage",
-        inputTokens: 100,
-        outputTokens: 50,
-        model: "test-model",
-        providerDurationMs: 100,
-      });
-
-      // Every checkpoint yields — including the final auto_compress rerun.
-      if (options?.onCheckpoint) {
-        const decision = await options.onCheckpoint({
-          turnIndex: 0,
-          toolCount: 1,
-          hasToolUse: true,
-          history: withProgress,
-        });
-        if (decision !== "continue") {
-          return withProgress;
-        }
-      }
-
-      return withProgress;
-    };
-
-    // `maybeCompact` is invoked through three distinct call sites:
-    //   1. Start-of-turn compaction (no `force` option) — return a no-op
-    //      so the start-of-turn pass doesn't perturb state. The mock's
-    //      `shouldCompact` already returns `needed: false`, but the
-    //      orchestrator still invokes the compaction pipeline.
-    //   2. Mid-loop after the initial agent-loop yield (`force: true`) —
-    //      must signal `exhausted: true` so the daemon escalates to the
-    //      convergence reducer instead of looping forever.
-    //   3. auto_compress_latest_turn emergency compaction (`force: true`,
-    //      `minKeepRecentUserTurns: 0`) — succeeds and drops tokens below
-    //      threshold; the subsequent rerun yields again and is classified
-    //      as BUDGET_YIELD_UNRECOVERED.
-    let forcedMaybeCompactCallCount = 0;
-    const ctx = makeCtx({
-      agentLoopRun,
-      contextWindowManager: {
-        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-        maybeCompact: async (
-          _msgs: Message[],
-          _signal: AbortSignal,
-          opts?: { force?: boolean },
-        ) => {
-          // Start-of-turn calls pass no `force` option; route them to a
-          // no-op so only the mid-loop and emergency paths drive the test.
-          if (!opts?.force) {
-            return { compacted: false };
-          }
-          forcedMaybeCompactCallCount++;
-          if (forcedMaybeCompactCallCount === 1) {
-            // Mid-loop call — under the new architecture (Compaction
-            // Re-homing Arc, Bullet 1) the manager owns its own retry
-            // budget; signal exhaustion to escalate to convergence.
-            return {
-              compacted: true,
-              messages: [
-                {
-                  role: "user" as const,
-                  content: [{ type: "text", text: "mid-loop compacted" }],
-                },
-              ] as Message[],
-              compactedPersistedMessages: 5,
-              summaryText: "Mid-loop summary",
-              previousEstimatedInputTokens: 170_000,
-              estimatedInputTokens: 165_000,
-              maxInputTokens: 200_000,
-              thresholdTokens: 160_000,
-              compactedMessages: 10,
-              summaryCalls: 1,
-              summaryInputTokens: 500,
-              summaryOutputTokens: 200,
-              summaryModel: "mock-model",
-              exhausted: true,
-            };
-          }
-          // Emergency compaction call from auto_compress_latest_turn.
-          return {
-            compacted: true,
-            messages: [
-              {
-                role: "user" as const,
-                content: [{ type: "text", text: "compacted" }],
-              },
-            ] as Message[],
-            compactedPersistedMessages: 5,
-            summaryText: "Emergency summary",
-            previousEstimatedInputTokens: 170_000,
-            estimatedInputTokens: 90_000,
-            maxInputTokens: 200_000,
-            thresholdTokens: 160_000,
-            compactedMessages: 10,
-            summaryCalls: 1,
-            summaryInputTokens: 500,
-            summaryOutputTokens: 200,
-            summaryModel: "mock-model",
-          };
-        },
-      } as unknown as AgentLoopConversationContext["contextWindowManager"],
-    });
-
+    // WHEN the turn runs
     await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-    // The classified error is emitted to the client.
+    // THEN the classified error is emitted to the client
     const errorEvents = events.filter((e) => e.type === "conversation_error");
     expect(errorEvents).toHaveLength(1);
     const errorEvent = errorEvents[0];
@@ -2749,17 +1709,23 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       throw new Error("conversation_error event missing `code` field");
     }
 
-    // The exit reason is stamped onto the latest llm_request_logs row.
+    // AND the exit reason is stamped onto the latest llm_request_logs row
     expect(setAgentLoopExitReasonOnLatestLogMock).toHaveBeenCalledWith(
       "test-conv",
       "budget_yield_unrecovered",
     );
+    // AND it is stamped exactly once. The loop emits the terminal exit inline
+    // as it breaks, then the wrapper records the synthetic yield row and stamps
+    // again; both reaching the stamp would double-stamp two real rows. The
+    // loop's inline emit must be suppressed so only the wrapper's post-row
+    // stamp lands.
+    expect(setAgentLoopExitReasonOnLatestLogMock).toHaveBeenCalledTimes(1);
 
-    // A `role="assistant"` notice is persisted via the persistence pipeline.
-    // The default persistence terminal calls
-    // `addMessage(conversationId, role, content, metadata, addOptions)` —
-    // we look for the call whose role positional arg is "assistant" and
-    // whose content positional arg mentions compaction.
+    // AND a `role="assistant"` notice is persisted via the persistence
+    // pipeline. The default persistence terminal calls
+    // `addMessage(conversationId, role, content, metadata, addOptions)`, so we
+    // look for the call whose role positional arg is "assistant" and whose
+    // content positional arg mentions compaction.
     const assistantPersistCall = addMessageMock.mock.calls.find((call) => {
       const role = call[1];
       const content = call[2];

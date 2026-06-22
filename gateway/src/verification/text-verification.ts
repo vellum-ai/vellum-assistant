@@ -25,9 +25,13 @@ import {
   resolveCanonicalPrincipal,
   revokeExistingChannelGuardian,
 } from "./binding-helpers.js";
-import { parseVerificationCode, hashVerificationSecret } from "./code-parsing.js";
 import {
-  findContactChannelByExternalUserId,
+  extractEmailReplyBody,
+  parseVerificationCode,
+  hashVerificationSecret,
+} from "./code-parsing.js";
+import {
+  findContactChannelByAddress,
   upsertVerifiedContactChannel,
 } from "./contact-helpers.js";
 import { canonicalizeInboundIdentity } from "./identity.js";
@@ -71,6 +75,8 @@ export type TextVerificationResult =
       intercepted: true;
       outcome: "verified" | "failed";
       trustClass: "guardian" | "trusted_contact";
+      /** Reply text when replyCallbackUrl was unavailable (e.g. email channel). */
+      pendingReplyText?: string;
     };
 
 // ---------------------------------------------------------------------------
@@ -91,8 +97,14 @@ export async function tryTextVerificationIntercept(
     assistantId,
   } = params;
 
-  // 1. Parse — only bare 6-digit numeric or 64-char hex codes are intercepted
-  const code = parseVerificationCode(messageContent);
+  // 1. Parse — only bare 6-digit numeric or 64-char hex codes are intercepted.
+  //    For email, strip quoted reply content first so the code isn't buried
+  //    under signatures and quoted thread text.
+  const effectiveContent =
+    sourceChannel === "email"
+      ? extractEmailReplyBody(messageContent)
+      : messageContent;
+  const code = parseVerificationCode(effectiveContent);
   if (code === undefined) {
     return { intercepted: false };
   }
@@ -113,7 +125,7 @@ export async function tryTextVerificationIntercept(
       { sourceChannel, actorExternalUserId: canonicalUserId },
       "Verification attempt rate-limited",
     );
-    await replyWithFailure(
+    const pendingReplyText = await replyWithFailure(
       replyCallbackUrl,
       actorChatId,
       assistantId,
@@ -123,6 +135,7 @@ export async function tryTextVerificationIntercept(
       intercepted: true,
       outcome: "failed",
       trustClass: "guardian",
+      pendingReplyText,
     };
   }
 
@@ -136,7 +149,7 @@ export async function tryTextVerificationIntercept(
       { sourceChannel, actorExternalUserId: canonicalUserId },
       "Verification code did not match any pending session",
     );
-    await replyWithFailure(
+    const pendingReplyText = await replyWithFailure(
       replyCallbackUrl,
       actorChatId,
       assistantId,
@@ -146,6 +159,7 @@ export async function tryTextVerificationIntercept(
       intercepted: true,
       outcome: "failed",
       trustClass: "guardian",
+      pendingReplyText,
     };
   }
 
@@ -156,7 +170,7 @@ export async function tryTextVerificationIntercept(
       { sourceChannel, sessionId: session.id },
       "Verification identity mismatch (anti-oracle: same error as invalid code)",
     );
-    await replyWithFailure(
+    const pendingReplyText = await replyWithFailure(
       replyCallbackUrl,
       actorChatId,
       assistantId,
@@ -165,9 +179,11 @@ export async function tryTextVerificationIntercept(
     return {
       intercepted: true,
       outcome: "failed",
-      trustClass: session.verificationPurpose === "trusted_contact"
-        ? "trusted_contact"
-        : "guardian",
+      trustClass:
+        session.verificationPurpose === "trusted_contact"
+          ? "trusted_contact"
+          : "guardian",
+      pendingReplyText,
     };
   }
 
@@ -182,7 +198,7 @@ export async function tryTextVerificationIntercept(
       { sessionId: session.id },
       "Session already consumed by concurrent request",
     );
-    await replyWithFailure(
+    const pendingReplyText = await replyWithFailure(
       replyCallbackUrl,
       actorChatId,
       assistantId,
@@ -191,9 +207,11 @@ export async function tryTextVerificationIntercept(
     return {
       intercepted: true,
       outcome: "failed",
-      trustClass: session.verificationPurpose === "trusted_contact"
-        ? "trusted_contact"
-        : "guardian",
+      trustClass:
+        session.verificationPurpose === "trusted_contact"
+          ? "trusted_contact"
+          : "guardian",
+      pendingReplyText,
     };
   }
 
@@ -225,14 +243,17 @@ export async function tryTextVerificationIntercept(
   }
 
   // 8. Deliver success reply
+  const successReplyText = composeVerificationSuccessReply(trustClass);
+  let pendingReplyText: string | undefined;
   if (replyCallbackUrl) {
-    const replyText = composeVerificationSuccessReply(trustClass);
     await deliverVerificationReply({
       replyCallbackUrl,
       chatId: actorChatId,
-      text: replyText,
+      text: successReplyText,
       assistantId,
     });
+  } else {
+    pendingReplyText = successReplyText;
   }
 
   log.info(
@@ -245,7 +266,12 @@ export async function tryTextVerificationIntercept(
     "Text verification succeeded",
   );
 
-  return { intercepted: true, outcome: "verified", trustClass };
+  return {
+    intercepted: true,
+    outcome: "verified",
+    trustClass,
+    pendingReplyText,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -269,11 +295,11 @@ async function applyGuardianSideEffects(params: {
 
   // Check for binding conflict — another user already holds guardian
   const existing = await getExistingGuardianBinding(sourceChannel);
-  if (existing?.externalUserId && existing.externalUserId !== canonicalUserId) {
+  if (existing?.address && existing.address !== canonicalUserId) {
     log.warn(
       {
         sourceChannel,
-        existingGuardian: existing.externalUserId,
+        existingGuardian: existing.address,
         newActor: canonicalUserId,
       },
       "Guardian binding conflict: another user already holds this channel",
@@ -297,14 +323,13 @@ async function applyGuardianSideEffects(params: {
   const canonicalPrincipal = await resolveCanonicalPrincipal(canonicalUserId);
 
   // Determine display name — preserve existing if user is re-verifying
-  const existingContact = await findContactChannelByExternalUserId(
+  const existingContact = await findContactChannelByAddress(
     sourceChannel,
     canonicalUserId,
   );
-  const displayName =
-    existingContact?.displayName?.trim().length
-      ? existingContact.displayName
-      : actorDisplayName ?? actorUsername ?? canonicalUserId;
+  const displayName = existingContact?.displayName?.trim().length
+    ? existingContact.displayName
+    : (actorDisplayName ?? actorUsername ?? canonicalUserId);
 
   // Create guardian binding (dual-writes to both DBs)
   await createGuardianBinding({
@@ -333,14 +358,13 @@ async function applyTrustedContactSideEffects(params: {
   } = params;
 
   // Preserve existing display name if available
-  const existingContact = await findContactChannelByExternalUserId(
+  const existingContact = await findContactChannelByAddress(
     sourceChannel,
     canonicalUserId,
   );
-  const displayName =
-    existingContact?.displayName?.trim().length
-      ? existingContact.displayName
-      : actorDisplayName ?? actorUsername ?? canonicalUserId;
+  const displayName = existingContact?.displayName?.trim().length
+    ? existingContact.displayName
+    : (actorDisplayName ?? actorUsername ?? canonicalUserId);
 
   await upsertVerifiedContactChannel({
     sourceChannel,
@@ -360,13 +384,14 @@ async function replyWithFailure(
   chatId: string,
   assistantId: string | undefined,
   reason: string,
-): Promise<void> {
-  if (!replyCallbackUrl) return;
+): Promise<string | undefined> {
   const text = composeVerificationFailureReply(reason);
+  if (!replyCallbackUrl) return text;
   await deliverVerificationReply({
     replyCallbackUrl,
     chatId,
     text,
     assistantId,
   });
+  return undefined;
 }

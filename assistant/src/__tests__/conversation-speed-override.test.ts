@@ -7,6 +7,7 @@
  */
 import { describe, expect, mock, test } from "bun:test";
 
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent, AgentLoopConfig } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
@@ -34,11 +35,6 @@ function makeLoggerStub(): Record<string, unknown> {
 
 mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
-}));
-
-mock.module("../memory/guardian-action-store.js", () => ({
-  getGuardianActionRequest: () => null,
-  resolveGuardianActionRequest: () => {},
 }));
 
 mock.module("../providers/registry.js", () => ({
@@ -169,15 +165,23 @@ mock.module("../memory/retriever.js", () => ({
   injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
 }));
 
-mock.module("../context/window-manager.js", () => ({
+mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   ContextWindowManager: class {
+    estimateInputTokens() {
+      return 0;
+    }
+    get tokenCountInputs() {
+      return { systemPrompt: "", tools: undefined };
+    }
     constructor() {}
+    updateConfig() {}
     shouldCompact() {
       return { needed: false, estimatedTokens: 0 };
     }
     async maybeCompact() {
       return { compacted: false };
     }
+    resetOverflowRecovery() {}
   },
   createContextSummaryMessage: () => ({
     role: "user",
@@ -196,12 +200,13 @@ let lastAgentLoopConfig: Partial<AgentLoopConfig> | undefined;
 
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
-    constructor(
-      _provider: unknown,
-      _systemPrompt: string,
-      config?: Partial<AgentLoopConfig>,
-    ) {
-      lastAgentLoopConfig = config;
+    compactionCircuit = new CompactionCircuit("test-conv");
+    constructor(options?: {
+      provider?: unknown;
+      systemPrompt?: string;
+      config?: Partial<AgentLoopConfig>;
+    }) {
+      lastAgentLoopConfig = options?.config;
     }
     getToolTokenBudget() {
       return 0;
@@ -212,10 +217,10 @@ mock.module("../agent/loop.js", () => ({
     getActiveModel() {
       return undefined;
     }
-    async run(
-      _messages: Message[],
-      _onEvent: (event: AgentEvent) => void,
-    ): Promise<Message[]> {
+    async run(_options: {
+      messages: Message[];
+      onEvent: (event: AgentEvent) => void;
+    }): Promise<Message[]> {
       return [];
     }
   },
@@ -282,11 +287,9 @@ describe("per-conversation speed override", () => {
       "conv-speed-override-1",
       makeProvider(),
       "system prompt",
-      4096,
       makeSendToClient(),
       "/tmp",
-      undefined, // sharedCesClient
-      "standard", // speedOverride
+      { maxTokens: 4096, speedOverride: "standard" },
     );
 
     expect(lastAgentLoopConfig).toBeDefined();
@@ -302,11 +305,9 @@ describe("per-conversation speed override", () => {
       "conv-speed-global-1",
       makeProvider(),
       "system prompt",
-      4096,
       makeSendToClient(),
       "/tmp",
-      undefined, // sharedCesClient
-      // no speedOverride — should fall back to global config "fast"
+      { maxTokens: 4096 },
     );
 
     expect(lastAgentLoopConfig).toBeDefined();
@@ -321,11 +322,9 @@ describe("per-conversation speed override", () => {
       "conv-speed-override-fast-1",
       makeProvider(),
       "system prompt",
-      4096,
       makeSendToClient(),
       "/tmp",
-      undefined, // sharedCesClient
-      "fast", // speedOverride
+      { maxTokens: 4096, speedOverride: "fast" },
     );
 
     expect(lastAgentLoopConfig).toBeDefined();

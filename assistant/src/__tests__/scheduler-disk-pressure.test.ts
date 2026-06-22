@@ -28,7 +28,7 @@ mock.module("../config/loader.js", () => ({
   getNestedValue: () => undefined,
   setNestedValue: () => {},
   API_KEY_PROVIDERS: [],
-  _appendQuarantineBulletin: () => {},
+  _writeQuarantineNotice: () => {},
   invalidateConfigCache: () => {},
 }));
 
@@ -94,7 +94,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { createSchedule } from "../schedule/schedule-store.js";
 import { runScheduleOnce } from "../schedule/scheduler.js";
 
-initializeDb();
+await initializeDb();
 
 function rawDb(): import("bun:sqlite").Database {
   return (getDb() as unknown as { $client: import("bun:sqlite").Database })

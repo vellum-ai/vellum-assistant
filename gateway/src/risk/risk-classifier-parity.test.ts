@@ -61,7 +61,6 @@ const BASH_TEST_CASES: Array<[string, RiskLevel]> = [
   ["git --git-dir /path/to/.git push", RiskLevel.Medium],
   ["git --no-pager push", RiskLevel.Medium],
   ["rm BOOTSTRAP.md", RiskLevel.Medium],
-  ["rm UPDATES.md", RiskLevel.Medium],
 
   // High risk — registry classifies these commands as high
   ["bun test", RiskLevel.High],

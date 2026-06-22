@@ -4,7 +4,7 @@
  * canonical `SEARCH_PROVIDER_CATALOG` in
  * `assistant/src/providers/search-provider-catalog.ts`.
  *
- * Two byte-identical copies are written:
+ * Output:
  *   - `meta/web-search-provider-catalog.json` — primary checked-in artifact,
  *      consumed by:
  *        - `cli/src/__tests__/search-provider-env-var-parity.test.ts`
@@ -12,13 +12,8 @@
  *        - Downstream `vellum-assistant-platform/web/src/lib/generated/
  *          web-search-provider-catalog.json` (manually sync'd today; the
  *          scheduled sync workflow is a planned follow-up).
- *   - `clients/shared/Resources/web-search-provider-catalog.json` — SwiftPM
- *      resource bundled into `VellumAssistantShared`. SwiftPM cannot reach
- *      files outside a target's source directory, so this mirror is
- *      necessary; both files are produced by the same generator and
- *      asserted equal by the parity test, making drift impossible.
  *
- * Companion to `sync-llm-catalog.ts`; same dual-write pattern.
+ * Companion to `sync-llm-catalog.ts`.
  *
  * Usage:
  *   cd assistant && bun run scripts/sync-web-search-catalog.ts
@@ -37,7 +32,6 @@ import {
 const ROOT = resolve(import.meta.dir, "../..");
 const OUTPUT_PATHS = [
   join(ROOT, "meta/web-search-provider-catalog.json"),
-  join(ROOT, "clients/shared/Resources/web-search-provider-catalog.json"),
 ] as const;
 
 /**
@@ -108,9 +102,7 @@ async function main(): Promise<void> {
         continue;
       }
       if (existing !== next) {
-        console.error(
-          `${rel} is stale. Run: bun run sync:web-search-catalog`,
-        );
+        console.error(`${rel} is stale. Run: bun run sync:web-search-catalog`);
         anyStale = true;
         continue;
       }

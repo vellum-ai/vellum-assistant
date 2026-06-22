@@ -95,7 +95,11 @@ function getHeartbeatWakeSource(now: number): HeartbeatWakeSource | null {
   const config = getConfig().heartbeat;
   if (!config.enabled) return null;
 
-  const serviceNextRunAt = HeartbeatService.getInstance()?.nextRunAt ?? null;
+  const service = HeartbeatService.getInstance();
+  if (service?.isConsecutiveRunCapReached) return null;
+  if (service?.isDailyCapReached) return null;
+
+  const serviceNextRunAt = service?.nextRunAt ?? null;
   let nextRunAt = serviceNextRunAt;
   const mode = config.cronExpression != null ? "cron" : "interval";
 

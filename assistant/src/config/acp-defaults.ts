@@ -9,9 +9,9 @@ const FROZEN_EMPTY_ARGS = Object.freeze([] as string[]) as unknown as string[];
 /**
  * Default ACP agent profiles that ship with the assistant.
  *
- * When `acp.enabled: true` and the user has not provided a config entry for an
- * agent id, the resolver falls back to this map so common agents like `claude`
- * and `codex` Just Work without requiring per-user config.
+ * When the user has not provided a config entry for an agent id, the resolver
+ * falls back to this map so common agents like `claude` and `codex` Just Work
+ * without requiring per-user config.
  *
  * Keyed by agent id. Deeply frozen — the outer object, each profile, and the
  * `args` arrays — so mutation throws in strict mode rather than silently
@@ -30,6 +30,11 @@ export const DEFAULT_ACP_AGENT_PROFILES: Readonly<
     args: FROZEN_EMPTY_ARGS,
     description: "OpenAI Codex CLI (via @zed-industries/codex-acp)",
   }),
+  gemini: Object.freeze({
+    command: "gemini",
+    args: Object.freeze(["--acp"]) as unknown as string[],
+    description: "Google Gemini CLI (native ACP via gemini --acp)",
+  }),
 });
 
 /**
@@ -44,4 +49,5 @@ export const DEFAULT_AGENT_NPM_PACKAGES: Readonly<Record<string, string>> =
   Object.freeze({
     "claude-agent-acp": "@agentclientprotocol/claude-agent-acp",
     "codex-acp": "@zed-industries/codex-acp",
+    gemini: "@google/gemini-cli",
   });

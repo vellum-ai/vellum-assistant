@@ -5,6 +5,7 @@ compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🧠"
   vellum:
+    category: "system"
     display-name: "Memory v2 Migration"
     user-invocable: true
     activation-hints:

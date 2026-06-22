@@ -6,6 +6,7 @@ metadata:
   emoji: "🎙️"
   vellum:
     display-name: "Transcribe"
+    category: "voice"
     activation-hints:
       - "User has an audio or video file on disk they want converted to text"
       - "User wants speech-to-text on a recording, voice memo, podcast, or meeting capture"

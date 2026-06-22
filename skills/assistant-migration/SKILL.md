@@ -5,6 +5,7 @@ compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🧳"
   vellum:
+    category: "system"
     display-name: "Assistant Migration"
     includes: ["chatgpt-import"]
     activation-hints:

@@ -35,24 +35,24 @@ import {
   createConversation,
   getConversation,
 } from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
+import {
+  getDb,
+  getLogsSqlite,
+  getMemorySqlite,
+} from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { ROUTES } from "../runtime/routes/conversation-management-routes.js";
 import { createSchedule, getSchedule } from "../schedule/schedule-store.js";
 
-initializeDb();
+await initializeDb();
 
 function getRawDb(): Database {
   return (getDb() as unknown as { $client: Database }).$client;
 }
 
-const deleteRoute = ROUTES.find(
-  (r) => r.operationId === "deleteConversation",
-)!;
+const deleteRoute = ROUTES.find((r) => r.operationId === "deleteConversation")!;
 
-const wipeRoute = ROUTES.find(
-  (r) => r.operationId === "wipeConversation",
-)!;
+const wipeRoute = ROUTES.find((r) => r.operationId === "wipeConversation")!;
 
 describe("DELETE /conversations/:id — schedule cleanup", () => {
   beforeEach(() => {
@@ -62,9 +62,9 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
     getRawDb().run("DELETE FROM memory_segments");
     getRawDb().run("DELETE FROM memory_summaries");
     getRawDb().run("DELETE FROM memory_embeddings");
-    getRawDb().run("DELETE FROM memory_jobs");
+    getMemorySqlite()!.run("DELETE FROM memory_jobs");
     getRawDb().run("DELETE FROM tool_invocations");
-    getRawDb().run("DELETE FROM llm_request_logs");
+    getLogsSqlite()!.run("DELETE FROM llm_request_logs");
     getRawDb().run("DELETE FROM messages");
     getRawDb().run("DELETE FROM conversations");
   });
@@ -87,7 +87,6 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
       pathParams: { id: conv.id },
       body: {},
       headers: {},
-
     });
 
     expect(getSchedule(schedule.id)).toBeNull();
@@ -107,7 +106,6 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
       pathParams: { id: conv.id },
       body: {},
       headers: {},
-
     });
 
     expect(getSchedule(schedule.id)).not.toBeNull();
@@ -143,7 +141,6 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
       pathParams: { id: conv.id },
       body: {},
       headers: {},
-
     });
 
     expect(getSchedule(schedule.id)).toBeNull();
@@ -173,7 +170,6 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
       pathParams: { id: conv1.id },
       body: {},
       headers: {},
-
     });
 
     expect(getSchedule(schedule.id)).not.toBeNull();
@@ -204,7 +200,6 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
       pathParams: { id: convA.id },
       body: {},
       headers: {},
-
     });
 
     expect(getSchedule(scheduleA.id)).toBeNull();
@@ -220,9 +215,9 @@ describe("POST /conversations/:id/wipe — schedule cleanup", () => {
     getRawDb().run("DELETE FROM memory_segments");
     getRawDb().run("DELETE FROM memory_summaries");
     getRawDb().run("DELETE FROM memory_embeddings");
-    getRawDb().run("DELETE FROM memory_jobs");
+    getMemorySqlite()!.run("DELETE FROM memory_jobs");
     getRawDb().run("DELETE FROM tool_invocations");
-    getRawDb().run("DELETE FROM llm_request_logs");
+    getLogsSqlite()!.run("DELETE FROM llm_request_logs");
     getRawDb().run("DELETE FROM messages");
     getRawDb().run("DELETE FROM conversations");
   });
@@ -245,7 +240,6 @@ describe("POST /conversations/:id/wipe — schedule cleanup", () => {
       pathParams: { id: conv.id },
       body: {},
       headers: {},
-
     });
 
     expect(getSchedule(schedule.id)).toBeNull();
@@ -264,7 +258,6 @@ describe("POST /conversations/:id/wipe — schedule cleanup", () => {
       pathParams: { id: conv.id },
       body: {},
       headers: {},
-
     });
 
     expect(getSchedule(schedule.id)).not.toBeNull();

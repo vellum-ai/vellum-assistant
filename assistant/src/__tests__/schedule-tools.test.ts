@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -18,13 +18,20 @@ import type { Database } from "bun:sqlite";
 
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import { executeScheduleCreate } from "../tools/schedule/create.js";
+import { RiskLevel } from "../permissions/types.js";
+import {
+  __clearRegistryForTesting,
+  __resetRegistryForTesting,
+  registerTool,
+} from "../tools/registry.js";
+import { executeScheduleCreate as rawExecuteScheduleCreate } from "../tools/schedule/create.js";
 import { executeScheduleDelete } from "../tools/schedule/delete.js";
 import { executeScheduleList } from "../tools/schedule/list.js";
 import { executeScheduleUpdate } from "../tools/schedule/update.js";
-import type { ToolContext } from "../tools/types.js";
+import type { Tool, ToolContext } from "../tools/types.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
-initializeDb();
+await initializeDb();
 
 function getRawDb(): Database {
   return (getDb() as unknown as { $client: Database }).$client;
@@ -41,6 +48,16 @@ const trustedCtx: ToolContext = {
   trustClass: "trusted_contact",
 };
 
+function executeScheduleCreate(
+  input: Record<string, unknown>,
+  context: ToolContext,
+) {
+  return rawExecuteScheduleCreate(
+    { description: "Test schedule description", ...input },
+    context,
+  );
+}
+
 // ── schedule_create ─────────────────────────────────────────────────
 
 describe("schedule_create tool", () => {
@@ -53,6 +70,7 @@ describe("schedule_create tool", () => {
     const result = await executeScheduleCreate(
       {
         name: "Daily standup",
+        description: "Remind the team to join the daily standup.",
         expression: "0 9 * * 1-5",
         message: "Time for standup!",
       },
@@ -62,8 +80,33 @@ describe("schedule_create tool", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain("schedule created successfully");
     expect(result.content).toContain("Daily standup");
+    expect(result.content).toContain(
+      "Description: Remind the team to join the daily standup.",
+    );
     expect(result.content).toContain("Every weekday at 9:00 AM");
     expect(result.content).toContain("Enabled: true");
+
+    const row = getRawDb()
+      .query("SELECT description FROM cron_jobs LIMIT 1")
+      .get() as { description: string };
+    expect(row.description).toBe("Remind the team to join the daily standup.");
+  });
+
+  test("persists the creating conversation for recurring schedules", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Recurring source",
+        expression: "0 9 * * *",
+        message: "remember the source",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    const row = getRawDb()
+      .query("SELECT created_from_conversation_id FROM cron_jobs LIMIT 1")
+      .get() as { created_from_conversation_id: string | null };
+    expect(row.created_from_conversation_id).toBe(ctx.conversationId);
   });
 
   test("creates a disabled schedule", async () => {
@@ -107,6 +150,35 @@ describe("schedule_create tool", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("name is required");
+  });
+
+  test("rejects missing description", async () => {
+    const result = await rawExecuteScheduleCreate(
+      {
+        name: "No description",
+        expression: "0 9 * * *",
+        message: "test",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("description is required");
+  });
+
+  test("rejects blank description", async () => {
+    const result = await rawExecuteScheduleCreate(
+      {
+        name: "Blank description",
+        description: "   ",
+        expression: "0 9 * * *",
+        message: "test",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("description is required");
   });
 
   test("rejects missing expression when no fire_at", async () => {
@@ -178,6 +250,7 @@ describe("schedule_create with fire_at (one-shot)", () => {
     const result = await executeScheduleCreate(
       {
         name: "One-time reminder",
+        description: "Remind the user about a one-time event.",
         fire_at: futureDate,
         message: "Don't forget!",
       },
@@ -189,7 +262,33 @@ describe("schedule_create with fire_at (one-shot)", () => {
     expect(result.content).toContain("Type: one-shot");
     expect(result.content).toContain("Mode: execute");
     expect(result.content).toContain("One-time reminder");
+    expect(result.content).toContain(
+      "Description: Remind the user about a one-time event.",
+    );
     expect(result.content).toContain("Status: active");
+
+    const row = getRawDb()
+      .query("SELECT description FROM cron_jobs LIMIT 1")
+      .get() as { description: string };
+    expect(row.description).toBe("Remind the user about a one-time event.");
+  });
+
+  test("persists the creating conversation for one-shot schedules", async () => {
+    const futureDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const result = await executeScheduleCreate(
+      {
+        name: "One-shot source",
+        fire_at: futureDate,
+        message: "remember this source too",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    const row = getRawDb()
+      .query("SELECT created_from_conversation_id FROM cron_jobs LIMIT 1")
+      .get() as { created_from_conversation_id: string | null };
+    expect(row.created_from_conversation_id).toBe(ctx.conversationId);
   });
 
   test("rejects fire_at that is not valid ISO 8601", async () => {
@@ -313,6 +412,228 @@ describe("schedule_create with mode and routing", () => {
       .get() as { routing_intent: string; routing_hints_json: string };
     expect(row.routing_intent).toBe("single_channel");
     expect(JSON.parse(row.routing_hints_json)).toEqual({ channel: "slack" });
+  });
+});
+
+// ── schedule_create / schedule_update workflow mode ─────────────────
+
+describe("schedule tools — workflow mode", () => {
+  beforeEach(() => {
+    getRawDb().run("DELETE FROM cron_runs");
+    getRawDb().run("DELETE FROM cron_jobs");
+    setOverridesForTesting({});
+  });
+  afterAll(() => {
+    setOverridesForTesting({});
+  });
+
+  test("creates a workflow-mode schedule with workflow_name + workflow_args", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Morning triage",
+        expression: "0 8 * * *",
+        mode: "workflow",
+        workflow_name: "inbox-triage",
+        workflow_args: { limit: 50 },
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Mode: workflow");
+
+    const row = getRawDb()
+      .query(
+        "SELECT mode, workflow_name, workflow_args_json FROM cron_jobs LIMIT 1",
+      )
+      .get() as {
+      mode: string;
+      workflow_name: string;
+      workflow_args_json: string;
+    };
+    expect(row.mode).toBe("workflow");
+    expect(row.workflow_name).toBe("inbox-triage");
+    expect(JSON.parse(row.workflow_args_json)).toEqual({ limit: 50 });
+  });
+
+  test("rejects workflow mode without workflow_name", async () => {
+    const result = await executeScheduleCreate(
+      { name: "No wf name", expression: "0 8 * * *", mode: "workflow" },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("workflow_name is required");
+  });
+
+  test("update to workflow mode requires a workflow_name", async () => {
+    await executeScheduleCreate(
+      { name: "To workflow", expression: "0 9 * * *", message: "test" },
+      ctx,
+    );
+    const { id } = getRawDb()
+      .query("SELECT id FROM cron_jobs LIMIT 1")
+      .get() as { id: string };
+
+    const result = await executeScheduleUpdate(
+      { job_id: id, mode: "workflow" },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("workflow_name is required");
+  });
+
+  test("updates a schedule into workflow mode with a workflow_name", async () => {
+    await executeScheduleCreate(
+      { name: "To workflow ok", expression: "0 9 * * *", message: "test" },
+      ctx,
+    );
+    const { id } = getRawDb()
+      .query("SELECT id FROM cron_jobs LIMIT 1")
+      .get() as { id: string };
+
+    const result = await executeScheduleUpdate(
+      { job_id: id, mode: "workflow", workflow_name: "nightly-report" },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Mode: workflow");
+    const dbRow = getRawDb()
+      .query("SELECT mode, workflow_name FROM cron_jobs WHERE id = ?")
+      .get(id) as { mode: string; workflow_name: string };
+    expect(dbRow.mode).toBe("workflow");
+    expect(dbRow.workflow_name).toBe("nightly-report");
+  });
+});
+
+// ── schedule_create workflow capability manifest ────────────────────
+
+describe("schedule_create — workflow capability manifest", () => {
+  function makeFakeTool(name: string): Tool {
+    return {
+      name,
+      description: `Fake ${name}`,
+      category: "test",
+      defaultRiskLevel: RiskLevel.Low,
+      executionTarget: "sandbox",
+      input_schema: { type: "object", properties: {}, required: [] },
+      async execute() {
+        return { content: "ok", isError: false };
+      },
+    };
+  }
+
+  beforeEach(() => {
+    getRawDb().run("DELETE FROM cron_runs");
+    getRawDb().run("DELETE FROM cron_jobs");
+    setOverridesForTesting({});
+    // Deterministic registry so a declared side-effecting tool resolves.
+    __clearRegistryForTesting();
+    registerTool(makeFakeTool("file_write"));
+  });
+  afterAll(() => {
+    setOverridesForTesting({});
+    __resetRegistryForTesting();
+  });
+
+  test("persists a validated side-effecting manifest verbatim", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Nightly writeback",
+        expression: "0 2 * * *",
+        mode: "workflow",
+        workflow_name: "nightly-report",
+        capabilities: { tools: ["file_write"], persona: true },
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    const row = getRawDb()
+      .query("SELECT capabilities_json FROM cron_jobs LIMIT 1")
+      .get() as { capabilities_json: string };
+    expect(JSON.parse(row.capabilities_json)).toEqual({
+      tools: ["file_write"],
+      hostFunctions: [],
+      persona: true,
+    });
+  });
+
+  test("rejects a forbidden manifest at creation", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Recursion vector",
+        expression: "0 2 * * *",
+        mode: "workflow",
+        workflow_name: "nightly-report",
+        capabilities: { tools: ["run_workflow"] },
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("invalid capabilities manifest");
+    expect(getRawDb().query("SELECT id FROM cron_jobs").all()).toHaveLength(0);
+  });
+
+  test("rejects an unknown tool in the manifest at creation", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Bad tool",
+        expression: "0 2 * * *",
+        mode: "workflow",
+        workflow_name: "nightly-report",
+        capabilities: { tools: ["unknown_tool"] },
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("invalid capabilities manifest");
+    expect(getRawDb().query("SELECT id FROM cron_jobs").all()).toHaveLength(0);
+  });
+
+  test("a read-only manifest persists as a baseline grant", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Read-only run",
+        expression: "0 2 * * *",
+        mode: "workflow",
+        workflow_name: "nightly-report",
+        capabilities: { tools: [], hostFunctions: [], persona: false },
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    const row = getRawDb()
+      .query("SELECT capabilities_json FROM cron_jobs LIMIT 1")
+      .get() as { capabilities_json: string };
+    expect(JSON.parse(row.capabilities_json)).toEqual({
+      tools: [],
+      hostFunctions: [],
+      persona: false,
+    });
+  });
+
+  test("an absent manifest persists no capabilities", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "No manifest",
+        expression: "0 2 * * *",
+        mode: "workflow",
+        workflow_name: "nightly-report",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    const row = getRawDb()
+      .query("SELECT capabilities_json FROM cron_jobs LIMIT 1")
+      .get() as { capabilities_json: string | null };
+    expect(row.capabilities_json).toBeNull();
   });
 });
 
@@ -512,6 +833,7 @@ describe("schedule_list tool", () => {
     await executeScheduleCreate(
       {
         name: "Detail Job",
+        description: "Describe the detail job purpose.",
         expression: "30 14 * * *",
         message: "Afternoon check",
       },
@@ -526,6 +848,9 @@ describe("schedule_list tool", () => {
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Schedule: Detail Job");
+    expect(result.content).toContain(
+      "Description: Describe the detail job purpose.",
+    );
     expect(result.content).toContain("Every day at 2:30 PM");
     expect(result.content).toContain("Message: Afternoon check");
     expect(result.content).toContain("Enabled: true");
@@ -563,6 +888,7 @@ describe("schedule_list with one-shot schedules", () => {
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain("One-shot Event");
+    expect(result.content).toContain("Test schedule description");
     expect(result.content).toContain("one-shot");
     expect(result.content).toContain("fire at:");
     expect(result.content).toContain("active");
@@ -682,6 +1008,37 @@ describe("schedule_update tool", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Schedule updated successfully");
     expect(result.content).toContain("New Name");
+  });
+
+  test("updates the description of a schedule", async () => {
+    await executeScheduleCreate(
+      {
+        name: "Description update",
+        description: "Original purpose.",
+        expression: "0 9 * * *",
+        message: "test",
+      },
+      ctx,
+    );
+
+    const row = getRawDb().query("SELECT id FROM cron_jobs LIMIT 1").get() as {
+      id: string;
+    };
+    const result = await executeScheduleUpdate(
+      {
+        job_id: row.id,
+        description: "Updated purpose.",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Description: Updated purpose.");
+
+    const dbRow = getRawDb()
+      .query("SELECT description FROM cron_jobs WHERE id = ?")
+      .get(row.id) as { description: string };
+    expect(dbRow.description).toBe("Updated purpose.");
   });
 
   test("updates the cron expression", async () => {

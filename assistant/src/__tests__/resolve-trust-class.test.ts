@@ -1,7 +1,5 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-
-
 // ── Module mocks ─────────────────────────────────────────────────────
 
 let fakeHttpAuthDisabled = false;
@@ -13,8 +11,10 @@ mock.module("../config/env.js", () => ({
 
 // ── Real imports (after mocks) ───────────────────────────────────────
 
-import { resolveTrustClass } from "../daemon/conversation-tool-setup.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import {
+  resolveTrustClass,
+  type TrustContext,
+} from "../daemon/trust-context.js";
 
 afterAll(() => {
   mock.restore();

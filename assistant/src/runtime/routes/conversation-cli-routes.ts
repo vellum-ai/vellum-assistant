@@ -9,7 +9,7 @@
 import { v4 as uuid } from "uuid";
 import { z } from "zod";
 
-import { findConversation } from "../../daemon/conversation-store.js";
+import { findConversation } from "../../daemon/conversation-registry.js";
 import { clearAllConversations as clearAllActive } from "../../daemon/handlers/conversations.js";
 import { formatJson, formatMarkdown } from "../../export/formatter.js";
 import { ipcCall as ipcCallGateway } from "../../ipc/gateway-client.js";
@@ -44,7 +44,7 @@ function handleListCli({ body = {} }: RouteHandlerArgs) {
 
   const rows = listConversations(
     limit,
-    false,
+    "standard",
     0,
     includeArchived ? "all" : "active",
   );
@@ -128,7 +128,12 @@ function handleExportCli({ body = {} }: RouteHandlerArgs) {
   // behavior of letting `vellum export <prefix>` resolve an archived row.
   let conversation = getConversation(conversationId);
   if (!conversation) {
-    const all = listConversations(Number.MAX_SAFE_INTEGER, false, 0, "all");
+    const all = listConversations(
+      Number.MAX_SAFE_INTEGER,
+      "standard",
+      0,
+      "all",
+    );
     const match = all.find((c) => c.id.startsWith(conversationId!));
     if (match) {
       conversation = match;
@@ -157,8 +162,15 @@ function handleExportCli({ body = {} }: RouteHandlerArgs) {
 // clear (CLI)
 // ---------------------------------------------------------------------------
 
-async function handleClearCli(_args: RouteHandlerArgs) {
-  // Tear down in-memory conversation state before DB clear.
+async function handleClearCli({ headers = {} }: RouteHandlerArgs) {
+  const confirm = headers["x-confirm-destructive"];
+  if (confirm !== "clear-all-conversations") {
+    throw new BadRequestError(
+      "POST /v1/conversations/cli/clear permanently deletes ALL conversations, messages, and memory. " +
+        "To confirm, set header X-Confirm-Destructive: clear-all-conversations",
+    );
+  }
+
   const cleared = await clearAllActive();
   log.info(
     { cleared },
@@ -387,7 +399,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Clear all conversations (CLI)",
     description:
       "Tear down all active conversations and clear the database. " +
-      "The confirmation prompt is handled client-side by the CLI.",
+      "Requires X-Confirm-Destructive: clear-all-conversations.",
     tags: ["conversations"],
     responseBody: z.object({
       cleared: z.number().int(),

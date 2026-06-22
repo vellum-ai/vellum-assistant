@@ -11,7 +11,7 @@ mock.module("../util/logger.js", () => ({
 
 // Map conversationId → mock session so findConversation returns the right mock.
 const conversationMocks = new Map<string, unknown>();
-mock.module("../daemon/conversation-store.js", () => ({
+mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => conversationMocks.get(id),
 }));
 
@@ -240,6 +240,7 @@ describe("handleChannelDecision", () => {
     expect(mockConv.handleConfirmationResponse).toHaveBeenCalledWith(
       "req-1",
       "allow",
+      { decisionContext: undefined },
     );
   });
 
@@ -257,6 +258,7 @@ describe("handleChannelDecision", () => {
     expect(mockConv.handleConfirmationResponse).toHaveBeenCalledWith(
       "req-1",
       "deny",
+      { decisionContext: undefined },
     );
   });
 
@@ -277,6 +279,7 @@ describe("handleChannelDecision", () => {
     expect(newerMock.handleConfirmationResponse).toHaveBeenCalledWith(
       "req-newer",
       "allow",
+      { decisionContext: undefined },
     );
     expect(olderMock.handleConfirmationResponse).not.toHaveBeenCalled();
   });
@@ -293,7 +296,6 @@ describe("handleChannelDecision", () => {
     expect(result.applied).toBe(false);
     expect(result.requestId).toBeUndefined();
   });
-
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

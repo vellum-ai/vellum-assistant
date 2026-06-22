@@ -11,6 +11,42 @@ import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
+const traceEventKindSchema = z.enum([
+  "request_received",
+  "request_queued",
+  "request_dequeued",
+  "llm_call_started",
+  "llm_call_finished",
+  "assistant_message",
+  "tool_started",
+  "tool_permission_requested",
+  "tool_permission_decided",
+  "tool_finished",
+  "tool_failed",
+  "generation_handoff",
+  "message_complete",
+  "generation_cancelled",
+  "request_error",
+  "tool_profiling_summary",
+]);
+
+const traceEventRowSchema = z.object({
+  eventId: z.string(),
+  conversationId: z.string(),
+  requestId: z.string().optional(),
+  timestampMs: z.number(),
+  sequence: z.number(),
+  kind: traceEventKindSchema,
+  status: z.enum(["info", "success", "warning", "error"]).optional(),
+  summary: z.string(),
+  attributes: z
+    .record(
+      z.string(),
+      z.union([z.string(), z.number(), z.boolean(), z.null()]),
+    )
+    .optional(),
+});
+
 function handleListTraceEvents({ queryParams }: RouteHandlerArgs) {
   const conversationId = queryParams?.conversationId;
   if (!conversationId) {
@@ -69,7 +105,7 @@ export const ROUTES: RouteDefinition[] = [
       },
     ],
     responseBody: z.object({
-      events: z.array(z.unknown()).describe("Trace event objects"),
+      events: z.array(traceEventRowSchema).describe("Trace event objects"),
     }),
     handler: handleListTraceEvents,
   },

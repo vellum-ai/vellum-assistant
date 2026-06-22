@@ -4,6 +4,25 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 const mockIntegrationSummary = "Gmail ✓ | Slack ✓ | Twilio ✗ | Telegram ✗";
 let mockSidechainText = "";
+let sidechainCalls = 0;
+
+// In-memory stand-in for the memory_checkpoints table so the cache
+// round-trips without a real database.
+const checkpointStore = new Map<string, string>();
+let checkpointWritesShouldThrow = false;
+
+mock.module("../../memory/checkpoints.js", () => ({
+  getMemoryCheckpoint: (key: string) => checkpointStore.get(key) ?? null,
+  setMemoryCheckpoint: (key: string, value: string) => {
+    if (checkpointWritesShouldThrow) {
+      throw new Error("synthetic checkpoint write failure");
+    }
+    checkpointStore.set(key, value);
+  },
+  deleteMemoryCheckpoint: (key: string) => {
+    checkpointStore.delete(key);
+  },
+}));
 
 mock.module("../../schedule/integration-status.js", () => ({
   formatIntegrationSummary: async () => mockIntegrationSummary,
@@ -41,7 +60,10 @@ mock.module("../../prompts/system-prompt.js", () => ({
 }));
 
 mock.module("../../runtime/btw-sidechain.js", () => ({
-  runBtwSidechain: async () => ({ text: mockSidechainText }),
+  runBtwSidechain: async () => {
+    sidechainCalls++;
+    return { text: mockSidechainText };
+  },
 }));
 
 mock.module("../../runtime/assistant-event.js", () => ({
@@ -62,8 +84,10 @@ const {
 
 describe("getSuggestedPrompts", () => {
   afterEach(() => {
+    checkpointWritesShouldThrow = false;
     invalidateAssistantSuggestedPromptsCache();
     mockSidechainText = "";
+    sidechainCalls = 0;
   });
 
   test("returns empty array before cache is populated", async () => {
@@ -98,12 +122,17 @@ describe("getSuggestedPrompts", () => {
     expect(await getSuggestedPrompts()).toEqual([]);
   });
 
-  test("handles empty LLM response gracefully", async () => {
+  test("handles empty LLM response gracefully and caches the empty result", async () => {
     mockSidechainText = "";
 
-    await refreshAssistantSuggestedPrompts();
-    const prompts = await getSuggestedPrompts();
-    expect(prompts).toEqual([]);
+    expect(await refreshAssistantSuggestedPrompts()).toBe(false);
+    expect(await getSuggestedPrompts()).toEqual([]);
+
+    // The empty result is cached: the next refresh within the TTL must
+    // not hit the LLM again (prevents a generation loop on every Home
+    // feed GET while the model returns nothing usable).
+    expect(await refreshAssistantSuggestedPrompts()).toBe(false);
+    expect(sidechainCalls).toBe(1);
   });
 
   test("handles malformed LLM response gracefully", async () => {
@@ -112,5 +141,57 @@ describe("getSuggestedPrompts", () => {
     await refreshAssistantSuggestedPrompts();
     const prompts = await getSuggestedPrompts();
     expect(prompts).toEqual([]);
+  });
+
+  test("refresh reports whether new content was generated", async () => {
+    mockSidechainText = JSON.stringify([
+      { label: "Do stuff", prompt: "Do stuff for me" },
+    ]);
+
+    expect(await refreshAssistantSuggestedPrompts()).toBe(true);
+    // Cache is fresh — second refresh must not hit the LLM again.
+    expect(await refreshAssistantSuggestedPrompts()).toBe(false);
+    expect(sidechainCalls).toBe(1);
+  });
+
+  test("refresh reports false when the cache write fails", async () => {
+    mockSidechainText = JSON.stringify([
+      { label: "Do stuff", prompt: "Do stuff for me" },
+    ]);
+    checkpointWritesShouldThrow = true;
+
+    // The generation succeeded but nothing was cached, so the caller must
+    // not announce fresh content (clients would refetch into a cache miss
+    // and re-trigger generation on every Home load).
+    expect(await refreshAssistantSuggestedPrompts()).toBe(false);
+    expect(await getSuggestedPrompts()).toEqual([]);
+  });
+
+  test("refresh regenerates after invalidation", async () => {
+    mockSidechainText = JSON.stringify([
+      { label: "Do stuff", prompt: "Do stuff for me" },
+    ]);
+
+    await refreshAssistantSuggestedPrompts();
+    invalidateAssistantSuggestedPromptsCache();
+
+    expect(await refreshAssistantSuggestedPrompts()).toBe(true);
+    expect(sidechainCalls).toBe(2);
+  });
+
+  test("cache survives across module state (checkpoint-backed)", async () => {
+    mockSidechainText = JSON.stringify([
+      { label: "Persisted", prompt: "I came from the checkpoint store" },
+    ]);
+
+    await refreshAssistantSuggestedPrompts();
+    // Simulate the read path a fresh daemon would take: the prompts come
+    // back from the checkpoint store, not module-local memory.
+    expect(checkpointStore.get("home:suggested_prompts:json")).toContain(
+      "Persisted",
+    );
+    const prompts = await getSuggestedPrompts();
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]!.label).toBe("Persisted");
   });
 });

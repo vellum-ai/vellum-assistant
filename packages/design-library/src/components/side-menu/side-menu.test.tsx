@@ -117,6 +117,90 @@ describe("SideMenu collapsed rail content visibility", () => {
   });
 });
 
+describe("SideMenu collapsed-rail tooltips", () => {
+  test("plain collapsed item falls back to the native title", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        SideMenu,
+        { ariaLabel: "Primary", collapsed: true },
+        createElement(
+          SideMenu.Footer,
+          { key: "f" },
+          createElement(SideMenu.Item, {
+            key: "i",
+            icon: Globe,
+            label: "Preferences",
+          }),
+        ),
+      ),
+    );
+    expect(html).toContain('title="Preferences"');
+  });
+
+  test("showCollapsedTooltip drops the native title in favor of the styled tooltip", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        SideMenu,
+        { ariaLabel: "Primary", collapsed: true },
+        createElement(
+          SideMenu.Footer,
+          { key: "f" },
+          createElement(SideMenu.Item, {
+            key: "i",
+            icon: Globe,
+            label: "Preferences",
+            showCollapsedTooltip: true,
+          }),
+        ),
+      ),
+    );
+    // No native title, so the browser tooltip and the styled one don't stack
+    // into a double tooltip on hover.
+    expect(html).not.toContain('title="Preferences"');
+  });
+
+  test("custom tooltip text also replaces the native title", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        SideMenu,
+        { ariaLabel: "Primary", collapsed: true },
+        createElement(
+          SideMenu.Footer,
+          { key: "f" },
+          createElement(SideMenu.Item, {
+            key: "i",
+            icon: Globe,
+            label: "Preferences",
+            tooltip: "Open preferences",
+          }),
+        ),
+      ),
+    );
+    expect(html).not.toContain('title="Preferences"');
+  });
+
+  test("expanded rail ignores showCollapsedTooltip and keeps the visible label", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        SideMenu,
+        { ariaLabel: "Primary" },
+        createElement(
+          SideMenu.Body,
+          { key: "body" },
+          createElement(SideMenu.Item, {
+            key: "i",
+            icon: Globe,
+            label: "Preferences",
+            showCollapsedTooltip: true,
+          }),
+        ),
+      ),
+    );
+    expect(html).toContain("Preferences");
+    expect(html).not.toContain('title="Preferences"');
+  });
+});
+
 describe("SideMenu overlay always shows labels", () => {
   test("overlay ignores `collapsed` and renders labels + titles", () => {
     const html = renderToStaticMarkup(

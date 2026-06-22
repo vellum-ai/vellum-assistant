@@ -208,6 +208,73 @@ describe("task_progress surface compatibility", () => {
     );
   });
 
+  test("ui_show fills well-formed templateData for a stepless task_progress card", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    const result = await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      title: "Researching",
+      template: "task_progress",
+      data: {},
+    });
+
+    expect(result.isError).toBe(false);
+
+    const showMessage = sent.find(
+      (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
+    );
+    expect(showMessage).toBeDefined();
+    if (!showMessage || showMessage.surfaceType !== "card") return;
+
+    const card = showMessage.data as CardSurfaceData;
+    expect(card.template).toBe("task_progress");
+    const templateData = card.templateData as Record<string, unknown>;
+    expect(templateData.status).toBe("in_progress");
+    expect(templateData.title).toBe("Researching");
+    expect(templateData.steps).toEqual([]);
+  });
+
+  test("ui_show coerces invalid status and malformed steps on a task_progress card", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    const result = await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      title: "Building",
+      template: "task_progress",
+      templateData: {
+        status: "working",
+        steps: [
+          { label: "Valid step" },
+          { title: "Aliased label", status: "completed" },
+          { status: "in_progress" },
+          "not an object",
+        ],
+      },
+    });
+
+    expect(result.isError).toBe(false);
+
+    const showMessage = sent.find(
+      (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
+    );
+    expect(showMessage).toBeDefined();
+    if (!showMessage || showMessage.surfaceType !== "card") return;
+
+    const templateData = (showMessage.data as CardSurfaceData)
+      .templateData as Record<string, unknown>;
+    expect(templateData.status).toBe("in_progress");
+    const steps = templateData.steps as Array<Record<string, unknown>>;
+    expect(steps).toHaveLength(2);
+    expect(steps[0]).toEqual({ label: "Valid step", status: "pending" });
+    expect(steps[1]).toEqual({
+      title: "Aliased label",
+      label: "Aliased label",
+      status: "completed",
+    });
+  });
+
   test("ui_show normalizes top-level dynamic_page fields into data", async () => {
     const sent: ServerMessage[] = [];
     const ctx = makeContext(sent);

@@ -1,24 +1,22 @@
 import { readFileSync } from "node:fs";
 
-import { parseChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { bridgeCesApproval } from "../credential-execution/approval-bridge.js";
 import { isCesShellLockdownEnabled } from "../credential-execution/feature-gates.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { RiskLevel } from "../permissions/types.js";
-import { runPipeline } from "../plugins/pipeline.js";
-import { getMiddlewaresFor } from "../plugins/registry.js";
-import type {
-  ToolExecuteArgs,
-  ToolExecuteResult,
-  TurnContext,
-} from "../plugins/types.js";
-import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
+import { isUntrustedShellLockdownActive } from "../runtime/effective-capabilities.js";
 import { redactSensitiveFields } from "../security/redaction.js";
+import { getCesClient } from "../security/secure-keys.js";
 import { TokenExpiredError } from "../security/token-manager.js";
 import { PermissionDeniedError, ToolError } from "../util/errors.js";
 import { pathExists, safeStatSync } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
+import {
+  callerOwnsWorkflowRun,
+  manifestGrantsSideEffects,
+} from "../workflows/capabilities.js";
+import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { resolveExecutionTarget } from "./execution-target.js";
 import { executeWithTimeout, safeTimeoutMs } from "./execution-timeout.js";
 import { PermissionChecker } from "./permission-checker.js";
@@ -29,10 +27,11 @@ import { sandboxPolicy } from "./shared/filesystem/path-policy.js";
 import { MAX_FILE_SIZE_BYTES } from "./shared/filesystem/size-guard.js";
 import { ToolApprovalHandler } from "./tool-approval-handler.js";
 import { resolveToolInvocationAlias } from "./tool-name-aliases.js";
-import type {
-  ToolContext,
-  ToolExecutionResult,
-  ToolLifecycleEvent,
+import {
+  stringifyToolInput,
+  type ToolContext,
+  type ToolExecutionResult,
+  type ToolLifecycleEvent,
 } from "./types.js";
 
 const log = getLogger("tool-executor");
@@ -52,54 +51,10 @@ export class ToolExecutor {
     name: string,
     input: Record<string, unknown>,
     context: ToolContext,
-    /**
-     * Optional per-turn context threaded in by the agent loop. Production
-     * sites propagate the orchestrator-built `TurnContext` (real
-     * `conversationId`, trust cascade, attached `contextWindowManager`) so
-     * middleware registered on the `toolExecute` pipeline sees the same
-     * context every other pipeline slot uses. When omitted (CLI/test
-     * invocations that call `ToolExecutor.execute` directly), the executor
-     * synthesizes a fallback context from the {@link ToolContext}.
-     */
-    turnContext?: TurnContext,
   ): Promise<ToolExecutionResult> {
-    // Prefer the orchestrator-supplied `turnContext` so the pipeline sees
-    // the real conversation identity, per-turn trust, and context-window
-    // manager. When absent (CLI / test invocations that bypass the agent
-    // loop), synthesize a minimal context from the `ToolContext`.
-    const turnCtx: TurnContext = turnContext ?? {
-      requestId: context.requestId ?? "",
-      conversationId: context.conversationId,
-      turnIndex: 0,
-      trust: {
-        sourceChannel: parseChannelId(context.executionChannel) ?? "vellum",
-        trustClass: context.trustClass,
-      },
-    };
-
-    const middlewares = getMiddlewaresFor("toolExecute");
     const { name: executionName, input: executionInput } =
       resolveToolInvocationAlias(name, input, context.allowedToolNames);
-    const pipelineArgs: ToolExecuteArgs = {
-      name: executionName,
-      input: executionInput,
-      context,
-    };
-
-    // No pipeline-level timeout: `executeInternal` already wraps the real
-    // tool invocation in `executeWithTimeout`, which is the sole enforcer
-    // of the per-tool budget. The pipeline itself runs untimed so that
-    // upstream phases (permission checks, approval waits, middleware) are
-    // not racing the tool budget — only the actual tool call is. Runaway
-    // middleware is a plugin-health concern handled by per-plugin timeouts,
-    // not here.
-    return runPipeline<ToolExecuteArgs, ToolExecuteResult>(
-      "toolExecute",
-      middlewares,
-      (args) => this.executeInternal(args.name, args.input, args.context),
-      pipelineArgs,
-      turnCtx,
-    );
+    return this.executeInternal(executionName, executionInput, context);
   }
 
   private async executeInternal(
@@ -173,8 +128,10 @@ export class ToolExecutor {
       // skip this assignment entirely - defeating the lockdown.
       if (
         name === "host_bash" &&
-        isCesShellLockdownEnabled(getConfig()) &&
-        isUntrustedTrustClass(context.trustClass)
+        isUntrustedShellLockdownActive({
+          trustClass: context.trustClass,
+          lockdownEnabled: isCesShellLockdownEnabled(getConfig()),
+        })
       ) {
         context.forcePromptSideEffects = true;
       }
@@ -186,6 +143,70 @@ export class ToolExecutor {
       if (name === "manage_secure_command_tool") {
         context.forcePromptSideEffects = true;
         context.requireFreshApproval = true;
+      }
+
+      // A workflow run whose capability manifest grants side-effecting tools or
+      // host functions (beyond the read-only baseline) must prompt at LAUNCH.
+      // The manifest is authored and declared by the model, and the run's
+      // leaves execute granted tools DIRECTLY (no per-call permission check) -
+      // so the launch is the single point at which the user can consent to the
+      // grant, which would otherwise bypass the gate those tools hit when the
+      // main agent calls them. requireFreshApproval promotes the otherwise
+      // low-risk launch to an interactive prompt that cached grants/trust rules
+      // cannot silently bypass (run_workflow is not itself a SIDE_EFFECT tool,
+      // so forcePromptSideEffects would not fire — requireFreshApproval is the
+      // self-sufficient promotion). Read-only runs stay low-risk and silent.
+      if (
+        name === "run_workflow" &&
+        manifestGrantsSideEffects(input.capabilities)
+      ) {
+        context.requireFreshApproval = true;
+      }
+
+      // Creating a workflow-mode schedule whose capability manifest grants
+      // side-effecting tools or host functions persists that grant for an
+      // unattended future run — so the user consents to it at CREATION, the
+      // single interactive point in the flow (a triggered run later fires with
+      // no live conversation). Same rationale as run_workflow above: the
+      // manifest is model-declared and the eventual run's leaves execute granted
+      // tools directly (no per-call prompt). Read-only or absent manifests stay
+      // low-risk and silent. `schedule_create` is not a SIDE_EFFECT tool, so
+      // requireFreshApproval is the self-sufficient promotion.
+      if (
+        name === "schedule_create" &&
+        input.mode === "workflow" &&
+        manifestGrantsSideEffects(input.capabilities)
+      ) {
+        context.requireFreshApproval = true;
+      }
+
+      // Resuming a workflow whose STORED manifest granted side-effecting tools /
+      // host functions restarts unfinished leaves that perform those side
+      // effects. The original consent was given at LAUNCH (run_workflow above),
+      // but resume is reachable by any actor who can list or guess the run id —
+      // so re-require a fresh interactive approval when the target run's stored
+      // manifest grants side effects. The other manage_workflows actions
+      // (status/abort/list_runs) and resumes of read-only runs stay low-risk and
+      // silent. `manage_workflows` is not a SIDE_EFFECT tool, so (like
+      // run_workflow) requireFreshApproval is the self-sufficient promotion.
+      if (name === "manage_workflows" && input.action === "resume") {
+        const targetRunId =
+          typeof input.run_id === "string" ? input.run_id : undefined;
+        const targetRun = targetRunId
+          ? getWorkflowRunManager().status(targetRunId)
+          : null;
+        // Only promote to fresh approval for a run the caller actually OWNS. The
+        // tool hides others' runs as not-found, so prompting here for a
+        // non-owned run would both leak that the run exists and nag the guardian
+        // for a resume that will return not-found. Uses the same ownership scope
+        // the tool applies (callerOwnsWorkflowRun) so the gate and the tool agree.
+        if (
+          targetRun &&
+          callerOwnsWorkflowRun(targetRun, context) &&
+          manifestGrantsSideEffects(targetRun.capabilities)
+        ) {
+          context.requireFreshApproval = true;
+        }
       }
 
       // A consumed scoped grant is a complete authorization - skip the
@@ -259,7 +280,8 @@ export class ToolExecutor {
       // indicator, present the proposal to the guardian via the existing
       // confirmation transport, commit the decision to CES, and retry
       // the original tool invocation with the granted grantId.
-      if (execResult.cesApprovalRequired && !context.cesClient) {
+      const cesClient = getCesClient();
+      if (execResult.cesApprovalRequired && !cesClient) {
         const msg = `CES approval required for "${name}" but no CES client is available. Ensure the Credential Execution Service is running.`;
         const durationMs = Date.now() - startTime;
         emitLifecycleEvent(context, {
@@ -280,11 +302,11 @@ export class ToolExecutor {
         });
         return { content: msg, isError: true };
       }
-      if (execResult.cesApprovalRequired && context.cesClient) {
+      if (execResult.cesApprovalRequired && cesClient) {
         const bridgeResult = await bridgeCesApproval(
           execResult.cesApprovalRequired,
           this.prompter,
-          context.cesClient,
+          cesClient,
           {
             isInteractive: context.isInteractive,
             conversationId: context.conversationId,
@@ -360,6 +382,15 @@ export class ToolExecutor {
         }
       }
 
+      // Sized from the RAW pre-sanitization result — sensitive-output
+      // extraction below strips directives and swaps raw values for
+      // placeholders, which changes the content length, and telemetry must
+      // report the true payload size. Only the size leaves the device,
+      // never the payload. Stamped here (not centrally in
+      // emitLifecycleEvent) because only this site sees the content before
+      // extractAndSanitize() rewrites it.
+      const rawResultBytes = Buffer.byteLength(execResult.content, "utf8");
+
       // Sensitive output extraction: strip directives, replace raw values
       // with placeholders, and attach bindings for agent-loop substitution.
       const { sanitizedContent, bindings } = extractAndSanitize(
@@ -391,6 +422,7 @@ export class ToolExecutor {
         decision,
         durationMs,
         result: safeResult,
+        resultBytes: rawResultBytes,
       });
 
       // Merge risk metadata from the classifier assessment cache onto the
@@ -542,6 +574,25 @@ function emitLifecycleEvent(
     ...event,
     input: sanitizeToolInput(event.toolName, event.input),
   };
+
+  // Stamp telemetry fields centrally so every executed/error event carries
+  // them — including the pre-execution gate failures (aborted, disk
+  // pressure, unknown/inactive tool) emitted from checkPreExecutionGates(),
+  // whose emission sites don't have to remember to copy them. This is the
+  // sole writer of both fields. (`resultBytes` is the exception: it is
+  // stamped at the executed emission site in executeInternal, the only
+  // place that sees the result content before sensitive-output extraction
+  // rewrites it; the spread above passes it through untouched.)
+  if (sanitizedEvent.type === "executed" || sanitizedEvent.type === "error") {
+    sanitizedEvent.attribution = context.attribution ?? null;
+    // Sized from the RAW pre-sanitization input — redaction changes the
+    // serialized length, and telemetry must report the true payload size.
+    // Only the size leaves the device, never the payload.
+    sanitizedEvent.inputBytes = Buffer.byteLength(
+      stringifyToolInput(event.input),
+      "utf8",
+    );
+  }
 
   try {
     const maybePromise = handler(sanitizedEvent as ToolLifecycleEvent);

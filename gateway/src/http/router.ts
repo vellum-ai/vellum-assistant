@@ -12,6 +12,7 @@ import {
 // ---------------------------------------------------------------------------
 
 export type GetClientIp = () => string;
+export type GetRawPeerIp = () => string;
 
 /**
  * Auth strategy for a route:
@@ -64,11 +65,18 @@ export interface RouteDefinition {
     req: Request,
     params: RouteParams,
     getClientIp: GetClientIp,
+    getRawPeerIp: GetRawPeerIp,
   ) => Promise<Response> | Response;
 }
 
 export interface RouterDeps {
   authRateLimiter: AuthRateLimiter;
+  /**
+   * When true, a trusted reverse proxy is declared in front of the gateway, so
+   * the loopback auth fallback judges callers by the real client IP from
+   * X-Forwarded-For instead of the raw socket peer. Defaults to false.
+   */
+  trustProxy?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -91,7 +99,7 @@ export function createRouter(
   getClientIp: GetClientIp,
   server?: Server<unknown>,
 ) => Promise<Response | null> {
-  const { authRateLimiter } = deps;
+  const { authRateLimiter, trustProxy = false } = deps;
 
   return async (
     req: Request,
@@ -99,6 +107,9 @@ export function createRouter(
     getClientIp: GetClientIp,
     server?: Server<unknown>,
   ) => {
+    const getRawPeerIp: GetRawPeerIp = () =>
+      server?.requestIP(req)?.address ?? "unknown";
+
     for (const route of routes) {
       const matchResult = matchRoute(route, url.pathname, req.method);
       if (!matchResult) continue;
@@ -114,22 +125,34 @@ export function createRouter(
       switch (auth) {
         case "none":
         case "custom":
-          return route.handler(req, matchResult.params, getClientIp);
+          return route.handler(
+            req,
+            matchResult.params,
+            getClientIp,
+            getRawPeerIp,
+          );
 
         case "edge": {
           const { requireEdgeAuth } = createAuthMiddleware(
             authRateLimiter,
             getClientIp,
+            trustProxy,
           );
           const authError = await requireEdgeAuth(req, server);
           if (authError) return authError;
-          return route.handler(req, matchResult.params, getClientIp);
+          return route.handler(
+            req,
+            matchResult.params,
+            getClientIp,
+            getRawPeerIp,
+          );
         }
 
         case "edge-scoped": {
           const { requireEdgeAuthWithScope } = createAuthMiddleware(
             authRateLimiter,
             getClientIp,
+            trustProxy,
           );
           const authError = await requireEdgeAuthWithScope(
             req,
@@ -137,22 +160,34 @@ export function createRouter(
             server,
           );
           if (authError) return authError;
-          return route.handler(req, matchResult.params, getClientIp);
+          return route.handler(
+            req,
+            matchResult.params,
+            getClientIp,
+            getRawPeerIp,
+          );
         }
 
         case "edge-guardian": {
           const { requireEdgeGuardianAuth } = createAuthMiddleware(
             authRateLimiter,
             getClientIp,
+            trustProxy,
           );
           const authError = await requireEdgeGuardianAuth(req, server);
           if (authError) return authError;
-          return route.handler(req, matchResult.params, getClientIp);
+          return route.handler(
+            req,
+            matchResult.params,
+            getClientIp,
+            getRawPeerIp,
+          );
         }
 
         case "track-failures": {
           return wrapWithAuthFailureTracking(
-            (r) => route.handler(r, matchResult.params, getClientIp),
+            (r) =>
+              route.handler(r, matchResult.params, getClientIp, getRawPeerIp),
             authRateLimiter,
             getClientIp,
             route.trackFailureStatuses,

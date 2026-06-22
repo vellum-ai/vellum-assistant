@@ -2,14 +2,12 @@
  * Tests for `db-maintenance.ts` (orchestration) and the underlying
  * `db-async-query.ts` abstraction.
  *
- * The contract this PR locks in:
- *   1. `runDbMaintenance` runs `VACUUM` through the async abstraction
- *      — when the `sqlite3` CLI is available, that means a subprocess
- *      and the daemon's main event loop keeps ticking. (The structural
- *      anti-block assertion lives in
- *      `db-async-query.test.ts`; here we focus on orchestration.)
- *   2. The subprocess actually shrinks the on-disk page count when
- *      there's reclaimable space.
+ * The contract this locks in:
+ *   1. `runDbMaintenance` runs `PRAGMA optimize` through the async
+ *      abstraction and then truncates the WAL on the daemon connection.
+ *      It intentionally does NOT run a full VACUUM (which in WAL mode
+ *      inflates the WAL to ~the DB size and needs ~2x the DB size free).
+ *   2. The truncating checkpoint shrinks the WAL file once it has grown.
  *   3. `maybeRunDbMaintenance` is genuinely async — callers can `await`
  *      it and observe completion.
  *   4. The 24 h interval guard short-circuits a recent re-run.
@@ -17,7 +15,7 @@
  * The per-file temp workspace is set up by `test-preload.ts`; tests just
  * dynamic-import the DB modules so they resolve paths under that temp dir.
  */
-import { Database } from "bun:sqlite";
+import { existsSync, statSync } from "node:fs";
 import { beforeEach, describe, expect, test } from "bun:test";
 
 const { getSqlite } = await import("../db-connection.js");
@@ -25,18 +23,40 @@ const { initializeDb } = await import("../db-init.js");
 const { deleteMemoryCheckpoint, getMemoryCheckpoint } =
   await import("../checkpoints.js");
 const { maybeRunDbMaintenance } = await import("../db-maintenance.js");
+const { getLastUserMessageTimestamp } = await import("../conversation-crud.js");
 const { getDbPath } = await import("../../util/platform.js");
 
-initializeDb();
+await initializeDb();
 
 const MAINTENANCE_CHECKPOINT_KEY = "db_maintenance:last_run";
+const QUIET_PERIOD_MS = 3 * 60 * 60 * 1000;
 
 beforeEach(() => {
   deleteMemoryCheckpoint(MAINTENANCE_CHECKPOINT_KEY);
+  const sqlite = getSqlite();
+  sqlite.exec("DELETE FROM messages");
+  sqlite.exec("DELETE FROM conversations");
 });
 
-/** Inflate the test DB with bloat that VACUUM can reclaim. */
-function inflateAndDelete(byteTarget: number): void {
+/** Insert a message row directly, bypassing indexing/job side effects. */
+function insertMessage(role: "user" | "assistant", createdAt: number): void {
+  const sqlite = getSqlite();
+  const convId = `conv-${createdAt}-${role}`;
+  sqlite
+    .prepare(
+      "INSERT OR IGNORE INTO conversations (id, created_at, updated_at) VALUES (?, ?, ?)",
+    )
+    .run(convId, createdAt, createdAt);
+  sqlite
+    .prepare(
+      "INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)",
+    )
+    .run(`msg-${createdAt}-${role}`, convId, role, "[]", createdAt);
+}
+
+/** Pile writes into the WAL (without checkpointing) so a truncating
+ *  checkpoint has measurable work to do. */
+function inflateWal(byteTarget: number): void {
   const sqlite = getSqlite();
   sqlite.exec(
     "CREATE TABLE IF NOT EXISTS bloat (id INTEGER PRIMARY KEY, payload BLOB)",
@@ -51,11 +71,10 @@ function inflateAndDelete(byteTarget: number): void {
   for (let i = 0; i < rowsTarget; i++) {
     insert.run(payload);
   }
+  // Commit, but do not checkpoint — the frames stay in the WAL, leaving it at
+  // its high-water mark (a PASSIVE auto-checkpoint resets the WAL for reuse but
+  // never shrinks the file). Maintenance is what should truncate it.
   sqlite.exec("COMMIT");
-  sqlite.exec("DELETE FROM bloat");
-  sqlite.exec("DROP TABLE bloat");
-  // Force the WAL onto the main DB file so the bloat is visible on disk.
-  sqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)");
 }
 
 describe("maybeRunDbMaintenance", () => {
@@ -85,31 +104,132 @@ describe("maybeRunDbMaintenance", () => {
     expect(getMemoryCheckpoint(MAINTENANCE_CHECKPOINT_KEY)).toBe(String(now));
   });
 
-  test("VACUUM reclaims pages on a bloated DB", async () => {
+  test("truncates a bloated WAL", async () => {
     const sqlite = getSqlite();
     sqlite.exec("DROP TABLE IF EXISTS bloat");
     sqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)");
 
-    inflateAndDelete(8 * 1024 * 1024);
+    const walPath = `${getDbPath()}-wal`;
+    const walSize = (): number =>
+      existsSync(walPath) ? statSync(walPath).size : 0;
 
-    const dbPath = getDbPath();
-    // Read page_count from a fresh connection so we observe post-write
-    // ground truth without snapshot caching on the main test connection.
-    const readPageCount = (): number => {
-      const probe = new Database(dbPath, { readonly: true });
-      try {
-        return (
-          probe.query("PRAGMA page_count").get() as { page_count: number }
-        ).page_count;
-      } finally {
-        probe.close();
-      }
-    };
-    const pagesBefore = readPageCount();
+    inflateWal(4 * 1024 * 1024);
+    // Sanity: the writes really did grow the WAL on disk.
+    expect(walSize()).toBeGreaterThan(1024 * 1024);
 
     await maybeRunDbMaintenance();
 
-    const pagesAfter = readPageCount();
-    expect(pagesAfter).toBeLessThan(pagesBefore);
+    // Maintenance truncates the WAL back down (no VACUUM, so the data is folded
+    // into the main file rather than rebuilt).
+    expect(walSize()).toBeLessThan(64 * 1024);
+
+    sqlite.exec("DROP TABLE IF EXISTS bloat");
   }, 60_000);
+
+  test("defers maintenance while the last user message is within the quiet period", async () => {
+    /** Maintenance must not fire while the user is active, so a recent user
+     *  message keeps maintenance deferred. */
+    // GIVEN the user sent a message one minute ago (well within the quiet period)
+    const now = Date.now();
+    insertMessage("user", now - 60_000);
+
+    // WHEN maintenance is considered
+    await maybeRunDbMaintenance(now);
+
+    // THEN it is deferred — the checkpoint is never stamped, so a later idle
+    // tick will retry
+    expect(getMemoryCheckpoint(MAINTENANCE_CHECKPOINT_KEY)).toBeNull();
+  });
+
+  test("runs maintenance once the quiet period has elapsed since the last user message", async () => {
+    /** After the user has been quiet for longer than the quiet period,
+     *  maintenance is allowed to run. */
+    // GIVEN the last user message is older than the quiet period
+    const now = Date.now();
+    insertMessage("user", now - (QUIET_PERIOD_MS + 60_000));
+
+    // WHEN maintenance is considered
+    await maybeRunDbMaintenance(now);
+
+    // THEN it runs and stamps the checkpoint
+    expect(getMemoryCheckpoint(MAINTENANCE_CHECKPOINT_KEY)).toBe(String(now));
+  });
+
+  test("ignores quiet period when no user message exists", async () => {
+    /** A fresh install with no user messages must not be blocked from ever
+     *  running maintenance. */
+    // GIVEN no user messages exist
+    const now = Date.now();
+
+    // WHEN maintenance is considered
+    await maybeRunDbMaintenance(now);
+
+    // THEN it runs and stamps the checkpoint
+    expect(getMemoryCheckpoint(MAINTENANCE_CHECKPOINT_KEY)).toBe(String(now));
+  });
+
+  test("a recent assistant message does not keep maintenance deferred", async () => {
+    /** The gate keys off user activity only — background assistant writes
+     *  must not postpone maintenance indefinitely. */
+    // GIVEN the user has been quiet past the quiet period
+    const now = Date.now();
+    insertMessage("user", now - (QUIET_PERIOD_MS + 60_000));
+    // AND the assistant wrote a message recently
+    insertMessage("assistant", now - 60_000);
+
+    // WHEN maintenance is considered
+    await maybeRunDbMaintenance(now);
+
+    // THEN it still runs, since only user activity gates it
+    expect(getMemoryCheckpoint(MAINTENANCE_CHECKPOINT_KEY)).toBe(String(now));
+  });
+});
+
+describe("getLastUserMessageTimestamp", () => {
+  test("returns 0 when no user message exists", () => {
+    /** With only non-user rows present, there is no user activity to report. */
+    // GIVEN only an assistant message exists
+    insertMessage("assistant", Date.now());
+
+    // WHEN the last user message timestamp is read
+    const result = getLastUserMessageTimestamp();
+
+    // THEN it reports 0 (no user activity)
+    expect(result).toBe(0);
+  });
+
+  test("returns the most recent user message by timestamp, ignoring assistant rows", () => {
+    /** The lookup reports the newest user-message timestamp and must skip
+     *  non-user rows even when they are more recent. */
+    // GIVEN two user messages and a newer assistant message
+    const base = Date.now();
+    insertMessage("user", base - 10_000);
+    insertMessage("user", base - 5_000);
+    insertMessage("assistant", base);
+
+    // WHEN the last user message timestamp is read
+    const result = getLastUserMessageTimestamp();
+
+    // THEN it returns the most recent user message, not the assistant row
+    expect(result).toBe(base - 5_000);
+  });
+
+  test("reports the newest user timestamp even when an older turn was inserted later", () => {
+    /** `forkConversation` copies a parent's user turns into the fork with
+     *  their original (older) `created_at` but fresh row ids, so insertion
+     *  order can place an old turn last. The lookup must key off `created_at`
+     *  so a fork can't make recent activity look stale and prematurely
+     *  un-gate maintenance. */
+    // GIVEN a recent user message
+    const base = Date.now();
+    insertMessage("user", base - 5_000);
+    // AND a later insert of an older user turn (as a fork copy would produce)
+    insertMessage("user", base - 60 * 60 * 1000);
+
+    // WHEN the last user message timestamp is read
+    const result = getLastUserMessageTimestamp();
+
+    // THEN it reports the genuinely most recent turn, not the last-inserted one
+    expect(result).toBe(base - 5_000);
+  });
 });

@@ -174,7 +174,7 @@ import { LLMSchema } from "../config/schemas/llm.js";
 import {
   clearConversations,
   setConversation,
-} from "../daemon/conversation-store.js";
+} from "../daemon/conversation-registry.js";
 import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
 import { SubagentManager } from "../subagent/manager.js";
 

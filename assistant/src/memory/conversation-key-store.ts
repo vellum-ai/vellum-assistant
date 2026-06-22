@@ -135,7 +135,16 @@ export function resolveConversationId(idOrKey: string): string | null {
  */
 export function getOrCreateConversation(
   conversationKey: string,
-  opts?: { conversationType?: "standard" },
+  opts?: {
+    conversationType?: "standard";
+    /**
+     * Caller-supplied title for the conversation, used only when this call
+     * actually creates the row. Treated as a user-set title (`isAutoTitle = 0`)
+     * so the async LLM title generator's safe-overwrite check leaves it
+     * untouched. Ignored when the conversation already exists.
+     */
+    title?: string;
+  },
 ): {
   conversationId: string;
   conversationType: string;
@@ -205,13 +214,19 @@ export function getOrCreateConversation(
 
     const now = Date.now();
     const conversationId = uuid();
-    const title = GENERATING_TITLE;
+    const customTitle = opts?.title?.trim();
+    const title = customTitle || GENERATING_TITLE;
     const memoryScopeId = "default";
 
     tx.insert(conversations)
       .values({
         id: conversationId,
         title,
+        // A caller-supplied title is user-set: mark it non-auto (0) so the
+        // async LLM title generator's `canReplaceTitle` check won't overwrite
+        // it. Without one, omit the column so it takes its default
+        // (AUTO_TITLE_LLM) and follows the auto-generated placeholder flow.
+        ...(customTitle ? { isAutoTitle: 0 } : {}),
         createdAt: now,
         updatedAt: now,
         totalInputTokens: 0,

@@ -82,6 +82,7 @@ export function normalizePriorAssistants(assistants: string[]): string[] {
 
 export interface NormalizedOnboarding {
   preferredName?: string;
+  occupation?: string;
   commonWork: string[];
   dailyTools: string[];
   tone?: string;
@@ -123,6 +124,7 @@ export function normalizeOnboardingContext(
 ): NormalizedOnboarding {
   return {
     preferredName: ctx.userName?.trim() || undefined,
+    occupation: ctx.occupation?.trim() || undefined,
     commonWork: normalizeTasks(ctx.tasks),
     dailyTools: normalizeTools(ctx.tools),
     tone: ctx.tone,

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { formatCliCommand, renderReportPage } from "../report-html";
 import type {
+  ReportProfileInSession,
   ReportRunDetail,
   ReportSessionDetail,
   ReportSessionSummary,
@@ -74,7 +75,8 @@ const testInSession: ReportTestInSession = {
       scoreTotal: 1,
       metricCount: 1,
       metrics: [{ name: "accuracy", score: 1 }],
-      transcriptTurns: 2,
+      assistantResponses: 1,
+      runtimeMs: 1000,
       totalCostUsd: 0.001,
     },
     {
@@ -84,8 +86,34 @@ const testInSession: ReportTestInSession = {
       scoreTotal: 0.5,
       metricCount: 1,
       metrics: [{ name: "accuracy", score: 0.5 }],
-      transcriptTurns: 2,
+      assistantResponses: 3,
+      runtimeMs: 173000,
       totalCostUsd: 0.0012,
+    },
+  ],
+};
+
+const profileInSession: ReportProfileInSession = {
+  sessionId: "session-1",
+  sessionLabel: "first-comparison",
+  profileId: "p1",
+  info: {
+    species: "vellum",
+    description: "The bare baseline profile, no plugins.",
+    setup: ["assistant plugins install simple-memory"],
+  },
+  scoreTotal: 1,
+  tests: [
+    {
+      testId: "t1",
+      runId: "run-p1",
+      status: "completed",
+      scoreTotal: 1,
+      metricCount: 1,
+      metrics: [{ name: "accuracy", score: 1 }],
+      assistantResponses: 1,
+      runtimeMs: 1000,
+      totalCostUsd: 0.001,
     },
   ],
 };
@@ -101,7 +129,8 @@ const executionDetail: ReportRunDetail = {
   completedAt: "2026-05-15T12:00:01.000Z",
   metricCount: 1,
   scoreTotal: 1,
-  transcriptTurns: 1,
+  assistantResponses: 1,
+  runtimeMs: 1000,
   assistantEventCount: 1,
   simulatorMessageCount: 1,
   totalInputTokens: 10,
@@ -133,7 +162,13 @@ const executionDetail: ReportRunDetail = {
     totalCostUsd: 0.001,
   },
   assistantEvents: [
-    { message: { type: "assistant_text_delta", text: "hello" } },
+    {
+      message: {
+        type: "assistant_text_delta",
+        text: "Remembered <b>the date</b>",
+      },
+      emittedAt: "2026-05-15T12:00:01.000Z",
+    },
   ],
   ingestAssistantEvents: [],
   simulatorMessages: [{ content: "hello" }],
@@ -177,18 +212,50 @@ describe("report html", () => {
     expect(html).toContain("p2");
     // Tests list points at the test-in-session route.
     expect(html).toContain('href="/sessions/session-1/tests/t1"');
+    // Profile cards drill into the per-profile page.
+    expect(html).toContain('href="/sessions/session-1/profiles/p1"');
+    expect(html).toContain('href="/sessions/session-1/profiles/p2"');
     // Back navigation to the index.
     expect(html).toContain('href="/"');
   });
 
-  test("test-in-session page renders profile rows and a metric breakdown", () => {
+  test("profile-in-session page renders the info panel and per-test scores", () => {
+    // GIVEN a profile drill-in with a manifest and one test
+    // WHEN we render the profile page
+    const html = renderReportPage({
+      kind: "profile",
+      profile: profileInSession,
+    });
+    // THEN the info panel surfaces the manifest fields
+    expect(html).toContain("Species");
+    expect(html).toContain("The bare baseline profile, no plugins.");
+    expect(html).toContain("assistant plugins install simple-memory");
+    // AND the test scores link to the execution page for this profile
+    expect(html).toContain("Test scores");
+    expect(html).toContain('href="/sessions/session-1/tests/t1/profiles/p1"');
+    // AND breadcrumbs go back to the session
+    expect(html).toContain('href="/sessions/session-1"');
+  });
+
+  test("test-in-session page renders profile rows with response counts and runtime, and no metric breakdown", () => {
+    // WHEN the test comparison page renders the two profile rows
     const html = renderReportPage({ kind: "test", test: testInSession });
+
+    // THEN it shows the Profiles table linking to each profile's drill-in
     expect(html).toContain("Profiles");
-    expect(html).toContain("Metric breakdown");
     expect(html).toContain('href="/sessions/session-1/tests/t1/profiles/p1"');
     expect(html).toContain('href="/sessions/session-1/tests/t1/profiles/p2"');
-    expect(html).toContain("accuracy");
-    // Breadcrumbs back to session.
+
+    // AND it surfaces a Responses column (folded assistant replies) and a
+    // formatted Runtime column rather than raw transcript-entry counts
+    expect(html).toContain("Responses");
+    expect(html).toContain("Runtime");
+    expect(html).toContain("2m 53s");
+
+    // AND the standalone per-metric breakdown section is gone
+    expect(html).not.toContain("Metric breakdown");
+
+    // AND breadcrumbs link back to the session
     expect(html).toContain('href="/sessions/session-1"');
   });
 
@@ -219,10 +286,10 @@ describe("report html", () => {
       },
     });
     // The Memory-formation section ships ingest events; the Container-logs
-    // section (question-turn) still ships the original "hello" event. Both
-    // strings appear, neither leaks across.
+    // section (question-turn) still ships the original question-turn event.
+    // Both strings appear, neither leaks across.
     expect(html).toContain("indexing-session-1");
-    expect(html).toContain("hello");
+    expect(html).toContain("Remembered");
     expect(html).not.toContain("No memory-formation events recorded.");
   });
 
@@ -241,6 +308,160 @@ describe("report html", () => {
     // Breadcrumbs to test and session.
     expect(html).toContain('href="/sessions/session-1/tests/t1"');
     expect(html).toContain('href="/sessions/session-1"');
+  });
+
+  test("execution page renders assistant text as Markdown", () => {
+    // GIVEN an assistant answer streamed as Markdown (a bold lead + a list)
+    const run: ReportRunDetail = {
+      ...executionDetail,
+      transcript: [
+        {
+          role: "assistant",
+          content: "**Labor** is the top category:\n\n- Labor\n- Food",
+          emittedAt: "2026-05-15T12:00:01.000Z",
+        },
+      ],
+      assistantEvents: [
+        {
+          message: {
+            type: "assistant_text_delta",
+            text: "**Labor** is the top category:\n\n- Labor\n- Food",
+          },
+          emittedAt: "2026-05-15T12:00:01.000Z",
+        },
+      ],
+    };
+
+    // WHEN the execution page renders
+    const html = renderReportPage({ kind: "execution", run });
+
+    // THEN the Markdown is rendered to real elements, not shown as raw syntax
+    expect(html).toContain('<div class="md">');
+    expect(html).toContain("<strong>Labor</strong>");
+    expect(html).toContain("<li>Labor</li>");
+    // AND the rendered transcript block carries no raw Markdown markers (the
+    // raw event log legitimately still echoes the source delta verbatim)
+    const md = html.slice(
+      html.indexOf('<div class="md">'),
+      html.indexOf("</div>", html.indexOf('<div class="md">')),
+    );
+    expect(md).not.toContain("**Labor**");
+  });
+
+  test("execution page escapes raw HTML in assistant Markdown", () => {
+    // GIVEN an assistant answer containing raw HTML
+    const run: ReportRunDetail = {
+      ...executionDetail,
+      transcript: [
+        {
+          role: "assistant",
+          content: "<img src=x onerror=alert(1)> done",
+          emittedAt: "2026-05-15T12:00:01.000Z",
+        },
+      ],
+      assistantEvents: [
+        {
+          message: {
+            type: "assistant_text_delta",
+            text: "<img src=x onerror=alert(1)> done",
+          },
+          emittedAt: "2026-05-15T12:00:01.000Z",
+        },
+      ],
+    };
+
+    // WHEN the execution page renders
+    const html = renderReportPage({ kind: "execution", run });
+
+    // THEN the raw tag is escaped, never emitted as live markup
+    expect(html).toContain("&lt;img");
+    expect(html).not.toMatch(/<img\b/i);
+  });
+
+  test("execution page renders Markdown images as inert links, not auto-loading <img>", () => {
+    // GIVEN an assistant answer with a Markdown image pointing at an external URL
+    const run: ReportRunDetail = {
+      ...executionDetail,
+      transcript: [
+        {
+          role: "assistant",
+          content: "Here it is: ![the chart](https://tracker.example/p.png)",
+          emittedAt: "2026-05-15T12:00:01.000Z",
+        },
+      ],
+      assistantEvents: [
+        {
+          message: {
+            type: "assistant_text_delta",
+            text: "Here it is: ![the chart](https://tracker.example/p.png)",
+          },
+          emittedAt: "2026-05-15T12:00:01.000Z",
+        },
+      ],
+    };
+
+    // WHEN the execution page renders
+    const html = renderReportPage({ kind: "execution", run });
+
+    // THEN the image becomes a link carrying the alt text and destination
+    expect(html).toContain(
+      '<a class="md-image-link" href="https://tracker.example/p.png"',
+    );
+    expect(html).toContain(">the chart</a>");
+    // AND no <img> element is emitted, so opening the report fetches nothing
+    expect(html).not.toMatch(/<img\b/i);
+  });
+
+  test("execution page stamps each turn with its end time at the foot", () => {
+    // GIVEN an answer whose deltas stream over a span (first 12:00:01, last 12:00:09)
+    const run: ReportRunDetail = {
+      ...executionDetail,
+      transcript: [],
+      simulatorMessages: [{ content: "which category?" }],
+      assistantEvents: [
+        {
+          message: { type: "assistant_text_delta", text: "Labor " },
+          emittedAt: "2026-05-15T12:00:01.000Z",
+        },
+        {
+          message: { type: "assistant_text_delta", text: "leads." },
+          emittedAt: "2026-05-15T12:00:09.000Z",
+        },
+      ],
+    };
+
+    // WHEN the execution page renders
+    const html = renderReportPage({ kind: "execution", run });
+
+    // THEN the turn's foot timestamp reads the LAST delta (12:00:09), not the
+    // first (12:00:01) — closing the gap where a long answer showed its start
+    expect(html).toContain('<div class="turn-time">12:00:09Z</div>');
+  });
+
+  test("execution page exposes per-chunk run time with a start-time tooltip", () => {
+    // GIVEN a streamed answer spanning 8 seconds
+    const run: ReportRunDetail = {
+      ...executionDetail,
+      transcript: [],
+      assistantEvents: [
+        {
+          message: { type: "assistant_text_delta", text: "Labor " },
+          emittedAt: "2026-05-15T12:00:01.000Z",
+        },
+        {
+          message: { type: "assistant_text_delta", text: "leads." },
+          emittedAt: "2026-05-15T12:00:09.000Z",
+        },
+      ],
+    };
+
+    // WHEN the execution page renders
+    const html = renderReportPage({ kind: "execution", run });
+
+    // THEN the chunk shows its 8.0s run time, with the start time in its title
+    expect(html).toContain('class="chunk-duration"');
+    expect(html).toContain("8.0s");
+    expect(html).toContain('title="started 12:00:01Z"');
   });
 
   test("not-found page links back to the index", () => {
@@ -264,7 +485,9 @@ describe("report html", () => {
       kind: "execution",
       run: executionDetail,
     });
-    expect(executionHtml).toContain(">100.00%</div>");
+    // The execution page renders the aggregate score in the Score tab pill
+    // and each metric's score in the report card — both as percentages.
+    expect(executionHtml).toContain(">100.00%</span>");
   });
 
   test("metrics with unit: 'raw' opt out of percent rendering", () => {
@@ -337,6 +560,179 @@ describe("report html", () => {
     expect(html).not.toContain("Cost unavailable");
   });
 
+  test("execution page Logs pill shows the total log size, not a count", () => {
+    // GIVEN a run with a subprocess log of known size
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        subprocessLogs: [
+          { name: "subprocess-hatch.log", content: "x".repeat(2048) },
+        ],
+      },
+    });
+
+    // THEN the Logs pill reports a byte size (KB), never a bare block count
+    const logsPill = html.slice(html.indexOf(">Logs<"));
+    expect(logsPill).toContain("KB");
+  });
+
+  test("execution page renders a per-request cost breakdown with per-row cost", () => {
+    // GIVEN two priced Anthropic requests of different sizes
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        usage: {
+          requests: [
+            {
+              provider: "anthropic",
+              model: "claude-haiku-4-5",
+              input_tokens: 1000,
+              output_tokens: 1000,
+            },
+            {
+              provider: "anthropic",
+              model: "claude-sonnet-4-6",
+              input_tokens: 1_000_000,
+              output_tokens: 1_000_000,
+            },
+          ],
+          costStatus: "ok",
+        },
+      },
+    });
+
+    // THEN the breakdown lists each model and its individually-priced cost
+    expect(html).toContain("Per-request breakdown");
+    expect(html).toContain("claude-haiku-4-5");
+    expect(html).toContain("claude-sonnet-4-6");
+    // sonnet-4-6 at 1M in + 1M out = $3 + $15 = $18.000000
+    expect(html).toContain("$18.000000");
+  });
+
+  test("per-request breakdown is ordered newest-first with timestamps and chronological indices", () => {
+    // GIVEN two requests recorded five seconds apart, stored in chronological
+    // (oldest-first) order as the recorder appends them
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        usage: {
+          requests: [
+            {
+              provider: "anthropic",
+              model: "model-oldest",
+              input_tokens: 10,
+              output_tokens: 10,
+              recorded_at: "2026-06-13T10:00:00Z",
+            },
+            {
+              provider: "anthropic",
+              model: "model-newest",
+              input_tokens: 20,
+              output_tokens: 20,
+              recorded_at: "2026-06-13T10:00:05Z",
+            },
+          ],
+          costStatus: "ok",
+        },
+      },
+    });
+
+    // THEN the table carries a Time column
+    expect(html).toContain("<th>Time</th>");
+    // AND both recorded times render as compact UTC time-of-day
+    expect(html).toContain("10:00:05Z");
+    expect(html).toContain("10:00:00Z");
+    // AND the newest request is rendered above the oldest
+    expect(html.indexOf("model-newest")).toBeLessThan(
+      html.indexOf("model-oldest"),
+    );
+    // AND each row keeps its chronological index, so the newest (top) row
+    // carries the higher index — the `#` column counts down top-to-bottom
+    expect(html.indexOf("<td>1</td>")).toBeLessThan(html.indexOf("<td>0</td>"));
+  });
+
+  test("per-request breakdown shows each request's round-trip latency next to its time", () => {
+    // GIVEN two requests: one with a multi-second latency, one sub-second, and
+    // one with no recorded latency at all
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        usage: {
+          requests: [
+            {
+              provider: "anthropic",
+              model: "model-slow",
+              input_tokens: 10,
+              output_tokens: 10,
+              recorded_at: "2026-06-13T10:00:00Z",
+              duration_ms: 2340,
+            },
+            {
+              provider: "anthropic",
+              model: "model-fast",
+              input_tokens: 20,
+              output_tokens: 20,
+              recorded_at: "2026-06-13T10:00:05Z",
+              duration_ms: 840,
+            },
+            {
+              provider: "anthropic",
+              model: "model-untimed",
+              input_tokens: 5,
+              output_tokens: 5,
+              recorded_at: "2026-06-13T10:00:10Z",
+            },
+          ],
+          costStatus: "ok",
+        },
+      },
+    });
+
+    // THEN seconds-scale latency renders as one-decimal seconds, sub-second as
+    // whole ms, and a missing latency falls back to an em dash
+    expect(html).toContain("(2.3s)");
+    expect(html).toContain("(840ms)");
+    expect(html).toContain("(—)");
+  });
+
+  test("execution page inlines captured request/response payloads, noting truncation", () => {
+    // GIVEN a request whose response payload was truncated by the recorder
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        usage: {
+          requests: [
+            {
+              provider: "anthropic",
+              model: "claude-haiku-4-5",
+              input_tokens: 10,
+              output_tokens: 10,
+              request_body: '{"messages":[]}',
+              request_body_bytes: 15,
+              request_body_truncated: false,
+              response_body: "STREAM-CHUNK-PREFIX",
+              response_body_bytes: 100000,
+              response_body_truncated: true,
+            },
+          ],
+          costStatus: "ok",
+        },
+      },
+    });
+
+    // THEN both payloads render and the truncated one notes the full size
+    expect(html).toContain("Request &amp; response payloads");
+    // React escapes double quotes in text content (&quot;).
+    expect(html).toContain("{&quot;messages&quot;:[]}");
+    expect(html).toContain("STREAM-CHUNK-PREFIX");
+    expect(html).toContain("showing first");
+  });
+
   // -- no-silent-stuck UI surfaces -------------------------------------------
 
   test("index page renders a Delete-all form only when there are sessions", () => {
@@ -376,6 +772,95 @@ describe("report html", () => {
       expect(html).not.toMatch(/\sonClick=/i);
       expect(html).not.toMatch(/\sonSubmit=/i);
     }
+  });
+
+  test("a dynamic_page surface renders as a sandboxed iframe, not raw JSON", () => {
+    // GIVEN an assistant stream that shows a dynamic_page surface whose html
+    // touches localStorage during init (as generated apps commonly do)
+    const pageHtml =
+      "<!DOCTYPE html><html><head><title>Calc</title></head><body>" +
+      '<script>localStorage.setItem("k", "v")</script>' +
+      '<div id="app">Calculator</div></body></html>';
+
+    // WHEN we render the execution page
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        transcript: [
+          {
+            role: "simulator",
+            content: "build me a calculator",
+            emittedAt: "2026-05-15T12:00:00.000Z",
+          },
+        ],
+        assistantEvents: [
+          {
+            message: {
+              type: "ui_surface_show",
+              surfaceType: "dynamic_page",
+              title: "Calculator",
+              data: { html: pageHtml, height: 520 },
+            },
+            emittedAt: "2026-05-15T12:00:01.000Z",
+          },
+        ],
+      },
+    });
+
+    // THEN the surface renders in an iframe sandboxed without same-origin, so
+    // its scripts run but can't reach the report's origin, cookies, or storage
+    expect(html).toMatch(/<iframe\b/i);
+    expect(html).toContain('sandbox="allow-scripts"');
+    expect(html).not.toContain("allow-same-origin");
+    // AND the page html rides in the (HTML-escaped) srcDoc attribute, so no
+    // live <script> leaks into the report document itself
+    expect(html).toMatch(/srcdoc=/i);
+    expect(html).not.toMatch(/<script\b/i);
+    // AND a storage polyfill is injected so sandboxed pages that touch
+    // localStorage during init still render (sessionStorage appears only here)
+    expect(html).toContain("sessionStorage");
+    // AND a no-op window.vellum bridge is injected so app-backed pages that
+    // call the host APIs during init don't throw in the offline report
+    expect(html).toContain("window.vellum");
+    expect(html).toContain("sendAction");
+    // AND the numeric height hint sizes the frame
+    expect(html).toContain("520px");
+    // AND the raw payload stays available under a collapsible
+    expect(html).toContain("Surface data");
+  });
+
+  test("non-dynamic_page surfaces still render their payload as JSON", () => {
+    // GIVEN an assistant stream that shows a non-dynamic_page surface
+    // WHEN we render the execution page
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        transcript: [
+          {
+            role: "simulator",
+            content: "hi",
+            emittedAt: "2026-05-15T12:00:00.000Z",
+          },
+        ],
+        assistantEvents: [
+          {
+            message: {
+              type: "ui_surface_show",
+              surfaceType: "card",
+              title: "Limit reached",
+              data: { body: "Continue?" },
+            },
+            emittedAt: "2026-05-15T12:00:01.000Z",
+          },
+        ],
+      },
+    });
+
+    // THEN the card surface keeps the JSON fallback rather than an iframe
+    expect(html).not.toMatch(/<iframe\b/i);
+    expect(html).toContain("Continue?");
   });
 
   test("execution page inlines docker forensics in the same block shape as subprocess logs", () => {

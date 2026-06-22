@@ -11,6 +11,8 @@
  * DELETE /v1/conversations/:id            — delete a single conversation
  * POST   /v1/conversations/:id/archive    — archive a conversation
  * POST   /v1/conversations/:id/unarchive  — restore an archived conversation
+ * POST   /v1/conversations/archive/bulk   — archive multiple conversations
+ * POST   /v1/conversations/:id/surface    — promote to / demote from Recents
  * POST   /v1/conversations/:id/cancel     — cancel generation
  * POST   /v1/conversations/:id/undo       — undo last message
  * POST   /v1/conversations/:id/regenerate — regenerate last assistant response
@@ -24,6 +26,7 @@ import {
   cancelGeneration,
   clearAllConversations,
   regenerateResponse,
+  resolveMetaSlashCommand,
   switchConversation,
   undoLastMessage,
 } from "../../daemon/handlers/conversations.js";
@@ -36,6 +39,7 @@ import {
   deleteConversation,
   forkConversation as forkConversationInStore,
   getConversation,
+  setConversationSurfaced,
   unarchiveConversation,
   updateConversationTitle,
   wipeConversation,
@@ -90,11 +94,26 @@ function cancelScheduleIfLast(conversationId: string): void {
 function handleCreateConversation({ body = {}, headers }: RouteHandlerArgs) {
   const conversationKey =
     (body.conversationKey as string | undefined) ?? crypto.randomUUID();
+  // The shared route adapter does not runtime-validate the body against the
+  // Zod requestBody (it's codegen-only), so guard the type before trimming —
+  // a malformed `{ title: 123 }` would otherwise throw on `.trim()` and 500.
+  if (body.title !== undefined && typeof body.title !== "string") {
+    throw new BadRequestError("title must be a string");
+  }
+  const customTitle = body.title?.trim() || undefined;
   const result = getOrCreateConversation(conversationKey, {
     conversationType: "standard",
   });
   if (result.created) {
-    updateConversationTitle(result.conversationId, "New Conversation");
+    // A caller-supplied title is user-set: persist it with isAutoTitle = 0 so
+    // the async LLM titler's safe-overwrite check leaves it untouched. Without
+    // one, fall back to the neutral "New Conversation" placeholder, which stays
+    // replaceable by the auto-titler once messages arrive.
+    if (customTitle) {
+      updateConversationTitle(result.conversationId, customTitle, 0);
+    } else {
+      updateConversationTitle(result.conversationId, "New Conversation");
+    }
     publishConversationListAndMetadataChanged(
       "created",
       result.conversationId,
@@ -360,6 +379,78 @@ function handleUnarchiveConversation({
   return { ok: true, conversationId: resolvedId };
 }
 
+function handleArchiveConversationsBulk({
+  body = {},
+  headers,
+}: RouteHandlerArgs) {
+  const rawIds = body.conversationIds as string[] | undefined;
+  if (!Array.isArray(rawIds) || rawIds.length === 0) {
+    throw new BadRequestError("conversationIds must be a non-empty array");
+  }
+
+  const originClientId = headers?.["x-vellum-client-id"]?.trim() || undefined;
+  const archivedIds: string[] = [];
+
+  for (const rawId of rawIds) {
+    try {
+      const conversationId = resolveOrThrow(rawId);
+      const archived = archiveConversation(conversationId);
+      if (archived) {
+        archivedIds.push(conversationId);
+      }
+    } catch (err) {
+      log.error(
+        { err, conversationId: rawId },
+        "POST /v1/conversations/archive/bulk: failed for conversation",
+      );
+      // Best-effort: continue with remaining conversations.
+    }
+  }
+
+  if (archivedIds.length > 0) {
+    publishConversationListChanged("reordered", originClientId);
+  }
+
+  return { ok: true, archived: archivedIds.length };
+}
+
+/**
+ * Set or clear the `surfacedAt` promotion marker on a conversation.
+ *
+ * Surfacing is the explicit opt-in that makes a background/scheduled
+ * conversation appear in the default conversation listing (and therefore the
+ * Recents sidebar grouping). It is never set automatically — product flows
+ * call this when a background conversation deserves foreground visibility
+ * (e.g. the user sent a follow-up message in it).
+ */
+function handleSurfaceConversation({
+  pathParams = {},
+  body = {},
+  headers,
+}: RouteHandlerArgs) {
+  if (typeof body.surfaced !== "boolean") {
+    throw new BadRequestError("Missing surfaced boolean");
+  }
+  const resolvedId = resolveOrThrow(pathParams.id!);
+  const result = setConversationSurfaced(resolvedId, body.surfaced);
+  if (!result) {
+    throw new NotFoundError(`Conversation ${pathParams.id} not found`);
+  }
+  // Shape-changing for the default list (row appears in / disappears from
+  // the standard listing), so publish with a shape-changing reason — web
+  // refetches the paginated list, macOS gets the legacy typed broadcast.
+  publishConversationListAndMetadataChanged(
+    "reordered",
+    resolvedId,
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  );
+  return {
+    ok: true,
+    conversationId: resolvedId,
+    surfacedAt: result.surfacedAt,
+  };
+}
+
 function handleCancelGeneration({ pathParams = {} }: RouteHandlerArgs) {
   const resolvedId = resolveConversationId(pathParams.id!) ?? pathParams.id!;
   const cancelled = cancelGeneration(resolvedId);
@@ -375,6 +466,29 @@ async function handleUndoLastMessage({ pathParams = {} }: RouteHandlerArgs) {
     removedCount: result.removedCount,
     conversationId: pathParams.id!,
   };
+}
+
+async function handleResolveMetaSlashCommand({
+  pathParams = {},
+  body = {},
+}: RouteHandlerArgs) {
+  const command = body.command as string | undefined;
+  if (!command || typeof command !== "string") {
+    throw new BadRequestError("Missing command");
+  }
+  let result: Awaited<ReturnType<typeof resolveMetaSlashCommand>>;
+  try {
+    result = await resolveMetaSlashCommand(pathParams.id!, command);
+  } catch (err) {
+    if (err instanceof UserError) {
+      throw new BadRequestError(err.message);
+    }
+    throw err;
+  }
+  if (!result) {
+    throw new NotFoundError(`No conversation for ${pathParams.id}`);
+  }
+  return result;
 }
 
 async function handleRegenerateResponse({ pathParams = {} }: RouteHandlerArgs) {
@@ -451,6 +565,12 @@ export const ROUTES: RouteDefinition[] = [
         .literal("standard")
         .optional()
         .describe("Only standard conversations are created by this endpoint"),
+      title: z
+        .string()
+        .optional()
+        .describe(
+          "Explicit title for the conversation. When provided on creation, it is persisted as a user-set title (never overwritten by the auto-titler). Used by flows that mint a conversation up-front and don't want an auto-generated title.",
+        ),
     }),
     responseBody: z.object({
       id: z
@@ -657,6 +777,56 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleUnarchiveConversation,
   },
   {
+    operationId: "archiveConversationsBulk",
+    endpoint: "conversations/archive/bulk",
+    method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Bulk archive conversations",
+    description:
+      "Archive multiple conversations in one request. Emits a single sync invalidation for the entire batch.",
+    tags: ["conversations"],
+    requestBody: z.object({
+      conversationIds: z.array(z.string()).min(1),
+    }),
+    responseBody: z.object({ ok: z.boolean(), archived: z.number() }),
+    handler: handleArchiveConversationsBulk,
+  },
+  {
+    operationId: "surfaceConversation",
+    endpoint: "conversations/:id/surface",
+    method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Surface a conversation into Recents",
+    description:
+      "Explicitly promote a background or scheduled conversation into the " +
+      "default conversation listing (the Recents sidebar grouping), or demote " +
+      "it with surfaced=false. Conversations are never surfaced automatically.",
+    tags: ["conversations"],
+    pathParams: [{ name: "id", type: "uuid" }],
+    requestBody: z.object({
+      surfaced: z
+        .boolean()
+        .describe(
+          "true to surface the conversation into Recents, false to clear the promotion.",
+        ),
+    }),
+    responseBody: z.object({
+      ok: z.boolean(),
+      conversationId: z.string(),
+      surfacedAt: z
+        .number()
+        .nullable()
+        .describe("Epoch-ms timestamp of the promotion, or null when cleared."),
+    }),
+    handler: handleSurfaceConversation,
+  },
+  {
     operationId: "cancelConversationGeneration",
     endpoint: "conversations/:id/cancel",
     method: "POST",
@@ -694,6 +864,40 @@ export const ROUTES: RouteDefinition[] = [
       conversationId: z.string(),
     }),
     handler: handleUndoLastMessage,
+  },
+  {
+    operationId: "resolveConversationSlashCommand",
+    endpoint: "conversations/:id/slash",
+    method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Resolve a local meta slash command",
+    description:
+      "Run a local meta slash command (/clean, /status, /commands, /models) " +
+      "without starting a turn: no messages are persisted and no turn events " +
+      "are emitted. /clean also strips runtime injections from the history. " +
+      "Returns the text to render and, for /clean, the post-strip context usage.",
+    tags: ["conversations"],
+    pathParams: [{ name: "id", type: "uuid" }],
+    requestBody: z.object({
+      command: z
+        .string()
+        .describe("The slash command text, e.g. `/clean` or `/status`."),
+    }),
+    responseBody: z.object({
+      kind: z.enum(["clean", "info"]),
+      text: z.string(),
+      contextUsage: z
+        .object({
+          tokens: z.number(),
+          maxTokens: z.number().nullable(),
+          fillRatio: z.number().nullable(),
+        })
+        .optional(),
+    }),
+    handler: handleResolveMetaSlashCommand,
   },
   {
     operationId: "regenerateResponse",

@@ -62,3 +62,43 @@ describe("VellumAcpClientHandler.sessionUpdate", () => {
     expect(handler.responseText).toBe("");
   });
 });
+
+describe("VellumAcpClientHandler replay suppression", () => {
+  function messageChunk(text: string): SessionNotification {
+    return {
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text },
+      },
+    };
+  }
+
+  test("updates received while suppressed are dropped", async () => {
+    const { handler, sent } = makeHandler();
+
+    handler.beginReplaySuppression();
+    await handler.sessionUpdate(messageChunk("replayed history"));
+
+    expect(sent).toHaveLength(0);
+    expect(handler.responseText).toBe("");
+  });
+
+  test("updates after endReplaySuppression() flow normally", async () => {
+    const { handler, sent } = makeHandler();
+
+    handler.beginReplaySuppression();
+    await handler.sessionUpdate(messageChunk("replayed history"));
+    handler.endReplaySuppression();
+    await handler.sessionUpdate(messageChunk("live response"));
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toEqual({
+      type: "acp_session_update",
+      acpSessionId: ACP_SESSION_ID,
+      updateType: "agent_message_chunk",
+      content: "live response",
+    });
+    expect(handler.responseText).toBe("live response");
+  });
+});

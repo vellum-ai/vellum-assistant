@@ -1,7 +1,48 @@
 import { getLogger } from "../util/logger.js";
-import { rawGet, rawRun } from "./raw-query.js";
+import { rawAll, rawGet, rawMemoryRun, rawRun } from "./raw-query.js";
 
 const log = getLogger("task-memory-cleanup");
+
+/**
+ * Max id placeholders per `IN (...)` chunk when cancelling jobs by an id set
+ * resolved on the main connection. SQLite's default bound-variable limit is
+ * well above this, but chunking keeps a pathological conversation (tens of
+ * thousands of messages/segments) from building one giant statement.
+ */
+const ID_CHUNK_SIZE = 500;
+
+/**
+ * Fail every pending/running `memory_jobs` row whose `json_extract(payload,
+ * jsonPath)` matches one of `ids`. `memory_jobs` lives in the dedicated memory
+ * connection while the id sets are resolved on the main connection, so the
+ * cancellation can't be a single cross-DB subquery — bind the ids directly
+ * (chunked) instead. Returns the total rows affected.
+ */
+function cancelJobsByPayloadIds(
+  jsonPath: string,
+  ids: string[],
+  reason: string,
+  now: number,
+): number {
+  if (ids.length === 0) return 0;
+  let affected = 0;
+  for (let i = 0; i < ids.length; i += ID_CHUNK_SIZE) {
+    const chunk = ids.slice(i, i + ID_CHUNK_SIZE);
+    const placeholders = chunk.map(() => "?").join(", ");
+    affected += rawMemoryRun(
+      `UPDATE memory_jobs
+          SET status = 'failed',
+              last_error = ?,
+              updated_at = ?
+        WHERE status IN ('pending', 'running')
+          AND json_extract(payload, '${jsonPath}') IN (${placeholders})`,
+      reason,
+      now,
+      ...chunk,
+    );
+  }
+  return affected;
+}
 
 /**
  * Check whether a conversation belongs to a failed task run or failed
@@ -112,23 +153,19 @@ export function cancelPendingJobsForConversation(
   const now = Date.now();
   let total = 0;
 
+  // The id sets live on the main connection; `memory_jobs` lives on the memory
+  // connection. Resolve each set on main first, then cancel by bound ids on the
+  // memory connection (the conversationId-keyed update needs no main lookup).
+
   // Jobs keyed by messageId: embed_attachment
-  total += rawRun(
-    `UPDATE memory_jobs
-        SET status = 'failed',
-            last_error = ?,
-            updated_at = ?
-      WHERE status IN ('pending', 'running')
-        AND json_extract(payload, '$.messageId') IN (
-          SELECT id FROM messages WHERE conversation_id = ?
-        )`,
-    reason,
-    now,
+  const messageIds = rawAll<{ id: string }>(
+    `SELECT id FROM messages WHERE conversation_id = ?`,
     conversationId,
-  );
+  ).map((r) => r.id);
+  total += cancelJobsByPayloadIds("$.messageId", messageIds, reason, now);
 
   // Jobs keyed by conversationId: graph_extract, build_conversation_summary
-  total += rawRun(
+  total += rawMemoryRun(
     `UPDATE memory_jobs
         SET status = 'failed',
             last_error = ?,
@@ -141,36 +178,20 @@ export function cancelPendingJobsForConversation(
   );
 
   // Jobs keyed by segmentId: embed_segment (segments belong to the conversation)
-  total += rawRun(
-    `UPDATE memory_jobs
-        SET status = 'failed',
-            last_error = ?,
-            updated_at = ?
-      WHERE status IN ('pending', 'running')
-        AND json_extract(payload, '$.segmentId') IN (
-          SELECT id FROM memory_segments WHERE conversation_id = ?
-        )`,
-    reason,
-    now,
+  const segmentIds = rawAll<{ id: string }>(
+    `SELECT id FROM memory_segments WHERE conversation_id = ?`,
     conversationId,
-  );
+  ).map((r) => r.id);
+  total += cancelJobsByPayloadIds("$.segmentId", segmentIds, reason, now);
 
   // Jobs keyed by nodeId: embed_graph_node (nodes sourced from this conversation)
-  total += rawRun(
-    `UPDATE memory_jobs
-        SET status = 'failed',
-            last_error = ?,
-            updated_at = ?
-      WHERE status IN ('pending', 'running')
-        AND json_extract(payload, '$.nodeId') IN (
-          SELECT mgn.id
-            FROM memory_graph_nodes mgn, json_each(mgn.source_conversations) jc
-           WHERE jc.value = ?
-        )`,
-    reason,
-    now,
+  const nodeIds = rawAll<{ id: string }>(
+    `SELECT mgn.id
+       FROM memory_graph_nodes mgn, json_each(mgn.source_conversations) jc
+      WHERE jc.value = ?`,
     conversationId,
-  );
+  ).map((r) => r.id);
+  total += cancelJobsByPayloadIds("$.nodeId", nodeIds, reason, now);
 
   if (total > 0) {
     log.info(
@@ -192,7 +213,7 @@ function cancelPendingExtractionJobsForConversation(
   conversationId: string,
 ): number {
   const now = Date.now();
-  const cancelled = rawRun(
+  const cancelled = rawMemoryRun(
     `UPDATE memory_jobs
         SET status = 'failed',
             last_error = 'conversation_failed',

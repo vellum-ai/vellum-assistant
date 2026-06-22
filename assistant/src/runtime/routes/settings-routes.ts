@@ -8,12 +8,14 @@ import { basename, join } from "node:path";
 
 import { z } from "zod";
 
+import { setImage } from "../../avatar/avatar-store.js";
 import {
   getPlatformBaseUrl,
   setIngressPublicBaseUrl,
 } from "../../config/env.js";
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import { loadSkillCatalog } from "../../config/skills.js";
+import { findConversation } from "../../daemon/conversation-registry.js";
 import {
   computeGatewayTarget,
   getIngressConfigResult,
@@ -40,12 +42,12 @@ import {
   type ManifestOverride,
   resolveExecutionTarget,
 } from "../../tools/execution-target.js";
-import { getAllTools, getTool } from "../../tools/registry.js";
+import { getAllTools, getTool, getToolOwner } from "../../tools/registry.js";
 import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
 } from "../../tools/schema-transforms.js";
-import { generateAndSaveAvatar } from "../../tools/system/avatar-generator.js";
+import { generateAvatarImage } from "../../tools/system/avatar-generator.js";
 import { pathExists } from "../../util/fs.js";
 import { getLogger } from "../../util/logger.js";
 import { getAvatarImagePath, getWorkspaceDir } from "../../util/platform.js";
@@ -79,10 +81,7 @@ function handleVoiceConfigUpdate({ body = {} }: RouteHandlerArgs) {
 // Avatar generation
 // ---------------------------------------------------------------------------
 
-async function handleGenerateAvatar({
-  body = {},
-  headers,
-}: RouteHandlerArgs) {
+async function handleGenerateAvatar({ body = {}, headers }: RouteHandlerArgs) {
   const { description } = body as { description?: string };
   if (!description?.trim()) {
     throw new BadRequestError("Description is required.");
@@ -91,11 +90,15 @@ async function handleGenerateAvatar({
   log.info({ description }, "Generating avatar via HTTP request");
 
   try {
-    const result = await generateAndSaveAvatar(description);
+    const result = await generateAvatarImage(description);
 
-    if (result.isError) {
+    if (result.isError || !result.pngBuffer) {
       throw new InternalError(result.content);
     }
+
+    // Route through the store so traits sidecars are cleared and the manifest
+    // is recorded as an AI-sourced image atomically.
+    setImage(result.pngBuffer, "ai");
 
     const avatarPath = getAvatarImagePath();
 
@@ -375,14 +378,32 @@ function resolveManifestOverride(
   return undefined;
 }
 
-function handleToolNamesList() {
+type SchemaShape = {
+  type: string;
+  properties?: Record<string, unknown>;
+  required?: string[];
+};
+
+interface ToolNamesListResponse {
+  names: string[];
+  schemas: Record<string, SchemaShape>;
+  tools: ToolListEntry[];
+}
+
+/**
+ * Tool inventory. With no `conversationId`, reports every tool in the
+ * global registry (plus skill-manifest tools not yet loaded, for the
+ * permission-simulator catalog). With a `conversationId`, scopes the
+ * inventory to the tools available to that conversation as of its most
+ * recent turn — see {@link handleConversationToolList}.
+ */
+function handleToolNamesList(conversationId?: string): ToolNamesListResponse {
+  if (conversationId) {
+    return handleConversationToolList(conversationId);
+  }
+
   const tools = getAllTools();
   const nameSet = new Set(tools.map((t) => t.name));
-  type SchemaShape = {
-    type: string;
-    properties?: Record<string, unknown>;
-    required?: string[];
-  };
   const schemas: Record<string, SchemaShape> = {};
 
   const rawDefs: ToolDefinition[] = tools;
@@ -414,7 +435,89 @@ function handleToolNamesList() {
   }
 
   const names = Array.from(nameSet).sort((a, b) => a.localeCompare(b));
-  return { names, schemas };
+  return { names, schemas, tools: buildRegisteredToolEntries() };
+}
+
+/**
+ * Scope the tool inventory to a single conversation. Conversations gain
+ * tools over their lifecycle (skill loads, MCP reloads), so the global
+ * registry over-reports what a given conversation can actually call. We
+ * read the conversation's turn snapshot (`getRegisteredToolNames()`) — a
+ * pure read that does not re-run the side-effecting `resolveTools`
+ * callback — and resolve each name's metadata/schema from the registry.
+ */
+function handleConversationToolList(
+  conversationId: string,
+): ToolNamesListResponse {
+  const conversation = findConversation(conversationId);
+  if (!conversation) {
+    throw new NotFoundError(
+      `No active conversation "${conversationId}". Run 'assistant conversations list' to see active conversations.`,
+    );
+  }
+
+  const names = Array.from(conversation.getRegisteredToolNames()).sort((a, b) =>
+    a.localeCompare(b),
+  );
+
+  const schemaByName = new Map<string, SchemaShape>(
+    injectActivityField(getAllTools(), ACTIVITY_SKIP_SET).map((d) => [
+      d.name,
+      d.input_schema as SchemaShape,
+    ]),
+  );
+
+  const schemas: Record<string, SchemaShape> = {};
+  const tools: ToolListEntry[] = [];
+  for (const name of names) {
+    const schema = schemaByName.get(name);
+    if (schema) schemas[name] = schema;
+    tools.push(toolEntryForName(name));
+  }
+
+  return { names, schemas, tools };
+}
+
+interface ToolListEntry {
+  name: string;
+  description: string;
+  riskLevel: string;
+  category: string;
+  /** Tool origin: "core" for built-ins, otherwise "<kind>:<id>" (e.g. "plugin:echo"). */
+  source: string;
+}
+
+/**
+ * Build a catalog entry for one tool name, reading metadata and ownership
+ * from the registry (the single source of truth) rather than off any
+ * caller-supplied object, so `source` cannot be spoofed by a manifest
+ * field. `source` is `core` for built-ins, `<kind>:<id>` for an owned tool
+ * (e.g. `plugin:echo`), and `unknown` for a name no longer in the registry
+ * (e.g. a conversation snapshot referencing a since-unloaded skill tool).
+ */
+function toolEntryForName(name: string): ToolListEntry {
+  const tool = getTool(name);
+  const owner = getToolOwner(name);
+  return {
+    name,
+    description: tool?.description ?? "",
+    riskLevel: tool?.defaultRiskLevel ?? "unknown",
+    category: tool?.category ?? "",
+    source: owner ? `${owner.kind}:${owner.id}` : tool ? "core" : "unknown",
+  };
+}
+
+/**
+ * Build the registered-tool inventory with the metadata a catalog view
+ * needs: description, author-asserted risk band, category, and the
+ * extension that contributed the tool. Sorted by name for stable output.
+ * Covers only tools loaded into the registry; skill tools whose manifests
+ * are present but not yet loaded appear in `names`/`schemas` but not here.
+ */
+function buildRegisteredToolEntries(): ToolListEntry[] {
+  return getAllTools()
+    .map((tool) => toolEntryForName(tool.name))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 async function handleToolPermissionSimulate({ body = {} }: RouteHandlerArgs) {
@@ -761,11 +864,38 @@ export const ROUTES: RouteDefinition[] = [
       requiredScopes: ["settings.read"],
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
-    summary: "List tools",
+    summary: "List registered tools with metadata and schemas",
     description:
-      "Return available tool names with their descriptions, risk levels, and categories.",
+      "Return registered tools. Without `conversationId`, returns every tool in the global registry; `tools` carries per-tool metadata (description, author-asserted risk level, category, and contributing source: core, skill, plugin, or MCP server) and `names`/`schemas` additionally cover skill tools whose manifests are present but not yet loaded, for the permission-simulator catalog. With `conversationId`, scopes the result to the tools available to that conversation as of its most recent turn (including skill/MCP tools registered over its lifecycle); 404 if no such conversation is active.",
     tags: ["tools"],
-    handler: () => handleToolNamesList(),
+    queryParams: [
+      {
+        name: "conversationId",
+        type: "string",
+        required: false,
+        description:
+          "When set, scope the tool inventory to this conversation's most recent turn instead of the global registry.",
+      },
+    ],
+    responseBody: z.object({
+      names: z.array(z.string()),
+      schemas: z.record(z.string(), z.record(z.string(), z.unknown())),
+      tools: z.array(
+        z.object({
+          name: z.string(),
+          description: z.string(),
+          riskLevel: z.string(),
+          category: z.string(),
+          source: z
+            .string()
+            .describe(
+              'Tool origin: "core" for built-ins, otherwise "<kind>:<id>" (e.g. "plugin:echo", "skill:my-skill", "mcp:server").',
+            ),
+        }),
+      ),
+    }),
+    handler: ({ queryParams }) =>
+      handleToolNamesList(queryParams?.conversationId),
   },
   {
     operationId: "tools_simulate_permission_post",

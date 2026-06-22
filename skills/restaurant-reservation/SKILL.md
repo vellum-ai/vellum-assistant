@@ -5,6 +5,7 @@ compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🍽️"
   vellum:
+    category: "commerce"
     display-name: "Restaurant Reservation Booking"
     includes: ["vellum-browser-use"]
 ---

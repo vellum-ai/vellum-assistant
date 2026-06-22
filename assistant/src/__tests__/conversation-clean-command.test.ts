@@ -120,7 +120,7 @@ describe("stripInjectionsForCompaction preserves history shape", () => {
     expect(out[3]).toEqual(messages[3]);
   });
 
-  test("leaves <turn_context>, <workspace>, and <memory __injected> alone", () => {
+  test("strips <workspace> but leaves <turn_context> and <memory __injected> alone", () => {
     const messages: Message[] = [
       {
         role: "user",
@@ -132,6 +132,9 @@ describe("stripInjectionsForCompaction preserves history shape", () => {
       },
     ];
     const out = stripInjectionsForCompaction(messages);
-    expect(out[0].content).toEqual(messages[0].content);
+    expect(out[0].content).toEqual([
+      { type: "text", text: "<turn_context>\nnow\n</turn_context>" },
+      { type: "text", text: "<memory __injected>\nrecent\n</memory>" },
+    ]);
   });
 });

@@ -10,6 +10,31 @@
 import { createHash } from "node:crypto";
 
 // ---------------------------------------------------------------------------
+// Email reply stripping
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the fresh reply portion of an email body, discarding quoted
+ * thread text, signature blocks, and provider-specific reply headers.
+ */
+export function extractEmailReplyBody(body: string): string {
+  const lines = body.split(/\r?\n/);
+  const freshLines: string[] = [];
+
+  for (const line of lines) {
+    if (/^>/.test(line)) break;
+    if (/^On .+ wrote:\s*$/.test(line)) break;
+    if (/^-{2,}\s*(Original Message|Forwarded message)/i.test(line)) break;
+    if (line === "-- " || line === "--") break;
+    if (/^(From|Sent|To|Subject):\s/i.test(line) && freshLines.length > 0) break;
+
+    freshLines.push(line);
+  }
+
+  return freshLines.join("\n").trim();
+}
+
+// ---------------------------------------------------------------------------
 // Parsing
 // ---------------------------------------------------------------------------
 

@@ -128,7 +128,7 @@ import { PermissionPrompter } from "../permissions/prompter.js";
 import { ToolExecutor } from "../tools/executor.js";
 import type { ToolContext as TC } from "../tools/types.js";
 
-initializeDb();
+await initializeDb();
 
 function makeContext(overrides?: Partial<TC>): TC {
   return {

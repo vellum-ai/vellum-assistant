@@ -15,7 +15,6 @@ import { askQuestionTool } from "./ask-question/ask-question-tool.js";
 import { makeAuthenticatedRequestTool } from "./credential-execution/make-authenticated-request.js";
 import { manageSecureCommandTool } from "./credential-execution/manage-secure-command-tool.js";
 import { runAuthenticatedCommandTool } from "./credential-execution/run-authenticated-command.js";
-import { credentialStoreTool } from "./credentials/vault.js";
 import { fileEditTool } from "./filesystem/edit.js";
 import { fileListTool } from "./filesystem/list.js";
 import { fileReadTool } from "./filesystem/read.js";
@@ -97,7 +96,6 @@ export const explicitTools: ToolDefinition[] = [
   recallTool,
   deleteMemoryTool,
   updateMemoryTool,
-  credentialStoreTool,
   notifyParentTool,
   askQuestionTool,
   // NOTE: external skill tools (registered via registerExternalTools in

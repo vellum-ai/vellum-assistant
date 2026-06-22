@@ -3,8 +3,10 @@ name: discord-app-setup
 description: Connect a Discord bot to the assistant via the Discord Gateway with guided application creation and intent configuration
 compatibility: "Designed for Vellum personal assistants"
 metadata:
+  icon: assets/icon.svg
   emoji: "🎮"
   vellum:
+    category: "messaging"
     display-name: "Discord App Setup"
 ---
 

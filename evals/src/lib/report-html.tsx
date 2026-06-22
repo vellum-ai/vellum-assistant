@@ -1,3 +1,4 @@
+import MarkdownIt from "markdown-it";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type {
@@ -11,6 +12,7 @@ import type {
 } from "./metrics";
 import type {
   DockerArtifactFile,
+  ReportProfileInSession,
   ReportRunDetail,
   ReportSessionDetail,
   ReportSessionSummary,
@@ -20,10 +22,66 @@ import type {
   SubprocessLogFile,
 } from "./report-data";
 import type { TranscriptTurn } from "./transcript";
+import {
+  buildTranscriptView,
+  type AssistantBlock,
+  type AssistantMessageView,
+  type BlockTiming,
+} from "./transcript-view";
+import type { AgentEvent } from "./adapter";
+import { priceUsageRecord } from "./pricing";
 
 function formatNumber(value: number | undefined, digits = 2): string {
   if (value === undefined) return "—";
   return Number.isInteger(value) ? String(value) : value.toFixed(digits);
+}
+
+/** Human-readable byte size, e.g. `812 B`, `14.2 KB`, `3.1 MB`. */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  return `${(kb / 1024).toFixed(1)} MB`;
+}
+
+function utf8ByteLength(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+/**
+ * Total byte volume of every log stream rendered on the Logs tab: the
+ * file-backed subprocess/docker logs plus the serialized container and
+ * runner event streams. Surfaced as the Logs pill's headline stat so a
+ * reader can gauge how much log there is to read before opening the tab.
+ */
+function logsSizeBytes(run: ReportRunDetail): number {
+  let total = 0;
+  for (const log of run.subprocessLogs) total += utf8ByteLength(log.content);
+  for (const artifact of run.dockerArtifacts)
+    total += utf8ByteLength(artifact.content);
+  total += utf8ByteLength(JSON.stringify(run.assistantEvents));
+  total += utf8ByteLength(JSON.stringify(run.ingestAssistantEvents));
+  total += utf8ByteLength(JSON.stringify(run.progressEvents));
+  return total;
+}
+
+function readRecordNumber(
+  record: Record<string, unknown>,
+  ...keys: string[]
+): number | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return undefined;
+}
+
+function readRecordString(
+  record: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
 }
 
 function formatAggregateScore(value: number | undefined): string {
@@ -37,15 +95,142 @@ function formatCost(value: number | undefined): string {
 }
 
 /**
+ * Headline/summary cost, rounded to the nearest cent. Used for the at-a-glance
+ * totals (tab pill, run/profile/test list columns, the Cost stat card) where a
+ * full six-decimal figure is noise. The per-request breakdown keeps
+ * `formatCost`'s full precision so sub-cent per-call costs stay legible.
+ */
+function formatCostCents(value: number | undefined): string {
+  if (value === undefined) return "—";
+  return `$${value.toFixed(2)}`;
+}
+
+/** Wall-clock duration, e.g. `940ms`, `47s`, `2m 53s`, `1h 04m`. */
+function formatDuration(ms: number | undefined): string {
+  if (ms === undefined) return "—";
+  if (ms < 1000) return `${ms}ms`;
+  const totalSeconds = Math.round(ms / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${String(minutes % 60).padStart(2, "0")}m`;
+}
+
+/**
+ * Parse an ISO `recorded_at` into epoch milliseconds, or `undefined` when the
+ * field is missing or unparseable. Used to order the per-request breakdown by
+ * wall-clock time rather than array position.
+ */
+function recordedAtMs(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? undefined : ms;
+}
+
+/** Render an ISO `recorded_at` as a compact `HH:MM:SS` UTC time-of-day. */
+function formatRecordedAt(value: string | undefined): string {
+  const ms = recordedAtMs(value);
+  if (ms === undefined) return "—";
+  return `${new Date(ms).toISOString().slice(11, 19)}Z`;
+}
+
+/**
+ * Render a single request's round-trip latency compactly: `840ms` under a
+ * second, one-decimal seconds (`2.3s`) above it. Distinct from
+ * `formatDuration` (whole-second run wall-clock) because a per-request figure
+ * is small enough that the sub-second tenths carry signal.
+ */
+function formatRequestDuration(ms: number | undefined): string {
+  if (ms === undefined) return "—";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+/**
+ * Whole-millisecond span between two ISO stamps, or `undefined` when either is
+ * missing or the pair is non-monotonic. Used to label how long a transcript
+ * chunk (a streamed text/thinking run, or a tool call) occupied the stream.
+ */
+function spanMs(
+  startedAt: string | undefined,
+  endedAt: string | undefined,
+): number | undefined {
+  const start = recordedAtMs(startedAt);
+  const end = recordedAtMs(endedAt);
+  if (start === undefined || end === undefined || end < start) {
+    return undefined;
+  }
+  return end - start;
+}
+
+/**
+ * Markdown renderer for assistant message text. `html: false` escapes any raw
+ * HTML in the model's output, so an answer containing `<script>` or inline
+ * event handlers can't inject live markup into the report — only Markdown
+ * constructs (headings, lists, code, tables, emphasis) become elements.
+ * `linkify` turns bare URLs into links and `breaks` keeps single newlines as
+ * line breaks so chat-style answers render the way they were written.
+ */
+const markdown = new MarkdownIt({
+  html: false,
+  linkify: true,
+  breaks: true,
+});
+
+/**
+ * Render Markdown images as inert links rather than `<img>` elements. The
+ * report is an offline artifact that renders untrusted assistant output and may
+ * be opened or shared outside the eval egress jail, so an auto-loaded
+ * `<img src="https://…">` would make merely opening it fetch a model-supplied
+ * URL — leaking the viewer's IP/metadata. A link carries the same information
+ * (alt text + destination) without any automatic network request, and runs
+ * through the renderer's own `validateLink` so unsafe schemes degrade to plain
+ * text.
+ */
+markdown.renderer.rules.image = (tokens, idx) => {
+  const token = tokens[idx];
+  const src = token.attrGet("src") ?? "";
+  const alt = token.content.length > 0 ? token.content : src;
+  const label = markdown.utils.escapeHtml(alt);
+  if (!markdown.validateLink(src)) {
+    return label;
+  }
+  const href = markdown.utils.escapeHtml(src);
+  return `<a class="md-image-link" href="${href}" rel="noopener noreferrer nofollow">${label}</a>`;
+};
+
+/**
+ * A chunk's run time, shown only on hover of its chunk (CSS reveal) so the
+ * transcript stays uncluttered. The badge's own `title` surfaces the chunk's
+ * start time on hover, so the two timestamps are one interaction apart without
+ * needing client-side script. Renders nothing when the span isn't measurable.
+ */
+function ChunkDuration({ startedAt, endedAt }: BlockTiming) {
+  const ms = spanMs(startedAt, endedAt);
+  if (ms === undefined) {
+    return null;
+  }
+  return (
+    <span
+      className="chunk-duration"
+      title={`started ${formatRecordedAt(startedAt)}`}
+    >
+      {formatRequestDuration(ms)}
+    </span>
+  );
+}
+
+/**
  * Render a metric `score` using its declared unit.
  *
  * `MetricResult.unit` defaults to `"fraction"` — the score is a 0-1
- * quality fraction, displayed as `XX.XX%` per Vargas's round-3 evals
- * feedback ("scores rendering as raw numbers, need 0-100% display").
+ * quality fraction, displayed as `XX.XX%`.
  *
- * `"raw"` opts out — the score carries units that have no meaning as a
- * percent (e.g. `assistant-cost-usd` returns negative dollars). Those
- * fall back to plain number formatting.
+ * `"raw"` opts out — for a score that carries units with no meaning as a
+ * percent (e.g. a latency in milliseconds). Those fall back to plain
+ * number formatting.
  *
  * `undefined` is treated as `"fraction"` so older metric files that
  * don't set the field automatically get the new percent display.
@@ -189,6 +374,12 @@ h1 { font-size: clamp(34px, 5vw, 64px); line-height: .95; margin: 10px 0; letter
 .run-heading { font-size: 32px; margin: 0 0 6px; letter-spacing: -.04em; }
 .run-heading-meta { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; color: var(--muted); font-size: 13px; margin-bottom: 22px; }
 .run-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+.profile-info { margin: 0; display: grid; gap: 14px; padding: 18px 20px; border: 1px solid var(--border); border-radius: 18px; background: rgba(255,255,255,.04); }
+.profile-info > div { display: grid; grid-template-columns: 120px 1fr; gap: 16px; align-items: start; }
+.profile-info dt { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; margin: 0; }
+.profile-info dd { margin: 0; }
+.profile-setup { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.profile-setup code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
 .cli-command { margin: 0 0 22px; padding: 14px 18px; border: 1px solid var(--border); border-radius: 14px; background: rgba(0,0,0,.32); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height: 1.5; color: #dbeafe; word-break: break-all; }
 .cli-command-label { display: block; font-family: inherit; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .14em; margin-bottom: 6px; font-weight: 800; }
 .cli-command code { font-family: inherit; }
@@ -209,7 +400,50 @@ td .row-link { display: block; }
 .turn.assistant { border-color: rgba(34,211,238,.22); }
 .turn.simulator { border-color: rgba(139,92,246,.24); }
 .turn-head { display: flex; justify-content: space-between; gap: 14px; color: var(--muted); font-size: 12px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; }
+.turn-time { margin-top: 8px; text-align: right; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .turn-body { white-space: pre-wrap; line-height: 1.5; }
+.turn-body + .turn-body, .turn .block-thinking + .turn-body, .turn .block-tool + .turn-body { margin-top: 10px; }
+.chunk { position: relative; }
+.chunk-duration { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; opacity: 0; transition: opacity .12s ease; cursor: help; }
+.chunk:hover .chunk-duration, details[open].chunk > summary .chunk-duration { opacity: 1; }
+.turn-body.chunk > .chunk-duration { position: absolute; top: 4px; right: 6px; }
+.block-thinking > summary .chunk-duration, .block-tool > summary .chunk-duration { margin-left: auto; }
+.md { white-space: normal; line-height: 1.6; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p { margin: 0 0 10px; }
+.md h1, .md h2, .md h3, .md h4 { margin: 16px 0 8px; line-height: 1.3; font-weight: 800; }
+.md h1 { font-size: 20px; } .md h2 { font-size: 17px; } .md h3 { font-size: 15px; } .md h4 { font-size: 13px; }
+.md ul, .md ol { margin: 0 0 10px; padding-left: 22px; }
+.md li { margin: 2px 0; }
+.md a { color: var(--accent2); }
+.md code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; background: rgba(0,0,0,.4); border: 1px solid var(--border); border-radius: 6px; padding: 1px 5px; }
+.md pre { margin: 0 0 10px; padding: 12px 14px; border-radius: 10px; background: rgba(0,0,0,.45); border: 1px solid var(--border); overflow: auto; }
+.md pre code { background: none; border: 0; padding: 0; font-size: 12.5px; line-height: 1.5; }
+.md blockquote { margin: 0 0 10px; padding: 2px 14px; border-left: 3px solid var(--border); color: var(--muted); }
+.md table { border-collapse: collapse; margin: 0 0 10px; font-size: 13px; }
+.md th, .md td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+.md th { background: rgba(255,255,255,.04); font-weight: 800; }
+.md hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
+.block-thinking { margin: 8px 0; border: 1px dashed rgba(180,190,255,.24); border-radius: 12px; background: rgba(255,255,255,.025); }
+.block-thinking > summary { cursor: pointer; padding: 8px 12px; display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; user-select: none; }
+.block-thinking > summary::-webkit-details-marker { display: none; }
+.block-thinking-body { padding: 0 12px 10px; color: var(--muted); font-size: 13px; line-height: 1.5; white-space: pre-wrap; font-style: italic; }
+.block-tool { margin: 8px 0; border: 1px solid rgba(34,211,238,.2); border-radius: 12px; background: rgba(34,211,238,.04); }
+.block-tool > summary { cursor: pointer; padding: 8px 12px; display: flex; align-items: center; gap: 10px; user-select: none; }
+.block-tool > summary::-webkit-details-marker { display: none; }
+.block-tool-glyph { color: var(--accent2); font-size: 13px; }
+.block-tool-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; font-weight: 700; }
+.block-tool-io { padding: 0 12px 10px; }
+.block-tool-io-label { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .14em; font-weight: 800; margin-bottom: 4px; }
+.block-tool-io pre { margin: 0; max-height: 280px; overflow: auto; padding: 10px 12px; border-radius: 10px; background: rgba(0,0,0,.4); border: 1px solid var(--border); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.block-surface { border-color: rgba(139,92,246,.28); background: rgba(139,92,246,.06); }
+.block-page { padding: 8px; }
+.block-page-head { display: flex; align-items: center; gap: 10px; padding: 4px 6px 8px; }
+.block-page-frame { display: block; width: 100%; height: 480px; border: 1px solid var(--border); border-radius: 10px; background: #fff; }
+.block-page-source { margin-top: 8px; }
+.block-page-source > summary { cursor: pointer; padding: 4px 6px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; font-weight: 800; user-select: none; }
+.block-page-source > summary::-webkit-details-marker { display: none; }
 pre.log { max-height: 480px; overflow: auto; padding: 16px; border-radius: 16px; background: rgba(0,0,0,.45); border: 1px solid var(--border); color: #dbeafe; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 .log-line { display: flex; gap: 12px; padding: 2px 0; }
 .log-ts { color: var(--muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
@@ -223,6 +457,58 @@ pre.log { max-height: 480px; overflow: auto; padding: 16px; border-radius: 16px;
 .cost-diag-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .cost-diag-table th, .cost-diag-table td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border); }
 .cost-diag-table th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; }
+.cost-requests { margin-top: 16px; }
+.cost-requests h3 { font-size: 16px; margin: 0 0 10px; letter-spacing: -.02em; }
+.cost-req-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.cost-req-table th, .cost-req-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.cost-req-table th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; }
+.cost-req-table tbody:hover { background: rgba(255,255,255,.02); }
+.req-duration { color: var(--muted); font-size: 12px; }
+.cost-req-table .payload-row td { padding: 0 10px 8px; border-bottom: 1px solid var(--border); }
+.payload-details > summary { cursor: pointer; color: var(--muted); font-size: 12px; list-style: none; padding: 4px 0; }
+.payload-details > summary::-webkit-details-marker { display: none; }
+.payload-details > summary::before { content: "▸ "; }
+.payload-details[open] > summary::before { content: "▾ "; }
+.payload-details[open] > summary:hover, .payload-details > summary:hover { color: var(--accent2); }
+.payload-body h4 { margin: 10px 0 4px; font-size: 12px; color: var(--muted); font-weight: 800; }
+.payload-pre { max-height: 360px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+.tabs { margin-top: 4px; }
+.tab-input { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.tablist { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+.tab-pill { display: flex; flex-direction: column; gap: 8px; padding: 18px; border-radius: 22px; background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.035)); border: 1px solid var(--border); cursor: pointer; transition: .15s ease; }
+.tab-pill:hover { border-color: rgba(139,92,246,.45); transform: translateY(-1px); }
+.tab-pill-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .12em; font-weight: 800; }
+.tab-pill-value { font-size: 30px; font-weight: 900; letter-spacing: -.04em; }
+.tabpanel { display: none; padding: 24px; border-radius: 24px; background: rgba(0,0,0,.18); border: 1px solid var(--border); }
+.tabpanel h2 { margin: 0 0 14px; font-size: 20px; letter-spacing: -.03em; }
+#exec-tab-score:checked ~ .tabpanels .panel-score,
+#exec-tab-responses:checked ~ .tabpanels .panel-responses,
+#exec-tab-cost:checked ~ .tabpanels .panel-cost,
+#exec-tab-logs:checked ~ .tabpanels .panel-logs { display: block; }
+#exec-tab-score:checked ~ .tablist label[for="exec-tab-score"],
+#exec-tab-responses:checked ~ .tablist label[for="exec-tab-responses"],
+#exec-tab-cost:checked ~ .tablist label[for="exec-tab-cost"],
+#exec-tab-logs:checked ~ .tablist label[for="exec-tab-logs"] { border-color: rgba(139,92,246,.7); background: linear-gradient(180deg, rgba(139,92,246,.22), rgba(34,211,238,.08)); }
+#exec-tab-score:focus-visible ~ .tablist label[for="exec-tab-score"],
+#exec-tab-responses:focus-visible ~ .tablist label[for="exec-tab-responses"],
+#exec-tab-cost:focus-visible ~ .tablist label[for="exec-tab-cost"],
+#exec-tab-logs:focus-visible ~ .tablist label[for="exec-tab-logs"] { outline: 2px solid var(--accent2); outline-offset: 2px; }
+.log-group { margin-top: 24px; }
+.log-group:first-child { margin-top: 0; }
+.log-group h3 { font-size: 16px; margin: 0 0 8px; letter-spacing: -.02em; }
+.metric-card-list { display: flex; flex-direction: column; gap: 10px; }
+.metric-card { border: 1px solid var(--border); border-radius: 16px; background: rgba(255,255,255,.04); overflow: hidden; }
+.metric-card > summary { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 14px 16px; cursor: pointer; list-style: none; }
+.metric-card > summary::-webkit-details-marker { display: none; }
+.metric-card > summary::after { content: "▸"; color: var(--muted); transition: transform .15s ease; }
+.metric-card[open] > summary::after { transform: rotate(90deg); }
+.metric-card-name { font-weight: 800; }
+.metric-card-detail { padding: 0 16px 16px; border-top: 1px solid var(--border); }
+.metric-card-reason { white-space: pre-wrap; line-height: 1.5; margin: 12px 0 0; }
+.metric-card-meta { display: grid; gap: 8px; margin: 14px 0 0; }
+.metric-card-meta > div { display: grid; grid-template-columns: 160px 1fr; gap: 12px; align-items: start; }
+.metric-card-meta dt { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; margin: 0; }
+.metric-card-meta dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; word-break: break-word; }
 .debug-section { border: 1px solid rgba(251, 113, 133, .24); background: rgba(251, 113, 133, .06); }
 .debug-item { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
 .debug-item:last-child { margin-bottom: 0; }
@@ -345,7 +631,13 @@ function SessionCard({ session }: { session: ReportSessionSummary }) {
   );
 }
 
-function IndexPage({ sessions }: { sessions: ReportSessionSummary[] }) {
+function IndexPage({
+  sessions,
+  readOnly,
+}: {
+  sessions: ReportSessionSummary[];
+  readOnly: boolean;
+}) {
   return (
     <>
       <header className="hero">
@@ -369,24 +661,26 @@ function IndexPage({ sessions }: { sessions: ReportSessionSummary[] }) {
           </div>
         ) : (
           <>
-            <div className="panel-actions">
-              <details className="confirm-action">
-                <summary className="bad">Delete all non-running</summary>
-                <form
-                  className="confirm-form"
-                  method="post"
-                  action="/api/runs/delete-all"
-                >
-                  <p className="confirm-prompt">
-                    This deletes every run on disk that isn&rsquo;t currently
-                    running. It cannot be undone.
-                  </p>
-                  <button className="bad" type="submit">
-                    Yes, delete every non-running run
-                  </button>
-                </form>
-              </details>
-            </div>
+            {!readOnly && (
+              <div className="panel-actions">
+                <details className="confirm-action">
+                  <summary className="bad">Delete all non-running</summary>
+                  <form
+                    className="confirm-form"
+                    method="post"
+                    action="/api/runs/delete-all"
+                  >
+                    <p className="confirm-prompt">
+                      This deletes every run on disk that isn&rsquo;t currently
+                      running. It cannot be undone.
+                    </p>
+                    <button className="bad" type="submit">
+                      Yes, delete every non-running run
+                    </button>
+                  </form>
+                </details>
+              </div>
+            )}
             <div className="session-list">
               {sessions.map((session) => (
                 <SessionCard key={session.sessionId} session={session} />
@@ -535,6 +829,7 @@ function SessionPage({ session }: { session: ReportSessionDetail }) {
             <ProfileAggregateCard
               key={aggregate.profileId}
               aggregate={aggregate}
+              href={`/sessions/${encodeURIComponent(session.sessionId)}/profiles/${encodeURIComponent(aggregate.profileId)}`}
             />
           ))}
         </div>
@@ -600,83 +895,20 @@ function ProfileSummaryRow({
       </td>
       <td>
         <a href={url} className="row-link muted">
-          {profile.metricCount}
+          {profile.assistantResponses}
         </a>
       </td>
       <td>
         <a href={url} className="row-link muted">
-          {profile.transcriptTurns}
+          {formatDuration(profile.runtimeMs)}
         </a>
       </td>
       <td>
         <a href={url} className="row-link muted">
-          {formatCost(profile.totalCostUsd)}
+          {formatCostCents(profile.totalCostUsd)}
         </a>
       </td>
     </tr>
-  );
-}
-
-function MetricSummaryTable({
-  profiles,
-}: {
-  profiles: ReportTestInSession["profiles"];
-}) {
-  // Build a union of metric names across all profiles, ordered by first
-  // occurrence so output order stays stable run-to-run.
-  const order: string[] = [];
-  const seen = new Set<string>();
-  for (const profile of profiles) {
-    for (const metric of profile.metrics) {
-      if (!seen.has(metric.name)) {
-        seen.add(metric.name);
-        order.push(metric.name);
-      }
-    }
-  }
-
-  if (order.length === 0) {
-    return <p className="muted">No metrics recorded yet for this test.</p>;
-  }
-
-  return (
-    <table>
-      <thead>
-        <tr>
-          <th>Metric</th>
-          {profiles.map((profile) => (
-            <th key={profile.profileId}>{profile.profileId}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {order.map((name) => (
-          <tr key={name}>
-            <td>
-              <strong>{name}</strong>
-            </td>
-            {profiles.map((profile) => {
-              const metric = profile.metrics.find((m) => m.name === name);
-              if (!metric) {
-                return (
-                  <td key={profile.profileId} className="muted">
-                    —
-                  </td>
-                );
-              }
-              return (
-                <td
-                  key={profile.profileId}
-                  className={`score ${scoreClass(metric.score)}`}
-                >
-                  {formatScore(metric.score, metric.unit, 2)}
-                </td>
-              );
-            })}
-          </tr>
-        ))}
-      </tbody>
-    </table>
   );
 }
 
@@ -710,8 +942,8 @@ function TestInSessionPage({ test }: { test: ReportTestInSession }) {
               <th>Profile</th>
               <th>Status</th>
               <th>Score</th>
-              <th>Metrics</th>
-              <th>Turns</th>
+              <th>Responses</th>
+              <th>Runtime</th>
               <th>Cost</th>
             </tr>
           </thead>
@@ -727,69 +959,477 @@ function TestInSessionPage({ test }: { test: ReportTestInSession }) {
           </tbody>
         </table>
       </section>
+    </>
+  );
+}
+
+function setupCommands(
+  setup: NonNullable<ReportProfileInSession["info"]>["setup"],
+): string[] {
+  if (setup === undefined) return [];
+  return Array.isArray(setup) ? setup : [setup];
+}
+
+function ProfileInfoPanel({
+  profileId,
+  info,
+}: {
+  profileId: string;
+  info?: ReportProfileInSession["info"];
+}) {
+  const commands = setupCommands(info?.setup);
+  return (
+    <dl className="profile-info">
+      <div>
+        <dt>Profile</dt>
+        <dd>{profileId}</dd>
+      </div>
+      <div>
+        <dt>Species</dt>
+        <dd>{info?.species ?? "—"}</dd>
+      </div>
+      {info?.version ? (
+        <div>
+          <dt>Version</dt>
+          <dd>{info.version}</dd>
+        </div>
+      ) : null}
+      <div>
+        <dt>Description</dt>
+        <dd>
+          {info?.description ?? "No description in this profile's manifest."}
+        </dd>
+      </div>
+      <div>
+        <dt>Setup</dt>
+        <dd>
+          {commands.length === 0 ? (
+            "None — bare profile."
+          ) : (
+            <ul className="profile-setup">
+              {commands.map((command, index) => (
+                <li key={index}>
+                  <code>{command}</code>
+                </li>
+              ))}
+            </ul>
+          )}
+        </dd>
+      </div>
+    </dl>
+  );
+}
+
+function ProfileTestRow({
+  sessionId,
+  profileId,
+  entry,
+}: {
+  sessionId: string;
+  profileId: string;
+  entry: ReportProfileInSession["tests"][number];
+}) {
+  const url = `/sessions/${encodeURIComponent(sessionId)}/tests/${encodeURIComponent(entry.testId)}/profiles/${encodeURIComponent(profileId)}`;
+  return (
+    <tr className="linked">
+      <td>
+        <a href={url} className="row-link">
+          <strong>{entry.testId}</strong>
+        </a>
+      </td>
+      <td>
+        <a href={url} className="row-link">
+          <StatusBadge status={entry.status} />
+        </a>
+      </td>
+      <td>
+        <a
+          href={url}
+          className={`row-link score ${scoreClass(entry.scoreTotal)}`}
+        >
+          {formatAggregateScore(entry.scoreTotal)}
+        </a>
+      </td>
+      <td>
+        <a href={url} className="row-link muted">
+          {entry.metricCount}
+        </a>
+      </td>
+      <td>
+        <a href={url} className="row-link muted">
+          {entry.assistantResponses}
+        </a>
+      </td>
+      <td>
+        <a href={url} className="row-link muted">
+          {formatCostCents(entry.totalCostUsd)}
+        </a>
+      </td>
+    </tr>
+  );
+}
+
+function ProfileInSessionPage({
+  profile,
+}: {
+  profile: ReportProfileInSession;
+}) {
+  const sessionUrl = `/sessions/${encodeURIComponent(profile.sessionId)}`;
+  return (
+    <>
+      <Crumbs
+        trail={[
+          { href: "/", label: "All runs" },
+          {
+            href: sessionUrl,
+            label: profile.sessionLabel ?? profile.sessionId,
+          },
+          { label: profile.profileId },
+        ]}
+      />
+      <h1 className="run-heading">{profile.profileId}</h1>
+      <div className="run-heading-meta">
+        <span className={`score ${scoreClass(profile.scoreTotal)}`}>
+          {formatAggregateScore(profile.scoreTotal)} overall
+        </span>
+        <span>
+          {profile.tests.length} test{profile.tests.length === 1 ? "" : "s"}
+        </span>
+      </div>
 
       <section className="section">
-        <h2>Metric breakdown</h2>
+        <h2>Profile</h2>
+        <ProfileInfoPanel profileId={profile.profileId} info={profile.info} />
+      </section>
+
+      <section className="section">
+        <h2>Test scores</h2>
         <p className="section-subtle">
-          Per-metric scores side by side across every profile that ran this
-          test.
+          How this profile scored on every test in the run. Click a test to open
+          its transcript and logs.
         </p>
-        <MetricSummaryTable profiles={test.profiles} />
+        <table>
+          <thead>
+            <tr>
+              <th>Test</th>
+              <th>Status</th>
+              <th>Score</th>
+              <th>Metrics</th>
+              <th>Responses</th>
+              <th>Cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            {profile.tests.map((entry) => (
+              <ProfileTestRow
+                key={entry.testId}
+                sessionId={profile.sessionId}
+                profileId={profile.profileId}
+                entry={entry}
+              />
+            ))}
+          </tbody>
+        </table>
       </section>
     </>
   );
 }
 
-function MetricTable({ metrics }: { metrics: MetricResult[] }) {
+/**
+ * The Score tab's report card: one expandable row per metric. The summary
+ * always shows the metric name + its scored value; expanding reveals the
+ * scorer's `reason` and any structured `metadata` it attached. Rendered with
+ * native `<details>` so it stays interactive in the fully static,
+ * no-JS report bundle.
+ */
+function MetricReportCard({ metrics }: { metrics: MetricResult[] }) {
   if (metrics.length === 0) {
     return <p className="muted">No metrics recorded for this run yet.</p>;
   }
 
   return (
-    <table>
-      <thead>
-        <tr>
-          <th>Metric</th>
-          <th>Score</th>
-          <th>Reason</th>
-        </tr>
-      </thead>
-      <tbody>
-        {metrics.map((metric) => (
-          <tr key={metric.name}>
-            <td>
-              <strong>{metric.name}</strong>
-            </td>
-            <td className={`score ${scoreClass(metric.score)}`}>
-              {formatScore(metric.score, metric.unit, 2)}
-            </td>
-            <td>{metric.reason ?? ""}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className="metric-card-list">
+      {metrics.map((metric) => {
+        const meta = metric.metadata ? Object.entries(metric.metadata) : [];
+        return (
+          <details key={metric.name} className="metric-card">
+            <summary className="metric-card-summary">
+              <span className="metric-card-name">{metric.name}</span>
+              <span className={`score ${scoreClass(metric.score)}`}>
+                {formatScore(metric.score, metric.unit, 2)}
+              </span>
+            </summary>
+            <div className="metric-card-detail">
+              {metric.reason ? (
+                <p className="metric-card-reason">{metric.reason}</p>
+              ) : (
+                <p className="muted">No reason recorded for this metric.</p>
+              )}
+              {meta.length > 0 && (
+                <dl className="metric-card-meta">
+                  {meta.map(([key, value]) => (
+                    <div key={key}>
+                      <dt>{key}</dt>
+                      <dd>
+                        {typeof value === "string"
+                          ? value
+                          : JSON.stringify(value)}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+            </div>
+          </details>
+        );
+      })}
+    </div>
   );
 }
 
-function Transcript({ turns }: { turns: TranscriptTurn[] }) {
-  if (turns.length === 0) {
+function formatBlockJson(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2) ?? "";
+  } catch {
+    return String(value);
+  }
+}
+
+/**
+ * Narrow a `dynamic_page` surface payload to its renderable HTML plus an
+ * optional pixel-height hint. Returns undefined when the payload carries no
+ * usable html string, so the caller falls back to the JSON view.
+ */
+function dynamicPageHtml(
+  data: unknown,
+): { html: string; height?: number } | undefined {
+  if (typeof data !== "object" || data === null || !("html" in data)) {
+    return undefined;
+  }
+  const { html } = data;
+  if (typeof html !== "string" || html.length === 0) {
+    return undefined;
+  }
+  let height: number | undefined;
+  if ("height" in data) {
+    const raw = data.height;
+    if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) {
+      height = Math.min(Math.max(Math.round(raw), 200), 1200);
+    }
+  }
+  return { html, height };
+}
+
+/**
+ * In-memory `localStorage` / `sessionStorage` shim prepended into the
+ * sandboxed surface iframe. Without `allow-same-origin` those globals throw a
+ * `SecurityError`, breaking any page that touches them during init. Mirrors
+ * the canonical bridge in clients/web/src/utils/sandbox-bridge.ts (the web chat
+ * renders the same surfaces); kept inline because evals is a separate build
+ * unit that can't import the web app.
+ */
+const SURFACE_STORAGE_POLYFILL = `<script>
+(function(){
+  var store={};
+  var shim={
+    getItem:function(k){return Object.prototype.hasOwnProperty.call(store,k)?store[k]:null;},
+    setItem:function(k,v){store[k]=String(v);},
+    removeItem:function(k){delete store[k];},
+    clear:function(){store={};},
+    get length(){return Object.keys(store).length;},
+    key:function(i){return Object.keys(store)[i]||null;}
+  };
+  try{Object.defineProperty(window,'localStorage',{value:shim,writable:true,configurable:true});}catch(e){window.localStorage=shim;}
+  try{Object.defineProperty(window,'sessionStorage',{value:shim,writable:true,configurable:true});}catch(e){window.sessionStorage=shim;}
+})();
+</script>`;
+
+/**
+ * No-op `window.vellum` bridge prepended into the sandboxed surface iframe.
+ * App-backed pages expect the host APIs that clients/web/src/utils/sandbox-bridge.ts
+ * injects (`window.vellum.sendAction` / `window.vellum.fetch`) and call them
+ * during init; a static report has no daemon to forward to, so this stub keeps
+ * those pages from throwing on startup — actions are dropped and fetches reject.
+ */
+const SURFACE_VELLUM_BRIDGE = `<script>
+(function(){
+  window.vellum={
+    route:null,
+    sendAction:function(){},
+    fetch:function(){return Promise.reject(new Error("vellum bridge unavailable in offline report"));}
+  };
+})();
+</script>`;
+
+/**
+ * Prepend the storage polyfill and the no-op vellum bridge so both run before
+ * any inline page script. Insertion priority matches the web app's bridge:
+ * right after `<head>`, else prepended to the raw markup.
+ */
+function prepareSurfaceHtml(html: string): string {
+  const prelude = SURFACE_STORAGE_POLYFILL + SURFACE_VELLUM_BRIDGE;
+  const headMatch = /<head(\s[^>]*)?>/i.exec(html);
+  if (headMatch) {
+    const at = headMatch.index + headMatch[0].length;
+    return html.slice(0, at) + prelude + html.slice(at);
+  }
+  return prelude + html;
+}
+
+function ToolCallBlock({
+  block,
+}: {
+  block: Extract<AssistantBlock, { kind: "tool_call" }>;
+}) {
+  const statusLabel =
+    block.status === "running" ? "running" : block.isError ? "error" : "done";
+  const statusClassName =
+    block.status === "running" ? "warn" : block.isError ? "bad" : "good";
+  return (
+    <details className="block-tool chunk">
+      <summary>
+        <span className="block-tool-glyph">⚙</span>
+        <span className="block-tool-name">{block.toolName || "tool"}</span>
+        <span className={`chip ${statusClassName}`}>{statusLabel}</span>
+        <ChunkDuration startedAt={block.startedAt} endedAt={block.endedAt} />
+      </summary>
+      {block.input !== undefined && (
+        <div className="block-tool-io">
+          <div className="block-tool-io-label">input</div>
+          <pre>{formatBlockJson(block.input)}</pre>
+        </div>
+      )}
+      {block.result !== undefined && (
+        <div className="block-tool-io">
+          <div className="block-tool-io-label">result</div>
+          <pre>{block.result}</pre>
+        </div>
+      )}
+    </details>
+  );
+}
+
+function AssistantMessage({ message }: { message: AssistantMessageView }) {
+  return (
+    <>
+      {message.blocks.map((block, index) => {
+        if (block.kind === "text") {
+          return (
+            <div key={index} className="turn-body chunk">
+              <div
+                className="md"
+                dangerouslySetInnerHTML={{
+                  __html: markdown.render(block.text),
+                }}
+              />
+              <ChunkDuration
+                startedAt={block.startedAt}
+                endedAt={block.endedAt}
+              />
+            </div>
+          );
+        }
+        if (block.kind === "thinking") {
+          return (
+            <details key={index} className="block-thinking chunk">
+              <summary>
+                <span>Thinking</span>
+                <ChunkDuration
+                  startedAt={block.startedAt}
+                  endedAt={block.endedAt}
+                />
+              </summary>
+              <div className="block-thinking-body">{block.thinking}</div>
+            </details>
+          );
+        }
+        if (block.kind === "tool_call") {
+          return <ToolCallBlock key={index} block={block} />;
+        }
+        const label = `${block.surfaceType}${block.title ? ` — ${block.title}` : ""}`;
+        const page =
+          block.surfaceType === "dynamic_page"
+            ? dynamicPageHtml(block.data)
+            : undefined;
+        if (page) {
+          return (
+            <div key={index} className="block-tool block-surface block-page">
+              <div className="block-page-head">
+                <span className="block-tool-glyph">▢</span>
+                <span className="block-tool-name">{label}</span>
+              </div>
+              {/* Untrusted assistant-generated HTML: sandbox without
+                  allow-same-origin so scripts run but can't reach the report
+                  origin, cookies, or storage. */}
+              <iframe
+                className="block-page-frame"
+                title={label}
+                sandbox="allow-scripts"
+                srcDoc={prepareSurfaceHtml(page.html)}
+                style={page.height ? { height: `${page.height}px` } : undefined}
+              />
+              <details className="block-page-source">
+                <summary>Surface data</summary>
+                <div className="block-tool-io">
+                  <pre>{formatBlockJson(block.data)}</pre>
+                </div>
+              </details>
+            </div>
+          );
+        }
+        return (
+          <details key={index} className="block-tool block-surface">
+            <summary>
+              <span className="block-tool-glyph">▢</span>
+              <span className="block-tool-name">{label}</span>
+            </summary>
+            {block.data !== undefined && (
+              <div className="block-tool-io">
+                <pre>{formatBlockJson(block.data)}</pre>
+              </div>
+            )}
+          </details>
+        );
+      })}
+    </>
+  );
+}
+
+function Transcript({
+  turns,
+  assistantEvents,
+}: {
+  turns: TranscriptTurn[];
+  assistantEvents: AgentEvent[];
+}) {
+  const items = buildTranscriptView(turns, assistantEvents);
+  if (items.length === 0) {
     return <p className="muted">No transcript turns recorded.</p>;
   }
 
   return (
     <div className="transcript">
-      {turns.map((turn, index) => (
-        <article
-          key={`${turn.emittedAt}-${index}`}
-          className={`turn ${turn.role}`}
-        >
-          <div className="turn-head">
-            <span>{turn.role}</span>
-            <span>{turn.emittedAt}</span>
-          </div>
-          <div className="turn-body">{turn.content}</div>
-        </article>
-      ))}
+      {items.map((item, index) => {
+        const stamp = item.role === "simulator" ? item.emittedAt : item.endedAt;
+        return (
+          <article
+            key={`${item.emittedAt ?? ""}-${index}`}
+            className={`turn ${item.role}`}
+          >
+            <div className="turn-head">
+              <span>{item.role}</span>
+            </div>
+            {item.role === "simulator" ? (
+              <div className="turn-body">{item.content}</div>
+            ) : (
+              <AssistantMessage message={item} />
+            )}
+            {stamp ? (
+              <div className="turn-time">{formatRecordedAt(stamp)}</div>
+            ) : null}
+          </article>
+        );
+      })}
     </div>
   );
 }
@@ -968,7 +1608,223 @@ function RunnerLogs({ events }: { events: PersistedProgressEvent[] }) {
   );
 }
 
-function ExecutionPage({ run }: { run: ReportRunDetail }) {
+/**
+ * The Logs tab: every process-log stream for a run, stacked. Groups the
+ * container/forensic snapshots and the structured event/runner logs that
+ * used to be separate top-level sections so they all live behind one tab.
+ */
+function LogsPanel({ run }: { run: ReportRunDetail }) {
+  return (
+    <>
+      {run.dockerArtifacts.length > 0 && (
+        <div className="log-group">
+          <h3>Docker snapshot</h3>
+          <p className="section-subtle">
+            Container forensics captured at hatch failure, before{" "}
+            <code>vellum retire</code> removed the container. Each block is the
+            full <code>docker inspect</code> /{" "}
+            <code>docker logs --tail 200</code> for a sibling container (
+            <code>assistant</code> / <code>gateway</code> /{" "}
+            <code>credential-executor</code>), inlined here so port collisions
+            and crash exits land in the same scroll as the subprocess logs
+            below.
+          </p>
+          {run.dockerArtifacts.map((artifact) => (
+            <div key={artifact.name} className="subprocess-log-block">
+              <div className="subprocess-log-head">
+                <strong>{artifact.name}</strong>
+                <a
+                  className="raw-link"
+                  href={`/api/runs/${encodeURIComponent(run.runId)}/files/${encodeURIComponent(artifact.name)}`}
+                  target="_blank"
+                  rel="noopener"
+                >
+                  raw
+                </a>
+              </div>
+              <DockerArtifact artifact={artifact} />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {run.subprocessLogs.length > 0 && (
+        <div className="log-group">
+          <h3>Subprocess logs</h3>
+          <p className="section-subtle">
+            Stdout/stderr from every CLI subprocess the adapter spawned — useful
+            when a hatch or setup step failed silently and the error message
+            alone doesn't tell you why. Each line is timestamped and tagged in
+            the same format as the test runner log so they line up
+            column-for-column when read side by side.
+          </p>
+          {run.subprocessLogs.map((log) => (
+            <div key={log.name} className="subprocess-log-block">
+              <div className="subprocess-log-head">
+                <strong>{log.name}</strong>
+                <a
+                  className="raw-link"
+                  href={`/api/runs/${encodeURIComponent(run.runId)}/files/${encodeURIComponent(log.name)}`}
+                  target="_blank"
+                  rel="noopener"
+                >
+                  raw
+                </a>
+              </div>
+              <SubprocessLog log={log} />
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="log-group">
+        <h3>Memory-formation events</h3>
+        <p className="section-subtle">
+          V2 only: typed event stream from the agent&apos;s ingest turn —
+          consuming the haystack sessions to form memory before the question is
+          asked. Empty for V1 runs and for V2 runs whose adapter doesn&apos;t
+          expose ingest-side events.
+        </p>
+        <ContainerLogs
+          events={run.ingestAssistantEvents}
+          emptyLabel="No memory-formation events recorded."
+        />
+      </div>
+
+      <div className="log-group">
+        <h3>Container logs</h3>
+        <p className="section-subtle">
+          Typed event stream emitted by the assistant inside the container
+          during the question turn — what the agent said in response to the
+          question.
+        </p>
+        <ContainerLogs events={run.assistantEvents} />
+      </div>
+
+      <div className="log-group">
+        <h3>Test runner logs</h3>
+        <p className="section-subtle">
+          Step-by-step trace from the eval runner: hatching, setup, simulator
+          turns, metric scoring, shutdown.
+        </p>
+        <RunnerLogs events={run.progressEvents} />
+      </div>
+    </>
+  );
+}
+
+/**
+ * Tabbed body of the per-execution page. The four pills double as both the
+ * run's headline stats (score / turn count / cost / log count) and the tab
+ * controls — clicking one swaps the panel below. Implemented with hidden
+ * radio inputs + `:checked` sibling selectors so it stays fully interactive
+ * in the static, no-JS report bundle. Score is selected by default.
+ */
+function ExecutionTabs({ run }: { run: ReportRunDetail }) {
+  const logsSize = logsSizeBytes(run);
+  return (
+    <div className="tabs">
+      <input
+        className="tab-input"
+        type="radio"
+        name="exec-tab"
+        id="exec-tab-score"
+        defaultChecked
+      />
+      <input
+        className="tab-input"
+        type="radio"
+        name="exec-tab"
+        id="exec-tab-responses"
+      />
+      <input
+        className="tab-input"
+        type="radio"
+        name="exec-tab"
+        id="exec-tab-cost"
+      />
+      <input
+        className="tab-input"
+        type="radio"
+        name="exec-tab"
+        id="exec-tab-logs"
+      />
+      <div className="tablist" role="tablist">
+        <label className="tab-pill" htmlFor="exec-tab-score">
+          <span className="tab-pill-label">Score</span>
+          <span className="tab-pill-value">
+            {formatAggregateScore(run.scoreTotal)}
+          </span>
+        </label>
+        <label className="tab-pill" htmlFor="exec-tab-responses">
+          <span className="tab-pill-label">Responses</span>
+          <span className="tab-pill-value">{run.assistantResponses}</span>
+        </label>
+        <label className="tab-pill" htmlFor="exec-tab-cost">
+          <span className="tab-pill-label">Cost</span>
+          <span className="tab-pill-value">
+            {formatCostCents(run.totalCostUsd)}
+          </span>
+        </label>
+        <label className="tab-pill" htmlFor="exec-tab-logs">
+          <span className="tab-pill-label">Logs</span>
+          <span className="tab-pill-value">{formatBytes(logsSize)}</span>
+        </label>
+      </div>
+      <div className="tabpanels">
+        <section className="tabpanel panel-score">
+          <h2>Metric report card</h2>
+          <p className="section-subtle">
+            Every metric scored for this run. Expand a metric for its scoring
+            reason and any structured metadata.
+          </p>
+          <MetricReportCard metrics={run.metrics} />
+        </section>
+
+        <section className="tabpanel panel-responses">
+          <h2>Transcript</h2>
+          <p className="section-subtle">
+            Simulator turns interleaved with the assistant&apos;s reply — text,
+            thinking, tool calls, and surfaces grouped per assistant message,
+            folded from the container event stream.
+          </p>
+          <Transcript
+            turns={run.transcript}
+            assistantEvents={run.assistantEvents}
+          />
+        </section>
+
+        <section className="tabpanel panel-cost">
+          <h2>Cost breakdown</h2>
+          <p className="section-subtle">
+            Token usage and dollar cost for this run, metered from the egress
+            jail&apos;s observed model traffic.
+          </p>
+          <CostRequestsTable usage={run.usage} />
+          <CostDiagnosticsPanel usage={run.usage} />
+        </section>
+
+        <section className="tabpanel panel-logs">
+          <h2>Process logs</h2>
+          <p className="section-subtle">
+            Every log stream captured for this run — container forensics,
+            subprocess stdout/stderr, agent event streams, and the test-runner
+            trace.
+          </p>
+          <LogsPanel run={run} />
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function ExecutionPage({
+  run,
+  readOnly,
+}: {
+  run: ReportRunDetail;
+  readOnly: boolean;
+}) {
   const sessionUrl = `/sessions/${encodeURIComponent(run.sessionId)}`;
   const testUrl =
     run.testId !== undefined
@@ -996,13 +1852,6 @@ function ExecutionPage({ run }: { run: ReportRunDetail }) {
 
       <CliCommandSection argv={run.cliArgv} />
 
-      <div className="cards">
-        <StatCard label="Score" value={formatAggregateScore(run.scoreTotal)} />
-        <StatCard label="Metrics" value={run.metricCount} />
-        <StatCard label="Turns" value={run.transcriptTurns} />
-        <StatCard label="Cost" value={formatCost(run.totalCostUsd)} />
-      </div>
-
       {(run.status === "abandoned" ||
         run.status === "failed" ||
         run.metadata?.error ||
@@ -1021,152 +1870,175 @@ function ExecutionPage({ run }: { run: ReportRunDetail }) {
               <span>{run.metadata.lastHeartbeatAt}</span>
             </div>
           )}
-          <div className="action-buttons">
-            <details className="confirm-action">
-              <summary className="bad">Delete run</summary>
-              <form
-                className="confirm-form"
-                method="post"
-                action={`/api/runs/${encodeURIComponent(run.runId)}/delete`}
-              >
-                <input
-                  type="hidden"
-                  name="backToSession"
-                  value={run.sessionId}
-                />
-                <p className="confirm-prompt">
-                  This deletes <code>{run.runId}</code> permanently. It cannot
-                  be undone.
-                </p>
-                <button className="bad" type="submit">
-                  Yes, delete this run
-                </button>
-              </form>
-            </details>
-          </div>
-        </section>
-      )}
-
-      {run.dockerArtifacts.length > 0 && (
-        <section className="section debug-section">
-          <h2>Docker snapshot</h2>
-          <p className="section-subtle">
-            Container forensics captured at hatch failure, before{" "}
-            <code>vellum retire</code> removed the container. Each block is the
-            full <code>docker inspect</code> /{" "}
-            <code>docker logs --tail 200</code> for a sibling container (
-            <code>assistant</code> / <code>gateway</code> /{" "}
-            <code>credential-executor</code>), inlined here so port collisions
-            and crash exits land in the same scroll as the subprocess logs
-            below.
-          </p>
-          {run.dockerArtifacts.map((artifact) => (
-            <div key={artifact.name} className="subprocess-log-block">
-              <div className="subprocess-log-head">
-                <strong>{artifact.name}</strong>
-                <a
-                  className="raw-link"
-                  href={`/api/runs/${encodeURIComponent(run.runId)}/files/${encodeURIComponent(artifact.name)}`}
-                  target="_blank"
-                  rel="noopener"
+          {!readOnly && (
+            <div className="action-buttons">
+              <details className="confirm-action">
+                <summary className="bad">Delete run</summary>
+                <form
+                  className="confirm-form"
+                  method="post"
+                  action={`/api/runs/${encodeURIComponent(run.runId)}/delete`}
                 >
-                  raw
-                </a>
-              </div>
-              <DockerArtifact artifact={artifact} />
+                  <input
+                    type="hidden"
+                    name="backToSession"
+                    value={run.sessionId}
+                  />
+                  <p className="confirm-prompt">
+                    This deletes <code>{run.runId}</code> permanently. It cannot
+                    be undone.
+                  </p>
+                  <button className="bad" type="submit">
+                    Yes, delete this run
+                  </button>
+                </form>
+              </details>
             </div>
-          ))}
+          )}
         </section>
       )}
 
-      {run.subprocessLogs.length > 0 && (
-        <section className="section">
-          <h2>Subprocess logs</h2>
-          <p className="section-subtle">
-            Stdout/stderr from every CLI subprocess the adapter spawned — useful
-            when a hatch or setup step failed silently and the error message
-            alone doesn't tell you why. Each line is timestamped and tagged in
-            the same format as the test runner log so they line up
-            column-for-column when read side by side.
-          </p>
-          {run.subprocessLogs.map((log) => (
-            <div key={log.name} className="subprocess-log-block">
-              <div className="subprocess-log-head">
-                <strong>{log.name}</strong>
-                <a
-                  className="raw-link"
-                  href={`/api/runs/${encodeURIComponent(run.runId)}/files/${encodeURIComponent(log.name)}`}
-                  target="_blank"
-                  rel="noopener"
-                >
-                  raw
-                </a>
-              </div>
-              <SubprocessLog log={log} />
-            </div>
-          ))}
-        </section>
-      )}
-
-      <section className="section">
-        <h2>Metric card</h2>
-        <MetricTable metrics={run.metrics} />
-      </section>
-
-      <section className="section">
-        <h2>Transcript</h2>
-        <Transcript turns={run.transcript} />
-      </section>
-
-      <section className="section">
-        <h2>Memory-formation events</h2>
-        <p className="section-subtle">
-          V2 only: typed event stream from the agent&apos;s ingest turn —
-          consuming the haystack sessions to form memory before the question is
-          asked. Empty for V1 runs and for V2 runs whose adapter doesn&apos;t
-          expose ingest-side events.
-        </p>
-        <ContainerLogs
-          events={run.ingestAssistantEvents}
-          emptyLabel="No memory-formation events recorded."
-        />
-      </section>
-
-      <section className="section">
-        <h2>Container logs</h2>
-        <p className="section-subtle">
-          Typed event stream emitted by the assistant inside the container
-          during the question turn — what the agent said in response to the
-          question.
-        </p>
-        <ContainerLogs events={run.assistantEvents} />
-      </section>
-
-      <section className="section">
-        <h2>Test runner logs</h2>
-        <p className="section-subtle">
-          Step-by-step trace from the eval runner: hatching, setup, simulator
-          turns, metric scoring, shutdown.
-        </p>
-        <RunnerLogs events={run.progressEvents} />
-      </section>
-
-      <section className="section">
-        <h2>Usage</h2>
-        <div className="cards usage-cards">
-          <StatCard
-            label="Input tokens"
-            value={formatNumber(run.totalInputTokens, 0)}
-          />
-          <StatCard
-            label="Output tokens"
-            value={formatNumber(run.totalOutputTokens, 0)}
-          />
-          <StatCard label="Requests" value={run.usage.requests.length} />
-        </div>
-        <CostDiagnosticsPanel usage={run.usage} />
-      </section>
+      <ExecutionTabs run={run} />
     </>
+  );
+}
+
+/**
+ * Expandable view of the raw request/response bodies the egress recorder
+ * captured for one priced request. Returns null when the recorder wrote no
+ * payloads (older runs, or a record that predates payload capture). When a
+ * body was truncated past the recorder's cap, the heading notes how many of
+ * the full bytes are shown so the reader knows the view is partial.
+ */
+function RequestPayloads({ record }: { record: Record<string, unknown> }) {
+  const requestBody = readRecordString(record, "request_body");
+  const responseBody = readRecordString(record, "response_body");
+  if (requestBody === undefined && responseBody === undefined) return null;
+
+  const payloadHeading = (
+    label: string,
+    body: string | undefined,
+    truncated: boolean,
+    fullBytes: number | undefined,
+  ) =>
+    truncated && fullBytes !== undefined && body !== undefined
+      ? `${label} — showing first ${formatBytes(utf8ByteLength(body))} of ${formatBytes(fullBytes)}`
+      : label;
+
+  return (
+    <details className="payload-details">
+      <summary>Request &amp; response payloads</summary>
+      <div className="payload-body">
+        <h4>
+          {payloadHeading(
+            "Request",
+            requestBody,
+            record.request_body_truncated === true,
+            readRecordNumber(record, "request_body_bytes"),
+          )}
+        </h4>
+        <pre className="log payload-pre">{requestBody ?? "—"}</pre>
+        <h4>
+          {payloadHeading(
+            "Response",
+            responseBody,
+            record.response_body_truncated === true,
+            readRecordNumber(record, "response_body_bytes"),
+          )}
+        </h4>
+        <pre className="log payload-pre">{responseBody ?? "—"}</pre>
+      </div>
+    </details>
+  );
+}
+
+/**
+ * Per-request cost breakdown for the Cost tab. One row per recorded model
+ * request — model, token counts, and the dollar cost computed by the same
+ * `priceUsageRecord` the run total uses — so a reader can see exactly which
+ * requests drove (or didn't drive) the cost. Each row carries an expandable
+ * view of the request/response payloads, which is the first place to look
+ * when the cost figure looks wrong (e.g. the large agentic calls never
+ * reached the recorder and only small auxiliary calls were priced).
+ */
+function CostRequestsTable({ usage }: { usage: UsageSummary }) {
+  if (usage.requests.length === 0) return null;
+  // Display newest-first. Each row keeps its chronological index (0 = first
+  // request the run made), so the `#` column counts down as the reader scans
+  // top-to-bottom. Order by `recorded_at` when present, falling back to array
+  // position for records that carry no timestamp.
+  const ordered = usage.requests
+    .map((record, chronologicalIndex) => ({ record, chronologicalIndex }))
+    .sort((a, b) => {
+      const ta = recordedAtMs(readRecordString(a.record, "recorded_at"));
+      const tb = recordedAtMs(readRecordString(b.record, "recorded_at"));
+      if (ta !== undefined && tb !== undefined && ta !== tb) return tb - ta;
+      return b.chronologicalIndex - a.chronologicalIndex;
+    });
+  return (
+    <div className="cost-requests">
+      <h3>Per-request breakdown</h3>
+      <table className="cost-req-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Time</th>
+            <th>Model</th>
+            <th>Input</th>
+            <th>Output</th>
+            <th>Cache (write / read)</th>
+            <th>Cost</th>
+          </tr>
+        </thead>
+        {ordered.map(({ record, chronologicalIndex }) => {
+          const priced = priceUsageRecord(record);
+          const cacheWrite = readRecordNumber(
+            record,
+            "cache_creation_input_tokens",
+          );
+          const cacheRead = readRecordNumber(record, "cache_read_input_tokens");
+          return (
+            <tbody key={chronologicalIndex}>
+              <tr>
+                <td>{chronologicalIndex}</td>
+                <td>
+                  {formatRecordedAt(readRecordString(record, "recorded_at"))}{" "}
+                  <span className="req-duration">
+                    (
+                    {formatRequestDuration(
+                      readRecordNumber(record, "duration_ms"),
+                    )}
+                    )
+                  </span>
+                </td>
+                <td>{readRecordString(record, "model") ?? "—"}</td>
+                <td>
+                  {formatNumber(
+                    readRecordNumber(record, "input_tokens", "inputTokens"),
+                    0,
+                  )}
+                </td>
+                <td>
+                  {formatNumber(
+                    readRecordNumber(record, "output_tokens", "outputTokens"),
+                    0,
+                  )}
+                </td>
+                <td>
+                  {formatNumber(cacheWrite, 0)} / {formatNumber(cacheRead, 0)}
+                </td>
+                <td>{formatCost(priced.costUsd)}</td>
+              </tr>
+              <tr className="payload-row">
+                <td colSpan={7}>
+                  <RequestPayloads record={record} />
+                </td>
+              </tr>
+            </tbody>
+          );
+        })}
+      </table>
+    </div>
   );
 }
 
@@ -1178,8 +2050,7 @@ function ExecutionPage({ run }: { run: ReportRunDetail }) {
  * Otherwise renders a chip (`Partial pricing` / `Cost unavailable`) and a
  * compact per-request breakdown so the reader can see exactly which
  * usage records lacked provider/model/tokens or fell outside the
- * pricing table. Pairs with Vargas's round-3 ask: "costs stuck at 0,
- * add telemetry as to why".
+ * pricing table.
  */
 function CostDiagnosticsPanel({ usage }: { usage: UsageSummary }) {
   const chip = costStatusChip(usage.costStatus);
@@ -1236,6 +2107,7 @@ function NotFoundPage({ message }: { message: string }) {
 export type ReportPageInput =
   | { kind: "index"; sessions: ReportSessionSummary[] }
   | { kind: "session"; session: ReportSessionDetail }
+  | { kind: "profile"; profile: ReportProfileInSession }
   | { kind: "test"; test: ReportTestInSession }
   | { kind: "execution"; run: ReportRunDetail }
   | { kind: "not-found"; message: string };
@@ -1246,6 +2118,8 @@ function pageTitle(input: ReportPageInput): string {
       return "Vellum Evals Report Card";
     case "session":
       return `Run · ${sessionTitle(input.session)}`;
+    case "profile":
+      return `Profile · ${input.profile.profileId}`;
     case "test":
       return `Test · ${input.test.testId}`;
     case "execution":
@@ -1255,22 +2129,36 @@ function pageTitle(input: ReportPageInput): string {
   }
 }
 
-function PageBody({ input }: { input: ReportPageInput }) {
+function PageBody({
+  input,
+  readOnly,
+}: {
+  input: ReportPageInput;
+  readOnly: boolean;
+}) {
   switch (input.kind) {
     case "index":
-      return <IndexPage sessions={input.sessions} />;
+      return <IndexPage sessions={input.sessions} readOnly={readOnly} />;
     case "session":
       return <SessionPage session={input.session} />;
+    case "profile":
+      return <ProfileInSessionPage profile={input.profile} />;
     case "test":
       return <TestInSessionPage test={input.test} />;
     case "execution":
-      return <ExecutionPage run={input.run} />;
+      return <ExecutionPage run={input.run} readOnly={readOnly} />;
     case "not-found":
       return <NotFoundPage message={input.message} />;
   }
 }
 
-function ReportDocument({ input }: { input: ReportPageInput }) {
+function ReportDocument({
+  input,
+  readOnly,
+}: {
+  input: ReportPageInput;
+  readOnly: boolean;
+}) {
   return (
     <html lang="en">
       <head>
@@ -1281,13 +2169,28 @@ function ReportDocument({ input }: { input: ReportPageInput }) {
       </head>
       <body>
         <div className="shell">
-          <PageBody input={input} />
+          <PageBody input={input} readOnly={readOnly} />
         </div>
       </body>
     </html>
   );
 }
 
-export function renderReportPage(input: ReportPageInput): string {
-  return `<!doctype html>${renderToStaticMarkup(<ReportDocument input={input} />)}`;
+export interface RenderReportOptions {
+  /**
+   * Suppress the mutating affordances (the delete-run / delete-all forms) so
+   * the page is safe to serve as a static, read-only artifact — e.g. an
+   * exported run bundle hosted on the QA dashboard, where the report-server
+   * delete endpoints don't exist. Defaults to `false` (the live server).
+   */
+  readOnly?: boolean;
+}
+
+export function renderReportPage(
+  input: ReportPageInput,
+  options: RenderReportOptions = {},
+): string {
+  return `<!doctype html>${renderToStaticMarkup(
+    <ReportDocument input={input} readOnly={options.readOnly ?? false} />,
+  )}`;
 }

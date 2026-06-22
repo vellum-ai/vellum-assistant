@@ -16,6 +16,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   afterAll,
+  beforeAll,
   beforeEach,
   describe,
   expect,
@@ -24,6 +25,10 @@ import {
   mock,
   test,
 } from "bun:test";
+
+import { ADMISSION_FLOOR } from "@vellumai/gateway-client";
+
+import { TRUST_CLASS_RANK } from "../runtime/actor-trust-resolver.js";
 
 // ── Platform + logger mocks (must come before any source imports) ────
 
@@ -35,6 +40,28 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
+}));
+
+// The voice redemption path now claims the gateway-canonical row over IPC
+// before mutating. Stub it so tests don't attempt a real socket connect; the
+// claim returns consumed (updated:true) so redemption proceeds.
+//
+// `inviteClaimCalls` counts gateway claims so concurrency tests can assert that
+// a repeated code does NOT launch a second claim. `inviteClaimGate`, when set,
+// holds the claim open mid-flight so a test can drive the race window where a
+// second code arrives while the first redemption is still awaiting the gateway.
+let inviteClaimCalls = 0;
+let inviteClaimGate: Promise<void> | null = null;
+mock.module("../ipc/gateway-client.js", () => ({
+  ipcCall: async () => undefined,
+  ipcCallPersistent: async (method: string) => {
+    if (method === "record_invite_redemption") {
+      inviteClaimCalls += 1;
+      if (inviteClaimGate) await inviteClaimGate;
+      return { ok: true, updated: true, mirrored: true };
+    }
+    return undefined;
+  },
 }));
 
 // ── Identity helpers mock ─────────────────────────────────────────────
@@ -98,6 +125,82 @@ const mockConfig = {
 mock.module("../config/loader.js", () => ({
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
+}));
+
+// ── Channel admission policy reader mock ────────────────────────────
+//
+// handleSetup resolves the phone admission floor via this reader and forwards
+// it into routeSetup. Tests drive the floor by setting `mockAdmissionPolicy`
+// (or making the reader throw to exercise the fail-open guard).
+
+let mockAdmissionPolicy:
+  | import("@vellumai/gateway-client").AdmissionPolicy
+  | null = null;
+// Optional gate to hold the reader open mid-setup so tests can drive the
+// race window where a prompt arrives while handleSetup is still awaiting.
+let mockAdmissionGate: Promise<void> | null = null;
+// `mock.module` is process-global in Bun and leaks into sibling files that run
+// later in the same `bun test` invocation. channel-admission-reader.test.ts
+// imports the reader for real, so an unconditional stub here would feed it this
+// stub and break its assertions. Delegate to the real implementation unless
+// this file's tests are active (`admissionMockActive`, toggled in
+// beforeAll/afterAll). Snapshot the real exports into a plain object NOW,
+// before the stub registers — a module namespace is a live view, so reading
+// the real export after the stub installs would resolve back to the stub
+// (infinite recursion).
+const realChannelAdmissionReaderModule = {
+  ...(await import("../calls/channel-admission-reader.js")),
+};
+let admissionMockActive = false;
+mock.module("../calls/channel-admission-reader.js", () => ({
+  ...realChannelAdmissionReaderModule,
+  getChannelAdmissionPolicy: async (
+    channelType: import("../channels/types.js").ChannelId,
+  ) => {
+    if (!admissionMockActive) {
+      return realChannelAdmissionReaderModule.getChannelAdmissionPolicy(
+        channelType,
+      );
+    }
+    if (mockAdmissionGate) await mockAdmissionGate;
+    return mockAdmissionPolicy;
+  },
+}));
+
+// Real floor semantics, mirroring relay-setup-router.test.ts. The
+// enforceAdmissionPolicy mock omits the exempt-channel short-circuit so the
+// deny path can be exercised end-to-end regardless of channel.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realAdmissionPolicyModule = require("../runtime/routes/inbound-stages/admission-policy.js");
+mock.module("../runtime/routes/inbound-stages/admission-policy.js", () => ({
+  ...realAdmissionPolicyModule,
+  enforceAdmissionPolicy: (input: {
+    trustClass: string;
+    memberStatus: string | undefined;
+    policy: import("@vellumai/gateway-client").AdmissionPolicy;
+  }) => {
+    if (input.memberStatus === "blocked" || input.memberStatus === "revoked") {
+      return {
+        admitted: false,
+        reason:
+          input.memberStatus === "blocked"
+            ? "member_blocked"
+            : "member_revoked",
+        shouldChallenge: false,
+        effectivePolicy: input.policy,
+      };
+    }
+    const rank =
+      (TRUST_CLASS_RANK as Record<string, number>)[input.trustClass] ?? 0;
+    const floor = ADMISSION_FLOOR[input.policy];
+    if (rank >= floor) return { admitted: true };
+    return {
+      admitted: false,
+      reason: `admission_policy_${input.policy}`,
+      shouldChallenge: false,
+      effectivePolicy: input.policy,
+    };
+  },
 }));
 
 // ── TTS provider mocks (for call-speech-output) ─────────────────────
@@ -238,9 +341,17 @@ import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
-initializeDb();
+await initializeDb();
+
+// Activate the channel-admission-reader stub only while this file's tests run,
+// so the registered (process-global) mock delegates to the real module for
+// sibling files that load later in the same worker.
+beforeAll(() => {
+  admissionMockActive = true;
+});
 
 afterAll(() => {
+  admissionMockActive = false;
   resetDbForTesting();
 });
 
@@ -402,8 +513,12 @@ describe("relay-server", () => {
       verifiedVia: "bootstrap",
     });
     activeRelayConnections.clear();
+    inviteClaimCalls = 0;
+    inviteClaimGate = null;
     mockUserReference = "my human";
     mockAssistantName = "Vellum";
+    mockAdmissionPolicy = null;
+    mockAdmissionGate = null;
     mockSendMessage.mockImplementation(createMockProviderResponse(["Hello"]));
     mockConfig.calls.verification.enabled = false;
     mockConfig.calls.verification.maxAttempts = 3;
@@ -457,12 +572,15 @@ describe("relay-server", () => {
           runAgentLoop: async (
             _content: string,
             _messageId: string,
-            onEvent: (event: {
-              type: string;
-              conversationId?: string;
-              text?: string;
-            }) => void,
+            options?: {
+              onEvent?: (event: {
+                type: string;
+                conversationId?: string;
+                text?: string;
+              }) => void;
+            },
           ) => {
+            const onEvent = options?.onEvent ?? (() => {});
             const tokens: string[] = [];
             await mockSendMessage([], [], "", {
               onEvent: (event: { type: string; text?: string }) => {
@@ -833,6 +951,121 @@ describe("relay-server", () => {
     expect(textMessages.length).toBe(1);
     expect(textMessages[0].token).toContain("still setting up");
     expect(textMessages[0].last).toBe(true);
+
+    relay.destroy();
+  });
+
+  test("handleMessage: prompt arriving during setup (setting_up) is dropped", async () => {
+    ensureConversation("conv-relay-setting-up");
+    const session = createCallSession({
+      conversationId: "conv-relay-setting-up",
+      provider: "twilio",
+      fromNumber: "+15551111111",
+      toNumber: "+15552222222",
+    });
+
+    addTrustedVoiceContact("+15551111111");
+
+    const { ws, relay } = createMockWs(session.id);
+
+    // Hold the admission reader open so handleSetup stays in "setting_up".
+    let releaseGate: () => void = () => {};
+    mockAdmissionGate = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+
+    // Fire setup without awaiting — it suspends inside getChannelAdmissionPolicy.
+    const setupPromise = relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_setting_up_123",
+        from: "+15551111111",
+        to: "+15552222222",
+      }),
+    );
+
+    // Let the setup task reach the await; state must be "setting_up".
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(relay.getConnectionState()).toBe("setting_up");
+
+    // A prompt arriving now must be dropped: no transcript, no fallback.
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "prompt",
+        voicePrompt: "Wire me money",
+        lang: "en-US",
+        last: true,
+      }),
+    );
+
+    const textMessages = ws.sentMessages
+      .map((m) => JSON.parse(m))
+      .filter((m: { type: string }) => m.type === "text");
+    expect(
+      textMessages.some((m) => (m.token ?? "").includes("still setting up")),
+    ).toBe(false);
+    expect(relay.getConversationHistory().length).toBe(0);
+    expect(
+      getMessages("conv-relay-setting-up").filter((m) => m.role === "user")
+        .length,
+    ).toBe(0);
+
+    // Release the reader and let setup finish.
+    releaseGate();
+    await setupPromise;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(relay.getConnectionState()).toBe("connected");
+
+    relay.destroy();
+  });
+
+  test("handleMessage: prompt after normal-call setup completes is handled", async () => {
+    ensureConversation("conv-relay-postsetup");
+    const session = createCallSession({
+      conversationId: "conv-relay-postsetup",
+      provider: "twilio",
+      fromNumber: "+15551111111",
+      toNumber: "+15552222222",
+    });
+
+    addTrustedVoiceContact("+15551111111");
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["Sure, happy to help."]),
+    );
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_postsetup_123",
+        from: "+15551111111",
+        to: "+15552222222",
+      }),
+    );
+
+    // Setup completed normally → "connected".
+    expect(relay.getConnectionState()).toBe("connected");
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // A subsequent prompt routes to the controller (no "still setting up").
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "prompt",
+        voicePrompt: "Hello there",
+        lang: "en-US",
+        last: true,
+      }),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const userMessages = getMessages("conv-relay-postsetup").filter(
+      (m) => m.role === "user",
+    );
+    expect(userMessages.length).toBeGreaterThan(0);
+    expect(relay.getConnectionState()).toBe("connected");
 
     relay.destroy();
   });
@@ -2219,7 +2452,11 @@ describe("relay-server", () => {
       await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
 
-    // Call should be marked as failed immediately
+    // Redemption is dispatched async (it now consults the gateway lifecycle
+    // pre-check over IPC), so flush the microtask/timer queue before asserting.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Call should be marked as failed
     const updated = getCallSession(session.id);
     expect(updated).not.toBeNull();
     expect(updated!.status).toBe("failed");
@@ -2257,6 +2494,190 @@ describe("relay-server", () => {
     expect(endMessages.length).toBe(1);
 
     relay.destroy();
+  });
+
+  test("inbound voice invite redemption: repeated code during in-flight claim is deduped (no second redemption, no spurious failure)", async () => {
+    ensureConversation("conv-invite-dedup");
+    const session = createCallSession({
+      conversationId: "conv-invite-dedup",
+      provider: "twilio",
+      fromNumber: "+15558885555",
+      toNumber: "+15551111111",
+    });
+
+    const code = generateVoiceCode(6);
+    const codeHash = hashVoiceCode(code);
+    createInvite({
+      sourceChannel: "phone",
+      contactId: createTargetContact(),
+      maxUses: 1,
+      expectedExternalUserId: "+15558885555",
+      voiceCodeHash: codeHash,
+      voiceCodeDigits: 6,
+      friendName: "Eve",
+      guardianName: "Frank",
+    });
+
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["Hello, how can I help?"]),
+    );
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_invite_dedup",
+        from: "+15558885555",
+        to: "+15551111111",
+      }),
+    );
+
+    expect(relay.getConnectionState()).toBe("verification_pending");
+
+    // Hold the gateway claim open so the first redemption stays in flight while
+    // the caller re-speaks the SAME code (the race this guard prevents).
+    let releaseClaim: () => void = () => {};
+    inviteClaimGate = new Promise<void>((resolve) => {
+      releaseClaim = resolve;
+    });
+
+    // First attempt: enter the full code via DTMF — dispatched fire-and-forget.
+    for (const digit of code) {
+      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
+    }
+    // Let the async handler reach the awaited gateway claim.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(inviteClaimCalls).toBe(1);
+
+    // Second attempt with the SAME code arrives while the first is in flight.
+    // It must be ignored — no second claim, no failure branch.
+    for (const digit of code) {
+      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(inviteClaimCalls).toBe(1);
+
+    // Now let the first redemption resolve.
+    releaseClaim();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Exactly one gateway claim ran across both attempts.
+    expect(inviteClaimCalls).toBe(1);
+
+    // Activation succeeded — call continued, never marked failed.
+    expect(relay.getConnectionState()).toBe("connected");
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).not.toBe("failed");
+
+    const events = getCallEvents(session.id);
+    expect(
+      events.some((e) => e.eventType === "invite_redemption_succeeded"),
+    ).toBe(true);
+    expect(events.some((e) => e.eventType === "invite_redemption_failed")).toBe(
+      false,
+    );
+
+    // No failure copy was sent for the deduped second attempt.
+    const failureCopy = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter(
+        (m) =>
+          m.type === "text" &&
+          (m.token ?? "").includes("incorrect or has since expired"),
+      );
+    expect(failureCopy.length).toBe(0);
+
+    relay.destroy();
+  });
+
+  test("inbound voice invite redemption: a fresh redemption after a prior attempt fully resolves still proceeds (guard cleared, no deadlock)", async () => {
+    // Prior attempt: a fully-resolved redemption on its own call.
+    ensureConversation("conv-invite-prior");
+    const priorSession = createCallSession({
+      conversationId: "conv-invite-prior",
+      provider: "twilio",
+      fromNumber: "+15558883333",
+      toNumber: "+15551111111",
+    });
+    const priorCode = generateVoiceCode(6);
+    createInvite({
+      sourceChannel: "phone",
+      contactId: createTargetContact(),
+      maxUses: 1,
+      expectedExternalUserId: "+15558883333",
+      voiceCodeHash: hashVoiceCode(priorCode),
+      voiceCodeDigits: 6,
+      friendName: "Ivan",
+      guardianName: "Judy",
+    });
+
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["Hello, how can I help?"]),
+    );
+
+    const prior = createMockWs(priorSession.id);
+    await prior.relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_invite_prior",
+        from: "+15558883333",
+        to: "+15551111111",
+      }),
+    );
+    for (const digit of priorCode) {
+      await prior.relay.handleMessage(
+        JSON.stringify({ type: "dtmf", digit }),
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(prior.relay.getConnectionState()).toBe("connected");
+    expect(inviteClaimCalls).toBe(1);
+    prior.relay.destroy();
+
+    // Fresh attempt: a brand-new redemption proceeds (the in-flight guard from
+    // the resolved attempt does not block it — it was cleared in finally).
+    ensureConversation("conv-invite-fresh");
+    const freshSession = createCallSession({
+      conversationId: "conv-invite-fresh",
+      provider: "twilio",
+      fromNumber: "+15558882222",
+      toNumber: "+15551111111",
+    });
+    const freshCode = generateVoiceCode(6);
+    createInvite({
+      sourceChannel: "phone",
+      contactId: createTargetContact(),
+      maxUses: 1,
+      expectedExternalUserId: "+15558882222",
+      voiceCodeHash: hashVoiceCode(freshCode),
+      voiceCodeDigits: 6,
+      friendName: "Kim",
+      guardianName: "Liam",
+    });
+
+    const fresh = createMockWs(freshSession.id);
+    await fresh.relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_invite_fresh",
+        from: "+15558882222",
+        to: "+15551111111",
+      }),
+    );
+    for (const digit of freshCode) {
+      await fresh.relay.handleMessage(
+        JSON.stringify({ type: "dtmf", digit }),
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // A second claim ran for the fresh attempt — guard did not deadlock it.
+    expect(inviteClaimCalls).toBe(2);
+    expect(fresh.relay.getConnectionState()).toBe("connected");
+
+    fresh.relay.destroy();
   });
 
   test("inbound voice: unknown caller with no active invite enters name capture flow", async () => {
@@ -2715,6 +3136,87 @@ describe("relay-server", () => {
 
     // Let delayed endSession callback flush
     await new Promise((resolve) => setTimeout(resolve, 10));
+
+    relay.destroy();
+  });
+
+  // ── Inbound admission floor (reader → routeSetup wiring) ───────────
+
+  test("admission floor: reader floor that excludes caller denies the call end-to-end", async () => {
+    ensureConversation("conv-admission-floor-deny");
+    const session = createCallSession({
+      conversationId: "conv-admission-floor-deny",
+      provider: "twilio",
+      fromNumber: "+15557776666",
+      toNumber: "+15551111111",
+    });
+
+    // A trusted contact (rank 3) is below the `guardian_only` floor (rank 4).
+    addTrustedVoiceContact("+15557776666");
+    mockAdmissionPolicy = "guardian_only";
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_admission_floor_deny",
+        from: "+15557776666",
+        to: "+15551111111",
+      }),
+    );
+
+    // Floor-excluded caller takes the deny path.
+    expect(relay.getConnectionState()).toBe("disconnecting");
+
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe("failed");
+
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === "text");
+    expect(
+      textMessages.some((m) => (m.token ?? "").includes("not authorized")),
+    ).toBe(true);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    relay.destroy();
+  });
+
+  test("admission floor: null policy from reader leaves the call flow unchanged", async () => {
+    ensureConversation("conv-admission-floor-null");
+    const session = createCallSession({
+      conversationId: "conv-admission-floor-null",
+      provider: "twilio",
+      fromNumber: "+15557776666",
+      toNumber: "+15551111111",
+    });
+
+    addTrustedVoiceContact("+15557776666");
+    mockAdmissionPolicy = null; // no floor supplied
+
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["Hello, how can I help you?"]),
+    );
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_admission_floor_null",
+        from: "+15557776666",
+        to: "+15551111111",
+      }),
+    );
+
+    // Trusted contact proceeds normally — no deny.
+    expect(relay.getConnectionState()).toBe("connected");
+
+    const updated = getCallSession(session.id);
+    expect(updated!.status).toBe("in_progress");
 
     relay.destroy();
   });

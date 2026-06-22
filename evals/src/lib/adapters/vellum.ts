@@ -7,6 +7,8 @@ import type {
   AgentHatchInput,
   AgentMessage,
   BaseAgent,
+  ConfirmationDecision,
+  ResolvedAppPage,
   WorkspaceFileWrite,
 } from "../adapter";
 import type { Profile } from "../profile";
@@ -14,10 +16,13 @@ import type { TestSetupCommand } from "../setup-command";
 import { runArtifacts } from "../metrics";
 import {
   applyDockerEgressJail,
+  findOpenHostPort,
+  VELLUM_ALLOW_HOSTS,
   type DockerEgressJail,
   vellumDockerAssistantContainer,
   vellumDockerSiblingContainers,
 } from "../egress/docker-jail";
+import { reapContainersForRun } from "./docker-reaper";
 import {
   assertSuccess,
   NodeCommandRunner,
@@ -25,6 +30,8 @@ import {
   type SpawnedProcess,
 } from "../runtime/command-runner";
 import { parseNdjson } from "../runtime/ndjson";
+import { assertSafeWorkspacePath } from "./workspace-path";
+import { inlineAppDist } from "./vellum-app-page";
 
 export interface VellumAgentOptions {
   profile: Profile;
@@ -210,29 +217,26 @@ function parseConversationKey(output: string): string | null {
 const CONTAINER_WORKSPACE_DIR = "/workspace";
 
 /**
- * Validate a workspace-relative path before staging a file. Rejects
- * absolute paths (would escape the workspace root) and any segment
- * equal to `..` (path-traversal escape). Empty paths are rejected so
- * a typo can't write at the workspace root with an unnamed file.
+ * Directory inside the assistant container where the app builder writes
+ * compiled sandbox apps: `<dirName>/dist/index.html` plus sibling
+ * `main.js` / `main.css`. Derived from the daemon's app-store layout
+ * (`getAppsDir()` = `<workspace>/data/apps` in `assistant/src/memory/`),
+ * pinned here because adapters do NOT import from `assistant/` (see
+ * `evals/AGENTS.md`); if the daemon's layout moves, this moves with it.
  */
-function assertSafeWorkspacePath(relPath: string): void {
-  if (relPath.length === 0) {
-    throw new Error("workspace path must be non-empty");
-  }
-  if (relPath.startsWith("/")) {
-    throw new Error(
-      `workspace path must be workspace-relative, got absolute path: ${relPath}`,
-    );
-  }
-  const segments = relPath.split("/");
-  for (const segment of segments) {
-    if (segment === "..") {
-      throw new Error(
-        `workspace path must not escape the workspace root: ${relPath}`,
-      );
-    }
-  }
-}
+const CONTAINER_APPS_DIR = `${CONTAINER_WORKSPACE_DIR}/data/apps`;
+
+/**
+ * Internal port the gateway reverse-proxy listens on inside the container,
+ * pinned to `GATEWAY_INTERNAL_PORT` in `cli/src/lib/environments/paths.ts`.
+ * When the egress jail owns the network namespace it — not the assistant —
+ * publishes this to the host, and the harness reaches the assistant
+ * entirely through it (`vellum message` / `events` / `confirm` target the
+ * gateway runtime URL; `exec` uses `docker exec`). Adapters deliberately do
+ * NOT import from `cli/src/` (see `evals/AGENTS.md`), so duplication is
+ * intentional; if the CLI default moves, this moves with it.
+ */
+const GATEWAY_CONTAINER_PORT = 7830;
 
 export class VellumAgent implements BaseAgent {
   readonly id: string;
@@ -278,22 +282,59 @@ export class VellumAgent implements BaseAgent {
     //   containers — is safe and is exactly the failure mode where
     //   operators most need the forensics.
     //
-    // - `jail.stop()` is ALWAYS called. It's a no-op if we never assigned
-    //   `this.jail` (i.e. hatch died before `applyDockerEgressJail`), so
-    //   it's safe.
-    //
-    // - `vellum retire` is gated on `hatchSucceeded`. Retire is
-    //   destructive (`docker rm -f` + network/volume teardown), and if
+    // - `vellum retire` is gated on `hatchSucceeded` and runs BEFORE
+    //   `jail.stop()`. The jail owns the network namespace the assistant
+    //   tenants join, so the tenants must be removed first (Docker refuses
+    //   to remove a container whose netns another container still shares).
+    //   Retire is destructive (`docker rm -f` + volume teardown), and if
     //   hatch failed with "name already exists" we'd be tearing down
-    //   another process's live containers. The new `findOpenPort()`
-    //   in `hatchDocker` makes that path almost impossible (the most
-    //   common collision was the port), but defensively we still only
-    //   retire what we know we created — the ms-precision + random
+    //   another process's live containers. The `findOpenPort()` in
+    //   `hatchDocker` plus the jail publishing a freshly-allocated host
+    //   port make that path almost impossible, but defensively we still
+    //   only retire what we know we created — the ms-precision + random
     //   suffix on `runId` (see `evals/src/commands/run.ts#timestampSuffix`)
     //   means a successful hatch unambiguously means the resources
     //   under our `instanceName` are ours.
+    //
+    // - `jail.stop()` is ALWAYS called, LAST. It's a no-op if we never
+    //   assigned `this.jail` (i.e. we died before creating the jail), and
+    //   it removes the jail container then its owned network.
     let hatchSucceeded = false;
     try {
+      // Allocate the host port the gateway will be reachable on before
+      // anything starts. The jail owns the network namespace, so it — not
+      // the assistant — must publish this port, which means it has to be
+      // known before the jail is created. `hatch --gateway-port` then
+      // reuses the same value so the lockfile's runtime URL matches what
+      // the jail actually published.
+      const gatewayPort = await findOpenHostPort();
+
+      // Create the recording egress jail FIRST, as the owner of a fresh
+      // network namespace. It installs the iptables allowlist + NAT
+      // REDIRECT and generates the interception CA before any assistant
+      // process exists, so the daemon is born behind the proxy with no
+      // pre-jail window for its first outbound TLS to slip through.
+      this.jail = await applyDockerEgressJail(this.runner, {
+        runId: this.id,
+        recordingDir: runArtifacts(this.id).runDir,
+        // Vellum runs the on-device embedder for dense memory recall, so its
+        // jail additionally allowlists the embedder's npm/HuggingFace
+        // download hosts. Hermes never embeds locally and keeps the
+        // model-provider-only default, so cross-species cost stays honest.
+        allowHosts: VELLUM_ALLOW_HOSTS,
+        publishPorts: [
+          { hostPort: gatewayPort, containerPort: GATEWAY_CONTAINER_PORT },
+        ],
+        // Bind-mount the live repo's `plugins/` into the
+        // recording sidecar so the addon's mock-github handler can
+        // serve `assistant plugins install` traffic from disk instead
+        // of letting it egress to github.com. The runner always runs
+        // inside the repo (`repoRootFromAdapter()` drives the hatch
+        // `--source` arg below), so the fixtures path is always
+        // resolvable here.
+        pluginFixturesDir: resolve(repoRootFromAdapter(), "plugins"),
+      });
+
       // Forward LLM provider API keys from the eval process env into the
       // hatch subprocess explicitly. The Vellum docker StatefulSet spec
       // conditionally re-forwards each of these from `vellum hatch`'s env
@@ -301,6 +342,11 @@ export class VellumAgent implements BaseAgent {
       // and the assistant runtime falls back to `process.env[<NAME>]` when
       // the secure store is empty. Without this, runs would fail with
       // `HTTP 422: No API key configured for anthropic` on the first send.
+      //
+      // `--netns-container` joins the assistant/gateway/CES into the jail's
+      // namespace (born jailed); `--gateway-port` matches the port the jail
+      // published; `--assistant-ca-cert` trusts the interception CA from
+      // process start so the daemon's first TLS handshake succeeds.
       const hatch = await this.runner.run(
         this.cliCommand,
         [
@@ -312,6 +358,12 @@ export class VellumAgent implements BaseAgent {
           repoRootFromAdapter(),
           "--name",
           this.id,
+          "--netns-container",
+          this.jail.netnsContainer,
+          "--gateway-port",
+          String(gatewayPort),
+          "--assistant-ca-cert",
+          this.jail.caCertPath,
         ],
         {
           env: selectProviderEnv(this.processEnv),
@@ -324,11 +376,6 @@ export class VellumAgent implements BaseAgent {
       // instanceName are unambiguously ours. Only now is `retire` safe
       // in the catch path.
       hatchSucceeded = true;
-
-      this.jail = await applyDockerEgressJail(this.runner, {
-        containerName: this.assistantContainerName,
-        recordingDir: runArtifacts(this.id).runDir,
-      });
 
       // Apply species-default feature flags BEFORE setup commands.
       // Setup commands execute inside the assistant container via
@@ -387,14 +434,17 @@ export class VellumAgent implements BaseAgent {
       // ignored so we never shadow the original error with a
       // diagnostics-capture error.
       await this.captureContainerForensics().catch(() => undefined);
-      await this.jail?.stop().catch(() => undefined);
       if (hatchSucceeded) {
-        // Hatch returned 0 but a later step (setup commands, jail
-        // application) threw — we own these resources, retire them.
-        await this.runner
-          .run(this.cliCommand, ["retire", this.id])
-          .catch(() => undefined);
+        // Hatch returned 0 but a later step (feature flags, setup
+        // commands) threw — we own the tenant containers. Retire them
+        // BEFORE stopping the jail: they share the jail's network
+        // namespace, so the jail can't be removed while they exist.
+        await this.runRetireWithReaperFallback("hatch-catch");
       }
+      // Jail teardown is LAST and unconditional: it owns the namespace,
+      // so it must outlive the tenants. No-op if we died before creating
+      // it. Removes the jail container then its owned network.
+      await this.jail?.stop().catch(() => undefined);
       // If hatchSucceeded is false the hatch subprocess itself failed.
       // We deliberately do NOT call `vellum retire` here: another
       // process may legitimately hold an overlapping instance name in
@@ -413,10 +463,10 @@ export class VellumAgent implements BaseAgent {
    *
    *   - `docker-inspect-<service>.json` — raw `docker inspect` output.
    *     Carries State.Status ("created" / "exited" / "dead" / ...),
-   *     ExitCode, OOMKilled, Error string, mounts, etc. The gateway's
-   *     inspect is the most actionable artifact for the "address
-   *     already in use" failure mode: it lands in `Created` state with
-   *     `Error: "driver failed programming external connectivity..."`.
+   *     ExitCode, OOMKilled, Error string, mounts, etc. A tenant that
+   *     crash-loops or exits during boot shows up here with its exit
+   *     code and error string, which is the most actionable artifact
+   *     for diagnosing why the hatch failed.
    *   - `docker-logs-<service>.txt` — last 200 lines of the container's
    *     stdout/stderr (interleaved by docker, no `[STDOUT]` /
    *     `[STDERR]` prefixes since this isn't going through the logPath
@@ -471,6 +521,27 @@ export class VellumAgent implements BaseAgent {
     assertSuccess(result, `send message to ${this.id}`);
   }
 
+  /**
+   * Resolve a pending tool confirmation the agent raised. A hatched
+   * assistant runs headless with no interactive approver, so any tool
+   * above the auto-approve risk threshold stalls on a pending
+   * `confirmation_request` until something answers it. Runners that
+   * auto-approve during a turn call this on each such event so the turn
+   * can proceed. Routes through the gateway via `vellum confirm`.
+   */
+  async confirm(input: ConfirmationDecision): Promise<void> {
+    this.assertHatched();
+    const result = await this.runner.run(this.cliCommand, [
+      "confirm",
+      this.id,
+      "--request-id",
+      input.requestId,
+      "--decision",
+      input.decision,
+    ]);
+    assertSuccess(result, `confirm ${input.requestId} for ${this.id}`);
+  }
+
   async runSetupCommand(command: TestSetupCommand): Promise<void> {
     switch (command.type) {
       case "seed-conversation": {
@@ -503,6 +574,13 @@ export class VellumAgent implements BaseAgent {
         } finally {
           await rm(seedDir, { recursive: true, force: true });
         }
+        break;
+      }
+      case "stage-workspace-file": {
+        await this.writeWorkspaceFile({
+          path: command.path,
+          content: command.content,
+        });
         break;
       }
     }
@@ -626,19 +704,169 @@ export class VellumAgent implements BaseAgent {
     );
   }
 
+  /**
+   * The Vellum daemon closes every turn with a `message_complete` SSE
+   * event — including turns truncated by a response limit — and emits
+   * `error` when the turn aborts. Either one means the daemon is done
+   * responding to the message.
+   */
+  isTurnComplete(event: AgentEvent): boolean {
+    const type = event.message?.type;
+    return type === "message_complete" || type === "error";
+  }
+
   async readUsageRecords(): Promise<Array<Record<string, unknown>>> {
     return this.jail?.readUsageRecords() ?? [];
+  }
+
+  /**
+   * Resolve the most recently built sandbox app into a single
+   * self-contained HTML page the runner can load in a headless browser.
+   *
+   * The app builder compiles apps to `dist/index.html` plus sibling
+   * `main.js` / `main.css` under `${CONTAINER_APPS_DIR}/<dirName>/`. We
+   * read those files straight off the container's stdout (no `docker cp`
+   * round-trip) and inline the assets so the result renders from
+   * `page.setContent(html)` alone — the daemon performs the equivalent
+   * inlining when it delivers an app over SSE.
+   *
+   * Returns `undefined` when the agent built no app this run, so the
+   * runner skips the app-interaction phase.
+   */
+  async resolveAppPage(): Promise<ResolvedAppPage | undefined> {
+    this.assertHatched();
+    const [distDir] = await this.listAppDistDirs();
+    if (distDir === undefined) return undefined;
+    const indexHtml = await this.readContainerTextFile(`${distDir}/index.html`);
+    if (indexHtml === undefined) return undefined;
+    const mainJs = await this.readContainerTextFile(`${distDir}/main.js`);
+    const mainCss = await this.readContainerTextFile(`${distDir}/main.css`);
+    return { html: inlineAppDist({ indexHtml, mainJs, mainCss }) };
+  }
+
+  /**
+   * List every compiled app's `dist` directory, newest first by
+   * `dist/index.html` mtime. Each returned path is the dist dir (the path
+   * up to the `index.html`'s last `/`). The glob is quoted so the shell —
+   * not this process — expands it inside the container, and `2>/dev/null`
+   * swallows the "no matches" stderr so the command still exits 0 with
+   * empty stdout.
+   */
+  private async listAppDistDirs(): Promise<string[]> {
+    const result = await this.runner.run("docker", [
+      "exec",
+      this.assistantContainerName,
+      "sh",
+      "-lc",
+      `ls -1t ${CONTAINER_APPS_DIR}/*/dist/index.html 2>/dev/null`,
+    ]);
+    return result.stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line !== "")
+      .map((indexPath) => indexPath.slice(0, indexPath.lastIndexOf("/")));
+  }
+
+  /**
+   * Read a UTF-8 text file out of the assistant container via
+   * `docker exec cat`, or `undefined` when it doesn't exist. Used for
+   * the optional `main.js` / `main.css` assets, so a non-zero exit
+   * (missing file) is a normal "asset absent" signal rather than an
+   * error — hence the exit-code check instead of `assertSuccess`.
+   */
+  private async readContainerTextFile(
+    containerPath: string,
+  ): Promise<string | undefined> {
+    const result = await this.runner.run("docker", [
+      "exec",
+      this.assistantContainerName,
+      "cat",
+      containerPath,
+    ]);
+    if (result.exitCode !== 0) return undefined;
+    return result.stdout;
   }
 
   async shutdown(): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
     this.eventsProcess?.kill();
-    await this.jail?.stop().catch(() => undefined);
+    // Retire the tenant containers BEFORE stopping the jail: they share
+    // the jail's network namespace, so Docker refuses to remove the jail
+    // while they exist. The jail (namespace owner) is torn down last.
     if (this.hatched) {
-      await this.runner
-        .run(this.cliCommand, ["retire", this.id])
-        .catch(() => undefined);
+      await this.runRetireWithReaperFallback("shutdown");
+    }
+    await this.jail?.stop().catch(() => undefined);
+  }
+
+  /**
+   * Runs `vellum retire <id>` and force-reaps any surviving sibling
+   * containers as a fallback.
+   *
+   * Retire failures must be both surfaced and backstopped:
+   *
+   *  1. **Silent leaks.** A non-zero retire exit (e.g. the daemon died
+   *     mid-run, so `assistant-config` lookup throws) leaves the tenant
+   *     containers alive. Because they share the egress jail's network
+   *     namespace, the leak also blocks `jail.stop()` from removing the
+   *     jail container and its network — surviving Docker resources
+   *     accumulate across a batch run until manually pruned.
+   *  2. **Invisible diagnosis.** Without surfacing, operators see the
+   *     leak but have no trail back to the failed retire — the original
+   *     error never surfaces anywhere readable.
+   *
+   * The handling has two layers:
+   *
+   *  - **Surface**: capture retire's exit code and stderr; emit a
+   *    `[retire]` warning to the operator log if it failed. This
+   *    flows through the runner subprocess log file so it lands in
+   *    the report UI under the failing run.
+   *  - **Force reap**: regardless of retire's exit code, call
+   *    `reapContainersForRun(runner, id)`. Retire's container-removal
+   *    step is `docker rm -f <name>` per sibling — if those succeeded,
+   *    our reap is a no-op (containers already gone). If they failed for
+   *    whatever reason, our reap removes the tenants so the subsequent
+   *    `jail.stop()` can tear the jail's namespace down cleanly.
+   *
+   * Best-effort: a failure inside the reaper itself (docker missing,
+   * daemon down) never throws. The goal is to fail safely, not to
+   * introduce a new throw site downstream of an already-failed run.
+   */
+  private async runRetireWithReaperFallback(
+    callSite: "hatch-catch" | "shutdown",
+  ): Promise<void> {
+    let retireResult: { exitCode: number; stderr: string } | undefined;
+    let retireError: unknown;
+    try {
+      retireResult = await this.runner.run(this.cliCommand, [
+        "retire",
+        this.id,
+      ]);
+    } catch (err) {
+      retireError = err;
+    }
+    if (retireError || (retireResult && retireResult.exitCode !== 0)) {
+      const detail =
+        retireError instanceof Error
+          ? retireError.message
+          : retireResult?.stderr?.trim() ||
+            `exit code ${retireResult?.exitCode ?? "<unknown>"}`;
+      // `console.warn` is the lowest-friction surfacing path — the
+      // runner's subprocess log capture aggregates stderr lines into
+      // the run dir, so this lands in the report UI's expand-subprocess
+      // panel for the failing test alongside the original error.
+      console.warn(
+        `[retire] vellum retire ${this.id} failed (${callSite}): ${detail}`,
+      );
+    }
+    const reapResult = await reapContainersForRun(this.runner, this.id).catch(
+      () => ({ reaped: [] as string[] }),
+    );
+    if (reapResult.reaped.length > 0) {
+      console.warn(
+        `[retire] force-reaped surviving container(s) for ${this.id} (${callSite}): ${reapResult.reaped.join(", ")}`,
+      );
     }
   }
 

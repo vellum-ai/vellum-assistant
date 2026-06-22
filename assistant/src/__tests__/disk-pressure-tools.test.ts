@@ -41,7 +41,7 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => undefined,
   mergeDefaultWorkspaceConfig: (config: unknown) => config,
   API_KEY_PROVIDERS: [] as const,
-  _appendQuarantineBulletin: () => undefined,
+  _writeQuarantineNotice: () => undefined,
 }));
 
 mock.module("../daemon/conversation-skill-tools.js", () => ({
@@ -96,6 +96,9 @@ const {
 } = await import("../tools/background-tool-registry.js");
 const { shellTool } = await import("../tools/terminal/shell.js");
 const { hostShellTool } = await import("../tools/host-terminal/host-shell.js");
+const { __clearRegistryForTesting: clearToolRegistryForTesting, registerTool } =
+  await import("../tools/registry.js");
+const { skillLoadTool } = await import("../tools/skills/load.js");
 
 function makeToolDef(name: string): ToolDefinition {
   return { name, description: `${name} tool`, input_schema: {} };
@@ -124,12 +127,15 @@ function setDiskUsage(usedMb: number, totalMb = 100): void {
 
 beforeEach(() => {
   _clearRegistryForTesting();
+  clearToolRegistryForTesting();
+  registerTool(skillLoadTool);
   __resetDiskPressureGuardForTests();
   setDiskUsage(10);
 });
 
 afterEach(() => {
   _clearRegistryForTesting();
+  clearToolRegistryForTesting();
   __resetDiskPressureGuardForTests();
   diskSample = null;
 });
@@ -140,6 +146,7 @@ describe("disk pressure cleanup tool restrictions", () => {
       makeToolDef("bash"),
       makeToolDef("host_bash"),
       makeToolDef("file_read"),
+      makeToolDef("skill_load"),
       makeToolDef("file_write"),
       makeToolDef("skill_execute"),
       makeToolDef("web_fetch"),
@@ -150,8 +157,14 @@ describe("disk pressure cleanup tool restrictions", () => {
     const cleanupTools = resolve([]);
     const cleanupNames = cleanupTools.map((tool) => tool.name).sort();
 
-    expect(cleanupNames).toEqual(["bash", "file_read", "host_bash"]);
+    expect(cleanupNames).toEqual([
+      "bash",
+      "file_read",
+      "host_bash",
+      "skill_load",
+    ]);
     expect(ctx.allowedToolNames?.has("bash")).toBe(true);
+    expect(ctx.allowedToolNames?.has("skill_load")).toBe(true);
     expect(ctx.allowedToolNames?.has("file_write")).toBe(false);
     expect(ctx.allowedToolNames?.has("skill_execute")).toBe(false);
 
@@ -190,6 +203,33 @@ describe("disk pressure cleanup tool restrictions", () => {
     expect(result.result.content).toContain(
       "not available during disk pressure cleanup mode",
     );
+  });
+
+  test("executor fallback allows normal skill_load during cleanup mode", async () => {
+    const handler = new ToolApprovalHandler();
+    const result = await handler.checkPreExecutionGates(
+      "skill_load",
+      { skill: "system-storage-cleanup" },
+      {
+        workingDir: "/workspace",
+        conversationId: "conv-cleanup",
+        trustClass: "guardian",
+        allowedToolNames: new Set(["skill_load"]),
+        diskPressureCleanupModeActive: true,
+      },
+      "sandbox",
+      "low",
+      Date.now(),
+      () => undefined,
+    );
+
+    expect(result.allowed).toBe(true);
+    if (!result.allowed) {
+      throw new Error(
+        "Expected disk pressure cleanup mode to allow skill_load",
+      );
+    }
+    expect(result.tool.name).toBe("skill_load");
   });
 
   test("locking cancels registered terminal background tools with disk pressure reason", () => {

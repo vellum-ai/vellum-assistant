@@ -16,7 +16,7 @@ import {
   graphUpdateMemoryDefinition,
 } from "../../memory/graph/tools.js";
 import { RiskLevel } from "../../permissions/types.js";
-import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
+import { resolveCapabilities } from "../../runtime/capabilities.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -66,7 +66,7 @@ export const recallTool = {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
-    if (isUntrustedTrustClass(context.trustClass)) {
+    if (!resolveCapabilities(context.trustClass).canAccessMemory) {
       return {
         content:
           "Recall is only available to the guardian because it can read sensitive local context.",

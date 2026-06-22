@@ -269,6 +269,10 @@ export class QuestionPrompter {
         timer,
         toolUseId,
         metadata: { orderedIds, optionsById } satisfies QuestionBatchMetadata,
+        // Persist the full entries (not just the id maps in `metadata`) so a
+        // history-load render can stamp this outstanding prompt back onto its
+        // tool call and rehydrate the question card after a reconnect.
+        questionDetails: { entries },
       });
 
       // Populate both shapes on the wire: `questions[]` is the canonical

@@ -260,10 +260,10 @@ function makeConversation() {
   }));
   const events: unknown[] = [];
   const messages: unknown[] = [];
+  let processing = false;
   const conversation = {
     conversationId: "conv-slash-test",
     messages,
-    processing: false,
     abortController: null,
     currentRequestId: undefined,
     queue: { length: 0 },
@@ -276,7 +276,10 @@ function makeConversation() {
     getTurnChannelContext: () => null,
     getTurnInterfaceContext: () => null,
     ensureActorScopedHistory: async () => {},
-    isProcessing: () => false,
+    isProcessing: () => processing,
+    setProcessing: (value: boolean) => {
+      processing = value;
+    },
     hasAnyPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
     enqueueMessage: () => ({ queued: true, requestId: "queued-id" }),
@@ -430,9 +433,7 @@ describe("handleSendMessage slash command interception", () => {
 
     // Regression: without the guard `processing` stays stuck true, leaving
     // every later send queued forever; the queue must also be drained.
-    expect(
-      (conversation as unknown as { processing: boolean }).processing,
-    ).toBe(false);
+    expect(conversation.isProcessing()).toBe(false);
     expect(drainQueue).toHaveBeenCalledTimes(1);
   });
 

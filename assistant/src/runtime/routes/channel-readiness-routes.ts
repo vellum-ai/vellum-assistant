@@ -82,6 +82,28 @@ async function handleRefreshChannelReadiness({ body = {} }: RouteHandlerArgs) {
 }
 
 // ---------------------------------------------------------------------------
+// Response schemas (drive OpenAPI spec → codegen → typed SDK)
+// ---------------------------------------------------------------------------
+
+const readinessCheckSchema = z.object({
+  name: z.string(),
+  passed: z.boolean(),
+  message: z.string().nullable().optional(),
+});
+
+const readinessSnapshotSchema = z.object({
+  channel: z.string(),
+  ready: z.boolean(),
+  setupStatus: z.string().nullable().optional(),
+  checkedAt: z.number().nullable().optional(),
+  stale: z.boolean().optional(),
+  reasons: z.array(z.string()).optional(),
+  localChecks: z.array(readinessCheckSchema).optional(),
+  remoteChecks: z.array(readinessCheckSchema).optional(),
+  channelHandle: z.string().nullable().optional(),
+});
+
+// ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
@@ -112,7 +134,9 @@ export const ROUTES: RouteDefinition[] = [
     ],
     responseBody: z.object({
       success: z.boolean(),
-      snapshots: z.array(z.unknown()).describe("Channel readiness snapshots"),
+      snapshots: z
+        .array(readinessSnapshotSchema)
+        .describe("Channel readiness snapshots"),
     }),
   },
   {
@@ -135,7 +159,9 @@ export const ROUTES: RouteDefinition[] = [
     }),
     responseBody: z.object({
       success: z.boolean(),
-      snapshots: z.array(z.unknown()).describe("Refreshed readiness snapshots"),
+      snapshots: z
+        .array(readinessSnapshotSchema)
+        .describe("Refreshed readiness snapshots"),
     }),
   },
 ];

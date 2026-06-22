@@ -27,12 +27,7 @@
           },
           "model": {
             "type": "string",
-            "enum": [
-              "gemini-3.1-flash-image-preview",
-              "gemini-3-pro-image-preview",
-              "gpt-image-2"
-            ],
-            "description": "Which model to use for generation. If omitted, uses the user's configured preference."
+            "description": "Model tier alias (fast | quality | openai) or a concrete model ID. If omitted, uses the user's configured preference. Unknown values return an error listing currently available models."
           },
           "variants": {
             "type": "number",

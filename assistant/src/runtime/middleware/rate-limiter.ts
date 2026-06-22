@@ -4,13 +4,21 @@
 
 import { getLogger } from "../../util/logger.js";
 import type { HttpErrorResponse } from "../http-errors.js";
-import { isPrivateAddress } from "./auth.js";
+import { isLoopbackAddress, isPrivateAddress } from "./auth.js";
 
 const log = getLogger("rate-limiter");
 
 const DEFAULT_MAX_REQUESTS = 300;
 const DEFAULT_WINDOW_MS = 60_000; // 60 seconds
 const MAX_TRACKED_TOKENS = 10_000;
+
+// Higher budget for authenticated loopback clients. Loopback means the
+// request originated on the daemon's own host (desktop app, CLI, local
+// scripts) — proxied remote traffic resolves to its forwarded client IP
+// instead (see extractClientIp). Local clients legitimately burst far
+// beyond the remote budget: a cold sidebar load at thousands of
+// conversations pages through hundreds of GETs in a few seconds.
+const LOOPBACK_MAX_REQUESTS = 1200;
 
 // Lower limit for unauthenticated (IP-based) requests to reduce abuse surface.
 const DEFAULT_IP_MAX_REQUESTS = 20;
@@ -186,12 +194,31 @@ export function rateLimitResponse(
 /** Singleton rate limiter for authenticated /v1/* requests (per-client-IP). */
 export const apiRateLimiter = new TokenRateLimiter();
 
+/**
+ * Singleton rate limiter for authenticated requests from loopback clients.
+ * Separate instance (not just a higher cap) so local and remote traffic
+ * never share or evict each other's buckets.
+ */
+export const loopbackApiRateLimiter = new TokenRateLimiter(
+  LOOPBACK_MAX_REQUESTS,
+);
+
 /** Singleton rate limiter for unauthenticated requests (per-IP, lower limits). */
 export const ipRateLimiter = new TokenRateLimiter(
   DEFAULT_IP_MAX_REQUESTS,
   DEFAULT_IP_WINDOW_MS,
   MAX_TRACKED_IPS,
 );
+
+/**
+ * Pick the rate limiter for an authenticated request: loopback client IPs
+ * get the higher local budget, everything else gets the standard one.
+ */
+export function selectAuthenticatedRateLimiter(
+  clientIp: string,
+): TokenRateLimiter {
+  return isLoopbackAddress(clientIp) ? loopbackApiRateLimiter : apiRateLimiter;
+}
 
 /**
  * Extract the client IP from a request. Only trusts proxy headers

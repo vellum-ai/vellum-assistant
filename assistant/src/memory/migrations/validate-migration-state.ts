@@ -6,63 +6,9 @@ import {
   MIGRATION_REGISTRY,
   type MigrationValidationResult,
 } from "./registry.js";
+import { clearMigrationStepCheckpoints } from "./run-migrations.js";
 
 const log = getLogger("memory-db");
-
-/**
- * Recover from crashed migrations before the migration runner executes.
- *
- * Scans memory_checkpoints for entries with value 'started' — these represent
- * migrations that began but never completed (e.g., due to a process crash).
- * Deletes the stalled checkpoint so the migration can re-run from scratch on
- * this startup. Each migration's own idempotency guards (DDL IF NOT EXISTS,
- * transactional rollback) ensure re-running is safe.
- *
- * Call this BEFORE running migrations so that stalled checkpoints don't block
- * re-execution.
- */
-export function recoverCrashedMigrations(database: DrizzleDb): string[] {
-  const raw = getSqliteFrom(database);
-
-  let rows: Array<{ key: string; value: string }>;
-  try {
-    rows = raw
-      .query(`SELECT key, value FROM memory_checkpoints`)
-      .all() as Array<{ key: string; value: string }>;
-  } catch {
-    return [];
-  }
-
-  const crashed = rows
-    .filter((r) => r.value === "started" || r.value === "rolling_back")
-    .map((r) => r.key);
-  if (crashed.length === 0) return [];
-
-  log.error(
-    { crashed },
-    [
-      "╔══════════════════════════════════════════════════════════════╗",
-      "║  CRASHED MIGRATIONS DETECTED — AUTO-RECOVERING             ║",
-      "╚══════════════════════════════════════════════════════════════╝",
-      "",
-      `The following migrations started but never completed: ${crashed.join(", ")}`,
-      "",
-      "Clearing stalled checkpoints so they can be retried on this startup.",
-      "If retries continue to fail, manually inspect the database:",
-      `  sqlite3 ${getDbPath()} "SELECT * FROM memory_checkpoints"`,
-    ].join("\n"),
-  );
-
-  for (const key of crashed) {
-    raw.query(`DELETE FROM memory_checkpoints WHERE key = ?`).run(key);
-    log.info(
-      { key },
-      `Cleared stalled checkpoint "${key}" — migration will re-run`,
-    );
-  }
-
-  return crashed;
-}
 
 /**
  * Wrap a migration function with crash-recovery bookkeeping.
@@ -220,7 +166,7 @@ export function validateMigrationState(
   // registry entry — these are from a newer version of the daemon.
   //
   // The memory_checkpoints table is a general-purpose key-value store also
-  // used by non-migration subsystems (e.g., "identity:intro:text",
+  // used by non-migration subsystems (e.g., "empty_state:greeting:text",
   // "conversation_starters:item_count_at_last_gen"). Filter to only keys
   // that follow migration naming conventions before comparing against the
   // registry to avoid false-positive warnings.
@@ -260,7 +206,9 @@ export function validateMigrationState(
  * **Checkpoint state**: Each rolled-back migration's checkpoint is deleted
  * from `memory_checkpoints`. If the process crashes mid-rollback, the
  * `"rolling_back"` marker is detected and cleared by
- * `recoverCrashedMigrations` on the next startup.
+ * `recoverCrashedMigrations` on the next startup. The forward-step checkpoints
+ * recorded by the migration runner (the `step:` namespace) are also discarded
+ * so a later upgrade re-applies (and re-validates) every step.
  *
  * **Warning — data loss**: Some down() migrations may not fully restore the
  * original state (e.g., DROP TABLE migrations recreate the table but cannot
@@ -302,6 +250,16 @@ export function rollbackMemoryMigration(
   const toRollback = MIGRATION_REGISTRY.filter(
     (entry) => entry.version > targetVersion && completedKeys.has(entry.key),
   ).sort((a, b) => b.version - a.version); // reverse version order
+
+  // Forward-step checkpoints recorded by the migration runner gate whether each
+  // step re-runs on the next upgrade. A rolled-back registry-backed step clears
+  // its own memory_checkpoints entry via down(), so its step checkpoint must be
+  // discarded too — otherwise the runner skips the step on re-upgrade and the
+  // rolled-back schema is never restored. Clearing before the loop keeps this
+  // correct even if the process crashes partway through the rollback.
+  if (toRollback.length > 0) {
+    clearMigrationStepCheckpoints(database);
+  }
 
   const rolledBack: string[] = [];
 

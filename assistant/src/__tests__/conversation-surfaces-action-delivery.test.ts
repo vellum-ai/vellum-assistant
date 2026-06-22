@@ -366,6 +366,90 @@ describe("surface action delivery to assistant", () => {
     expect(JSON.stringify(completeMsg)).not.toContain(largeBase64);
   });
 
+  test("choice surface broadcasts ui_surface_complete on action", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    const showResult = await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "choice",
+      title: "Pick an outcome",
+      data: {
+        options: [
+          { id: "inbox", title: "Clean up my inbox" },
+          { id: "calendar", title: "Plan my week" },
+        ],
+      },
+    });
+
+    expect(showResult.isError).toBe(false);
+    expect(showResult.yieldToUser).toBe(true);
+
+    const showMessage = sent.find(
+      (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
+    ) as UiSurfaceShow;
+    const surfaceId = showMessage.surfaceId;
+    expect(ctx.pendingSurfaceActions.has(surfaceId)).toBe(true);
+
+    await handleSurfaceAction(ctx, surfaceId, "inbox", {
+      choiceId: "inbox",
+      choiceTitle: "Clean up my inbox",
+      selectedIds: ["inbox"],
+      selectedTitles: ["Clean up my inbox"],
+    });
+
+    const completeMsg = broadcastedMessages.find(
+      (m) =>
+        (m as unknown as Record<string, unknown>).type ===
+          "ui_surface_complete" &&
+        (m as unknown as Record<string, unknown>).surfaceId === surfaceId,
+    ) as unknown as Record<string, unknown> | undefined;
+    expect(completeMsg).toBeDefined();
+    expect(completeMsg?.conversationId).toBe("conv-1");
+    expect(completeMsg?.summary).toBe('User chose: "Clean up my inbox"');
+    expect(ctx.pendingSurfaceActions.has(surfaceId)).toBe(false);
+  });
+
+  test("oauth_connect surface broadcasts ui_surface_complete on action", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    const showResult = await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "oauth_connect",
+      title: "Connect Google",
+      data: {
+        providerKey: "google",
+        displayName: "Google",
+      },
+    });
+
+    expect(showResult.isError).toBe(false);
+    expect(showResult.yieldToUser).toBe(true);
+
+    const showMessage = sent.find(
+      (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
+    ) as UiSurfaceShow;
+    const surfaceId = showMessage.surfaceId;
+    expect(ctx.pendingSurfaceActions.has(surfaceId)).toBe(true);
+
+    await handleSurfaceAction(ctx, surfaceId, "connect", {
+      status: "connected",
+      providerKey: "google",
+      providerLabel: "Google",
+      accountLabel: "user@example.com",
+    });
+
+    const completeMsg = broadcastedMessages.find(
+      (m) =>
+        (m as unknown as Record<string, unknown>).type ===
+          "ui_surface_complete" &&
+        (m as unknown as Record<string, unknown>).surfaceId === surfaceId,
+    ) as unknown as Record<string, unknown> | undefined;
+    expect(completeMsg).toBeDefined();
+    expect(completeMsg?.conversationId).toBe("conv-1");
+    expect(completeMsg?.summary).toBe("Connected Google: user@example.com");
+    expect(ctx.pendingSurfaceActions.has(surfaceId)).toBe(false);
+  });
+
   test("table surface does NOT broadcast ui_surface_complete (not one-shot)", async () => {
     const sent: ServerMessage[] = [];
     const ctx = makeContext(sent);

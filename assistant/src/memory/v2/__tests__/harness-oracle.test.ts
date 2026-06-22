@@ -19,7 +19,7 @@ import {
 } from "../../schema.js";
 import { extractOracleTurns } from "../harness/oracle.js";
 
-initializeDb();
+await initializeDb();
 
 const CONFIG_JSON = JSON.stringify({
   d: 0,

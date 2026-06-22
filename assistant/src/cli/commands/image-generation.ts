@@ -66,10 +66,13 @@ Modes:
   managed    — Uses platform-managed credentials (requires login to Vellum).
   your-own   — Uses your own Gemini or OpenAI API key depending on the configured model.
 
-Supported models:
-  gemini-3.1-flash-image-preview (default)
-  gemini-3-pro-image-preview
-  gpt-image-2
+Supported models: pass a tier alias, the assistant resolves it to the
+current model for that tier.
+  fast     (default) quickest, good quality
+  quality  higher fidelity, slower
+  openai   OpenAI's model
+A concrete model ID is also accepted; unknown values return an error
+listing the currently available models.
 
 Examples:
   $ assistant image-generation generate --prompt "A sunset over the ocean"
@@ -113,8 +116,8 @@ Examples:
   $ assistant image-generation generate --prompt "A mountain landscape at dawn"
   $ assistant image-generation generate --prompt "Make it darker" --mode edit --source input.png
   $ assistant image-generation generate --prompt "Logo variations" --variants 4 --output-dir ./logos
-  $ assistant image-generation generate --prompt "A robot" --model gemini-3-pro-image-preview --json
-  $ assistant image-generation generate --prompt "A robot" --model gpt-image-2 --json`,
+  $ assistant image-generation generate --prompt "A robot" --model quality --json
+  $ assistant image-generation generate --prompt "A robot" --model openai --json`,
       );
 
       generate.action(async (opts) => {
@@ -166,7 +169,10 @@ Examples:
                 file.type !== "application/octet-stream"
                   ? file.type
                   : mimeForExtension(filePath);
-              validImages.push({ mimeType, dataBase64: buffer.toString("base64") });
+              validImages.push({
+                mimeType,
+                dataBase64: buffer.toString("base64"),
+              });
             } catch (err) {
               errors.push(
                 `Could not read ${filePath}: ${(err as Error).message}`,
@@ -191,7 +197,11 @@ Examples:
 
         // Call daemon via IPC
         const r = await cliIpcCall<{
-          images: Array<{ mimeType: string; dataBase64: string; title?: string }>;
+          images: Array<{
+            mimeType: string;
+            dataBase64: string;
+            title?: string;
+          }>;
           text?: string;
           resolvedModel: string;
         }>("image_generation_generate", {
@@ -204,7 +214,11 @@ Examples:
           },
         });
 
-        if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, generate);
+        if (!r.ok)
+          return exitFromIpcResult(
+            { ok: false, error: r.error, statusCode: r.statusCode },
+            generate,
+          );
 
         // Write images to disk (stays in CLI)
         if (!existsSync(outputDir)) {

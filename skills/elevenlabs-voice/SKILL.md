@@ -3,8 +3,10 @@ name: elevenlabs-voice
 description: Select and tune an ElevenLabs TTS voice - curated voice list, custom/cloned voices via API key, and tuning parameters
 compatibility: "Designed for Vellum personal assistants"
 metadata:
+  icon: assets/icon.svg
   emoji: "🗣️"
   vellum:
+    category: "voice"
     display-name: "ElevenLabs Voice"
 ---
 
@@ -63,8 +65,8 @@ For advanced voice selection (browsing the full library, custom/cloned voices), 
 
 To collect the API key securely:
 
-```
-credential_store action="prompt" service="elevenlabs" field="api_key"
+```bash
+assistant credentials prompt --service elevenlabs --field api_key --label "ElevenLabs API Key"
 ```
 
 ## Advanced Voice Selection (with API key)

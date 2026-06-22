@@ -19,16 +19,8 @@ function makeConfig(): AssistantConfig {
 }
 
 describe("getVisibleProviderCatalog", () => {
-  test("hides openai-compatible endpoints by default", () => {
+  test("shows openai-compatible endpoints unconditionally (GA'ed)", () => {
     setOverridesForTesting({});
-
-    const visible = getVisibleProviderCatalog(makeConfig());
-
-    expect(visible.find((p) => p.id === "openai-compatible")).toBeUndefined();
-  });
-
-  test("shows openai-compatible endpoints when its flag is enabled", () => {
-    setOverridesForTesting({ "openai-compatible-endpoints": true });
 
     const visible = getVisibleProviderCatalog(makeConfig());
 

@@ -2,6 +2,8 @@ import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { SEEDS } from "@vellumai/environments";
+
 import { getWorkspaceDirOverride } from "../config/env-registry.js";
 
 /**
@@ -70,7 +72,7 @@ export function normalizeAssistantId(assistantId: string): string {
 }
 
 /**
- * Returns the internal data directory (~/.vellum/workspace/data). Runtime
+ * Returns the internal data directory ($VELLUM_WORKSPACE_DIR/data). Runtime
  * databases, logs, memory indices, and other internal state live here.
  */
 export function getDataDir(): string {
@@ -78,7 +80,23 @@ export function getDataDir(): string {
 }
 
 /**
- * Returns the embedding models directory (~/.vellum/workspace/embedding-models).
+ * Returns the path to the config-quarantine notice sentinel
+ * (`<workspace>/data/config-quarantine-notice.json`).
+ *
+ * Written by the config loader when a corrupt `config.json` is quarantined and
+ * read by the per-turn `config-quarantine-notice` injector. Lives under the
+ * internal data dir (runtime state, config-free to resolve) rather than the
+ * user-facing workspace root because it is daemon-written bookkeeping, not a
+ * file the user edits. The path resolves without loading config, so it is safe
+ * to call during early-boot config load before the DB or `getConfig().dataDir`
+ * exist.
+ */
+export function getConfigQuarantineNoticePath(): string {
+  return join(getDataDir(), "config-quarantine-notice.json");
+}
+
+/**
+ * Returns the embedding models directory ($VELLUM_WORKSPACE_DIR/embedding-models).
  * Downloaded embedding runtime (onnxruntime-node, transformers bundle, model weights)
  * is stored here, downloaded post-hatch rather than shipped with the app.
  */
@@ -95,7 +113,7 @@ export function getSandboxRootDir(): string {
 }
 
 /**
- * Returns the default sandbox working directory (~/.vellum/workspace).
+ * Returns the default sandbox working directory ($VELLUM_WORKSPACE_DIR).
  * This is the workspace root — tool working directories should use this
  * path unless explicitly overridden.
  */
@@ -104,7 +122,7 @@ export function getSandboxWorkingDir(): string {
 }
 
 /**
- * Returns the sounds directory (~/.vellum/workspace/data/sounds).
+ * Returns the sounds directory ($VELLUM_WORKSPACE_DIR/data/sounds).
  * Custom sound files and sound configuration live here.
  */
 export function getSoundsDir(): string {
@@ -119,23 +137,24 @@ export function getAvatarDir(): string {
 /** Canonical filename for the custom avatar PNG. */
 export const AVATAR_IMAGE_FILENAME = "avatar-image.png";
 
-/** Returns the canonical avatar image path (~/.vellum/workspace/data/avatar/avatar-image.png). */
+/** Returns the canonical avatar image path ($VELLUM_WORKSPACE_DIR/data/avatar/avatar-image.png). */
 export function getAvatarImagePath(): string {
   return join(getAvatarDir(), AVATAR_IMAGE_FILENAME);
 }
 
-// Kept in sync with `cli/src/lib/environments/seeds.ts`. Drift between
-// these two sites is caught at test time by
-// `cli/src/__tests__/env-drift.test.ts`. Fast follow: hoist the shared
-// list into a `packages/environments` package so both sites import
-// from one place.
-const KNOWN_ENVIRONMENTS: ReadonlySet<string> = new Set([
-  "production",
-  "staging",
-  "test",
-  "dev",
-  "local",
-]);
+/** Canonical filename for the avatar state manifest. */
+export const AVATAR_MANIFEST_FILENAME = "avatar.json";
+
+/** Returns the canonical avatar manifest path ($VELLUM_WORKSPACE_DIR/data/avatar/avatar.json). */
+export function getAvatarManifestPath(): string {
+  return join(getAvatarDir(), AVATAR_MANIFEST_FILENAME);
+}
+
+// The set of known environment names, derived from the shared
+// `@vellumai/environments` seed table so this site can never drift from the
+// CLI. The Swift client mirrors the same list (it can't import TS); that
+// cross-language pair is guarded by `cli/src/__tests__/env-drift.test.ts`.
+const KNOWN_ENVIRONMENTS: ReadonlySet<string> = new Set(Object.keys(SEEDS));
 
 /**
  * Returns the env-scoped XDG config subdirectory name for Vellum
@@ -184,7 +203,7 @@ export function getProtectedDir(): string {
   return join(vellumRoot(), "protected");
 }
 
-/** Returns ~/.vellum/workspace/signals — the directory for IPC signal files. */
+/** Returns $VELLUM_WORKSPACE_DIR/signals — the directory for IPC signal files. */
 export function getSignalsDir(): string {
   return join(getWorkspaceDir(), "signals");
 }
@@ -193,22 +212,22 @@ export function getSignalsDir(): string {
 // These expose specific root-level file paths so callers don't need to
 // import getRootDir() directly. getRootDir() is intentionally unexported.
 
-/** Returns the path to the daemon stderr log (~/.vellum/workspace/logs/daemon-stderr.log). */
+/** Returns the path to the daemon stderr log ($VELLUM_WORKSPACE_DIR/logs/daemon-stderr.log). */
 export function getDaemonStderrLogPath(): string {
   return join(getWorkspaceDir(), "logs", "daemon-stderr.log");
 }
 
-/** Returns the path to the daemon startup lock file (~/.vellum/workspace/daemon-startup.lock). */
+/** Returns the path to the daemon startup lock file ($VELLUM_WORKSPACE_DIR/daemon-startup.lock). */
 export function getDaemonStartupLockPath(): string {
   return join(getWorkspaceDir(), "daemon-startup.lock");
 }
 
-/** Returns the directory for externally-installed packages (~/.vellum/workspace/external). */
+/** Returns the directory for externally-installed packages ($VELLUM_WORKSPACE_DIR/external). */
 export function getExternalDir(): string {
   return join(getWorkspaceDir(), "external");
 }
 
-/** Returns the directory for installed binaries (~/.vellum/workspace/bin). */
+/** Returns the directory for installed binaries ($VELLUM_WORKSPACE_DIR/bin). */
 export function getBinDir(): string {
   return join(getWorkspaceDir(), "bin");
 }
@@ -218,7 +237,7 @@ export function getDotEnvPath(): string {
   return join(vellumRoot(), ".env");
 }
 
-/** Returns the path to the embed-worker PID file (~/.vellum/workspace/embed-worker.pid). */
+/** Returns the path to the embed-worker PID file ($VELLUM_WORKSPACE_DIR/embed-worker.pid). */
 export function getEmbedWorkerPidPath(): string {
   return join(getWorkspaceDir(), "embed-worker.pid");
 }
@@ -254,17 +273,17 @@ export function getWorkspaceDirDisplay(): string {
   return abs;
 }
 
-/** Returns ~/.vellum/workspace/config.json */
+/** Returns $VELLUM_WORKSPACE_DIR/config.json */
 export function getWorkspaceConfigPath(): string {
   return join(getWorkspaceDir(), "config.json");
 }
 
-/** Returns ~/.vellum/workspace/skills */
+/** Returns $VELLUM_WORKSPACE_DIR/skills */
 export function getWorkspaceSkillsDir(): string {
   return join(getWorkspaceDir(), "skills");
 }
 
-/** Returns ~/.vellum/workspace/hooks */
+/** Returns $VELLUM_WORKSPACE_DIR/hooks */
 export function getWorkspaceHooksDir(): string {
   return join(getWorkspaceDir(), "hooks");
 }
@@ -279,17 +298,40 @@ export function getWorkspacePluginsDir(): string {
   return join(getWorkspaceDir(), "plugins");
 }
 
-/** Returns $VELLUM_WORKSPACE_DIR/routes — user-defined HTTP route handlers. */
+/**
+ * Returns $VELLUM_WORKSPACE_DIR/tools — user-defined tool overrides.
+ *
+ * Each subdirectory `<name>/` provides either an override of a core tool of
+ * the same name or a net-new tool. The single canonical location removes
+ * the "which plugin wins" ambiguity that would arise if multiple plugins
+ * could register competing overrides for the same tool.
+ *
+ * Files under this directory are dynamic-imported by the workspace-tool
+ * loader on daemon start; the file risk classifier escalates writes under
+ * this path to High for the same reason `plugins/` is escalated.
+ */
+export function getWorkspaceToolsDir(): string {
+  return join(getWorkspaceDir(), "tools");
+}
+
+/**
+ * Returns $VELLUM_WORKSPACE_DIR/routes — user-defined HTTP route handlers.
+ *
+ * Handler modules under this directory are dynamic-imported by the user-route
+ * dispatcher and their exported HTTP-method functions are executed on the
+ * next matching request, so the file risk classifier escalates writes under
+ * this path to High for the same reason `plugins/` and `tools/` are escalated.
+ */
 export function getWorkspaceRoutesDir(): string {
   return join(getWorkspaceDir(), "routes");
 }
 
-/** Returns ~/.vellum/workspace/deprecated — transitional files slated for removal. */
+/** Returns $VELLUM_WORKSPACE_DIR/deprecated — transitional files slated for removal. */
 export function getDeprecatedDir(): string {
   return join(getWorkspaceDir(), "deprecated");
 }
 
-/** Returns ~/.vellum/workspace/conversations */
+/** Returns $VELLUM_WORKSPACE_DIR/conversations */
 export function getConversationsDir(): string {
   return join(getWorkspaceDir(), "conversations");
 }
@@ -367,8 +409,8 @@ export function getSkillRuntimePath(
  *
  * Resolution order:
  *
- *   1. macOS `.app` bundle: `Contents/Resources/bun` — shipped by
- *      `clients/macos/build.sh` at a version that matches `.tool-versions`.
+ *   1. macOS `.app` bundle: `Contents/Resources/bun` — bundled at a version
+ *      that matches `.tool-versions`.
  *   2. Next-to-binary: `<execDir>/bun` for Docker/generic compiled layouts
  *      that stage a bun binary alongside the daemon (PR 29 wires this up).
  *

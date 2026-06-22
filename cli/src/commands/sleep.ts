@@ -7,6 +7,7 @@ import {
 } from "../lib/assistant-config.js";
 import type { AssistantEntry } from "../lib/assistant-config.js";
 import { dockerResourceNames, sleepContainers } from "../lib/docker.js";
+import { stopIngressNginx } from "../lib/nginx-ingress.js";
 import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
 
 const ACTIVE_CALL_LEASES_FILE = "active-call-leases.json";
@@ -82,6 +83,13 @@ export async function sleep(): Promise<void> {
     process.exit(1);
   }
 
+  if (entry.cloud === "paired") {
+    console.error(
+      `Error: '${entry.assistantId}' is a remote assistant paired from another machine — its lifecycle is managed on its host machine, not here. Use \`vellum client ${entry.assistantId}\` to chat with it.`,
+    );
+    process.exit(1);
+  }
+
   if (entry.cloud && entry.cloud !== "local") {
     console.error(
       `Error: 'vellum sleep' only works with local and docker assistants. '${entry.assistantId}' is a ${entry.cloud} instance.`,
@@ -127,9 +135,18 @@ export async function sleep(): Promise<void> {
     }
   }
 
+  // Stop assistant — use a generous timeout. On SIGTERM the daemon runs a
+  // WAL checkpoint before exiting, which can take several seconds on a
+  // multi-GB database. The default 2s grace in stopProcess() would SIGKILL a
+  // healthy daemon mid-checkpoint, forcing a costly multi-minute WAL recovery
+  // on the next start. The timeout is only a SIGKILL ceiling — stopProcess
+  // returns as soon as the process exits, so this adds no delay in the common
+  // case and only applies when the daemon is genuinely wedged.
   const assistantStopped = await stopProcessByPidFile(
     assistantPidFile,
     "assistant",
+    undefined,
+    120_000,
   );
   if (!assistantStopped) {
     console.log("Assistant is not running.");
@@ -149,5 +166,12 @@ export async function sleep(): Promise<void> {
     console.log("Gateway is not running.");
   } else {
     console.log("Gateway stopped.");
+  }
+
+  // Stop the nginx ingress if one is fronting this gateway — otherwise it
+  // keeps running against a dead upstream and serves 502s.
+  const ingressStopped = await stopIngressNginx(join(vellumDir, "workspace"));
+  if (ingressStopped) {
+    console.log("nginx ingress stopped.");
   }
 }

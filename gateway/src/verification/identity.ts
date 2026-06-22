@@ -8,6 +8,9 @@
 /** Channels whose raw sender IDs are phone numbers. */
 const PHONE_CHANNELS = new Set(["phone", "whatsapp"]);
 
+/** Channels whose raw sender IDs are email addresses. */
+const EMAIL_CHANNELS = new Set(["email"]);
+
 /**
  * Normalize a phone number string to E.164 format.
  */
@@ -42,7 +45,8 @@ function normalizePhoneNumber(input: string): string | null {
  * Canonicalize a raw inbound sender identity for the given channel.
  *
  * For phone-like channels: attempts E.164 normalization.
- * For non-phone channels: returns trimmed raw ID unchanged.
+ * For email channels: lowercases the address.
+ * For other channels: returns trimmed raw ID unchanged.
  * Returns null only when rawId is empty/whitespace-only.
  */
 export function canonicalizeInboundIdentity(
@@ -55,6 +59,10 @@ export function canonicalizeInboundIdentity(
   if (PHONE_CHANNELS.has(channel)) {
     const e164 = normalizePhoneNumber(trimmed);
     return e164 ?? trimmed;
+  }
+
+  if (EMAIL_CHANNELS.has(channel)) {
+    return trimmed.toLowerCase();
   }
 
   return trimmed;

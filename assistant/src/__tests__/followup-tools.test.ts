@@ -23,7 +23,7 @@ import { executeFollowupList } from "../tools/followups/followup_list.js";
 import { executeFollowupResolve } from "../tools/followups/followup_resolve.js";
 import type { ToolContext } from "../tools/types.js";
 
-initializeDb();
+await initializeDb();
 
 function getRawDb(): Database {
   return (getDb() as unknown as { $client: Database }).$client;

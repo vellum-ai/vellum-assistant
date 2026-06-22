@@ -22,10 +22,19 @@ function makeDefaultRawConfig(): Record<string, unknown> {
         "quality-optimized": {
           provider: "anthropic",
           model: "claude-sonnet",
+          source: "managed",
         },
-        balanced: { provider: "anthropic", model: "claude-sonnet" },
-        "cost-optimized": { provider: "anthropic", model: "claude-haiku" },
-        "my-custom": { provider: "openai", model: "gpt-4o" },
+        balanced: {
+          provider: "anthropic",
+          model: "claude-sonnet",
+          source: "managed",
+        },
+        "cost-optimized": {
+          provider: "anthropic",
+          model: "claude-haiku",
+          source: "managed",
+        },
+        "my-custom": { provider: "openai", model: "gpt-4o", source: "user" },
       },
     },
   };
@@ -66,6 +75,7 @@ mock.module("../config/loader.js", () => ({
     deepMergeForTest(target, overrides);
   },
   getConfig: () => rawConfig,
+  getDeploymentContextDefaults: () => ({}),
   invalidateConfigCache: () => {},
   withSuppressedConfigDiskWrites: async (fn: () => unknown) => fn(),
   withSuppressedConfigDiskWritesSync: (fn: () => unknown) => fn(),
@@ -116,7 +126,7 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
       }),
     ).rejects.toThrow(
       'Cannot edit managed profile "quality-optimized" fields [provider, model]. ' +
-        "Only label and status may be edited; duplicate to a custom profile to change other fields.",
+        "Only label, status, and topP may be edited; duplicate to a custom profile to change other fields.",
     );
   });
 
@@ -273,6 +283,118 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
     expect(profile.status).toBe("disabled");
   });
 
+  test("PUT { topP } on managed profile is accepted and persisted", async () => {
+    savedRaw = null;
+    rawConfig = {
+      llm: {
+        profiles: {
+          balanced: {
+            provider: "anthropic",
+            model: "claude-sonnet",
+            source: "managed",
+          },
+        },
+      },
+    };
+    const result = await replaceRoute.handler({
+      pathParams: { name: "balanced" },
+      body: { topP: 0.9 },
+    });
+    expect(result).toEqual({ ok: true });
+    const profile = (savedRaw as unknown as Record<string, any>)?.llm?.profiles
+      ?.balanced as Record<string, unknown>;
+    // topP override persisted; seed fields preserved.
+    expect(profile.topP).toBe(0.9);
+    expect(profile.provider).toBe("anthropic");
+    expect(profile.model).toBe("claude-sonnet");
+    expect(profile.source).toBe("managed");
+  });
+
+  test("PUT { topP: null } on managed profile clears the override on disk", async () => {
+    savedRaw = null;
+    rawConfig = {
+      llm: {
+        profiles: {
+          balanced: {
+            provider: "anthropic",
+            model: "claude-sonnet",
+            topP: 0.7,
+            source: "managed",
+          },
+        },
+      },
+    };
+    const result = await replaceRoute.handler({
+      pathParams: { name: "balanced" },
+      body: { topP: null },
+    });
+    expect(result).toEqual({ ok: true });
+    const profile = (savedRaw as unknown as Record<string, any>)?.llm?.profiles
+      ?.balanced as Record<string, unknown>;
+    expect("topP" in profile).toBe(false);
+    expect(profile.provider).toBe("anthropic");
+    expect(profile.model).toBe("claude-sonnet");
+  });
+
+  test("allows edits to a user-owned profile sharing a managed name (os-beta)", async () => {
+    savedRaw = null;
+    rawConfig = {
+      llm: {
+        profiles: {
+          "os-beta": {
+            provider: "anthropic",
+            model: "claude-sonnet",
+            source: "user",
+          },
+        },
+      },
+    };
+    const result = await replaceRoute.handler({
+      pathParams: { name: "os-beta" },
+      body: { provider: "openai", model: "gpt-4o" },
+    });
+    expect(result).toEqual({ ok: true });
+    const profile = (savedRaw as unknown as Record<string, any>)?.llm
+      ?.profiles?.["os-beta"] as Record<string, unknown>;
+    expect(profile.provider).toBe("openai");
+    expect(profile.model).toBe("gpt-4o");
+  });
+
+  test("rejects edits to a managed os-beta profile", async () => {
+    rawConfig = {
+      llm: {
+        profiles: {
+          "os-beta": {
+            provider: "fireworks",
+            model: "accounts/fireworks/models/glm-5p2",
+            source: "managed",
+          },
+        },
+      },
+    };
+    await expect(
+      replaceRoute.handler({
+        pathParams: { name: "os-beta" },
+        body: { provider: "openai", model: "gpt-4o" },
+      }),
+    ).rejects.toThrow(BadRequestError);
+  });
+
+  test("rejects PUT to os-beta when no os-beta profile exists, writing no stub", async () => {
+    savedRaw = null;
+    rawConfig = { llm: { profiles: {} } };
+    await expect(
+      replaceRoute.handler({
+        pathParams: { name: "os-beta" },
+        body: { label: "My OS Beta" },
+      }),
+    ).rejects.toThrow("not currently available");
+    expect(savedRaw).toBeNull();
+    expect(
+      (rawConfig as Record<string, any>)?.llm?.profiles?.["os-beta"],
+    ).toBeUndefined();
+  });
+
   test("PUT { label: '' } on managed profile still rejected by `.min(1)`", async () => {
     // `.nullable()` only widens the type to accept null — empty strings
     // still fail the min-length check, which is correct: an empty string
@@ -321,7 +443,7 @@ describe("PATCH /v1/config — managed profile deletion guard", () => {
     const result = await patchRoute.handler({
       body: { llm: { profiles: { "custom-balanced": null } } },
     });
-    expect(result).toEqual({ ok: true });
+    expect(result).toHaveProperty("llm");
   });
 
   test("allows deletion of a user-defined profile via null", async () => {
@@ -329,14 +451,14 @@ describe("PATCH /v1/config — managed profile deletion guard", () => {
     const result = await patchRoute.handler({
       body: { llm: { profiles: { "my-custom": null } } },
     });
-    expect(result).toEqual({ ok: true });
+    expect(result).toHaveProperty("llm");
   });
 
   test("allows non-profile config patches", async () => {
     const result = await patchRoute.handler({
       body: { someOtherKey: "value" },
     });
-    expect(result).toEqual({ ok: true });
+    expect(result).toHaveProperty("llm");
   });
 
   test("clears stale Velay ownership when manually patching public base URL", async () => {
@@ -353,7 +475,7 @@ describe("PATCH /v1/config — managed profile deletion guard", () => {
       },
     });
 
-    expect(result).toEqual({ ok: true });
+    expect(result).toHaveProperty("ingress");
     expect(savedRaw).toEqual({
       ingress: {
         publicBaseUrl: "https://manual.example.test",
@@ -371,7 +493,45 @@ describe("PATCH /v1/config — managed profile deletion guard", () => {
         },
       },
     });
-    expect(result).toEqual({ ok: true });
+    expect(result).toHaveProperty("llm");
+  });
+
+  test("allows deletion of a user-owned profile sharing a managed name (os-beta)", async () => {
+    savedRaw = null;
+    rawConfig = {
+      llm: {
+        profiles: {
+          "os-beta": {
+            provider: "anthropic",
+            model: "claude-sonnet",
+            source: "user",
+          },
+        },
+      },
+    };
+    const result = await patchRoute.handler({
+      body: { llm: { profiles: { "os-beta": null } } },
+    });
+    expect(result).toHaveProperty("llm");
+  });
+
+  test("rejects deletion of a managed os-beta profile", async () => {
+    rawConfig = {
+      llm: {
+        profiles: {
+          "os-beta": {
+            provider: "fireworks",
+            model: "accounts/fireworks/models/glm-5p2",
+            source: "managed",
+          },
+        },
+      },
+    };
+    await expect(
+      patchRoute.handler({
+        body: { llm: { profiles: { "os-beta": null } } },
+      }),
+    ).rejects.toThrow('Cannot delete managed profile "os-beta".');
   });
 
   test("rejects nulling the entire profiles map", async () => {

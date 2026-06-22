@@ -7,7 +7,11 @@
 import type { LLMCallSite } from "../config/schemas/llm.js";
 
 export interface ScheduleMessageOptions {
-  trustClass?: "guardian" | "trusted_contact" | "unknown";
+  trustClass?:
+    | "guardian"
+    | "trusted_contact"
+    | "unverified_contact"
+    | "unknown";
   taskRunId?: string;
   /**
    * Optional LLM call-site identifier propagated to the per-call provider
@@ -16,6 +20,12 @@ export interface ScheduleMessageOptions {
    * the default `mainAgent` route.
    */
   callSite?: LLMCallSite;
+  /**
+   * Optional ad-hoc inference-profile override (`llm.profiles` key) applied
+   * to every LLM call the run issues — a schedule's pinned profile. Omitted
+   * = the call site's default resolution (main-agent model selection).
+   */
+  overrideProfile?: string;
 }
 
 export type ScheduleMessageProcessor = (

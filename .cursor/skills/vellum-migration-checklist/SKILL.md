@@ -40,16 +40,7 @@ Never reuse or reorder existing migration IDs.
 
 ## Release Notes Migrations
 
-Release notes are workspace migrations that append to `UPDATES.md`.
-
-Required:
-
-- Only add release notes for GA user-facing changes.
-- Do not add release notes for default-disabled, rollout-only, or feature-flagged features.
-- Include an HTML marker such as `<!-- release-note-id:<migration-id> -->`.
-- Read `UPDATES.md` first and skip the append if the marker already exists.
-
-The runner checkpoint is not enough to prevent duplicate appends after crash or partial failure.
+There is currently no release-note surfacing mechanism. The update-bulletin feature (workspace migrations appending to a workspace bulletin file, processed by a background conversation at daemon startup) was removed. Do not add new `0XX-release-notes-*` workspace migrations — the historical set is frozen by `workspace-release-notes-feature-flag-guard.test.ts`. If a release needs user-facing notes, design an explicit on-demand surfacing mechanism first.
 
 ## Verification
 

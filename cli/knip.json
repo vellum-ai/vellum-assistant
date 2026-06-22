@@ -8,5 +8,9 @@
     "src/lib/cli-error.ts"
   ],
   "project": ["src/**/*.ts", "src/**/*.tsx"],
-  "ignoreDependencies": ["@vellumai/web"]
+  "ignoreDependencies": [
+    "@vellumai/environments",
+    "@vellumai/local-mode",
+    "@vellumai/web"
+  ]
 }

@@ -75,10 +75,21 @@ function saveCheckpoints(
   renameSync(tmpPath, path);
 }
 
+/** Counts from a single {@link runWorkspaceMigrations} sweep, for the caller to
+ *  fold into its own startup log. `failed` covers both migrations that threw
+ *  this run and pre-existing non-retryable `failed` checkpoints — kept separate
+ *  from `skipped` so the summary surfaces them instead of masking them as
+ *  "already applied". */
+export type WorkspaceMigrationSummary = {
+  applied: number;
+  skipped: number;
+  failed: number;
+};
+
 export async function runWorkspaceMigrations(
   workspaceDir: string,
   migrations: WorkspaceMigration[],
-): Promise<void> {
+): Promise<WorkspaceMigrationSummary> {
   const migrationsById = new Map<string, WorkspaceMigration>();
   for (const m of migrations) {
     if (migrationsById.has(m.id)) {
@@ -119,8 +130,23 @@ export async function runWorkspaceMigrations(
     }
   }
 
+  log.info(`Running workspace migrations (${migrations.length} registered)`);
+
+  let appliedCount = 0;
+  let skippedCount = 0;
+  let failedCount = 0;
+
   for (const migration of migrations) {
-    if (checkpoints.applied[migration.id]) {
+    const existing = checkpoints.applied[migration.id];
+    if (existing) {
+      // A non-retryable failed checkpoint left over from a prior run still
+      // satisfies this guard; count it as failed rather than skipped so the
+      // summary keeps surfacing it.
+      if (existing.status === "failed") {
+        failedCount++;
+      } else {
+        skippedCount++;
+      }
       continue;
     }
 
@@ -147,6 +173,7 @@ export async function runWorkspaceMigrations(
         status: "failed",
       };
       saveCheckpoints(workspaceDir, checkpoints);
+      failedCount++;
       continue;
     }
 
@@ -156,6 +183,7 @@ export async function runWorkspaceMigrations(
       status: "completed",
     };
     saveCheckpoints(workspaceDir, checkpoints);
+    appliedCount++;
   }
 
   // First-boot sweep finished cleanly — clear the flag so future runs (and
@@ -166,6 +194,8 @@ export async function runWorkspaceMigrations(
     checkpoints.isNewWorkspace = false;
     saveCheckpoints(workspaceDir, checkpoints);
   }
+
+  return { applied: appliedCount, skipped: skippedCount, failed: failedCount };
 }
 
 /**
@@ -197,7 +227,7 @@ export async function runWorkspaceMigrations(
  * workspace migrations while the assistant is running may cause file conflicts,
  * stale caches, or data corruption.
  *
- * @param workspaceDir  The workspace directory path (e.g., `~/.vellum/workspace`).
+ * @param workspaceDir  The workspace directory path (e.g., `$VELLUM_WORKSPACE_DIR`).
  * @param migrations  The full ordered array of workspace migrations (from `WORKSPACE_MIGRATIONS`).
  * @param targetMigrationId  The migration ID to roll back to (exclusive — all
  *   migrations after this one are reversed).

@@ -105,10 +105,14 @@ function createTestContext(
       }
     : null;
 
+  let processing = false;
   return {
     conversationId: "conv-test",
     messages: [],
-    processing: false,
+    isProcessing: () => processing,
+    setProcessing: (value: boolean) => {
+      processing = value;
+    },
     abortController: null,
     queue: queueStub,
     getTurnChannelContext: () => turnChannel,

@@ -41,7 +41,7 @@ import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 
-initializeDb();
+await initializeDb();
 
 afterAll(() => {
   resetDbForTesting();
@@ -76,7 +76,6 @@ function ensureTestContact(): void {
       {
         type: "telegram",
         address: "telegram-user-default",
-        externalUserId: "telegram-user-default",
         status: "active",
         policy: "allow",
       },

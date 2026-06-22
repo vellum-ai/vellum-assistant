@@ -33,31 +33,17 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("executeAcpListAgents", () => {
-  test("returns disabled hint when ACP is disabled", async () => {
-    config.setConfig({ enabled: false });
-
-    const result = await executeAcpListAgents({}, makeContext());
-
-    expect(result.isError).toBe(false);
-    const parsed = JSON.parse(result.content as string);
-    expect(parsed.enabled).toBe(false);
-    // Pulls from the shared ACP_DISABLED_HINT constant exported by
-    // resolve-agent.ts. The exact wording is checked in resolve-agent.test.ts.
-    expect(parsed.hint).toContain("acp.enabled");
-    expect(parsed.hint).toContain("config.json");
-  });
-
-  test("enabled, no user config: both defaults present with source 'default' and available based on Bun.which", async () => {
+  test("no user config: all defaults present with source 'default' and available based on Bun.which", async () => {
     config.setConfig({ agents: {} });
 
     const result = await executeAcpListAgents({}, makeContext());
 
     expect(result.isError).toBe(false);
     const parsed = JSON.parse(result.content as string);
-    expect(parsed.enabled).toBe(true);
     expect(parsed.agents.map((a: { id: string }) => a.id)).toEqual([
       "claude",
       "codex",
+      "gemini",
     ]);
     for (const entry of parsed.agents) {
       expect(entry.source).toBe("default");
@@ -67,7 +53,7 @@ describe("executeAcpListAgents", () => {
     }
   });
 
-  test("enabled, user overrides claude: claude has source 'config' and the user's command", async () => {
+  test("user overrides claude: claude has source 'config' and the user's command", async () => {
     config.setConfig({
       agents: {
         claude: {
@@ -82,7 +68,6 @@ describe("executeAcpListAgents", () => {
 
     expect(result.isError).toBe(false);
     const parsed = JSON.parse(result.content as string);
-    expect(parsed.enabled).toBe(true);
 
     const claude = parsed.agents.find((a: { id: string }) => a.id === "claude");
     expect(claude.source).toBe("config");
@@ -106,7 +91,12 @@ describe("executeAcpListAgents", () => {
     const codex = parsed.agents.find((a: { id: string }) => a.id === "codex");
     expect(codex.available).toBe(false);
     expect(codex.unavailableReason).toBe("'codex-acp' is not on PATH");
-    expect(codex.setupHint).toBe("npm i -g @zed-industries/codex-acp");
+    expect(codex.setupHint).toBe("bun add -g @zed-industries/codex-acp");
+
+    const gemini = parsed.agents.find((a: { id: string }) => a.id === "gemini");
+    expect(gemini.available).toBe(false);
+    expect(gemini.unavailableReason).toBe("'gemini' is not on PATH");
+    expect(gemini.setupHint).toBe("bun add -g @google/gemini-cli");
 
     const claude = parsed.agents.find((a: { id: string }) => a.id === "claude");
     expect(claude.available).toBe(true);

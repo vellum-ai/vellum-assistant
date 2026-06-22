@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getOllamaBaseUrlEnv } from "../config/env.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import type { AssistantConfig } from "../config/types.js";
@@ -8,6 +7,13 @@ import { PLATFORM_PROVIDER_META } from "../providers/platform-proxy/constants.js
 import { resolveManagedProxyContext } from "../providers/platform-proxy/context.js";
 import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
+import {
+  EmbeddingBillingBlockError,
+  extractHttpStatus,
+  isEmbeddingBillingBreakerOpen,
+  recordBillingBlock,
+  recordBillingSuccess,
+} from "./embedding-billing-breaker.js";
 import { GeminiEmbeddingBackend } from "./embedding-gemini.js";
 import { OllamaEmbeddingBackend } from "./embedding-ollama.js";
 import { OpenAIEmbeddingBackend } from "./embedding-openai.js";
@@ -267,6 +273,56 @@ function geminiCacheExtras(config: AssistantConfig): string[] {
   return extras;
 }
 
+/** Build (or reuse) the direct-API Gemini backend for the given key. */
+function getDirectGeminiBackend(
+  config: AssistantConfig,
+  geminiKey: string,
+): EmbeddingBackend {
+  return getCachedOrCreate(
+    "gemini",
+    config.memory.embeddings.geminiModel,
+    () =>
+      new GeminiEmbeddingBackend(
+        geminiKey,
+        config.memory.embeddings.geminiModel,
+        {
+          taskType: config.memory.embeddings.geminiTaskType,
+          dimensions: config.memory.embeddings.geminiDimensions,
+        },
+      ),
+    geminiCacheExtras(config),
+  );
+}
+
+/**
+ * Build (or reuse) the managed-proxy Gemini backend, or return undefined
+ * when the managed proxy prerequisites (platform URL + assistant API key)
+ * are not satisfied.
+ */
+async function tryGetManagedGeminiBackend(
+  config: AssistantConfig,
+): Promise<EmbeddingBackend | undefined> {
+  const proxyCtx = await resolveManagedProxyContext();
+  const meta = PLATFORM_PROVIDER_META["gemini"];
+  if (!proxyCtx.enabled || !meta?.managed || !meta.proxyPath) return undefined;
+  const managedBaseUrl = `${proxyCtx.platformBaseUrl}${meta.proxyPath}`;
+  return getCachedOrCreate(
+    "gemini",
+    config.memory.embeddings.geminiModel,
+    () =>
+      new GeminiEmbeddingBackend(
+        proxyCtx.assistantApiKey,
+        config.memory.embeddings.geminiModel,
+        {
+          taskType: config.memory.embeddings.geminiTaskType,
+          dimensions: config.memory.embeddings.geminiDimensions ?? 3072,
+          managedBaseUrl,
+        },
+      ),
+    [...geminiCacheExtras(config), "managed"],
+  );
+}
+
 export interface EmbeddingBackendSelection {
   backend: EmbeddingBackend | null;
   reason: string | null;
@@ -302,41 +358,13 @@ export async function selectEmbeddingBackend(
     };
   }
 
-  // When the managed-gemini-embeddings-enabled flag is on AND managed proxy
-  // prerequisites are satisfied, insert managed-proxy Gemini at the front of
-  // the auto chain so platform assistants use Vellum-managed Gemini embeddings.
-  if (
-    (requested === "auto" || requested === "gemini") &&
-    isAssistantFeatureFlagEnabled("managed-gemini-embeddings-enabled", config)
-  ) {
-    const proxyCtx = await resolveManagedProxyContext();
-    if (proxyCtx.enabled) {
-      const meta = PLATFORM_PROVIDER_META["gemini"];
-      if (meta?.managed && meta.proxyPath) {
-        const managedBaseUrl = `${proxyCtx.platformBaseUrl}${meta.proxyPath}`;
-        const managedModel = config.memory.embeddings.geminiModel;
-        const managedDimensions =
-          config.memory.embeddings.geminiDimensions ?? 3072;
-        const extras = geminiCacheExtras(config);
-        return {
-          backend: getCachedOrCreate(
-            "gemini",
-            managedModel,
-            () =>
-              new GeminiEmbeddingBackend(
-                proxyCtx.assistantApiKey,
-                managedModel,
-                {
-                  taskType: config.memory.embeddings.geminiTaskType,
-                  dimensions: managedDimensions,
-                  managedBaseUrl,
-                },
-              ),
-            [...extras, "managed"],
-          ),
-          reason: null,
-        };
-      }
+  // When managed proxy prerequisites are satisfied, insert managed-proxy Gemini
+  // at the front of the auto chain so platform assistants use Vellum-managed
+  // Gemini embeddings.
+  if (requested === "auto" || requested === "gemini") {
+    const managed = await tryGetManagedGeminiBackend(config);
+    if (managed) {
+      return { backend: managed, reason: null };
     }
   }
 
@@ -405,20 +433,7 @@ export async function selectEmbeddingBackend(
           continue;
         }
         return {
-          backend: getCachedOrCreate(
-            "gemini",
-            config.memory.embeddings.geminiModel,
-            () =>
-              new GeminiEmbeddingBackend(
-                geminiKey,
-                config.memory.embeddings.geminiModel,
-                {
-                  taskType: config.memory.embeddings.geminiTaskType,
-                  dimensions: config.memory.embeddings.geminiDimensions,
-                },
-              ),
-            geminiCacheExtras(config),
-          ),
+          backend: getDirectGeminiBackend(config, geminiKey),
           reason: null,
         };
       }
@@ -454,7 +469,7 @@ export async function getMemoryBackendStatus(config: AssistantConfig): Promise<{
   model: string | null;
   reason: string | null;
 }> {
-  if (!config.memory.enabled) {
+  if (config.memory.enabled === false) {
     return {
       enabled: false,
       degraded: false,
@@ -482,6 +497,20 @@ export async function getMemoryBackendStatus(config: AssistantConfig): Promise<{
   };
 }
 
+/**
+ * Thrown by {@link embedWithBackend} when no embedding backend is configured or
+ * available. This is a PROCESS-WIDE condition (backend selection is effectively
+ * cached for the run), so a caller embedding many items should treat the first
+ * occurrence as fatal to the whole batch rather than a per-item failure — see
+ * `backfillAllSections`, which aborts on it instead of churning through deletes.
+ */
+export class EmbeddingBackendUnavailableError extends Error {
+  constructor(message = "No memory embedding backend configured") {
+    super(message);
+    this.name = "EmbeddingBackendUnavailableError";
+  }
+}
+
 export async function embedWithBackend(
   config: AssistantConfig,
   inputs: EmbeddingInput[],
@@ -491,9 +520,15 @@ export async function embedWithBackend(
   model: string;
   vectors: number[][];
 }> {
+  // Fail-fast when the billing breaker is open — avoids burning a network
+  // round-trip on every caller (embed lane jobs, activation recompute, etc.).
+  if (isEmbeddingBillingBreakerOpen()) {
+    throw new EmbeddingBillingBlockError();
+  }
+
   const selection = await selectEmbeddingBackend(config);
   if (!selection.backend) {
-    throw new Error(
+    throw new EmbeddingBackendUnavailableError(
       selection.reason ?? "No memory embedding backend configured",
     );
   }
@@ -510,6 +545,21 @@ export async function embedWithBackend(
     selection.backend.provider !== "gemini"
       ? await selectFallbackBackends(config, selection.backend.provider)
       : [];
+
+  // A managed-proxy Gemini primary can fail at the proxy (e.g. a stale or
+  // revoked platform credential) while a valid direct Gemini key sits in the
+  // credential store. The provider-level chain above never includes Gemini
+  // when Gemini IS the primary, so without this the direct key would never
+  // be tried and the provider would stay down for the whole process.
+  if (
+    selection.backend instanceof GeminiEmbeddingBackend &&
+    selection.backend.managed
+  ) {
+    const geminiKey = await getProviderKeyAsync("gemini");
+    if (geminiKey) {
+      fallbacks.push(getDirectGeminiBackend(config, geminiKey));
+    }
+  }
 
   // ── Compute provider-specific vector cache extras ───────────────
   const vectorExtras =
@@ -589,6 +639,10 @@ export async function embedWithBackend(
         );
       }
 
+      // A successful backend call proves billing is active — close the
+      // breaker if it was in the probe window.
+      recordBillingSuccess();
+
       if (isPrimary) {
         const merged = [...cached] as number[][];
         for (let i = 0; i < uncachedIndices.length; i++) {
@@ -603,6 +657,12 @@ export async function embedWithBackend(
       return { provider: backend.provider, model: backend.model, vectors };
     } catch (err) {
       lastErr = err;
+      // If ANY backend in the chain returns 402, trip the billing breaker
+      // immediately — fallbacks will hit the same depleted balance.
+      if (extractHttpStatus(err) === 402) {
+        recordBillingBlock();
+        throw err;
+      }
       if (backends.length > 1) {
         log.warn(
           { err, provider: backend.provider },
@@ -661,54 +721,12 @@ async function selectFallbackBackends(
       case "gemini": {
         const geminiKey = await getProviderKeyAsync("gemini");
         if (geminiKey) {
-          backends.push(
-            getCachedOrCreate(
-              "gemini",
-              config.memory.embeddings.geminiModel,
-              () =>
-                new GeminiEmbeddingBackend(
-                  geminiKey,
-                  config.memory.embeddings.geminiModel,
-                  {
-                    taskType: config.memory.embeddings.geminiTaskType,
-                    dimensions: config.memory.embeddings.geminiDimensions,
-                  },
-                ),
-              geminiCacheExtras(config),
-            ),
-          );
-        } else if (
-          isAssistantFeatureFlagEnabled(
-            "managed-gemini-embeddings-enabled",
-            config,
-          )
-        ) {
+          backends.push(getDirectGeminiBackend(config, geminiKey));
+        } else {
           // Try managed proxy Gemini as fallback when no direct key exists.
-          const proxyCtx = await resolveManagedProxyContext();
-          const meta = PLATFORM_PROVIDER_META["gemini"];
-          if (proxyCtx.enabled && meta?.managed && meta.proxyPath) {
-            const managedBaseUrl = `${proxyCtx.platformBaseUrl}${meta.proxyPath}`;
-            const managedModel = config.memory.embeddings.geminiModel;
-            const managedDimensions =
-              config.memory.embeddings.geminiDimensions ?? 3072;
-            const extras = geminiCacheExtras(config);
-            backends.push(
-              getCachedOrCreate(
-                "gemini",
-                managedModel,
-                () =>
-                  new GeminiEmbeddingBackend(
-                    proxyCtx.assistantApiKey,
-                    managedModel,
-                    {
-                      taskType: config.memory.embeddings.geminiTaskType,
-                      dimensions: managedDimensions,
-                      managedBaseUrl,
-                    },
-                  ),
-                [...extras, "managed"],
-              ),
-            );
+          const managed = await tryGetManagedGeminiBackend(config);
+          if (managed) {
+            backends.push(managed);
           } else {
             // Check managed cache variant first, then non-managed, so a warm
             // managed backend survives transient proxy-context blips.
@@ -724,14 +742,6 @@ async function selectFallbackBackends(
               );
             if (cached) backends.push(cached);
           }
-        } else {
-          // Preserve cached backend on transient credential-store failures.
-          const cached = getCached(
-            "gemini",
-            config.memory.embeddings.geminiModel,
-            geminiCacheExtras(config),
-          );
-          if (cached) backends.push(cached);
         }
         break;
       }

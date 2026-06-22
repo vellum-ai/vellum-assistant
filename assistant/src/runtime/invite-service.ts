@@ -16,10 +16,7 @@ import {
   findByTokenHash,
   hashToken,
   type IngressInvite,
-  type InviteStatus,
-  listInvites,
   markInviteExpired,
-  revokeInvite,
 } from "../memory/invite-store.js";
 import {
   DECLINED_BY_USER_SENTINEL,
@@ -42,6 +39,12 @@ import {
 // ---------------------------------------------------------------------------
 // Response shapes — used by both HTTP routes and message handlers
 // ---------------------------------------------------------------------------
+
+/**
+ * Redemption outcome type surfaced to callers. `already_member` consumes no
+ * invite use, so the gateway must not mirror it into recordInviteRedemption.
+ */
+export type RedemptionType = "redeemed" | "already_member";
 
 export interface InviteResponseData {
   id: string;
@@ -155,7 +158,6 @@ export async function createIngressInvite(params: {
   contactName?: string;
   // Voice invite parameters
   expectedExternalUserId?: string;
-  voiceCodeDigits?: number;
   friendName?: string;
   guardianName?: string;
   contactId: string;
@@ -276,31 +278,71 @@ export async function createIngressInvite(params: {
   };
 }
 
-export function listIngressInvites(params: {
-  sourceChannel?: string;
-  status?: string;
-}): IngressResult<InviteResponseData[]> {
-  const invites = listInvites({
-    sourceChannel: params.sourceChannel,
-    status: params.status as InviteStatus | undefined,
-  });
-  return {
-    ok: true,
-    data: invites.map((inv) => inviteToResponse(inv)),
-  };
+// ---------------------------------------------------------------------------
+// Mint — gateway-facing projection
+//
+// The gateway owns the canonical invite lifecycle in its own DB, but token
+// generation/hashing and voice fields are assistant-owned. `mintIngressInvite`
+// runs the same `createIngressInvite` path and surfaces the raw token plus the
+// minimal projection the gateway mirrors. The raw token is returned exactly
+// once and never persisted in plaintext.
+// ---------------------------------------------------------------------------
+
+/** Minimal invite projection the gateway mirrors into its own store. */
+export interface GatewayInviteProjection {
+  id: string;
+  /** Hash of whatever code redeems this invite: token hash for token invites,
+   * voice code hash for voice/phone invites. Always non-null and mirrorable. */
+  inviteCodeHash: string;
+  sourceChannel: string;
+  contactId: string;
+  note: string | null;
+  maxUses: number;
+  expiresAt: number;
 }
 
-export function revokeIngressInvite(
-  inviteId?: string,
-): IngressResult<InviteResponseData> {
-  if (!inviteId) {
-    return { ok: false, error: "inviteId is required for revoke" };
+export interface MintInviteResult {
+  invite: InviteResponseData;
+  rawToken?: string;
+  gateway: GatewayInviteProjection;
+}
+
+export async function mintIngressInvite(
+  params: Parameters<typeof createIngressInvite>[0],
+): Promise<IngressResult<MintInviteResult>> {
+  const result = await createIngressInvite(params);
+  if (!result.ok) return result;
+
+  // The persisted row carries fields the response projection omits
+  // (inviteCodeHash); read it back to build the gateway projection.
+  const row = findById(result.data.id);
+  if (!row) {
+    return { ok: false, error: "Invite not found after mint" };
   }
-  const revoked = revokeInvite(inviteId);
-  if (!revoked) {
-    return { ok: false, error: "Invite not found or already revoked" };
+
+  // The gateway mirrors the hash of whatever code redeems this invite. Token
+  // invites carry inviteCodeHash; voice/phone invites gate on voiceCodeHash.
+  const inviteCodeHash = row.inviteCodeHash ?? row.voiceCodeHash;
+  if (!inviteCodeHash) {
+    return { ok: false, error: "Invite is missing a redemption code hash" };
   }
-  return { ok: true, data: inviteToResponse(revoked) };
+
+  return {
+    ok: true,
+    data: {
+      invite: result.data,
+      rawToken: result.data.token,
+      gateway: {
+        id: row.id,
+        inviteCodeHash,
+        sourceChannel: row.sourceChannel,
+        contactId: row.contactId,
+        note: row.note,
+        maxUses: row.maxUses,
+        expiresAt: row.expiresAt,
+      },
+    },
+  };
 }
 
 export async function triggerInviteCall(
@@ -333,19 +375,21 @@ export async function triggerInviteCall(
   return { ok: true, data: { callSid: result.callSid } };
 }
 
-export function redeemIngressInvite(params: {
+export async function redeemIngressInvite(params: {
   token?: string;
   externalUserId?: string;
   externalChatId?: string;
   sourceChannel?: string;
-}): IngressResult<InviteResponseData> {
+}): Promise<
+  IngressResult<{ invite: InviteResponseData; type: RedemptionType }>
+> {
   if (!params.token) {
     return { ok: false, error: "token is required for redeem" };
   }
   if (!params.sourceChannel) {
     return { ok: false, error: "sourceChannel is required for redeem" };
   }
-  const outcome = redeemInviteTyped({
+  const outcome = await redeemInviteTyped({
     rawToken: params.token,
     sourceChannel: params.sourceChannel,
     externalUserId: params.externalUserId,
@@ -354,21 +398,15 @@ export function redeemIngressInvite(params: {
   if (!outcome.ok) {
     return { ok: false, error: outcome.reason };
   }
-  // For already_member, look up the invite by token hash to build the response
-  if (outcome.type === "already_member") {
-    const inv = findByTokenHash(hashToken(params.token));
-    if (!inv) {
-      return { ok: false, error: "Invite not found after redemption" };
-    }
-    return { ok: true, data: inviteToResponse(inv) };
-  }
-  // Look up the invite by token hash — same approach as the already_member path
-  // above. Using findByTokenHash avoids the pagination limit of listInvites.
+  // Look up the invite by token hash for both outcomes (`redeemed` and
+  // `already_member`). Using findByTokenHash avoids the pagination limit of
+  // listInvites. The `type` is surfaced so the gateway can skip mirroring an
+  // `already_member` redemption (which consumes no use).
   const inv = findByTokenHash(hashToken(params.token));
   if (!inv) {
     return { ok: false, error: "Invite not found after redemption" };
   }
-  return { ok: true, data: inviteToResponse(inv) };
+  return { ok: true, data: { invite: inviteToResponse(inv), type: outcome.type } };
 }
 
 export function redeemVoiceInviteCode(params: {
@@ -376,6 +414,6 @@ export function redeemVoiceInviteCode(params: {
   callerExternalUserId: string;
   sourceChannel: "phone";
   code: string;
-}): VoiceRedemptionOutcome {
+}): Promise<VoiceRedemptionOutcome> {
   return redeemVoiceInviteCodeTyped(params);
 }

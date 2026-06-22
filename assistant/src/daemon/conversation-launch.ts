@@ -87,14 +87,10 @@ export async function launchConversation(
     ),
   );
 
-  processMessageInBackground(
-    conversationId,
-    params.seedPrompt,
-    undefined,
-    undefined,
-    "vellum",
-    "cli",
-  ).catch((err) => {
+  processMessageInBackground(conversationId, params.seedPrompt, {
+    sourceChannel: "vellum",
+    sourceInterface: "cli",
+  }).catch((err) => {
     log.error(
       { err, conversationId },
       "Seed turn failed for launched conversation (non-fatal)",

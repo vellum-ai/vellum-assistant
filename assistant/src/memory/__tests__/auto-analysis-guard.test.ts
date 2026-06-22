@@ -15,7 +15,7 @@ import {
 import { createConversation } from "../conversation-crud.js";
 import { getDb } from "../db-connection.js";
 import { initializeDb } from "../db-init.js";
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();

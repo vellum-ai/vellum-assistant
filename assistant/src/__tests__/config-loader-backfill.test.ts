@@ -75,13 +75,19 @@ import {
   loadConfig,
   mergeDefaultWorkspaceConfig,
 } from "../config/loader.js";
-import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
+import {
+  MANAGED_PROFILE_NAMES,
+  materializeProfile,
+  OS_BETA_PROFILE_TEMPLATE,
+  seedInferenceProfiles,
+} from "../config/seed-inference-profiles.js";
 import type { DrizzleDb } from "../memory/db-connection.js";
 import { migrateCreateProviderConnections } from "../memory/migrations/243-provider-connections.js";
 import { migrateProviderConnectionStatusLabel } from "../memory/migrations/244-provider-connection-status-label.js";
 import { migrateProviderConnectionBaseUrlAndModels } from "../memory/migrations/250-provider-connection-base-url-and-models.js";
 import * as schema from "../memory/schema.js";
 import { getConnection } from "../providers/inference/connections.js";
+import { getConfigQuarantineNoticePath } from "../util/platform.js";
 import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -325,8 +331,9 @@ describe("loadConfig startup behavior", () => {
         }
       }
     }
-    const updatesPath = join(WORKSPACE_DIR, "UPDATES.md");
-    if (existsSync(updatesPath)) rmSync(updatesPath, { force: true });
+    // Clear any leftover config-quarantine notice sentinel from prior runs.
+    const noticePath = getConfigQuarantineNoticePath();
+    if (existsSync(noticePath)) rmSync(noticePath, { force: true });
     ensureTestDir();
     setStorePathForTesting(join(WORKSPACE_DIR, "keys.enc"));
     delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
@@ -415,6 +422,24 @@ describe("loadConfig startup behavior", () => {
     expect(raw.memory?.jobs?.workerConcurrency).toBe(4);
   });
 
+  test("strips daemon.reapOrphanedSubprocesses from existing user configs", () => {
+    // `daemon.reapOrphanedSubprocesses` is a deprecated opt-in flag: the
+    // orphan-subprocess reaper runs by default whenever the daemon is PID 1 on
+    // Linux. Existing configs that have it written to disk should load cleanly
+    // with the field silently stripped.
+    writeConfig({
+      provider: "anthropic",
+      daemon: { reapOrphanedSubprocesses: true, standaloneRecording: false },
+    });
+
+    loadConfig();
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.daemon?.reapOrphanedSubprocesses).toBeUndefined();
+    // Sibling fields under daemon are preserved
+    expect(raw.daemon?.standaloneRecording).toBe(false);
+  });
+
   test("still writes a default config on first launch when file is absent", () => {
     // Discoverability: when no config.json exists, write one populated with
     // all schema defaults so users can see and edit available options.
@@ -460,9 +485,11 @@ describe("loadConfig startup behavior", () => {
       "anthropic-personal",
     );
     // Managed profiles exist as well.
-    expect(config.llm.profiles.balanced?.model).toBe("claude-sonnet-4-6");
+    expect(config.llm.profiles.balanced?.model).toBe(
+      "accounts/fireworks/models/minimax-m3",
+    );
     expect(config.llm.profiles.balanced?.provider_connection).toBe(
-      "anthropic-managed",
+      "fireworks-managed",
     );
 
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
@@ -471,7 +498,9 @@ describe("loadConfig startup behavior", () => {
       model: "claude-opus-4-7",
     });
     expect(raw.llm.activeProfile).toBe("custom-balanced");
-    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+    expect(raw.llm.profiles.balanced.model).toBe(
+      "accounts/fireworks/models/minimax-m3",
+    );
   });
 
   test("on-platform hatch seeds only managed profiles", () => {
@@ -499,9 +528,11 @@ describe("loadConfig startup behavior", () => {
     const config = loadConfig();
 
     expect(config.llm.activeProfile).toBe("balanced");
-    expect(config.llm.profiles.balanced?.model).toBe("claude-sonnet-4-6");
+    expect(config.llm.profiles.balanced?.model).toBe(
+      "accounts/fireworks/models/minimax-m3",
+    );
     expect(config.llm.profiles.balanced?.provider_connection).toBe(
-      "anthropic-managed",
+      "fireworks-managed",
     );
     // No user profiles created on platform.
     expect(config.llm.profiles["custom-balanced"]).toBeUndefined();
@@ -543,10 +574,10 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles["custom-balanced"].provider_connection).toBe(
       "anthropic-personal",
     );
-    // Managed balanced profile is seeded for anthropic-managed.
-    expect(raw.llm.profiles.balanced.provider).toBe("anthropic");
+    // Managed balanced profile is seeded for fireworks-managed (MiniMax M3).
+    expect(raw.llm.profiles.balanced.provider).toBe("fireworks");
     expect(raw.llm.profiles.balanced.provider_connection).toBe(
-      "anthropic-managed",
+      "fireworks-managed",
     );
   });
 
@@ -580,9 +611,9 @@ describe("loadConfig startup behavior", () => {
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
     // On-platform: no user profiles created, active resets to managed balanced.
     expect(raw.llm.activeProfile).toBe("balanced");
-    expect(raw.llm.profiles.balanced.provider).toBe("anthropic");
+    expect(raw.llm.profiles.balanced.provider).toBe("fireworks");
     expect(raw.llm.profiles.balanced.provider_connection).toBe(
-      "anthropic-managed",
+      "fireworks-managed",
     );
     // The old custom-balanced is preserved on disk but no longer active.
     expect(raw.llm.profiles["custom-balanced"].provider).toBe("openai");
@@ -634,10 +665,10 @@ describe("loadConfig startup behavior", () => {
       "gpt-5.4-nano",
     );
 
-    // Managed profiles are also seeded (balanced uses Anthropic).
-    expect(raw.llm.profiles.balanced.provider).toBe("anthropic");
+    // Managed profiles are also seeded (balanced uses Fireworks/MiniMax M3).
+    expect(raw.llm.profiles.balanced.provider).toBe("fireworks");
     expect(raw.llm.profiles.balanced.provider_connection).toBe(
-      "anthropic-managed",
+      "fireworks-managed",
     );
     expect(raw.llm.profiles.balanced.source).toBe("managed");
     expect(raw.llm.profiles["quality-optimized"].provider).toBe("anthropic");
@@ -665,11 +696,82 @@ describe("loadConfig startup behavior", () => {
     mergeDefaultConfigAndSeedInferenceProfiles();
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+    expect(raw.llm.profiles.balanced.model).toBe(
+      "accounts/fireworks/models/minimax-m3",
+    );
     expect(raw.llm.profiles.balanced.provider_connection).toBe(
-      "anthropic-managed",
+      "fireworks-managed",
     );
     expect(raw.llm.activeProfile).toBe("balanced");
+  });
+
+  test("on-platform managed profiles reconcile to the code template on every boot", () => {
+    // Headline behavior: on-platform installs now reconcile managed profile
+    // content from the code template on every boot (same as off-platform), so
+    // model/config updates ship in a release without a workspace migration.
+    process.env.IS_PLATFORM = "true";
+
+    writeConfig({
+      llm: {
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            model: "old-model-from-previous-release",
+            maxTokens: 1,
+            provider_connection: "anthropic-managed",
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    // Non-hatch boot (no overlay). Content is refreshed from the template.
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles.balanced.model).toBe(
+      "accounts/fireworks/models/minimax-m3",
+    );
+    expect(raw.llm.profiles.balanced.maxTokens).toBe(32000);
+    expect(raw.llm.profiles.balanced.topP).toBe(0.95);
+    expect(raw.llm.profiles.balanced.provider_connection).toBe(
+      "fireworks-managed",
+    );
+    expect(raw.llm.activeProfile).toBe("balanced");
+  });
+
+  test("on-platform reseed preserves user-edited label and status on managed profiles", () => {
+    // The only two fields a user may override on a managed profile — label and
+    // status — survive the on-platform reconcile, exactly as off-platform.
+    process.env.IS_PLATFORM = "true";
+
+    writeConfig({
+      llm: {
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            model: "old-model-from-previous-release",
+            provider_connection: "anthropic-managed",
+            label: "My Default",
+            status: "disabled",
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    // Content refreshes from the template...
+    expect(raw.llm.profiles.balanced.model).toBe(
+      "accounts/fireworks/models/minimax-m3",
+    );
+    // ...but the user's label and status overrides are preserved.
+    expect(raw.llm.profiles.balanced.label).toBe("My Default");
+    expect(raw.llm.profiles.balanced.status).toBe("disabled");
   });
 
   test("off-platform reseed preserves user-edited label on managed profiles (Codex P1 on PR #30362)", () => {
@@ -694,7 +796,9 @@ describe("loadConfig startup behavior", () => {
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
     // Model still gets the new template value (provider-controlled).
-    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+    expect(raw.llm.profiles.balanced.model).toBe(
+      "accounts/fireworks/models/minimax-m3",
+    );
     // But the user's label override is preserved across the reseed.
     expect(raw.llm.profiles.balanced.label).toBe("My Default");
   });
@@ -722,7 +826,51 @@ describe("loadConfig startup behavior", () => {
 
     expect(raw.llm.profiles.balanced.status).toBe("disabled");
     // Model still refreshes — only label/status are user-owned.
-    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+    expect(raw.llm.profiles.balanced.model).toBe(
+      "accounts/fireworks/models/minimax-m3",
+    );
+  });
+
+  test("reseed preserves user-edited topP on managed profiles", () => {
+    // Simulate a user who overrode topP on the managed "balanced" profile via
+    // PUT /v1/config/llm/profiles/balanced { topP: 0.5 }. The override must
+    // survive the reconcile instead of reverting to the template's 0.95.
+    writeConfig({
+      llm: {
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            model: "old-model-from-previous-release",
+            provider_connection: "anthropic-managed",
+            topP: 0.5,
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    // The user's topP override is preserved across the reseed (not reverted to
+    // the template default of 0.95).
+    expect(raw.llm.profiles.balanced.topP).toBe(0.5);
+    // Model still refreshes — topP is user-owned, the rest is template-owned.
+    expect(raw.llm.profiles.balanced.model).toBe(
+      "accounts/fireworks/models/minimax-m3",
+    );
+  });
+
+  test("reseed seeds the template topP on a fresh managed balanced profile", () => {
+    // No previous on-disk entry → the balanced profile materializes with the
+    // template's topP default of 0.95.
+    writeConfig({ llm: {} });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles.balanced.topP).toBe(0.95);
   });
 
   test("off-platform reseed preserves an explicit null label (user cleared it)", () => {
@@ -763,12 +911,20 @@ describe("loadConfig startup behavior", () => {
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
     expect(raw.llm.profiles.balanced.label).toBe("Balanced (Managed)");
-    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+    expect(raw.llm.profiles.balanced.model).toBe(
+      "accounts/fireworks/models/minimax-m3",
+    );
     // Status is unset by default — must not appear as `undefined`.
     expect("status" in raw.llm.profiles.balanced).toBe(false);
   });
 
-  test("platform-provided profile fragments are not polluted by managed seeds", () => {
+  test("platform overlay fragment wins its hatch boot, then content reconciles to the code template (label preserved)", () => {
+    // The overlay is authoritative for the boot it is supplied: its `balanced`
+    // fragment lands verbatim and is never polluted by template fields it omits
+    // (no maxTokens/thinking leak in). On the next boot — overlay archived —
+    // managed profile *content* reconciles to the code template, since the
+    // templates are the single source of truth for content. Only the
+    // user/overlay-set `label` survives the reconcile.
     process.env.IS_PLATFORM = "true";
 
     writeConfig({
@@ -822,6 +978,7 @@ describe("loadConfig startup behavior", () => {
     const config = loadConfig();
     const mainAgentConfig = resolveCallSiteConfig("mainAgent", config.llm);
 
+    // Hatch boot: overlay fragment is preserved verbatim (preserveProfileNames).
     expect(config.llm.activeProfile).toBe("balanced");
     expect(config.llm.profiles.balanced).toEqual({
       source: "managed",
@@ -842,16 +999,26 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles.balanced.maxTokens).toBeUndefined();
     expect(raw.llm.profiles.balanced.thinking).toBeUndefined();
 
+    // Next boot, no overlay: content reconciles to the fireworks-managed code
+    // template; only the overlay-set label is carried across.
     mergeDefaultConfigAndSeedInferenceProfiles();
 
     const afterRestart = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
     expect(afterRestart.llm.activeProfile).toBe("balanced");
-    expect(afterRestart.llm.profiles.balanced).toEqual({
-      source: "managed",
-      provider: "openai",
-      model: "gpt-5.4",
-      label: "Platform Balanced",
+    expect(afterRestart.llm.profiles.balanced.provider).toBe("fireworks");
+    expect(afterRestart.llm.profiles.balanced.provider_connection).toBe(
+      "fireworks-managed",
+    );
+    expect(afterRestart.llm.profiles.balanced.model).toBe(
+      "accounts/fireworks/models/minimax-m3",
+    );
+    expect(afterRestart.llm.profiles.balanced.maxTokens).toBe(32000);
+    expect(afterRestart.llm.profiles.balanced.thinking).toEqual({
+      enabled: true,
+      streamThinking: true,
     });
+    // The user/overlay-set label is the one field that survives the reconcile.
+    expect(afterRestart.llm.profiles.balanced.label).toBe("Platform Balanced");
   });
 
   test("quarantines corrupt config before merging hatch overlay", () => {
@@ -890,7 +1057,9 @@ describe("loadConfig startup behavior", () => {
     // Off-platform hatch: user profiles are active.
     expect(raw.llm.activeProfile).toBe("custom-balanced");
     expect(raw.llm.profiles["custom-balanced"].provider).toBe("anthropic");
-    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+    expect(raw.llm.profiles.balanced.model).toBe(
+      "accounts/fireworks/models/minimax-m3",
+    );
   });
 
   test("still quarantines corrupt JSON", () => {
@@ -987,6 +1156,11 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
 
     // Personal profiles keep their bare labels — they're the daily driver.
     expect(config.llm.profiles["custom-balanced"]?.label).toBe("Balanced");
+
+    // top_p is scoped to the managed Balanced profile only; the BYOK
+    // custom-balanced profile must not pick it up.
+    expect(config.llm.profiles.balanced?.topP).toBe(0.95);
+    expect(config.llm.profiles["custom-balanced"]?.topP).toBeUndefined();
   });
 
   test("off-platform hatch initializes managed profile status to 'disabled'", () => {
@@ -1034,7 +1208,7 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
 
     expect(raw.llm.activeProfile).toBe("balanced");
     expect(raw.llm.profiles.balanced.provider_connection).toBe(
-      "anthropic-managed",
+      "fireworks-managed",
     );
     expect("status" in raw.llm.profiles.balanced).toBe(false);
     // Connections exist (status is no longer a connection-level concept).
@@ -1279,5 +1453,74 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     expect(config.llm.profiles.balanced?.status).toBe("active");
     // Label is still suffixed (Vellum can push label updates).
     expect(config.llm.profiles.balanced?.label).toBe("Balanced (Managed)");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: OS Beta flag-gated managed profile. The template is defined but
+// intentionally NOT part of MANAGED_PROFILE_TEMPLATES, so seedInferenceProfiles
+// must never create it. A later PR reconciles it in/out based on the `os-beta`
+// feature flag.
+// ---------------------------------------------------------------------------
+
+describe("OS Beta managed profile template", () => {
+  beforeEach(() => {
+    ensureTestDir();
+    const resetPaths = [
+      CONFIG_PATH,
+      join(WORKSPACE_DIR, "default-config.json"),
+      join(WORKSPACE_DIR, "hatch-overlay.json"),
+      join(WORKSPACE_DIR, "keys.enc"),
+      join(WORKSPACE_DIR, "data"),
+      join(WORKSPACE_DIR, "data", "memory"),
+    ];
+    for (const path of resetPaths) {
+      if (existsSync(path)) {
+        rmSync(path, { recursive: true, force: true });
+      }
+    }
+    ensureTestDir();
+    setStorePathForTesting(join(WORKSPACE_DIR, "keys.enc"));
+    delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
+    delete process.env.IS_PLATFORM;
+    invalidateConfigCache();
+  });
+
+  afterEach(() => {
+    setStorePathForTesting(null);
+    delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
+    delete process.env.IS_PLATFORM;
+    invalidateConfigCache();
+  });
+
+  test("seedInferenceProfiles does not create an os-beta profile", () => {
+    writeConfig({ llm: { default: { provider: "anthropic" } } });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles["os-beta"]).toBeUndefined();
+    expect((raw.llm.profileOrder as string[]).includes("os-beta")).toBe(false);
+  });
+
+  test("MANAGED_PROFILE_NAMES contains os-beta", () => {
+    expect(MANAGED_PROFILE_NAMES.has("os-beta")).toBe(true);
+  });
+
+  test("materializeProfile honors the explicit OS Beta model", () => {
+    const entry = materializeProfile(
+      OS_BETA_PROFILE_TEMPLATE,
+      "fireworks",
+      "fireworks-managed",
+    );
+
+    expect(entry.model).toBe("accounts/fireworks/models/glm-5p2");
+    expect(entry.provider_connection).toBe("fireworks-managed");
+    expect(entry.provider).toBe("fireworks");
+    expect(entry.label).toBe("OS Beta");
+    expect(entry.source).toBe("managed");
+    expect(entry.maxTokens).toBe(32000);
+    expect(entry.effort).toBe("high");
+    expect(entry.thinking?.enabled).toBe(true);
   });
 });

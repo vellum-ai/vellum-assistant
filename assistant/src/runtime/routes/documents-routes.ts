@@ -243,6 +243,10 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Export a document as PDF",
     description: "Render a document to PDF and return the binary content.",
     tags: ["documents"],
+    responseBody: {
+      contentType: "application/pdf",
+      schema: { type: "string", format: "binary" },
+    },
     handler: async ({ pathParams }) => {
       const doc = getDocumentById(pathParams!.id);
       if (!doc) {

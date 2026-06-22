@@ -21,7 +21,7 @@ import {
 import type { OracleTurn } from "../harness/oracle.js";
 import { reconstructInput } from "../harness/replay-input.js";
 
-initializeDb();
+await initializeDb();
 
 // loadNowText reads workspace files; a nonexistent dir yields "".
 const WORKSPACE = "/tmp/harness-replay-nonexistent-workspace";

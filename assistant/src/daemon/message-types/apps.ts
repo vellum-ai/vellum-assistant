@@ -1,6 +1,4 @@
-// App management, gallery, publishing, and sharing types.
-
-import type { GalleryManifest } from "../../gallery/gallery-manifest.js";
+// App management, publishing, and sharing types.
 
 // === Client → Server ===
 
@@ -79,15 +77,6 @@ export interface GetSigningIdentityResponse {
   keyId?: string;
   publicKey?: string;
   error?: string;
-}
-
-export interface GalleryListRequest {
-  type: "gallery_list";
-}
-
-export interface GalleryInstallRequest {
-  type: "gallery_install";
-  galleryAppId: string;
 }
 
 export interface AppHistoryRequest {
@@ -271,19 +260,6 @@ export interface ShareAppCloudResponse {
   error?: string;
 }
 
-export interface GalleryListResponse {
-  type: "gallery_list_response";
-  gallery: GalleryManifest;
-}
-
-export interface GalleryInstallResponse {
-  type: "gallery_install_response";
-  success: boolean;
-  appId?: string;
-  name?: string;
-  error?: string;
-}
-
 export interface AppHistoryResponse {
   type: "app_history_response";
   appId: string;
@@ -347,8 +323,6 @@ export type _AppsClientMessages =
   | OpenBundleRequest
   | SignBundlePayloadResponse
   | GetSigningIdentityResponse
-  | GalleryListRequest
-  | GalleryInstallRequest
   | AppHistoryRequest
   | AppDiffRequest
   | AppFileAtVersionRequest
@@ -371,8 +345,6 @@ export type _AppsServerMessages =
   | SignBundlePayloadRequest
   | GetSigningIdentityRequest
   | ShareAppCloudResponse
-  | GalleryListResponse
-  | GalleryInstallResponse
   | AppHistoryResponse
   | AppDiffResponse
   | AppFileAtVersionResponse

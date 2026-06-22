@@ -90,6 +90,24 @@ describe("Button rendering", () => {
     expect(html).toContain('data-testid="only-icon"');
   });
 
+  test("asChild + iconOnly renders the slotted element with the icon inside it", () => {
+    const html = renderToStaticMarkup(
+      <Button
+        asChild
+        iconOnly={<svg data-testid="only-icon" aria-hidden />}
+        aria-label="New conversation"
+      >
+        <a href="/new" />
+      </Button>,
+    );
+    expect(html).toContain("<a");
+    expect(html).toContain('href="/new"');
+    expect(html).toContain('aria-label="New conversation"');
+    expect(html).not.toContain("<button");
+    expect(html).toContain('data-testid="only-icon"');
+    expect(html).toContain("p-0");
+  });
+
   test("iconOnly applies square dimensions for regular size (h-8 w-8)", () => {
     const html = renderToStaticMarkup(
       <Button iconOnly={<svg />} aria-label="a" />,
@@ -97,6 +115,18 @@ describe("Button rendering", () => {
     expect(html).toContain("h-8");
     expect(html).toContain("w-8");
     expect(html).toContain("p-0");
+  });
+
+  test("iconOnly sizes the svg with a fixed dimension, never size-full", () => {
+    // `size-full` would let the icon fill whatever element it lands in; if the
+    // `asChild`/Slot path collapses the icon span onto the button box the icon
+    // would balloon to the button size. A fixed `[&_svg]:size-*` prevents that.
+    const html = renderToStaticMarkup(
+      <Button size="compact" iconOnly={<svg />} aria-label="a" />,
+    );
+    // `renderToStaticMarkup` HTML-escapes `&` to `&amp;` in attribute values.
+    expect(html).toContain("[&amp;_svg]:size-3.5");
+    expect(html).not.toContain("[&amp;_svg]:size-full");
   });
 
   test("tintColor sets the --vbtn-fg custom property inline", () => {
@@ -192,6 +222,37 @@ describe("Button class output", () => {
   test("compact size applies text-label-medium-default typography class", () => {
     const html = renderToStaticMarkup(<Button size="compact">C</Button>);
     expect(html).toContain("text-label-medium-default");
+  });
+
+  test("ghost icon-only button expands to a circular mobile tap target by default", () => {
+    const html = renderToStaticMarkup(
+      <Button variant="ghost" size="compact" iconOnly={<svg />} aria-label="a" />,
+    );
+    expect(html).toContain("touch-mobile:h-10");
+    expect(html).toContain("touch-mobile:w-10");
+    expect(html).toContain("touch-mobile:rounded-full");
+    expect(html).toContain("touch-mobile:size-4");
+  });
+
+  test("expandOnMobile={false} keeps an icon-only button compact on mobile", () => {
+    const html = renderToStaticMarkup(
+      <Button
+        variant="ghost"
+        size="compact"
+        expandOnMobile={false}
+        iconOnly={<svg />}
+        aria-label="a"
+      />,
+    );
+    // Desktop sizing is preserved — none of the touch-mobile expansion
+    // classes are emitted.
+    expect(html).not.toContain("touch-mobile:h-10");
+    expect(html).not.toContain("touch-mobile:w-10");
+    expect(html).not.toContain("touch-mobile:rounded-full");
+    expect(html).not.toContain("touch-mobile:size-4");
+    // The compact desktop dimensions still apply.
+    expect(html).toContain("h-6");
+    expect(html).toContain("w-6");
   });
 
   test("no raw hex colors appear in rendered output", () => {

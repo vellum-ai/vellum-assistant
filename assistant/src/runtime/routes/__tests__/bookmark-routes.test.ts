@@ -39,7 +39,7 @@ import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 // DB bootstrap
 // ---------------------------------------------------------------------------
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -7,6 +7,7 @@
  */
 
 import { authHeaders, getPlatformUrl } from "./platform-client.js";
+import { loopbackSafeFetch } from "./loopback-fetch.js";
 
 // ---------------------------------------------------------------------------
 // Create / Close
@@ -25,7 +26,7 @@ export async function createTerminalSession(
   if (service) {
     body.service = service;
   }
-  const response = await fetch(
+  const response = await loopbackSafeFetch(
     `${baseUrl}/v1/assistants/${assistantId}/terminal/sessions/`,
     {
       method: "POST",
@@ -49,7 +50,7 @@ export async function closeTerminalSession(
   platformUrl?: string,
 ): Promise<void> {
   const baseUrl = platformUrl || getPlatformUrl();
-  const response = await fetch(
+  const response = await loopbackSafeFetch(
     `${baseUrl}/v1/assistants/${assistantId}/terminal/sessions/${sessionId}/`,
     {
       method: "DELETE",
@@ -76,7 +77,7 @@ export async function sendTerminalInput(
   platformUrl?: string,
 ): Promise<void> {
   const baseUrl = platformUrl || getPlatformUrl();
-  const response = await fetch(
+  const response = await loopbackSafeFetch(
     `${baseUrl}/v1/assistants/${assistantId}/terminal/sessions/${sessionId}/input/`,
     {
       method: "POST",
@@ -100,7 +101,7 @@ export async function resizeTerminalSession(
   platformUrl?: string,
 ): Promise<void> {
   const baseUrl = platformUrl || getPlatformUrl();
-  const response = await fetch(
+  const response = await loopbackSafeFetch(
     `${baseUrl}/v1/assistants/${assistantId}/terminal/sessions/${sessionId}/resize/`,
     {
       method: "POST",
@@ -137,7 +138,7 @@ export async function* subscribeTerminalEvents(
   signal?: AbortSignal,
 ): AsyncGenerator<TerminalOutputEvent> {
   const baseUrl = platformUrl || getPlatformUrl();
-  const response = await fetch(
+  const response = await loopbackSafeFetch(
     `${baseUrl}/v1/assistants/${assistantId}/terminal/sessions/${sessionId}/events/`,
     {
       headers: await authHeaders(token, platformUrl),

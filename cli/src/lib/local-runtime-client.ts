@@ -9,6 +9,7 @@ import {
   resolveRuntimeMigrationUrl,
   resolveRuntimeUrl,
 } from "./runtime-url.js";
+import { loopbackSafeFetch } from "./loopback-fetch.js";
 
 /**
  * Thrown when the local runtime returns 409 for an export/import request
@@ -122,7 +123,7 @@ export async function localRuntimeExportToGcs(
     body.description = params.description;
   }
 
-  const response = await fetch(
+  const response = await loopbackSafeFetch(
     resolveRuntimeMigrationUrl(entry, "export-to-gcs"),
     {
       method: "POST",
@@ -166,7 +167,7 @@ export async function localRuntimeImportFromGcs(
   token: string,
   params: { bundleUrl: string },
 ): Promise<{ jobId: string }> {
-  const response = await fetch(
+  const response = await loopbackSafeFetch(
     resolveRuntimeMigrationUrl(entry, "import-from-gcs"),
     {
       method: "POST",
@@ -211,7 +212,7 @@ export async function localRuntimePollJobStatus(
   token: string,
   jobId: string,
 ): Promise<UnifiedJobStatus> {
-  const response = await fetch(
+  const response = await loopbackSafeFetch(
     resolveRuntimeMigrationUrl(entry, `jobs/${jobId}`),
     {
       headers: await migrationRequestHeaders(entry, token),
@@ -285,7 +286,7 @@ export async function localRuntimeIdentity(
 ): Promise<RuntimeIdentity> {
   const url = resolveRuntimeUrl(entry, "health");
   const doRequest = async (): Promise<Response> =>
-    fetch(url, {
+    loopbackSafeFetch(url, {
       method: "GET",
       headers: await migrationRequestHeaders(entry, token),
     });

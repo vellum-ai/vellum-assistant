@@ -8,14 +8,25 @@
  * Risk escalation paths:
  * - file_read: Low by default, High if targeting the actor token signing key.
  * - file_write / file_edit: Low by default, High if targeting skill source
- *   code, the workspace hooks directory, or the user plugins directory.
+ *   code, the workspace hooks directory, the user plugins directory, the
+ *   workspace tools directory, or the workspace routes directory.
  * - host_file_read: Medium (tool registry default; no special escalation).
  * - host_file_write / host_file_edit: Medium by default, High if targeting
- *   skill source code, the workspace hooks directory, or the user plugins
+ *   skill source code, the workspace hooks directory, the user plugins
+ *   directory, the workspace tools directory, or the workspace routes
  *   directory.
  * - host_file_transfer: Medium by default, High if the host-side path
- *   targets skill source code, the workspace hooks directory, or the user
- *   plugins directory.
+ *   targets skill source code, the workspace hooks directory, the user
+ *   plugins directory, the workspace tools directory, or the workspace
+ *   routes directory.
+ *
+ * The tools and routes directories are escalated for the same reason as
+ * plugins: any file written under `<workspace>/tools/` is dynamic-imported
+ * and executed as a registered tool by the workspace-tool loader (and its
+ * live file watcher), and any file under `<workspace>/routes/` is
+ * dynamic-imported and executed as an HTTP route handler. A write to either
+ * is a code-injection sink, so it must clear the same High-risk approval gate
+ * as hooks and plugins.
  *
  * Gateway adaptation: accepts a FileClassificationContext parameter instead
  * of importing assistant platform utilities directly. The assistant is
@@ -55,6 +66,10 @@ export interface FileClassificationContext {
   hooksDir: string;
   /** Absolute path to the user plugins directory. */
   pluginsDir: string;
+  /** Absolute path to the workspace tools directory (dynamic-imported tool overrides). */
+  toolsDir: string;
+  /** Absolute path to the workspace routes directory (dynamic-imported HTTP route handlers). */
+  routesDir: string;
   /**
    * Absolute paths of all skill source root directories (managed, bundled,
    * and any extra dirs from config). The classifier checks whether a file
@@ -77,6 +92,33 @@ export interface FileClassifierInput {
     | "host_file_transfer";
   filePath: string;
   workingDir: string;
+  /**
+   * The target path with symlinks resolved, canonicalized by the caller (the
+   * daemon, which owns the workspace filesystem). When present, this is used
+   * for the security escalation prefix checks instead of a lexical
+   * resolve(workingDir, filePath) — so a symlink whose name looks benign but
+   * whose real target is a protected directory is still escalated. When absent
+   * (e.g. caller could not access the filesystem), classification falls back to
+   * lexical resolution.
+   */
+  resolvedPath?: string;
+  /**
+   * For `host_file_transfer` with `direction: "to_sandbox"`: the workspace-side
+   * destination path (where the copied file lands). `filePath` carries the
+   * host-side `source_path`, so without this the workspace write destination —
+   * the actual code-injection sink — would go unclassified. Resolved against
+   * {@link transferSandboxWorkingDir} with the same `/workspace` remap as
+   * sandbox file writes.
+   */
+  transferSandboxDestPath?: string;
+  /** Sandbox working directory used to resolve {@link transferSandboxDestPath}. */
+  transferSandboxWorkingDir?: string;
+  /**
+   * The `to_sandbox` destination with symlinks resolved, canonicalized by the
+   * caller. Preferred over a lexical resolve of {@link transferSandboxDestPath}
+   * for the code-injection-sink check; falls back to lexical when absent.
+   */
+  resolvedTransferDestPath?: string;
 }
 
 // -- Helpers ------------------------------------------------------------------
@@ -86,6 +128,39 @@ export interface FileClassifierInput {
  */
 function normalizeDirPath(dirPath: string): string {
   return dirPath.endsWith("/") ? dirPath : dirPath + "/";
+}
+
+// The Docker sandbox mounts the host workspace at /workspace inside the
+// container, and the model generates container-scoped paths (e.g.
+// "/workspace/tools/evil.ts") even on local/macOS turns. The file tools remap
+// these to the boundary (working) directory before writing — see
+// `sandboxPolicy` in assistant/src/tools/shared/filesystem/path-policy.ts.
+// The classifier MUST apply the same remap before its containment checks,
+// otherwise a "/workspace/tools/…" write resolves to the literal
+// "/workspace/…" path (which never matches the real tools/routes/hooks dirs)
+// and falls through to the Low default — silently bypassing escalation.
+const CONTAINER_WORKSPACE_PREFIX = "/workspace/";
+const CONTAINER_WORKSPACE_EXACT = "/workspace";
+
+/**
+ * Resolve a sandbox file path the same way `sandboxPolicy` does: remap a
+ * container-scoped `/workspace/...` path to `workingDir`, then resolve.
+ * Symlink resolution (realpath) is intentionally omitted — the classifier
+ * only needs the logical target for prefix containment, and the file tools
+ * apply realpath bounds-checking at execution time.
+ */
+function resolveSandboxPath(rawPath: string, workingDir: string): string {
+  let effectivePath = rawPath;
+  // Skip remapping if the path already starts with workingDir to avoid
+  // double-nesting (mirrors sandboxPolicy).
+  if (!rawPath.startsWith(workingDir + "/") && rawPath !== workingDir) {
+    if (rawPath.startsWith(CONTAINER_WORKSPACE_PREFIX)) {
+      effectivePath = rawPath.slice(CONTAINER_WORKSPACE_PREFIX.length);
+    } else if (rawPath === CONTAINER_WORKSPACE_EXACT) {
+      effectivePath = ".";
+    }
+  }
+  return resolve(workingDir, effectivePath);
 }
 
 /**
@@ -142,6 +217,44 @@ function isPluginsPath(
   return (
     resolvedPath === pluginsDirNoTrailingSlash ||
     resolvedPath.startsWith(normalizedPluginsDir)
+  );
+}
+
+/**
+ * Check whether a resolved absolute path falls inside the workspace tools
+ * directory (or IS the tools directory itself). Mirrors {@link isPluginsPath}:
+ * the workspace-tool loader dynamic-imports any `<name>.{ts,js}` written here
+ * and registers it as an executable tool (its file watcher does so live,
+ * without a restart), so a write here is code-injection risk.
+ */
+function isToolsPath(
+  resolvedPath: string,
+  context: FileClassificationContext,
+): boolean {
+  const normalizedToolsDir = normalizeDirPath(context.toolsDir);
+  const toolsDirNoTrailingSlash = normalizedToolsDir.slice(0, -1);
+  return (
+    resolvedPath === toolsDirNoTrailingSlash ||
+    resolvedPath.startsWith(normalizedToolsDir)
+  );
+}
+
+/**
+ * Check whether a resolved absolute path falls inside the workspace routes
+ * directory (or IS the routes directory itself). Mirrors {@link isPluginsPath}:
+ * the user-route dispatcher dynamic-imports any handler module written here
+ * and executes its exported HTTP-method functions on the next matching
+ * request, so a write here is code-injection risk.
+ */
+function isRoutesPath(
+  resolvedPath: string,
+  context: FileClassificationContext,
+): boolean {
+  const normalizedRoutesDir = normalizeDirPath(context.routesDir);
+  const routesDirNoTrailingSlash = normalizedRoutesDir.slice(0, -1);
+  return (
+    resolvedPath === routesDirNoTrailingSlash ||
+    resolvedPath.startsWith(normalizedRoutesDir)
   );
 }
 
@@ -226,6 +339,65 @@ function buildFileAllowlistOptions(
   return options;
 }
 
+/**
+ * Classify a resolved (absolute) path against the code-injection sink
+ * directories: skill source, hooks, plugins, tools, and routes. A write to
+ * any of these plants code the daemon will dynamic-import and execute, so it
+ * must clear the High-risk approval gate. Returns a High assessment when the
+ * path lands in a sink, or `null` when it doesn't.
+ *
+ * `verb` distinguishes the user-facing reason: "Writes" for write/edit tools,
+ * "Transfers" for host_file_transfer.
+ */
+function classifyCodeInjectionSink(
+  resolvedPath: string,
+  context: FileClassificationContext,
+  verb: "Writes" | "Transfers",
+  allowlistOptions: AllowlistOption[],
+): RiskAssessment | null {
+  const high = (target: string): RiskAssessment => ({
+    riskLevel: "high",
+    reason: `${verb} to ${target}`,
+    scopeOptions: [],
+    matchType: "registry",
+    allowlistOptions,
+  });
+  if (isSkillSourcePath(resolvedPath, context))
+    return high("skill source code");
+  if (isHooksPath(resolvedPath, context)) return high("hooks directory");
+  if (isPluginsPath(resolvedPath, context)) return high("plugins directory");
+  if (isToolsPath(resolvedPath, context)) return high("tools directory");
+  if (isRoutesPath(resolvedPath, context)) return high("routes directory");
+  return null;
+}
+
+/**
+ * Run {@link classifyCodeInjectionSink} against both the lexical and the
+ * symlink-resolved path, escalating if EITHER lands in a sink. A symlink can
+ * mask a protected target two ways — a benign name pointing into a protected
+ * dir (caught by the real path), or a path lexically inside a protected dir
+ * pointing elsewhere, where the loader still executes the file through the
+ * protected location (caught by the lexical path). When the two paths are
+ * equal the check runs once.
+ */
+function classifyCodeInjectionSinkEither(
+  lexicalPath: string,
+  realPath: string,
+  context: FileClassificationContext,
+  verb: "Writes" | "Transfers",
+  allowlistOptions: AllowlistOption[],
+): RiskAssessment | null {
+  const lexicalSink = classifyCodeInjectionSink(
+    lexicalPath,
+    context,
+    verb,
+    allowlistOptions,
+  );
+  if (lexicalSink) return lexicalSink;
+  if (realPath === lexicalPath) return null;
+  return classifyCodeInjectionSink(realPath, context, verb, allowlistOptions);
+}
+
 // -- Classifier ---------------------------------------------------------------
 
 /**
@@ -246,7 +418,15 @@ export class FileRiskClassifier implements RiskClassifier<
     input: FileClassifierInput,
     context: FileClassificationContext,
   ): Promise<RiskAssessment> {
-    const { toolName, filePath, workingDir } = input;
+    const {
+      toolName,
+      filePath,
+      workingDir,
+      resolvedPath,
+      transferSandboxDestPath,
+      transferSandboxWorkingDir,
+      resolvedTransferDestPath,
+    } = input;
     const allowlistOptions = filePath
       ? buildFileAllowlistOptions(toolName, filePath)
       : [];
@@ -258,8 +438,18 @@ export class FileRiskClassifier implements RiskClassifier<
     switch (toolName) {
       case "file_read": {
         if (filePath) {
-          const resolvedPath = resolve(workingDir, filePath);
-          if (isActorTokenSigningKeyPath(resolvedPath, workingDir, context)) {
+          // Check BOTH the lexical path and the symlink-resolved path. A
+          // symlink can mask a protected target two ways: a benign-looking
+          // name that points into a protected dir (caught by the real path),
+          // or a path lexically inside a protected dir that points elsewhere
+          // (caught by the lexical path — the loader still reads it through the
+          // protected location). Escalate if either matches.
+          const lexicalPath = resolveSandboxPath(filePath, workingDir);
+          const realPath = resolvedPath ?? lexicalPath;
+          if (
+            isActorTokenSigningKeyPath(lexicalPath, workingDir, context) ||
+            isActorTokenSigningKeyPath(realPath, workingDir, context)
+          ) {
             assessment = {
               riskLevel: "high",
               reason: "Reads actor token signing key",
@@ -283,35 +473,17 @@ export class FileRiskClassifier implements RiskClassifier<
       case "file_write":
       case "file_edit": {
         if (filePath) {
-          const resolvedPath = resolve(workingDir, filePath);
-          if (isSkillSourcePath(resolvedPath, context)) {
-            assessment = {
-              riskLevel: "high",
-              reason: "Writes to skill source code",
-              scopeOptions: [],
-              matchType: "registry",
-              allowlistOptions,
-            };
-            break;
-          }
-          if (isHooksPath(resolvedPath, context)) {
-            assessment = {
-              riskLevel: "high",
-              reason: "Writes to hooks directory",
-              scopeOptions: [],
-              matchType: "registry",
-              allowlistOptions,
-            };
-            break;
-          }
-          if (isPluginsPath(resolvedPath, context)) {
-            assessment = {
-              riskLevel: "high",
-              reason: "Writes to plugins directory",
-              scopeOptions: [],
-              matchType: "registry",
-              allowlistOptions,
-            };
+          const lexicalPath = resolveSandboxPath(filePath, workingDir);
+          const realPath = resolvedPath ?? lexicalPath;
+          const sink = classifyCodeInjectionSinkEither(
+            lexicalPath,
+            realPath,
+            context,
+            "Writes",
+            allowlistOptions,
+          );
+          if (sink) {
+            assessment = sink;
             break;
           }
         }
@@ -345,38 +517,45 @@ export class FileRiskClassifier implements RiskClassifier<
         // "Writes" for write/edit (both mutate files), "Transfers" for transfer.
         const actionVerb =
           toolName === "host_file_transfer" ? "Transfers" : "Writes";
+
+        // host_file_transfer to_sandbox: the workspace-side destination is the
+        // file actually written into the sandbox, so it — not the host-side
+        // source in `filePath` — is the code-injection sink. Check it first,
+        // resolving with the same /workspace remap as sandbox file writes.
+        if (transferSandboxDestPath) {
+          const lexicalDest = resolveSandboxPath(
+            transferSandboxDestPath,
+            transferSandboxWorkingDir ?? process.cwd(),
+          );
+          const realDest = resolvedTransferDestPath ?? lexicalDest;
+          const destSink = classifyCodeInjectionSinkEither(
+            lexicalDest,
+            realDest,
+            context,
+            "Transfers",
+            allowlistOptions,
+          );
+          if (destSink) {
+            assessment = destSink;
+            break;
+          }
+        }
+
         if (filePath) {
           // Host file tools resolve paths without workingDir — resolve(filePath)
-          // treats the path as absolute or relative to cwd.
-          const resolvedPath = resolve(filePath);
-          if (isSkillSourcePath(resolvedPath, context)) {
-            assessment = {
-              riskLevel: "high",
-              reason: `${actionVerb} to skill source code`,
-              scopeOptions: [],
-              matchType: "registry",
-              allowlistOptions,
-            };
-            break;
-          }
-          if (isHooksPath(resolvedPath, context)) {
-            assessment = {
-              riskLevel: "high",
-              reason: `${actionVerb} to hooks directory`,
-              scopeOptions: [],
-              matchType: "registry",
-              allowlistOptions,
-            };
-            break;
-          }
-          if (isPluginsPath(resolvedPath, context)) {
-            assessment = {
-              riskLevel: "high",
-              reason: `${actionVerb} to plugins directory`,
-              scopeOptions: [],
-              matchType: "registry",
-              allowlistOptions,
-            };
+          // treats the path as absolute or relative to cwd. Check both the
+          // lexical path and the symlink-resolved path from the caller.
+          const lexicalPath = resolve(filePath);
+          const realPath = resolvedPath ?? lexicalPath;
+          const sink = classifyCodeInjectionSinkEither(
+            lexicalPath,
+            realPath,
+            context,
+            actionVerb,
+            allowlistOptions,
+          );
+          if (sink) {
+            assessment = sink;
             break;
           }
         }

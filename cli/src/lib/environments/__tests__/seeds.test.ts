@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
+import { SEEDS } from "@vellumai/environments";
+
 import { getDefaultPorts } from "../paths.js";
-import { SEEDS } from "../seeds.js";
 
 describe("SEEDS port blocks", () => {
   test("production uses the legacy (pre-MVP) port layout", () => {

@@ -33,6 +33,9 @@ WORKDIR /app/credential-executor
 
 RUN apt-get update && apt-get install -y \
     ca-certificates \
+    e2fsprogs \
+    mount \
+    util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy bun binary from builder
@@ -55,6 +58,13 @@ RUN mkdir -p /ces-data && chown ces:ces /ces-data
 
 # Pre-create /ces-security for credential key storage (keys.enc, store.key)
 RUN mkdir -p /ces-security && chown ces:ces /ces-security
+
+COPY packages/block-volume-bootstrap/scripts/*.sh /usr/local/bin/
+RUN chmod +x \
+    /usr/local/bin/vellum-block-volume-common.sh \
+    /usr/local/bin/vellum-block-volume-init.sh \
+    /usr/local/bin/vellum-block-volume-mount.sh \
+    /usr/local/bin/vellum-block-volume-resize.sh
 
 USER ces
 

@@ -289,8 +289,8 @@ const GRANT_RETRY_MAX_WAIT_MS = 10_000;
  * polling to handle the voice pipeline race condition where the grant
  * may still be in-flight: `answerCall()` triggers the voice turn as
  * fire-and-forget, and the voice LLM can attempt tool execution before
- * `tryMintGuardianActionGrant`'s classifier finishes minting the
- * grant.  Polling bridges this timing gap without changing the
+ * the guardian-decision
+ * classifier finishes minting the grant.  Polling bridges this timing gap without changing the
  * fire-and-forget architecture.
  */
 export async function consumeGrantForInvocation(

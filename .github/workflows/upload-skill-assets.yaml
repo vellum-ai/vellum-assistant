@@ -1,0 +1,47 @@
+name: Upload Skill Assets to GCS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "skills/*/assets/icon.*"
+  workflow_dispatch:
+
+jobs:
+  upload:
+    name: Upload skill assets (${{ matrix.environment }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, staging, production]
+    environment: ${{ matrix.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Upload skill icons to GCS
+        env:
+          BUCKET: ${{ vars.GCS_SKILL_ASSETS_BUCKET }}
+        run: |
+          set -euo pipefail
+          uploaded=0
+          for icon in skills/*/assets/icon.*; do
+            [ -f "$icon" ] || continue
+            skill_id=$(echo "$icon" | cut -d/ -f2)
+            filename=$(basename "$icon")
+            gcloud storage cp \
+              --cache-control="public, max-age=86400" \
+              "$icon" "gs://${BUCKET}/${skill_id}/assets/${filename}"
+            uploaded=$((uploaded + 1))
+          done
+          echo "Uploaded ${uploaded} skill icon(s) to gs://${BUCKET}/"

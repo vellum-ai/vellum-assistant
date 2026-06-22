@@ -1,5 +1,6 @@
 import type { OutgoingHttpHeaders } from "node:http";
 
+import { addVelayBridgeAuthHeader } from "./bridge-auth.js";
 import {
   binaryLikeToBytes,
   buildLoopbackWebSocketUrl,
@@ -85,7 +86,9 @@ export class VelayWebSocketBridge {
       const WebSocketWithHeaders =
         WebSocket as unknown as WebSocketConstructorWithHeaders;
       ws = new WebSocketWithHeaders(url, {
-        headers: websocketHeadersFromVelay(frame.headers),
+        headers: addVelayBridgeAuthHeader(
+          websocketHeadersFromVelay(frame.headers),
+        ),
         ...(frame.subprotocol ? { protocols: [frame.subprotocol] } : {}),
       });
     } catch {

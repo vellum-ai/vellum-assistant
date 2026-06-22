@@ -72,7 +72,6 @@ describe("route policy coverage", () => {
     // registry had no entry for these endpoints, so `enforcePolicy`
     // returned allowed). Migration preserves behavior. Triage these
     // and assign real policies in a follow-up PR:
-    //   - PUT  config/llm/profiles/:name
     //   - PATCH/DELETE documents/:id/comments/:commentId
     //   - integrations/a2a/{config,invite/accept}
     //   - integrations/vercel/config
@@ -91,7 +90,6 @@ describe("route policy coverage", () => {
       "playground/seeded-conversations",
       "playground/seeded-conversations/:id",
       // C — pre-existing latent unprotected (follow-up audit owed)
-      "config/llm/profiles/:name",
       "documents/:id/comments/:commentId",
       "integrations/a2a/config",
       "integrations/a2a/invite/accept",

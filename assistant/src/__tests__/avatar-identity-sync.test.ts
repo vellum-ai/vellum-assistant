@@ -49,7 +49,7 @@ describe("avatar and identity sync events", () => {
     }
   });
 
-  test("identity changes emit legacy identity event and sync tag", async () => {
+  test("identity changes emit legacy identity event and identity sync tags", async () => {
     const received: AssistantEvent[] = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",

@@ -114,9 +114,8 @@ function seedTestData(): void {
         id: "ch1",
         contactId: "c1",
         type: "telegram",
-        address: "test-tg-user",
+        address: "tg-fake-001",
         isPrimary: true,
-        externalUserId: "tg-fake-001",
         externalChatId: "chat-fake-001",
         status: "active",
         policy: "allow",
@@ -127,9 +126,8 @@ function seedTestData(): void {
         id: "ch2",
         contactId: "c1",
         type: "slack",
-        address: "test-slack-user",
+        address: "UFAKE00001",
         isPrimary: false,
-        externalUserId: "UFAKE00001",
         externalChatId: "DFAKE00001",
         status: "active",
         policy: "allow",
@@ -142,7 +140,6 @@ function seedTestData(): void {
         type: "email",
         address: "test@example.com",
         isPrimary: true,
-        externalUserId: null,
         externalChatId: null,
         status: "unverified",
         policy: "escalate",
@@ -322,6 +319,94 @@ describe("IPC contact routes", () => {
   test("get_contact validates params", async () => {
     await startServerAndConnect();
     const res = await sendRequest(client, "get_contact", {});
+
+    expect(res.error).toBeDefined();
+    expect(res.error).toContain("Invalid params");
+  });
+
+  // ── Rich reads (contacts_list_rich / contacts_get_rich) ─────────────────
+  //
+  // The assistant DB proxy is not available in this test harness, so the rich
+  // reads soft-fail the info join (notes/contactType become null) and return
+  // the gateway-DB-only ACL shape. We assert the merged ContactRead structure
+  // end-to-end over the socket.
+
+  test("contacts_list_rich returns the merged ContactRead shape via IPC", async () => {
+    seedTestData();
+
+    await startServerAndConnect();
+    const res = await sendRequest(client, "contacts_list_rich", {});
+
+    expect(res.error).toBeUndefined();
+    const body = res.result as {
+      ok: boolean;
+      contacts: Array<{
+        id: string;
+        role: string;
+        interactionCount: number;
+        channels: Array<{ address: string; externalUserId: string | null }>;
+      }>;
+    };
+    expect(body.ok).toBe(true);
+    expect(body.contacts).toHaveLength(2);
+    // Guardian first (ordering mirrors the daemon's listContacts).
+    expect(body.contacts[0].id).toBe("c1");
+    expect(body.contacts[0].role).toBe("guardian");
+    // Trust signals derived from gateway channels (5 + 10 for the guardian).
+    expect(body.contacts[0].interactionCount).toBe(15);
+    // externalUserId is null on the gateway rich-read output — the daemon's
+    // withChannelCompat is the sole producer of that compat field.
+    const ch = body.contacts[0].channels[0];
+    expect(ch.externalUserId).toBeNull();
+  });
+
+  test("contacts_list_rich honors the role filter via IPC", async () => {
+    seedTestData();
+
+    await startServerAndConnect();
+    const res = await sendRequest(client, "contacts_list_rich", {
+      role: "guardian",
+    });
+
+    expect(res.error).toBeUndefined();
+    const body = res.result as { ok: boolean; contacts: Array<{ id: string }> };
+    expect(body.contacts.map((c) => c.id)).toEqual(["c1"]);
+  });
+
+  test("contacts_get_rich returns a merged contact via IPC", async () => {
+    seedTestData();
+
+    await startServerAndConnect();
+    const res = await sendRequest(client, "contacts_get_rich", {
+      contactId: "c1",
+    });
+
+    expect(res.error).toBeUndefined();
+    const body = res.result as {
+      ok: boolean;
+      contact: { id: string; displayName: string; channels: unknown[] };
+    };
+    expect(body.ok).toBe(true);
+    expect(body.contact.id).toBe("c1");
+    expect(body.contact.displayName).toBe("Test Guardian");
+    expect(body.contact.channels).toHaveLength(2);
+  });
+
+  test("contacts_get_rich returns null for unknown contact via IPC", async () => {
+    seedTestData();
+
+    await startServerAndConnect();
+    const res = await sendRequest(client, "contacts_get_rich", {
+      contactId: "nonexistent",
+    });
+
+    expect(res.error).toBeUndefined();
+    expect(res.result).toBeNull();
+  });
+
+  test("contacts_get_rich validates params", async () => {
+    await startServerAndConnect();
+    const res = await sendRequest(client, "contacts_get_rich", {});
 
     expect(res.error).toBeDefined();
     expect(res.error).toContain("Invalid params");

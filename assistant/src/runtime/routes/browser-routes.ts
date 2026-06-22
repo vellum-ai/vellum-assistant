@@ -16,7 +16,7 @@ import {
   BROWSER_OPERATIONS,
   type BrowserOperation,
 } from "../../browser/types.js";
-import { findConversation } from "../../daemon/conversation-store.js";
+import { findConversation } from "../../daemon/conversation-registry.js";
 import type { ContentBlock } from "../../providers/types.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";

@@ -5,11 +5,6 @@ on:
     # Every hour on the hour
     - cron: '0 * * * *'
   workflow_dispatch:
-    inputs:
-      no_compile:
-        description: 'Build macOS with --no-compile (raw source + production node_modules instead of compiled bun binaries). Skips the binaries step. Only affects the build-macos job.'
-        type: boolean
-        default: false
 
 concurrency:
   group: dev-release
@@ -27,7 +22,7 @@ jobs:
   # cancel the run when nothing has landed since the last *successful* dev
   # release. "Successful" is keyed off the register-release job conclusion —
   # the same anchor notify-dev-release uses for its changelog — so a run that
-  # registered a real release but failed in a later job (e.g. build-macos)
+  # registered a real release but failed in a later job (e.g. build-electron)
   # still counts as the last release. Manual workflow_dispatch runs always
   # proceed: the operator explicitly asked for a build.
   #
@@ -188,6 +183,11 @@ jobs:
         with:
           bun-version: '1.3.11'
 
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
+        with:
+          packages: packages/service-contracts packages/ces-client packages/assistant-client packages/gateway-client
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
         working-directory: gateway
@@ -236,6 +236,35 @@ jobs:
       - name: Test
         run: bun run test
         working-directory: credential-executor
+
+  ci-cli:
+    needs: [check-for-new-commits]
+    if: ${{ needs.check-for-new-commits.outputs.has_new_commits == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
+        with:
+          packages: packages/environments packages/local-mode
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+        working-directory: cli
+
+      - name: Lint
+        run: bun run lint
+        working-directory: cli
+
+      - name: Typecheck
+        run: bun run typecheck
+        working-directory: cli
 
   # ── Docker Images ──────────────────────────────────────────────────────
 
@@ -300,7 +329,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           outputs: type=image,"name=${{ steps.image.outputs.gcp }}",push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=assistant-dev-${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=assistant-dev-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,ignore-error=true,scope=assistant-dev-${{ matrix.platform }}
 
       - name: Export digest
         run: |
@@ -467,7 +496,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           outputs: type=image,"name=${{ steps.image.outputs.gcp }}",push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=gateway-dev-${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=gateway-dev-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,ignore-error=true,scope=gateway-dev-${{ matrix.platform }}
 
       - name: Export digest
         run: |
@@ -630,7 +659,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           outputs: type=image,"name=${{ steps.image.outputs.gcp }}",push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=credential-executor-dev-${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=credential-executor-dev-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,ignore-error=true,scope=credential-executor-dev-${{ matrix.platform }}
 
       - name: Export digest
         run: |
@@ -1184,7 +1213,7 @@ jobs:
   # Runs on every completed (non-cancelled) run. The dev release is considered
   # successful when the register-release job succeeded — the same signal the
   # changelog uses to anchor its diff — so a failure in a downstream job (e.g.
-  # build-macos) still posts the success changelog.
+  # build-electron) still posts the success changelog.
   #
   # On success: posts a single summary message. The top-level blocks carry the
   # header, the "*N commits* since the last dev release" line, and the action
@@ -1205,7 +1234,7 @@ jobs:
   # SLACK_RELEASES_WEBHOOK_URL (releases). The job no-ops if the secret is unset.
 
   notify-dev-release:
-    needs: [compute-version, register-release, register-preview-release]
+    needs: [compute-version, register-release, register-preview-release, build-electron, upload-electron-updates]
     # Run on success and failure alike, but not when the run was cancelled
     # (e.g. superseded by a newer hourly run via cancel-in-progress) — a
     # cancelled run is not a real failure and should not alert the channel.
@@ -1222,6 +1251,9 @@ jobs:
     steps:
       - name: Build Slack payload
         id: build
+        # A payload-building bug must not prevent the notification from going
+        # out — the fallback step below sends a minimal message instead.
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           WEBHOOK: ${{ secrets.SLACK_DEV_RELEASES_WEBHOOK_URL }}
@@ -1234,6 +1266,7 @@ jobs:
           # This is the same anchor the changelog walk-back uses below, so a
           # failure downstream of register-release still posts the changelog.
           RELEASE_RESULT: ${{ needs.register-release.result }}
+          ELECTRON_RESULT: ${{ needs.build-electron.result }}
         run: |
           set -euo pipefail
 
@@ -1271,8 +1304,8 @@ jobs:
 
           # Find the SHA of the last actually-released dev build to diff against.
           # We key off the register-release JOB conclusion, not the overall run
-          # conclusion: register-release runs before downstream jobs (build-macos,
-          # upload-sparkle, …), so a later failure leaves a real release on a run
+          # conclusion: register-release runs before downstream jobs (build-electron,
+          # …), so a later failure leaves a real release on a run
           # whose conclusion is "failure". Keying off the run would then diff from
           # an older SHA and re-announce already-released commits. Walk recent
           # completed runs newest-first and pick the first whose register-release
@@ -1295,14 +1328,21 @@ jobs:
 
           # Each line: "<first line of commit message> — @<author>", oldest first.
           # Escape Slack mrkdwn metacharacters in the message text.
+          # When the commit author is a bot (e.g. devin-ai-integration[bot]),
+          # use the first human Co-authored-by email instead.
           ESCAPE='gsub("&";"&amp;") | gsub("<";"&lt;") | gsub(">";"&gt;")'
           LINKIFY='gsub("\\(#(?<n>[0-9]+)\\)"; "(<https://github.com/'"${REPO}"'/pull/\(.n)|#\(.n)>)")'
+          RESOLVE_AUTHOR='if ((.author.login // "") | test("\\[bot\\]$")) then (([.commit.message | scan("(?i)co-authored-by:\\s*[^<]*<([^>]+)>")] | map(.[0]) | map(select(test("\\[bot\\]") | not)) | .[0]) // .author.login) else (.author.login // .commit.author.name) end'
+          # Prefix "@" only for GitHub logins. Email-style authors (resolved from
+          # a Co-authored-by trailer, e.g. "user@example.com") are left bare so
+          # Slack doesn't render a leading "@" + email as a noisy keyword mention.
+          MENTION='if test("@") then . else "@" + . end'
 
           if [ -n "$PREV_SHA" ] && [ "$PREV_SHA" != "$HEAD_SHA" ]; then
             COMPARE_URL="https://github.com/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}"
             TOTAL=$(gh api "repos/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}" --jq '.total_commits')
             mapfile -t LINES < <(gh api "repos/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}" --paginate \
-              --jq ".commits[] | \"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE} | ${LINKIFY}) — @\(.author.login // .commit.author.name)\"")
+              --jq ".commits[] | (${RESOLVE_AUTHOR}) as \$a | \"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE} | ${LINKIFY}) — \(\$a | ${MENTION})\"")
           else
             # First tracked release (or no new commits): fall back to HEAD itself.
             COMPARE_URL="https://github.com/${REPO}/commit/${HEAD_SHA}"
@@ -1312,7 +1352,7 @@ jobs:
             else
               TOTAL=1
               mapfile -t LINES < <(gh api "repos/${REPO}/commits/${HEAD_SHA}" \
-                --jq "\"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE} | ${LINKIFY}) — @\(.author.login // .commit.author.name)\"")
+                --jq "(${RESOLVE_AUTHOR}) as \$a | \"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE} | ${LINKIFY}) — \(\$a | ${MENTION})\"")
             fi
           fi
 
@@ -1331,19 +1371,37 @@ jobs:
           # Top-level blocks: header, "N commits since last dev release", buttons.
           # Commit list lives in an attachment so Slack auto-collapses it behind
           # a "show more" toggle (see Slack docs on attachments truncation).
+          # When the release registered but the Electron build failed,
+          # swap the header emoji and append a warning so the notification
+          # surfaces the failure instead of looking fully green.
+          if [ "${ELECTRON_RESULT}" != "success" ]; then
+            HEADER_EMOJI="⚠️"
+            # Build with jq so the value is real JSON — --argjson rejects
+            # jq-program syntax like unquoted object keys.
+            ELECTRON_WARNING=$(jq -n '{ type: "section", text: { type: "mrkdwn", text: "⚠️ *Electron build failed* — the release was published but the desktop app was not built. See the workflow run for details." } }')
+          else
+            HEADER_EMOJI="🚀"
+            ELECTRON_WARNING=""
+          fi
+
           BLOCKS=$(jq -n \
             --arg version "$VERSION" \
             --arg header "$HEADER_TEXT" \
             --arg run_url "$RUN_URL" \
             --arg compare_url "$COMPARE_URL" \
+            --arg emoji "$HEADER_EMOJI" \
             '[
-              { type: "header", text: { type: "plain_text", text: ("🚀 Dev Release " + $version), emoji: true } },
+              { type: "header", text: { type: "plain_text", text: ($emoji + " Dev Release " + $version), emoji: true } },
               { type: "section", text: { type: "mrkdwn", text: $header } },
               { type: "actions", elements: [
                 { type: "button", text: { type: "plain_text", text: "View workflow run" }, url: $run_url },
                 { type: "button", text: { type: "plain_text", text: "View commit diff" }, url: $compare_url }
               ] }
             ]')
+
+          if [ -n "$ELECTRON_WARNING" ]; then
+            BLOCKS=$(echo "$BLOCKS" | jq --argjson warn "$ELECTRON_WARNING" '. += [$warn]')
+          fi
 
           # Attachment blocks: the actual commit list, chunked into sections to
           # respect Slack's 3000-char-per-section limit.
@@ -1397,6 +1455,33 @@ jobs:
 
           echo "Built Slack payload (${COUNT} commits listed)."
 
+      - name: Fall back to a minimal payload if the build step failed
+        if: steps.build.outputs.skip != 'true'
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          VERSION: ${{ needs.compute-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -s "${RUNNER_TEMP}/dev-release-slack-payload.json" ]; then
+            exit 0
+          fi
+          echo "::warning::Slack payload build failed — sending a minimal fallback notification."
+          jq -n \
+            --arg version "$VERSION" \
+            --arg run_url "$RUN_URL" \
+            '{
+              unfurl_links: false,
+              unfurl_media: false,
+              text: ("Dev Release " + $version),
+              blocks: [
+                { type: "header", text: { type: "plain_text", text: ("⚠️ Dev Release " + $version), emoji: true } },
+                { type: "section", text: { type: "mrkdwn", text: "A new dev release was published, but building the full changelog notification failed. See the workflow run for details." } },
+                { type: "actions", elements: [
+                  { type: "button", text: { type: "plain_text", text: "View workflow run" }, url: $run_url }
+                ] }
+              ]
+            }' > "${RUNNER_TEMP}/dev-release-slack-payload.json"
+
       - name: Notify Slack
         id: slack
         if: steps.build.outputs.skip != 'true'
@@ -1448,18 +1533,35 @@ jobs:
           path: clients/chrome-extension/vellum-browser-relay.zip
           retention-days: 30
 
-  # ── macOS DMG ──────────────────────────────────────────────────────────
+  # ── Electron DMG ──────────────────────────────────────────────────────
 
-  build-macos:
-    needs: [compute-version, ci-assistant, ci-gateway, ci-credential-executor]
-    runs-on: macos-15
-    timeout-minutes: 45
+  build-electron:
+    # No publish dep: the bundled CLI floats to the `dev` dist-tag at runtime.
+    needs: [compute-version]
+    runs-on: macos-26
+    timeout-minutes: 30
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            dmg_name: vellum-assistant-electron-dev.dmg
+            artifact_name: dev-electron-dmg
+            update_artifact_name: dev-electron-update-arm64
+            experimental: false
+          - arch: x64
+            dmg_name: vellum-assistant-electron-dev-x64.dmg
+            artifact_name: dev-electron-dmg-x64
+            update_artifact_name: dev-electron-update-x64
+            experimental: true
     defaults:
       run:
         working-directory: clients/macos
     env:
-      KEYCHAIN_NAME: build.keychain
+      KEYCHAIN_NAME: build-electron.keychain
       KEYCHAIN_PASSWORD: temporary-ci-password
+      ELECTRON_TARGET_ARCH: ${{ matrix.arch }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -1472,14 +1574,19 @@ jobs:
           CERT_PASSWORD: ${{ secrets.DEVID_CERTIFICATE_PASSWORD }}
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
+
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
           security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
           echo "$CERT_P12" | base64 -D > /tmp/certificate.p12
           security import /tmp/certificate.p12 \
-            -k "$KEYCHAIN_PATH" -P "$CERT_PASSWORD" \
-            -T /usr/bin/codesign -T /usr/bin/security
+            -k "$KEYCHAIN_PATH" \
+            -P "$CERT_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
           rm /tmp/certificate.p12
+
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
           security default-keychain -s "$KEYCHAIN_PATH"
@@ -1495,112 +1602,59 @@ jobs:
         with:
           bun-version: '1.3.11'
 
-      - name: Install nested package dependencies
-        working-directory: .
-        run: |
-          for dir in packages/*/ skills/*/; do
-            [ -f "${dir}/package.json" ] || continue
-            (cd "${dir}" && bun install --frozen-lockfile 2>/dev/null || bun install)
-          done
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
-      - name: Build binaries
-        # Skipped under --no-compile: the no-compile path materializes raw
-        # source + production node_modules instead of compiled bun binaries,
-        # so there's nothing for `./build.sh binaries` to produce.
-        if: ${{ !inputs.no_compile }}
-        run: |
-          DISPLAY_VERSION="${{ needs.compute-version.outputs.version }}" \
-          COMMIT_SHA="${{ github.sha }}" \
-          ./build.sh binaries
-
-      - name: Compute build version
-        id: version
-        run: |
-          BUILD_VERSION=$(date -u +%Y%m%d%H%M)
-          echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
-          echo "Build version: $BUILD_VERSION"
-
-      - name: Build macOS app
-        timeout-minutes: 20
-        env:
-          # Threaded into ./build.sh release when no_compile=true. Otherwise
-          # empty (the original --compile path is preserved for scheduled
-          # runs and for dispatches with the input unchecked).
-          NO_COMPILE_FLAG: ${{ inputs.no_compile == true && '--no-compile' || '' }}
-        run: |
-          set -o pipefail
-          SKIP_BUN_REBUILD=1 \
-          BUNDLE_DISPLAY_NAME="Vellum Dev" \
-          DISPLAY_VERSION="${{ needs.compute-version.outputs.version }}" \
-          BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
-          COMMIT_SHA="${{ github.sha }}" \
-          VELLUM_ENVIRONMENT=dev \
-          SU_PUBLIC_ED_KEY="${{ secrets.SPARKLE_ED_PUBLIC_KEY }}" \
-          SU_FEED_URL="https://storage.googleapis.com/vellum-nonprod-sparkle/dev/appcast.xml" \
-          SIGN_IDENTITY="Developer ID Application" \
-          RELEASE_ARCH_FLAGS="--arch arm64" \
-          ./build.sh release $NO_COMPILE_FLAG 2>&1 | while IFS= read -r line; do
-            echo "[$(date -u '+%H:%M:%S')] $line"
-          done
-
-      - name: Free disk space
-        run: |
-          rm -rf .build daemon-bin assistant-bin cli-bin gateway-bin ces-bin
-          rm -rf ../../assistant/node_modules ../../cli/node_modules ../../gateway/node_modules ../../credential-executor/node_modules
-          rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
-          df -h .
-
-      - name: Cache Homebrew create-dmg
-        id: cache-create-dmg
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
         with:
-          path: |
-            /usr/local/Cellar/create-dmg
-            /opt/homebrew/Cellar/create-dmg
-          key: create-dmg-v1-${{ runner.os }}-${{ runner.arch }}
+          packages: packages/environments packages/local-mode
 
-      - name: Install create-dmg
-        if: steps.cache-create-dmg.outputs.cache-hit != 'true'
-        run: brew install create-dmg
+      - name: Install design-library dependencies
+        working-directory: packages/design-library
+        run: bun install --frozen-lockfile
 
-      - name: Link create-dmg
-        if: steps.cache-create-dmg.outputs.cache-hit == 'true'
-        run: brew link create-dmg 2>/dev/null || true
-
-      - name: Create DMG
+      - name: Install web dependencies
+        working-directory: clients/web
         run: |
-          DMG_STAGING="build/dmg-staging"
-          mkdir -p "$DMG_STAGING" build
-          cp -R "dist/Vellum Dev.app" "$DMG_STAGING/"
-          ln -s /Applications "$DMG_STAGING/Applications"
+          if ! bun install --frozen-lockfile; then
+            rm -f bun.lock && rm -rf node_modules && bun install
+          fi
 
-          create-dmg \
-            --volname "Vellum Dev" \
-            --background "dmg/dmg-background@2x.png" \
-            --window-pos 200 120 \
-            --window-size 660 400 \
-            --icon-size 128 \
-            --text-size 10 \
-            --icon "Vellum Dev.app" 175 190 \
-            --icon "Applications" 530 190 \
-            --hide-extension "Vellum Dev.app" \
-            --no-internet-enable \
-            "build/vellum-assistant-dev.dmg" \
-            "$DMG_STAGING/" \
-          || {
-            EXIT_CODE=$?
-            if [ $EXIT_CODE -eq 2 ] && [ -f "build/vellum-assistant-dev.dmg" ]; then
-              echo "create-dmg exited with warning (code 2), but DMG was created"
-            else
-              exit $EXIT_CODE
-            fi
-          }
-          ls -lh "build/vellum-assistant-dev.dmg"
+      - name: Stamp dev version into package.json
+        run: jq --arg v "${{ needs.compute-version.outputs.version }}" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
+
+      - name: Build and package Electron app
+        env:
+          CSC_NAME: Developer ID Application
+          SENTRY_DSN_MACOS: ${{ secrets.SENTRY_DSN_MACOS }}
+          VITE_PLATFORM_MODE: "false"
+          VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+          VITE_SENTRY_DSN_MACOS: ${{ secrets.SENTRY_DSN_MACOS }}
+          VITE_SENTRY_ENVIRONMENT: dev
+          VITE_SESSION_REPLAY_APP_ID: ${{ vars.VITE_SESSION_REPLAY_APP_ID }}
+        run: bun run pack --environment dev
+
+      - name: Rename DMG for release
+        id: dmg
+        run: |
+          ELECTRON_DMG=$(find dist -name "*.dmg" -type f | grep -m1 .)
+          if [ -z "$ELECTRON_DMG" ]; then
+            echo "::error::No DMG found in dist/"
+            ls -la dist/
+            exit 1
+          fi
+          echo "Found DMG: $ELECTRON_DMG"
+          FINAL_DMG="dist/${{ matrix.dmg_name }}"
+          mv "$ELECTRON_DMG" "$FINAL_DMG"
+          echo "dmg_path=$FINAL_DMG" >> "$GITHUB_OUTPUT"
 
       - name: Sign DMG
         run: |
-          codesign --sign "Developer ID Application" --timestamp "build/vellum-assistant-dev.dmg"
-          codesign --verify --verbose "build/vellum-assistant-dev.dmg"
+          codesign --sign "Developer ID Application" \
+            --timestamp \
+            "${{ steps.dmg.outputs.dmg_path }}"
+          codesign --verify --verbose "${{ steps.dmg.outputs.dmg_path }}"
 
       - name: Notarize DMG
         env:
@@ -1611,8 +1665,8 @@ jobs:
           mkdir -p ~/.private_keys
           echo "$ASC_KEY_P8" > ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8
 
-          echo "Submitting DMG for notarization..."
-          NOTARIZE_OUTPUT=$(xcrun notarytool submit "build/vellum-assistant-dev.dmg" \
+          echo "Submitting Electron DMG for notarization..."
+          NOTARIZE_OUTPUT=$(xcrun notarytool submit "${{ steps.dmg.outputs.dmg_path }}" \
             --key ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8 \
             --key-id "$ASC_KEY_ID" \
             --issuer "$ASC_ISSUER_ID" \
@@ -1622,10 +1676,10 @@ jobs:
 
           echo "$NOTARIZE_OUTPUT"
 
-          SUBMISSION_ID=$(echo "$NOTARIZE_OUTPUT" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+          SUBMISSION_ID=$(echo "$NOTARIZE_OUTPUT" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | grep -m1 .)
 
           if [ "$NOTARIZE_FAILED" = "true" ] || echo "$NOTARIZE_OUTPUT" | grep -q "status: Invalid"; then
-            echo "::error::Notarization failed"
+            echo "::error::Electron notarization failed"
             if [ -n "$SUBMISSION_ID" ]; then
               xcrun notarytool log "$SUBMISSION_ID" \
                 --key ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8 \
@@ -1638,130 +1692,65 @@ jobs:
 
       - name: Staple notarization ticket
         run: |
-          MAX_ATTEMPTS=10
-          WAIT_SECS=30
+          MAX_ATTEMPTS=15
+          WAIT_SECS=60
           for i in $(seq 1 $MAX_ATTEMPTS); do
-            STAPLE_OUTPUT=$(xcrun stapler staple "build/vellum-assistant-dev.dmg" 2>&1)
+            STAPLE_OUTPUT=$(xcrun stapler staple "${{ steps.dmg.outputs.dmg_path }}" 2>&1)
             STAPLE_EXIT=$?
             if [ $STAPLE_EXIT -eq 0 ]; then
               echo "Stapling succeeded on attempt $i"
+              echo "$STAPLE_OUTPUT"
               break
             fi
-            echo "::warning::Stapling attempt $i/$MAX_ATTEMPTS failed"
+            echo "::warning::Stapling attempt $i/$MAX_ATTEMPTS failed (exit code $STAPLE_EXIT):"
+            echo "$STAPLE_OUTPUT"
             if [ "$i" -eq "$MAX_ATTEMPTS" ]; then
               echo "::error::Stapling failed after $MAX_ATTEMPTS attempts"
               exit 1
             fi
+            echo "Waiting ${WAIT_SECS}s for CDN propagation..."
             sleep $WAIT_SECS
             WAIT_SECS=$((WAIT_SECS + 15))
           done
-          xcrun stapler validate "build/vellum-assistant-dev.dmg"
 
-      - name: Build ZIP for Sparkle auto-update
-        run: |
-          cd dist
-          ditto -c -k --keepParent "Vellum Dev.app" vellum-assistant-dev.zip
-          echo "Sparkle ZIP created:"
-          ls -lh vellum-assistant-dev.zip
+          xcrun stapler validate "${{ steps.dmg.outputs.dmg_path }}"
 
-      - name: Cache Homebrew Sparkle
-        id: cache-sparkle
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: |
-            /usr/local/Caskroom/sparkle
-            /opt/homebrew/Caskroom/sparkle
-          key: sparkle-v1-${{ runner.os }}-${{ runner.arch }}
-
-      - name: Install Sparkle sign_update tool
-        run: |
-          if [ "${{ steps.cache-sparkle.outputs.cache-hit }}" != "true" ]; then
-            brew install sparkle
-          fi
-          SPARKLE_BIN=$(find /opt/homebrew/Caskroom/sparkle -name sign_update -type f 2>/dev/null | head -1)
-          if [ -z "$SPARKLE_BIN" ]; then
-            SPARKLE_BIN=$(find /usr/local/Caskroom/sparkle -name sign_update -type f 2>/dev/null | head -1)
-          fi
-          echo "Found sign_update at: $SPARKLE_BIN"
-          echo "$(dirname "$SPARKLE_BIN")" >> "$GITHUB_PATH"
-
-      - name: Generate appcast.xml
-        env:
-          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
-        run: |
-          VERSION="${{ needs.compute-version.outputs.version }}"
-          BUILD_VERSION="${{ steps.version.outputs.build_version }}"
-
-          ED_KEY_FILE=$(mktemp)
-          echo "$SPARKLE_ED_PRIVATE_KEY" > "$ED_KEY_FILE"
-          SIGN_OUTPUT=$(sign_update dist/vellum-assistant-dev.zip --ed-key-file "$ED_KEY_FILE") || {
-            echo "sign_update failed with exit code $?"
-            rm -f "$ED_KEY_FILE"
-            exit 1
-          }
-          rm -f "$ED_KEY_FILE"
-          echo "sign_update output: ${SIGN_OUTPUT:0:40}..."
-          SIGNATURE=$(echo "$SIGN_OUTPUT" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')
-          SIZE=$(echo "$SIGN_OUTPUT" | sed -n 's/.*length="\([^"]*\)".*/\1/p')
-          if [ -z "$SIGNATURE" ]; then
-            echo "ERROR: Failed to parse edSignature from sign_update output"
-            exit 1
-          fi
-          if [ -z "$SIZE" ]; then
-            SIZE=$(stat -f%z dist/vellum-assistant-dev.zip)
-          fi
-
-          REPO="${{ github.repository }}"
-          cat > dist/appcast.xml << EOF
-          <?xml version="1.0" encoding="utf-8"?>
-          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
-            <channel>
-              <title>Vellum Dev</title>
-              <item>
-                <title>${VERSION}</title>
-                <sparkle:version>${BUILD_VERSION}</sparkle:version>
-                <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
-                <enclosure
-                  url="https://storage.googleapis.com/vellum-nonprod-sparkle/dev/vellum-assistant-dev.zip"
-                  sparkle:edSignature="${SIGNATURE}"
-                  length="${SIZE}"
-                  type="application/octet-stream" />
-              </item>
-            </channel>
-          </rss>
-          EOF
-          echo "Dev appcast generated (version=$VERSION, build=$BUILD_VERSION)"
-
-      - name: Upload DMG
+      - name: Upload Electron DMG artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: dev-dmg
-          path: clients/macos/build/vellum-assistant-dev.dmg
+          name: ${{ matrix.artifact_name }}
+          path: clients/macos/dist/${{ matrix.dmg_name }}
+          if-no-files-found: error
           retention-days: 30
 
-      - name: Upload Sparkle artifacts
+      - name: Upload Electron update artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: dev-sparkle
+          name: ${{ matrix.update_artifact_name }}
           path: |
-            clients/macos/dist/vellum-assistant-dev.zip
-            clients/macos/dist/appcast.xml
-          retention-days: 30
+            clients/macos/dist/*-mac.yml
+            clients/macos/dist/*.zip
+            clients/macos/dist/*.zip.blockmap
+          if-no-files-found: warn
+          retention-days: 7
 
-      - name: Cleanup keychain
+      - name: Cleanup keychain and keys
         if: always()
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          rm -rf ~/.private_keys 2>/dev/null || true
 
-  # ── Sparkle Rolling Release ────────────────────────────────────────────
-  # ── Upload Sparkle artifacts to GCS ───────────────────────────────────
-  # Push appcast.xml + ZIP to the public vellum-nonprod-sparkle GCS bucket.
-  # Dev macOS builds have SUFeedURL pointing here, so Sparkle auto-updates
-  # work without creating GitHub releases.
+  # ── Upload Electron update artifacts to GCS ────────────────────────────
+  # Push per-arch update feeds (manifest + ZIP + blockmap) to the public
+  # GCS bucket so electron-updater can pull delta updates. Each arch gets
+  # its own path: mac-electron/dev/{arch}/.
 
-  upload-sparkle:
-    needs: [compute-version, build-macos]
+  upload-electron-updates:
+    # Gate the GCS update-feed publish (an external side effect) on the dev meta
+    # publish: never offer an auto-update for a release that didn't publish.
+    needs: [compute-version, build-electron, publish-meta-dev]
+    if: ${{ always() && !cancelled() && needs.build-electron.result == 'success' && needs.publish-meta-dev.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: dev
@@ -1769,17 +1758,30 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - name: Download Sparkle artifacts
+      - name: Download arm64 update artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: dev-sparkle
-          path: sparkle-artifacts
+          name: dev-electron-update-arm64
+          path: electron-artifacts/arm64
 
-      - name: Download DMG
+      - name: Download x64 update artifacts
+        continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: dev-dmg
-          path: dmg-artifacts
+          name: dev-electron-update-x64
+          path: electron-artifacts/x64
+
+      - name: Validate update artifacts
+        run: |
+          DIR="electron-artifacts/arm64"
+          if [ ! -f "$(find "$DIR" -name '*-mac.yml' -type f 2>/dev/null | grep -m1 .)" ]; then
+            echo "::error::Missing update manifest (*-mac.yml) for arm64"
+            exit 1
+          fi
+          if [ -z "$(find "$DIR" -name '*.zip' -type f ! -name '*.blockmap' 2>/dev/null | grep -m1 .)" ]; then
+            echo "::error::Missing ZIP for arm64"
+            exit 1
+          fi
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
@@ -1787,30 +1789,329 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
 
-      - name: Upload Sparkle artifacts to GCS
+      - name: Upload Electron update artifacts to GCS
         run: |
-          VERSION="${{ needs.compute-version.outputs.version }}"
-          BUCKET="vellum-nonprod-sparkle"
+          ENVIRONMENT="dev"
+          BUCKET="vellum-ai-dev-releases"
+          MANIFEST_NAME="${ENVIRONMENT}-mac.yml"
 
-          ZIP=$(find sparkle-artifacts -name "*.zip" -type f | head -1)
-          APPCAST=$(find sparkle-artifacts -name "appcast.xml" -type f | head -1)
-          DMG=$(find dmg-artifacts -name "*.dmg" -type f | head -1)
+          for ARCH in arm64 x64; do
+            ARCH_DIR="electron-artifacts/${ARCH}"
+            [ -d "$ARCH_DIR" ] || continue
+            PREFIX="mac-electron/${ARCH}"
 
-          if [ -z "$ZIP" ] || [ -z "$APPCAST" ]; then
-            echo "::warning::Sparkle artifacts not found, skipping GCS upload"
+            find "$ARCH_DIR" -name "*.zip" -type f ! -name "*.blockmap" | while read -r ZIP; do
+              gcloud storage cp "$ZIP" "gs://${BUCKET}/${PREFIX}/$(basename "$ZIP")"
+            done
+
+            find "$ARCH_DIR" -name "*.zip.blockmap" -type f | while read -r BM; do
+              gcloud storage cp "$BM" "gs://${BUCKET}/${PREFIX}/$(basename "$BM")"
+            done
+
+            YML=$(find "$ARCH_DIR" -name "*-mac.yml" -type f | grep -m1 .)
+            [ -n "$YML" ] && gcloud storage cp "$YML" "gs://${BUCKET}/${PREFIX}/${MANIFEST_NAME}"
+          done
+
+  # ── Dev npm publishing ─────────────────────────────────────────────────
+
+  build-npm-dev:
+    needs: [compute-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        package: [assistant, cli, credential-executor, gateway]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+      - name: Sync feature flag registry
+        run: bun run meta/feature-flags/sync-bundled-copies.ts
+      - name: Stamp dev version
+        run: jq --arg v "${{ needs.compute-version.outputs.version }}" '.version = $v' ${{ matrix.package }}/package.json > ${{ matrix.package }}/package.json.tmp && mv ${{ matrix.package }}/package.json.tmp ${{ matrix.package }}/package.json
+      - name: Install package dependencies
+        run: |
+          cd "${{ matrix.package }}"
+          if ! bun install --frozen-lockfile; then
+            rm -f bun.lock && rm -rf node_modules && bun install
+          fi
+      - name: Pack tarball
+        run: |
+          cd "${{ matrix.package }}"
+          mkdir -p /tmp/npm-dist
+          npm pack --pack-destination /tmp/npm-dist
+          mv /tmp/npm-dist/*.tgz /tmp/npm-dist/package.tgz
+          node -p "require('./package.json').name" > /tmp/npm-dist/name
+          node -p "require('./package.json').version" > /tmp/npm-dist/version
+      - name: Upload tarball
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-tarball-dev-${{ matrix.package }}
+          path: /tmp/npm-dist/
+          retention-days: 1
+
+  publish-npm-dev:
+    needs: [compute-version, build-npm-dev]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        package: [assistant, cli, credential-executor, gateway]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: .nvmrc
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+      - name: Download tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: npm-tarball-dev-${{ matrix.package }}
+          path: /tmp/npm-dist
+      - name: Publish package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          PKG_NAME=$(cat /tmp/npm-dist/name)
+          PKG_VERSION=$(cat /tmp/npm-dist/version)
+          if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
+            echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping."
             exit 0
           fi
+          npm publish /tmp/npm-dist/package.tgz --tag dev --access public --no-provenance
 
-          gcloud storage cp "$ZIP" "gs://${BUCKET}/dev/vellum-assistant-dev.zip"
-          gcloud storage cp "$APPCAST" "gs://${BUCKET}/dev/appcast.xml"
-          [ -n "$DMG" ] && gcloud storage cp "$DMG" "gs://${BUCKET}/dev/vellum-assistant-dev.dmg"
+  # `@vellumai/plugin-api` is generated by scripts/build-plugin-api.ts (a single
+  # self-contained `index.d.ts` rollup, zod-only external), not a package dir
+  # `npm pack` consumes directly, so it gets its own build/publish pair instead
+  # of a slot in the npm matrix. Mirrors build/publish-plugin-api-* in release.yml.
+  build-plugin-api-dev:
+    needs: [compute-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+      - name: Install assistant dependencies
+        run: |
+          cd assistant
+          if ! bun install --frozen-lockfile; then
+            rm -f bun.lock && rm -rf node_modules && bun install
+          fi
+      # The rollup compiles the `packages/*` contract sources the authoring
+      # surface reaches, so each must have its own node_modules (the repo uses
+      # per-package file: deps with no Bun workspaces — see the root AGENTS.md).
+      - name: Install shared package dependencies
+        run: |
+          for dir in packages/*/; do
+            [ -f "${dir}/package.json" ] || continue
+            (cd "${dir}" && bun install --frozen-lockfile 2>/dev/null || bun install)
+          done
+      - name: Build plugin-api package
+        run: cd assistant && bun run scripts/build-plugin-api.ts --version "${{ needs.compute-version.outputs.version }}"
+      - name: Pack tarball
+        run: |
+          cd assistant/.plugin-api-build/package
+          mkdir -p /tmp/npm-dist
+          npm pack --pack-destination /tmp/npm-dist
+          mv /tmp/npm-dist/*.tgz /tmp/npm-dist/package.tgz
+          node -p "require('./package.json').name" > /tmp/npm-dist/name
+          node -p "require('./package.json').version" > /tmp/npm-dist/version
+      - name: Upload tarball
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-tarball-dev-plugin-api
+          path: /tmp/npm-dist/
+          retention-days: 1
 
-          echo "Uploaded Sparkle artifacts to gs://${BUCKET}/dev/ (version=${VERSION})"
+  publish-plugin-api-dev:
+    needs: [compute-version, build-plugin-api-dev]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: .nvmrc
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+      - name: Download tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: npm-tarball-dev-plugin-api
+          path: /tmp/npm-dist
+      - name: Publish package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          PKG_NAME=$(cat /tmp/npm-dist/name)
+          PKG_VERSION=$(cat /tmp/npm-dist/version)
+          if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
+            echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping."
+            exit 0
+          fi
+          npm publish /tmp/npm-dist/package.tgz --tag dev --access public --no-provenance
+
+  build-web-dev:
+    needs: [compute-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+      - name: Install design-library dependencies
+        working-directory: packages/design-library
+        run: bun install --frozen-lockfile
+      - name: Install web dependencies
+        working-directory: clients/web
+        run: |
+          if ! bun install --frozen-lockfile; then
+            rm -f bun.lock && rm -rf node_modules && bun install
+          fi
+      - name: Generate API clients
+        working-directory: clients/web
+        run: bun run openapi-ts
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
+        with:
+          packages: packages/environments packages/local-mode
+      - name: Build
+        working-directory: clients/web
+        env:
+          VITE_PLATFORM_MODE: "false"
+        run: bun run build
+      - name: Rewrite package.json for publish
+        working-directory: clients/web
+        run: |
+          VERSION="${{ needs.compute-version.outputs.version }}"
+          jq --arg v "$VERSION" '{name, version: $v, license, type, description, files}' package.json > tmp && mv tmp package.json
+      - name: Pack tarball
+        working-directory: clients/web
+        run: |
+          mkdir -p /tmp/npm-dist
+          npm pack --pack-destination /tmp/npm-dist
+          mv /tmp/npm-dist/*.tgz /tmp/npm-dist/package.tgz
+          node -p "require('./package.json').name" > /tmp/npm-dist/name
+          node -p "require('./package.json').version" > /tmp/npm-dist/version
+      - name: Upload tarball
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-tarball-dev-web
+          path: /tmp/npm-dist/
+          retention-days: 1
+
+  publish-web-dev:
+    name: publish-npm-dev (web)
+    needs: [compute-version, build-web-dev]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: .nvmrc
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+      - name: Download tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: npm-tarball-dev-web
+          path: /tmp/npm-dist
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          PKG_NAME=$(cat /tmp/npm-dist/name)
+          PKG_VERSION=$(cat /tmp/npm-dist/version)
+          if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
+            echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping."
+            exit 0
+          fi
+          npm publish /tmp/npm-dist/package.tgz --tag dev --access public --no-provenance
+
+  publish-meta-dev:
+    name: publish-npm-dev (meta)
+    needs: [compute-version, publish-npm-dev, publish-web-dev]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+      - name: Stamp dev version into meta package.json
+        run: |
+          VERSION="${{ needs.compute-version.outputs.version }}"
+          cd meta
+          jq --arg v "$VERSION" '
+            .version = $v |
+            .dependencies["@vellumai/assistant"] = $v |
+            .dependencies["@vellumai/cli"] = $v |
+            .dependencies["@vellumai/credential-executor"] = $v |
+            .dependencies["@vellumai/vellum-gateway"] = $v |
+            .dependencies["@vellumai/web"] = $v
+          ' package.json > tmp && mv tmp package.json
+      # npm only honors "overrides" in the root package.json, so they are
+      # ignored when end users run `npm install -g vellum`. Shipping an
+      # npm-shrinkwrap.json generated with the overrides applied makes npm
+      # follow the same resolution for installed copies of the package.
+      - name: Generate npm-shrinkwrap.json
+        working-directory: meta
+        run: |
+          npm install --package-lock-only
+          npm shrinkwrap
+      - name: Publish
+        working-directory: meta
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          PKG_NAME=$(node -p "require('./package.json').name")
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
+            echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping."
+            exit 0
+          fi
+          npm publish --tag dev --access public --no-provenance
 
   # ── iOS release (same-repo reusable workflow) ────────────────────────
 
   release-ios:
-    needs: [compute-version, register-release, upload-sparkle, build-chrome-extension]
+    needs: [compute-version, register-release, build-chrome-extension]
     uses: ./.github/workflows/release-ios.yaml
     with:
       environment: dev

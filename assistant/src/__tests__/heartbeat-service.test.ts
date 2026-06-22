@@ -32,6 +32,8 @@ mock.module("../heartbeat/heartbeat-run-store.js", () => ({
   markStaleRunningAsError: mockMarkStaleRunningAsError,
   listHeartbeatRuns: mockListHeartbeatRuns,
   countCompletedHeartbeatRuns: mockCountCompletedHeartbeatRuns,
+  countCompletedRunsToday: mock(() => 0),
+  countRecentConsecutiveRuns: mock(() => 0),
 }));
 
 // Mock config loader
@@ -44,6 +46,9 @@ let mockConfig = {
     activeHoursStart: undefined as number | undefined,
     activeHoursEnd: undefined as number | undefined,
     disposition: "Default disposition text mentioning notifications skill.",
+  },
+  timeouts: {
+    backgroundTurnTimeoutSec: 1800,
   },
 };
 
@@ -248,6 +253,9 @@ mock.module("../notifications/emit-signal.js", () => ({
 // Mock conversation title service
 mock.module("../memory/conversation-title-service.js", () => ({
   GENERATING_TITLE: "Generating title...",
+  AUTO_TITLE_DETERMINISTIC: 2,
+  deriveDeterministicTitle: (context: { systemHint?: string }) =>
+    context.systemHint ?? "Untitled Conversation",
   queueGenerateConversationTitle: () => {},
 }));
 
@@ -360,7 +368,7 @@ describe("HeartbeatService", () => {
       processMessageCalls.push({
         conversationId: args[0] as string,
         content: args[1] as string,
-        options: (args[3] as { callSite?: string } | undefined) ?? undefined,
+        options: (args[2] as { callSite?: string } | undefined) ?? undefined,
       });
       return { messageId: "msg-1" };
     });
@@ -393,6 +401,9 @@ describe("HeartbeatService", () => {
         activeHoursStart: undefined,
         activeHoursEnd: undefined,
         disposition: "Default disposition text mentioning notifications skill.",
+      },
+      timeouts: {
+        backgroundTurnTimeoutSec: 1800,
       },
     };
   });
@@ -495,12 +506,12 @@ describe("HeartbeatService", () => {
     expect(processMessageCalls[0].content).toContain("Check in with yourself");
   });
 
-  test("creates background conversation with generating title placeholder", async () => {
+  test("creates background conversation with the deterministic heartbeat title", async () => {
     const service = createService();
     await service.runOnce();
 
     expect(createdConversations).toHaveLength(1);
-    expect(createdConversations[0].title).toBe("Generating title...");
+    expect(createdConversations[0].title).toBe("Heartbeat");
     expect(createdConversations[0].conversationType).toBe("background");
   });
 

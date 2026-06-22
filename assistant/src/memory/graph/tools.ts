@@ -131,9 +131,12 @@ export const graphRememberDefinition = {
     type: "object",
     properties: {
       content: {
-        type: "string",
+        anyOf: [
+          { type: "string" },
+          { type: "array", items: { type: "string" }, minItems: 1 },
+        ],
         description:
-          "The fact to remember. Write naturally — a preference, a detail, a commitment, a plan. No need to categorize.",
+          "The fact(s) to remember. Pass a single string for one fact, or an array of strings to record several independent facts in one call. When a turn surfaces multiple unrelated facts, pass them all as an array in one call rather than calling `remember` once per fact. Write naturally — a preference, a detail, a commitment, a plan. No need to categorize.",
       },
       finish_turn: {
         type: "boolean",

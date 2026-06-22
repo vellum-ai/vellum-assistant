@@ -5,6 +5,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { getSqliteFrom } from "../memory/db-connection.js";
 import { migrate230AcpSessionHistory } from "../memory/migrations/230-acp-session-history.js";
+import { migrateAcpSessionHistoryCwd } from "../memory/migrations/272-acp-session-history-cwd.js";
 import * as schema from "../memory/schema.js";
 
 function createTestDb() {
@@ -280,5 +281,105 @@ describe("acp_session_history migration", () => {
       .query(`SELECT id FROM acp_session_history WHERE id = 'history-rerun'`)
       .get() as { id: string } | null;
     expect(row?.id).toBe("history-rerun");
+  });
+});
+
+describe("acp_session_history cwd migration (272)", () => {
+  function readColumns(raw: Database): Map<string, ColumnRow> {
+    const columns = raw
+      .query(`PRAGMA table_info(acp_session_history)`)
+      .all() as ColumnRow[];
+    return new Map(columns.map((c) => [c.name, c]));
+  }
+
+  test("adds a nullable cwd TEXT column to an upgraded table", () => {
+    const db = createTestDb();
+    const raw = getSqliteFrom(db);
+    bootstrapCheckpointsTable(raw);
+
+    migrate230AcpSessionHistory(db);
+    expect(readColumns(raw).has("cwd")).toBe(false);
+
+    migrateAcpSessionHistoryCwd(db);
+
+    const cwd = readColumns(raw).get("cwd");
+    expect(cwd).toBeDefined();
+    expect(cwd?.type).toBe("TEXT");
+    expect(cwd?.notnull).toBe(0);
+  });
+
+  test("re-running is a no-op, including with a cleared checkpoint", () => {
+    const db = createTestDb();
+    const raw = getSqliteFrom(db);
+    bootstrapCheckpointsTable(raw);
+
+    migrate230AcpSessionHistory(db);
+    migrateAcpSessionHistoryCwd(db);
+
+    // Second run short-circuits on the completed checkpoint.
+    expect(() => migrateAcpSessionHistoryCwd(db)).not.toThrow();
+
+    // Even with the checkpoint cleared (simulating crash recovery), the
+    // column-existence guard makes the ALTER a no-op.
+    raw
+      .query(`DELETE FROM memory_checkpoints WHERE key = ?`)
+      .run("migration_acp_session_history_cwd_v1");
+    expect(() => migrateAcpSessionHistoryCwd(db)).not.toThrow();
+
+    const columns = raw
+      .query(`PRAGMA table_info(acp_session_history)`)
+      .all() as ColumnRow[];
+    expect(columns.filter((c) => c.name === "cwd")).toHaveLength(1);
+  });
+
+  test("legacy rows read back with cwd null; new rows round-trip cwd", () => {
+    const db = createTestDb();
+    const raw = getSqliteFrom(db);
+    bootstrapCheckpointsTable(raw);
+
+    migrate230AcpSessionHistory(db);
+
+    // Legacy row inserted before the cwd column existed.
+    raw
+      .query(
+        /*sql*/ `
+        INSERT INTO acp_session_history (
+          id, agent_id, acp_session_id, parent_conversation_id,
+          started_at, status
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `,
+      )
+      .run("legacy-1", "agent-old", "acp-old", "conv-old", 100, "completed");
+
+    migrateAcpSessionHistoryCwd(db);
+
+    const legacy = raw
+      .query(`SELECT cwd FROM acp_session_history WHERE id = 'legacy-1'`)
+      .get() as { cwd: string | null } | null;
+    expect(legacy?.cwd).toBeNull();
+
+    raw
+      .query(
+        /*sql*/ `
+        INSERT INTO acp_session_history (
+          id, agent_id, acp_session_id, parent_conversation_id,
+          started_at, status, cwd
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `,
+      )
+      .run(
+        "new-1",
+        "agent-new",
+        "acp-new",
+        "conv-new",
+        200,
+        "completed",
+        "/Users/me/project",
+      );
+
+    const fresh = raw
+      .query(`SELECT cwd FROM acp_session_history WHERE id = 'new-1'`)
+      .get() as { cwd: string | null } | null;
+    expect(fresh?.cwd).toBe("/Users/me/project");
   });
 });

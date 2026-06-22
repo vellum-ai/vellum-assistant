@@ -6,7 +6,7 @@ import {
   MIN_KEEP_CHARS,
   truncateToolResultText,
   TRUNCATION_SUFFIX,
-} from "../context/tool-result-truncation.js";
+} from "../plugins/defaults/tool-result-truncate/terminal.js";
 
 function hasOrphanedSurrogate(str: string): boolean {
   for (let i = 0; i < str.length; i++) {

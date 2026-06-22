@@ -319,7 +319,7 @@ describe("executeBrowserFillCredential", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("No credential stored for slack/api_key");
-    expect(result.content).toContain("credential_store");
+    expect(result.content).toContain("assistant credentials set");
     // The broker short-circuits before DOM.focus is dispatched.
     const methods = sendCalls.map((c) => c.method);
     expect(methods).not.toContain("DOM.focus");
@@ -335,7 +335,7 @@ describe("executeBrowserFillCredential", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("No credential stored for slack/api_key");
-    expect(result.content).toContain("credential_store");
+    expect(result.content).toContain("assistant credentials set");
     const methods = sendCalls.map((c) => c.method);
     expect(methods).not.toContain("Input.insertText");
   });
@@ -465,7 +465,7 @@ describe("executeBrowserFillCredential", () => {
       expect(result.isError).toBe(true);
       expect(result.content).toContain("Policy denied");
       expect(result.content).toContain("not allowed to use credential");
-      expect(result.content).toContain("credential_store");
+      expect(result.content).toContain("assistant credentials set");
       // The broker short-circuits before Input.insertText fires.
       const methods = sendCalls.map((c) => c.method);
       expect(methods).not.toContain("Input.insertText");

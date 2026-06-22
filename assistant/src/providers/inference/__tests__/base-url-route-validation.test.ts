@@ -37,8 +37,7 @@ mock.module("../../../memory/db-connection.js", () => ({
 }));
 
 mock.module("../../../config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: (flag: string) =>
-    flag === "openai-compatible-endpoints",
+  isAssistantFeatureFlagEnabled: () => false,
 }));
 
 mock.module("../../../config/loader.js", () => ({

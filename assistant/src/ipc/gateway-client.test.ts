@@ -91,7 +91,7 @@ describe("ipcGetFeatureFlags", () => {
     expect(flags).toEqual({ "flag-a": true, "flag-b": false });
   });
 
-  test("filters non-boolean values from response", async () => {
+  test("accepts boolean and string values, filters other types from response", async () => {
     mockGatewayIpc(null, {
       results: {
         get_feature_flags: {
@@ -104,7 +104,7 @@ describe("ipcGetFeatureFlags", () => {
     });
 
     const flags = await ipcGetFeatureFlags();
-    expect(flags).toEqual({ valid: true });
+    expect(flags).toEqual({ valid: true, string: "yes" });
   });
 
   test("returns empty record when IPC returns undefined", async () => {

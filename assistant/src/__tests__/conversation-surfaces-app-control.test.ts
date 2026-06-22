@@ -73,6 +73,7 @@ function buildMockContext(
     proxy: InstanceType<typeof HostAppControlProxy> | undefined,
   ) => void,
   trustGuardianPrincipalId: string | null = DEFAULT_PRINCIPAL,
+  actorPrincipalId: string | null = trustGuardianPrincipalId,
 ): SurfaceConversationContext {
   return {
     conversationId,
@@ -83,6 +84,16 @@ function buildMockContext(
             trustClass: "guardian",
             guardianPrincipalId: trustGuardianPrincipalId,
           }
+        : undefined,
+    authContext:
+      actorPrincipalId != null
+        ? ({ actorPrincipalId } as SurfaceConversationContext["authContext"])
+        : undefined,
+    currentTurnAuthContext:
+      actorPrincipalId != null
+        ? ({
+            actorPrincipalId,
+          } as SurfaceConversationContext["currentTurnAuthContext"])
         : undefined,
     traceEmitter: { emit: () => {} },
     sendToClient: () => {},
@@ -213,6 +224,67 @@ describe("surfaceProxyResolver — app-control tool routing", () => {
       expect(result.isError).toBe(false);
       expect(result.content).toContain("State: running");
       expect(result.content).toContain("Window observed");
+
+      proxy.dispose();
+    });
+
+    test("app_control_observe rejects owner client when current requester is a trusted contact", async () => {
+      mockHubClients = [
+        {
+          clientId: "owner-client",
+          capabilities: ["host_app_control"],
+          actorPrincipalId: "owner-user",
+        },
+      ];
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctx = buildMockContext(
+        proxy,
+        "conv-1",
+        undefined,
+        "owner-user",
+        "trusted-contact-user",
+      );
+      _setActiveAppControlSession({
+        conversationId: "conv-1",
+        app: "com.example.editor",
+      });
+
+      const result = await surfaceProxyResolver(ctx, "app_control_observe", {
+        tool: "observe",
+        app: "com.example.editor",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("current actor");
+      expect(sentMessages).toHaveLength(0);
+
+      proxy.dispose();
+    });
+
+    test("app_control_observe rejects when only another actor has a capable client", async () => {
+      mockHubClients = [
+        {
+          clientId: "client-other",
+          capabilities: ["host_app_control"],
+          actorPrincipalId: "user-other",
+        },
+      ];
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctx = buildMockContext(proxy, "conv-1");
+      _setActiveAppControlSession({
+        conversationId: "conv-1",
+        app: "com.example.editor",
+      });
+
+      const result = await surfaceProxyResolver(ctx, "app_control_observe", {
+        tool: "observe",
+        app: "com.example.editor",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("current actor");
+      // No envelope dispatched.
+      expect(sentMessages).toHaveLength(0);
 
       proxy.dispose();
     });
@@ -439,6 +511,7 @@ describe("surfaceProxyResolver — app-control tool routing", () => {
       _setActiveAppControlSession({
         conversationId: "conv-1",
         app: "com.example.editor",
+        targetClientId: "client-b",
       });
 
       const resultPromise = surfaceProxyResolver(ctx, "app_control_observe", {
@@ -496,7 +569,7 @@ describe("surfaceProxyResolver — app-control tool routing", () => {
 
       expect(result.isError).toBe(true);
       expect(result.content).toContain(
-        "multiple clients support host_app_control",
+        "Multiple host_app_control clients",
       );
       expect(result.content).toContain("target_client_id");
       // No envelope dispatched.
@@ -523,6 +596,7 @@ describe("surfaceProxyResolver — app-control tool routing", () => {
       _setActiveAppControlSession({
         conversationId: "conv-1",
         app: "com.example.editor",
+        targetClientId: "client-mine",
       });
 
       const resultPromise = surfaceProxyResolver(ctx, "app_control_observe", {
@@ -545,7 +619,7 @@ describe("surfaceProxyResolver — app-control tool routing", () => {
       proxy.dispose();
     });
 
-    test("single same-user client with no target proceeds without forcing targetClientId", async () => {
+    test("single same-user client with no target resolves to that client", async () => {
       mockHubClients = [
         {
           clientId: "only-client",
@@ -558,6 +632,7 @@ describe("surfaceProxyResolver — app-control tool routing", () => {
       _setActiveAppControlSession({
         conversationId: "conv-1",
         app: "com.example.editor",
+        targetClientId: "only-client",
       });
 
       const resultPromise = surfaceProxyResolver(ctx, "app_control_observe", {
@@ -566,9 +641,9 @@ describe("surfaceProxyResolver — app-control tool routing", () => {
 
       expect(sentMessages).toHaveLength(1);
       const sent = sentMessages[0] as Record<string, unknown>;
-      // No cross-user ambiguity → resolver leaves targetClientId undefined,
-      // letting the proxy use its existing single-client routing.
-      expect(sent.targetClientId).toBeUndefined();
+      // Single same-user client → auto-resolved by pickSameUserAutoResolve.
+      // targetClientId may be set to the resolved client id.
+      expect(sent.type).toBe("host_app_control_request");
 
       proxy.resolve(sent.requestId as string, {
         requestId: "ignored-by-proxy",

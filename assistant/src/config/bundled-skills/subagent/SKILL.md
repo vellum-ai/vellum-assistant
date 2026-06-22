@@ -6,6 +6,7 @@ metadata:
   emoji: "🤖"
   vellum:
     display-name: "Subagent"
+    category: "system"
     activation-hints:
       - "Spawn a background worker that runs in parallel with the main turn"
       - "Delegate a self-contained research or implementation task off the main thread"
@@ -38,6 +39,7 @@ Each subagent is spawned with a role that determines its tool access. Choose the
 | `researcher` | `web_search`, `web_fetch`, `file_read`, `file_list`, `recall`, `notify_parent` | Information gathering, web research, codebase exploration, reading documentation |
 | `coder` | `bash`, `file_read`, `file_write`, `file_edit`, `web_search`, `recall`, `notify_parent` | Code changes, file editing, running commands, build/test tasks |
 | `planner` | `file_read`, `file_list`, `web_search`, `web_fetch`, `recall`, `notify_parent` | Analysis, planning, synthesizing information, reviewing approaches |
+| `investigator` | `bash`, `file_read`, `file_list`, `web_search`, `web_fetch`, `recall`, `notify_parent` | Root-cause analysis: debugging, log forensics, tracing behavior across many files. Shell access is for read-only investigation (grep/find/reading logs); returns a compact root-cause report |
 
 All specialized roles (`researcher`, `coder`, `planner`) include `notify_parent` for mid-run communication with the parent.
 
@@ -69,6 +71,10 @@ Only the parent conversation that spawned a subagent can interact with it (check
 
 Set `send_result_to_user: false` when spawning a subagent whose result is for internal processing only. The parent will still be notified on completion, but the notification will instruct it to read the result without presenting it to the user.
 
+## Inference Profile
+
+Set `inference_profile` to an `llm.profiles` key when a subagent should run under a specific model profile. When omitted, the subagent inherits the parent turn's active profile if one exists; otherwise it uses the `subagentSpawn` call site's default model selection.
+
 ## Fork Mode
 
 Forks are sub-agents that inherit the parent's full context -- messages, system prompt, and memory -- sharing the KV cache for near-free context inheritance. Use forks when the task benefits from knowing what you've been discussing; use a regular sub-agent when the task is self-contained.
@@ -96,5 +102,6 @@ Rule of thumb: "Does this task need to know what we've been talking about?" If y
 - Use `subagent_message` to send follow-up instructions to a running subagent.
 - Use `subagent_abort` to cancel a subagent that is no longer needed.
 - Default to spawning subagents for any task that involves web research, multi-file exploration, or independent coding work. Serial execution should be the exception, not the rule.
+- Delegate root-cause investigations ("why is X happening?", debugging, log forensics) to an `investigator` instead of grepping inline. A long investigation done inline floods your own context with file slices and grep output, crowding out the conversation; the investigator does the digging in its own context and returns a compact root-cause report.
 - When a user request has both an information-gathering component and an action component, spawn a researcher immediately rather than doing the research inline yourself.
 - Prefer spawning 2-3 focused subagents over one large general-purpose subagent. Smaller scopes finish faster and fail more gracefully.

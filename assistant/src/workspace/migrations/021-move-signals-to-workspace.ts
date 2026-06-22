@@ -2,7 +2,7 @@
  * Workspace migration 021: Move signals directory from root to workspace.
  *
  * Previously, `~/.vellum/signals/` lived directly under the Vellum root. This
- * migration moves any existing signal files into `~/.vellum/workspace/signals/`
+ * migration moves any existing signal files into `$VELLUM_WORKSPACE_DIR/signals/`
  * so that getSignalsDir() resolves correctly under the workspace.
  *
  * Signal files are ephemeral IPC artifacts (written, read once, then stale),

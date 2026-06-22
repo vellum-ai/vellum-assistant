@@ -27,6 +27,7 @@ export interface UsageGroupedSeriesBucket extends UsageDayBucket {
 
 export interface UsageGroupedBucketRow extends UsageEventBucketRow {
   group_key: string | null;
+  group_label?: string | null;
 }
 
 const VALUE_GROUP_PREFIX = "value:";
@@ -41,6 +42,9 @@ export function displayUsageGroup(
   }
   if (groupBy === "inference_profile") {
     return groupKey === null ? "Default / Unset" : groupKey;
+  }
+  if (groupBy === "schedule") {
+    return groupKey ?? "Other";
   }
   return groupKey ?? "Other";
 }
@@ -102,7 +106,8 @@ export function bucketGroupedUsageEvents(
     let group = groupedBucket.groups[seriesKey];
     if (!group) {
       group = {
-        group: displayUsageGroup(options.groupBy, row.group_key),
+        group:
+          row.group_label ?? displayUsageGroup(options.groupBy, row.group_key),
         groupKey: row.group_key,
         totalInputTokens: 0,
         totalOutputTokens: 0,

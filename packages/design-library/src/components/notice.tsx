@@ -89,7 +89,8 @@ export function Notice({
       role={role}
       data-slot="notice"
       className={cn(
-        "relative flex w-full items-start gap-3 rounded-lg border p-3",
+        "relative flex w-full gap-3 rounded-lg border p-3",
+        title ? "items-start" : "items-center",
         "text-[color:var(--content-default)]",
         toneClasses.container,
         className,
@@ -98,7 +99,8 @@ export function Notice({
       {resolvedIcon ? (
         <span
           className={cn(
-            "mt-0.5 flex shrink-0 items-center justify-center",
+            "flex shrink-0 items-center justify-center",
+            title && "mt-0.5",
             toneClasses.icon,
           )}
         >
@@ -139,8 +141,8 @@ export function Notice({
           className={cn(
             "shrink-0 cursor-pointer rounded bg-transparent p-0.5",
             "text-[color:var(--content-secondary)] opacity-70 transition-opacity",
-            "hover:opacity-100 focus-visible:outline-none focus-visible:ring-2",
-            "focus-visible:ring-[var(--ring)]",
+            "hover:opacity-100 keyboard-focus:outline-none keyboard-focus:ring-2",
+            "keyboard-focus:ring-[var(--ring)]",
           )}
         >
           <X className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />

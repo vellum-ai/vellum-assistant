@@ -1,17 +1,58 @@
 import { readFile } from "node:fs/promises";
 
-import type { Simulator, SimulatorDecision, SimulatorInput } from "./types";
+import type {
+  Simulator,
+  SimulatorDecision,
+  SimulatorInput,
+  ToolConfirmationRequest,
+} from "./types";
 import type { TranscriptTurn } from "../transcript";
 
 export const DEFAULT_SIMULATOR_MODEL = "claude-haiku-4-5-20251001";
 export const DEFAULT_MAX_TURNS = 100;
 export const MAX_OUTPUT_TOKENS = 8192;
+/** Name of the tool the simulator calls to resolve a pending confirmation. */
+export const CONFIRMATION_TOOL_NAME = "respond_to_confirmation";
 /** Clip length for the raw response body included in parse-failure diagnostics. */
 export const PARSE_FAILURE_BODY_CLIP = 2000;
+
+/** Opening system-prompt lines shared by every simulator call. */
+const SIMULATOR_PERSONA_LINES = [
+  "You are the user simulator in an eval harness.",
+  "You are controlling the user side of a conversation with the tested agent.",
+];
+/** Guards against the simulator leaking hidden SPEC answers to the agent. */
+const SIMULATOR_SECRECY_LINE =
+  "Do not reveal hidden test answers unless the SPEC explicitly says to reveal them.";
 
 interface AnthropicMessage {
   role: "user" | "assistant";
   content: string;
+}
+
+interface AnthropicToolSpec {
+  name: string;
+  description: string;
+  input_schema: {
+    type: "object";
+    properties: Record<string, unknown>;
+    required?: string[];
+  };
+}
+
+interface AnthropicToolChoice {
+  type: "tool";
+  name: string;
+}
+
+interface SimulatorRequest {
+  system: string;
+  messages: AnthropicMessage[];
+  tools: AnthropicToolSpec[];
+  /** Forces a specific tool call; omitted to let the model free-text. */
+  toolChoice?: AnthropicToolChoice;
+  /** Phrase describing the call, used in the failure message. */
+  failureLabel: string;
 }
 
 interface UserSimulatorOptions {
@@ -209,6 +250,58 @@ function parseDecision(body: AnthropicResponseBody): SimulatorDecision {
   );
 }
 
+/**
+ * Render a pending tool confirmation as the trailing user-turn message the
+ * simulator decides on. The tested agent is the "user" role in the simulator
+ * transcript (see `transcriptToSimulatorMessages`), so its permission request
+ * naturally reads as the latest user turn.
+ */
+function confirmationPrompt(request: ToolConfirmationRequest): string {
+  const lines = [
+    "The agent has paused to ask your permission before running a tool.",
+    `Tool: ${request.toolName || "(unnamed)"}`,
+    `Input: ${JSON.stringify(request.input)}`,
+  ];
+  if (request.riskLevel) lines.push(`Risk level: ${request.riskLevel}`);
+  if (request.riskReason) lines.push(`Risk reason: ${request.riskReason}`);
+  lines.push(
+    "Decide whether to allow or deny this tool call by calling respond_to_confirmation.",
+  );
+  return lines.join("\n");
+}
+
+function parseConfirmationDecision(
+  body: AnthropicResponseBody,
+): SimulatorDecision {
+  const parts = body.content ?? [];
+  for (const part of parts) {
+    if (part.type !== "tool_use" || part.name !== CONFIRMATION_TOOL_NAME) {
+      continue;
+    }
+    const decision = part.input?.decision;
+    if (decision === "allow" || decision === "deny") {
+      const reason = part.input?.reason;
+      return {
+        action: "confirm",
+        decision,
+        reason: typeof reason === "string" ? reason : undefined,
+      };
+    }
+  }
+  // `tool_choice` forces the model to call `respond_to_confirmation`, so a
+  // missing or malformed decision means the response shape changed out from
+  // under us. Surface it the same structured way `parseDecision` does so the
+  // runner's fallback path logs something actionable.
+  throw new SimulatorParseError(
+    "User simulator confirmation response had no allow/deny decision",
+    [
+      `stop_reason=${body.stop_reason ?? "unknown"}`,
+      `parts=${summarizeContentParts(parts)}`,
+      `body: ${clipForDiagnostic(body)}`,
+    ],
+  );
+}
+
 export class UserSimulator implements Simulator {
   private readonly apiKey: string;
   private readonly model: string;
@@ -227,6 +320,13 @@ export class UserSimulator implements Simulator {
   }
 
   async decide(input: SimulatorInput): Promise<SimulatorDecision> {
+    // A pending confirmation is the simulator's next decision regardless of
+    // where the turn stands, so resolve it before the turn-budget guard (which
+    // is about how many user messages to send, not mid-turn approvals).
+    if (input.pendingConfirmation) {
+      return this.decideConfirmation(input, input.pendingConfirmation);
+    }
+
     const turns = simulatorTurnCount(input.transcript);
     if (turns >= this.maxTurns) {
       return {
@@ -234,8 +334,115 @@ export class UserSimulator implements Simulator {
         reason: `max simulator turns reached (${this.maxTurns})`,
       };
     }
+    return this.decideNextMessage(input);
+  }
 
+  private async decideNextMessage(
+    input: SimulatorInput,
+  ): Promise<SimulatorDecision> {
     const spec = await readFile(input.test.specPath, "utf8");
+    const body = await this.requestCompletion({
+      failureLabel: "request",
+      system: [
+        ...SIMULATOR_PERSONA_LINES,
+        "Follow the test SPEC exactly.",
+        "Your assistant text is sent verbatim as the next user message to the tested agent.",
+        "When the SPEC end condition is met, call the end_conversation tool with a short reason.",
+        SIMULATOR_SECRECY_LINE,
+        // Every response MUST be actionable — either non-empty text or an
+        // end_conversation tool call. An empty response stalls the eval
+        // (observed in real runs where Haiku returned content=[] with
+        // stop_reason=end_turn on turn 3 of timeline-recall). If the
+        // SPEC end condition is met, call end_conversation; if you
+        // are unsure how to proceed, call end_conversation with a
+        // reason that explains the uncertainty.
+        "Every response must either contain non-empty user text or call the end_conversation tool. Never return an empty response.",
+        "If you are unsure how to continue, call end_conversation with a reason that explains why.",
+        "",
+        "SPEC:",
+        spec,
+      ].join("\n"),
+      messages: transcriptToSimulatorMessages(input.transcript),
+      tools: [
+        {
+          name: "end_conversation",
+          description:
+            "End the eval conversation because the SPEC end condition has been met.",
+          input_schema: {
+            type: "object",
+            properties: { reason: { type: "string" } },
+            required: ["reason"],
+          },
+        },
+      ],
+    });
+    return parseDecision(body);
+  }
+
+  private async decideConfirmation(
+    input: SimulatorInput,
+    request: ToolConfirmationRequest,
+  ): Promise<SimulatorDecision> {
+    const spec = await readFile(input.test.specPath, "utf8");
+    const body = await this.requestCompletion({
+      failureLabel: "confirmation request",
+      system: [
+        ...SIMULATOR_PERSONA_LINES,
+        "The tested agent has paused to ask your permission before running a tool it judged risky.",
+        "Decide as the user would, following the SPEC: allow tool calls that advance the SPEC's goal, and deny calls that are unsafe, off-task, or that the SPEC says to refuse.",
+        "Respond only by calling the respond_to_confirmation tool with your decision.",
+        SIMULATOR_SECRECY_LINE,
+        "",
+        "SPEC:",
+        spec,
+      ].join("\n"),
+      messages: coalesceMessages([
+        ...transcriptToSimulatorMessages(input.transcript),
+        { role: "user", content: confirmationPrompt(request) },
+      ]),
+      tools: [
+        {
+          name: CONFIRMATION_TOOL_NAME,
+          description:
+            "Allow or deny the tool the agent asked permission to run.",
+          input_schema: {
+            type: "object",
+            properties: {
+              decision: { type: "string", enum: ["allow", "deny"] },
+              reason: { type: "string" },
+            },
+            required: ["decision"],
+          },
+        },
+      ],
+      // Resolving the confirmation is the only valid move here, so force the
+      // tool call rather than risk a free-text reply that never resolves it.
+      // The next-message path omits tool_choice so the model can choose
+      // between user text and ending the conversation.
+      toolChoice: { type: "tool", name: CONFIRMATION_TOOL_NAME },
+    });
+    return parseConfirmationDecision(body);
+  }
+
+  /**
+   * One round-trip to the simulator model. Both the turn-taking decision and
+   * the mid-turn confirmation verdict are single Anthropic calls that differ
+   * only in their prompt, tools, and parser, so they share this transport.
+   */
+  private async requestCompletion(
+    request: SimulatorRequest,
+  ): Promise<AnthropicResponseBody> {
+    const payload: Record<string, unknown> = {
+      model: this.model,
+      max_tokens: MAX_OUTPUT_TOKENS,
+      temperature: 0,
+      system: request.system,
+      messages: request.messages,
+      tools: request.tools,
+    };
+    if (request.toolChoice) {
+      payload.tool_choice = request.toolChoice;
+    }
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -243,52 +450,13 @@ export class UserSimulator implements Simulator {
         "x-api-key": this.apiKey,
         "anthropic-version": "2023-06-01",
       },
-      body: JSON.stringify({
-        model: this.model,
-        max_tokens: MAX_OUTPUT_TOKENS,
-        temperature: 0,
-        system: [
-          "You are the user simulator in an eval harness.",
-          "You are controlling the user side of a conversation with the tested agent.",
-          "Follow the test SPEC exactly.",
-          "Your assistant text is sent verbatim as the next user message to the tested agent.",
-          "When the SPEC end condition is met, call the end_conversation tool with a short reason.",
-          "Do not reveal hidden test answers unless the SPEC explicitly says to reveal them.",
-          // Every response MUST be actionable — either non-empty text or an
-          // end_conversation tool call. An empty response stalls the eval
-          // (observed in real runs where Haiku returned content=[] with
-          // stop_reason=end_turn on turn 3 of timeline-recall). If the
-          // SPEC end condition is met, call end_conversation; if you
-          // are unsure how to proceed, call end_conversation with a
-          // reason that explains the uncertainty.
-          "Every response must either contain non-empty user text or call the end_conversation tool. Never return an empty response.",
-          "If you are unsure how to continue, call end_conversation with a reason that explains why.",
-          "",
-          "SPEC:",
-          spec,
-        ].join("\n"),
-        messages: transcriptToSimulatorMessages(input.transcript),
-        tools: [
-          {
-            name: "end_conversation",
-            description:
-              "End the eval conversation because the SPEC end condition has been met.",
-            input_schema: {
-              type: "object",
-              properties: { reason: { type: "string" } },
-              required: ["reason"],
-            },
-          },
-        ],
-      }),
+      body: JSON.stringify(payload),
     });
-
     if (!response.ok) {
       throw new Error(
-        `User simulator request failed ${response.status}: ${await response.text()}`,
+        `User simulator ${request.failureLabel} failed ${response.status}: ${await response.text()}`,
       );
     }
-
-    return parseDecision((await response.json()) as AnthropicResponseBody);
+    return (await response.json()) as AnthropicResponseBody;
   }
 }

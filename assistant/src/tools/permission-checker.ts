@@ -9,12 +9,14 @@ import {
 } from "../permissions/checker.js";
 import { getAutoApproveThreshold } from "../permissions/gateway-threshold-reader.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
+import { isFullAccessThreshold } from "../permissions/threshold.js";
 import type {
   ApprovalMode,
   ApprovalReason,
   RiskThreshold,
 } from "../permissions/types.js";
 import { RiskLevel } from "../permissions/types.js";
+import { resolveCapabilities } from "../runtime/capabilities.js";
 import { getLogger } from "../util/logger.js";
 import { buildPolicyContext } from "./policy-context.js";
 import { isSideEffectTool } from "./side-effects.js";
@@ -172,7 +174,7 @@ export class PermissionChecker {
       if (
         context.forcePromptSideEffects &&
         result.decision === "allow" &&
-        isSideEffectTool(name, input)
+        isSideEffectTool(name)
       ) {
         result.decision = "prompt";
         result.reason = "Side-effect tool requires explicit approval";
@@ -183,7 +185,13 @@ export class PermissionChecker {
       // cannot bypass the interactive prompt. This is separate from the
       // forcePromptSideEffects path above to ensure requireFreshApproval
       // is self-sufficient without relying on SIDE_EFFECT_TOOLS membership.
-      if (context.requireFreshApproval && result.decision === "allow") {
+      // At a full-access posture the user has opted into auto-approving even
+      // high-risk tools, so the promotion is skipped.
+      if (
+        context.requireFreshApproval &&
+        result.decision === "allow" &&
+        !isFullAccessThreshold(riskThreshold)
+      ) {
         result.decision = "prompt";
         result.reason =
           "Fresh approval required: per-invocation human review enforced";
@@ -231,7 +239,7 @@ export class PermissionChecker {
         result.decision === "prompt" &&
         context.isPlatformHosted &&
         name === "bash" &&
-        context.trustClass === "guardian" &&
+        resolveCapabilities(context.trustClass).canSelfApproveTools &&
         !context.requireFreshApproval
       ) {
         log.info(
@@ -267,7 +275,7 @@ export class PermissionChecker {
           true;
         if (
           context.isInteractive === false &&
-          context.trustClass === "guardian" &&
+          resolveCapabilities(context.trustClass).canSelfApproveTools &&
           !context.requireFreshApproval &&
           !isDynamicSkillLoad
         ) {

@@ -94,13 +94,13 @@ When `autoApproveUpTo` is `"none"`, `skill_load` without a matching rule is alwa
 
 Skills that use existing system tools (`bash`, `file_read`, `web_fetch`, etc.) **do not expand the assistant's capability surface**. The assistant already has access to these tools based on its trust rules; a skill that teaches `curl https://api.example.com/v1/endpoint -d "..."` presents identical risk to a user asking the assistant to run that same command directly. The risk is governed entirely by the bash risk classifier and the user's `autoApproveUpTo` threshold — the same path as any other bash invocation.
 
-The threat vectors that skills *do* introduce are:
+The threat vectors that skills _do_ introduce are:
 
-| Threat | Mitigation |
-|---|---|
+| Threat                                                                                                  | Mitigation                                                                                                              |
+| ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | **Skill source file mutations** — editing a skill's own source files could inject behavior on next load | `isSkillSourcePath()` escalates `file_write`/`file_edit` targeting skill roots to **High**, requiring explicit approval |
-| **New skill-origin tools** — tools registered and invoked through the skill IPC contract | Skill-origin tools with no matching trust rule are always **prompted**, regardless of their risk level |
-| **Credential storage** — a skill collecting and storing an API key | Mediated by the `credential_store` approval flow |
+| **New skill-origin tools** — tools registered and invoked through the skill IPC contract                | Skill-origin tools with no matching trust rule are always **prompted**, regardless of their risk level                  |
+| **Credential storage** — a skill collecting and storing an API key                                      | Mediated by the secure credential prompt flow (`assistant credentials prompt`)                                          |
 
 What skills do **not** introduce:
 
@@ -223,35 +223,35 @@ The credential system enforces four security invariants:
 
 ```mermaid
 sequenceDiagram
-    participant Model as LLM
-    participant Vault as credential_store tool
+    participant Model as LLM (assistant credentials prompt)
+    participant Route as credentials prompt route
     participant Prompter as SecretPrompter
     participant HTTP as HTTP Transport
-    participant UI as SecretPromptManager (Swift)
+    participant UI as Secret prompt UI (client)
     participant Store as Credential Store (CES / encrypted file)
 
-    Model->>Vault: action: "prompt", service, field, label
-    Vault->>Prompter: requestSecret(service, field, label, ...)
+    Model->>Route: assistant credentials prompt --service --field --label
+    Route->>Prompter: requestSecretStandalone(service, field, label, ...)
     Prompter->>HTTP: secret_request {requestId, service, field, label, allowOneTimeSend}
-    HTTP->>UI: Show SecretPromptView (floating panel)
-    UI->>UI: User enters value in SecureField
+    HTTP->>UI: Show secret prompt
+    UI->>UI: User enters value in a masked field
     alt Store (default)
         UI->>HTTP: secret_response {requestId, value, delivery: "store"}
         HTTP->>Prompter: resolve(value, "store")
-        Prompter->>Vault: {value, delivery: "store"}
-        Vault->>Store: setSecureKeyAsync("credential/svc/field", value)
-        Vault->>Model: "Credential stored securely" (no value in output)
+        Prompter->>Route: {value, delivery: "store"}
+        Route->>Store: persistPromptedCredential → setSecureKeyAsync("credential/svc/field", value)
+        Route->>Model: "Stored credential ..." (no value in output)
     else One-Time Send (if enabled)
         UI->>HTTP: secret_response {requestId, value, delivery: "transient_send"}
         HTTP->>Prompter: resolve(value, "transient_send")
-        Prompter->>Vault: {value, delivery: "transient_send"}
-        Note over Vault: Hands value to CredentialBroker<br/>for single-use consumption
-        Vault->>Model: "One-time credential provided" (no value in output)
+        Prompter->>Route: {value, delivery: "transient_send"}
+        Note over Route: Hands value to CredentialBroker<br/>for single-use consumption
+        Route->>Model: "One-time credential provided" (no value in output)
     else Cancel
         UI->>HTTP: secret_response {requestId, value: null}
         HTTP->>Prompter: resolve(null)
-        Prompter->>Vault: null
-        Vault->>Model: "User cancelled"
+        Prompter->>Route: null
+        Route->>Model: "User cancelled"
     end
 ```
 
@@ -273,31 +273,32 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 - The secret value is handed to the `CredentialBroker`, which holds it in memory for the next `consume` or `browserFill` call
 - The value is **not** persisted to the credential store
 - The broker discards the value after a single use
-- The vault tool output confirms delivery without including the secret value — the value is never returned to the model
+- The credentials prompt route output confirms delivery without including the secret value — the value is never returned to the model
 - The config gate must be explicitly enabled by the operator
 
 ### Storage Layout
 
-| Component           | Location                                             | What it stores                                                                                                                                                   |
-| ------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Secret values       | CES credential store or encrypted file store         | Encrypted credential values keyed as `credential/{service}/{field}`. Stored via CES RPC (primary), CES HTTP (containerized), or encrypted file store (fallback). |
-| Credential metadata | `~/.vellum/workspace/data/credentials/metadata.json` | Service, field, label, policy (allowedTools, allowedDomains), timestamps                                                                                         |
-| Config              | `~/.vellum/workspace/config.*`                       | `secretDetection` settings: enabled, blockIngress, allowOneTimeSend                                                                                              |
+| Component           | Location                                               | What it stores                                                                                                                                                   |
+| ------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Secret values       | CES credential store or encrypted file store           | Encrypted credential values keyed as `credential/{service}/{field}`. Stored via CES RPC (primary), CES HTTP (containerized), or encrypted file store (fallback). |
+| Credential metadata | `$VELLUM_WORKSPACE_DIR/data/credentials/metadata.json` | Service, field, label, policy (allowedTools, allowedDomains), timestamps                                                                                         |
+| Config              | `$VELLUM_WORKSPACE_DIR/config.*`                       | `secretDetection` settings: enabled, blockIngress, allowOneTimeSend                                                                                              |
 
 ### Key Files
 
-| File                                                 | Role                                                                               |
-| ---------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `assistant/src/tools/credentials/vault.ts`           | `credential_store` tool — store, list, delete, prompt actions                      |
-| `assistant/src/security/secure-keys.ts`              | Async secure key CRUD via CES and encrypted file store                             |
-| `assistant/src/tools/credentials/metadata-store.ts`  | JSON file metadata CRUD for credential records                                     |
-| `assistant/src/tools/credentials/broker.ts`          | Brokered credential access with policy enforcement and transient send              |
-| `assistant/src/tools/credentials/policy-validate.ts` | Policy input validation (allowedTools, allowedDomains)                             |
-| `assistant/src/permissions/secret-prompter.ts`       | HTTP secret_request/secret_response flow                                           |
-| `assistant/src/security/secret-scanner.ts`           | Prefix + shape-based secret regex detection (used by display-time `redactSecrets`) |
-| `assistant/src/security/secret-ingress.ts`           | Prefix-only ingress check on user messages                                         |
-| `assistant/src/util/log-redact.ts`                   | Pino log serializers — prefix-based redaction for logs                             |
-| `clients/macos/.../SecretPromptManager.swift`        | Floating panel UI for secure credential entry                                      |
+| File                                                        | Role                                                                               |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `assistant/src/runtime/routes/credential-routes.ts`         | `assistant credentials` CLI — store, list, delete, inspect, reveal handlers        |
+| `assistant/src/credential-execution/prompted-credential.ts` | Persists credentials collected through the secure `credentials prompt` flow        |
+| `assistant/src/security/secure-keys.ts`                     | Async secure key CRUD via CES and encrypted file store                             |
+| `assistant/src/tools/credentials/metadata-store.ts`         | JSON file metadata CRUD for credential records                                     |
+| `assistant/src/tools/credentials/broker.ts`                 | Brokered credential access with policy enforcement and transient send              |
+| `assistant/src/tools/credentials/policy-validate.ts`        | Policy input validation (allowedTools, allowedDomains)                             |
+| `assistant/src/permissions/secret-prompter.ts`              | HTTP secret_request/secret_response flow                                           |
+| `assistant/src/security/secret-scanner.ts`                  | Prefix + shape-based secret regex detection (used by display-time `redactSecrets`) |
+| `assistant/src/security/secret-ingress.ts`                  | Prefix-only ingress check on user messages                                         |
+| `assistant/src/util/log-redact.ts`                          | Pino log serializers — prefix-based redaction for logs                             |
+| `clients/web/src/domains/chat/components/secret-prompt-card.tsx` | UI for secure credential entry                                                    |
 
 ---
 

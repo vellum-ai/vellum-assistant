@@ -6,7 +6,7 @@ This document describes the security model for the Vellum Assistant skill system
 
 Skills extend the assistant's capabilities by providing instructions (via `SKILL.md`) and optional custom tools (via `TOOLS.json`). Skills can be **bundled** (shipped with the application), **managed** (user-installed via `scaffold_managed_skill`), **workspace** (project-local), or **extra** (additional directories configured by the user).
 
-For managed skills, the installed source of truth is a valid directory at `~/.vellum/workspace/skills/<id>/` containing a top-level `SKILL.md` with standardized frontmatter. The assistant parses that frontmatter at startup and when skill directories change, then seeds Memory V2 skill entries under `skills/<id>` so the assistant can discover available skills from memory. The legacy `SKILLS.md` index is removed by workspace migration and is no longer created by install or scaffold paths.
+For managed skills, the installed source of truth is a valid directory at `$VELLUM_WORKSPACE_DIR/skills/<id>/` containing a top-level `SKILL.md` with standardized frontmatter. The assistant parses that frontmatter at startup and when skill directories change, then seeds Memory V2 skill entries under `skills/<id>` so the assistant can discover available skills from memory. The legacy `SKILLS.md` index is removed by workspace migration and is no longer created by install or scaffold paths.
 
 Because skills can introduce arbitrary tool behavior, they are subject to stricter permission defaults than core tools.
 
@@ -70,7 +70,7 @@ Version-specific rules are more secure but require re-approval after every skill
 
 Writing to skill source files is treated as a **high-risk** operation by the risk classifier. The `isSkillSourcePath()` function detects whether a file path falls under any known skill directory:
 
-- **Managed skills**: `~/.vellum/workspace/skills/`
+- **Managed skills**: `$VELLUM_WORKSPACE_DIR/skills/`
 - **Bundled skills**: The application's built-in `bundled-skills/` directory
 - **Workspace skills**: Project-local skill directories
 - **Extra skills**: Additional roots configured by the user
@@ -116,10 +116,10 @@ Acceptance is idempotent and recorded in `trust.json`. The bundle does not inclu
 
 Tools can execute in two contexts:
 
-| Target    | Description                                                                            |
-| --------- | -------------------------------------------------------------------------------------- |
-| `sandbox` | Isolated execution within `~/.vellum/workspace` (Docker container or OS-level sandbox) |
-| `host`    | Direct execution on the host machine                                                   |
+| Target    | Description                                                                              |
+| --------- | ---------------------------------------------------------------------------------------- |
+| `sandbox` | Isolated execution within `$VELLUM_WORKSPACE_DIR` (Docker container or OS-level sandbox) |
+| `host`    | Direct execution on the host machine                                                     |
 
 Trust rules can include an `executionTarget` field to bind the rule to a specific context. A rule without `executionTarget` matches both sandbox and host invocations.
 

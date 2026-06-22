@@ -763,7 +763,7 @@ async function handleAccessRequestApproval(
   const requesterContactResult = approval.requesterExternalUserId
     ? findContactChannel({
         channelType: approval.channel,
-        externalUserId: approval.requesterExternalUserId,
+        address: approval.requesterExternalUserId,
       })
     : null;
   const requesterDisplayName =
@@ -772,7 +772,7 @@ async function handleAccessRequestApproval(
   const decidedByContactResult = decidedByExternalUserId
     ? findContactChannel({
         channelType: approval.channel,
-        externalUserId: decidedByExternalUserId,
+        address: decidedByExternalUserId,
       })
     : null;
   const decidedByDisplayName =
@@ -831,7 +831,8 @@ async function handleAccessRequestApproval(
   }
 
   // Approved: deliver the verification code to the guardian and notify the requester.
-  const requesterIdentifier = approval.requesterExternalUserId;
+  const requesterIdentifier =
+    requesterDisplayName || approval.requesterExternalUserId;
 
   let codeDelivered = true;
   if (decisionResult.verificationCode) {

@@ -663,6 +663,10 @@ export const ROUTES: RouteDefinition[] = [
       "Serve raw file bytes for an attachment. Supports Range headers.",
     tags: ["attachments"],
     responseStatus: ({ headers }) => (headers?.["range"] ? "206" : "200"),
+    responseBody: {
+      contentType: "application/octet-stream",
+      schema: { type: "string", format: "binary" },
+    },
     additionalResponses: {
       "416": { description: "Range Not Satisfiable" },
     },
@@ -719,21 +723,28 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Upload an attachment. Supports application/json (base64 data or file path reference), multipart/form-data (file + filename + mimeType fields), and application/octet-stream (raw bytes with filename and mimeType query params).",
     tags: ["attachments"],
-    requestBody: z.object({
-      filename: z.string(),
-      mimeType: z.string(),
-      data: z.string().describe("Base64-encoded file data").optional(),
-      filePath: z
-        .string()
-        .describe("On-disk file path (file-backed upload)")
-        .optional(),
-      trustedSource: z
-        .boolean()
-        .describe(
-          "Set by the gateway when the file came from a guardian-bound channel actor. Honored only when the request is authenticated as a gateway service token; ignored otherwise.",
-        )
-        .optional(),
-    }),
+    // Advertised as multipart/form-data — the form web clients actually send,
+    // so the generated SDK types a real `{ file, filename, mimeType }` body
+    // instead of erasing it. The handler additionally accepts application/json
+    // (base64/file-path) and application/octet-stream by sniffing the request
+    // Content-Type header (see handleUploadAttachmentRoute); those forms are
+    // used over raw HTTP by the gateway and are not consumed via the SDK.
+    requestBody: {
+      contentType: "multipart/form-data",
+      schema: {
+        type: "object",
+        properties: {
+          file: {
+            type: "string",
+            format: "binary",
+            description: "The file to upload",
+          },
+          filename: { type: "string" },
+          mimeType: { type: "string" },
+        },
+        required: ["file", "filename", "mimeType"],
+      },
+    },
     responseBody: z.object({
       id: z.string(),
       original_filename: z.string(),

@@ -9,8 +9,12 @@
  */
 import { z } from "zod";
 
-import { findConversation } from "../../daemon/conversation-store.js";
+import { findConversation } from "../../daemon/conversation-registry.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
+import type {
+  SecretDelivery,
+  SecretPromptResult,
+} from "../../permissions/secret-prompter.js";
 import type { UserDecision } from "../../permissions/types.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -97,11 +101,10 @@ function handleConfirm({ body }: RouteHandlerArgs) {
   conversation.handleConfirmationResponse(
     requestId,
     effectiveDecision as UserDecision,
-    selectedPattern,
-    selectedScope,
-    undefined,
     {
-      source: "button",
+      selectedPattern,
+      selectedScope,
+      emissionContext: { source: "button" },
     },
   );
 
@@ -113,39 +116,72 @@ function handleConfirm({ body }: RouteHandlerArgs) {
  */
 function handleSecret({ body }: RouteHandlerArgs) {
   const requestId = body?.requestId as string | undefined;
-  const value = body?.value as string | undefined;
   const delivery = body?.delivery as string | undefined;
 
   if (!requestId || typeof requestId !== "string") {
     throw new BadRequestError("requestId is required");
   }
 
+  // Legacy compat shim: already-shipped web clients send `delivery: "none"` to
+  // cancel a secret prompt. Normalize it to the cancellation path (value
+  // undefined) so the request settles cleanly rather than 400-ing and stranding
+  // the pending interaction.
+  const isCancel = delivery === "none";
+  const value = isCancel
+    ? undefined
+    : (body?.value as string | undefined);
+
   if (
     delivery !== undefined &&
     delivery !== "store" &&
-    delivery !== "transient_send"
+    delivery !== "transient_send" &&
+    delivery !== "none"
   ) {
     throw new BadRequestError('delivery must be "store" or "transient_send"');
   }
 
-  // Use get() — SecretPrompter.resolveSecret() owns deregistration.
+  const effectiveDelivery =
+    isCancel || delivery === undefined
+      ? undefined
+      : (delivery as "store" | "transient_send");
+
   const interaction = pendingInteractions.get(requestId);
   if (!interaction) {
     throw new NotFoundError("No pending interaction found for this requestId");
   }
 
-  const conversation = findConversation(interaction.conversationId);
-  if (!conversation) {
+  // /v1/secret only settles secret prompts. A requestId belonging to another
+  // interaction kind (a confirmation or host-proxy request posted here from
+  // stale or mismatched client state) must not be consumed or resolved with a
+  // SecretPromptResult, which would strand its real approval/result endpoint.
+  if (interaction.kind !== "secret") {
     throw new NotFoundError(
-      "Conversation not found for this pending secret request",
+      "No pending secret request found for this requestId",
     );
   }
 
-  conversation.handleSecretResponse(
+  // When a live conversation owns the request, route through it so the
+  // SecretPrompter's ownership tracking and dispose path stay consistent (this
+  // also drives the voice auto-resolve path). The prompter owns deregistration.
+  const conversation = interaction.conversationId
+    ? findConversation(interaction.conversationId)
+    : undefined;
+  if (conversation?.hasPendingSecret(requestId)) {
+    conversation.handleSecretResponse(requestId, value, effectiveDelivery);
+    return { accepted: true };
+  }
+
+  // Conversation-less requests (e.g. the CLI `credentials prompt` command) and
+  // any request no live conversation owns resolve generically via the resolver
+  // stored on the interaction, with no Conversation in the loop.
+  const resolved = pendingInteractions.resolve(
     requestId,
-    value,
-    delivery as "store" | "transient_send" | undefined,
+    value === undefined ? "cancelled" : "answered",
   );
+  (resolved?.rpcResolve as ((r: SecretPromptResult) => void) | undefined)?.({
+    value: value ?? null,
+    delivery: (effectiveDelivery as SecretDelivery) ?? "store",
+  });
   return { accepted: true };
 }
 
@@ -220,6 +256,15 @@ function handleListPendingInteractions({ queryParams }: RouteHandlerArgs) {
     pendingSecret: secret
       ? {
           requestId: secret.requestId,
+          service: secret.secretDetails?.service,
+          field: secret.secretDetails?.field,
+          label: secret.secretDetails?.label,
+          description: secret.secretDetails?.description,
+          placeholder: secret.secretDetails?.placeholder,
+          purpose: secret.secretDetails?.purpose,
+          allowedTools: secret.secretDetails?.allowedTools,
+          allowedDomains: secret.secretDetails?.allowedDomains,
+          allowOneTimeSend: secret.secretDetails?.allowOneTimeSend,
         }
       : null,
   };
@@ -314,15 +359,27 @@ export const ROUTES: RouteDefinition[] = [
         .describe("Pending confirmation details or null")
         .optional(),
       pendingSecret: z
-        .object({})
+        .object({
+          requestId: z.string(),
+          service: z.string().optional(),
+          field: z.string().optional(),
+          label: z.string().optional(),
+          description: z.string().optional(),
+          placeholder: z.string().optional(),
+          purpose: z.string().optional(),
+          allowedTools: z.array(z.string()).optional(),
+          allowedDomains: z.array(z.string()).optional(),
+          allowOneTimeSend: z.boolean().optional(),
+        })
         .passthrough()
+        .nullable()
         .describe("Pending secret request or null")
         .optional(),
       interactions: z
         .array(
           z.object({
             requestId: z.string(),
-            conversationId: z.string(),
+            conversationId: z.string().optional(),
             kind: z.string(),
             toolName: z.string().optional(),
             riskLevel: z.string().optional(),

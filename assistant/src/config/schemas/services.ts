@@ -1,10 +1,14 @@
 import { z } from "zod";
 
+import { DEFAULT_IMAGE_MODEL } from "../../media/image-models.js";
+import { FETCH_PROVIDER_IDS } from "../../providers/fetch-provider-catalog.js";
 import { SEARCH_PROVIDER_IDS } from "../../providers/search-provider-catalog.js";
 import { SttServiceSchema } from "./stt.js";
 import { TtsServiceSchema } from "./tts.js";
 
-const ServiceModeSchema = z.enum(["managed", "your-own"]);
+export const ServiceModeSchema = z
+  .enum(["managed", "your-own"])
+  .meta({ id: "ServiceMode" });
 type ServiceMode = z.infer<typeof ServiceModeSchema>;
 
 export const VALID_INFERENCE_PROVIDERS = [
@@ -25,6 +29,13 @@ const VALID_IMAGE_GEN_PROVIDERS = ["gemini", "openai"] as const;
  */
 const VALID_WEB_SEARCH_PROVIDERS = SEARCH_PROVIDER_IDS;
 
+/**
+ * Derived from `FETCH_PROVIDER_CATALOG`. Adding a new web-fetch provider
+ * to the catalog automatically extends the config-schema enum — no edit
+ * here required.
+ */
+const VALID_WEB_FETCH_PROVIDERS = FETCH_PROVIDER_IDS;
+
 const BaseServiceSchema = z.object({
   mode: ServiceModeSchema.default("your-own"),
 });
@@ -42,7 +53,7 @@ const InferenceServiceSchema = z.object({});
 
 const ImageGenerationServiceSchema = BaseServiceSchema.extend({
   provider: z.enum(VALID_IMAGE_GEN_PROVIDERS).default("gemini"),
-  model: z.string().default("gemini-3.1-flash-image-preview"),
+  model: z.string().default(DEFAULT_IMAGE_MODEL),
 });
 
 const WebSearchServiceSchema = BaseServiceSchema.extend({
@@ -53,6 +64,15 @@ const WebSearchServiceSchema = BaseServiceSchema.extend({
   provider: z
     .enum(VALID_WEB_SEARCH_PROVIDERS)
     .default("inference-provider-native"),
+});
+
+const WebFetchServiceSchema = BaseServiceSchema.extend({
+  // Provider that backs the `web_fetch` tool. `default` is the daemon's
+  // built-in HTTP fetch + extract path (no key). BYOK providers (e.g.
+  // `firecrawl`) scrape via their hosted API and reuse the same stored key as
+  // their web-search counterpart. The `mode` field is inherited from
+  // `BaseServiceSchema` for symmetry; web-fetch has no managed proxy today.
+  provider: z.enum(VALID_WEB_FETCH_PROVIDERS).default("default"),
 });
 
 const GoogleOAuthServiceSchema = BaseServiceSchema.extend({
@@ -139,6 +159,7 @@ export const ServicesSchema = z.object({
   "web-search": WebSearchServiceSchema.default(
     WebSearchServiceSchema.parse({}),
   ),
+  "web-fetch": WebFetchServiceSchema.default(WebFetchServiceSchema.parse({})),
   stt: SttServiceSchema.default({
     mode: "your-own" as const,
     provider: "deepgram" as const,

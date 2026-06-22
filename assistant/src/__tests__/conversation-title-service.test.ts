@@ -51,18 +51,57 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+const mockPublishConversationTitleChanged = mock(
+  (_conversationId: string, _title: string) => {},
+);
+mock.module("../runtime/sync/resource-sync-events.js", () => ({
+  publishConversationTitleChanged: mockPublishConversationTitleChanged,
+}));
+
 import {
+  AUTO_TITLE_DETERMINISTIC,
   generateAndPersistConversationTitle,
+  queueGenerateConversationTitle,
   regenerateConversationTitle,
+  titleMutex,
 } from "../memory/conversation-title-service.js";
 
 describe("conversation-title-service", () => {
   beforeEach(() => {
     mockRunBtwSidechain.mockClear();
+    mockRunBtwSidechain.mockImplementation(
+      async (_params: Record<string, unknown>) => ({
+        text: "Project kickoff",
+        hadTextDeltas: true,
+        response: {
+          content: [{ type: "text", text: "Project kickoff" }],
+          model: "test-model",
+          usage: { inputTokens: 10, outputTokens: 5 },
+          stopReason: "end_turn",
+        },
+      }),
+    );
     mockGetConversation.mockClear();
+    mockGetConversation.mockImplementation(
+      (_conversationId: string) =>
+        ({
+          title: "Generating title...",
+          isAutoTitle: 1,
+        }) as {
+          title: string;
+          isAutoTitle: number;
+        },
+    );
     mockGetMessages.mockClear();
+    mockGetMessages.mockImplementation(() => [
+      { role: "user", content: "first message" },
+      { role: "assistant", content: "first reply" },
+      { role: "user", content: "follow-up" },
+    ]);
     mockUpdateConversationTitle.mockClear();
     mockGetConfiguredProvider.mockClear();
+    mockGetConfiguredProvider.mockImplementation(async () => null);
+    mockPublishConversationTitleChanged.mockClear();
   });
 
   test("uses the BTW side-chain helper for initial title generation", async () => {
@@ -87,13 +126,19 @@ describe("conversation-title-service", () => {
         systemPrompt: expect.stringContaining("conversation titles"),
         tools: [],
         callSite: "conversationTitle",
-        timeoutMs: 10_000,
+        timeoutMs: 15_000,
       }),
     );
     expect(mockUpdateConversationTitle).toHaveBeenCalledWith(
       "conv-1",
       "Project kickoff",
       1,
+    );
+    // Emit is service-native: persisting a title broadcasts the update so
+    // every title origin (agent loop, bootstrap, voice) updates clients live.
+    expect(mockPublishConversationTitleChanged).toHaveBeenCalledWith(
+      "conv-1",
+      "Project kickoff",
     );
   });
 
@@ -205,7 +250,7 @@ describe("conversation-title-service", () => {
         systemPrompt: expect.stringContaining("conversation titles"),
         tools: [],
         callSite: "conversationTitle",
-        timeoutMs: 10_000,
+        timeoutMs: 15_000,
       }),
     );
     expect(mockUpdateConversationTitle).toHaveBeenCalledWith(
@@ -213,6 +258,30 @@ describe("conversation-title-service", () => {
       "Project kickoff",
       1,
     );
+  });
+
+  test("fallback retry skips regeneration after a successful initial title", async () => {
+    mockGetConversation.mockReturnValueOnce({
+      title: "Project kickoff",
+      isAutoTitle: 1,
+    });
+
+    const provider = {
+      name: "test-provider",
+      sendMessage: mock(async () => {
+        throw new Error("should not call directly");
+      }),
+    };
+
+    const result = await regenerateConversationTitle({
+      conversationId: "conv-1",
+      provider,
+      onlyIfReplaceable: true,
+    });
+
+    expect(result).toEqual({ title: "Project kickoff", updated: false });
+    expect(mockRunBtwSidechain).not.toHaveBeenCalled();
+    expect(mockUpdateConversationTitle).not.toHaveBeenCalled();
   });
 
   test("rejects meta-failure outputs like 'Missing Context' and uses fallback", async () => {
@@ -244,7 +313,7 @@ describe("conversation-title-service", () => {
     expect(mockUpdateConversationTitle).toHaveBeenCalledWith(
       "conv-1",
       "Untitled Conversation",
-      1,
+      AUTO_TITLE_DETERMINISTIC,
     );
   });
 
@@ -353,5 +422,132 @@ describe("conversation-title-service", () => {
     expect(call.content).not.toContain("Generate a very short title");
     expect(call.content).not.toContain("do NOT respond");
     expect(call.systemPrompt).toContain("Do NOT respond");
+  });
+
+  test("queueGenerateConversationTitle serializes concurrent calls", async () => {
+    const callOrder: string[] = [];
+    let resolveFirst!: () => void;
+    const firstBlocked = new Promise<void>((r) => {
+      resolveFirst = r;
+    });
+
+    // First call: blocks until we release it
+    mockRunBtwSidechain.mockImplementationOnce(async () => {
+      callOrder.push("first:start");
+      await firstBlocked;
+      callOrder.push("first:end");
+      return {
+        text: "Title One",
+        hadTextDeltas: true,
+        response: {
+          content: [{ type: "text", text: "Title One" }],
+          model: "test-model",
+          usage: { inputTokens: 10, outputTokens: 5 },
+          stopReason: "end_turn",
+        },
+      };
+    });
+
+    // Second call: resolves immediately
+    mockRunBtwSidechain.mockImplementationOnce(async () => {
+      callOrder.push("second:start");
+      return {
+        text: "Title Two",
+        hadTextDeltas: true,
+        response: {
+          content: [{ type: "text", text: "Title Two" }],
+          model: "test-model",
+          usage: { inputTokens: 10, outputTokens: 5 },
+          stopReason: "end_turn",
+        },
+      };
+    });
+
+    const provider = {
+      name: "test-provider",
+      sendMessage: mock(async () => {
+        throw new Error("should not call directly");
+      }),
+    };
+
+    // Fire both calls — without serialization both would start immediately
+    queueGenerateConversationTitle({
+      conversationId: "conv-1",
+      provider,
+      userMessage: "first message",
+    });
+    queueGenerateConversationTitle({
+      conversationId: "conv-2",
+      provider,
+      userMessage: "second message",
+    });
+
+    // Let microtasks settle — only the first call should have started
+    await new Promise((r) => setTimeout(r, 10));
+    expect(callOrder).toEqual(["first:start"]);
+
+    // Release the first call
+    resolveFirst();
+    await titleMutex.withLock(async () => {});
+
+    // Second should have started only after first finished
+    expect(callOrder).toEqual(["first:start", "first:end", "second:start"]);
+  });
+
+  test("queue continues processing after a failed call", async () => {
+    // First call: throws
+    mockRunBtwSidechain.mockImplementationOnce(async () => {
+      throw new Error("provider timeout");
+    });
+
+    // Second call: succeeds
+    mockRunBtwSidechain.mockImplementationOnce(async () => ({
+      text: "Recovery Title",
+      hadTextDeltas: true,
+      response: {
+        content: [{ type: "text", text: "Recovery Title" }],
+        model: "test-model",
+        usage: { inputTokens: 10, outputTokens: 5 },
+        stopReason: "end_turn",
+      },
+    }));
+
+    const provider = {
+      name: "test-provider",
+      sendMessage: mock(async () => {
+        throw new Error("should not call directly");
+      }),
+    };
+
+    queueGenerateConversationTitle({
+      conversationId: "conv-1",
+      provider,
+      userMessage: "will fail",
+    });
+    queueGenerateConversationTitle({
+      conversationId: "conv-2",
+      provider,
+      userMessage: "will succeed",
+    });
+
+    await titleMutex.withLock(async () => {});
+
+    // Both calls went through — failure didn't break the chain
+    expect(mockRunBtwSidechain).toHaveBeenCalledTimes(2);
+    const firstUpdate = (
+      mockUpdateConversationTitle.mock.calls as unknown as Array<
+        [string, string, number?]
+      >
+    ).find((c) => c[0] === "conv-1");
+    expect(firstUpdate).toEqual([
+      "conv-1",
+      "Untitled Conversation",
+      AUTO_TITLE_DETERMINISTIC,
+    ]);
+    // Second conversation got a proper title
+    const secondUpdate = (
+      mockUpdateConversationTitle.mock.calls as unknown as string[][]
+    ).find((c) => c[0] === "conv-2" && c[1] === "Recovery Title");
+    expect(secondUpdate).toBeTruthy();
   });
 });

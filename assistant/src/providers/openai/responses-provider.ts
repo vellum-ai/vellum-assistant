@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 
+import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
@@ -14,6 +15,7 @@ import type {
   SendMessageOptions,
 } from "../types.js";
 import { ContextOverflowError } from "../types.js";
+import { wrapUnparseableToolArgs } from "../unparseable-tool-args.js";
 import { detectOpenAICompatibleContextOverflow } from "./chat-completions-provider.js";
 
 const log = getLogger("openai-responses");
@@ -48,6 +50,41 @@ const EFFORT_TO_REASONING_EFFORT: Record<
 
 /** Values accepted by the Responses API `text.verbosity` parameter. */
 const VALID_VERBOSITIES = new Set<string>(["low", "medium", "high"]);
+
+/**
+ * Translate the neutral (Anthropic-shaped) `tool_choice` carried on the call
+ * config into the OpenAI Responses API wire format. Callers express
+ * `tool_choice` once in the Anthropic union — `{ type: "auto" | "any" | "none"
+ * | "tool", name? }`. For the Responses API:
+ *   - `{ type: "auto" }`        -> `"auto"`
+ *   - `{ type: "any" }`         -> `"required"`
+ *   - `{ type: "none" }`        -> `"none"`
+ *   - `{ type: "tool", name }`  -> `{ type: "function", name }`
+ * Note the named shape differs from chat-completions (no nested `function`
+ * wrapper). Returns `undefined` for an absent or unrecognized value.
+ *
+ * https://platform.openai.com/docs/api-reference/responses/create#responses-create-tool_choice
+ */
+export function mapNeutralToolChoiceForResponses(
+  toolChoice: unknown,
+): string | { type: "function"; name: string } | undefined {
+  if (toolChoice == null || typeof toolChoice !== "object") return undefined;
+  const tc = toolChoice as { type?: unknown; name?: unknown };
+  switch (tc.type) {
+    case "auto":
+      return "auto";
+    case "any":
+      return "required";
+    case "none":
+      return "none";
+    case "tool":
+      return typeof tc.name === "string"
+        ? { type: "function", name: tc.name }
+        : undefined;
+    default:
+      return undefined;
+  }
+}
 
 /** `text.verbosity` is a GPT-5-series-only parameter. Older models on the
  *  Responses API (o-series, etc.) reject unknown wire fields with HTTP 400, so
@@ -181,7 +218,10 @@ export class OpenAIResponsesProvider implements Provider {
       };
 
       if (systemPrompt) {
-        params.instructions = systemPrompt;
+        params.instructions = systemPrompt.replaceAll(
+          SYSTEM_PROMPT_CACHE_BOUNDARY,
+          "\n\n",
+        );
       }
 
       if (maxTokens && !this.codexSubscription) {
@@ -202,6 +242,16 @@ export class OpenAIResponsesProvider implements Provider {
       ) {
         params.text = { verbosity };
       }
+
+      // Sampling params (`top_p`/`temperature`) are intentionally NOT forwarded
+      // on the Responses path. OpenAI reasoning models (o-series, GPT-5
+      // reasoning) reject them with HTTP 400 when reasoning is active, and the
+      // resolved `effort` defaults to a reasoning effort, so `reasoning` is set
+      // on essentially every Responses request. The profile editor therefore
+      // doesn't surface `topP` for the native `openai` provider (mirroring
+      // `temperature`, which is also never offered/forwarded here); OpenAI-
+      // compatible connections, which use the chat-completions client, honor
+      // `top_p` normally.
 
       if (tools && tools.length > 0) {
         if (
@@ -228,6 +278,16 @@ export class OpenAIResponsesProvider implements Provider {
             parameters: t.input_schema,
             strict: null,
           }));
+        }
+
+        // Honor a caller-supplied tool_choice (e.g. `{ type: "none" }` to force
+        // a text-only answer, or `{ type: "tool", name }` for a forced call).
+        // Only meaningful when tools are present.
+        const toolChoice = mapNeutralToolChoiceForResponses(
+          configObj?.tool_choice,
+        );
+        if (toolChoice !== undefined) {
+          params.tool_choice = toolChoice;
         }
       }
 
@@ -416,7 +476,7 @@ export class OpenAIResponsesProvider implements Provider {
         try {
           input = JSON.parse(tc.args);
         } catch {
-          input = { _raw: tc.args };
+          input = wrapUnparseableToolArgs(tc.args);
         }
         content.push({
           type: "tool_use",

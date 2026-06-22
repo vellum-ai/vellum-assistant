@@ -75,6 +75,7 @@ mock.module("../util/platform.js", () => ({
 
 mock.module("../permissions/gateway-threshold-reader.js", () => ({
   getAutoApproveThreshold: async () => undefined,
+  refreshAutoApproveThreshold: async () => null,
 }));
 
 mock.module("../permissions/workspace-policy.js", () => ({

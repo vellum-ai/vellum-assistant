@@ -9,31 +9,28 @@
  * intro generation. The response is streamed as SSE events (`btw_text_delta`,
  * `btw_complete`, `btw_error`).
  *
- * No messages are persisted. `conversation.processing` is never set or checked.
+ * No messages are persisted. The conversation's processing flag is never set or checked.
  */
-
-import { existsSync, readFileSync } from "node:fs";
 
 import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
-import { readNowScratchpad } from "../../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
-import { parseIdentityFields } from "../../daemon/handlers/identity.js";
+import { readNowScratchpad } from "../../daemon/now-scratchpad.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import { getAllToolDefinitions } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
-import { getWorkspacePromptPath } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { runBtwSidechain } from "../btw-sidechain.js";
+import {
+  getCachedEmptyStateGreeting,
+  setCachedEmptyStateGreeting,
+} from "./empty-state-greeting-cache.js";
 import { BadRequestError, ServiceUnavailableError } from "./errors.js";
-import { getCachedIntro, setCachedIntro } from "./identity-intro-cache.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+import { readWorkspaceGreetings } from "./workspace-greetings.js";
 
 const log = getLogger("btw-routes");
-
-/** Conversation key used by the client for identity intro generation. */
-const IDENTITY_INTRO_KEY = "identity-intro";
 
 /** Conversation key used by the client for empty-state greeting generation. */
 const GREETING_KEY = "greeting";
@@ -68,26 +65,21 @@ async function handleBtw({
 
   const trimmedContent = content.trim();
 
-  // ----- Identity intro fast-path -----
-  if (conversationKey === IDENTITY_INTRO_KEY) {
-    let fastText: string | undefined;
-    const identityPath = getWorkspacePromptPath("IDENTITY.md");
-    if (existsSync(identityPath)) {
-      const fields = parseIdentityFields(readFileSync(identityPath, "utf-8"));
-      if (fields.name) {
-        fastText = `Hi, I'm ${fields.name}!`;
-      }
+  // ----- Empty-state greeting fast-path -----
+  // User-authored `## Greetings` win; otherwise replay a cached greeting when
+  // one is fresh within the configurable TTL (`ui.emptyStateGreetingCacheTtlMs`,
+  // 0 = always regenerate). Either path avoids an LLM call and streams the
+  // text straight back.
+  if (conversationKey === GREETING_KEY) {
+    const authored = readWorkspaceGreetings();
+    if (authored && authored.length > 0) {
+      log.debug("Returning authored empty-state greeting");
+      return streamText(pickRandom(authored));
     }
-    fastText ??= getCachedIntro()?.greetings[0];
-    if (fastText) {
-      log.debug("Returning identity intro fast-path");
-      return new ReadableStream({
-        start(controller) {
-          controller.enqueue(sseEvent("btw_text_delta", { text: fastText }));
-          controller.enqueue(sseEvent("btw_complete", {}));
-          controller.close();
-        },
-      });
+    const cached = getCachedEmptyStateGreeting();
+    if (cached) {
+      log.debug("Returning cached empty-state greeting");
+      return streamText(cached);
     }
   }
 
@@ -118,7 +110,6 @@ async function handleBtw({
     start(controller) {
       (async () => {
         try {
-          const isIntroRequest = conversationKey === IDENTITY_INTRO_KEY;
           const isGreeting = conversationKey === GREETING_KEY;
           const result = await runBtwSidechain({
             content: effectiveContent,
@@ -145,13 +136,10 @@ async function handleBtw({
             );
           }
 
-          if (isIntroRequest && result.text) {
-            try {
-              setCachedIntro([result.text]);
-              log.debug("Cached identity intro text");
-            } catch {
-              // Non-fatal — next request will regenerate.
-            }
+          if (isGreeting && result.text) {
+            // setCachedEmptyStateGreeting is a no-op when the TTL is 0.
+            setCachedEmptyStateGreeting(result.text);
+            log.debug("Cached empty-state greeting text");
           }
 
           controller.enqueue(sseEvent("btw_complete", {}));
@@ -167,6 +155,20 @@ async function handleBtw({
           }
         }
       })();
+    },
+  });
+}
+
+function pickRandom<T>(items: readonly T[]): T {
+  return items[Math.floor(Math.random() * items.length)]!;
+}
+
+function streamText(text: string): ReadableStream<Uint8Array> {
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(sseEvent("btw_text_delta", { text }));
+      controller.enqueue(sseEvent("btw_complete", {}));
+      controller.close();
     },
   });
 }

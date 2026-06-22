@@ -3,7 +3,7 @@
  *
  * `POST /v1/export` collects audit DB rows, daemon logs, and a sanitized
  * `config.json` snapshot. This module governs which subpaths of the user's
- * workspace directory (`~/.vellum/workspace/`) are *opted in* to the export
+ * workspace directory (`$VELLUM_WORKSPACE_DIR/`) are *opted in* to the export
  * archive. The default is "nothing from the workspace ships" — every entry
  * here must be justified against the rules in `./AGENTS.md`.
  *

@@ -95,10 +95,17 @@ export async function indexMessageNow(
       ? candidateMediaMeta
       : [];
 
-  // Wrap all segment inserts and job enqueues in a single transaction so they
-  // either all succeed or all roll back, preventing partial/orphaned state.
+  // Wrap all segment inserts in a single transaction so they either all
+  // succeed or all roll back, preventing partial/orphaned state. The job
+  // enqueues target the dedicated memory connection (`memory_jobs` lives in
+  // its own file), so they can't share this main-DB transaction — collect them
+  // here and flush them after the transaction commits.
   let skippedEmbedJobs = 0;
   let skippedShortSegments = 0;
+  const pendingJobs: Array<{
+    type: "embed_segment" | "embed_attachment";
+    payload: Record<string, unknown>;
+  }> = [];
   db.transaction((tx) => {
     for (const segment of segments) {
       if (segment.text.length < MIN_SEGMENT_CHARS) {
@@ -144,7 +151,7 @@ export async function indexMessageNow(
       if (existing?.contentHash === hash) {
         skippedEmbedJobs++;
       } else if (isMemoryEnabled()) {
-        enqueueMemoryJob("embed_segment", { segmentId }, Date.now(), tx);
+        pendingJobs.push({ type: "embed_segment", payload: { segmentId } });
       }
     }
 
@@ -152,15 +159,20 @@ export async function indexMessageNow(
     // embedding provider supports multimodal (Gemini only).
     if (isMemoryEnabled()) {
       for (const block of mediaBlocks) {
-        enqueueMemoryJob(
-          "embed_attachment",
-          { messageId: input.messageId, blockIndex: block.index },
-          Date.now(),
-          tx,
-        );
+        pendingJobs.push({
+          type: "embed_attachment",
+          payload: { messageId: input.messageId, blockIndex: block.index },
+        });
       }
     }
   });
+
+  // Flush queued jobs onto the memory connection now the segment writes have
+  // committed — enqueue only on success, mirroring the prior in-transaction
+  // behavior without spanning the two connections.
+  for (const job of pendingJobs) {
+    enqueueMemoryJob(job.type, job.payload);
+  }
 
   // ── Batch extraction tracking ──────────────────────────────────────
   // Instead of per-message extraction, track pending unextracted messages

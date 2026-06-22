@@ -23,7 +23,7 @@ import {
 } from "../memory/canonical-guardian-store.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-initializeDb();
+await initializeDb();
 
 // All decisionable kinds (tool_approval, pending_question, access_request)
 // require a guardianPrincipalId. Use a constant for test fixtures.

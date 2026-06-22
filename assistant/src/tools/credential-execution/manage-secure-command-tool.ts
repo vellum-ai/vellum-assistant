@@ -18,8 +18,13 @@
 import type { ManageSecureCommandTool } from "@vellumai/service-contracts/rpc";
 
 import { RiskLevel } from "../../permissions/types.js";
+import { getCesClient } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
-import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
+import type {
+  ToolContext,
+  ToolDefinition,
+  ToolExecutionResult,
+} from "../types.js";
 
 const log = getLogger("ces-tool:manage-secure-command-tool");
 
@@ -34,211 +39,211 @@ class ManageSecureCommandToolImpl implements ToolDefinition {
   defaultRiskLevel = RiskLevel.High;
 
   input_schema = {
+    type: "object",
+    properties: {
+      action: {
+        type: "string",
+        enum: ["register", "unregister"],
+        description:
+          'Whether to install/update ("register") or remove ("unregister") the secure command tool.',
+      },
+      toolName: {
+        type: "string",
+        description:
+          "Unique tool name for the secure command (e.g. aws-cli, kubectl).",
+      },
+      bundleId: {
+        type: "string",
+        description:
+          "Bundle identifier for the secure command package (required for register).",
+      },
+      version: {
+        type: "string",
+        description:
+          "Semantic version of the bundle to install (required for register).",
+      },
+      sourceUrl: {
+        type: "string",
+        description:
+          "URL from which CES will download the bundle (required for register). Must be HTTPS.",
+      },
+      sha256: {
+        type: "string",
+        description:
+          "SHA-256 hash of the bundle for integrity verification (required for register).",
+      },
+      credentialHandle: {
+        type: "string",
+        description:
+          "CES credential handle the tool should use (required for register).",
+      },
+      description: {
+        type: "string",
+        description:
+          "Human-readable description of what the secure command tool does (required for register).",
+      },
+      secureCommandManifest: {
         type: "object",
+        description:
+          "Full secure command manifest for the bundle (required for register). " +
+          "Contains entrypoint, command profiles, auth adapter, egress mode, etc. " +
+          "CES validates this manifest before publishing the bundle.",
         properties: {
-          action: {
+          schemaVersion: {
             type: "string",
-            enum: ["register", "unregister"],
-            description:
-              'Whether to install/update ("register") or remove ("unregister") the secure command tool.',
+            description: 'Manifest schema version. Must be "1".',
           },
-          toolName: {
+          bundleDigest: {
             type: "string",
-            description:
-              "Unique tool name for the secure command (e.g. aws-cli, kubectl).",
+            description: "SHA-256 hex digest of the command bundle.",
           },
           bundleId: {
             type: "string",
-            description:
-              "Bundle identifier for the secure command package (required for register).",
+            description: "Unique identifier for the command bundle.",
           },
           version: {
             type: "string",
-            description:
-              "Semantic version of the bundle to install (required for register).",
+            description: "Semantic version of the bundle.",
           },
-          sourceUrl: {
+          entrypoint: {
             type: "string",
             description:
-              "URL from which CES will download the bundle (required for register). Must be HTTPS.",
+              'Path to the executable entrypoint within the bundle (e.g. "bin/gh").',
           },
-          sha256: {
-            type: "string",
-            description:
-              "SHA-256 hash of the bundle for integrity verification (required for register).",
-          },
-          credentialHandle: {
-            type: "string",
-            description:
-              "CES credential handle the tool should use (required for register).",
-          },
-          description: {
-            type: "string",
-            description:
-              "Human-readable description of what the secure command tool does (required for register).",
-          },
-          secureCommandManifest: {
+          commandProfiles: {
             type: "object",
             description:
-              "Full secure command manifest for the bundle (required for register). " +
-              "Contains entrypoint, command profiles, auth adapter, egress mode, etc. " +
-              "CES validates this manifest before publishing the bundle.",
+              "Named command profiles. Each profile defines a narrow execution boundary.",
+            additionalProperties: {
+              type: "object",
+              properties: {
+                description: { type: "string" },
+                allowedArgvPatterns: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      name: { type: "string" },
+                      tokens: {
+                        type: "array",
+                        items: { type: "string" },
+                      },
+                    },
+                    required: ["name", "tokens"],
+                  },
+                },
+                deniedSubcommands: {
+                  type: "array",
+                  items: { type: "string" },
+                },
+                deniedFlags: {
+                  type: "array",
+                  items: { type: "string" },
+                },
+                allowedNetworkTargets: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      hostPattern: { type: "string" },
+                      ports: {
+                        type: "array",
+                        items: { type: "number" },
+                      },
+                      protocols: {
+                        type: "array",
+                        items: { type: "string" },
+                      },
+                    },
+                    required: ["hostPattern"],
+                  },
+                },
+              },
+              required: [
+                "description",
+                "allowedArgvPatterns",
+                "deniedSubcommands",
+              ],
+            },
+          },
+          authAdapter: {
+            type: "object",
+            description:
+              "Auth adapter configuration describing how credentials are injected. " +
+              "Use type=env_var to set an environment variable, type=temp_file to write " +
+              "credentials to a temporary file, or type=credential_process to run a helper command.",
             properties: {
-              schemaVersion: {
+              type: {
                 type: "string",
-                description: 'Manifest schema version. Must be "1".',
+                enum: ["env_var", "temp_file", "credential_process"],
+                description:
+                  "Adapter type: env_var, temp_file, or credential_process.",
               },
-              bundleDigest: {
-                type: "string",
-                description: "SHA-256 hex digest of the command bundle.",
-              },
-              bundleId: {
-                type: "string",
-                description: "Unique identifier for the command bundle.",
-              },
-              version: {
-                type: "string",
-                description: "Semantic version of the bundle.",
-              },
-              entrypoint: {
+              envVarName: {
                 type: "string",
                 description:
-                  'Path to the executable entrypoint within the bundle (e.g. "bin/gh").',
+                  "Environment variable name for credential injection (required for all types).",
               },
-              commandProfiles: {
-                type: "object",
-                description:
-                  "Named command profiles. Each profile defines a narrow execution boundary.",
-                additionalProperties: {
-                  type: "object",
-                  properties: {
-                    description: { type: "string" },
-                    allowedArgvPatterns: {
-                      type: "array",
-                      items: {
-                        type: "object",
-                        properties: {
-                          name: { type: "string" },
-                          tokens: {
-                            type: "array",
-                            items: { type: "string" },
-                          },
-                        },
-                        required: ["name", "tokens"],
-                      },
-                    },
-                    deniedSubcommands: {
-                      type: "array",
-                      items: { type: "string" },
-                    },
-                    deniedFlags: {
-                      type: "array",
-                      items: { type: "string" },
-                    },
-                    allowedNetworkTargets: {
-                      type: "array",
-                      items: {
-                        type: "object",
-                        properties: {
-                          hostPattern: { type: "string" },
-                          ports: {
-                            type: "array",
-                            items: { type: "number" },
-                          },
-                          protocols: {
-                            type: "array",
-                            items: { type: "string" },
-                          },
-                        },
-                        required: ["hostPattern"],
-                      },
-                    },
-                  },
-                  required: [
-                    "description",
-                    "allowedArgvPatterns",
-                    "deniedSubcommands",
-                  ],
-                },
-              },
-              authAdapter: {
-                type: "object",
-                description:
-                  "Auth adapter configuration describing how credentials are injected. " +
-                  "Use type=env_var to set an environment variable, type=temp_file to write " +
-                  "credentials to a temporary file, or type=credential_process to run a helper command.",
-                properties: {
-                  type: {
-                    type: "string",
-                    enum: ["env_var", "temp_file", "credential_process"],
-                    description:
-                      "Adapter type: env_var, temp_file, or credential_process.",
-                  },
-                  envVarName: {
-                    type: "string",
-                    description:
-                      "Environment variable name for credential injection (required for all types).",
-                  },
-                  valuePrefix: {
-                    type: "string",
-                    description:
-                      'Optional prefix prepended to the credential value (env_var only, e.g. "Bearer ").',
-                  },
-                  fileExtension: {
-                    type: "string",
-                    description:
-                      'Optional file extension for the temp file (temp_file only, e.g. ".json").',
-                  },
-                  fileMode: {
-                    type: "number",
-                    description:
-                      "Optional file mode/permissions for the temp file (temp_file only, e.g. 0o600).",
-                  },
-                  helperCommand: {
-                    type: "string",
-                    description:
-                      "Command to run to obtain credentials (credential_process only, required for that type).",
-                  },
-                  timeoutMs: {
-                    type: "number",
-                    description:
-                      "Timeout in milliseconds for the helper command (credential_process only).",
-                  },
-                },
-                required: ["type", "envVarName"],
-              },
-              egressMode: {
+              valuePrefix: {
                 type: "string",
-                enum: ["proxy_required", "no_network"],
-                description: "Network egress enforcement mode.",
-              },
-              cleanConfigDirs: {
-                type: "object",
                 description:
-                  "Config directories to mount as empty tmpfs during execution.",
-                additionalProperties: { type: "string" },
+                  'Optional prefix prepended to the credential value (env_var only, e.g. "Bearer ").',
+              },
+              fileExtension: {
+                type: "string",
+                description:
+                  'Optional file extension for the temp file (temp_file only, e.g. ".json").',
+              },
+              fileMode: {
+                type: "number",
+                description:
+                  "Optional file mode/permissions for the temp file (temp_file only, e.g. 0o600).",
+              },
+              helperCommand: {
+                type: "string",
+                description:
+                  "Command to run to obtain credentials (credential_process only, required for that type).",
+              },
+              timeoutMs: {
+                type: "number",
+                description:
+                  "Timeout in milliseconds for the helper command (credential_process only).",
               },
             },
-            required: [
-              "schemaVersion",
-              "bundleDigest",
-              "bundleId",
-              "version",
-              "entrypoint",
-              "commandProfiles",
-              "authAdapter",
-              "egressMode",
-            ],
+            required: ["type", "envVarName"],
+          },
+          egressMode: {
+            type: "string",
+            enum: ["proxy_required", "no_network"],
+            description: "Network egress enforcement mode.",
+          },
+          cleanConfigDirs: {
+            type: "object",
+            description:
+              "Config directories to mount as empty tmpfs during execution.",
+            additionalProperties: { type: "string" },
           },
         },
-        required: ["action", "toolName"],
-      };
+        required: [
+          "schemaVersion",
+          "bundleDigest",
+          "bundleId",
+          "version",
+          "entrypoint",
+          "commandProfiles",
+          "authAdapter",
+          "egressMode",
+        ],
+      },
+    },
+    required: ["action", "toolName"],
+  };
 
   async execute(
     input: Record<string, unknown>,
-    context: ToolContext,
+    _context: ToolContext,
   ): Promise<ToolExecutionResult> {
-    const cesClient = context.cesClient;
+    const cesClient = getCesClient();
     if (!cesClient) {
       return {
         content:

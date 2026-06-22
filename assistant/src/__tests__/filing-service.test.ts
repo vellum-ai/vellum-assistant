@@ -96,9 +96,14 @@ mock.module("../util/logger.js", () => ({
   }),
 }));
 
-// Mock conversation title service
+// Mock conversation title service. `deriveDeterministicTitle` mirrors the
+// real implementation's systemHint passthrough so bootstrap-created
+// conversations carry their job hint as the title.
 mock.module("../memory/conversation-title-service.js", () => ({
   GENERATING_TITLE: "Generating title...",
+  AUTO_TITLE_DETERMINISTIC: 2,
+  deriveDeterministicTitle: (context: { systemHint?: string }) =>
+    context.systemHint ?? "Untitled Conversation",
   queueGenerateConversationTitle: () => {},
 }));
 
@@ -155,7 +160,7 @@ describe("FilingService", () => {
         conversationId: args[0] as string,
         content: args[1] as string,
         options:
-          (args[3] as { speed?: string; callSite?: string } | undefined) ??
+          (args[2] as { speed?: string; callSite?: string } | undefined) ??
           undefined,
       });
       return { messageId: "msg-1" };
@@ -230,12 +235,12 @@ describe("FilingService", () => {
     );
   });
 
-  test("creates background conversation with generating title placeholder", async () => {
+  test("creates background conversation with the deterministic filing title", async () => {
     const service = createService();
     await service.runOnce();
 
     expect(createdConversations).toHaveLength(1);
-    expect(createdConversations[0].title).toBe("Generating title...");
+    expect(createdConversations[0].title).toBe("Knowledge base filing");
     expect(createdConversations[0].conversationType).toBe("background");
     // Confirms FilingService routes through runBackgroundJob:
     //   source="filing" + runner-default groupId="system:background".
@@ -319,7 +324,7 @@ describe("FilingService", () => {
       let compactionCalls = 0;
 
       setTestProcessMessage((...args: unknown[]) => {
-        const callSite = (args[3] as { callSite?: string } | undefined)
+        const callSite = (args[2] as { callSite?: string } | undefined)
           ?.callSite;
         if (callSite === "filingAgent") {
           filingCalls += 1;

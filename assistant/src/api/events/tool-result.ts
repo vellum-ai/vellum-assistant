@@ -47,9 +47,14 @@ export const WebSearchProviderIdSchema = z.enum([
   "brave",
   "perplexity",
   "tavily",
+  "firecrawl",
 ]);
 
 export type WebSearchProviderId = z.infer<typeof WebSearchProviderIdSchema>;
+
+export const WebFetchProviderIdSchema = z.enum(["default", "firecrawl"]);
+
+export type WebFetchProviderId = z.infer<typeof WebFetchProviderIdSchema>;
 
 export const WebSearchResultItemSchema = z.object({
   rank: z.number(),
@@ -78,6 +83,7 @@ export type WebSearchMetadata = z.infer<typeof WebSearchMetadataSchema>;
 export const WebFetchMetadataSchema = z.object({
   url: z.string(),
   finalUrl: z.string(),
+  provider: WebFetchProviderIdSchema.optional(),
   status: z.number(),
   contentType: z.string().optional(),
   byteCount: z.number(),
@@ -124,6 +130,15 @@ export const ToolResultEventSchema = z.object({
   approvalReason: z.string().optional(),
   riskThreshold: z.string().optional(),
   activityMetadata: ToolActivityMetadataSchema.optional(),
+  /**
+   * Unix ms when the daemon finished executing the tool. Pairs with
+   * `ToolUseStartEvent.startedAt` so clients can render a final duration that
+   * stays on the daemon's clock, matching the live elapsed-time counter and
+   * avoiding skew between a server-stamped start and a browser-stamped end.
+   * Absent on streams from older daemons; clients fall back to their own
+   * receipt time.
+   */
+  completedAt: z.number().optional(),
 });
 
 export type ToolResultEvent = z.infer<typeof ToolResultEventSchema>;

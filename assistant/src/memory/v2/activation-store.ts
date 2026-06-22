@@ -11,7 +11,11 @@ import { eq } from "drizzle-orm";
 
 import type { DrizzleDb } from "../db-connection.js";
 import { activationState } from "../schema.js";
-import { type ActivationState, ActivationStateSchema } from "./types.js";
+import {
+  type ActivationState,
+  ActivationStateSchema,
+  type EverInjectedEntry,
+} from "./types.js";
 
 /**
  * Load the activation state for a conversation, or `null` if no row exists.
@@ -114,6 +118,51 @@ export function forkActivationState(
         currentTurn: row.currentTurn,
         updatedAt: row.updatedAt,
       },
+    })
+    .run();
+}
+
+/**
+ * Seed a truncated fork's activation row from the concept slugs whose
+ * `<memory>` attachments the child actually inherited.
+ *
+ * Truncated forks cannot take the wholesale `forkActivationState` copy: the
+ * parent row marks slugs injected on turns the child does not contain, so
+ * copying it would suppress those pages in the child forever (silent recall
+ * holes). Seeding nothing has the opposite failure — every attachment already
+ * present in the copied history gets re-selected and re-attached on the
+ * child's next turns as a duplicate. Deriving `everInjected` from the
+ * inherited attachments themselves is exact by construction.
+ *
+ * Activation scores and the turn counter intentionally start fresh: the turn
+ * counter is supplied by the graph tracker, which is also not copied for
+ * truncated forks, so both counters restart together. Inherited entries are
+ * stamped `turn: 0` — dedup is slug-set membership (`turn` is bookkeeping
+ * only) and compaction clears the list wholesale.
+ *
+ * No-op when the child inherited no memory attachments. Synchronous so it can
+ * run inside the transaction that wraps `forkConversation()`.
+ */
+export function seedForkActivationState(
+  database: DrizzleDb,
+  newConversationId: string,
+  inheritedSlugs: string[],
+): void {
+  if (inheritedSlugs.length === 0) return;
+
+  const everInjected: EverInjectedEntry[] = inheritedSlugs.map((slug) => ({
+    slug,
+    turn: 0,
+  }));
+  database
+    .insert(activationState)
+    .values({
+      conversationId: newConversationId,
+      messageId: `${newConversationId}:turn:0`,
+      stateJson: "{}",
+      everInjectedJson: JSON.stringify(everInjected),
+      currentTurn: 0,
+      updatedAt: Date.now(),
     })
     .run();
 }

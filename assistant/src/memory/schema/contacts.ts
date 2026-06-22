@@ -26,7 +26,6 @@ export const contactChannels = sqliteTable(
     isPrimary: integer("is_primary", { mode: "boolean" })
       .notNull()
       .default(false),
-    externalUserId: text("external_user_id"), // channel-native user ID (e.g., Telegram numeric ID, E.164 phone)
     externalChatId: text("external_chat_id"), // delivery/notification routing address (e.g., Telegram chat ID)
     status: text("status").notNull().default("unverified"), // 'active' | 'pending' | 'revoked' | 'blocked' | 'unverified'
     policy: text("policy").notNull().default("allow"), // 'allow' | 'deny' | 'escalate'
@@ -42,10 +41,6 @@ export const contactChannels = sqliteTable(
     createdAt: integer("created_at").notNull(),
   },
   (table) => [
-    index("idx_contact_channels_type_ext_user").on(
-      table.type,
-      table.externalUserId,
-    ),
     index("idx_contact_channels_type_ext_chat").on(
       table.type,
       table.externalChatId,

@@ -9,7 +9,7 @@
  *   3. Consume user decisions and apply them to the underlying session
  */
 
-import { findConversation } from "../daemon/conversation-store.js";
+import { findConversation } from "../daemon/conversation-registry.js";
 import type { UserDecision } from "../permissions/types.js";
 import { composeApprovalMessage } from "./approval-message-composer.js";
 import type {
@@ -170,20 +170,9 @@ export function handleChannelDecision(
   const conversation = findConversation(resolved.conversationId);
   if (!conversation) return { applied: false };
 
-  if (decisionContext === undefined) {
-    conversation.handleConfirmationResponse(
-      info.requestId,
-      userDecision,
-    );
-  } else {
-    conversation.handleConfirmationResponse(
-      info.requestId,
-      userDecision,
-      undefined,
-      undefined,
-      decisionContext,
-    );
-  }
+  conversation.handleConfirmationResponse(info.requestId, userDecision, {
+    decisionContext,
+  });
 
   return {
     applied: true,

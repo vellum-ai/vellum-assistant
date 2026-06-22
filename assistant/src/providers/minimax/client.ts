@@ -101,6 +101,15 @@ export class MinimaxProvider extends OpenAIChatCompletionsProvider {
       providerName: "minimax",
       providerLabel: "MiniMax",
       streamTimeoutMs: options.streamTimeoutMs,
+      // Without reasoning_split, MiniMax embeds reasoning in `content`
+      // wrapped in <think>...</think> tags (and also mirrors it into
+      // reasoning deltas), so raw tags leak into user-visible text. With it,
+      // reasoning arrives only via `reasoning_content`/`reasoning_details`,
+      // which the base provider already parses into thinking blocks.
+      extraCreateParams: { reasoning_split: true },
+      // MiniMax models reason between tool calls (interleaved thinking) and
+      // expect prior-turn reasoning replayed on multi-turn requests.
+      assistantReasoningField: "reasoning_content",
     });
   }
 }
