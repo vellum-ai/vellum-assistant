@@ -143,8 +143,10 @@ function SubagentPhaseRow({
       data-phase-label={section.label}
       className="relative flex flex-col gap-2"
     >
-      {/* No connector trails below the final row. */}
-      {!isLast && <TimelineConnector />}
+      {/* No connector trails below the final row. `-bottom-2` extends the line
+          lower than the main-chat default so the gap between segments is
+          tighter (the timeline still reads as segments, just closer together). */}
+      {!isLast && <TimelineConnector className="-bottom-2" />}
 
       <button
         type="button"

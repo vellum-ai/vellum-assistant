@@ -443,13 +443,17 @@ function TimelinePhaseSection({
  * the timeline reads as evenly-spaced segments rather than one line touching
  * every circle. Render only for non-last sections (nothing trails below the
  * final circle). Shared by the main-chat timeline and the subagent timeline so
- * the geometry stays in one place.
+ * the geometry stays in one place; callers may pass `className` to tweak it
+ * (e.g. the subagent timeline extends the bottom for a tighter segment gap).
  */
-export function TimelineConnector() {
+export function TimelineConnector({ className }: { className?: string }) {
   return (
     <div
       aria-hidden
-      className="absolute bottom-0 left-[6.5px] top-6 w-px bg-[var(--border-element)]"
+      className={cn(
+        "absolute bottom-0 left-[6.5px] top-6 w-px bg-[var(--border-element)]",
+        className,
+      )}
     />
   );
 }
