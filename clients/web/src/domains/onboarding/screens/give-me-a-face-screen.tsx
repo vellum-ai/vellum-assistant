@@ -165,7 +165,14 @@ export function GiveMeAFaceScreen({
         />
       )}
 
-      <OnboardingTopBar tone="light" onBack={onBack} onNext={onForward} />
+      {/* Redo routes through Continue (not the generic step redo) so any avatar
+          or name edits made after stepping back are captured before advancing —
+          otherwise the redo would re-stage the previous selection. */}
+      <OnboardingTopBar
+        tone="light"
+        onBack={onBack}
+        onNext={onForward ? handleContinue : undefined}
+      />
 
       {/* Title */}
       <h1
