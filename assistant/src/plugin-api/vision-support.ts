@@ -17,6 +17,12 @@ import {
 import type { ModelProfileInfo } from "./types.js";
 
 /**
+ * Mirrors `AUTO_PROFILE_KEY` in `assistant/src/config/seed-inference-profiles.ts`.
+ * See the doc comment on `doesSupportVision` for why this profile is special.
+ */
+const AUTO_PROFILE_KEY = "auto";
+
+/**
  * Whether a profile's resolved model can process image input.
  *
  * Resolution mirrors the host's call-site resolver:
@@ -28,12 +34,21 @@ import type { ModelProfileInfo } from "./types.js";
  *   the resolver's `withImpliedProviderForKnownModel`).
  * - For a mix profile, returns `true` if any constituent arm supports vision
  *   (the mix can route to it) and `false` only if every arm is text-only.
+ * - The "auto" meta-profile returns `false` — it has no concrete model and
+ *   may route to a text-only profile at runtime.
  * - Unknown `(provider, model)` pairs default to `true` (fail-open), matching
  *   the config GET route's `enrichProfilesWithVisionFlag`.
  */
 export function doesSupportVision(profile: ModelProfileInfo): boolean {
   const { llm } = getConfig();
   const entry = llm.profiles[profile.key];
+
+  // The "auto" meta-profile has no concrete provider/model — it delegates to
+  // the model's own profile selection at runtime, which may route to a
+  // text-only model. Conservatively report `false` so image-fallback does not
+  // pick it as a vision candidate.
+  if (profile.key === AUTO_PROFILE_KEY) return false;
+
   if (entry == null) return true;
 
   // Mix: fail-open if any arm supports vision.
