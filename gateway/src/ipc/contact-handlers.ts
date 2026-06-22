@@ -95,22 +95,18 @@ export const contactRoutes: IpcRoute[] = [
         canonicalizeInboundIdentity(channelType, address) ?? address.trim();
 
       const store = getStore();
-      // Preserve an existing contact's displayName on retry: only the caller's
-      // explicit displayName overrides it. Falling back to the existing name
-      // (or the canonical address for a brand-new contact) avoids clobbering a
-      // custom name with the bare address, since upsertContact always writes
-      // displayName.
-      const existing = store.getContactByChannel(channelType, canonicalAddress);
-      const effectiveDisplayName =
-        displayName ?? existing?.displayName ?? canonicalAddress;
-
+      // Omit displayName when the caller didn't supply one: upsertContact is
+      // omit-to-preserve, so an existing contact keeps its current name and a
+      // brand-new contact falls back to the canonical address. Passing a
+      // synthesized name here would clobber a custom name on retry.
+      //
       // Omit status/policy/externalChatId: syncChannels and the assistant-DB
       // mirror default a new channel but preserve an existing channel's values
       // on retry. Passing them here would demote a trusted channel below the
       // trusted_contacts admission floor (mirrors verification/contact-helpers)
       // or clear a delivery chat id.
       const { contact } = await store.upsertContact({
-        displayName: effectiveDisplayName,
+        displayName,
         channels: [
           {
             type: channelType,

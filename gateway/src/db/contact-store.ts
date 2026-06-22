@@ -873,10 +873,14 @@ export class ContactStore {
    * /v1/contacts rebind the guardian. On update, existing role/principalId
    * are preserved. On create, role defaults to "contact" and principalId
    * to null.
+   *
+   * `displayName` is omit-to-preserve: when undefined, an existing contact's
+   * name is left untouched (gateway DB + assistant mirror). A brand-new
+   * contact with no name falls back to the first channel's canonical address.
    */
   async upsertContact(params: {
     id?: string;
-    displayName: string;
+    displayName?: string;
     notes?: string | null;
     contactType?: string;
     assistantMetadata?: {
@@ -909,6 +913,25 @@ export class ContactStore {
       address: canonicalizeInboundIdentity(ch.type, ch.address) ?? ch.address,
     }));
 
+    // Fallback name for a brand-new contact created without an explicit
+    // displayName: the first channel's canonical address, else "Unknown".
+    const newContactName =
+      params.displayName ?? canonicalChannels?.[0]?.address ?? "Unknown";
+
+    // Omit-to-preserve: only overwrite an existing contact's displayName when
+    // the caller supplied one. Mirrors the role/principalId preservation.
+    const updateContactName = (id: string): void => {
+      const updateSet: Record<string, unknown> = { updatedAt: now };
+      if (params.displayName !== undefined) {
+        updateSet.displayName = params.displayName;
+      }
+      this.db
+        .update(contacts)
+        .set(updateSet)
+        .where(eq(contacts.id, id))
+        .run();
+    };
+
     // ── 1. Look up by id ──────────────────────────────────────────────
     if (contactId) {
       const existing = this.db
@@ -920,20 +943,13 @@ export class ContactStore {
       if (existing) {
         // Preserve existing role/principalId — they're never overwritten by
         // this code path. Guardian binding is owned by guardian-bootstrap.
-        this.db
-          .update(contacts)
-          .set({
-            displayName: params.displayName,
-            updatedAt: now,
-          })
-          .where(eq(contacts.id, contactId))
-          .run();
+        updateContactName(contactId);
       } else {
         this.db
           .insert(contacts)
           .values({
             id: contactId,
-            displayName: params.displayName,
+            displayName: newContactName,
             role: "contact",
             principalId: null,
             createdAt: now,
@@ -962,14 +978,7 @@ export class ContactStore {
 
         if (match) {
           contactId = match.contactId;
-          this.db
-            .update(contacts)
-            .set({
-              displayName: params.displayName,
-              updatedAt: now,
-            })
-            .where(eq(contacts.id, contactId))
-            .run();
+          updateContactName(contactId);
           break;
         }
       }
@@ -982,7 +991,7 @@ export class ContactStore {
         .insert(contacts)
         .values({
           id: contactId,
-          displayName: params.displayName,
+          displayName: newContactName,
           role: "contact",
           principalId: null,
           createdAt: now,
@@ -1002,12 +1011,7 @@ export class ContactStore {
       ? { ...params, channels: canonicalChannels }
       : params;
     try {
-      await this.dualWriteContactToAssistantDb(
-        contactId,
-        canonicalParams,
-        now,
-        created,
-      );
+      await this.dualWriteContactToAssistantDb(contactId, canonicalParams, now);
     } catch (err) {
       log.warn(
         { contactId, err },
@@ -1407,21 +1411,32 @@ export class ContactStore {
     contactId: string,
     params: Parameters<ContactStore["upsertContact"]>[0],
     now: number,
-    isNew: boolean,
   ): Promise<void> {
+    // Reconcile against an assistant-only contact: when the gateway minted a
+    // new id but the assistant DB already holds one of the provided channels
+    // (by (type, address)), adopt that existing assistant contact id instead
+    // of inserting a duplicate keyed by the new gateway id. Heals the
+    // split-brain case where the contact pre-dates the gateway dual-write.
+    const targetId = await this.resolveAssistantContactId(contactId, params);
+
     const existing = await assistantDbQuery<{ userFile: string | null }>(
       "SELECT user_file AS userFile FROM contacts WHERE id = ?",
-      [contactId],
+      [targetId],
     );
 
     if (existing.length) {
       // Dynamic SET clause: only touch fields the caller actually provided.
       // role / principal_id are intentionally never updated from this path —
       // they're not in the params surface and the assistant DB already holds
-      // the values written by guardian-bootstrap.
-      const setParts: string[] = ["display_name = ?", "updated_at = ?"];
-      const setParams: SqliteValue[] = [params.displayName, now];
+      // the values written by guardian-bootstrap. display_name is
+      // omit-to-preserve so a sparse upsert can't revert a custom name.
+      const setParts: string[] = ["updated_at = ?"];
+      const setParams: SqliteValue[] = [now];
 
+      if (params.displayName !== undefined) {
+        setParts.push("display_name = ?");
+        setParams.push(params.displayName);
+      }
       if (params.notes !== undefined) {
         setParts.push("notes = ?");
         setParams.push(params.notes ?? null);
@@ -1430,15 +1445,17 @@ export class ContactStore {
         setParts.push("contact_type = ?");
         setParams.push(params.contactType);
       }
-      setParams.push(contactId);
+      setParams.push(targetId);
 
       await assistantDbRun(
         `UPDATE contacts SET ${setParts.join(", ")} WHERE id = ?`,
         setParams,
       );
     } else {
+      const displayName =
+        params.displayName ?? params.channels?.[0]?.address ?? "Unknown";
       const userFile = await this.resolveAssistantUserFileSlug(
-        params.displayName,
+        displayName,
         null,
       );
       await assistantDbRun(
@@ -1447,8 +1464,8 @@ export class ContactStore {
             user_file, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          contactId,
-          params.displayName,
+          targetId,
+          displayName,
           params.notes ?? null,
           "contact",
           params.contactType ?? "human",
@@ -1469,7 +1486,7 @@ export class ContactStore {
            species  = excluded.species,
            metadata = excluded.metadata`,
         [
-          contactId,
+          targetId,
           params.assistantMetadata.species,
           params.assistantMetadata.metadata != null
             ? JSON.stringify(params.assistantMetadata.metadata)
@@ -1482,7 +1499,7 @@ export class ContactStore {
     for (const ch of params.channels ?? []) {
       const existingCh = await assistantDbQuery<{ id: string; status: string }>(
         "SELECT id, status FROM contact_channels WHERE contact_id = ? AND type = ? AND address = ? COLLATE NOCASE",
-        [contactId, ch.type, ch.address],
+        [targetId, ch.type, ch.address],
       );
 
       if (existingCh.length) {
@@ -1520,7 +1537,8 @@ export class ContactStore {
         if (conflict.length) continue;
 
         // Reuse the gateway channel ID so assistant and gateway channel
-        // rows share the same UUID for the same logical channel.
+        // rows share the same UUID for the same logical channel. The gateway
+        // row lives under the gateway contactId regardless of reconciliation.
         const gatewayChannel = this.db
           .select({ id: contactChannels.id })
           .from(contactChannels)
@@ -1542,7 +1560,7 @@ export class ContactStore {
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
           [
             channelId,
-            contactId,
+            targetId,
             ch.type,
             ch.address,
             ch.isPrimary ? 1 : 0,
@@ -1555,9 +1573,35 @@ export class ContactStore {
         );
       }
     }
+  }
 
-    // Touch the variable so the parameter isn't flagged unused.
-    void isNew;
+  /**
+   * Resolve which assistant-DB contact id the dual-write should target.
+   *
+   * Returns the gateway `contactId` unless one of the provided channels
+   * already exists in the assistant DB under a different contact (by (type,
+   * address)). In that split-brain case it returns the existing assistant
+   * contact id so the mirror reconciles into it instead of inserting a
+   * duplicate keyed by the gateway id.
+   *
+   * The lookup is by (type, address) — the same logical key the gateway uses
+   * — so a legacy assistant-only contact heals onto the gateway id at the
+   * channel layer while its assistant row/identity is preserved.
+   */
+  private async resolveAssistantContactId(
+    contactId: string,
+    params: Parameters<ContactStore["upsertContact"]>[0],
+  ): Promise<string> {
+    for (const ch of params.channels ?? []) {
+      const rows = await assistantDbQuery<{ contactId: string }>(
+        "SELECT contact_id AS contactId FROM contact_channels WHERE type = ? AND address = ? COLLATE NOCASE LIMIT 1",
+        [ch.type, ch.address],
+      );
+      if (rows.length && rows[0].contactId !== contactId) {
+        return rows[0].contactId;
+      }
+    }
+    return contactId;
   }
 
   /**
