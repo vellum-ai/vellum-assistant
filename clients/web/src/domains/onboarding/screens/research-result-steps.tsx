@@ -38,33 +38,13 @@ function useViewportSize() {
   return size;
 }
 
-/** The chosen avatar's traits + (for the collapse) its eye-style paths/bbox. */
+/** The chosen avatar's components + traits. */
 function useChosenAvatar() {
   const components = useBundledAvatarComponents();
   const characters = useOnboardingAvatarPoolStore.use.characters();
   const selectedIndex = useOnboardingAvatarPoolStore.use.selectedIndex();
   const chosen = characters.length > 0 ? characters[selectedIndex] : undefined;
-
-  const eye = useMemo(() => {
-    if (!components || !chosen) return null;
-    const def = components.eyeStyles.find((e) => e.id === chosen.eyeStyle);
-    if (!def) return null;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    const re = /-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?/gi;
-    for (const p of def.paths) {
-      const nums = p.svgPath.match(re)?.map(Number) ?? [];
-      for (let i = 0; i + 1 < nums.length; i += 2) {
-        const x = nums[i]!, y = nums[i + 1]!;
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-        if (x > maxX) maxX = x;
-        if (y > maxY) maxY = y;
-      }
-    }
-    return { paths: def.paths, x: minX, y: minY, w: maxX - minX, h: maxY - minY };
-  }, [components, chosen]);
-
-  return { components, chosen, eye };
+  return { components, chosen };
 }
 
 /** The chosen assistant as a small live avatar (for the heading rows). */
@@ -98,7 +78,7 @@ export function MeetingCreatedStep({
   onDone: () => void;
   onBack: () => void;
 }) {
-  const { components, chosen, eye } = useChosenAvatar();
+  const { components, chosen } = useChosenAvatar();
   const reduce = useReducedMotion();
   const { w, h } = useViewportSize();
 
@@ -112,6 +92,14 @@ export function MeetingCreatedStep({
   const slotCx = groupLeft + MINI / 2;
   const slotCy = h * 0.26 + MINI / 2;
 
+  // The single giant avatar (eyes visible against the colored bg even while the
+  // body blends; the body appears as the bg darkens) starts low, dips a touch,
+  // then rises + shrinks into the slot with a small settle bounce.
+  const bigScale = (1.3 * Math.max(w, h)) / MINI;
+  const startX = w / 2 - slotCx;
+  const startY = h * 0.88 - slotCy;
+  const dip = h * 0.05;
+
   return (
     <div className="absolute inset-0 z-10 overflow-hidden text-white">
       <OnboardingTopBar
@@ -122,37 +110,6 @@ export function MeetingCreatedStep({
         tone="light"
       />
 
-      {/* Lead: the eyes shrink + rise up out of the bottom (reverse of the
-          intro), then fade as the body arrives. */}
-      {eye && !reduce && (
-        <motion.div
-          aria-hidden="true"
-          className="pointer-events-none absolute"
-          style={{ left: slotCx - MINI / 2, top: slotCy - MINI / 2, width: MINI, height: MINI, transformOrigin: "center" }}
-          initial={{
-            scale: (w * 0.55) / MINI,
-            x: w / 2 - slotCx,
-            y: h * 0.95 - slotCy,
-            opacity: 1,
-          }}
-          animate={{ scale: 1, x: 0, y: 0, opacity: 0 }}
-          transition={{ duration: 0.85, ease: "easeInOut", times: [0, 1] }}
-        >
-          <svg
-            viewBox={`${eye.x} ${eye.y} ${eye.w} ${eye.h}`}
-            width={MINI}
-            height={MINI}
-            style={{ overflow: "visible" }}
-          >
-            {eye.paths.map((p, i) => (
-              <path key={i} d={p.svgPath} fill={p.color} />
-            ))}
-          </svg>
-        </motion.div>
-      )}
-
-      {/* Avatar + title group. The body follows the eyes a beat later, shrinking
-          from large into the slot. */}
       <div
         className="absolute flex items-center gap-4"
         style={{ left: groupLeft, top: h * 0.26 }}
@@ -162,21 +119,20 @@ export function MeetingCreatedStep({
             <motion.div
               className="absolute inset-0"
               style={{ transformOrigin: "center" }}
-              initial={
-                reduce
-                  ? false
-                  : {
-                      scale: (1.3 * Math.max(w, h)) / MINI,
-                      x: w / 2 - slotCx,
-                      y: h / 2 - slotCy,
-                      opacity: 0,
-                    }
-              }
-              animate={{ scale: 1, x: 0, y: 0, opacity: 1 }}
+              initial={reduce ? false : { scale: bigScale, x: startX, y: startY }}
+              animate={{
+                x: [startX, startX, 0, 0],
+                y: [startY, startY + dip, 0, 0],
+                scale: [bigScale, bigScale, 1.07, 1],
+              }}
               transition={
                 reduce
                   ? { duration: 0 }
-                  : { type: "spring", stiffness: 80, damping: 18, mass: 1, delay: 0.2 }
+                  : {
+                      duration: 1.1,
+                      times: [0, 0.18, 0.82, 1],
+                      ease: ["easeOut", "easeIn", "easeOut"],
+                    }
               }
             >
               <AnimatedAvatar components={components} traits={chosen} size={MINI} />
@@ -188,7 +144,7 @@ export function MeetingCreatedStep({
           style={{ fontFamily: "var(--font-serif)" }}
           initial={reduce ? false : { opacity: 0, x: -8 }}
           animate={{ opacity: 1, x: 0 }}
-          transition={reduce ? { duration: 0 } : { duration: 0.4, delay: 0.8 }}
+          transition={reduce ? { duration: 0 } : { duration: 0.4, delay: 0.9 }}
         >
           Meeting Created!
         </motion.span>
