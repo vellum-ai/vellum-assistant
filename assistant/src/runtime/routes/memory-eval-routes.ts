@@ -35,16 +35,30 @@ const MemoryEvalRunParamsSchema = z.object({
   k: z.number().int().positive().optional(),
   dense: z.boolean().optional(),
   seed: z.number().int().optional(),
+  /** Pin the exact turns to re-mine (turn ids from a prior key.json/packets.json). */
+  turnIds: z.array(z.string()).optional(),
+  /** Conversations to omit from recency mining (e.g. the migration's own chat). */
+  excludeConversationIds: z.array(z.string()).optional(),
 });
 
 const MemoryEvalRunResultSchema = z.object({
   turnsMined: z.number(),
+  turnsRequested: z.number(),
   packetsWritten: z.number(),
   packetsPath: z.string(),
   keyPath: z.string(),
+  metaPath: z.string(),
   snapshotPages: z.number(),
   stagingPages: z.number(),
   dense: z.boolean(),
+  seed: z.number(),
+  k: z.number(),
+  embedding: z.object({
+    provider: z.string(),
+    model: z.string(),
+    dims: z.number().nullable(),
+  }),
+  turnIds: z.array(z.string()),
 });
 export type MemoryEvalRunResult = z.infer<typeof MemoryEvalRunResultSchema>;
 
@@ -62,6 +76,13 @@ export async function handleMemoryEvalRun(
     workspaceDir: getWorkspaceDir(),
     db: getDb(),
   });
+  if (result.turnsMined < result.turnsRequested) {
+    log.warn(
+      { requested: result.turnsRequested, mined: result.turnsMined },
+      "Fewer eval turns mined than requested — pinned turns may have been " +
+        "deleted, or there are too few recent user turns",
+    );
+  }
   log.info(result, "memory eval packets written");
   return result;
 }

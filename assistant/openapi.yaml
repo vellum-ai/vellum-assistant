@@ -15547,6 +15547,14 @@ paths:
                   type: integer
                   minimum: -9007199254740991
                   maximum: 9007199254740991
+                turnIds:
+                  type: array
+                  items:
+                    type: string
+                excludeConversationIds:
+                  type: array
+                  items:
+                    type: string
               required:
                 - stagingDir
                 - snapshotDir
@@ -15561,11 +15569,15 @@ paths:
                 properties:
                   turnsMined:
                     type: number
+                  turnsRequested:
+                    type: number
                   packetsWritten:
                     type: number
                   packetsPath:
                     type: string
                   keyPath:
+                    type: string
+                  metaPath:
                     type: string
                   snapshotPages:
                     type: number
@@ -15573,14 +15585,44 @@ paths:
                     type: number
                   dense:
                     type: boolean
+                  seed:
+                    type: number
+                  k:
+                    type: number
+                  embedding:
+                    type: object
+                    properties:
+                      provider:
+                        type: string
+                      model:
+                        type: string
+                      dims:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                    required:
+                      - provider
+                      - model
+                      - dims
+                    additionalProperties: false
+                  turnIds:
+                    type: array
+                    items:
+                      type: string
                 required:
                   - turnsMined
+                  - turnsRequested
                   - packetsWritten
                   - packetsPath
                   - keyPath
+                  - metaPath
                   - snapshotPages
                   - stagingPages
                   - dense
+                  - seed
+                  - k
+                  - embedding
+                  - turnIds
                 additionalProperties: false
   /v1/memory/v2/backfill:
     post:
