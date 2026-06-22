@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
   disablePlugin,
   enablePlugin,
+  InvalidPluginNameError,
   PluginAlreadyInStateException,
+  PluginDirectoryNotFoundError,
 } from "../toggle-plugin.js";
 
 // VELLUM_WORKSPACE_DIR is set to this; getWorkspacePluginsDir() returns
@@ -54,6 +56,24 @@ describe("disablePlugin", () => {
     expect(() => disablePlugin("my-plugin")).toThrow(
       PluginAlreadyInStateException,
     );
+  });
+
+  it("throws PluginDirectoryNotFoundError for non-default plugin with no directory", () => {
+    expect(() => disablePlugin("nonexistent-plugin")).toThrow(
+      PluginDirectoryNotFoundError,
+    );
+  });
+
+  it("throws InvalidPluginNameError for path traversal attempts", () => {
+    expect(() => disablePlugin("../state")).toThrow(InvalidPluginNameError);
+    expect(() => disablePlugin("foo/bar")).toThrow(InvalidPluginNameError);
+    expect(() => disablePlugin("..")).toThrow(InvalidPluginNameError);
+  });
+
+  it("throws InvalidPluginNameError for names with invalid characters", () => {
+    expect(() => disablePlugin("My_Plugin!")).toThrow(InvalidPluginNameError);
+    expect(() => disablePlugin("")).toThrow(InvalidPluginNameError);
+    expect(() => disablePlugin(" ")).toThrow(InvalidPluginNameError);
   });
 });
 
@@ -104,6 +124,11 @@ describe("enablePlugin", () => {
     expect(() => enablePlugin("my-plugin")).toThrow(
       PluginAlreadyInStateException,
     );
+  });
+
+  it("throws InvalidPluginNameError for path traversal attempts", () => {
+    expect(() => enablePlugin("../state")).toThrow(InvalidPluginNameError);
+    expect(() => enablePlugin("foo/bar")).toThrow(InvalidPluginNameError);
   });
 });
 

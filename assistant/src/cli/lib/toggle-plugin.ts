@@ -9,10 +9,11 @@
  *   checks `<workspace>/plugins/<manifest-name>/.disabled` before init.
  *
  * For user plugins the directory already exists (it is the install target).
- * For default plugins the directory may not exist yet, so `disable` creates
- * a stub directory and drops the sentinel inside it. `enable` removes the
- * sentinel and cleans up the stub directory if it becomes empty (so the
- * workspace stays tidy when the only thing in it was the sentinel).
+ * For default plugins (which live in the source tree) the directory may not
+ * exist yet, so `disable` creates a stub directory and drops the sentinel
+ * inside it. `enable` removes the sentinel and cleans up the stub directory
+ * if it becomes empty (so the workspace stays tidy when the only thing in
+ * it was the sentinel).
  */
 
 import { existsSync, mkdirSync, readdirSync, rmSync, unlinkSync } from "node:fs";
@@ -21,6 +22,15 @@ import { join } from "node:path";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 
 const DISABLED_FILE = ".disabled";
+
+/**
+ * Plugin name pattern: single path segment, kebab-case alphanumerics.
+ * Rejects path traversal (`../`, slashes, null bytes) and any name that
+ * is not a flat directory entry. Same pattern as {@link sanitizePluginName}
+ * but does NOT reject the `default-` prefix, since enable/disable must
+ * accept default plugin names.
+ */
+const PLUGIN_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;
 
 /** The plugin is already in the requested state. */
 export class PluginAlreadyInStateException extends Error {
@@ -35,11 +45,21 @@ export class PluginAlreadyInStateException extends Error {
   }
 }
 
+/** The plugin name contains invalid characters or path segments. */
+export class InvalidPluginNameError extends Error {
+  constructor(public readonly name: string) {
+    super(
+      `Invalid plugin name "${name}". Names must be kebab-case alphanumerics (a-z, 0-9, -, _).`,
+    );
+    this.name = "InvalidPluginNameError";
+  }
+}
+
 /** No plugin directory found for the given name. */
 export class PluginDirectoryNotFoundError extends Error {
   constructor(public readonly name: string) {
     super(
-      `No plugin directory found for "${name}". Run \`assistant plugins list\` to see installed plugins.`,
+      `No plugin directory found for "${name}". Run \`assistant plugins list\` to see installed plugins. To disable a default plugin, prefix the name with "default-" (e.g. "default-advisor").`,
     );
     this.name = "PluginDirectoryNotFoundError";
   }
@@ -52,30 +72,47 @@ export interface TogglePluginResult {
 }
 
 /**
+ * Validate a plugin name for enable/disable. Same kebab-case rule as
+ * {@link sanitizePluginName} but allows the `default-` prefix (needed for
+ * toggling default plugins).
+ */
+function validatePluginName(name: string): string {
+  const trimmed = name.trim();
+  if (!PLUGIN_NAME_RE.test(trimmed)) {
+    throw new InvalidPluginNameError(name);
+  }
+  return trimmed;
+}
+
+/**
  * Disable a plugin by creating a `.disabled` sentinel file in its workspace
- * directory. For default plugins (which live in the source tree), creates a
+ * directory. For default plugins (names starting with `default-`), creates a
  * stub directory under `<workspace>/plugins/<name>/` if one does not exist.
+ * For user plugins, the directory must already exist.
  */
 export function disablePlugin(name: string): TogglePluginResult {
+  const validated = validatePluginName(name);
   const pluginsDir = getWorkspacePluginsDir();
-  const pluginDir = join(pluginsDir, name);
+  const pluginDir = join(pluginsDir, validated);
   const sentinelPath = join(pluginDir, DISABLED_FILE);
 
   if (existsSync(sentinelPath)) {
-    throw new PluginAlreadyInStateException(name, "disable");
+    throw new PluginAlreadyInStateException(validated, "disable");
   }
 
-  // User plugins already have a directory with package.json. Default plugins
-  // may need a stub directory created so the sentinel has somewhere to live.
   if (!existsSync(pluginDir)) {
+    // Only create stub directories for default plugins. User plugins must
+    // already be installed — creating a directory for a name that has no
+    // plugin would be misleading.
+    if (!validated.startsWith("default-")) {
+      throw new PluginDirectoryNotFoundError(validated);
+    }
     mkdirSync(pluginDir, { recursive: true });
   }
 
-  // Touch the sentinel file.
-  mkdirSync(pluginDir, { recursive: true });
-  // Write empty file — content is irrelevant, existence is the signal.
+  // Write empty sentinel file — content is irrelevant, existence is the signal.
   Bun.write(sentinelPath, "");
-  return { name, action: "disable", sentinelPath };
+  return { name: validated, action: "disable", sentinelPath };
 }
 
 /**
@@ -84,12 +121,13 @@ export function disablePlugin(name: string): TogglePluginResult {
  * (i.e. it contains nothing but the sentinel), it is removed entirely.
  */
 export function enablePlugin(name: string): TogglePluginResult {
+  const validated = validatePluginName(name);
   const pluginsDir = getWorkspacePluginsDir();
-  const pluginDir = join(pluginsDir, name);
+  const pluginDir = join(pluginsDir, validated);
   const sentinelPath = join(pluginDir, DISABLED_FILE);
 
   if (!existsSync(sentinelPath)) {
-    throw new PluginAlreadyInStateException(name, "enable");
+    throw new PluginAlreadyInStateException(validated, "enable");
   }
 
   unlinkSync(sentinelPath);
@@ -104,5 +142,5 @@ export function enablePlugin(name: string): TogglePluginResult {
     }
   }
 
-  return { name, action: "enable", sentinelPath };
+  return { name: validated, action: "enable", sentinelPath };
 }

@@ -275,6 +275,8 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "plugins search",
   "plugins uninstall",
   "plugins upgrade",
+  "plugins enable",
+  "plugins disable",
 ] as const;
 
 interface AssistantRiskOverride {
@@ -595,6 +597,16 @@ const riskOverrides: AssistantRiskOverride[] = [
     path: "plugins upgrade",
     risk: "high",
     reason: "Fetches and re-installs external plugin code from GitHub",
+  },
+  {
+    path: "plugins disable",
+    risk: "medium",
+    reason: "Disables a plugin by creating a .disabled sentinel file in the workspace",
+  },
+  {
+    path: "plugins enable",
+    risk: "medium",
+    reason: "Re-enables a plugin by removing the .disabled sentinel file",
   },
   { path: "skills install", risk: "high" },
   { path: "skills uninstall", risk: "medium" },

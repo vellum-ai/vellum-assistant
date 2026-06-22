@@ -46,7 +46,9 @@ import {
 import {
   disablePlugin,
   enablePlugin,
+  InvalidPluginNameError as ToggleInvalidPluginNameError,
   PluginAlreadyInStateException,
+  PluginDirectoryNotFoundError,
 } from "../lib/toggle-plugin.js";
 import {
   PluginNotInstalledError,
@@ -509,7 +511,11 @@ Examples:
               `Disabled plugin "${result.name}". Restart the assistant for the change to take effect.`,
             );
           } catch (err) {
-            if (err instanceof PluginAlreadyInStateException) {
+            if (
+              err instanceof PluginAlreadyInStateException ||
+              err instanceof ToggleInvalidPluginNameError ||
+              err instanceof PluginDirectoryNotFoundError
+            ) {
               console.error(err.message);
               process.exitCode = 1;
               return;
@@ -533,7 +539,10 @@ Examples:
               `Enabled plugin "${result.name}". Restart the assistant for the change to take effect.`,
             );
           } catch (err) {
-            if (err instanceof PluginAlreadyInStateException) {
+            if (
+              err instanceof PluginAlreadyInStateException ||
+              err instanceof ToggleInvalidPluginNameError
+            ) {
               console.error(err.message);
               process.exitCode = 1;
               return;
