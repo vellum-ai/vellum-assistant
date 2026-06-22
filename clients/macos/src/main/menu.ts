@@ -250,6 +250,11 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
             label: "Developer",
             submenu: [
               {
+                label: "Choose Assistant…",
+                click: () => dispatchMenuCommand({ kind: "chooseAssistant" }),
+              },
+              { type: "separator" as const },
+              {
                 label: "Replay Onboarding",
                 click: () => dispatchMenuCommand({ kind: "replayOnboarding" }),
               },

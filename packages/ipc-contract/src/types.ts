@@ -51,6 +51,7 @@ export type VellumCommand =
   | { kind: "zoomOut" }
   | { kind: "actualSize" }
   | { kind: "selectAssistant"; assistantId: string }
+  | { kind: "chooseAssistant" }
   | { kind: "createAssistant" }
   | { kind: "retireAssistant"; assistantId: string }
   | { kind: "quickInputSubmit"; message: string }

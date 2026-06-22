@@ -15,7 +15,7 @@ import {
   useHasPlatformSession,
 } from "@/stores/auth-store";
 import { handleLogout } from "@/lib/auth/handle-logout";
-import { getSelectedAssistant } from "@/lib/local-mode";
+import { getSelectedAssistant, isLocalMode } from "@/lib/local-mode";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { setMenuPlatformSession } from "@/runtime/menu";
 import { useVellumCommands } from "@/runtime/vellum-commands";
@@ -199,6 +199,16 @@ export function RootLayout() {
         // goes through the platform selection path — not connectLocalAssistant,
         // which primes a local gateway and no-ops for managed assistants.
         void setSelectedAssistant(command.assistantId);
+      }
+    },
+    chooseAssistant: () => {
+      // The chooser route is local-only — navigation-resolver redirects
+      // platform users away — so platform sessions switch via the Switch
+      // Assistant picker on the settings page instead.
+      if (isLocalMode()) {
+        void navigate(`${routes.selectAssistant}?noAutoSkip=1`);
+      } else {
+        void navigate(routes.settings.general);
       }
     },
     createAssistant: () => {
