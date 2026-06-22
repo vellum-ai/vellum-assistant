@@ -100,6 +100,18 @@
       "category": "productivity",
       "homepage": "https://github.com/vellum-ai/admin-copilot",
       "license": "MIT"
+    },
+    {
+      "name": "git-workflow",
+      "source": {
+        "source": "github",
+        "repo": "marinatrajk/git-workflow",
+        "ref": "57edb1d5bdd6f8b42745a8efd187dfc654486bec"
+      },
+      "description": "Git workflow tools: branch management, PR creation/review/merge, diffs, logs, and changelog generation. Wraps git and gh CLI into structured Vellum plugin tools.",
+      "category": "developer",
+      "homepage": "https://github.com/marinatrajk/git-workflow",
+      "license": "MIT"
     }
   ]
 }
