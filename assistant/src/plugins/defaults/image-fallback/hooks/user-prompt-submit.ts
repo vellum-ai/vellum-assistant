@@ -51,8 +51,12 @@ const userPromptSubmit: PluginHookFn<UserPromptSubmitContext> = async (ctx) => {
   // If the active model already supports vision, nothing to do.
   if (doesSupportVision(activeProfile)) return;
 
-  // Find a vision-capable profile for captioning.
-  const visionProfileKey = findVisionProfile();
+  // Find a vision-capable profile for captioning, explicitly excluding the
+  // active profile. If the workspace has no other vision-capable profile,
+  // `findVisionProfile` returns `null` and we fall through to the placeholder
+  // path below — the same fail-open behavior as before, but without the risk
+  // of routing the vision call back to the same text-only model.
+  const visionProfileKey = findVisionProfile(activeProfile.key);
 
   // Scan all messages for image blocks and replace them with captions.
   let imageCount = 0;

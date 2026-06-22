@@ -39,10 +39,21 @@ const CAPTION_USER_PROMPT = "Describe this image concisely for a text-only assis
  * the `/model` picker shows them) and returns the first enabled profile whose
  * resolved model supports vision. Returns `null` when no vision profile exists
  * — the hook fails-open in that case, leaving a placeholder text block.
+ *
+ * Pass `activeProfileKey` (the profile the main agent loop is currently
+ * running on) to skip that profile even when it is flagged as
+ * vision-capable. This is a defensive guard against a misconfigured workspace
+ * where the active profile's resolved `(provider, model)` is the same
+ * text-only model the hook is trying to caption around — without this guard,
+ * captioning would route the vision call back to the same model and the
+ * provider would reject the image input. The hook's caller is responsible for
+ * resolving `activeProfileKey` from `ctx.modelProfileKey` (or the workspace's
+ * active profile when that field is `null`) before invoking.
  */
-export function findVisionProfile(): string | null {
+export function findVisionProfile(activeProfileKey?: string | null): string | null {
   for (const profile of getModelProfiles()) {
     if (profile.isDisabled) continue;
+    if (activeProfileKey != null && profile.key === activeProfileKey) continue;
     if (doesSupportVision(profile)) {
       return profile.key;
     }

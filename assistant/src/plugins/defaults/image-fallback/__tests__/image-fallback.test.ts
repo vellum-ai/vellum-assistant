@@ -299,4 +299,35 @@ describe("findVisionProfile", () => {
     visionProfiles = new Set<string>();
     expect(findVisionProfile()).toBeNull();
   });
+
+  // ── Regression: active profile must never be returned even if flagged as
+  //    vision-capable, because routing the caption call back to the same
+  //    model would cause the provider to reject the image. ──────────────
+  test("skips the active profile even when it is flagged as vision-capable", () => {
+    // Bug scenario: workspace has both profiles marked as supporting vision,
+    // but only the non-active one actually does. The active profile must be
+    // skipped so we never route the caption call back to the text-only model.
+    visionProfiles = new Set(["text-only", "vision-profile"]);
+    mockProfiles = [
+      profile("text-only", { label: "Text", isActive: true }),
+      profile("vision-profile", { label: "Vision" }),
+    ];
+    expect(findVisionProfile("text-only")).toBe("vision-profile");
+  });
+
+  test("returns null when the active profile is the only vision-capable one", () => {
+    // Fail-open path: if the only "vision-capable" profile IS the active
+    // profile, we must not pick it — the hook falls through to the
+    // placeholder path so the image is replaced with a text marker instead
+    // of being routed back to the same model.
+    visionProfiles = new Set(["text-only"]);
+    mockProfiles = [profile("text-only", { label: "Text", isActive: true })];
+    expect(findVisionProfile("text-only")).toBeNull();
+  });
+
+  test("treats null activeProfileKey the same as omitting the argument", () => {
+    // Backwards compatibility: callers that don't know the active key
+    // (or where it resolves to null) still get the legacy behavior.
+    expect(findVisionProfile(null)).toBe("vision-profile");
+  });
 });
