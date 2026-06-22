@@ -105,7 +105,7 @@ Use `agent` for a single sequential leaf (throws on failure). Use `parallel`/`ma
 
 | Option    | Type                       | Effect                                                                                  |
 | --------- | -------------------------- | --------------------------------------------------------------------------------------- |
-| `schema`  | JSON Schema object literal | Forces structured output via a tool. A schema leaf runs with **no tools** (pure judge/extractor). Use a plain JSON Schema literal, not Zod. |
+| `schema`  | JSON Schema object literal | Forces structured output via a tool. A schema leaf runs with **no tools** — no `file_read`/`file_list`/`recall`/`web_search`, so it **cannot read files or recall memory** (pure judge/extractor). Pass anything it must judge **inline** in the prompt; a schema leaf told to "read these files" answers from the model's prior, not real data. Use a plain JSON Schema literal, not Zod. |
 | `label`   | string                     | Short display/diagnostic label for the leaf.                                            |
 | `profile` | string                     | Overrides the model profile. Must exist in `llm.profiles` or the leaf throws. See [Listing profiles](#listing-available-profiles). |
 | `persona` | boolean                    | `true` makes the leaf speak AS the assistant (identity + memory) — use for output meant to be in the assistant's voice. Default is anonymous — use for impartial judging/extraction. |
@@ -128,8 +128,9 @@ workflow**.
 }
 ```
 
-- **Read-only baseline** (always available, no declaration, no launch prompt):
-  `file_read`, `file_list`, `recall`, `web_search`.
+- **Read-only baseline** (available to **tool** leaves, no declaration, no launch prompt):
+  `file_read`, `file_list`, `recall`, `web_search`. **A schema leaf gets none of these**
+  (it runs as a single forced-tool-choice call) — pass it inline content, never tell it to read.
 - **`web_fetch` is NOT in the baseline** — an outbound fetch is side-effecting (its
   URL can exfiltrate read data), so a leaf that must fetch a URL has to declare
   `"web_fetch"` in `capabilities.tools`.
