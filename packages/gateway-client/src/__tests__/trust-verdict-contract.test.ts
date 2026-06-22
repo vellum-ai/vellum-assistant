@@ -36,7 +36,10 @@ describe("TrustVerdictSchema", () => {
   });
 
   test("parses a minimal verdict", () => {
-    const minimal = { trustClass: "unknown", canonicalSenderId: null };
+    const minimal = {
+      trustClass: "unknown",
+      canonicalSenderId: null,
+    } satisfies TrustVerdict;
     expect(TrustVerdictSchema.parse(minimal)).toEqual(minimal);
   });
 
