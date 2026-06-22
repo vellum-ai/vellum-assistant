@@ -697,6 +697,17 @@ describe("IPC contact routes", () => {
             contactId: assistantContactId,
             id: assistantChannelId,
             displayName: "Existing Person",
+            type: "email",
+            address: "existing-person@example.com",
+            isPrimary: 0,
+            externalChatId: null,
+            status: "active",
+            policy: "escalate",
+            verifiedAt: 1700000000000,
+            verifiedVia: "manual",
+            inviteId: null,
+            revokedReason: null,
+            blockedReason: null,
           },
         ];
       }
@@ -779,6 +790,16 @@ describe("IPC contact routes", () => {
     const gwChannels = store.getChannelsForContact(contactId);
     expect(gwChannels).toHaveLength(1);
     expect(gwChannels[0].address).toBe("existing-person@example.com");
+
+    // The heal must carry the assistant channel's ACL state into the new
+    // gateway row — NOT default it to unverified/allow. An active/verified
+    // assistant channel stays active/verified (status === "active" is what
+    // actor-trust-resolver classifies as trusted_contact), so default
+    // trusted_contacts admission keeps trusting the user post-heal.
+    expect(gwChannels[0].status).toBe("active");
+    expect(gwChannels[0].policy).toBe("escalate");
+    expect(gwChannels[0].verifiedAt).toBe(1700000000000);
+    expect(gwChannels[0].verifiedVia).toBe("manual");
 
     // The gateway read join-by-id resolves the assistant info (NOT null) —
     // proof the two DBs converged on one id.

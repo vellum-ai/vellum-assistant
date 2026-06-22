@@ -23,6 +23,22 @@ export type Contact = typeof contacts.$inferSelect;
 export type ContactChannel = typeof contactChannels.$inferSelect;
 export type IngressInviteRow = typeof ingressInvites.$inferSelect;
 
+/** ACL fields of an adopted assistant channel, carried through the create-heal
+ * path so syncChannels' INSERT preserves them instead of defaulting. */
+type AdoptedChannelAcl = {
+  type: string;
+  address: string;
+  isPrimary: boolean;
+  externalChatId: string | null;
+  status: string;
+  policy: string;
+  verifiedAt: number | null;
+  verifiedVia: string | null;
+  inviteId: string | null;
+  revokedReason: string | null;
+  blockedReason: string | null;
+};
+
 export class ContactStore {
   private injectedDb?: GatewayDb;
 
@@ -1024,9 +1040,11 @@ export class ContactStore {
     // it, so a "healed" assistant-only contact's info reads back via the
     // join-by-id read path. Soft-fails to a minted id if the lookup throws
     // (daemon down / tests) — the assistant-mirror best-effort invariant.
+    let adoptedChannelAcl: AdoptedChannelAcl | undefined;
     if (!contactId) {
       const adopted = await this.adoptAssistantContactId(canonicalChannels);
       contactId = adopted?.contactId ?? crypto.randomUUID();
+      adoptedChannelAcl = adopted?.channelAcl;
       // An adopted id may already exist as a gateway row (different channels);
       // preserve it (name omit-to-preserve) instead of a conflicting INSERT.
       const existing = adopted
@@ -1062,8 +1080,13 @@ export class ContactStore {
     }
 
     // ── 4. Sync channels (gateway DB) ─────────────────────────────────
-    if (canonicalChannels?.length) {
-      this.syncChannels(contactId, canonicalChannels, now);
+    // Carry the adopted assistant channel's ACL state into the heal INSERT so
+    // an active/verified contact isn't downgraded to unverified/allow.
+    const channelsToSync = adoptedChannelAcl
+      ? this.mergeAdoptedChannelAcl(canonicalChannels, adoptedChannelAcl)
+      : canonicalChannels;
+    if (channelsToSync?.length) {
+      this.syncChannels(contactId, channelsToSync, now);
     }
 
     // ── 5. Dual-write to assistant DB (best-effort) ───────────────────
@@ -1448,6 +1471,38 @@ export class ContactStore {
     }
   }
 
+  /**
+   * Merge an adopted assistant channel's ACL fields into the matching
+   * (type,address) channel of a create-heal upsert, omit-to-preserve so any
+   * field the caller explicitly supplied still wins. The enriched channel
+   * carries the assistant row's real status/policy/verification into
+   * syncChannels' INSERT — without this, the heal would default an active
+   * channel to unverified/allow and downgrade a trusted contact.
+   */
+  private mergeAdoptedChannelAcl(
+    channels: Parameters<ContactStore["upsertContact"]>[0]["channels"],
+    acl: AdoptedChannelAcl,
+  ): Parameters<ContactStore["upsertContact"]>[0]["channels"] {
+    return channels?.map((ch) => {
+      const sameAddress =
+        ch.type === acl.type &&
+        ch.address.toLowerCase() === acl.address.toLowerCase();
+      if (!sameAddress) return ch;
+      return {
+        ...ch,
+        isPrimary: ch.isPrimary ?? acl.isPrimary,
+        externalChatId: ch.externalChatId ?? acl.externalChatId,
+        status: ch.status ?? acl.status,
+        policy: ch.policy ?? acl.policy,
+        verifiedAt: ch.verifiedAt ?? acl.verifiedAt,
+        verifiedVia: ch.verifiedVia ?? acl.verifiedVia,
+        inviteId: ch.inviteId ?? acl.inviteId,
+        revokedReason: ch.revokedReason ?? acl.revokedReason,
+        blockedReason: ch.blockedReason ?? acl.blockedReason,
+      };
+    });
+  }
+
   // ---------------------------------------------------------------------------
   // Assistant DB dual-write
   // ---------------------------------------------------------------------------
@@ -1645,30 +1700,77 @@ export class ContactStore {
    * Returns null when there's no match or the lookup soft-fails (daemon down /
    * tests), so the caller falls back to a freshly minted id.
    *
+   * The matched channel's ACL fields (status/policy/verification) ride along so
+   * the create path can carry them into syncChannels' INSERT — without them the
+   * new gateway row would default to unverified/allow, DOWNGRADING an already
+   * active/trusted assistant channel below the trusted_contacts admission floor.
+   *
    * Never called on the explicit-id update path — an edit must not retarget
    * another contact (the gateway syncChannels skips cross-contact channels).
    */
   private async adoptAssistantContactId(
     channels: Parameters<ContactStore["upsertContact"]>[0]["channels"],
-  ): Promise<{ contactId: string; displayName: string | null } | null> {
+  ): Promise<{
+    contactId: string;
+    displayName: string | null;
+    channelAcl?: AdoptedChannelAcl;
+  } | null> {
     try {
       for (const ch of channels ?? []) {
         const rows = await assistantDbQuery<{
           contactId: string;
           displayName: string | null;
+          type: string;
+          address: string;
+          isPrimary: number;
+          externalChatId: string | null;
+          status: string;
+          policy: string;
+          verifiedAt: number | null;
+          verifiedVia: string | null;
+          inviteId: string | null;
+          revokedReason: string | null;
+          blockedReason: string | null;
         }>(
-          `SELECT cc.contact_id AS contactId, c.display_name AS displayName
+          `SELECT cc.contact_id      AS contactId,
+                  c.display_name     AS displayName,
+                  cc.type,
+                  cc.address,
+                  cc.is_primary      AS isPrimary,
+                  cc.external_chat_id AS externalChatId,
+                  cc.status,
+                  cc.policy,
+                  cc.verified_at     AS verifiedAt,
+                  cc.verified_via    AS verifiedVia,
+                  cc.invite_id       AS inviteId,
+                  cc.revoked_reason  AS revokedReason,
+                  cc.blocked_reason  AS blockedReason
              FROM contact_channels cc
              JOIN contacts c ON c.id = cc.contact_id
             WHERE cc.type = ? AND cc.address = ? COLLATE NOCASE
             LIMIT 1`,
           [ch.type, ch.address],
         );
-        if (rows.length)
+        if (rows.length) {
+          const r = rows[0];
           return {
-            contactId: rows[0].contactId,
-            displayName: rows[0].displayName,
+            contactId: r.contactId,
+            displayName: r.displayName,
+            channelAcl: {
+              type: r.type,
+              address: r.address,
+              isPrimary: Boolean(r.isPrimary),
+              externalChatId: r.externalChatId,
+              status: r.status,
+              policy: r.policy,
+              verifiedAt: r.verifiedAt,
+              verifiedVia: r.verifiedVia,
+              inviteId: r.inviteId,
+              revokedReason: r.revokedReason,
+              blockedReason: r.blockedReason,
+            },
           };
+        }
       }
     } catch (err) {
       log.warn(
