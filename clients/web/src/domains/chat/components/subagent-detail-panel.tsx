@@ -72,6 +72,21 @@ export function SubagentDetailPanel({
   const [objectiveOverflows, setObjectiveOverflows] = useState(false);
   const objectiveBodyRef = useRef<HTMLParagraphElement>(null);
 
+  // Reset objective collapse state when the subagent changes. The desktop
+  // parent reuses this instance across subagent switches (no `key`), so without
+  // this an objective expanded for one subagent leaks onto the next — and since
+  // the measurement effect below early-returns while `objectiveExpanded` is
+  // true, the new (possibly short) objective would render stale-expanded with a
+  // spurious "Show less" and never re-measure. Resetting during render (React's
+  // "store previous prop" pattern) clears both flags before paint (no flash);
+  // clearing `objectiveOverflows` lets the effect re-measure from a clean state.
+  const [prevSubagentId, setPrevSubagentId] = useState(entry.subagentId);
+  if (prevSubagentId !== entry.subagentId) {
+    setPrevSubagentId(entry.subagentId);
+    setObjectiveExpanded(false);
+    setObjectiveOverflows(false);
+  }
+
   // Measure overflow against the collapsed clamp. While collapsed the clamp is
   // the source of truth, so `scrollHeight` exceeds `clientHeight` only when the
   // body is taller than the visible 3 lines. Skip measuring while expanded
