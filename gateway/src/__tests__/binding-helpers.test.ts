@@ -37,12 +37,15 @@ function seedAsstChannel(c: AsstChannel): void {
   asstChannels.push(c);
 }
 
+let throwOnAsstRun = false;
+
 mock.module("../db/assistant-db-proxy.js", () => ({
   assistantDbQuery: mock(async () => {
     throw new Error("assistant DB read not expected in binding lookups");
   }),
   assistantDbRun: mock(async (sql: string, bind?: unknown[]) => {
     assistantRunCalls.push({ sql, bind });
+    if (throwOnAsstRun) throw new Error("assistant DB proxy unavailable");
     let changes = 0;
     if (/WHERE id = \?/.test(sql)) {
       const id = bind?.[1];
@@ -319,5 +322,32 @@ describe("revokeExistingChannelGuardian", () => {
     await revokeExistingChannelGuardian("slack");
 
     expect(assistantRunCalls.length).toBe(0);
+  });
+
+  test("revokes the gateway row even when the assistant mirror fails", async () => {
+    seedContact({ id: "g1", role: "guardian" });
+    const chId = seedChannel({
+      contactId: "g1",
+      type: "slack",
+      address: "U_OWNER",
+      status: "active",
+    });
+
+    throwOnAsstRun = true;
+    try {
+      // Must not throw — the best-effort mirror failure is swallowed.
+      await revokeExistingChannelGuardian("slack");
+    } finally {
+      throwOnAsstRun = false;
+    }
+
+    // Gateway (source of truth) is revoked despite the mirror failure.
+    const after = getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .all()
+      .find((r) => r.id === chId);
+    expect(after?.status).toBe("revoked");
+    expect(after?.policy).toBe("deny");
   });
 });

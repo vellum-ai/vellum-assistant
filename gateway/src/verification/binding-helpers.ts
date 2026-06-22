@@ -146,39 +146,41 @@ export async function revokeExistingChannelGuardian(
 
   if (revokedRows.length === 0) return;
 
-  // Assistant mirror: id-keyed update, then heal divergent (type,address) rows
-  // whose assistant-side id differs (m0006 divergence).
-  for (const gwChannel of revokedRows) {
-    const result = await assistantDbRun(
-      `UPDATE contact_channels
-       SET status = 'revoked', policy = 'deny', updated_at = ?
-       WHERE id = ?`,
-      [now, gwChannel.id],
-    );
-    if (result.changes === 0) {
-      await assistantDbRun(
-        `UPDATE contact_channels
-         SET status = 'revoked', policy = 'deny', updated_at = ?
-         WHERE type = ? AND address = ? COLLATE NOCASE`,
-        [now, channel, gwChannel.address],
-      );
-    }
+  // Gateway DB is the source of truth — revoke it first so revocation never
+  // depends on the best-effort assistant mirror succeeding.
+  const gwDb = getGatewayDb();
+  for (const { id } of revokedRows) {
+    gwDb
+      .update(gwContactChannels)
+      .set({ status: "revoked", policy: "deny", updatedAt: now })
+      .where(eq(gwContactChannels.id, id))
+      .run();
   }
 
-  // Gateway DB dual-write
+  // Assistant mirror (best-effort): id-keyed update, then heal divergent
+  // (type,address) rows whose assistant-side id differs (m0006 divergence).
+  // A mirror failure must not abort the authoritative gateway revoke above.
   try {
-    const gwDb = getGatewayDb();
-    for (const { id } of revokedRows) {
-      gwDb
-        .update(gwContactChannels)
-        .set({ status: "revoked", policy: "deny", updatedAt: now })
-        .where(eq(gwContactChannels.id, id))
-        .run();
+    for (const gwChannel of revokedRows) {
+      const result = await assistantDbRun(
+        `UPDATE contact_channels
+         SET status = 'revoked', policy = 'deny', updated_at = ?
+         WHERE id = ?`,
+        [now, gwChannel.id],
+      );
+      if (result.changes === 0) {
+        await assistantDbRun(
+          `UPDATE contact_channels
+           SET status = 'revoked', policy = 'deny', updated_at = ?
+           WHERE type = ? AND address = ? COLLATE NOCASE`,
+          [now, channel, gwChannel.address],
+        );
+      }
     }
-  } catch (gwErr) {
+  } catch (mirrorErr) {
     log.warn(
-      { err: gwErr },
-      "Gateway DB revoke dual-write failed (best-effort)",
+      { err: mirrorErr },
+      "Assistant mirror revoke failed (best-effort)",
     );
   }
 }
