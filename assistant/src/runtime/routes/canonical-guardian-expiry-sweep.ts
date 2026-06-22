@@ -7,15 +7,11 @@
  * even when no follow-up traffic arrives from either the guardian or the
  * requester.
  *
- * Complements the existing sweeps:
- *   - `calls/guardian-action-sweep.ts` — voice call guardian action expiry
- *   - `runtime/routes/guardian-expiry-sweep.ts` — channel guardian approval expiry
- *
- * Unlike those sweeps, this one operates on the unified canonical domain
- * (`canonical_guardian_requests`) and does not need to auto-deny pending
- * interactions or deliver channel notices — the canonical request status
- * transition is the single source of truth, and consumers (resolvers,
- * clients polling prompts) observe the expired status directly.
+ * This sweep operates on the unified canonical domain
+ * (`canonical_guardian_requests`) and does not auto-deny pending interactions
+ * or deliver channel notices — the canonical request status transition is the
+ * single source of truth, and consumers (resolvers, clients polling prompts)
+ * observe the expired status directly.
  */
 
 import { withdrawGuardianRequestCards } from "../../approvals/guardian-card-withdrawal.js";

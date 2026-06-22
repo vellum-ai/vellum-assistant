@@ -105,21 +105,20 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 
 Scoped approval grants allow a guardian's approval decision on one channel (e.g., Telegram) to authorize a tool execution on a different channel (e.g., voice). Two scope modes exist: `request_id` (bound to a specific pending request) and `tool_signature` (bound to `toolName` + canonical `inputDigest`). Grants are one-time-use, exact-match, fail-closed, and TTL-bound. Full architecture details (lifecycle flow, security invariants, key files) live in [`docs/architecture/security.md`](docs/architecture/security.md#channel-agnostic-scoped-approval-grants).
 
-### Guardian Decision Primitive (Dual-Mode Approval)
+### Guardian Decision Primitive
 
-All guardian approval decisions — regardless of how they arrive — route through a single unified primitive in `src/approvals/guardian-decision-primitive.ts`. This centralizes decision logic that was previously duplicated across callback button handlers, the conversational approval engine, and the requester self-cancel path.
+All guardian approval decisions — regardless of how they arrive — route through a single canonical primitive in `src/approvals/guardian-decision-primitive.ts`, which centralizes decision logic for callback button handlers, the conversational approval engine, and channel reactions/text.
 
 **Core API:**
 
-| Function                                          | Purpose                                                                                                                                                                                                                                                               |
-| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `applyGuardianDecision(params)`                   | Apply a guardian decision atomically: downgrade `approve_always` for guardian-on-behalf requests, capture approval info, resolve the pending interaction, update the approval record, and mint a scoped grant on approve. Returns `{ applied, reason?, requestId? }`. |
-| `listGuardianDecisionPrompts({ conversationId })` | List pending prompts for a conversation, aggregating channel guardian approval requests and pending confirmation interactions into a uniform `GuardianDecisionPrompt` shape.                                                                                          |
+| Function                                 | Purpose                                                                                                                                                                                                                                                                                             |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `applyCanonicalGuardianDecision(params)` | Apply a guardian decision against the canonical store: validate status/identity/expiry, CAS-resolve the request (first-writer-wins), dispatch to the kind-specific resolver, mint a scoped grant on approve, and withdraw the request's approval cards. Returns a structured applied/failed result. |
 
 **Security invariants enforced by the primitive:**
 
 - Decision application is identity-bound to the expected guardian identity.
-- Decisions are first-response-wins (CAS-like stale protection via `handleChannelDecision`).
+- Decisions are first-response-wins (CAS stale protection via `resolveCanonicalGuardianRequest`).
 - `approve_always` is downgraded to `approve_once` for guardian-on-behalf requests (guardians cannot permanently allowlist tools for requesters).
 - Scoped grant minting only fires on explicit approve for requests with tool metadata.
 
@@ -199,14 +198,14 @@ The canonical guardian request system provides a channel-agnostic, unified domai
 
 **Key source files:**
 
-| File                                                    | Purpose                                                                                                       |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `src/memory/canonical-guardian-store.ts`                | Canonical request and delivery persistence (CRUD, CAS resolve, list with filters)                             |
-| `src/approvals/guardian-decision-primitive.ts`          | Unified decision primitive: `applyCanonicalGuardianDecision` (canonical) and `applyGuardianDecision` (legacy) |
-| `src/approvals/guardian-request-resolvers.ts`           | Resolver registry: kind-specific side-effect dispatch after CAS resolution                                    |
-| `src/runtime/guardian-reply-router.ts`                  | Shared inbound router: callback -> code -> NL classification pipeline                                         |
-| `src/runtime/routes/guardian-action-routes.ts`          | HTTP endpoints for prompt listing and decision submission                                                     |
-| `src/runtime/routes/canonical-guardian-expiry-sweep.ts` | Canonical request expiry sweep                                                                                |
+| File                                                    | Purpose                                                                               |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `src/memory/canonical-guardian-store.ts`                | Canonical request and delivery persistence (CRUD, CAS resolve, list with filters)     |
+| `src/approvals/guardian-decision-primitive.ts`          | Canonical decision primitive: `applyCanonicalGuardianDecision` + scoped grant minting |
+| `src/approvals/guardian-request-resolvers.ts`           | Resolver registry: kind-specific side-effect dispatch after CAS resolution            |
+| `src/runtime/guardian-reply-router.ts`                  | Shared inbound router: callback -> code -> NL classification pipeline                 |
+| `src/runtime/routes/guardian-action-routes.ts`          | HTTP endpoints for prompt listing and decision submission                             |
+| `src/runtime/routes/canonical-guardian-expiry-sweep.ts` | Canonical request expiry sweep                                                        |
 
 ### Outbound Channel Verification (HTTP Endpoints)
 

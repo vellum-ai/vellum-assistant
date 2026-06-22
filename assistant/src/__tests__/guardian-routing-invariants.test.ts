@@ -226,10 +226,8 @@ describe("routing invariant: all decision paths reference applyCanonicalGuardian
   test("guardian-reply-router routes all decisions through applyCanonicalGuardianDecision", () => {
     const fullPath = join(srcRoot, "runtime/guardian-reply-router.ts");
     const source = readFileSync(fullPath, "utf-8");
-    // The router must import and call the canonical primitive, not applyGuardianDecision
+    // The router must import and call the canonical decision primitive.
     expect(source).toContain("applyCanonicalGuardianDecision");
-    // The router must NOT directly call the legacy applyGuardianDecision
-    expect(source).not.toContain("applyGuardianDecision(");
   });
 });
 
