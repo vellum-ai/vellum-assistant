@@ -783,18 +783,18 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         displayName: "MiniMax M3",
         // Together serves MiniMax M3 — the managed route that replaces the
         // Fireworks copy (which mishandles forced tool_choice + object-typed
-        // tool args). ponytail: window/pricing mirror the Fireworks-served
-        // values; set to Together's actual served window + price once known.
+        // tool args). Window + pricing from Together's published rate card.
         contextWindowTokens: 524288,
         maxOutputTokens: 512000,
         supportsThinking: true,
-        supportsCaching: false,
+        supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
         maxEffort: "high",
         pricing: {
           inputPer1mTokens: 0.3,
           outputPer1mTokens: 1.2,
+          cacheReadPer1mTokens: 0.06,
         },
       },
     ],
