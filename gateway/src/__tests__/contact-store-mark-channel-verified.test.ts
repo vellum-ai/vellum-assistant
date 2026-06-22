@@ -388,3 +388,65 @@ describe("ContactStore.markChannelVerified", () => {
     expect(contactRow!.displayName).toBe("gateway-name");
   });
 });
+
+describe("ContactStore.updateChannelStatus (assistant-only backfill)", () => {
+  test("backfills a legacy assistant-only channel into the gateway, then revokes", async () => {
+    seedAssistantContact("c1", "contact");
+    seedAssistantChannel({ id: "ch1", contactId: "c1", status: "active" });
+
+    const updated = await new ContactStore().updateChannelStatus("ch1", {
+      status: "revoked",
+      reason: "spam",
+    });
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe("revoked");
+    expect(updated!.revokedReason).toBe("spam");
+
+    // Channel + parent contact were materialized in the gateway DB.
+    const channelInGateway = getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, "ch1"))
+      .get();
+    expect(channelInGateway!.status).toBe("revoked");
+    const contactInGateway = getGatewayDb()
+      .select()
+      .from(contacts)
+      .where(eq(contacts.id, "c1"))
+      .get();
+    expect(contactInGateway).toBeTruthy();
+  });
+
+  test("revoke-of-blocked still 409s after backfill", async () => {
+    seedAssistantContact("c1", "contact");
+    seedAssistantChannel({ id: "ch1", contactId: "c1", status: "blocked" });
+
+    await expect(
+      new ContactStore().updateChannelStatus("ch1", { status: "revoked" }),
+    ).rejects.toThrow("Cannot revoke a blocked channel");
+  });
+
+  test("returns null when neither DB has the channel", async () => {
+    const updated = await new ContactStore().updateChannelStatus("missing", {
+      status: "revoked",
+    });
+    expect(updated).toBeNull();
+  });
+
+  test("degrades to null when the assistant channel references a missing contact", async () => {
+    // Backfill can't complete (orphan channel) → soft-fail to 404, never throw.
+    seedAssistantChannel({ id: "ch1", contactId: "orphan", status: "active" });
+
+    const updated = await new ContactStore().updateChannelStatus("ch1", {
+      status: "revoked",
+    });
+    expect(updated).toBeNull();
+
+    const channelInGateway = getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, "ch1"))
+      .get();
+    expect(channelInGateway).toBeUndefined();
+  });
+});

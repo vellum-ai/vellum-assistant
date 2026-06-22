@@ -686,12 +686,19 @@ describe("IPC contact routes", () => {
     const assistantChannelId = "assistant-only-ch1";
 
     assistantDbQueryMock = mock(async (sql: string, bind?: unknown[]) => {
-      // Channel lookup by (type,address) → the existing assistant contact id.
+      // Channel lookup by (type,address) → the existing assistant contact id
+      // + its display_name (the adoption JOIN).
       if (
-        sql.includes("FROM contact_channels") &&
-        sql.includes("WHERE type = ?")
+        sql.includes("FROM contact_channels cc") &&
+        sql.includes("WHERE cc.type = ?")
       ) {
-        return [{ contactId: assistantContactId, id: assistantChannelId }];
+        return [
+          {
+            contactId: assistantContactId,
+            id: assistantChannelId,
+            displayName: "Existing Person",
+          },
+        ];
       }
       // existingCh lookup keyed on the adopted (assistant) contact id.
       if (
@@ -763,9 +770,12 @@ describe("IPC contact routes", () => {
     expect(contactUpdate!.bind?.at(-1)).toBe(assistantContactId);
     expect(contactUpdate!.sql).not.toContain("display_name");
 
-    // The gateway DB has the contact + channel under the canonical id.
+    // The gateway DB has the contact + channel under the canonical id, and the
+    // adopted assistant contact's custom display_name is preserved on the
+    // gateway row (not renamed to the bare channel address).
     const store = new ContactStore(getGatewayDb());
     expect(store.getContact(contactId)).toBeDefined();
+    expect(store.getContact(contactId)!.displayName).toBe("Existing Person");
     const gwChannels = store.getChannelsForContact(contactId);
     expect(gwChannels).toHaveLength(1);
     expect(gwChannels[0].address).toBe("existing-person@example.com");
@@ -801,10 +811,10 @@ describe("IPC contact routes", () => {
     // edited contact already exists by id.
     assistantDbQueryMock = mock(async (sql: string, bind?: unknown[]) => {
       if (
-        sql.includes("FROM contact_channels") &&
-        sql.includes("WHERE type = ?")
+        sql.includes("FROM contact_channels cc") &&
+        sql.includes("WHERE cc.type = ?")
       ) {
-        return [{ contactId: "other-contact" }];
+        return [{ contactId: "other-contact", displayName: "Other" }];
       }
       if (sql.includes("FROM contacts WHERE id = ?")) {
         if (bind?.[0] === "edit-me") return [{ userFile: "edit-me.md" }];

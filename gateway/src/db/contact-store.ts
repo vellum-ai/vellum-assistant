@@ -352,8 +352,7 @@ export class ContactStore {
       .where(eq(contactChannels.id, channelId))
       .get();
 
-    // If not found in the gateway DB, resolve from the assistant DB by
-    // logical key (contactId, type, address) and find the matching gateway row.
+    // If not found in the gateway DB, resolve from the assistant DB by id.
     if (!gwChannel) {
       const assistantChannel = await assistantDbQuery<{
         contactId: string;
@@ -362,9 +361,12 @@ export class ContactStore {
       }>(
         "SELECT contact_id AS contactId, type, address FROM contact_channels WHERE id = ?",
         [channelId],
-      );
+      ).catch(() => []);
+
       if (assistantChannel.length > 0) {
         const { contactId, type, address } = assistantChannel[0];
+        // A gateway row may already exist under a DIFFERENT id (same logical
+        // channel) — resolve by logical key first.
         gwChannel = this.db
           .select()
           .from(contactChannels)
@@ -376,6 +378,30 @@ export class ContactStore {
             ),
           )
           .get();
+
+        // Still absent → legacy assistant-only channel. Mirror it (plus its
+        // parent contact) into the gateway DB so the status write resolves
+        // instead of 404ing — matching the verify path. The mirror reuses the
+        // assistant-side id; soft-fails to 404 when the assistant DB is
+        // unreachable.
+        if (!gwChannel) {
+          const mirrored = await this.mirrorChannelFromAssistantIfMissing(
+            channelId,
+          ).catch((err) => {
+            log.warn(
+              { channelId, err },
+              "updateChannelStatus: assistant-only backfill failed (best-effort)",
+            );
+            return false;
+          });
+          if (mirrored) {
+            gwChannel = this.db
+              .select()
+              .from(contactChannels)
+              .where(eq(contactChannels.id, channelId))
+              .get();
+          }
+        }
       }
     }
 
@@ -999,11 +1025,11 @@ export class ContactStore {
     // join-by-id read path. Soft-fails to a minted id if the lookup throws
     // (daemon down / tests) — the assistant-mirror best-effort invariant.
     if (!contactId) {
-      const adoptedId = await this.adoptAssistantContactId(canonicalChannels);
-      contactId = adoptedId ?? crypto.randomUUID();
+      const adopted = await this.adoptAssistantContactId(canonicalChannels);
+      contactId = adopted?.contactId ?? crypto.randomUUID();
       // An adopted id may already exist as a gateway row (different channels);
       // preserve it (name omit-to-preserve) instead of a conflicting INSERT.
-      const existing = adoptedId
+      const existing = adopted
         ? this.db
             .select({ id: contacts.id })
             .from(contacts)
@@ -1013,11 +1039,18 @@ export class ContactStore {
       if (existing) {
         updateContactName(contactId);
       } else {
+        // No displayName supplied → preserve the adopted assistant contact's
+        // existing name (a migrated custom name) so the gateway row doesn't
+        // get renamed to the bare channel address on the next refetch.
         this.db
           .insert(contacts)
           .values({
             id: contactId,
-            displayName: newContactName,
+            displayName:
+              params.displayName ??
+              adopted?.displayName ??
+              canonicalChannels?.[0]?.address ??
+              "Unknown",
             role: "contact",
             principalId: null,
             createdAt: now,
@@ -1605,24 +1638,37 @@ export class ContactStore {
    * When creating a contact (no explicit id, no gateway (type, address) match),
    * look up an existing contact in the ASSISTANT DB owning one of the provided
    * channels (by the same logical key the gateway uses). If found, return its
-   * id so the gateway INSERT + channels + mirror all share ONE canonical id —
-   * healing a legacy assistant-only contact instead of forking the two DBs onto
-   * different ids. Returns null when there's no match or the lookup soft-fails
-   * (daemon down / tests), so the caller falls back to a freshly minted id.
+   * id + existing display_name so the gateway INSERT + channels + mirror all
+   * share ONE canonical id — healing a legacy assistant-only contact instead of
+   * forking the two DBs onto different ids. The display_name lets the create
+   * path preserve a migrated custom name when the caller omits displayName.
+   * Returns null when there's no match or the lookup soft-fails (daemon down /
+   * tests), so the caller falls back to a freshly minted id.
    *
    * Never called on the explicit-id update path — an edit must not retarget
    * another contact (the gateway syncChannels skips cross-contact channels).
    */
   private async adoptAssistantContactId(
     channels: Parameters<ContactStore["upsertContact"]>[0]["channels"],
-  ): Promise<string | null> {
+  ): Promise<{ contactId: string; displayName: string | null } | null> {
     try {
       for (const ch of channels ?? []) {
-        const rows = await assistantDbQuery<{ contactId: string }>(
-          "SELECT contact_id AS contactId FROM contact_channels WHERE type = ? AND address = ? COLLATE NOCASE LIMIT 1",
+        const rows = await assistantDbQuery<{
+          contactId: string;
+          displayName: string | null;
+        }>(
+          `SELECT cc.contact_id AS contactId, c.display_name AS displayName
+             FROM contact_channels cc
+             JOIN contacts c ON c.id = cc.contact_id
+            WHERE cc.type = ? AND cc.address = ? COLLATE NOCASE
+            LIMIT 1`,
           [ch.type, ch.address],
         );
-        if (rows.length) return rows[0].contactId;
+        if (rows.length)
+          return {
+            contactId: rows[0].contactId,
+            displayName: rows[0].displayName,
+          };
       }
     } catch (err) {
       log.warn(
