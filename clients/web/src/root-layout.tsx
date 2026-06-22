@@ -201,6 +201,9 @@ export function RootLayout() {
         void setSelectedAssistant(command.assistantId);
       }
     },
+    chooseAssistant: () => {
+      void navigate(`${routes.selectAssistant}?fromSettings=1`);
+    },
     createAssistant: () => {
       setCreateOpen(true);
     },
