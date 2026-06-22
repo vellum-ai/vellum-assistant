@@ -212,6 +212,71 @@ describe("computeSubagentCardData — step mapping", () => {
     }
   });
 
+  test("equal timestamps (synthetic detail events) yield no durationLabel", () => {
+    // `mapDetailEvents` stamps every fetched-history event with the same
+    // `Date.now()`, so a matched tool_call→tool_result delta is exactly 0.
+    // `formatMs(0)` would render a misleading "<1s"; the label is omitted
+    // instead. Only this equal-timestamp case is suppressed.
+    const data = computeSubagentCardData(
+      makeEntry({
+        status: "completed",
+        events: [
+          makeEvent({
+            type: "tool_call",
+            toolName: "bash",
+            content: "ls",
+            timestamp: NOW,
+          }),
+          makeEvent({
+            type: "tool_result",
+            toolName: "bash",
+            content: "ok",
+            timestamp: NOW,
+          }),
+        ],
+      }),
+    );
+    expect(data.steps).toHaveLength(1);
+    const step = data.steps[0]!;
+    expect(step.kind).toBe("tool");
+    if (step.kind === "tool") {
+      expect(step.status).toBe("completed");
+      expect(step.durationLabel).toBe("");
+    }
+  });
+
+  test("a real positive delta still yields a duration", () => {
+    // Real streaming events carry distinct receive-time `Date.now()`
+    // values, so a genuine sub-second tool still shows a duration.
+    const data = computeSubagentCardData(
+      makeEntry({
+        status: "completed",
+        events: [
+          makeEvent({
+            type: "tool_call",
+            toolName: "bash",
+            content: "ls",
+            timestamp: NOW,
+          }),
+          makeEvent({
+            type: "tool_result",
+            toolName: "bash",
+            content: "ok",
+            timestamp: NOW + 200,
+          }),
+        ],
+      }),
+    );
+    expect(data.steps).toHaveLength(1);
+    const step = data.steps[0]!;
+    expect(step.kind).toBe("tool");
+    if (step.kind === "tool") {
+      expect(step.status).toBe("completed");
+      // Sub-second positive delta formats as "<1s" (not omitted).
+      expect(step.durationLabel).toBe("<1s");
+    }
+  });
+
   test("tool_result with isError flips the tool step to error", () => {
     const data = computeSubagentCardData(
       makeEntry({

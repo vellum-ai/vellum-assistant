@@ -21,8 +21,8 @@ mock.module("@/domains/chat/components/subagent-status-badge", () => ({
   ),
 }));
 
-mock.module("@/domains/chat/components/subagent-timeline", () => ({
-  SubagentTimeline: () => <div data-testid="timeline" />,
+mock.module("@/domains/chat/components/subagent-phase-timeline", () => ({
+  SubagentPhaseTimeline: () => <div data-testid="timeline" />,
 }));
 
 import { SubagentDetailPanel } from "@/domains/chat/components/subagent-detail-panel";
@@ -102,5 +102,39 @@ describe("SubagentDetailPanel — metric cards", () => {
     // Two "0" inputs/outputs and one "0.00" cost render as real text.
     expect(screen.getAllByText("0").length).toBe(2);
     expect(screen.getByText("0.00")).toBeDefined();
+  });
+});
+
+describe("SubagentDetailPanel — timeline empty state", () => {
+  test("empty events renders 'No events yet'", () => {
+    render(<SubagentDetailPanel entry={makeEntry({ events: [] })} onClose={noop} />);
+    expect(screen.getByText("No events yet")).toBeDefined();
+    expect(screen.queryByTestId("timeline")).toBeNull();
+  });
+
+  test("non-empty events that project to zero steps do NOT render 'No events yet'", () => {
+    // A lone `tool_result` with no preceding in-flight `tool_call` is
+    // intentionally dropped by `computeSubagentCardData`, so `steps` is
+    // empty while `entry.events` is non-empty. The empty state must gate on
+    // raw events, so "No events yet" must NOT appear (and the timeline
+    // renders — a no-op for zero steps).
+    render(
+      <SubagentDetailPanel
+        entry={makeEntry({
+          events: [
+            {
+              id: "te-orphan",
+              type: "tool_result",
+              content: "ok",
+              toolName: "bash",
+              timestamp: Date.now(),
+            },
+          ],
+        })}
+        onClose={noop}
+      />,
+    );
+    expect(screen.queryByText("No events yet")).toBeNull();
+    expect(screen.getByTestId("timeline")).toBeDefined();
   });
 });

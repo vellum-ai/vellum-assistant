@@ -7,7 +7,7 @@ import {
     X,
 } from "lucide-react";
 
-import { useEffect, useMemo, useState, type RefObject } from "react";
+import { useEffect, useMemo } from "react";
 
 import { AvatarRenderer } from "@/components/avatar-renderer";
 import {
@@ -21,7 +21,8 @@ import { isActiveStatus } from "@/utils/subagent-status";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { Button, Typography } from "@vellumai/design-library";
 
-import { SubagentTimeline } from "@/domains/chat/components/subagent-timeline";
+import { SubagentPhaseTimeline } from "@/domains/chat/components/subagent-phase-timeline";
+import { computeSubagentCardData } from "@/domains/chat/hooks/use-subagent-card-data";
 
 /** Format a cost value (e.g. 0.68 -> "0.68"). */
 function formatCost(cost: number): string {
@@ -60,36 +61,15 @@ export function SubagentDetailPanel({
   // Compute the avatar traits once per subagent instead of hashing the id
   // three separate times in the JSX below.
   const traits = useMemo(() => subagentTraits(entry.subagentId), [entry.subagentId]);
-  // The timeline reads `entry.events` directly. Virtualization bounds each
-  // render to the visible window, so there is no expensive full-list render to
-  // defer. A `useDeferredValue` here is counterproductive: under sustained
-  // high-frequency streaming its low-priority render keeps getting preempted and
-  // never commits, freezing the timeline on a stale snapshot until the stream
-  // slows.
+  // The panel re-renders when `entry` changes via the store subscription in
+  // chat-content-layout.tsx, so memoizing on `entry` keeps the steps fresh.
+  const cardData = useMemo(() => computeSubagentCardData(entry), [entry]);
 
   useEffect(() => {
     if (onRequestDetail && entry.conversationId && entry.events.length === 0) {
       onRequestDetail(entry.subagentId);
     }
   }, [entry.subagentId, entry.conversationId, entry.events.length, onRequestDetail]);
-
-  // The scroll container forwarded to the virtualized timeline: the timeline
-  // virtualizes against this *external* scroll element (the panel body) rather
-  // than its own list, so the metrics/objective header scrolls with the rows.
-  //
-  // Backed by state (a callback ref) rather than a plain `useRef`: the
-  // virtualizer registers its scroll listener from a layout effect that runs
-  // child-first, *before* this parent div's ref would attach. With a plain ref
-  // it sees a null scroll element and — for a completed subagent whose events
-  // arrive in one batch, with no later re-render — never registers, leaving the
-  // timeline unscrollable past the first window. Setting state when the node
-  // attaches forces the re-render that lets the virtualizer pick up the
-  // now-mounted scroll element.
-  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
-  const scrollRef = useMemo<RefObject<HTMLElement | null>>(
-    () => ({ current: scrollEl }),
-    [scrollEl],
-  );
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
@@ -139,7 +119,7 @@ export function SubagentDetailPanel({
       </div>
 
       {/* Scrollable body */}
-      <div ref={setScrollEl} className="flex-1 overflow-y-auto px-5 py-5">
+      <div className="flex-1 overflow-y-auto px-5 py-5">
         {/* Metrics row */}
         <div className="mb-5 grid grid-cols-3 gap-3">
           <AnimatedMetricCard
@@ -193,17 +173,35 @@ export function SubagentDetailPanel({
           </Typography>
           {/*
            * Key by subagent id so the timeline remounts on subagent switch,
-           * resetting the expand/collapse state it holds. Fetched detail event
-           * ids are renumbered per subagent (detail-1, detail-2, …) and the
-           * drawer keeps this component mounted across switches, so without a
-           * per-subagent reset an expanded `detail-N` would leak its expanded
-           * state onto the next subagent's `detail-N`.
+           * resetting the expand/collapse state it holds. The drawer keeps this
+           * component mounted across switches, so without a per-subagent reset
+           * an expanded phase would leak its expanded state onto the next
+           * subagent's same-positioned phase.
            */}
-          <SubagentTimeline
-            key={entry.subagentId}
-            scrollRef={scrollRef}
-            events={entry.events}
-          />
+          {/*
+           * Gate the empty state on the RAW `entry.events`, not on
+           * `cardData.steps`. `computeSubagentCardData` can intentionally
+           * DROP events (e.g. a `tool_result` with no preceding in-flight
+           * `tool_call`), so `entry.events` can be non-empty while
+           * `cardData.steps` is empty. Gating on steps would show a false
+           * "No events yet" AND — because `entry.events.length !== 0` — the
+           * detail-refetch effect above wouldn't fire to recover. When the
+           * store has events we render the timeline (which returns null for
+           * zero steps, an acceptable no-op).
+           */}
+          {entry.events.length > 0 ? (
+            <SubagentPhaseTimeline
+              key={entry.subagentId}
+              steps={cardData.steps}
+            />
+          ) : (
+            <Typography
+              variant="body-small-default"
+              className="py-4 text-center text-[var(--content-tertiary)]"
+            >
+              No events yet
+            </Typography>
+          )}
         </div>
       </div>
     </div>
