@@ -15,6 +15,8 @@
  *     starts empty and the incremental maintain pass only re-embeds deltas.
  */
 
+import { readFileSync } from "node:fs";
+
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../../ipc/cli-client.js";
@@ -41,6 +43,32 @@ const BACKFILL_IPC_TIMEOUT_MS = 30 * 60 * 1000;
  * ceiling as the backfill.
  */
 const EVAL_IPC_TIMEOUT_MS = 30 * 60 * 1000;
+
+/** Commander accumulator for a repeatable `--exclude-conversation <id>` flag. */
+function collectRepeatable(value: string, acc: string[]): string[] {
+  return [...acc, value];
+}
+
+/**
+ * Read the `turn` ids from a prior run's `key.json` or `packets.json` (both are
+ * arrays of objects carrying a `turn` field). Used to pin `--turns-file` so a
+ * re-judge measures the exact same turn set.
+ */
+function readTurnIdsFromFile(path: string): string[] {
+  const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+  if (!Array.isArray(parsed)) {
+    throw new Error(
+      `--turns-file ${path} must be a JSON array (a key.json or packets.json)`,
+    );
+  }
+  const ids = parsed
+    .map((e) => (e as { turn?: unknown }).turn)
+    .filter((t): t is string => typeof t === "string");
+  if (ids.length === 0) {
+    throw new Error(`--turns-file ${path} contained no turn ids`);
+  }
+  return ids;
+}
 
 export function registerMemoryV3Command(memory: Command): void {
   registerCommand(memory, {
@@ -162,6 +190,16 @@ Examples:
           "--no-dense",
           "Needle-only: skip section embedding (fast, cheaper, lower fidelity)",
         )
+        .option(
+          "--turns-file <path>",
+          "Pin the exact turns from a prior key.json/packets.json (reproducible re-judge); overrides --turns",
+        )
+        .option(
+          "--exclude-conversation <id>",
+          "Conversation id to omit from mining (repeatable; e.g. the migration's own chat)",
+          collectRepeatable,
+          [],
+        )
         .option("--json", "Emit raw JSON instead of a formatted summary")
         .addHelpText(
           "after",
@@ -173,9 +211,17 @@ is touched. With the dense lane on (default) it embeds every section of both
 corpora, which can take a while on a large corpus; use --no-dense for a fast
 lexical-only pass.
 
+To iterate on the staged wiki reproducibly, mine the turns ONCE and pin them on
+every re-run with --turns-file (pointing at the first run's key.json), so the
+comparison stays fixed while only the staged corpus changes. Re-runs that
+re-mine drift onto a different turn set and are not comparable. Likewise, do not
+compare a --no-dense run against a dense one, and check eval-meta.json's
+embedding identity is the same across runs.
+
 Examples:
   $ assistant memory v3 eval --snapshot .mv3/snapshot/concepts --staging .mv3/staging --out .mv3/eval
-  $ assistant memory v3 eval --snapshot .mv3/snapshot/concepts --staging .mv3/staging --out .mv3/eval --turns 50 --no-dense`,
+  $ assistant memory v3 eval --snapshot .mv3/snapshot/concepts --staging .mv3/staging --out .mv3/eval --turns-file .mv3/eval/key.json
+  $ assistant memory v3 eval --snapshot .mv3/snapshot/concepts --staging .mv3/staging --out .mv3/eval --exclude-conversation <migration-conv-id>`,
         )
         .action(
           async (opts: {
@@ -186,8 +232,20 @@ Examples:
             k: string;
             seed: string;
             dense: boolean;
+            turnsFile?: string;
+            excludeConversation: string[];
             json?: boolean;
           }) => {
+            let turnIds: string[] | undefined;
+            if (opts.turnsFile !== undefined) {
+              try {
+                turnIds = readTurnIdsFromFile(opts.turnsFile);
+              } catch (err) {
+                log.error(err instanceof Error ? err.message : String(err));
+                process.exitCode = 1;
+                return;
+              }
+            }
             const result = await cliIpcCall<MemoryEvalRunResult>(
               "memory_eval_run",
               {
@@ -199,6 +257,10 @@ Examples:
                   k: Number(opts.k),
                   seed: Number(opts.seed),
                   dense: opts.dense,
+                  ...(turnIds ? { turnIds } : {}),
+                  ...(opts.excludeConversation.length > 0
+                    ? { excludeConversationIds: opts.excludeConversation }
+                    : {}),
                 },
               },
               { timeoutMs: EVAL_IPC_TIMEOUT_MS },
@@ -213,11 +275,23 @@ Examples:
               log.info(JSON.stringify(payload, null, 2));
               return;
             }
+            const emb = payload.embedding;
+            const embStr = payload.dense
+              ? `${emb.provider}/${emb.model}/${emb.dims ?? "?"}d`
+              : "needle-only (no dense)";
             log.info(
-              `Wrote ${payload.packetsWritten} packets from ${payload.turnsMined} turns ` +
+              `Wrote ${payload.packetsWritten} packets from ${payload.turnsMined}/${payload.turnsRequested} turns ` +
                 `(snapshot ${payload.snapshotPages} pages vs staged ${payload.stagingPages} pages, ` +
-                `dense=${payload.dense}).\n  packets: ${payload.packetsPath}\n  key:     ${payload.keyPath}`,
+                `dense=${payload.dense}, embedding=${embStr}).\n` +
+                `  packets: ${payload.packetsPath}\n  key:     ${payload.keyPath}\n  meta:    ${payload.metaPath}\n` +
+                `  Re-judge reproducibly with: --turns-file ${payload.keyPath}`,
             );
+            if (payload.turnsMined < payload.turnsRequested) {
+              log.warn(
+                `Only ${payload.turnsMined} of ${payload.turnsRequested} requested turns were mined ` +
+                  `(pinned turns may have been deleted, or there are too few recent user turns).`,
+              );
+            }
           },
         );
     },
