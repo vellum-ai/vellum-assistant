@@ -279,4 +279,46 @@ describe("SubagentDetailPanel — objective", () => {
       restore();
     }
   });
+
+  test("switching to a different subagent resets the expanded objective state", () => {
+    // The desktop parent reuses this component instance across subagent
+    // switches (no React `key`). Expand the first subagent's long objective,
+    // then re-render the SAME instance with a different subagent whose
+    // objective is short. The expand state must reset and re-measure: the new
+    // objective renders collapsed with no toggle.
+    const longObjective = "x ".repeat(400).trim();
+    const restore = installOverflow(longObjective);
+    try {
+      const { rerender } = render(
+        <SubagentDetailPanel
+          entry={makeEntry({ subagentId: "sub-1", objective: longObjective })}
+          onClose={noop}
+        />,
+      );
+
+      // Expand the first subagent's objective.
+      fireEvent.click(screen.getByText("Show more"));
+      expect(screen.getByText("Show less")).toBeDefined();
+      expect(screen.getByText(longObjective).className).not.toContain(
+        "line-clamp-3",
+      );
+
+      // Switch to a different subagent with a short objective. Same instance,
+      // different `entry.subagentId`.
+      rerender(
+        <SubagentDetailPanel
+          entry={makeEntry({ subagentId: "sub-2", objective: "Short" })}
+          onClose={noop}
+        />,
+      );
+
+      // State reset + re-measured: collapsed, no stale "Show less"/toggle.
+      const shortBody = screen.getByText("Short");
+      expect(shortBody.className).toContain("line-clamp-3");
+      expect(screen.queryByText("Show less")).toBeNull();
+      expect(screen.queryByText("Show more")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
 });
