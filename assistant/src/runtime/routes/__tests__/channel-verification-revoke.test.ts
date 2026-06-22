@@ -97,6 +97,17 @@ mock.module("../../../contacts/contacts-write.js", () => ({
   revokeGuardianBinding: revokeGuardianBindingMock,
 }));
 
+// Contact-change invalidation — emitted explicitly on relay success so open
+// client views stop showing the channel as active (the gateway dual-write to
+// "revoked" precedes binding teardown, so revokeGuardianBinding no longer
+// fires it).
+const emitContactChangeMock = mock(() => {});
+const actualContactEvents = await import("../../../contacts/contact-events.js");
+mock.module("../../../contacts/contact-events.js", () => ({
+  ...actualContactEvents,
+  emitContactChange: emitContactChangeMock,
+}));
+
 const { ROUTES } = await import("../channel-verification-routes.js");
 
 const revokeHandler = ROUTES.find(
@@ -118,6 +129,7 @@ describe("verification revoke relay", () => {
     revokeBindingMock.mockClear();
     revokeGuardianBindingMock.mockClear();
     localAclWrite.mockClear();
+    emitContactChangeMock.mockClear();
   });
 
   test("relays the downgrade outcome to the gateway and tears down sessions locally", async () => {
@@ -147,8 +159,69 @@ describe("verification revoke relay", () => {
     // The contact-channel ACL write does not fall back to the assistant.
     expect(localAclWrite).not.toHaveBeenCalled();
 
+    // Invalidation emitted explicitly on relay success: the gateway dual-write
+    // to "revoked" precedes binding teardown, so revokeGuardianBinding's own
+    // emit no longer fires.
+    expect(emitContactChangeMock).toHaveBeenCalledTimes(1);
+
     expect(result.success).toBe(true);
     expect(result.bound).toBe(false);
+  });
+
+  test("emits the invalidation even when the gateway dual-write already revoked the channel", async () => {
+    // Simulate the gateway having dual-written the assistant row to "revoked"
+    // before binding teardown: findGuardianForChannel (active-only) now finds
+    // nothing, so revokeGuardianBinding is a no-op and never emits.
+    revokeGuardianBindingMock.mockImplementationOnce(() => false);
+
+    await revokeHandler({ body: { channel: "telegram" } });
+
+    expect(ipcCalls).toHaveLength(1);
+    expect(emitContactChangeMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("malformed gateway response surfaces as an error", async () => {
+    ipcCallPersistentMock.mockImplementationOnce(async () => ({
+      ok: "nope",
+    }));
+
+    let thrown: Error | undefined;
+    try {
+      await revokeHandler({ body: { channel: "telegram" } });
+    } catch (err) {
+      thrown = err as Error;
+    }
+
+    expect(thrown).toBeDefined();
+    // Invalidation must not fire when the relay response is invalid.
+    expect(emitContactChangeMock).not.toHaveBeenCalled();
+    expect(revokeBindingMock).not.toHaveBeenCalled();
+  });
+
+  test("ok: false gateway response surfaces as an error", async () => {
+    ipcCallPersistentMock.mockImplementationOnce(async (_m, params) => ({
+      ok: false,
+      didWrite: false,
+      channel: {
+        id: (params?.contactChannelId as string) ?? "ch1",
+        contactId: "c1",
+        type: "telegram",
+        address: "addr",
+        status: "active",
+        revokedReason: null,
+      },
+    }));
+
+    let thrown: Error | undefined;
+    try {
+      await revokeHandler({ body: { channel: "telegram" } });
+    } catch (err) {
+      thrown = err as Error;
+    }
+
+    expect(thrown).toBeDefined();
+    expect(emitContactChangeMock).not.toHaveBeenCalled();
+    expect(revokeBindingMock).not.toHaveBeenCalled();
   });
 
   test("guardian guard rejection from the gateway surfaces as an error", async () => {
