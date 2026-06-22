@@ -19,6 +19,7 @@ import type {
   HelperState,
   HotkeyEvent,
   LocalAssistantStatusResult,
+  LocalUpgradeOptions,
   LocalWakeOptions,
   NotificationActionEvent,
   PowerEvent,
@@ -305,6 +306,16 @@ const bridge: VellumBridge = {
     wake: (assistantId: string, options?: LocalWakeOptions) =>
       ipcRenderer.invoke("vellum:localMode:wake", assistantId, options) as Promise<{
         ok: boolean;
+        error?: string;
+      }>,
+    upgrade: (assistantId: string, options?: LocalUpgradeOptions) =>
+      ipcRenderer.invoke(
+        "vellum:localMode:upgrade",
+        assistantId,
+        options,
+      ) as Promise<{
+        ok: boolean;
+        version?: string;
         error?: string;
       }>,
     status: (assistantId: string) =>

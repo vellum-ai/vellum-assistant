@@ -368,6 +368,8 @@ export interface LocalAssistantResources {
   instanceDir?: string;
   gatewayPort: number;
   daemonPort: number;
+  runtimeVersion?: string;
+  runtimeInstallDir?: string;
 }
 
 export interface LockfileAssistant {
@@ -392,6 +394,7 @@ export type LockfileWriteResult =
 
 export type LocalAssistantRuntimeState =
   | "healthy"
+  | "upgrading"
   | "sleeping"
   | "starting"
   | "crashed"

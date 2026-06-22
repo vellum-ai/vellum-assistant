@@ -78,13 +78,16 @@ export function resolveCloud(raw: {
 
 /**
  * Per-instance resources for a local assistant: the renderer-facing subset of
- * ports plus the instance directory. Richer host-only fields (other ports, the
- * signing key) live on the CLI's type and are stripped from this shape.
+ * ports, the instance directory, and the local runtime install metadata.
+ * Richer host-only fields (other ports, the signing key) live on the CLI's
+ * type and are stripped from this shape.
  */
 export const LocalAssistantResourcesSchema = z.object({
   instanceDir: z.string().optional(),
   gatewayPort: z.number(),
   daemonPort: z.number(),
+  runtimeVersion: z.string().optional(),
+  runtimeInstallDir: z.string().optional(),
 });
 export type LocalAssistantResources = z.infer<
   typeof LocalAssistantResourcesSchema

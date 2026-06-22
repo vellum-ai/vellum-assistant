@@ -1,4 +1,6 @@
 import { spawnSync } from "child_process";
+import { writeFileSync } from "fs";
+import { join } from "path";
 
 import cliPkg from "../../package.json";
 
@@ -55,10 +57,24 @@ import {
 } from "../lib/upgrade-lifecycle.js";
 import {
   compareVersions,
+  parseVersion,
   stripVersionPrefix,
   versionsEqual,
 } from "../lib/version-compat.js";
 import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
+import {
+  generateLocalSigningKey,
+  ensureLocalRuntime,
+  startGateway,
+  startLocalDaemon,
+  stopLocalProcesses,
+} from "../lib/local.js";
+import { maybeStartNgrokTunnel } from "../lib/ngrok.js";
+import {
+  leaseGuardianToken,
+  resetGuardianBootstrap,
+  seedGuardianTokenFromSiblingEnv,
+} from "../lib/guardian-token.js";
 
 interface UpgradeArgs {
   name: string | null;
@@ -110,7 +126,7 @@ function parseArgs(): UpgradeArgs {
         "  --no-wait            Platform assistants only: return after the upgrade request is accepted instead of waiting for completion",
       );
       console.log(
-        "  --force              Docker assistants only: reinstall even when already on the target version",
+        "  --force              Local/Docker assistants only: reinstall even when already on the target version",
       );
       console.log("");
       console.log("Examples:");
@@ -723,6 +739,314 @@ async function upgradeDocker(
   }
 }
 
+function isLocalBuildVersion(version: string): boolean {
+  const parsed = parseVersion(version);
+  return parsed?.pre?.split(".")[0] === "local";
+}
+
+export async function targetVersionFromCli(
+  version: string | null,
+  cliVersion = cliPkg.version,
+  resolveLatestStable: () => Promise<string> = resolveLatestStableTag,
+): Promise<string> {
+  const targetVersion = version ?? (cliVersion ? `v${cliVersion}` : "latest");
+  if (!isLocalBuildVersion(targetVersion)) return targetVersion;
+
+  const latestTag = await resolveLatestStable();
+  console.log(
+    `   Local build version ${targetVersion} is not published; using latest stable ${latestTag}.\n`,
+  );
+  return latestTag;
+}
+
+function localAdminUrl(entry: AssistantEntry): string {
+  return entry.localUrl ?? entry.runtimeUrl;
+}
+
+async function ensureGuardianTokenAfterLocalUpgrade(
+  entry: AssistantEntry,
+  gatewayPort: number,
+  bootstrapSecret?: string,
+): Promise<void> {
+  if (seedGuardianTokenFromSiblingEnv(entry.assistantId)) {
+    console.log("   Seeded guardian token from sibling environment.");
+  }
+
+  const loopbackUrl = `http://127.0.0.1:${gatewayPort}`;
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await resetGuardianBootstrap(loopbackUrl, bootstrapSecret);
+      await leaseGuardianToken(loopbackUrl, entry.assistantId, bootstrapSecret);
+      console.log("   Re-provisioned guardian token.");
+      return;
+    } catch (err) {
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 2000 * 2 ** (attempt - 1)));
+      } else {
+        console.warn(
+          `   Guardian token re-provision failed after ${maxAttempts} attempts: ${err}`,
+        );
+      }
+    }
+  }
+}
+
+async function fetchLocalUpgradeState(
+  entry: AssistantEntry,
+  adminUrl: string,
+): Promise<{
+  currentVersion?: string;
+  preMigrationState: {
+    dbVersion?: number;
+    lastWorkspaceMigrationId?: string;
+  };
+}> {
+  try {
+    const healthResp = await loopbackSafeFetch(
+      `${adminUrl}/healthz?include=migrations`,
+      {
+        signal: AbortSignal.timeout(5000),
+      },
+    );
+    if (healthResp.ok) {
+      const health = (await healthResp.json()) as {
+        version?: string;
+        migrations?: { dbVersion?: number; lastWorkspaceMigrationId?: string };
+      };
+      return {
+        currentVersion: health.version,
+        preMigrationState: health.migrations ?? {},
+      };
+    }
+  } catch {
+    // Best-effort — sleeping assistants and unhealthy gateways can still be restarted.
+  }
+
+  return { preMigrationState: {} };
+}
+
+async function upgradeLocal(
+  entry: AssistantEntry,
+  version: string | null,
+  force: boolean,
+): Promise<void> {
+  if (!entry.resources) {
+    const msg = `Local assistant '${entry.assistantId}' is missing resource configuration. Re-hatch to fix.`;
+    console.error(msg);
+    emitCliError("UNKNOWN", msg);
+    process.exit(1);
+  }
+
+  const targetVersion = await targetVersionFromCli(version);
+  const adminUrl = localAdminUrl(entry);
+  const { currentVersion, preMigrationState } = await fetchLocalUpgradeState(
+    entry,
+    adminUrl,
+  );
+
+  if (!currentVersion && targetVersion) {
+    console.warn(
+      "⚠️  Could not determine current version from health endpoint — skipping version-direction check.\n",
+    );
+  }
+  if (currentVersion && targetVersion) {
+    const cmp = compareVersions(targetVersion, currentVersion);
+    if (cmp !== null && cmp < 0) {
+      const msg = `Cannot upgrade to an older version (${targetVersion} < ${currentVersion}). Use \`vellum rollback --version ${targetVersion}\` instead.`;
+      console.error(msg);
+      emitCliError("VERSION_DIRECTION", msg);
+      process.exit(1);
+    }
+  }
+
+  if (currentVersion && versionsEqual(targetVersion, currentVersion)) {
+    if (!force) {
+      console.log(
+        `✅ Already on ${targetVersion}. Nothing to do. Pass --force to reinstall.`,
+      );
+      return;
+    }
+    console.log(`🔁 Reinstalling ${targetVersion} (--force)...\n`);
+  }
+
+  console.log(
+    `🔄 Upgrading local assistant '${entry.assistantId}' to ${targetVersion}...\n`,
+  );
+
+  await commitWorkspaceViaGateway(
+    adminUrl,
+    entry.assistantId,
+    buildUpgradeCommitMessage({
+      action: "upgrade",
+      phase: "starting",
+      from: currentVersion ?? "unknown",
+      to: targetVersion,
+      topology: "local",
+      assistantId: entry.assistantId,
+    }),
+  );
+
+  console.log("📢 Notifying connected clients...");
+  await broadcastUpgradeEvent(
+    adminUrl,
+    entry.assistantId,
+    buildStartingEvent(targetVersion),
+  );
+  await new Promise((r) => setTimeout(r, 500));
+
+  await broadcastUpgradeEvent(
+    adminUrl,
+    entry.assistantId,
+    buildProgressEvent(UPGRADE_PROGRESS.BACKING_UP),
+  );
+  console.log("📦 Creating pre-upgrade backup...");
+  const backupPath = await createBackup(adminUrl, entry.assistantId, {
+    prefix: `${entry.assistantId}-pre-upgrade`,
+    description: `Pre-upgrade snapshot before ${currentVersion ?? "unknown"} → ${targetVersion}`,
+  });
+  if (backupPath) {
+    console.log(`   Backup saved: ${backupPath}\n`);
+    pruneOldBackups(entry.assistantId, 3);
+  } else {
+    console.warn("⚠️  Pre-upgrade backup failed (continuing with upgrade)\n");
+  }
+
+  let signingKey = entry.resources.signingKey;
+  let bootstrapSecret = entry.guardianBootstrapSecret;
+  let entryChanged = false;
+  if (!signingKey) {
+    signingKey = generateLocalSigningKey();
+    entry.resources = { ...entry.resources, signingKey };
+    entryChanged = true;
+  }
+  if (!bootstrapSecret) {
+    bootstrapSecret = generateLocalSigningKey();
+    entry.guardianBootstrapSecret = bootstrapSecret;
+    entryChanged = true;
+  }
+
+  if (
+    entryChanged ||
+    backupPath ||
+    currentVersion ||
+    preMigrationState.dbVersion !== undefined ||
+    preMigrationState.lastWorkspaceMigrationId !== undefined
+  ) {
+    saveAssistantEntry({
+      ...entry,
+      previousVersion: currentVersion,
+      previousDbMigrationVersion: preMigrationState.dbVersion,
+      previousWorkspaceMigrationId: preMigrationState.lastWorkspaceMigrationId,
+      preUpgradeBackupPath: backupPath ?? undefined,
+    });
+  }
+
+  await broadcastUpgradeEvent(
+    adminUrl,
+    entry.assistantId,
+    buildProgressEvent(UPGRADE_PROGRESS.INSTALLING),
+  );
+
+  console.log(
+    "⬇️  Downloading local runtime packages (assistant, gateway, credential-executor)...",
+  );
+  const runtimeInstall = ensureLocalRuntime(entry.resources, targetVersion, {
+    force,
+  });
+  entry.resources = {
+    ...entry.resources,
+    runtimeVersion: runtimeInstall.version,
+    runtimeInstallDir: runtimeInstall.installDir,
+  };
+  saveAssistantEntry({
+    ...entry,
+    previousVersion: currentVersion,
+    previousDbMigrationVersion: preMigrationState.dbVersion,
+    previousWorkspaceMigrationId: preMigrationState.lastWorkspaceMigrationId,
+    preUpgradeBackupPath: backupPath ?? undefined,
+  });
+  console.log(`   Runtime installed: ${runtimeInstall.installDir}\n`);
+
+  console.log("🛑 Stopping local assistant processes...");
+  await stopLocalProcesses(entry.resources);
+  console.log("✅ Local assistant processes stopped\n");
+
+  console.log("🚀 Starting upgraded local assistant...");
+  const previousAppVersion = process.env.APP_VERSION;
+  process.env.APP_VERSION = stripVersionPrefix(targetVersion);
+  try {
+    await startLocalDaemon(false, entry.resources, { signingKey });
+    await startGateway(false, entry.resources, { signingKey, bootstrapSecret });
+  } finally {
+    if (previousAppVersion === undefined) {
+      delete process.env.APP_VERSION;
+    } else {
+      process.env.APP_VERSION = previousAppVersion;
+    }
+  }
+  await ensureGuardianTokenAfterLocalUpgrade(
+    entry,
+    entry.resources.gatewayPort,
+    bootstrapSecret,
+  );
+  console.log("✅ Local assistant processes started\n");
+
+  const workspaceDir = join(
+    entry.resources.instanceDir,
+    ".vellum",
+    "workspace",
+  );
+  const ngrokChild = await maybeStartNgrokTunnel(
+    entry.resources.gatewayPort,
+    workspaceDir,
+  );
+  if (ngrokChild?.pid) {
+    writeFileSync(
+      join(entry.resources.instanceDir, ".vellum", "ngrok.pid"),
+      String(ngrokChild.pid),
+    );
+  }
+
+  console.log("Waiting for assistant to become ready...");
+  const ready = await waitForReady(adminUrl);
+  if (!ready) {
+    await broadcastUpgradeEvent(
+      adminUrl,
+      entry.assistantId,
+      buildCompleteEvent(currentVersion ?? "unknown", false),
+    );
+    const msg = `Upgrade to ${targetVersion} failed: local assistant did not become ready.`;
+    console.error(`\n❌ ${msg}`);
+    emitCliError("READINESS_TIMEOUT", msg);
+    process.exit(1);
+  }
+
+  await broadcastUpgradeEvent(
+    adminUrl,
+    entry.assistantId,
+    buildCompleteEvent(targetVersion, true),
+  );
+
+  await commitWorkspaceViaGateway(
+    adminUrl,
+    entry.assistantId,
+    buildUpgradeCommitMessage({
+      action: "upgrade",
+      phase: "complete",
+      from: currentVersion ?? "unknown",
+      to: targetVersion,
+      topology: "local",
+      assistantId: entry.assistantId,
+      result: "success",
+    }),
+  );
+
+  console.log(
+    `\n✅ Local assistant '${entry.assistantId}' upgraded to ${targetVersion}.`,
+  );
+}
+
 interface UpgradeApiResponse {
   detail: string;
   version: string | null;
@@ -804,9 +1128,7 @@ async function waitForPlatformUpgrade(
           entry.assistantId,
         );
         if (health.status === "healthy") {
-          console.log(
-            `✅ Upgraded to ${finalVersion} — assistant is healthy.`,
-          );
+          console.log(`✅ Upgraded to ${finalVersion} — assistant is healthy.`);
           return;
         }
         await sleep(PLATFORM_HEALTH_CONFIRM_INTERVAL_MS);
@@ -853,10 +1175,7 @@ async function upgradePlatform(
   // downgrades before POSTing, and bail if an upgrade is already running.
   const [assistantDetail, health] = await Promise.all([
     fetchAssistantDetail(token, entry.assistantId, entry.runtimeUrl),
-    checkManagedHealth(
-      entry.runtimeUrl || getPlatformUrl(),
-      entry.assistantId,
-    ),
+    checkManagedHealth(entry.runtimeUrl || getPlatformUrl(), entry.assistantId),
   ]);
   // Health probe first, DB-backed field as the sleeping-assistant fallback.
   const currentVersion =
@@ -1116,10 +1435,7 @@ async function upgradeFinalize(
  * that need it.  If the CLI was updated and re-exec'd, this function never
  * returns — the process is replaced.
  */
-async function resolveLatestAndMaybeSelfUpdate(
-  name: string | null,
-  flags: { noWait: boolean; force: boolean },
-): Promise<string> {
+async function resolveLatestStableTag(): Promise<string> {
   console.log("🔍 Fetching latest stable release...");
   const latestVersion = await fetchLatestStableVersion();
   if (!latestVersion) {
@@ -1133,9 +1449,14 @@ async function resolveLatestAndMaybeSelfUpdate(
     process.exit(1);
   }
 
-  const latestTag = latestVersion.startsWith("v")
-    ? latestVersion
-    : `v${latestVersion}`;
+  return latestVersion.startsWith("v") ? latestVersion : `v${latestVersion}`;
+}
+
+async function resolveLatestAndMaybeSelfUpdate(
+  name: string | null,
+  flags: { noWait: boolean; force: boolean },
+): Promise<string> {
+  const latestTag = await resolveLatestStableTag();
   const currentTag = cliPkg.version ? `v${cliPkg.version}` : null;
 
   console.log(`   Latest stable: ${latestTag}`);
@@ -1147,7 +1468,7 @@ async function resolveLatestAndMaybeSelfUpdate(
     console.log(`🔄 Updating CLI to ${latestTag}...`);
     const installResult = spawnSync(
       "bun",
-      ["install", "-g", `vellum@${stripVersionPrefix(latestVersion)}`],
+      ["install", "-g", `vellum@${stripVersionPrefix(latestTag)}`],
       { stdio: "inherit" },
     );
     if (installResult.error || installResult.status !== 0) {
@@ -1202,19 +1523,25 @@ export async function upgrade(): Promise<void> {
   // self-update the CLI if it's behind.  The resolved version is then used
   // as the explicit target for the rest of the upgrade flow.
   let effectiveVersion = version;
-  if (latest) {
-    const latestTag = await resolveLatestAndMaybeSelfUpdate(name, {
-      noWait,
-      force,
-    });
-    effectiveVersion = latestTag;
-  }
-
   const cloud = entry.cloud;
+  if (latest) {
+    effectiveVersion =
+      cloud === "local"
+        ? await resolveLatestStableTag()
+        : await resolveLatestAndMaybeSelfUpdate(name, {
+            noWait,
+            force,
+          });
+  }
 
   try {
     if (cloud === "docker") {
       await upgradeDocker(entry, effectiveVersion, force);
+      return;
+    }
+
+    if (cloud === "local") {
+      await upgradeLocal(entry, effectiveVersion, force);
       return;
     }
 
@@ -1237,7 +1564,7 @@ export async function upgrade(): Promise<void> {
     process.exit(1);
   }
 
-  const msg = `Error: Upgrade is not supported for '${cloud}' assistants. Only 'docker' and 'vellum' assistants can be upgraded via the CLI.`;
+  const msg = `Error: Upgrade is not supported for '${cloud}' assistants. Only 'local', 'docker', and 'vellum' assistants can be upgraded via the CLI.`;
   console.error(msg);
   emitCliError("UNSUPPORTED_TOPOLOGY", msg);
   process.exit(1);

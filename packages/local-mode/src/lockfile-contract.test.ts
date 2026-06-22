@@ -65,7 +65,9 @@ describe("parseLockfile", () => {
     // modeled fields. It must still be returned, normalized to `local`.
     const parsed = parseLockfile({
       activeAssistant: null,
-      assistants: [{ assistantId: "asst_1", localUrl: "http://127.0.0.1:7777" }],
+      assistants: [
+        { assistantId: "asst_1", localUrl: "http://127.0.0.1:7777" },
+      ],
     });
     expect(parsed.assistants).toEqual([
       { assistantId: "asst_1", cloud: "local" },
@@ -202,9 +204,32 @@ describe("parseLockfile", () => {
     expect(assistant?.resources).toBeUndefined();
   });
 
+  test("keeps local runtime resource fields when well-typed", () => {
+    const raw = {
+      assistants: [
+        {
+          assistantId: "asst_1",
+          cloud: "local",
+          runtimeUrl: "http://a",
+          resources: {
+            gatewayPort: 7777,
+            daemonPort: 7778,
+            runtimeVersion: "v0.8.13",
+            runtimeInstallDir: "/tmp/vellum/runtime/0.8.13",
+          },
+        },
+      ],
+      activeAssistant: null,
+    };
+    expect(parseLockfile(raw).assistants[0]?.resources).toEqual({
+      gatewayPort: 7777,
+      daemonPort: 7778,
+      runtimeVersion: "v0.8.13",
+      runtimeInstallDir: "/tmp/vellum/runtime/0.8.13",
+    });
+  });
+
   test("strips sensitive and host-only fields from resources", () => {
-    // The renderer-facing resources shape is ports + instanceDir only; the
-    // signing key and other ports are host-only and never cross the boundary.
     const raw = {
       assistants: [
         {
@@ -214,6 +239,8 @@ describe("parseLockfile", () => {
             instanceDir: "/data",
             gatewayPort: 7777,
             daemonPort: 7778,
+            runtimeVersion: "v0.8.13",
+            runtimeInstallDir: "/tmp/vellum/runtime/0.8.13",
             qdrantPort: 7779,
             cesPort: 7780,
             signingKey: "hunter2",
@@ -226,6 +253,8 @@ describe("parseLockfile", () => {
       instanceDir: "/data",
       gatewayPort: 7777,
       daemonPort: 7778,
+      runtimeVersion: "v0.8.13",
+      runtimeInstallDir: "/tmp/vellum/runtime/0.8.13",
     });
   });
 

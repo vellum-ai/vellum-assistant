@@ -27,7 +27,7 @@ function printUsage(): void {
   console.log("  $ vellum roadmap get my-feature-slug");
   console.log('  $ vellum roadmap create --title "Add dark mode"');
   console.log(
-    '  $ vellum roadmap update my-feature --status planned --tag integrations',
+    "  $ vellum roadmap update my-feature --status planned --tag integrations",
   );
   console.log("  $ vellum roadmap upvote my-feature-slug");
 }
@@ -59,8 +59,8 @@ function requireSlug(args: string[], command: string): string {
   return slug;
 }
 
-// eslint-disable-next-line no-control-regex
-const ANSI_RE = /[\x00-\x08\x0b-\x1f\x7f]|\x1b(?:\[[0-9;]*[A-Za-z]|\].*?(?:\x07|\x1b\\))/g;
+const ANSI_RE =
+  /[\x00-\x08\x0b-\x1f\x7f]|\x1b(?:\[[0-9;]*[A-Za-z]|\].*?(?:\x07|\x1b\\))/g;
 function sanitize(text: string): string {
   return text.replace(ANSI_RE, "");
 }
@@ -96,10 +96,7 @@ async function apiFetch(
   });
 }
 
-async function handleError(
-  response: Response,
-  action: string,
-): Promise<never> {
+async function handleError(response: Response, action: string): Promise<never> {
   const text = await response.text().catch(() => "");
   console.error(`Failed to ${action} (${response.status}): ${text}`);
   process.exit(1);
@@ -169,9 +166,10 @@ async function roadmapList(args: string[]): Promise<void> {
 
   for (const item of data.items) {
     const upvoted = item.viewer_upvoted ? " (upvoted)" : "";
-    const tags = item.tags.length > 0
-      ? ` [${item.tags.map((t) => sanitize(t.slug)).join(", ")}]`
-      : "";
+    const tags =
+      item.tags.length > 0
+        ? ` [${item.tags.map((t) => sanitize(t.slug)).join(", ")}]`
+        : "";
     console.log(
       `  ${sanitize(item.title)}  ▲${item.upvote_count}${upvoted}  💬${item.comment_count}  ${item.status}${tags}`,
     );

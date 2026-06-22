@@ -54,6 +54,10 @@ export type LocalInstanceResources = Omit<
   /** Persisted HMAC signing key (hex). Survives daemon/gateway restarts so
    *  client actor tokens remain valid across `wake` cycles. */
   signingKey?: string;
+  /** Version of the npm-backed local runtime this assistant should run. */
+  runtimeVersion?: string;
+  /** Install directory containing the npm-backed local runtime packages. */
+  runtimeInstallDir?: string;
   [key: string]: unknown;
 };
 

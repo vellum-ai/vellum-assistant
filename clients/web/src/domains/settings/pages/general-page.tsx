@@ -13,7 +13,10 @@ import {
     AssistantStatusPanel,
     useAssistantWithHealthz,
 } from "@/domains/settings/components/assistant-status-panel";
-import { AssistantUpgrades } from "@/domains/settings/components/assistant-upgrades";
+import {
+    AssistantUpgrades,
+    LocalAssistantUpgrades,
+} from "@/domains/settings/components/assistant-upgrades";
 import { ComposerSendCard } from "@/domains/settings/components/composer-send-card";
 import { DeleteAccountSection } from "@/domains/settings/components/delete-account-section";
 import { IOSAppCard } from "@/domains/settings/components/ios-app-card";
@@ -38,6 +41,7 @@ import {
     getSelectedAssistant,
     isLocalAssistant,
     isLocalMode,
+    isRemoteGatewayMode,
 } from "@/lib/local-mode";
 import { isElectron } from "@/runtime/is-electron";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -234,8 +238,11 @@ export function GeneralPage() {
 
   const platformAssistant = assistant?.is_local && !isLocalMode() ? null : assistant;
   const selected = getSelectedAssistant();
-  const canRetireLocally =
+  const hasSelectedLocalAssistant =
     isLocalMode() && !!assistant && !!selected && isLocalAssistant(selected);
+  const canRetireLocally = hasSelectedLocalAssistant;
+  const canUpgradeLocally =
+    hasSelectedLocalAssistant && !isRemoteGatewayMode();
 
   useEffect(() => {
     if (!assistant || window.location.hash !== "#storage-resources") {
@@ -330,7 +337,22 @@ export function GeneralPage() {
           />
         </DetailCard>
       )}
-      {infraGate === "disabled" && (
+      {canUpgradeLocally && assistant && (
+        <DetailCard title="Software Updates">
+          <LocalAssistantUpgrades
+            assistantId={assistant.id}
+            currentVersion={
+              healthz?.version ??
+              assistant.current_release_version ??
+              null
+            }
+            onUpgradeComplete={() => {
+              void refetch();
+            }}
+          />
+        </DetailCard>
+      )}
+      {infraGate === "disabled" && !canUpgradeLocally && (
         <DetailCard title="Software Updates">
           <PlatformLoginNotice>
             Log in to the Vellum platform to manage software updates.
