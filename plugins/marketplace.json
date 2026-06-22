@@ -76,6 +76,18 @@
       "category": "marketing",
       "homepage": "https://github.com/vellum-ai/marketing-expert",
       "license": "MIT"
+    },
+    {
+      "name": "ai-hero-engineer-kit",
+      "source": {
+        "source": "github",
+        "repo": "marinatrajk/ai-hero-engineer-kit",
+        "ref": "18d33c62b15a3e2cc22dc070723fe3077749dcec"
+      },
+      "description": "Five engineering skills adapted from Matt Pocock's '5 Agent Skills I Use Every Day' \u2014 plans, PRDs, vertical-slice issues, TDD loop, and codebase deepening in one install.",
+      "category": "developer",
+      "homepage": "https://github.com/marinatrajk/ai-hero-engineer-kit",
+      "license": "MIT"
     }
   ]
 }
