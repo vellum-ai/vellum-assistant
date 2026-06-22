@@ -61,12 +61,6 @@ import { FALLBACK_TURN_TRUST, resolveTrustClass } from "./trust-context.js";
 
 const log = getLogger("conversation-tool-setup");
 
-import { AUTO_PROFILE_KEY } from "../api/constants/inference-profiles.js";
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import {
-  buildSwitchInferenceProfileToolDef,
-  SWITCH_INFERENCE_PROFILE_TOOL_NAME,
-} from "./switch-inference-profile-tool.js";
 import type {
   SubagentToolGateMode,
   ToolSetupContext,
@@ -171,11 +165,11 @@ export function createToolExecutor(
       resolveToolInvocationAlias(name, input, ctx.allowedToolNames);
 
     // The execution-layer gate must run FIRST — before any interception or
-    // pre-execution side effect (switch_inference_profile profile switching,
-    // DoorDash step marking) — so a non-allowlisted tool can neither run nor
-    // mutate conversation state. `skill_execute` is dispatch indirection: it
-    // is gated on its resolved inner tool name inside the interception below,
-    // mirroring how wire mode gates the underlying tool, not the wrapper.
+    // pre-execution side effect (DoorDash step marking) — so a non-allowlisted
+    // tool can neither run nor mutate conversation state. `skill_execute` is
+    // dispatch indirection: it is gated on its resolved inner tool name inside
+    // the interception below, mirroring how wire mode gates the underlying
+    // tool, not the wrapper.
     if (executionName !== "skill_execute") {
       const rejection = rejectNonAllowlistedTool(executionName);
       if (rejection) return rejection;
@@ -271,36 +265,6 @@ export function createToolExecutor(
         );
       },
     };
-
-    // Intercept switch_inference_profile: daemon-internal tool that lets the
-    // model self-select a different inference profile mid-turn. No permission
-    // checks — this is a control-flow signal, not a user-visible tool.
-    if (executionName === SWITCH_INFERENCE_PROFILE_TOOL_NAME) {
-      const profile =
-        typeof executionInput.profile === "string"
-          ? executionInput.profile
-          : "";
-      const config = getConfig();
-      const profileEntry = config.llm.profiles?.[profile];
-      if (!profileEntry) {
-        return {
-          content: `Profile "${profile}" not found. Available profiles: ${Object.keys(config.llm.profiles ?? {}).join(", ")}`,
-          isError: true,
-        };
-      }
-      if (profileEntry.status === "disabled") {
-        return {
-          content: `Profile "${profile}" is disabled.`,
-          isError: true,
-        };
-      }
-      ctx.toolRoutedProfile = profile;
-      const label = profileEntry.label ?? profile;
-      return {
-        content: `Switched to ${label} profile. Continue with your response.`,
-        isError: false,
-      };
-    }
 
     // Intercept skill_execute: extract the real tool name and input, then
     // route through the full executor pipeline so the underlying tool's
@@ -450,7 +414,7 @@ export interface SkillProjectionContext {
    * host tools into the LLM tool definitions.
    */
   readonly transportInterface?: InterfaceId;
-  /** Per-turn override profile, read by the switch_inference_profile tool injection. */
+  /** Per-turn override profile. */
   currentTurnOverrideProfile?: string;
   /**
    * Conversation id for `skill_loaded` telemetry. Absent (e.g. minimal test
@@ -606,8 +570,7 @@ export function isToolActiveForContext(
     // model never sees a tool it can only no-op on. Resolves the profile the
     // same way the advisor's execution-time guard does (the per-turn override,
     // else the active profile). The wire list is fixed before PRE_MODEL_CALL
-    // hooks run, so a hook that re-routes the profile mid-turn (the model-router
-    // lever on `PreModelCallContext.modelProfile`) is not reflected here.
+    // hooks run, so later profile changes from hooks are not reflected here.
     return advisorEnabledForProfile(ctx.currentTurnOverrideProfile ?? null);
   }
   if (UI_SURFACE_TOOL_NAMES.has(name)) {
@@ -811,25 +774,6 @@ export function createResolveToolsCallback(
 
     ctx.allowedToolNames = turnAllowed;
     const baseDefs = injectActivityField(allBaseDefs, ACTIVITY_SKIP_SET);
-
-    const config = getConfig();
-    if (
-      isAssistantFeatureFlagEnabled("query-complexity-routing", config) &&
-      config.llm
-    ) {
-      const effectiveProfile =
-        ctx.currentTurnOverrideProfile ?? config.llm.activeProfile;
-      if (effectiveProfile === AUTO_PROFILE_KEY) {
-        const toolDef = buildSwitchInferenceProfileToolDef(
-          config.llm.profiles ?? {},
-          effectiveProfile,
-        );
-        if (toolDef) {
-          turnAllowed.add(SWITCH_INFERENCE_PROFILE_TOOL_NAME);
-          return [...baseDefs, toolDef];
-        }
-      }
-    }
 
     return baseDefs;
   };

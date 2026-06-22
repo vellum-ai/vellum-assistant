@@ -556,40 +556,10 @@ describe("Subagent spawn success and failure", () => {
       );
 
       expect(result.isError).toBe(false);
-      // The live per-turn override (per-conversation or tool-routed) wins over
+      // The live per-turn override wins over
       // the call-site default, and is forwarded non-forced.
       expect(capturedConfig!.overrideProfile).toBe("quality-optimized");
       expect(capturedConfig!.forceOverrideProfile).toBeUndefined();
-    } finally {
-      manager.spawn = originalSpawn;
-    }
-  });
-
-  test("spawn skips the auto profile so the child keeps its own default", async () => {
-    const manager = getSubagentManager();
-    const originalSpawn = manager.spawn.bind(manager);
-    let capturedConfig: Record<string, unknown> | undefined;
-
-    manager.spawn = async (config: Record<string, unknown>) => {
-      capturedConfig = config;
-      return "inherit-auto-id";
-    };
-
-    try {
-      const result = await executeSubagentSpawn(
-        { label: "Auto child", objective: "Do it" },
-        makeContext("sess-inherit-auto", {
-          sendToClient: () => {},
-          invokingCallSite: "mainAgent",
-          // "auto" is metadata-only; forwarding it would collapse the child to
-          // llm.default, so the inherited path drops it and the child keeps its
-          // own subagentSpawn default.
-          overrideProfile: "auto",
-        }),
-      );
-
-      expect(result.isError).toBe(false);
-      expect(capturedConfig!.overrideProfile).toBeUndefined();
     } finally {
       manager.spawn = originalSpawn;
     }

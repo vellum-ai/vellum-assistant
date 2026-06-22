@@ -124,11 +124,4 @@ export interface ToolSetupContext extends SurfaceConversationContext {
    * return `undefined` for the in-flight (background) subagent.
    */
   currentTurnOverrideProfile?: string;
-  /**
-   * Set by the `switch_inference_profile` tool when the model self-selects a
-   * different profile mid-turn. Read by `readCurrentOverrideProfile` in the
-   * agent loop so the next LLM call uses the switched profile. Reset at
-   * turn start.
-   */
-  toolRoutedProfile?: string;
 }

@@ -1,4 +1,3 @@
-
 import { memo, type ReactNode } from "react";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
@@ -54,7 +53,9 @@ export interface TranscriptRowProps {
     toolCall: ChatMessageToolCall,
   ) => void | Promise<void>;
   /** Callback when the user picks "Allow & Create Rule" from the split button. */
-  onAllowAndCreateRule?: (toolCall: ChatMessageToolCall) => void | Promise<void>;
+  onAllowAndCreateRule?: (
+    toolCall: ChatMessageToolCall,
+  ) => void | Promise<void>;
   onOpenApp?: (appId: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
   /** Forwarded to inline app surfaces so they can render live preview iframes. */
@@ -158,13 +159,6 @@ export const TranscriptRow = memo(function TranscriptRow({
               {item.label ?? "Thinking…"}
             </span>
           </div>
-        </div>
-      );
-
-    case "profileAutoRouted":
-      return (
-        <div className="flex items-center justify-center py-1 text-body-small-default text-[var(--content-tertiary)]">
-          Using {item.profileLabel} for this response
         </div>
       );
 

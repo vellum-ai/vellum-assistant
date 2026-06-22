@@ -7,24 +7,20 @@ import {
 
 describe("selectSeedProfileForOverride", () => {
   const profiles: ProfilePickerEntry[] = [
-    { name: "auto", label: "Auto" },
     { name: "balanced", label: "Balanced" },
     { name: "quality", label: "Quality" },
+    { name: "disabled", label: "Disabled", status: "disabled" },
   ];
 
-  test("skips auto as the fallback seed when query complexity routing is disabled", () => {
-    expect(selectSeedProfileForOverride(profiles, undefined, false)).toBe(
-      "balanced",
-    );
+  test("uses the first active profile as the fallback seed", () => {
+    expect(selectSeedProfileForOverride(profiles, undefined)).toBe("balanced");
   });
 
-  test("does not honor auto as a preferred seed when query complexity routing is disabled", () => {
-    expect(selectSeedProfileForOverride(profiles, "auto", false)).toBe(
-      "balanced",
-    );
+  test("honors an active preferred seed", () => {
+    expect(selectSeedProfileForOverride(profiles, "quality")).toBe("quality");
   });
 
-  test("honors auto as a preferred seed when query complexity routing is enabled", () => {
-    expect(selectSeedProfileForOverride(profiles, "auto", true)).toBe("auto");
+  test("falls back when the preferred seed is disabled", () => {
+    expect(selectSeedProfileForOverride(profiles, "disabled")).toBe("balanced");
   });
 });
