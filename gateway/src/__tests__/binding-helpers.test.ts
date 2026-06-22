@@ -20,7 +20,22 @@ import "./test-preload.js";
 
 // Assistant DB proxy: reads throw (lookups must not touch it); the revoke
 // UPDATE is captured so we can assert the assistant mirror write still fires.
+// A simple in-memory `contact_channels` model lets us prove the id-keyed
+// update vs. the (type,address) logical-key fallback under id-divergence.
 const assistantRunCalls: { sql: string; bind?: unknown[] }[] = [];
+
+type AsstChannel = {
+  id: string;
+  type: string;
+  address: string;
+  status: string;
+  policy: string;
+};
+const asstChannels: AsstChannel[] = [];
+
+function seedAsstChannel(c: AsstChannel): void {
+  asstChannels.push(c);
+}
 
 mock.module("../db/assistant-db-proxy.js", () => ({
   assistantDbQuery: mock(async () => {
@@ -28,7 +43,31 @@ mock.module("../db/assistant-db-proxy.js", () => ({
   }),
   assistantDbRun: mock(async (sql: string, bind?: unknown[]) => {
     assistantRunCalls.push({ sql, bind });
-    return { changes: 1, lastInsertRowid: 0 };
+    let changes = 0;
+    if (/WHERE id = \?/.test(sql)) {
+      const id = bind?.[1];
+      for (const ch of asstChannels) {
+        if (ch.id === id) {
+          ch.status = "revoked";
+          ch.policy = "deny";
+          changes++;
+        }
+      }
+    } else if (/WHERE type = \? AND address = \?/.test(sql)) {
+      const type = bind?.[1];
+      const address = bind?.[2];
+      for (const ch of asstChannels) {
+        if (
+          ch.type === type &&
+          ch.address.toLowerCase() === String(address).toLowerCase()
+        ) {
+          ch.status = "revoked";
+          ch.policy = "deny";
+          changes++;
+        }
+      }
+    }
+    return { changes, lastInsertRowid: 0 };
   }),
   assistantDbExec: mock(async () => undefined),
 }));
@@ -55,6 +94,7 @@ beforeEach(() => {
   db.delete(contactChannels).run();
   db.delete(contacts).run();
   assistantRunCalls.length = 0;
+  asstChannels.length = 0;
 });
 
 afterAll(() => {
@@ -210,7 +250,16 @@ describe("revokeExistingChannelGuardian", () => {
     const chId = seedChannel({
       contactId: "g1",
       type: "slack",
+      address: "U_OWNER",
       status: "active",
+    });
+    // Assistant row shares the same id — the id-keyed update matches.
+    seedAsstChannel({
+      id: chId,
+      type: "slack",
+      address: "U_OWNER",
+      status: "active",
+      policy: "allow",
     });
 
     await revokeExistingChannelGuardian("slack");
@@ -224,10 +273,43 @@ describe("revokeExistingChannelGuardian", () => {
     expect(after?.status).toBe("revoked");
     expect(after?.policy).toBe("deny");
 
-    // Assistant mirror UPDATE fired with the fetched id.
+    // Assistant mirror revoked via the id-keyed update (no fallback needed).
     expect(assistantRunCalls.length).toBe(1);
-    expect(assistantRunCalls[0]!.sql).toContain("UPDATE contact_channels");
+    expect(assistantRunCalls[0]!.sql).toContain("WHERE id = ?");
     expect(assistantRunCalls[0]!.bind).toContain(chId);
+    expect(asstChannels[0]!.status).toBe("revoked");
+    expect(asstChannels[0]!.policy).toBe("deny");
+  });
+
+  test("revokes the assistant mirror by (type,address) when ids diverge", async () => {
+    seedContact({ id: "g1", role: "guardian" });
+    // Gateway guardian channel under id G.
+    seedChannel({
+      id: "G",
+      contactId: "g1",
+      type: "slack",
+      address: "U_OWNER",
+      status: "active",
+    });
+    // Assistant row shares (type,address) but sits under a DIFFERENT id A.
+    seedAsstChannel({
+      id: "A",
+      type: "slack",
+      address: "U_OWNER",
+      status: "active",
+      policy: "allow",
+    });
+
+    await revokeExistingChannelGuardian("slack");
+
+    // id-keyed update missed; logical-key fallback revoked row A.
+    expect(asstChannels[0]!.status).toBe("revoked");
+    expect(asstChannels[0]!.policy).toBe("deny");
+    expect(assistantRunCalls.length).toBe(2);
+    expect(assistantRunCalls[0]!.sql).toContain("WHERE id = ?");
+    expect(assistantRunCalls[1]!.sql).toContain(
+      "WHERE type = ? AND address = ? COLLATE NOCASE",
+    );
   });
 
   test("no-ops (no writes) when no active guardian binding exists", async () => {
