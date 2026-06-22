@@ -20,14 +20,16 @@
  *       in the transcript or SSE feed. The assistant role defangs prompt
  *       injection (LLMs don't follow instructions in their own prior output)
  *       and the bookends are hardcoded strings with no dynamic content. Suited
- *       to wakes carrying untrusted hint text (e.g. meet chat opportunities).
+ *       to wakes carrying arbitrary/untrusted hint text (meet chat
+ *       opportunities, the explicit wake route).
  *     - `persistTriggerAsEvent`: appends the trigger as a SINGLE PERSISTED,
  *       transcript-visible user message wrapped in `<background_event>` (any
  *       untrusted command output fenced in `<external_content>`). Keeping the
  *       trigger in durable, append-only history lets the provider prompt-cache
  *       treat repeated wakes like normal user turns instead of re-creating the
- *       whole prefix each wake. Used by background-command, scheduled, and
- *       explicit conversation wakes.
+ *       whole prefix each wake. Used by background-command and scheduled wakes
+ *       whose `hint` is trusted framing; wakes carrying arbitrary caller hint
+ *       text stay on the ephemeral trio above.
  *   - Invokes the agent loop with all conversation tools available unless
  *     the caller provides an explicit `allowedTools` scope.
  *   - No tool calls AND no assistant text → silent no-op (nothing persisted,

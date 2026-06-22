@@ -38,19 +38,17 @@ export const ROUTES: RouteDefinition[] = [
       reason: z.string().optional(),
     }),
     handler: async ({ body }) => {
-      const { conversationId, hint, source } = WakeConversationBody.parse(body);
+      const { conversationId, hint, source } =
+        WakeConversationBody.parse(body);
 
       const conversation = getConversation(conversationId);
       if (!conversation) {
-        throw new NotFoundError(`Conversation not found: ${conversationId}`);
+        throw new NotFoundError(
+          `Conversation not found: ${conversationId}`,
+        );
       }
 
-      return wakeAgentForOpportunity({
-        conversationId,
-        hint,
-        source,
-        persistTriggerAsEvent: true,
-      });
+      return wakeAgentForOpportunity({ conversationId, hint, source });
     },
   },
 ];
