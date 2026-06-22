@@ -13,10 +13,24 @@
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
-import { getDefaultPluginManifests } from "../../plugins/defaults/index.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
+
+/**
+ * Directory containing first-party default plugin packages. Each subdirectory
+ * has a `package.json` with `name` (prefixed `default-`) and `version`.
+ * Read from the filesystem at call time to avoid pulling hook/tool
+ * implementations into the CLI process (which would create circular
+ * dependencies in test environments).
+ */
+const DEFAULT_PLUGINS_DIR = join(
+  dirname(new URL(import.meta.url).pathname),
+  "..",
+  "..",
+  "plugins",
+  "defaults",
+);
 
 /** Minimal manifest fields surfaced to the CLI. */
 export interface PluginPackageMetadata {
@@ -188,29 +202,68 @@ export function listAllPlugins(
   }));
 
   // ── Default plugins ────────────────────────────────────────────────────
-  // Default plugins live in the source tree, not the workspace. Their
-  // manifest metadata comes from getDefaultPluginManifests(). The .disabled
-  // sentinel lives in a stub directory at <workspace>/plugins/<name>/.
-  const defaultManifests = getDefaultPluginManifests();
-  const defaultPlugins: AllPluginInfo[] = defaultManifests.map((manifest) => {
-    const target = join(pluginsDir, manifest.name);
-    const disabled = existsSync(join(target, ".disabled"));
-    return {
-      name: manifest.name,
-      target,
-      packageJson: {
+  // Default plugins live in the source tree at src/plugins/defaults/<name>/.
+  // Read each package.json from the filesystem to get name+version without
+  // importing hook/tool implementations (which would create circular
+  // dependencies in test environments). The .disabled sentinel lives in a
+  // stub directory at <workspace>/plugins/<manifest-name>/.
+  const defaultPlugins: AllPluginInfo[] = readDefaultPluginManifests().map(
+    (manifest) => {
+      const target = join(pluginsDir, manifest.name);
+      const disabled = existsSync(join(target, ".disabled"));
+      return {
         name: manifest.name,
-        version: manifest.version,
-      },
-      issues: [],
-      source: "default" as const,
-      disabled,
-    };
-  });
+        target,
+        packageJson: {
+          name: manifest.name,
+          version: manifest.version,
+        },
+        issues: [],
+        source: "default" as const,
+        disabled,
+      };
+    },
+  );
 
   // Sort each group alphabetically, user plugins first.
   userPlugins.sort((a, b) => a.name.localeCompare(b.name));
   defaultPlugins.sort((a, b) => a.name.localeCompare(b.name));
 
   return [...userPlugins, ...defaultPlugins];
+}
+
+/**
+ * Read first-party default plugin manifests from the filesystem. Each
+ * subdirectory under {@link DEFAULT_PLUGINS_DIR} that has a `package.json`
+ * with a `name` field is included. This avoids importing `defaults/index.ts`
+ * (which would pull in hook/tool implementations and create circular
+ * dependencies in test environments).
+ */
+function readDefaultPluginManifests(): readonly PluginPackageMetadata[] {
+  if (!existsSync(DEFAULT_PLUGINS_DIR)) return [];
+
+  const entries = readdirSync(DEFAULT_PLUGINS_DIR, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name)
+    .sort();
+
+  const manifests: PluginPackageMetadata[] = [];
+  for (const name of entries) {
+    const pkgJsonPath = join(DEFAULT_PLUGINS_DIR, name, "package.json");
+    if (!existsSync(pkgJsonPath)) continue;
+    try {
+      const raw = readFileSync(pkgJsonPath, "utf8");
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      if (typeof parsed.name === "string") {
+        manifests.push({
+          name: parsed.name,
+          version:
+            typeof parsed.version === "string" ? parsed.version : undefined,
+        });
+      }
+    } catch {
+      // Skip malformed entries — lenient like listInstalledPlugins.
+    }
+  }
+  return manifests;
 }
