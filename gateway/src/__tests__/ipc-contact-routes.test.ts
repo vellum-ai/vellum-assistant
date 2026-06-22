@@ -328,10 +328,9 @@ describe("IPC contact routes", () => {
   // create_contact (gateway DB source of truth via ContactStore.upsertContact)
   // -------------------------------------------------------------------------
   //
-  // No assistant daemon is running in these tests, so the best-effort
-  // assistant-DB dual-write inside upsertContact fails and is soft-failed —
-  // the gateway write still succeeds and { contactId, channelId } is still
-  // returned (invariant 2). This is exactly what we assert below.
+  // No assistant daemon runs in these tests, so the best-effort assistant-DB
+  // dual-write inside upsertContact soft-fails. The gateway write still
+  // succeeds and { contactId, channelId } is returned regardless.
 
   test("create_contact writes the gateway DB contacts + contact_channels rows", async () => {
     await startServerAndConnect();
@@ -349,8 +348,7 @@ describe("IPC contact routes", () => {
     expect(contactId).toBeTruthy();
     expect(channelId).toBeTruthy();
 
-    // The gateway DB (source of truth) now has both rows — previously the
-    // raw-SQL handler wrote the assistant DB only.
+    // The gateway DB (source of truth) holds both the contact and channel rows.
     const store = new ContactStore(getGatewayDb());
     const contact = store.getContact(contactId);
     expect(contact).toBeDefined();
