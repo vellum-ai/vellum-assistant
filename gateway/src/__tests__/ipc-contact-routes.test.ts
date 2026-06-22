@@ -676,36 +676,53 @@ describe("IPC contact routes", () => {
     );
   });
 
-  test("create_contact reconciles an assistant-only contact instead of minting a duplicate", async () => {
+  test("create_contact heals an assistant-only contact onto ONE shared canonical id", async () => {
     // Gap B: a contact+channel exists in the assistant DB but NOT the gateway.
-    // upsertContact mints a new gateway id; the mirror must reconcile into the
-    // existing assistant contact (no duplicate INSERT, name preserved) and the
-    // gateway row must be created.
+    // upsertContact adopts the existing assistant contact id as the gateway
+    // contact id (canonical-id heal), so BOTH DBs are keyed by the same id —
+    // the gateway row is created under it, no duplicate assistant INSERT, the
+    // name is preserved, and the gateway read join-by-id resolves info.
     const assistantContactId = "assistant-only-c1";
     const assistantChannelId = "assistant-only-ch1";
 
-    // Channel lookup by (type,address) returns the existing assistant contact;
-    // the contact-by-id lookup (keyed on the resolved id) reports it exists.
     assistantDbQueryMock = mock(async (sql: string, bind?: unknown[]) => {
+      // Channel lookup by (type,address) → the existing assistant contact id.
       if (
         sql.includes("FROM contact_channels") &&
         sql.includes("WHERE type = ?")
       ) {
         return [{ contactId: assistantContactId, id: assistantChannelId }];
       }
+      // existingCh lookup keyed on the adopted (assistant) contact id.
       if (
         sql.includes("FROM contact_channels") &&
         sql.includes("WHERE contact_id = ?")
       ) {
-        // existingCh lookup keyed on the resolved (assistant) contact id.
         if (bind?.[0] === assistantContactId) {
           return [{ id: assistantChannelId, status: "active" }];
         }
         return [];
       }
+      // user_file lookup in the mirror (contact already exists in assistant DB).
       if (sql.includes("FROM contacts WHERE id = ?")) {
         if (bind?.[0] === assistantContactId) {
           return [{ userFile: "existing-person.md" }];
+        }
+        return [];
+      }
+      // Read-path info join keyed by the canonical id.
+      if (sql.includes("FROM contacts c") && sql.includes("IN (")) {
+        if (bind?.includes(assistantContactId)) {
+          return [
+            {
+              id: assistantContactId,
+              notes: "knows the family",
+              userFile: "existing-person.md",
+              contactType: "human",
+              species: null,
+              metadata: null,
+            },
+          ];
         }
         return [];
       }
@@ -726,14 +743,19 @@ describe("IPC contact routes", () => {
     expect(res.error).toBeUndefined();
     const { contactId } = res.result as { contactId: string };
 
-    // No duplicate assistant contact INSERT.
-    const contactInsert = runCalls.find((c) =>
-      c.sql.includes("INSERT INTO contacts"),
-    );
-    expect(contactInsert).toBeUndefined();
+    // The returned (gateway) id IS the existing assistant id — one canonical id.
+    expect(contactId).toBe(assistantContactId);
 
-    // The assistant contact UPDATE targets the EXISTING assistant id, not the
-    // new gateway id, and preserves the name (no display_name in the SET).
+    // No duplicate assistant contact INSERT; the existing channel is updated,
+    // not re-inserted.
+    expect(
+      runCalls.find((c) => c.sql.includes("INSERT INTO contacts")),
+    ).toBeUndefined();
+    expect(
+      runCalls.find((c) => c.sql.includes("INSERT INTO contact_channels")),
+    ).toBeUndefined();
+
+    // The assistant contact UPDATE targets the shared id, name preserved.
     const contactUpdate = runCalls.find(
       (c) => c.sql.includes("UPDATE contacts") && c.sql.includes("WHERE id = ?"),
     );
@@ -741,20 +763,77 @@ describe("IPC contact routes", () => {
     expect(contactUpdate!.bind?.at(-1)).toBe(assistantContactId);
     expect(contactUpdate!.sql).not.toContain("display_name");
 
-    // The existing assistant channel is updated, not re-inserted with the bare
-    // address.
-    const channelInsert = runCalls.find((c) =>
-      c.sql.includes("INSERT INTO contact_channels"),
-    );
-    expect(channelInsert).toBeUndefined();
-
-    // The gateway DB now has the contact + channel (the split-brain heal).
+    // The gateway DB has the contact + channel under the canonical id.
     const store = new ContactStore(getGatewayDb());
-    const gwContact = store.getContact(contactId);
-    expect(gwContact).toBeDefined();
+    expect(store.getContact(contactId)).toBeDefined();
     const gwChannels = store.getChannelsForContact(contactId);
     expect(gwChannels).toHaveLength(1);
     expect(gwChannels[0].address).toBe("existing-person@example.com");
+
+    // The gateway read join-by-id resolves the assistant info (NOT null) —
+    // proof the two DBs converged on one id.
+    const withInfo = await store.getContactWithInfo(contactId);
+    expect(withInfo).not.toBeNull();
+    expect(withInfo!.notes).toBe("knows the family");
+    expect(withInfo!.userFile).toBe("existing-person.md");
+    expect(withInfo!.contactType).toBe("human");
+  });
+
+  test("upsertContact with an explicit id does NOT retarget another contact's metadata", async () => {
+    // Update path (Problem 2): an edit carries a channel whose (type,address)
+    // is owned by a DIFFERENT assistant contact. The assistant mirror must
+    // target the provided id — never the other contact — matching the gateway
+    // syncChannels skip-on-cross-contact behavior.
+    const db = getGatewayDb();
+    const now = Date.now();
+    db.insert(contacts)
+      .values({
+        id: "edit-me",
+        displayName: "Edit Me",
+        role: "contact",
+        principalId: null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    // The assistant DB reports the channel is owned by "other-contact" and the
+    // edited contact already exists by id.
+    assistantDbQueryMock = mock(async (sql: string, bind?: unknown[]) => {
+      if (
+        sql.includes("FROM contact_channels") &&
+        sql.includes("WHERE type = ?")
+      ) {
+        return [{ contactId: "other-contact" }];
+      }
+      if (sql.includes("FROM contacts WHERE id = ?")) {
+        if (bind?.[0] === "edit-me") return [{ userFile: "edit-me.md" }];
+        return [];
+      }
+      return [];
+    });
+    const runCalls: { sql: string; bind?: unknown[] }[] = [];
+    assistantDbRunMock = mock(async (sql: string, bind?: unknown[]) => {
+      runCalls.push({ sql, bind });
+      return { changes: 1, lastInsertRowid: 0 };
+    });
+
+    const store = new ContactStore(db);
+    await store.upsertContact({
+      id: "edit-me",
+      displayName: "New Name",
+      channels: [{ type: "email", address: "shared@example.com" }],
+    });
+
+    // The assistant contact UPDATE targets the provided id, never "other-contact".
+    const contactUpdate = runCalls.find(
+      (c) => c.sql.includes("UPDATE contacts") && c.sql.includes("WHERE id = ?"),
+    );
+    expect(contactUpdate).toBeDefined();
+    expect(contactUpdate!.bind?.at(-1)).toBe("edit-me");
+    expect(
+      runCalls.some((c) => c.bind?.includes("other-contact")),
+    ).toBe(false);
   });
 
   test("create_contact defaults a brand-new contact's displayName to the canonical address", async () => {
