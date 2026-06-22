@@ -18,13 +18,38 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, Sparkles, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
+import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
+import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
+import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
+
+const DARK_SURFACE = "#17191C";
+
+function useViewportSize() {
+  const [size, setSize] = useState(() => ({
+    w: typeof window === "undefined" ? 1280 : window.innerWidth,
+    h: typeof window === "undefined" ? 800 : window.innerHeight,
+  }));
+  useEffect(() => {
+    const onResize = () =>
+      setSize({ w: window.innerWidth, h: window.innerHeight });
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return size;
+}
 
 // ---------------------------------------------------------------------------
 // Meeting Created
 // ---------------------------------------------------------------------------
 
+/**
+ * Reverse of the Introduction grow-in: the full-screen colored avatar (eyes
+ * peeking from the bottom) shrinks up + in to a small avatar beside the
+ * "Meeting Created!" text while the background blends from the avatar color to
+ * black. Self-contained (owns its background) — not the shared toned backdrop.
+ */
 export function MeetingCreatedStep({
   onDone,
   onBack,
@@ -32,26 +57,79 @@ export function MeetingCreatedStep({
   onDone: () => void;
   onBack: () => void;
 }) {
-  const tone = useOnboardingTone();
+  const components = useBundledAvatarComponents();
+  const characters = useOnboardingAvatarPoolStore.use.characters();
+  const selectedIndex = useOnboardingAvatarPoolStore.use.selectedIndex();
   const reduce = useReducedMotion();
+  const { w, h } = useViewportSize();
+
+  const chosen = characters.length > 0 ? characters[selectedIndex] : undefined;
+  const color = useMemo(() => {
+    const c = components?.colors.find((x) => x.id === chosen?.color);
+    return c?.hex ?? DARK_SURFACE;
+  }, [components, chosen]);
 
   useEffect(() => {
-    const t = setTimeout(onDone, 1600);
+    const t = setTimeout(onDone, 2600);
     return () => clearTimeout(t);
   }, [onDone]);
 
+  // The avatar lives in a fixed 64px slot beside the title; it starts blown up
+  // to cover the screen (pushed down so the eyes sit low, like the intro's end
+  // state) and springs down into the slot.
+  const SLOT = 64;
+  const bigScale = Math.round((1.3 * Math.max(w, h)) / SLOT);
+
   return (
-    <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
-      <OnboardingTopBar current={4} total={5} label="Quick setup" onBack={onBack} />
-      <motion.h1
-        className="absolute left-1/2 top-[26%] w-full max-w-xl -translate-x-1/2 px-6 text-center text-[2.6rem] leading-none"
-        style={{ fontFamily: "var(--font-serif)" }}
-        initial={reduce ? false : { scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 240, damping: 14 }}
-      >
-        Meeting Created!
-      </motion.h1>
+    <div data-theme="dark" className="absolute inset-0 z-10 overflow-hidden text-white">
+      {/* Background blends from the avatar color to black. */}
+      <motion.div
+        className="absolute inset-0"
+        initial={reduce ? false : { backgroundColor: color }}
+        animate={{ backgroundColor: DARK_SURFACE }}
+        transition={reduce ? { duration: 0 } : { duration: 1, ease: "easeInOut" }}
+      />
+
+      <OnboardingTopBar
+        current={4}
+        total={5}
+        label="Quick setup"
+        onBack={onBack}
+        tone="light"
+      />
+
+      {/* Small avatar + title row, centered at the shared step height. */}
+      <div className="absolute left-1/2 top-[26%] flex -translate-x-1/2 items-center gap-4">
+        <div
+          className="relative shrink-0"
+          style={{ width: SLOT, height: SLOT }}
+        >
+          {components && chosen && (
+            <motion.div
+              className="absolute inset-0"
+              style={{ transformOrigin: "center" }}
+              initial={reduce ? false : { scale: bigScale, y: h * 0.34, opacity: 1 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              transition={
+                reduce
+                  ? { duration: 0 }
+                  : { type: "spring", stiffness: 70, damping: 18, mass: 1 }
+              }
+            >
+              <AnimatedAvatar components={components} traits={chosen} size={SLOT} />
+            </motion.div>
+          )}
+        </div>
+        <motion.span
+          className="text-[2.6rem] leading-none"
+          style={{ fontFamily: "var(--font-serif)" }}
+          initial={reduce ? false : { opacity: 0, x: -8 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={reduce ? { duration: 0 } : { duration: 0.4, delay: 0.7 }}
+        >
+          Meeting Created!
+        </motion.span>
+      </div>
     </div>
   );
 }

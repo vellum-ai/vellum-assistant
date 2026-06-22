@@ -167,19 +167,22 @@ export function ResearchOnboardingRoute() {
   // The later steps share one persistent toned backdrop (assistant color +
   // eyes + tone characters) so the avatars stay put while the foreground
   // content swaps. Extra edge characters pop in per step to build excitement.
-  const tonedSteps = [
-    "talk",
-    "integration",
-    "letschat",
-    "meeting",
-    "looking",
-    "results",
-    "suggestions",
-  ];
+  // Meeting Created owns its own background (it blends the avatar color to
+  // black), so it renders standalone rather than over the toned backdrop.
+  if (step === "meeting" && formValues) {
+    return (
+      <MeetingCreatedStep
+        onDone={() => setStep("looking")}
+        onBack={() => setStep("letschat")}
+      />
+    );
+  }
+
+  const tonedSteps = ["talk", "integration", "letschat", "looking", "results", "suggestions"];
   if (tonedSteps.includes(step) && formValues) {
     const extraPeekLevel =
-      { meeting: 1, looking: 2, results: 3, suggestions: 4 }[
-        step as "meeting" | "looking" | "results" | "suggestions"
+      { looking: 1, results: 2, suggestions: 3 }[
+        step as "looking" | "results" | "suggestions"
       ] ?? 0;
     return (
       <div data-theme="dark" className="relative h-full overflow-hidden">
@@ -209,12 +212,6 @@ export function ResearchOnboardingRoute() {
             onConnect={() => setStep("meeting")}
             onSkip={() => setStep("looking")}
             onBack={() => setStep("integration")}
-          />
-        )}
-        {step === "meeting" && (
-          <MeetingCreatedStep
-            onDone={() => setStep("looking")}
-            onBack={() => setStep("letschat")}
           />
         )}
         {step === "looking" && (
