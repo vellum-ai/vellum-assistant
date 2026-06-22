@@ -11,6 +11,7 @@ export const INFERENCE_PROVIDERS = [
   "anthropic",
   "openai",
   "fireworks",
+  "together",
   "openrouter",
   "gemini",
   "minimax",
