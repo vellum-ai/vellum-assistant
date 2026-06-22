@@ -6,6 +6,12 @@
  * DELETE /v1/channel-verification-sessions         — cancel all active sessions (inbound + outbound)
  * POST   /v1/channel-verification-sessions/revoke  — cancel all sessions and revoke binding
  * GET    /v1/channel-verification-sessions/status   — check guardian binding status
+ *
+ * Source-of-truth split:
+ * - Verification SESSION state (pending sessions, codes, resend, rate-limit) is assistant-owned.
+ * - The channel-verified OUTCOME (status / verifiedAt / verifiedVia) is gateway-owned, reached via
+ *   `ipcCallPersistent("mark_channel_verified", …)`; revoke/downgrade via
+ *   `ipcCallPersistent("mark_channel_revoked", …)`.
  */
 
 import { z } from "zod";
