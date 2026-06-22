@@ -40,22 +40,23 @@ function CoinFace({ idSuffix }: { idSuffix: string }) {
       <defs>
         <linearGradient id={rim} x1="0.12" y1="0.05" x2="0.85" y2="0.95">
           <stop offset="0%" stopColor="#FFF0AE" />
-          <stop offset="45%" stopColor="#EDB323" />
-          <stop offset="100%" stopColor="#9C6E0B" />
+          <stop offset="50%" stopColor="#F4C231" />
+          <stop offset="100%" stopColor="#D29B1A" />
         </linearGradient>
-        <radialGradient id={face} cx="40%" cy="33%" r="78%">
-          <stop offset="0%" stopColor="#FFF7D6" />
-          <stop offset="40%" stopColor="#F6C637" />
-          <stop offset="100%" stopColor="#CE9410" />
+        {/* Bright, fairly even gold face — minimal darkening at the edge. */}
+        <radialGradient id={face} cx="42%" cy="36%" r="82%">
+          <stop offset="0%" stopColor="#FFF6CE" />
+          <stop offset="55%" stopColor="#F8CB3E" />
+          <stop offset="100%" stopColor="#EEB52C" />
         </radialGradient>
-        {/* Recess vignette — darkens the face toward the rim. */}
+        {/* Very soft recess at the very rim only. */}
         <radialGradient id={vignette} cx="50%" cy="50%" r="50%">
-          <stop offset="62%" stopColor="#000000" stopOpacity="0" />
-          <stop offset="100%" stopColor="#7A560A" stopOpacity="0.5" />
+          <stop offset="82%" stopColor="#000000" stopOpacity="0" />
+          <stop offset="100%" stopColor="#9A6E0E" stopOpacity="0.22" />
         </radialGradient>
         {/* Broad soft gloss. */}
-        <radialGradient id={gloss} cx="36%" cy="24%" r="42%">
-          <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.9" />
+        <radialGradient id={gloss} cx="36%" cy="24%" r="44%">
+          <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.85" />
           <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
         </radialGradient>
         {/* Tight specular hot-spot. */}
@@ -74,27 +75,27 @@ function CoinFace({ idSuffix }: { idSuffix: string }) {
         r="45.5"
         fill="none"
         stroke="#FFF6CF"
-        strokeOpacity="0.75"
-        strokeWidth="2.4"
+        strokeOpacity="0.6"
+        strokeWidth="2.2"
         strokeLinecap="round"
         strokeDasharray="70 210"
         transform="rotate(-128 50 50)"
       />
-      {/* Recessed center face */}
+      {/* Center face */}
       <circle cx="50" cy="50" r="40" fill={`url(#${face})`} />
       <circle cx="50" cy="50" r="40" fill={`url(#${vignette})`} />
-      {/* Groove between rim and face */}
+      {/* Subtle groove between rim and face */}
       <circle
         cx="50"
         cy="50"
         r="40"
         fill="none"
-        stroke="#8A6308"
-        strokeOpacity="0.45"
-        strokeWidth="1.6"
+        stroke="#C28F18"
+        strokeOpacity="0.35"
+        strokeWidth="1.4"
       />
 
-      {/* Embossed dollar sign: light edge up-left, dark edge down-right. */}
+      {/* Embossed dollar sign — soft emboss, bright gold. */}
       <g
         fontFamily="var(--font-sans), system-ui, sans-serif"
         fontWeight={900}
@@ -102,9 +103,9 @@ function CoinFace({ idSuffix }: { idSuffix: string }) {
         textAnchor="middle"
         dominantBaseline="central"
       >
-        <text x="50" y="52" fill="#7E5906" transform="translate(1.8 2.2)">$</text>
-        <text x="50" y="52" fill="#FFF6CF" opacity="0.85" transform="translate(-1.6 -1.8)">$</text>
-        <text x="50" y="52" fill="#F1B81F">$</text>
+        <text x="50" y="52" fill="#C88E16" transform="translate(1.3 1.6)">$</text>
+        <text x="50" y="52" fill="#FFF6CF" opacity="0.7" transform="translate(-1.3 -1.5)">$</text>
+        <text x="50" y="52" fill="#F4C12A">$</text>
       </g>
 
       {/* Gloss + hot-spot */}
@@ -116,7 +117,7 @@ function CoinFace({ idSuffix }: { idSuffix: string }) {
 
 export function OnboardingCoin({
   size,
-  depthRatio = 0.24,
+  depthRatio = 0.34,
   tiltX = 8,
   tiltY = -22,
   shadow = true,
@@ -139,7 +140,7 @@ export function OnboardingCoin({
             height: size * 0.16,
             transform: "translateX(-50%)",
             background:
-              "radial-gradient(ellipse at center, rgba(0,0,0,0.32), rgba(0,0,0,0) 70%)",
+              "radial-gradient(ellipse at center, rgba(0,0,0,0.22), rgba(0,0,0,0) 70%)",
             filter: "blur(2px)",
           }}
         />
@@ -159,7 +160,7 @@ export function OnboardingCoin({
         {Array.from({ length: EDGE_SLICES }, (_, i) => {
           const t = i / (EDGE_SLICES - 1);
           const mid = 1 - Math.abs(t - 0.5) * 2; // 0 at faces, 1 at middle
-          const lightness = 34 + mid * 30;
+          const lightness = 44 + mid * 22; // brighter, less dark edge
           return (
             <div
               key={i}
@@ -167,7 +168,7 @@ export function OnboardingCoin({
                 position: "absolute",
                 inset: 0,
                 borderRadius: "50%",
-                background: `linear-gradient(to bottom, hsl(45 92% ${Math.min(lightness + 12, 80)}%), hsl(41 90% ${lightness - 12}%))`,
+                background: `linear-gradient(to bottom, hsl(45 92% ${Math.min(lightness + 10, 82)}%), hsl(42 90% ${lightness - 8}%))`,
                 transform: `translateZ(${-depth / 2 + i * step}px)`,
               }}
             />
