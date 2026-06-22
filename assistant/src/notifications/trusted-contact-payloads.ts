@@ -1,13 +1,11 @@
 /**
  * Typed context payloads for the trusted-contact lifecycle notification signals.
  *
- * These `ingress.trusted_contact.*` signals are emitted from two live
- * producers — the canonical resolver (`approvals/guardian-request-resolvers.ts`)
- * and the legacy callback strategy
- * (`runtime/routes/approval-strategies/guardian-callback-strategy.ts`) — and the
- * decision payload is read back by the notification copy-composer. A single zod
- * schema is the source of truth for every side, so the two producers cannot
- * drift from each other or from the consumer.
+ * These `ingress.trusted_contact.*` signals are emitted from the canonical
+ * resolver (`approvals/guardian-request-resolvers.ts`), and the decision
+ * payload is read back by the notification copy-composer. A single zod schema
+ * is the source of truth for both sides, so the producer cannot drift from the
+ * consumer.
  *
  * Identity fields are nullable: producers populate them (using "" for an
  * unknown id), but a payload read back off persisted JSON may legitimately
