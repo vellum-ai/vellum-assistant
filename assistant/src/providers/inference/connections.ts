@@ -346,6 +346,12 @@ const CANONICAL_CONNECTIONS: Array<{
     auth: { type: "platform" },
     label: "Fireworks",
   },
+  {
+    name: "together-managed",
+    provider: "together",
+    auth: { type: "platform" },
+    label: "Together AI",
+  },
 ];
 
 /**
@@ -415,4 +421,3 @@ export function seedCanonicalConnections(db: DrizzleDb): void {
       .run();
   }
 }
-
