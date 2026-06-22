@@ -89,7 +89,7 @@ export function LookingYouUpStep({
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
       <OnboardingTopBar current={4} total={5} label="Quick setup" onBack={onBack} />
-      <div className="absolute left-1/2 top-1/2 h-12 w-[80%] max-w-[520px] -translate-x-1/2 -translate-y-1/2 text-center">
+      <div className="absolute inset-0 flex items-center justify-center px-6 text-center">
         <AnimatePresence mode="wait">
           <motion.p
             key={index}
