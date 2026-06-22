@@ -6,12 +6,45 @@ import {
   beforeEach,
   afterAll,
   afterEach,
+  mock,
 } from "bun:test";
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
 import { eq } from "drizzle-orm";
+
+// ── Assistant DB proxy + IPC mocks ──────────────────────────────────────────
+// The gateway-native channel write (updateContactChannelCore) resolves
+// assistant-side channel IDs and mirrors into the assistant DB over the IPC
+// proxy, and emits contacts_changed via ipcCallAssistant. None of that is
+// reachable in this unit test, so stub both modules. The gateway DB is the
+// source of truth and remains real.
+type DbQueryFn = (sql: string, bind?: unknown[]) => Promise<unknown[]>;
+let assistantDbQueryMock: ReturnType<typeof mock<DbQueryFn>> = mock(
+  async () => [],
+);
+type DbRunFn = (
+  sql: string,
+  bind?: unknown[],
+) => Promise<{ changes: number; lastInsertRowid: number }>;
+let assistantDbRunMock: ReturnType<typeof mock<DbRunFn>> = mock(async () => ({
+  changes: 1,
+  lastInsertRowid: 0,
+}));
+
+mock.module("../db/assistant-db-proxy.js", () => ({
+  assistantDbQuery: (...args: Parameters<DbQueryFn>) =>
+    assistantDbQueryMock(...args),
+  assistantDbRun: (...args: Parameters<DbRunFn>) => assistantDbRunMock(...args),
+}));
+
+mock.module("../ipc/assistant-client.js", () => ({
+  ipcCallAssistant: mock(async () => ({})),
+  IpcHandlerError: class IpcHandlerError extends Error {},
+  IpcTransportError: class IpcTransportError extends Error {},
+}));
+
 import { GatewayIpcServer } from "../ipc/server.js";
 import { contactRoutes } from "../ipc/contact-handlers.js";
 import { ContactStore } from "../db/contact-store.js";
@@ -33,6 +66,10 @@ beforeEach(() => {
   const db = getGatewayDb();
   db.delete(contactChannels).run();
   db.delete(contacts).run();
+  // Reset assistant-proxy stubs to their permissive defaults: no assistant-side
+  // channel resolution, dual-write succeeds.
+  assistantDbQueryMock = mock(async () => []);
+  assistantDbRunMock = mock(async () => ({ changes: 1, lastInsertRowid: 0 }));
 });
 
 afterAll(() => {
@@ -54,7 +91,13 @@ function sendRequest(
   client: Socket,
   method: string,
   params?: Record<string, unknown>,
-): Promise<{ id: string; result?: unknown; error?: string }> {
+): Promise<{
+  id: string;
+  result?: unknown;
+  error?: string;
+  statusCode?: number;
+  errorCode?: string;
+}> {
   return new Promise((resolve, reject) => {
     const id = randomBytes(4).toString("hex");
     let buffer = "";
@@ -322,5 +365,193 @@ describe("IPC contact routes", () => {
 
     expect(res.error).toBeDefined();
     expect(res.error).toContain("Invalid params");
+  });
+
+  // ── update_contact_channel (gateway-native write) ──────────────────────
+  describe("update_contact_channel", () => {
+    /** Insert a blocked channel so revoke-of-blocked can be exercised. */
+    function seedBlockedChannel(): void {
+      const db = getGatewayDb();
+      db.insert(contactChannels)
+        .values({
+          id: "ch_blocked",
+          contactId: "c2",
+          type: "telegram",
+          address: "tg-blocked-001",
+          isPrimary: false,
+          externalChatId: null,
+          status: "blocked",
+          policy: "deny",
+          interactionCount: 0,
+          createdAt: Date.now(),
+        })
+        .run();
+    }
+
+    test("status update succeeds and writes the gateway DB row", async () => {
+      seedTestData();
+      await startServerAndConnect();
+
+      const res = await sendRequest(client, "update_contact_channel", {
+        contactChannelId: "ch3",
+        status: "active",
+      });
+
+      expect(res.error).toBeUndefined();
+      const body = res.result as { ok: boolean; contact?: { id: string } };
+      expect(body.ok).toBe(true);
+      expect(body.contact?.id).toBe("c2");
+
+      // Gateway DB is the source of truth — the row must reflect the new status.
+      const row = getGatewayDb()
+        .select()
+        .from(contactChannels)
+        .where(eq(contactChannels.id, "ch3"))
+        .get();
+      expect(row?.status).toBe("active");
+    });
+
+    test("policy update succeeds and writes the gateway DB row", async () => {
+      seedTestData();
+      await startServerAndConnect();
+
+      const res = await sendRequest(client, "update_contact_channel", {
+        contactChannelId: "ch3",
+        policy: "deny",
+      });
+
+      expect(res.error).toBeUndefined();
+      expect((res.result as { ok: boolean }).ok).toBe(true);
+
+      const row = getGatewayDb()
+        .select()
+        .from(contactChannels)
+        .where(eq(contactChannels.id, "ch3"))
+        .get();
+      expect(row?.policy).toBe("deny");
+    });
+
+    test("invalid status is rejected as a 400", async () => {
+      seedTestData();
+      await startServerAndConnect();
+
+      const res = await sendRequest(client, "update_contact_channel", {
+        contactChannelId: "ch3",
+        status: "deleted",
+      });
+
+      expect(res.error).toBeDefined();
+      expect(res.statusCode).toBe(400);
+      expect(res.errorCode).toBe("BAD_REQUEST");
+      expect(res.error).toMatch(/status/);
+    });
+
+    test("invalid policy is rejected as a 400", async () => {
+      seedTestData();
+      await startServerAndConnect();
+
+      const res = await sendRequest(client, "update_contact_channel", {
+        contactChannelId: "ch3",
+        policy: "maybe",
+      });
+
+      expect(res.error).toBeDefined();
+      expect(res.statusCode).toBe(400);
+      expect(res.errorCode).toBe("BAD_REQUEST");
+      expect(res.error).toMatch(/policy/);
+    });
+
+    test("revoking a blocked channel returns the conflict error", async () => {
+      seedTestData();
+      seedBlockedChannel();
+      await startServerAndConnect();
+
+      const res = await sendRequest(client, "update_contact_channel", {
+        contactChannelId: "ch_blocked",
+        status: "revoked",
+      });
+
+      expect(res.error).toBeDefined();
+      expect(res.statusCode).toBe(409);
+      expect(res.errorCode).toBe("CONFLICT");
+      expect(res.error).toMatch(/blocked/);
+
+      // The blocked row must be untouched.
+      const row = getGatewayDb()
+        .select()
+        .from(contactChannels)
+        .where(eq(contactChannels.id, "ch_blocked"))
+        .get();
+      expect(row?.status).toBe("blocked");
+    });
+
+    test("unknown channel ID returns not-found", async () => {
+      seedTestData();
+      // No assistant-side resolution: the proxy query returns no rows.
+      assistantDbQueryMock = mock(async () => []);
+      await startServerAndConnect();
+
+      const res = await sendRequest(client, "update_contact_channel", {
+        contactChannelId: "does-not-exist",
+        status: "active",
+      });
+
+      expect(res.error).toBeDefined();
+      expect(res.statusCode).toBe(404);
+      expect(res.errorCode).toBe("NOT_FOUND");
+    });
+
+    test("assistant-side channel ID resolves via backward-compat path", async () => {
+      seedTestData();
+      // The given ID is unknown to the gateway DB; the assistant DB resolves it
+      // to the logical key (contactId, type, address) of the existing gateway
+      // channel ch3, which updateChannelStatus then matches.
+      assistantDbQueryMock = mock(async () => [
+        { contactId: "c2", type: "email", address: "test@example.com" },
+      ]);
+      await startServerAndConnect();
+
+      const res = await sendRequest(client, "update_contact_channel", {
+        contactChannelId: "assistant-side-id",
+        status: "active",
+      });
+
+      expect(res.error).toBeUndefined();
+      expect((res.result as { ok: boolean }).ok).toBe(true);
+
+      // The resolved gateway row (ch3) is the one that gets updated.
+      const row = getGatewayDb()
+        .select()
+        .from(contactChannels)
+        .where(eq(contactChannels.id, "ch3"))
+        .get();
+      expect(row?.status).toBe("active");
+    });
+
+    test("tolerates assistant-DB dual-write failure (gateway write still succeeds)", async () => {
+      seedTestData();
+      // Dual-write to the assistant DB throws; the gateway write is the source
+      // of truth and must still succeed.
+      assistantDbRunMock = mock(async () => {
+        throw new Error("assistant DB down");
+      });
+      await startServerAndConnect();
+
+      const res = await sendRequest(client, "update_contact_channel", {
+        contactChannelId: "ch3",
+        status: "revoked",
+        reason: "spam",
+      });
+
+      expect(res.error).toBeUndefined();
+      expect((res.result as { ok: boolean }).ok).toBe(true);
+
+      const row = getGatewayDb()
+        .select()
+        .from(contactChannels)
+        .where(eq(contactChannels.id, "ch3"))
+        .get();
+      expect(row?.status).toBe("revoked");
+    });
   });
 });
