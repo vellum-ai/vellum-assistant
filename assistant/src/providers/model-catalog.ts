@@ -766,6 +766,43 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     apiKeyPlaceholder: "fw_...",
   },
   {
+    id: "together",
+    displayName: "Together AI",
+    subtitle: "Open models served by Together AI. Requires a Together API key.",
+    setupMode: "api-key",
+    setupHint: "Enter your Together API key to enable Together models.",
+    envVar: "TOGETHER_API_KEY",
+    credentialsGuide: {
+      description: "Sign in to the Together dashboard and create an API key.",
+      url: "https://api.together.ai/settings/api-keys",
+      linkLabel: "Open Together Dashboard",
+    },
+    models: [
+      {
+        id: "MiniMaxAI/MiniMax-M3",
+        displayName: "MiniMax M3",
+        // Together serves MiniMax M3 — the managed route that replaces the
+        // Fireworks copy (which mishandles forced tool_choice + object-typed
+        // tool args). ponytail: window/pricing mirror the Fireworks-served
+        // values; set to Together's actual served window + price once known.
+        contextWindowTokens: 524288,
+        maxOutputTokens: 512000,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: true,
+        supportsToolUse: true,
+        maxEffort: "high",
+        pricing: {
+          inputPer1mTokens: 0.3,
+          outputPer1mTokens: 1.2,
+        },
+      },
+    ],
+    defaultModel: "MiniMaxAI/MiniMax-M3",
+    apiKeyUrl: "https://api.together.ai/settings/api-keys",
+    apiKeyPlaceholder: "...",
+  },
+  {
     id: "openrouter",
     displayName: "OpenRouter",
     subtitle: "Route to many LLM providers via a single OpenRouter API key.",

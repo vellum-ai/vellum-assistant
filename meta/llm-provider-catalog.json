@@ -686,6 +686,40 @@
       ]
     },
     {
+      "id": "together",
+      "displayName": "Together AI",
+      "subtitle": "Open models served by Together AI. Requires a Together API key.",
+      "setupMode": "api-key",
+      "setupHint": "Enter your Together API key to enable Together models.",
+      "envVar": "TOGETHER_API_KEY",
+      "apiKeyPlaceholder": "...",
+      "credentialsGuide": {
+        "description": "Sign in to the Together dashboard and create an API key.",
+        "url": "https://api.together.ai/settings/api-keys",
+        "linkLabel": "Open Together Dashboard"
+      },
+      "supportsPlatformAuth": true,
+      "defaultModel": "MiniMaxAI/MiniMax-M3",
+      "models": [
+        {
+          "id": "MiniMaxAI/MiniMax-M3",
+          "displayName": "MiniMax M3",
+          "contextWindowTokens": 524288,
+          "maxOutputTokens": 512000,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": false,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0.3,
+            "outputPer1mTokens": 1.2
+          }
+        }
+      ]
+    },
+    {
       "id": "openrouter",
       "displayName": "OpenRouter",
       "subtitle": "Route to many LLM providers via a single OpenRouter API key.",
